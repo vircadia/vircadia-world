@@ -1,0 +1,12 @@
+{
+  "name": "@client_core/babylon_js",
+  "version": "1.0.0",
+  "description": "Type definitions and development dependencies for Babylon.js client core components",
+  "private": true,
+  "devDependencies": {
+    "@babylonjs/core": "^7.33.0",
+    "mobx": "^6.13.5",
+    "@supabase/supabase-js": "^2.46.1",
+    "zod": "^3.23.8",
+  }
+}

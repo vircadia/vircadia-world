@@ -1,0 +1,23 @@
+{
+  "name": "@user_client/babylon_js",
+  "version": "0.0.0",
+  "description": "",
+  "scripts": {
+    "start": "vite",
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "vite preview"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "solid-devtools": "^0.29.2",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.11",
+    "vite-plugin-solid": "^2.8.2"
+  },
+  "dependencies": {
+    "@babylonjs/core": "^7.33.0",
+    "solid-js": "^1.8.11",
+    "zod": "^3.23.8"
+  }
+}

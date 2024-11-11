@@ -1,7 +1,7 @@
 import { type SupabaseClient, createClient } from "@supabase/supabase-js";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { log } from "../../../sdk/vircadia-world-sdk-ts/shared/modules/general/log.ts";
+import { log } from "../../../sdk/vircadia-world-sdk-ts/module/general/log.ts";
 
 const CONFIG_TOML_FILE = "config.toml";
 

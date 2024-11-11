@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util";
 import { Supabase } from "./modules/supabase/supabase_manager.ts";
-import { log } from "../sdk/vircadia-world-sdk-ts/shared/modules/general/log.ts";
+import { log } from "../sdk/vircadia-world-sdk-ts/module/general/log.ts";
 import { Config } from "../sdk/vircadia-world-sdk-ts/schema/schema.ts";
 
 const config = loadConfig();

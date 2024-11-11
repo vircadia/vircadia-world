@@ -1,5 +1,5 @@
 import { type Component, onCleanup, onMount } from 'solid-js';
-import { Engine, Scene, FreeCamera, Vector3, HemisphericLight, MeshBuilder, SceneLoader, PhysicsShapeType, Material } from '@babylonjs/core';
+import { Engine, Scene, ArcRotateCamera, Vector3, HemisphericLight, MeshBuilder, SceneLoader, PhysicsShapeType, Material } from '@babylonjs/core';
 import '@babylonjs/loaders';
 import HavokPhysics from '@babylonjs/havok';
 import { HavokPlugin } from '@babylonjs/core/Physics/v2/Plugins/havokPlugin';
@@ -16,6 +16,12 @@ const GameScene: Component = () => {
   
   // Simulated network delay in milliseconds
   const NETWORK_DELAY = 500;
+
+  // Add new state tracking for keys
+  const keysPressed = new Set<string>();
+  const MAX_VELOCITY = 5; // Reduced from 10
+  const FORCE_MAGNITUDE = 20; // Reduced from 50
+  const ROTATION_SPEED = 0.03; // New constant for turning speed
 
   const initScene = async () => {
     if (!canvas) return;
@@ -36,9 +42,17 @@ const GameScene: Component = () => {
       return;
     }
 
-    // Setup camera
-    const camera = new FreeCamera('camera', new Vector3(0, 5, -10), scene);
-    camera.setTarget(Vector3.Zero());
+    // Replace the FreeCamera with ArcRotateCamera
+    const camera = new ArcRotateCamera(
+      'camera',
+      Math.PI, // alpha (rotation around Y axis)
+      Math.PI / 3, // beta (rotation around X axis)
+      15, // radius (distance from target)
+      Vector3.Zero(), // target
+      scene
+    );
+    camera.lowerRadiusLimit = 10;
+    camera.upperRadiusLimit = 20;
     camera.attachControl(canvas, true);
 
     // Add light
@@ -68,8 +82,12 @@ const GameScene: Component = () => {
       scene
     );
 
-    // Create a box
-    const box = MeshBuilder.CreateBox('box', { size: 2 }, scene);
+    // Modify the box creation
+    const box = MeshBuilder.CreateBox('box', { 
+      width: 2,
+      height: 1,
+      depth: 3 
+    }, scene);
     box.position.y = 1;
     
     // Create physics aggregate for the box instead of impostor
@@ -80,28 +98,57 @@ const GameScene: Component = () => {
       scene
     );
 
-    // Handle input with delayed response
+    // Replace the keyboard event handling with this:
     scene.onKeyboardObservable.add((kbInfo) => {
       if (kbInfo.type === KeyboardEventTypes.KEYDOWN) {
-        setTimeout(() => {
-          const impulse = new Vector3(0, 0, 0);
-          switch (kbInfo.event.key) {
-            case 'w':
-              impulse.z = 1;
-              break;
-            case 's':
-              impulse.z = -1;
-              break;
-            case 'a':
-              impulse.x = -1;
-              break;
-            case 'd':
-              impulse.x = 1;
-              break;
-          }
-          // Apply impulse using the physics body
-          boxAggregate.body?.applyImpulse(impulse.scale(5), box.getAbsolutePosition());
-        }, NETWORK_DELAY);
+        keysPressed.add(kbInfo.event.key.toLowerCase());
+      } else if (kbInfo.type === KeyboardEventTypes.KEYUP) {
+        keysPressed.delete(kbInfo.event.key.toLowerCase());
+      }
+    });
+
+    // Add a before render observer for continuous movement
+    scene.onBeforeRenderObservable.add(() => {
+      if (!boxAggregate.body) return;
+
+      const currentVelocity = boxAggregate.body.getLinearVelocity();
+      const currentSpeed = currentVelocity.length();
+      
+      // Update camera target to follow the box
+      const boxPosition = box.getAbsolutePosition();
+      camera.target = boxPosition;
+
+      // Handle rotation first
+      if (keysPressed.has('a')) box.rotation.y += ROTATION_SPEED;
+      if (keysPressed.has('d')) box.rotation.y -= ROTATION_SPEED;
+
+      // Only apply forces if we're below max speed
+      if (currentSpeed < MAX_VELOCITY) {
+        let force = new Vector3(0, 0, 0);
+        
+        // Only apply forward/backward forces
+        if (keysPressed.has('w') || keysPressed.has('s')) {
+          // Calculate force direction based on box orientation
+          const direction = keysPressed.has('w') ? 1 : -1;
+          force.x = Math.sin(box.rotation.y) * direction;
+          force.z = Math.cos(box.rotation.y) * direction;
+
+          // Scale force based on current speed (gradual acceleration)
+          const speedFactor = 1 - (currentSpeed / MAX_VELOCITY);
+          force.normalize().scaleInPlace(FORCE_MAGNITUDE * speedFactor);
+          
+          setTimeout(() => {
+            boxAggregate.body?.applyForce(
+              force,
+              box.getAbsolutePosition()
+            );
+          }, NETWORK_DELAY);
+        }
+      }
+
+      // Update box rotation to match movement direction
+      if (currentSpeed > 0.1) {
+        box.rotationQuaternion = null;
       }
     });
 

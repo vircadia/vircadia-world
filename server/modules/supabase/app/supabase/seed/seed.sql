@@ -103,7 +103,7 @@ INSERT INTO entity_scripts (
     git_repo_entry_path,
     git_repo_url,
     permissions__groups__mutations,
-    permissions_world_connection
+    permissions__world_connection
 ) VALUES (
     '00000000-0000-0000-0000-000000000001',  -- References the entity we just created
     TRUE,  -- Make it persistent

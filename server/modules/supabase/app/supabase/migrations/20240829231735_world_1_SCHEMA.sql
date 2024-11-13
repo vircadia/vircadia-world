@@ -101,6 +101,9 @@ CREATE TABLE public.agent_auth_providers (
 CREATE TABLE public.roles (
     role_name TEXT PRIMARY KEY,
     description TEXT,
+    is_system BOOLEAN NOT NULL DEFAULT FALSE,
+    parent_role TEXT REFERENCES roles(role_name),
+    zone_id UUID,  -- Will be linked to entities after entities table creation
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -125,7 +128,7 @@ CREATE TABLE public.agent_sessions (
 );
 
 --
--- SCRIPTS
+-- SCRIPT SOURCES (BASE TABLE)
 --
 CREATE TABLE script_sources (
     is_persistent BOOLEAN NOT NULL DEFAULT FALSE,
@@ -143,7 +146,7 @@ CREATE TABLE script_sources (
 );
 
 --
--- ENTITIES
+-- ENTITIES AND CAPABILITIES
 --
 CREATE TABLE entities (
     general__uuid UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -155,9 +158,8 @@ CREATE TABLE entities (
     general__transform transform NOT NULL DEFAULT ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
     general__parent_entity_id UUID,
     
-    permissions__groups__read TEXT[],
-    permissions__groups__write TEXT[],
-    permissions__groups__execute TEXT[],
+    view_role TEXT REFERENCES roles(role_name),
+    mutation_role TEXT REFERENCES roles(role_name),
     
     babylonjs__mesh_is_instance BOOLEAN DEFAULT FALSE,
     babylonjs__mesh_instance_of_id UUID,
@@ -289,6 +291,19 @@ CREATE TABLE entities (
     CONSTRAINT check_shadow_quality CHECK (babylonjs__shadow_quality IN ('LOW', 'MEDIUM', 'HIGH'))
 );
 
+-- Add foreign key constraints for zone_id in roles table
+ALTER TABLE roles 
+    ADD CONSTRAINT fk_roles_zone 
+    FOREIGN KEY (zone_id) REFERENCES entities(general__uuid);
+
+CREATE TABLE entity_capabilities (
+    entity_id UUID REFERENCES entities(general__uuid) ON DELETE CASCADE,
+    can_view_role TEXT REFERENCES roles(role_name),
+    can_mutate_role TEXT REFERENCES roles(role_name),
+    has_full_access BOOLEAN DEFAULT FALSE,
+    PRIMARY KEY (entity_id)
+);
+
 CREATE TABLE entities_metadata (
     metadata_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     entity_id UUID NOT NULL REFERENCES entities(general__uuid) ON DELETE CASCADE,
@@ -299,17 +314,15 @@ CREATE TABLE entities_metadata (
     values_timestamp TIMESTAMPTZ[],
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
-    permissions__groups__read TEXT[],
-    permissions__groups__write TEXT[],
-    permissions__groups__execute TEXT[],
     UNIQUE (entity_id, key)
 );
 
+--
+-- ENTITY SCRIPTS
+--
 CREATE TABLE entity_scripts (
     entity_id UUID NOT NULL REFERENCES entities(general__uuid) ON DELETE CASCADE,
     entity_script_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    permissions__groups__mutations TEXT[],
-    permissions__world_connection BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 ) INHERITS (script_sources);
@@ -321,13 +334,11 @@ CREATE TABLE mutations (
     LIKE script_sources INCLUDING ALL,
     mutation_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     mutation_type mutation_type NOT NULL,
-    allowed_roles TEXT[] NOT NULL,
     update_category update_category NOT NULL,
-    mutation_data JSONB,
+    required_role TEXT REFERENCES roles(role_name),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Actions to represent instances of mutations
 CREATE TABLE actions (
     action_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     mutation_id UUID REFERENCES mutations(mutation_id) NOT NULL,
@@ -351,15 +362,15 @@ CREATE OR REPLACE FUNCTION try_claim_action(
     p_agent_id UUID
 ) RETURNS BOOLEAN AS $$
 DECLARE
-    v_roles TEXT[];
+    v_required_role TEXT;
 BEGIN
-    -- Get agent's active roles
-    SELECT array_agg(role_name) INTO v_roles
-    FROM agent_roles
-    WHERE agent_id = p_agent_id
-    AND is_active = true;
+    -- Get mutation's required role
+    SELECT m.required_role INTO v_required_role
+    FROM actions a
+    JOIN mutations m ON a.mutation_id = m.mutation_id
+    WHERE a.action_id = p_action_id;
     
-    -- Try to claim if agent has permission and action is unclaimed
+    -- Try to claim if agent has required role and action is unclaimed
     UPDATE actions a
     SET claimed_by = p_agent_id,
         status = 'IN_PROGRESS',
@@ -369,7 +380,12 @@ BEGIN
     AND a.mutation_id = m.mutation_id
     AND a.claimed_by IS NULL
     AND a.status = 'PENDING'
-    AND m.allowed_roles && v_roles;
+    AND EXISTS (
+        SELECT 1 FROM agent_roles ar
+        WHERE ar.agent_id = p_agent_id
+        AND ar.role_name = v_required_role
+        AND ar.is_active = true
+    );
     
     RETURN FOUND;
 END;
@@ -425,9 +441,125 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- Function to handle role management
+CREATE OR REPLACE FUNCTION handle_role_mutation(
+    p_mutation_id UUID,
+    p_action_data JSONB
+) RETURNS void AS $$
+DECLARE
+    v_operation TEXT;
+    v_role_name TEXT;
+    v_description TEXT;
+    v_parent_role TEXT;
+    v_zone_id UUID;
+BEGIN
+    -- Extract data
+    v_operation := p_action_data->>'operation';
+    v_role_name := p_action_data->>'role_name';
+    v_description := p_action_data->>'description';
+    v_parent_role := p_action_data->>'parent_role';
+    v_zone_id := (p_action_data->>'zone_id')::UUID;
+    
+    CASE v_operation
+    WHEN 'CREATE' THEN
+        INSERT INTO roles (
+            role_name,
+            description,
+            parent_role,
+            zone_id
+        ) VALUES (
+            v_role_name,
+            v_description,
+            v_parent_role,
+            v_zone_id
+        );
+    
+    WHEN 'UPDATE' THEN
+        UPDATE roles
+        SET description = COALESCE(v_description, description),
+            parent_role = COALESCE(v_parent_role, parent_role),
+            zone_id = COALESCE(v_zone_id, zone_id)
+        WHERE role_name = v_role_name
+        AND NOT is_system;
+    
+    WHEN 'DELETE' THEN
+        DELETE FROM roles 
+        WHERE role_name = v_role_name
+        AND NOT is_system;
+    END CASE;
+END;
+$$ LANGUAGE plpgsql;
+
+--
+-- VIEWS
+--
+
+-- Create the visible_entities view using roles
+CREATE OR REPLACE VIEW visible_entities AS
+SELECT e.*
+FROM entities e
+WHERE 
+    -- Entity is visible if:
+    (
+        -- The accessing entity has full access
+        EXISTS (
+            SELECT 1 
+            FROM entity_capabilities 
+            WHERE entity_id = auth.uid() 
+            AND has_full_access = true
+        )
+        OR
+        -- The accessing entity has the required role (including parent roles)
+        EXISTS (
+            WITH RECURSIVE role_hierarchy AS (
+                -- Base case: direct role
+                SELECT role_name, parent_role
+                FROM roles
+                WHERE role_name = e.view_role
+                
+                UNION
+                
+                -- Recursive case: parent roles
+                SELECT r.role_name, r.parent_role
+                FROM roles r
+                JOIN role_hierarchy rh ON r.role_name = rh.parent_role
+            )
+            SELECT 1 
+            FROM agent_roles ar
+            JOIN role_hierarchy rh ON ar.role_name = rh.role_name
+            WHERE ar.agent_id = auth.uid()
+            AND ar.is_active = true
+        )
+        OR
+        -- The accessing entity has a role in the same zone
+        EXISTS (
+            SELECT 1
+            FROM agent_roles ar
+            JOIN roles r ON ar.role_name = r.role_name
+            WHERE ar.agent_id = auth.uid()
+            AND ar.is_active = true
+            AND r.zone_id = (
+                SELECT general__parent_entity_id 
+                FROM entities 
+                WHERE general__uuid = e.general__uuid
+                AND general__type = 'ZONE'
+            )
+        )
+    );
+
 --
 -- INDEXES
 --
+
+-- Roles and Capabilities Indexes
+CREATE INDEX idx_roles_zone_id ON roles(zone_id);
+CREATE INDEX idx_roles_parent_role ON roles(parent_role);
+CREATE INDEX idx_agent_roles_is_active ON agent_roles(is_active);
+CREATE INDEX idx_mutations_required_role ON mutations(required_role);
+CREATE INDEX idx_entities_view_role ON entities(view_role);
+CREATE INDEX idx_entities_mutation_role ON entities(mutation_role);
+CREATE INDEX idx_entity_capabilities_view_role ON entity_capabilities(can_view_role);
+CREATE INDEX idx_entity_capabilities_mutate_role ON entity_capabilities(can_mutate_role);
 
 -- Actions indexes
 CREATE INDEX idx_actions_status ON actions(status);
@@ -440,7 +572,6 @@ CREATE INDEX idx_actions_metadata ON actions USING GIN (metadata jsonb_path_ops)
 
 -- Mutations indexes
 CREATE INDEX idx_mutations_type ON mutations(mutation_type);
-CREATE INDEX idx_mutations_allowed_roles ON mutations USING GIN (allowed_roles);
 
 -- Entity indexes
 CREATE INDEX idx_entities_type ON entities(general__type);
@@ -464,62 +595,3 @@ CREATE INDEX idx_entities_agent_inventory ON entities USING GIN ((agent__invento
 CREATE INDEX idx_entities_material_custom_properties ON entities USING GIN ((babylonjs__material_custom_properties::jsonb));
 CREATE INDEX idx_entities_material_shader_parameters ON entities USING GIN ((babylonjs__material_shader_parameters::jsonb));
 CREATE INDEX idx_entities_physics_shape_data ON entities USING GIN ((babylonjs__physics_shape_data::jsonb));
-
---
--- ROW LEVEL SECURITY
---
-
--- Enable RLS
-ALTER TABLE entities ENABLE ROW LEVEL SECURITY;
-ALTER TABLE entities_metadata ENABLE ROW LEVEL SECURITY;
-ALTER TABLE entity_scripts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE actions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE mutations ENABLE ROW LEVEL SECURITY;
-
--- Mutations policies
-CREATE POLICY mutations_select ON mutations
-    FOR SELECT USING (
-        EXISTS (
-            SELECT 1 FROM agent_roles ar
-            WHERE ar.agent_id = auth.uid()
-            AND ar.role_name = ANY(mutations.allowed_roles)
-            AND ar.is_active = true
-        )
-    );
-
--- Actions policies
-CREATE POLICY actions_select ON actions
-    FOR SELECT USING (true);  -- All authenticated users can see actions
-
-CREATE POLICY actions_update ON actions
-    FOR UPDATE USING (
-        claimed_by = auth.uid() OR
-        claimed_by IS NULL
-    );
-
--- Entity policies
-CREATE POLICY "Public read for auth providers" ON auth_providers 
-    FOR SELECT USING (true);
-
-CREATE POLICY "Public read for agent auth providers" ON agent_auth_providers 
-    FOR SELECT USING (true);
-
-CREATE POLICY "Public read for roles" ON roles 
-    FOR SELECT USING (true);
-
-CREATE POLICY "Public read for agent roles" ON agent_roles 
-    FOR SELECT USING (true);
-
-CREATE POLICY "Users can read their own sessions" ON agent_sessions 
-    FOR SELECT USING (agent_id = auth.uid());
-
---
--- CRON JOBS
---
-
--- Schedule the timeout check to run every minute
-SELECT cron.schedule(
-    'action-timeout-check',           -- job name
-    '* * * * *',                      -- every minute
-    $$SELECT handle_action_timeouts()$$
-);

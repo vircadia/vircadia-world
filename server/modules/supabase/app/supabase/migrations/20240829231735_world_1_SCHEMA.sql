@@ -89,13 +89,6 @@ CREATE TABLE public.auth_providers (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-INSERT INTO public.auth_providers (provider_name, description) VALUES
-    ('email', 'Email and password authentication'),
-    ('anonymous', 'Anonymous authentication'),
-    ('google', 'Google OAuth'),
-    ('github', 'GitHub OAuth'),
-    ('discord', 'Discord OAuth');
-
 CREATE TABLE public.agent_auth_providers (
     agent_id UUID REFERENCES public.agent_profiles(id) ON DELETE CASCADE,
     provider_name TEXT REFERENCES public.auth_providers(provider_name) ON DELETE CASCADE,
@@ -111,11 +104,6 @@ CREATE TABLE public.roles (
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-INSERT INTO public.roles (role_name, description) VALUES
-    ('guest', 'Default role for all users'),
-    ('user', 'Authenticated user role'),
-    ('admin', 'Administrative role');
 
 CREATE TABLE public.agent_roles (
     agent_id UUID REFERENCES public.agent_profiles(id) ON DELETE CASCADE,

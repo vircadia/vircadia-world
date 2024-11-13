@@ -1,3 +1,15 @@
+INSERT INTO public.auth_providers (provider_name, description) VALUES
+    ('email', 'Email and password authentication'),
+    ('anonymous', 'Anonymous authentication'),
+    ('google', 'Google OAuth'),
+    ('github', 'GitHub OAuth'),
+    ('discord', 'Discord OAuth');
+
+INSERT INTO public.roles (role_name, description) VALUES
+    ('guest', 'Default role for all users'),
+    ('user', 'Authenticated user role'),
+    ('admin', 'Administrative role');
+
 -- Set up default admin credentials
 DO $$
 DECLARE

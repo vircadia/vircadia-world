@@ -1,7 +1,20 @@
 -- Required extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "ltree";
-CREATE EXTENSION IF NOT EXISTS "pg_cron";  -- For automatic cleanup
+
+-- Configuration table
+CREATE TABLE world_config (
+    key text PRIMARY KEY,
+    value jsonb NOT NULL,
+    description text,
+    created_at timestamptz DEFAULT now(),
+    updated_at timestamptz DEFAULT now()
+);
+
+-- Insert default configuration
+INSERT INTO world_config (key, value, description) VALUES
+('physics_framerate', '60'::jsonb, 'Target physics framerate (frames per second)'),
+('physics_frame_duration_ms', '16.67'::jsonb, 'Target duration per physics frame in milliseconds');
 
 -- Core tables for physics testing
 CREATE TABLE entities (
@@ -63,7 +76,24 @@ CREATE TABLE entity_states (
     -- Angular velocity
     angular_velocity_x float DEFAULT 0,
     angular_velocity_y float DEFAULT 0,
-    angular_velocity_z float DEFAULT 0
+    angular_velocity_z float DEFAULT 0,
+    
+    -- Frame timing information
+    frame_start_time timestamptz,
+    frame_end_time timestamptz,
+    frame_duration_ms float
+);
+
+-- Performance metrics table
+CREATE TABLE frame_metrics (
+    id uuid DEFAULT uuid_generate_v4() PRIMARY KEY,
+    frame_number bigint NOT NULL,
+    start_time timestamptz NOT NULL,
+    end_time timestamptz NOT NULL,
+    duration_ms float NOT NULL,
+    states_processed int NOT NULL,
+    is_delayed boolean NOT NULL,
+    created_at timestamptz DEFAULT now()
 );
 
 -- Indexes for fast state lookups
@@ -75,41 +105,124 @@ CREATE OR REPLACE FUNCTION capture_entity_state()
 RETURNS void AS $$
 DECLARE
     current_frame bigint;
+    frame_start timestamptz;
+    frame_end timestamptz;
+    frame_duration float;
+    deleted_frame_count int;
+    inserted_count int;
+    cleaned_old_count int;
+    is_delayed boolean;
+    target_fps float;
+    target_interval_ms float;
 BEGIN
-    -- Get current frame number (60fps means we wrap around every 60 frames)
-    SELECT FLOOR(EXTRACT(EPOCH FROM now()) * 60) % 60 INTO current_frame;
+    -- Get configured framerate
+    SELECT (value#>>'{}'::text[])::float INTO target_fps 
+    FROM world_config 
+    WHERE key = 'physics_framerate';
+    
+    SELECT (value#>>'{}'::text[])::float INTO target_interval_ms 
+    FROM world_config 
+    WHERE key = 'physics_frame_duration_ms';
+    
+    frame_start := clock_timestamp();
+    
+    -- Get current frame number
+    SELECT FLOOR(EXTRACT(EPOCH FROM frame_start) * target_fps) % target_fps INTO current_frame;
     
     -- Delete old states for this frame number (circular buffer)
-    DELETE FROM entity_states WHERE frame_number = current_frame;
-    
-    -- Insert new states
-    INSERT INTO entity_states (
-        entity_id, frame_number,
-        position_x, position_y, position_z,
-        rotation_x, rotation_y, rotation_z, rotation_w,
-        velocity_x, velocity_y, velocity_z,
-        angular_velocity_x, angular_velocity_y, angular_velocity_z
+    WITH deleted AS (
+        DELETE FROM entity_states 
+        WHERE frame_number = current_frame
+        RETURNING *
     )
-    SELECT 
-        id, current_frame,
-        position_x, position_y, position_z,
-        rotation_x, rotation_y, rotation_z, rotation_w,
-        0, 0, 0, -- Initial velocities (you'll update these from your physics engine)
-        0, 0, 0  -- Initial angular velocities
-    FROM entities;
+    SELECT COUNT(*) INTO deleted_frame_count FROM deleted;
+    
+    -- Insert new states with timing information
+    WITH inserted AS (
+        INSERT INTO entity_states (
+            entity_id, frame_number,
+            position_x, position_y, position_z,
+            rotation_x, rotation_y, rotation_z, rotation_w,
+            velocity_x, velocity_y, velocity_z,
+            angular_velocity_x, angular_velocity_y, angular_velocity_z,
+            frame_start_time,
+            frame_end_time,
+            frame_duration_ms
+        )
+        SELECT 
+            id, current_frame,
+            position_x, position_y, position_z,
+            rotation_x, rotation_y, rotation_z, rotation_w,
+            0, 0, 0,
+            0, 0, 0,
+            frame_start,
+            clock_timestamp(),
+            EXTRACT(EPOCH FROM (clock_timestamp() - frame_start)) * 1000
+        FROM entities
+        RETURNING *
+    )
+    SELECT COUNT(*) INTO inserted_count FROM inserted;
     
     -- Cleanup old states beyond our 1-second window
-    DELETE FROM entity_states 
-    WHERE timestamp < (now() - interval '1 second');
+    WITH cleaned AS (
+        DELETE FROM entity_states 
+        WHERE timestamp < (now() - interval '1 second')
+        RETURNING *
+    )
+    SELECT COUNT(*) INTO cleaned_old_count FROM cleaned;
+
+    frame_end := clock_timestamp();
+    frame_duration := EXTRACT(EPOCH FROM (frame_end - frame_start)) * 1000;
+    is_delayed := frame_duration > target_interval_ms;
+
+    -- Record metrics
+    INSERT INTO frame_metrics (
+        frame_number,
+        start_time,
+        end_time,
+        duration_ms,
+        states_processed,
+        is_delayed
+    ) VALUES (
+        current_frame,
+        frame_start,
+        frame_end,
+        frame_duration,
+        inserted_count,
+        is_delayed
+    );
+
+    -- Raise warning if frame took too long
+    IF is_delayed THEN
+        RAISE WARNING 'Frame % exceeded target duration: %.2fms (target: %.2fms)',
+            current_frame, frame_duration, target_interval_ms;
+    END IF;
 END;
 $$ LANGUAGE plpgsql;
 
--- Schedule state capture every 1/60th of a second (approximately)
-SELECT cron.schedule(
-    'capture_entity_states',  -- job name
-    '* * * * * *',           -- every second
-    $$SELECT capture_entity_state()$$
-);
+-- Function to get performance statistics
+CREATE OR REPLACE FUNCTION get_frame_performance_stats(
+    window_seconds int DEFAULT 60
+)
+RETURNS TABLE (
+    avg_duration_ms float,
+    max_duration_ms float,
+    min_duration_ms float,
+    delayed_frames_count bigint,
+    total_frames bigint
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        AVG(duration_ms)::float as avg_duration_ms,
+        MAX(duration_ms)::float as max_duration_ms,
+        MIN(duration_ms)::float as min_duration_ms,
+        COUNT(*) FILTER (WHERE is_delayed) as delayed_frames_count,
+        COUNT(*) as total_frames
+    FROM frame_metrics
+    WHERE created_at > now() - (window_seconds || ' seconds')::interval;
+END;
+$$ LANGUAGE plpgsql;
 
 -- Function to get entity state at a specific timestamp
 CREATE OR REPLACE FUNCTION get_entity_state_at_timestamp(

@@ -1,5 +1,5 @@
 import { type Component, onCleanup, onMount } from 'solid-js';
-import { Engine, Scene, ArcRotateCamera, Vector3, HemisphericLight, MeshBuilder, SceneLoader, PhysicsShapeType, Material } from '@babylonjs/core';
+import { Engine, Scene, ArcRotateCamera, Vector3, HemisphericLight, MeshBuilder, SceneLoader, PhysicsShapeType, Material, Mesh, Quaternion, StandardMaterial } from '@babylonjs/core';
 import '@babylonjs/loaders';
 import HavokPhysics from '@babylonjs/havok';
 import { HavokPlugin } from '@babylonjs/core/Physics/v2/Plugins/havokPlugin';
@@ -7,21 +7,21 @@ import { PhysicsAggregate } from '@babylonjs/core';
 import { KeyboardEventTypes } from '@babylonjs/core/Events';
 import { Color3 } from '@babylonjs/core';
 import { GridMaterial } from '@babylonjs/materials/grid';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { config } from '../../vircadia.config';
 
 const GameScene: Component = () => {
   let canvas: HTMLCanvasElement | undefined;
   let engine: Engine | undefined;
   let scene: Scene | undefined;
   let havokPlugin: HavokPlugin | undefined;
+  let supabase: SupabaseClient;
   
-  // Simulated network delay in milliseconds
-  const NETWORK_DELAY = 500;
-
-  // Add new state tracking for keys
-  const keysPressed = new Set<string>();
-  const MAX_VELOCITY = 5; // Reduced from 10
-  const FORCE_MAGNITUDE = 20; // Reduced from 50
-  const ROTATION_SPEED = 0.03; // New constant for turning speed
+  // Track projectile-related objects
+  let cannon: Mesh;
+  let target: Mesh;
+  let projectiles: Mesh[] = [];
+  const artificialLatency = 150; // ms
 
   const initScene = async () => {
     if (!canvas) return;
@@ -29,40 +29,57 @@ const GameScene: Component = () => {
     // Initialize engine and scene
     engine = new Engine(canvas, true);
     scene = new Scene(engine);
+    
+    // Initialize Supabase
+    supabase = createClient(config.defaultWorldSupabaseUrl, config.defaultWorldSupabaseAnonKey);
 
     try {
       // Initialize Havok physics with proper error handling
       const havok = await HavokPhysics();
       havokPlugin = new HavokPlugin(true, havok);
-      
-      // Create physics aggregate instead of impostor
       scene.enablePhysics(new Vector3(0, -9.81, 0), havokPlugin);
     } catch (error) {
       console.error('Failed to initialize Havok physics:', error);
       return;
     }
 
-    // Replace the FreeCamera with ArcRotateCamera
+    // Camera setup remains the same
     const camera = new ArcRotateCamera(
       'camera',
-      Math.PI, // alpha (rotation around Y axis)
-      Math.PI / 3, // beta (rotation around X axis)
-      15, // radius (distance from target)
-      Vector3.Zero(), // target
+      Math.PI,
+      Math.PI / 3,
+      15,
+      Vector3.Zero(),
       scene
     );
     camera.lowerRadiusLimit = 10;
     camera.upperRadiusLimit = 20;
     camera.attachControl(canvas, true);
 
-    // Add light
+    // Light setup remains the same
     const light = new HemisphericLight('light', new Vector3(0, 1, 0), scene);
     light.intensity = 0.7;
 
-    // Create a large ground plane
+    // Ground setup remains the same
+    setupGround(scene);
+
+    // Setup projectile test elements
+    setupProjectileTest(scene);
+
+    // Start render loop
+    engine.runRenderLoop(() => {
+      scene?.render();
+    });
+
+    // Handle window resize
+    window.addEventListener('resize', () => {
+      engine?.resize();
+    });
+  };
+
+  const setupGround = (scene: Scene) => {
     const ground = MeshBuilder.CreateGround('ground', { width: 100, height: 100 }, scene);
     
-    // Create and apply grid material
     const gridMaterial = new GridMaterial('gridMaterial', scene);
     gridMaterial.majorUnitFrequency = 5;
     gridMaterial.minorUnitVisibility = 0.45;
@@ -74,93 +91,100 @@ const GameScene: Component = () => {
     
     ground.material = gridMaterial;
 
-    // Add physics to the ground
-    const groundAggregate = new PhysicsAggregate(
-      ground,
-      PhysicsShapeType.BOX,
-      { mass: 0 }, // mass of 0 makes it static
-      scene
-    );
+    new PhysicsAggregate(ground, PhysicsShapeType.BOX, { mass: 0 }, scene);
+  };
 
-    // Modify the box creation
-    const box = MeshBuilder.CreateBox('box', { 
-      width: 2,
+  const setupProjectileTest = (scene: Scene) => {
+    // Create cannon
+    cannon = MeshBuilder.CreateBox("cannon", {
+      width: 1,
       height: 1,
-      depth: 3 
+      depth: 2
     }, scene);
-    box.position.y = 1;
+    cannon.position = new Vector3(-10, 2, 0);
+
+    // Create target
+    target = MeshBuilder.CreateBox("target", {
+      width: 2,
+      height: 2,
+      depth: 2
+    }, scene);
+    target.position = new Vector3(10, 2, 0);
     
-    // Create physics aggregate for the box instead of impostor
-    const boxAggregate = new PhysicsAggregate(
-      box,
-      PhysicsShapeType.BOX,
+    const targetMaterial = new StandardMaterial("targetMat", scene);
+    targetMaterial.diffuseColor = new Color3(1, 0, 0);
+    target.material = targetMaterial;
+
+    new PhysicsAggregate(target, PhysicsShapeType.BOX, { mass: 0 }, scene);
+
+    // Setup firing controls
+    scene.onPointerDown = () => fireProjectile(scene);
+  };
+
+  const fireProjectile = async (scene: Scene) => {
+    const projectile = MeshBuilder.CreateSphere("projectile", {
+      diameter: 0.5
+    }, scene);
+    
+    projectile.position = cannon.position.clone();
+    
+    const projectileAggregate = new PhysicsAggregate(
+      projectile,
+      PhysicsShapeType.SPHERE,
       { mass: 1, restitution: 0.9 },
       scene
     );
 
-    // Replace the keyboard event handling with this:
-    scene.onKeyboardObservable.add((kbInfo) => {
-      if (kbInfo.type === KeyboardEventTypes.KEYDOWN) {
-        keysPressed.add(kbInfo.event.key.toLowerCase());
-      } else if (kbInfo.type === KeyboardEventTypes.KEYUP) {
-        keysPressed.delete(kbInfo.event.key.toLowerCase());
-      }
-    });
+    const direction = target.position.subtract(cannon.position).normalize();
+    const power = 20;
 
-    // Add a before render observer for continuous movement
-    scene.onBeforeRenderObservable.add(() => {
-      if (!boxAggregate.body) return;
+    setTimeout(async () => {
+      projectileAggregate.body?.applyImpulse(
+        direction.scale(power),
+        projectile.getAbsolutePosition()
+      );
 
-      const currentVelocity = boxAggregate.body.getLinearVelocity();
-      const currentSpeed = currentVelocity.length();
-      
-      // Update camera target to follow the box
-      const boxPosition = box.getAbsolutePosition();
-      camera.target = boxPosition;
+      await recordProjectileState(projectile);
+    }, artificialLatency);
 
-      // Handle rotation first
-      if (keysPressed.has('a')) box.rotation.y += ROTATION_SPEED;
-      if (keysPressed.has('d')) box.rotation.y -= ROTATION_SPEED;
+    projectiles.push(projectile);
 
-      // Only apply forces if we're below max speed
-      if (currentSpeed < MAX_VELOCITY) {
-        let force = new Vector3(0, 0, 0);
-        
-        // Only apply forward/backward forces
-        if (keysPressed.has('w') || keysPressed.has('s')) {
-          // Calculate force direction based on box orientation
-          const direction = keysPressed.has('w') ? 1 : -1;
-          force.x = Math.sin(box.rotation.y) * direction;
-          force.z = Math.cos(box.rotation.y) * direction;
+    // Cleanup after 5 seconds
+    setTimeout(() => {
+      cleanupProjectile(projectile);
+    }, 5000);
+  };
 
-          // Scale force based on current speed (gradual acceleration)
-          const speedFactor = 1 - (currentSpeed / MAX_VELOCITY);
-          force.normalize().scaleInPlace(FORCE_MAGNITUDE * speedFactor);
-          
-          setTimeout(() => {
-            boxAggregate.body?.applyForce(
-              force,
-              box.getAbsolutePosition()
-            );
-          }, NETWORK_DELAY);
-        }
-      }
+  const recordProjectileState = async (projectile: Mesh) => {
+    const position = projectile.position;
+    const rotation = projectile.rotationQuaternion || new Quaternion();
 
-      // Update box rotation to match movement direction
-      if (currentSpeed > 0.1) {
-        box.rotationQuaternion = null;
-      }
-    });
+    try {
+      await supabase
+        .from('entities')
+        .insert({
+          type: 'projectile',
+          position_x: position.x,
+          position_y: position.y,
+          position_z: position.z,
+          rotation_x: rotation.x,
+          rotation_y: rotation.y,
+          rotation_z: rotation.z,
+          rotation_w: rotation.w,
+          mass: 1,
+          is_static: false
+        });
+    } catch (error) {
+      console.error('Failed to record projectile state:', error);
+    }
+  };
 
-    // Start render loop
-    engine.runRenderLoop(() => {
-      scene?.render();
-    });
-
-    // Handle window resize
-    window.addEventListener('resize', () => {
-      engine?.resize();
-    });
+  const cleanupProjectile = (projectile: Mesh) => {
+    const index = projectiles.indexOf(projectile);
+    if (index > -1) {
+      projectiles.splice(index, 1);
+    }
+    projectile.dispose();
   };
 
   onMount(() => {

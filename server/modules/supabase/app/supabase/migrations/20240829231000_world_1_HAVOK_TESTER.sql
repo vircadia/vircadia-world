@@ -1,6 +1,7 @@
 -- Required extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "ltree";
+CREATE EXTENSION IF NOT EXISTS pg_cron;
 
 -- Configuration table
 CREATE TABLE world_config (
@@ -135,51 +136,66 @@ BEGIN
     -- Insert new states with timing information
     WITH inserted AS (
         INSERT INTO entity_states (
-            entity_id, 
-            frame_number,  -- Using frame_number for tick_number (keeping column name for compatibility)
-            position_x, position_y, position_z,
-            rotation_x, rotation_y, rotation_z, rotation_w,
-            velocity_x, velocity_y, velocity_z,
-            angular_velocity_x, angular_velocity_y, angular_velocity_z,
-            frame_start_time,  -- Using frame_* for tick_* (keeping column names for compatibility)
+            entity_id,
+            frame_number,
+            frame_start_time,
             frame_end_time,
             frame_duration_ms,
-            type,  -- Added missing type column
-            scale_x, scale_y, scale_z,  -- Added scale columns if they exist in entities
-            mass,  -- Added mass if it exists in entities
-            is_static,  -- Added is_static if it exists in entities
-            is_kinematic  -- Added is_kinematic if it exists in entities
+            name,
+            type,
+            position_x,
+            position_y,
+            position_z,
+            rotation_x,
+            rotation_y,
+            rotation_z,
+            rotation_w,
+            scale_x,
+            scale_y,
+            scale_z,
+            velocity_x,
+            velocity_y,
+            velocity_z,
+            angular_velocity_x,
+            angular_velocity_y,
+            angular_velocity_z,
+            mass,
+            restitution,
+            friction,
+            is_static
         )
         SELECT 
-            id, current_tick,
-            position_x, position_y, position_z,
-            rotation_x, rotation_y, rotation_z, rotation_w,
-            0, 0, 0,  -- Initial velocities
-            0, 0, 0,  -- Initial angular velocities
+            id AS entity_id,
+            current_tick,
             tick_start,
-            transaction_timestamp(),
-            EXTRACT(EPOCH FROM (transaction_timestamp() - tick_start))::double precision * 1000,
-            type,  -- Selected from entities
-            scale_x, scale_y, scale_z,  -- Selected from entities
-            mass,  -- Selected from entities
-            is_static,  -- Selected from entities
-            is_kinematic  -- Selected from entities
-        FROM entities
+            clock_timestamp(),
+            EXTRACT(EPOCH FROM (clock_timestamp() - tick_start))::double precision * 1000,
+            name,
+            type,
+            position_x,
+            position_y,
+            position_z,
+            rotation_x,
+            rotation_y,
+            rotation_z,
+            rotation_w,
+            scale_x,
+            scale_y,
+            scale_z,
+            velocity_x,
+            velocity_y,
+            velocity_z,
+            angular_velocity_x,
+            angular_velocity_y,
+            angular_velocity_z,
+            mass,
+            restitution,
+            friction,
+            is_static
+        FROM entities e
         RETURNING *
     )
     SELECT COUNT(*) INTO inserted_count FROM inserted;
-    
-    -- Cleanup old states beyond our buffer window
-    WITH cleaned AS (
-        DELETE FROM entity_states 
-        WHERE timestamp < (now() - (
-            SELECT (value#>>'{}'::text[])::int * interval '1 millisecond' 
-            FROM world_config 
-            WHERE key = 'tick_buffer_duration_ms'
-        ))
-        RETURNING *
-    )
-    SELECT COUNT(*) INTO cleaned_old_count FROM cleaned;
 
     tick_end := clock_timestamp();
     
@@ -187,20 +203,6 @@ BEGIN
     tick_duration := EXTRACT(EPOCH FROM (tick_end - tick_start)) * 1000.0;
     is_delayed := tick_duration > tick_rate_ms;
     headroom := GREATEST(tick_rate_ms - tick_duration, 0.0);  -- Ensure headroom isn't negative
-
-    -- Only clean metrics occasionally (e.g., every 100 ticks)
-    IF current_tick % 100 = 0 THEN
-        WITH cleaned_metrics AS (
-            DELETE FROM frame_metrics 
-            WHERE created_at < (now() - (
-                SELECT (value#>>'{}'::text[])::int * interval '1 second' 
-                FROM world_config 
-                WHERE key = 'frame_metrics_history_seconds'
-            ))
-            RETURNING *
-        )
-        SELECT COUNT(*) INTO cleaned_metrics_count FROM cleaned_metrics;
-    END IF;
 
     -- Always record frame metrics for each tick
     INSERT INTO frame_metrics (
@@ -285,7 +287,18 @@ DECLARE
     now_time timestamptz;
     last_time timestamptz;
     tick_rate_ms int;
+    lock_obtained boolean;
 BEGIN
+    -- Try to obtain an advisory lock for frame capture
+    SELECT pg_try_advisory_lock(hashtext('frame_capture_lock')) INTO lock_obtained;
+    
+    IF NOT lock_obtained THEN
+        RETURN false;
+    END IF;
+    
+    -- Release the lock after checking
+    PERFORM pg_advisory_unlock(hashtext('frame_capture_lock'));
+
     now_time := clock_timestamp();
     
     -- Get configured tick rate
@@ -302,7 +315,7 @@ BEGIN
     -- If no last frame time, allow capture
     IF last_time IS NULL THEN
         RETURN true;
-    END IF;
+    END IF; 
     
     -- Check if enough time has passed since last frame
     RETURN EXTRACT(EPOCH FROM (now_time - last_time)) * 1000 >= tick_rate_ms;
@@ -385,5 +398,76 @@ $$ LANGUAGE plpgsql;
 -- Create trigger to capture state on entity changes
 CREATE TRIGGER entity_state_capture
 AFTER INSERT OR UPDATE ON entities
-FOR EACH ROW
+FOR EACH STATEMENT
 EXECUTE FUNCTION trigger_frame_capture();
+
+-- Function to cleanup old entity states (runs more frequently due to shorter retention)
+CREATE OR REPLACE FUNCTION cleanup_old_entity_states()
+RETURNS void AS $$
+DECLARE
+    states_cleaned integer;
+BEGIN
+    WITH deleted_states AS (
+        DELETE FROM entity_states 
+        WHERE timestamp < (now() - (
+            SELECT (value#>>'{}'::text[])::int * interval '1 millisecond' 
+            FROM world_config 
+            WHERE key = 'tick_buffer_duration_ms'
+        ))
+        RETURNING *
+    )
+    SELECT COUNT(*) INTO states_cleaned FROM deleted_states;
+    
+    -- Log cleanup results if anything was cleaned
+    IF states_cleaned > 0 THEN
+        RAISE NOTICE 'Entity states cleanup completed: % states removed', states_cleaned;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to cleanup old frame metrics (runs less frequently due to longer retention)
+CREATE OR REPLACE FUNCTION cleanup_old_frame_metrics()
+RETURNS void AS $$
+DECLARE
+    metrics_cleaned integer;
+BEGIN
+    WITH deleted_metrics AS (
+        DELETE FROM frame_metrics 
+        WHERE created_at < (now() - (
+            SELECT (value#>>'{}'::text[])::int * interval '1 second' 
+            FROM world_config 
+            WHERE key = 'frame_metrics_history_seconds'
+        ))
+        RETURNING *
+    )
+    SELECT COUNT(*) INTO metrics_cleaned FROM deleted_metrics;
+    
+    -- Log cleanup results if anything was cleaned
+    IF metrics_cleaned > 0 THEN
+        RAISE NOTICE 'Frame metrics cleanup completed: % metrics removed', metrics_cleaned;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Schedule entity states cleanup to run every minute
+-- (since states are only kept for 1 second by default)
+SELECT cron.schedule(
+    'cleanup-old-entity-states',
+    '* * * * *',          -- every minute
+    $$
+    SELECT cleanup_old_entity_states();
+    $$
+);
+
+-- Schedule frame metrics cleanup to run every 15 minutes
+-- (since metrics are kept for 1 hour by default)
+SELECT cron.schedule(
+    'cleanup-old-frame-metrics',
+    '*/15 * * * *',       -- every 15 minutes
+    $$
+    SELECT cleanup_old_frame_metrics();
+    $$
+);
+
+-- Drop the old combined cleanup function if it exists
+DROP FUNCTION IF EXISTS cleanup_old_states();

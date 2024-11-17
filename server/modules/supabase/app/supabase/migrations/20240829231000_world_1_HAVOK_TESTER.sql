@@ -95,7 +95,9 @@ CREATE TABLE frame_metrics (
     states_processed int NOT NULL,
     is_delayed boolean NOT NULL,
     created_at timestamptz DEFAULT now(),
-    headroom_ms double precision
+    headroom_ms double precision,
+    rate_limited boolean DEFAULT false,
+    time_since_last_frame_ms double precision
 );
 
 -- Indexes for fast state lookups
@@ -225,30 +227,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Function to get performance statistics
-CREATE OR REPLACE FUNCTION get_frame_performance_stats(
-    window_seconds int DEFAULT 60
-)
-RETURNS TABLE (
-    avg_duration_ms float,
-    max_duration_ms float,
-    min_duration_ms float,
-    delayed_frames_count bigint,
-    total_frames bigint
-) AS $$
-BEGIN
-    RETURN QUERY
-    SELECT 
-        AVG(duration_ms)::float as avg_duration_ms,
-        MAX(duration_ms)::float as max_duration_ms,
-        MIN(duration_ms)::float as min_duration_ms,
-        COUNT(*) FILTER (WHERE is_delayed) as delayed_frames_count,
-        COUNT(*) as total_frames
-    FROM frame_metrics
-    WHERE created_at > now() - (window_seconds || ' seconds')::interval;
-END;
-$$ LANGUAGE plpgsql;
-
 -- Function to get entity state at a specific timestamp
 CREATE OR REPLACE FUNCTION get_entity_state_at_timestamp(
     target_timestamp timestamptz
@@ -295,5 +273,109 @@ CREATE OR REPLACE FUNCTION get_server_time()
 RETURNS timestamptz AS $$
 BEGIN
     RETURN CURRENT_TIMESTAMP;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Update should_capture_frame to use frame_metrics
+CREATE OR REPLACE FUNCTION should_capture_frame()
+RETURNS boolean AS $$
+DECLARE
+    now_time timestamptz;
+    last_time timestamptz;
+    tick_rate_ms int;
+BEGIN
+    now_time := clock_timestamp();
+    
+    -- Get configured tick rate
+    SELECT (value#>>'{}'::text[])::int INTO tick_rate_ms 
+    FROM world_config 
+    WHERE key = 'tick_rate_ms';
+    
+    -- Get last frame time from frame_metrics
+    SELECT end_time INTO last_time 
+    FROM frame_metrics 
+    ORDER BY end_time DESC 
+    LIMIT 1;
+    
+    -- If no last frame time, allow capture
+    IF last_time IS NULL THEN
+        RETURN true;
+    END IF;
+    
+    -- Check if enough time has passed since last frame
+    RETURN EXTRACT(EPOCH FROM (now_time - last_time)) * 1000 >= tick_rate_ms;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Update trigger_frame_capture to use frame_metrics
+CREATE OR REPLACE FUNCTION trigger_frame_capture()
+RETURNS trigger AS $$
+DECLARE
+    now_time timestamptz;
+    last_time timestamptz;
+    tick_rate_ms int;
+    time_since_last_ms double precision;
+BEGIN
+    now_time := clock_timestamp();
+    
+    -- Get last frame time from frame_metrics
+    SELECT end_time INTO last_time 
+    FROM frame_metrics 
+    ORDER BY end_time DESC 
+    LIMIT 1;
+    
+    -- Calculate time since last frame
+    time_since_last_ms := CASE 
+        WHEN last_time IS NOT NULL THEN 
+            EXTRACT(EPOCH FROM (now_time - last_time)) * 1000
+        ELSE NULL 
+    END;
+    
+    -- Only capture frame if we haven't exceeded our rate limit
+    IF should_capture_frame() THEN
+        -- Capture the frame
+        PERFORM capture_entity_state();
+        
+        -- Update the most recent frame_metrics entry with rate limiting info
+        UPDATE frame_metrics 
+        SET rate_limited = false,
+            time_since_last_frame_ms = time_since_last_ms
+        WHERE id = (
+            SELECT id 
+            FROM frame_metrics 
+            ORDER BY created_at DESC 
+            LIMIT 1
+        );
+    ELSE
+        -- Log skipped frame in metrics
+        INSERT INTO frame_metrics (
+            frame_number,
+            start_time,
+            end_time,
+            duration_ms,
+            states_processed,
+            is_delayed,
+            headroom_ms,
+            rate_limited,
+            time_since_last_frame_ms
+        ) VALUES (
+            -- Calculate frame number same way as capture_entity_state()
+            FLOOR(EXTRACT(EPOCH FROM now_time) * 1000 / (
+                SELECT (value#>>'{}'::text[])::int 
+                FROM world_config 
+                WHERE key = 'tick_rate_ms'
+            ))::bigint,
+            now_time,
+            now_time,
+            0,  -- Duration is 0 for skipped frames
+            0,  -- No states processed
+            false,
+            0,  -- No headroom calculation needed
+            true,  -- Was rate limited
+            time_since_last_ms
+        );
+    END IF;
+    
+    RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;

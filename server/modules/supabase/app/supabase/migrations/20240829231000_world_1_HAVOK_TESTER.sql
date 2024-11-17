@@ -16,7 +16,9 @@ CREATE TABLE world_config (
 INSERT INTO world_config (key, value, description) VALUES
 ('tick_rate_ms', '50'::jsonb, 'Server tick rate in milliseconds (20 ticks per second)'),
 ('tick_buffer_duration_ms', '1000'::jsonb, 'How long to keep tick history in milliseconds'),
-('frame_metrics_history_seconds', '3600'::jsonb, 'How long to keep frame metrics history in seconds (1 hour default)');
+('tick_metrics_history_seconds', '3600'::jsonb, 'How long to keep tick metrics history in seconds (1 hour default)');
+
+ALTER PUBLICATION supabase_realtime ADD TABLE world_config;
 
 -- Core tables for physics testing
 CREATE TABLE entities (
@@ -69,19 +71,19 @@ CREATE TABLE entity_states (
     -- Additional metadata for state tracking
     entity_id uuid NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
     timestamp timestamptz DEFAULT now(),
-    frame_number bigint NOT NULL,
-    frame_start_time timestamptz,
-    frame_end_time timestamptz,
-    frame_duration_ms double precision,
+    tick_number bigint NOT NULL,
+    tick_start_time timestamptz,
+    tick_end_time timestamptz,
+    tick_duration_ms double precision,
     
     -- Override the primary key
     CONSTRAINT entity_states_pkey PRIMARY KEY (id)
 );
 
 -- Performance metrics table
-CREATE TABLE frame_metrics (
+CREATE TABLE tick_metrics (
     id uuid DEFAULT uuid_generate_v4() PRIMARY KEY,
-    frame_number bigint NOT NULL,
+    tick_number bigint NOT NULL,
     start_time timestamptz NOT NULL,
     end_time timestamptz NOT NULL,
     duration_ms double precision NOT NULL,
@@ -90,25 +92,22 @@ CREATE TABLE frame_metrics (
     created_at timestamptz DEFAULT now(),
     headroom_ms double precision,
     rate_limited boolean DEFAULT false,
-    time_since_last_frame_ms double precision
+    time_since_last_tick_ms double precision
 );
 
 -- Indexes for fast state lookups
-CREATE INDEX entity_states_lookup_idx ON entity_states (entity_id, frame_number);
+CREATE INDEX entity_states_lookup_idx ON entity_states (entity_id, tick_number);
 CREATE INDEX entity_states_timestamp_idx ON entity_states (timestamp);
 
 -- Function to capture entity state
-CREATE OR REPLACE FUNCTION capture_entity_state()
+CREATE OR REPLACE FUNCTION capture_tick_state()
 RETURNS void AS $$
 DECLARE
     current_tick bigint;
     tick_start timestamptz;
     tick_end timestamptz;
     tick_duration double precision;
-    deleted_tick_count int;
     inserted_count int;
-    cleaned_old_count int;
-    cleaned_metrics_count int;
     is_delayed boolean;
     tick_rate_ms int;
     headroom double precision;
@@ -120,27 +119,18 @@ BEGIN
     
     tick_start := clock_timestamp();
     
-    -- Calculate current tick number using database time instead of client time
     SELECT FLOOR(EXTRACT(EPOCH FROM tick_start) * 1000 / tick_rate_ms)::bigint INTO current_tick
     FROM world_config 
     WHERE key = 'tick_rate_ms';
-    
-    -- Delete old states for this tick number (circular buffer)
-    WITH deleted AS (
-        DELETE FROM entity_states 
-        WHERE frame_number = current_tick
-        RETURNING *
-    )
-    SELECT COUNT(*) INTO deleted_tick_count FROM deleted;
     
     -- Insert new states with timing information
     WITH inserted AS (
         INSERT INTO entity_states (
             entity_id,
-            frame_number,
-            frame_start_time,
-            frame_end_time,
-            frame_duration_ms,
+            tick_number,
+            tick_start_time,
+            tick_end_time,
+            tick_duration_ms,
             name,
             type,
             position_x,
@@ -205,8 +195,8 @@ BEGIN
     headroom := GREATEST(tick_rate_ms - tick_duration, 0.0);  -- Ensure headroom isn't negative
 
     -- Always record frame metrics for each tick
-    INSERT INTO frame_metrics (
-        frame_number,
+    INSERT INTO tick_metrics (
+        tick_number,
         start_time,
         end_time,
         duration_ms,
@@ -280,62 +270,21 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Update should_capture_frame to use frame_metrics
-CREATE OR REPLACE FUNCTION should_capture_frame()
-RETURNS boolean AS $$
-DECLARE
-    now_time timestamptz;
-    last_time timestamptz;
-    tick_rate_ms int;
-    lock_obtained boolean;
-BEGIN
-    -- Try to obtain an advisory lock for frame capture
-    SELECT pg_try_advisory_lock(hashtext('frame_capture_lock')) INTO lock_obtained;
-    
-    IF NOT lock_obtained THEN
-        RETURN false;
-    END IF;
-    
-    -- Release the lock after checking
-    PERFORM pg_advisory_unlock(hashtext('frame_capture_lock'));
-
-    now_time := clock_timestamp();
-    
-    -- Get configured tick rate
-    SELECT (value#>>'{}'::text[])::int INTO tick_rate_ms 
-    FROM world_config 
-    WHERE key = 'tick_rate_ms';
-    
-    -- Get last frame time from frame_metrics
-    SELECT end_time INTO last_time 
-    FROM frame_metrics 
-    ORDER BY end_time DESC 
-    LIMIT 1;
-    
-    -- If no last frame time, allow capture
-    IF last_time IS NULL THEN
-        RETURN true;
-    END IF; 
-    
-    -- Check if enough time has passed since last frame
-    RETURN EXTRACT(EPOCH FROM (now_time - last_time)) * 1000 >= tick_rate_ms;
-END;
-$$ LANGUAGE plpgsql;
-
 -- Update trigger_frame_capture to use frame_metrics
-CREATE OR REPLACE FUNCTION trigger_frame_capture()
+CREATE OR REPLACE FUNCTION trigger_tick_capture()
 RETURNS trigger AS $$
 DECLARE
     now_time timestamptz;
     last_time timestamptz;
-    tick_rate_ms int;
     time_since_last_ms double precision;
+    current_tick bigint;
+    tick_rate_ms int;
 BEGIN
     now_time := clock_timestamp();
     
     -- Get last frame time from frame_metrics
     SELECT end_time INTO last_time 
-    FROM frame_metrics 
+    FROM tick_metrics 
     ORDER BY end_time DESC 
     LIMIT 1;
     
@@ -345,61 +294,41 @@ BEGIN
             EXTRACT(EPOCH FROM (now_time - last_time)) * 1000
         ELSE NULL 
     END;
+
+    -- Get tick rate and calculate current tick
+    SELECT (value#>>'{}'::text[])::int INTO tick_rate_ms 
+    FROM world_config 
+    WHERE key = 'tick_rate_ms';
     
-    -- Only capture frame if we haven't exceeded our rate limit
-    IF should_capture_frame() THEN
-        -- Capture the frame
-        PERFORM capture_entity_state();
-        
-        -- Update the most recent frame_metrics entry with rate limiting info
-        UPDATE frame_metrics 
-        SET rate_limited = false,
-            time_since_last_frame_ms = time_since_last_ms
-        WHERE id = (
-            SELECT id 
-            FROM frame_metrics 
-            ORDER BY created_at DESC 
-            LIMIT 1
-        );
-    ELSE
-        -- Log skipped frame in metrics
-        INSERT INTO frame_metrics (
-            frame_number,
-            start_time,
-            end_time,
-            duration_ms,
-            states_processed,
-            is_delayed,
-            headroom_ms,
-            rate_limited,
-            time_since_last_frame_ms
-        ) VALUES (
-            -- Calculate frame number same way as capture_entity_state()
-            FLOOR(EXTRACT(EPOCH FROM now_time) * 1000 / (
-                SELECT (value#>>'{}'::text[])::int 
-                FROM world_config 
-                WHERE key = 'tick_rate_ms'
-            ))::bigint,
-            now_time,
-            now_time,
-            0,  -- Duration is 0 for skipped frames
-            0,  -- No states processed
-            false,
-            0,  -- No headroom calculation needed
-            true,  -- Was rate limited
-            time_since_last_ms
-        );
-    END IF;
+    current_tick := FLOOR(EXTRACT(EPOCH FROM now_time) * 1000 / tick_rate_ms)::bigint;
+    
+    -- Insert new frame metrics entry
+    INSERT INTO tick_metrics (
+        tick_number,
+        start_time,
+        end_time,
+        duration_ms,
+        states_processed,
+        is_delayed,
+        headroom_ms,
+        time_since_last_tick_ms
+    ) VALUES (
+        current_tick,
+        now_time,
+        now_time,
+        0,  -- Duration will be updated by capture_entity_state()
+        0,  -- States processed will be updated by capture_entity_state()
+        false,  -- Is delayed will be updated by capture_entity_state()
+        0,  -- Headroom will be updated by capture_entity_state()
+        time_since_last_ms
+    );
+    
+    -- Capture the frame
+    PERFORM capture_tick_state();
     
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
-
--- Create trigger to capture state on entity changes
-CREATE TRIGGER entity_state_capture
-AFTER INSERT OR UPDATE ON entities
-FOR EACH STATEMENT
-EXECUTE FUNCTION trigger_frame_capture();
 
 -- Function to cleanup old entity states (runs more frequently due to shorter retention)
 CREATE OR REPLACE FUNCTION cleanup_old_entity_states()
@@ -426,17 +355,17 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Function to cleanup old frame metrics (runs less frequently due to longer retention)
-CREATE OR REPLACE FUNCTION cleanup_old_frame_metrics()
+CREATE OR REPLACE FUNCTION cleanup_old_tick_metrics()
 RETURNS void AS $$
 DECLARE
     metrics_cleaned integer;
 BEGIN
     WITH deleted_metrics AS (
-        DELETE FROM frame_metrics 
+        DELETE FROM tick_metrics 
         WHERE created_at < (now() - (
             SELECT (value#>>'{}'::text[])::int * interval '1 second' 
             FROM world_config 
-            WHERE key = 'frame_metrics_history_seconds'
+            WHERE key = 'tick_metrics_history_seconds'
         ))
         RETURNING *
     )
@@ -444,30 +373,7 @@ BEGIN
     
     -- Log cleanup results if anything was cleaned
     IF metrics_cleaned > 0 THEN
-        RAISE NOTICE 'Frame metrics cleanup completed: % metrics removed', metrics_cleaned;
+        RAISE NOTICE 'Tick metrics cleanup completed: % metrics removed', metrics_cleaned;
     END IF;
 END;
 $$ LANGUAGE plpgsql;
-
--- Schedule entity states cleanup to run every minute
--- (since states are only kept for 1 second by default)
-SELECT cron.schedule(
-    'cleanup-old-entity-states',
-    '* * * * *',          -- every minute
-    $$
-    SELECT cleanup_old_entity_states();
-    $$
-);
-
--- Schedule frame metrics cleanup to run every 15 minutes
--- (since metrics are kept for 1 hour by default)
-SELECT cron.schedule(
-    'cleanup-old-frame-metrics',
-    '*/15 * * * *',       -- every 15 minutes
-    $$
-    SELECT cleanup_old_frame_metrics();
-    $$
-);
-
--- Drop the old combined cleanup function if it exists
-DROP FUNCTION IF EXISTS cleanup_old_states();

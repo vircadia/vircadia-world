@@ -4,7 +4,7 @@ import { log } from "../sdk/vircadia-world-sdk-ts/module/general/log.ts";
 import { Config } from "../sdk/vircadia-world-sdk-ts/schema/schema.ts";
 
 // Services
-import { WorldFrameCaptureService } from "../sdk/vircadia-world-sdk-ts/service/world-frame-capture.ts";
+import { WorldTickManager } from "../sdk/vircadia-world-sdk-ts/service/world-tick-manager.ts";
 
 const config = loadConfig();
 
@@ -22,7 +22,7 @@ async function init() {
     await startServices(debugMode);
 }
 
-let worldFrameCapture: WorldFrameCaptureService | null = null;
+let worldTickManager: WorldTickManager | null = null;
 
 async function startServices(debugMode: boolean) {
     log({ message: "Starting world services", type: "info" });
@@ -36,13 +36,10 @@ async function startServices(debugMode: boolean) {
         }
 
         // Initialize frame capture service with existing client
-        // worldFrameCapture = new WorldFrameCaptureService(
-        //     supabaseClient,
-        //     debugMode,
-        // );
+        worldTickManager = new WorldTickManager(supabaseClient, debugMode);
 
-        // await worldFrameCapture.initialize();
-        // worldFrameCapture.start();
+        await worldTickManager.initialize();
+        worldTickManager.start();
 
         log({
             message: "World frame capture service started successfully",

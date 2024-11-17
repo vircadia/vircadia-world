@@ -15,8 +15,8 @@ CREATE TABLE world_config (
 -- Insert default configuration
 INSERT INTO world_config (key, value, description) VALUES
 ('tick_rate_ms', '50'::jsonb, 'Server tick rate in milliseconds (20 ticks per second)'),
-('tick_buffer_duration_ms', '1000'::jsonb, 'How long to keep tick history in milliseconds'),
-('tick_metrics_history_seconds', '3600'::jsonb, 'How long to keep tick metrics history in seconds (1 hour default)');
+('tick_buffer_duration_ms', '2000'::jsonb, 'How long to keep tick history in milliseconds'),
+('tick_metrics_history_ms', '3600000'::jsonb, 'How long to keep tick metrics history in milliseconds (1 hour default)');
 
 ALTER PUBLICATION supabase_realtime ADD TABLE world_config;
 
@@ -363,9 +363,9 @@ BEGIN
     WITH deleted_metrics AS (
         DELETE FROM tick_metrics 
         WHERE created_at < (now() - (
-            SELECT (value#>>'{}'::text[])::int * interval '1 second' 
+            SELECT (value#>>'{}'::text[])::int * interval '1 millisecond' 
             FROM world_config 
-            WHERE key = 'tick_metrics_history_seconds'
+            WHERE key = 'tick_metrics_history_ms'
         ))
         RETURNING *
     )

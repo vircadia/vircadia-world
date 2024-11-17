@@ -379,3 +379,9 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Create trigger to capture state on entity changes
+CREATE TRIGGER entity_state_capture
+AFTER INSERT OR UPDATE ON entities
+FOR EACH ROW
+EXECUTE FUNCTION trigger_frame_capture();

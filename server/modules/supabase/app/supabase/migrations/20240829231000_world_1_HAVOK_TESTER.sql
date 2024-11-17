@@ -123,10 +123,12 @@ BEGIN
     FROM world_config 
     WHERE key = 'tick_rate_ms';
     
-    tick_start := clock_timestamp();
+    tick_start := transaction_timestamp();
     
-    -- Calculate current tick number (milliseconds since epoch / tick_rate_ms)
-    SELECT FLOOR(EXTRACT(EPOCH FROM tick_start) * 1000 / tick_rate_ms)::bigint INTO current_tick;
+    -- Calculate current tick number using database time instead of client time
+    SELECT FLOOR(EXTRACT(EPOCH FROM tick_start) * 1000 / tick_rate_ms)::bigint INTO current_tick
+    FROM world_config 
+    WHERE key = 'tick_rate_ms';
     
     -- Delete old states for this tick number (circular buffer)
     WITH deleted AS (
@@ -156,8 +158,8 @@ BEGIN
             0, 0, 0,  -- Initial velocities
             0, 0, 0,  -- Initial angular velocities
             tick_start,
-            clock_timestamp(),
-            EXTRACT(EPOCH FROM (clock_timestamp() - tick_start)) * 1000
+            transaction_timestamp(),
+            EXTRACT(EPOCH FROM (transaction_timestamp() - tick_start)) * 1000
         FROM entities
         RETURNING *
     )
@@ -187,7 +189,7 @@ BEGIN
     )
     SELECT COUNT(*) INTO cleaned_metrics_count FROM cleaned_metrics;
 
-    tick_end := clock_timestamp();
+    tick_end := transaction_timestamp();
     tick_duration := EXTRACT(EPOCH FROM (tick_end - tick_start)) * 1000;
     is_delayed := tick_duration > tick_rate_ms;
 

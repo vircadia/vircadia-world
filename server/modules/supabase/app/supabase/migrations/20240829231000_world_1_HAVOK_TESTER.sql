@@ -82,7 +82,7 @@ CREATE TABLE entity_states (
     -- Frame timing information
     frame_start_time timestamptz,
     frame_end_time timestamptz,
-    frame_duration_ms float
+    frame_duration_ms double precision
 );
 
 -- Performance metrics table
@@ -91,11 +91,11 @@ CREATE TABLE frame_metrics (
     frame_number bigint NOT NULL,
     start_time timestamptz NOT NULL,
     end_time timestamptz NOT NULL,
-    duration_ms float NOT NULL,
+    duration_ms double precision NOT NULL,
     states_processed int NOT NULL,
     is_delayed boolean NOT NULL,
     created_at timestamptz DEFAULT now(),
-    headroom_ms float
+    headroom_ms double precision
 );
 
 -- Indexes for fast state lookups
@@ -109,21 +109,21 @@ DECLARE
     current_tick bigint;
     tick_start timestamptz;
     tick_end timestamptz;
-    tick_duration float;
+    tick_duration double precision;
     deleted_tick_count int;
     inserted_count int;
     cleaned_old_count int;
     cleaned_metrics_count int;
     is_delayed boolean;
     tick_rate_ms int;
-    headroom float;
+    headroom double precision;
 BEGIN
     -- Get configured tick rate
     SELECT (value#>>'{}'::text[])::int INTO tick_rate_ms 
     FROM world_config 
     WHERE key = 'tick_rate_ms';
     
-    tick_start := transaction_timestamp();
+    tick_start := clock_timestamp();
     
     -- Calculate current tick number using database time instead of client time
     SELECT FLOOR(EXTRACT(EPOCH FROM tick_start) * 1000 / tick_rate_ms)::bigint INTO current_tick
@@ -159,7 +159,7 @@ BEGIN
             0, 0, 0,  -- Initial angular velocities
             tick_start,
             transaction_timestamp(),
-            EXTRACT(EPOCH FROM (transaction_timestamp() - tick_start)) * 1000
+            EXTRACT(EPOCH FROM (transaction_timestamp() - tick_start))::double precision * 1000
         FROM entities
         RETURNING *
     )
@@ -177,26 +177,28 @@ BEGIN
     )
     SELECT COUNT(*) INTO cleaned_old_count FROM cleaned;
 
-    -- Cleanup old frame metrics
-    WITH cleaned_metrics AS (
-        DELETE FROM frame_metrics 
-        WHERE created_at < (now() - (
-            SELECT (value#>>'{}'::text[])::int * interval '1 second' 
-            FROM world_config 
-            WHERE key = 'frame_metrics_history_seconds'
-        ))
-        RETURNING *
-    )
-    SELECT COUNT(*) INTO cleaned_metrics_count FROM cleaned_metrics;
-
-    tick_end := transaction_timestamp();
-    tick_duration := EXTRACT(EPOCH FROM (tick_end - tick_start)) * 1000;
+    tick_end := clock_timestamp();
+    
+    -- More precise duration calculation using microseconds
+    tick_duration := EXTRACT(EPOCH FROM (tick_end - tick_start)) * 1000.0;
     is_delayed := tick_duration > tick_rate_ms;
+    headroom := GREATEST(tick_rate_ms - tick_duration, 0.0);  -- Ensure headroom isn't negative
 
-    -- Calculate headroom
-    headroom := tick_rate_ms - tick_duration;
+    -- Only clean metrics occasionally (e.g., every 100 ticks)
+    IF current_tick % 100 = 0 THEN
+        WITH cleaned_metrics AS (
+            DELETE FROM frame_metrics 
+            WHERE created_at < (now() - (
+                SELECT (value#>>'{}'::text[])::int * interval '1 second' 
+                FROM world_config 
+                WHERE key = 'frame_metrics_history_seconds'
+            ))
+            RETURNING *
+        )
+        SELECT COUNT(*) INTO cleaned_metrics_count FROM cleaned_metrics;
+    END IF;
 
-    -- Update metrics recording with headroom
+    -- Always record frame metrics for each tick
     INSERT INTO frame_metrics (
         frame_number,
         start_time,
@@ -217,7 +219,7 @@ BEGIN
 
     -- Raise warning if tick took too long
     IF is_delayed THEN
-        RAISE WARNING 'Tick % exceeded target duration: %.2fms (target: %ms)',
+        RAISE WARNING 'Tick % exceeded target duration: %.3fms (target: %ms)',
             current_tick, tick_duration, tick_rate_ms;
     END IF;
 END;

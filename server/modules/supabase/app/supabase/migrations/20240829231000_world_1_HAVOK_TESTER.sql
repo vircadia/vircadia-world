@@ -13,8 +13,8 @@ CREATE TABLE world_config (
 
 -- Insert default configuration
 INSERT INTO world_config (key, value, description) VALUES
-('physics_framerate', '60'::jsonb, 'Target physics framerate (frames per second)'),
-('physics_frame_duration_ms', '16.67'::jsonb, 'Target duration per physics frame in milliseconds');
+('tick_rate_ms', '50'::jsonb, 'Server tick rate in milliseconds (20 ticks per second)'),
+('tick_buffer_duration_ms', '1000'::jsonb, 'How long to keep tick history in milliseconds');
 
 -- Core tables for physics testing
 CREATE TABLE entities (
@@ -104,76 +104,76 @@ CREATE INDEX entity_states_timestamp_idx ON entity_states (timestamp);
 CREATE OR REPLACE FUNCTION capture_entity_state()
 RETURNS void AS $$
 DECLARE
-    current_frame bigint;
-    frame_start timestamptz;
-    frame_end timestamptz;
-    frame_duration float;
-    deleted_frame_count int;
+    current_tick bigint;
+    tick_start timestamptz;
+    tick_end timestamptz;
+    tick_duration float;
+    deleted_tick_count int;
     inserted_count int;
     cleaned_old_count int;
     is_delayed boolean;
-    target_fps float;
-    target_interval_ms float;
+    tick_rate_ms int;
 BEGIN
-    -- Get configured framerate
-    SELECT (value#>>'{}'::text[])::float INTO target_fps 
+    -- Get configured tick rate
+    SELECT (value#>>'{}'::text[])::int INTO tick_rate_ms 
     FROM world_config 
-    WHERE key = 'physics_framerate';
+    WHERE key = 'tick_rate_ms';
     
-    SELECT (value#>>'{}'::text[])::float INTO target_interval_ms 
-    FROM world_config 
-    WHERE key = 'physics_frame_duration_ms';
+    tick_start := clock_timestamp();
     
-    frame_start := clock_timestamp();
+    -- Calculate current tick number (milliseconds since epoch / tick_rate_ms)
+    SELECT FLOOR(EXTRACT(EPOCH FROM tick_start) * 1000 / tick_rate_ms)::bigint INTO current_tick;
     
-    -- Get current frame number
-    SELECT FLOOR(EXTRACT(EPOCH FROM frame_start) * target_fps) % target_fps INTO current_frame;
-    
-    -- Delete old states for this frame number (circular buffer)
+    -- Delete old states for this tick number (circular buffer)
     WITH deleted AS (
         DELETE FROM entity_states 
-        WHERE frame_number = current_frame
+        WHERE frame_number = current_tick
         RETURNING *
     )
-    SELECT COUNT(*) INTO deleted_frame_count FROM deleted;
+    SELECT COUNT(*) INTO deleted_tick_count FROM deleted;
     
     -- Insert new states with timing information
     WITH inserted AS (
         INSERT INTO entity_states (
-            entity_id, frame_number,
+            entity_id, 
+            frame_number,  -- Using frame_number for tick_number (keeping column name for compatibility)
             position_x, position_y, position_z,
             rotation_x, rotation_y, rotation_z, rotation_w,
             velocity_x, velocity_y, velocity_z,
             angular_velocity_x, angular_velocity_y, angular_velocity_z,
-            frame_start_time,
+            frame_start_time,  -- Using frame_* for tick_* (keeping column names for compatibility)
             frame_end_time,
             frame_duration_ms
         )
         SELECT 
-            id, current_frame,
+            id, current_tick,
             position_x, position_y, position_z,
             rotation_x, rotation_y, rotation_z, rotation_w,
-            0, 0, 0,
-            0, 0, 0,
-            frame_start,
+            0, 0, 0,  -- Initial velocities
+            0, 0, 0,  -- Initial angular velocities
+            tick_start,
             clock_timestamp(),
-            EXTRACT(EPOCH FROM (clock_timestamp() - frame_start)) * 1000
+            EXTRACT(EPOCH FROM (clock_timestamp() - tick_start)) * 1000
         FROM entities
         RETURNING *
     )
     SELECT COUNT(*) INTO inserted_count FROM inserted;
     
-    -- Cleanup old states beyond our 1-second window
+    -- Cleanup old states beyond our buffer window
     WITH cleaned AS (
         DELETE FROM entity_states 
-        WHERE timestamp < (now() - interval '1 second')
+        WHERE timestamp < (now() - (
+            SELECT (value#>>'{}'::text[])::int * interval '1 millisecond' 
+            FROM world_config 
+            WHERE key = 'tick_buffer_duration_ms'
+        ))
         RETURNING *
     )
     SELECT COUNT(*) INTO cleaned_old_count FROM cleaned;
 
-    frame_end := clock_timestamp();
-    frame_duration := EXTRACT(EPOCH FROM (frame_end - frame_start)) * 1000;
-    is_delayed := frame_duration > target_interval_ms;
+    tick_end := clock_timestamp();
+    tick_duration := EXTRACT(EPOCH FROM (tick_end - tick_start)) * 1000;
+    is_delayed := tick_duration > tick_rate_ms;
 
     -- Record metrics
     INSERT INTO frame_metrics (
@@ -184,18 +184,18 @@ BEGIN
         states_processed,
         is_delayed
     ) VALUES (
-        current_frame,
-        frame_start,
-        frame_end,
-        frame_duration,
+        current_tick,
+        tick_start,
+        tick_end,
+        tick_duration,
         inserted_count,
         is_delayed
     );
 
-    -- Raise warning if frame took too long
+    -- Raise warning if tick took too long
     IF is_delayed THEN
-        RAISE WARNING 'Frame % exceeded target duration: %.2fms (target: %.2fms)',
-            current_frame, frame_duration, target_interval_ms;
+        RAISE WARNING 'Tick % exceeded target duration: %.2fms (target: %ms)',
+            current_tick, tick_duration, tick_rate_ms;
     END IF;
 END;
 $$ LANGUAGE plpgsql;

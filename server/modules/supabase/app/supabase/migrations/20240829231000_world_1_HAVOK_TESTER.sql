@@ -14,7 +14,8 @@ CREATE TABLE world_config (
 -- Insert default configuration
 INSERT INTO world_config (key, value, description) VALUES
 ('tick_rate_ms', '50'::jsonb, 'Server tick rate in milliseconds (20 ticks per second)'),
-('tick_buffer_duration_ms', '1000'::jsonb, 'How long to keep tick history in milliseconds');
+('tick_buffer_duration_ms', '1000'::jsonb, 'How long to keep tick history in milliseconds'),
+('frame_metrics_history_seconds', '3600'::jsonb, 'How long to keep frame metrics history in seconds (1 hour default)');
 
 -- Core tables for physics testing
 CREATE TABLE entities (
@@ -93,7 +94,8 @@ CREATE TABLE frame_metrics (
     duration_ms float NOT NULL,
     states_processed int NOT NULL,
     is_delayed boolean NOT NULL,
-    created_at timestamptz DEFAULT now()
+    created_at timestamptz DEFAULT now(),
+    headroom_ms float
 );
 
 -- Indexes for fast state lookups
@@ -111,8 +113,10 @@ DECLARE
     deleted_tick_count int;
     inserted_count int;
     cleaned_old_count int;
+    cleaned_metrics_count int;
     is_delayed boolean;
     tick_rate_ms int;
+    headroom float;
 BEGIN
     -- Get configured tick rate
     SELECT (value#>>'{}'::text[])::int INTO tick_rate_ms 
@@ -171,25 +175,42 @@ BEGIN
     )
     SELECT COUNT(*) INTO cleaned_old_count FROM cleaned;
 
+    -- Cleanup old frame metrics
+    WITH cleaned_metrics AS (
+        DELETE FROM frame_metrics 
+        WHERE created_at < (now() - (
+            SELECT (value#>>'{}'::text[])::int * interval '1 second' 
+            FROM world_config 
+            WHERE key = 'frame_metrics_history_seconds'
+        ))
+        RETURNING *
+    )
+    SELECT COUNT(*) INTO cleaned_metrics_count FROM cleaned_metrics;
+
     tick_end := clock_timestamp();
     tick_duration := EXTRACT(EPOCH FROM (tick_end - tick_start)) * 1000;
     is_delayed := tick_duration > tick_rate_ms;
 
-    -- Record metrics
+    -- Calculate headroom
+    headroom := tick_rate_ms - tick_duration;
+
+    -- Update metrics recording with headroom
     INSERT INTO frame_metrics (
         frame_number,
         start_time,
         end_time,
         duration_ms,
         states_processed,
-        is_delayed
+        is_delayed,
+        headroom_ms
     ) VALUES (
         current_tick,
         tick_start,
         tick_end,
         tick_duration,
         inserted_count,
-        is_delayed
+        is_delayed,
+        headroom
     );
 
     -- Raise warning if tick took too long

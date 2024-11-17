@@ -4,7 +4,7 @@ import { log } from "../sdk/vircadia-world-sdk-ts/module/general/log.ts";
 import { Config } from "../sdk/vircadia-world-sdk-ts/schema/schema.ts";
 
 // Services
-import { WorldTickManager } from "../sdk/vircadia-world-sdk-ts/service/world-tick-manager.ts";
+import { WorldTickManager } from "./service/world-tick-manager.ts";
 
 const config = loadConfig();
 

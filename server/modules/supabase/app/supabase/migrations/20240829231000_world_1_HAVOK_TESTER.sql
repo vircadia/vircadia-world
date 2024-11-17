@@ -287,3 +287,11 @@ BEGIN
     WHERE rn = 1;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Function to get current server time
+CREATE OR REPLACE FUNCTION get_server_time()
+RETURNS timestamptz AS $$
+BEGIN
+    RETURN CURRENT_TIMESTAMP;
+END;
+$$ LANGUAGE plpgsql;

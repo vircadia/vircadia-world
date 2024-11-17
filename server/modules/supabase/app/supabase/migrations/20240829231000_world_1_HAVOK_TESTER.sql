@@ -39,6 +39,16 @@ CREATE TABLE entities (
     scale_y float DEFAULT 1,
     scale_z float DEFAULT 1,
     
+    -- Velocity
+    velocity_x float DEFAULT 0,
+    velocity_y float DEFAULT 0,
+    velocity_z float DEFAULT 0,
+    
+    -- Angular velocity
+    angular_velocity_x float DEFAULT 0,
+    angular_velocity_y float DEFAULT 0,
+    angular_velocity_z float DEFAULT 0,
+    
     -- Physics properties
     mass float DEFAULT 1,
     restitution float DEFAULT 0.2,
@@ -53,36 +63,18 @@ CREATE TABLE entities (
 
 -- Lag compensation state history table
 CREATE TABLE entity_states (
-    id uuid DEFAULT uuid_generate_v4() PRIMARY KEY,
+    LIKE entities INCLUDING DEFAULTS INCLUDING CONSTRAINTS,
+    
+    -- Additional metadata for state tracking
     entity_id uuid NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
     timestamp timestamptz DEFAULT now(),
     frame_number bigint NOT NULL,
-    
-    -- Position
-    position_x float,
-    position_y float,
-    position_z float,
-    
-    -- Rotation (quaternion)
-    rotation_x float,
-    rotation_y float,
-    rotation_z float,
-    rotation_w float,
-    
-    -- Velocity
-    velocity_x float DEFAULT 0,
-    velocity_y float DEFAULT 0,
-    velocity_z float DEFAULT 0,
-    
-    -- Angular velocity
-    angular_velocity_x float DEFAULT 0,
-    angular_velocity_y float DEFAULT 0,
-    angular_velocity_z float DEFAULT 0,
-    
-    -- Frame timing information
     frame_start_time timestamptz,
     frame_end_time timestamptz,
-    frame_duration_ms double precision
+    frame_duration_ms double precision,
+    
+    -- Override the primary key
+    CONSTRAINT entity_states_pkey PRIMARY KEY (id)
 );
 
 -- Performance metrics table
@@ -151,7 +143,12 @@ BEGIN
             angular_velocity_x, angular_velocity_y, angular_velocity_z,
             frame_start_time,  -- Using frame_* for tick_* (keeping column names for compatibility)
             frame_end_time,
-            frame_duration_ms
+            frame_duration_ms,
+            type,  -- Added missing type column
+            scale_x, scale_y, scale_z,  -- Added scale columns if they exist in entities
+            mass,  -- Added mass if it exists in entities
+            is_static,  -- Added is_static if it exists in entities
+            is_kinematic  -- Added is_kinematic if it exists in entities
         )
         SELECT 
             id, current_tick,
@@ -161,7 +158,12 @@ BEGIN
             0, 0, 0,  -- Initial angular velocities
             tick_start,
             transaction_timestamp(),
-            EXTRACT(EPOCH FROM (transaction_timestamp() - tick_start))::double precision * 1000
+            EXTRACT(EPOCH FROM (transaction_timestamp() - tick_start))::double precision * 1000,
+            type,  -- Selected from entities
+            scale_x, scale_y, scale_z,  -- Selected from entities
+            mass,  -- Selected from entities
+            is_static,  -- Selected from entities
+            is_kinematic  -- Selected from entities
         FROM entities
         RETURNING *
     )

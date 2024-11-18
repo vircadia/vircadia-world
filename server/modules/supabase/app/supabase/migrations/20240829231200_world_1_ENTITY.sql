@@ -82,9 +82,19 @@ CREATE TABLE entities (
     general__semantic_version TEXT NOT NULL DEFAULT '1.0.0',
     general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    general__transform transform NOT NULL DEFAULT ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
     general__parent_entity_id UUID REFERENCES entities(general__uuid) ON DELETE CASCADE,
     
+    babylonjs__transform_position_x FLOAT DEFAULT 0,
+    babylonjs__transform_position_y FLOAT DEFAULT 0,
+    babylonjs__transform_position_z FLOAT DEFAULT 0,
+    babylonjs__transform_rotation_x FLOAT DEFAULT 0,
+    babylonjs__transform_rotation_y FLOAT DEFAULT 0,
+    babylonjs__transform_rotation_z FLOAT DEFAULT 0,
+    babylonjs__transform_rotation_w FLOAT DEFAULT 1,
+    babylonjs__transform_scale_x FLOAT DEFAULT 1,
+    babylonjs__transform_scale_y FLOAT DEFAULT 1,
+    babylonjs__transform_scale_z FLOAT DEFAULT 1,
+
     babylonjs__mesh_is_instance BOOLEAN DEFAULT FALSE,
     babylonjs__mesh_instance_of_id UUID REFERENCES entities(general__uuid) ON DELETE CASCADE,
     babylonjs__mesh_material_id UUID REFERENCES entities(general__uuid) ON DELETE CASCADE,
@@ -193,9 +203,9 @@ CREATE TABLE entities (
     babylonjs__material_custom_properties JSON,
     
     babylonjs__physics_motion_type TEXT,
-    babylonjs__physics_mass FLOAT,
-    babylonjs__physics_friction FLOAT,
-    babylonjs__physics_restitution FLOAT,
+    babylonjs__physics_mass FLOAT DEFAULT 1,
+    babylonjs__physics_friction FLOAT DEFAULT 0.5,
+    babylonjs__physics_restitution FLOAT DEFAULT 0.2,
     babylonjs__physics_linear_velocity vector3,
     babylonjs__physics_angular_velocity vector3,
     babylonjs__physics_linear_damping FLOAT,
@@ -204,9 +214,17 @@ CREATE TABLE entities (
     babylonjs__physics_collision_filter_mask INTEGER,
     babylonjs__physics_shape_type TEXT,
     babylonjs__physics_shape_data JSON,
+    babylonjs__physics_velocity_x FLOAT DEFAULT 0,
+    babylonjs__physics_velocity_y FLOAT DEFAULT 0,
+    babylonjs__physics_velocity_z FLOAT DEFAULT 0,
+    babylonjs__physics_angular_velocity_x FLOAT DEFAULT 0,
+    babylonjs__physics_angular_velocity_y FLOAT DEFAULT 0,
+    babylonjs__physics_angular_velocity_z FLOAT DEFAULT 0,
+    babylonjs__physics_is_static BOOLEAN DEFAULT false,
 
     permissions__can_view_roles TEXT[],
-    
+
+
     CONSTRAINT check_general_type CHECK (general__type IN ('MODEL', 'LIGHT', 'VOLUME', 'AGENT', 'MATERIAL_STANDARD', 'MATERIAL_PROCEDURAL')),
     CONSTRAINT check_light_type CHECK (babylonjs__light_type IN ('POINT', 'DIRECTIONAL', 'SPOT', 'HEMISPHERIC')),
     CONSTRAINT check_shadow_quality CHECK (babylonjs__shadow_quality IN ('LOW', 'MEDIUM', 'HIGH'))

@@ -29,8 +29,6 @@ CREATE TABLE public.roles (
     role_name TEXT PRIMARY KEY,
     description TEXT,
     is_system BOOLEAN NOT NULL DEFAULT FALSE,
-    parent_role TEXT REFERENCES roles(role_name),
-    hierarchy_path ltree,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -55,6 +53,4 @@ CREATE TABLE public.agent_sessions (
 );
 
 -- Indexes for Agent-related tables
-CREATE INDEX idx_roles_parent_role ON roles(parent_role);
-CREATE INDEX idx_roles_hierarchy_path ON roles USING GIST (hierarchy_path);
 CREATE INDEX idx_agent_roles_is_active ON agent_roles(is_active);

@@ -52,23 +52,11 @@ CREATE TYPE babylon_billboard_mode AS ENUM (
 CREATE TYPE babylon_light_mode AS ENUM ('default', 'shadowsOnly', 'specular');
 CREATE TYPE babylon_texture_color_space AS ENUM ('linear', 'sRGB', 'gamma');
 CREATE TYPE script_compilation_status AS ENUM ('PENDING', 'COMPILED', 'FAILED');
-CREATE TYPE mutation_type AS ENUM ('INSERT', 'UPDATE', 'DELETE');
-CREATE TYPE update_category AS ENUM ('FORCE', 'PROPERTY');
-CREATE TYPE mutation_status AS ENUM ('PENDING', 'PROCESSED', 'REJECTED');
-CREATE TYPE action_status AS ENUM (
-    'PENDING',
-    'IN_PROGRESS',
-    'COMPLETED',
-    'FAILED',
-    'EXPIRED',
-    'CANCELLED'
-);
 
 --
 -- SCRIPT SOURCES (BASE TABLE)
 --
 CREATE TABLE script_sources (
-    is_persistent BOOLEAN NOT NULL DEFAULT FALSE,
     web__compiled__node__script TEXT,
     web__compiled__node__script_sha256 TEXT,
     web__compiled__node__script_status script_compilation_status,
@@ -79,7 +67,9 @@ CREATE TABLE script_sources (
     web__compiled__browser__script_sha256 TEXT,
     web__compiled__browser__script_status script_compilation_status,
     git_repo_entry_path TEXT,
-    git_repo_url TEXT
+    git_repo_url TEXT,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 --
@@ -94,9 +84,6 @@ CREATE TABLE entities (
     general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     general__transform transform NOT NULL DEFAULT ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
     general__parent_entity_id UUID REFERENCES entities(general__uuid) ON DELETE CASCADE,
-    
-    view_role TEXT REFERENCES roles(role_name),
-    mutation_role TEXT REFERENCES roles(role_name),
     
     babylonjs__mesh_is_instance BOOLEAN DEFAULT FALSE,
     babylonjs__mesh_instance_of_id UUID REFERENCES entities(general__uuid) ON DELETE CASCADE,
@@ -217,18 +204,12 @@ CREATE TABLE entities (
     babylonjs__physics_collision_filter_mask INTEGER,
     babylonjs__physics_shape_type TEXT,
     babylonjs__physics_shape_data JSON,
+
+    permissions__can_view_roles TEXT[],
     
     CONSTRAINT check_general_type CHECK (general__type IN ('MODEL', 'LIGHT', 'VOLUME', 'AGENT', 'MATERIAL_STANDARD', 'MATERIAL_PROCEDURAL')),
     CONSTRAINT check_light_type CHECK (babylonjs__light_type IN ('POINT', 'DIRECTIONAL', 'SPOT', 'HEMISPHERIC')),
-    CONSTRAINT check_shadow_quality CHECK (babylonjs__shadow_quality IN ('LOW', 'MEDIUM', 'HIGH')),
-);
-
-CREATE TABLE entity_capabilities (
-    entity_id UUID REFERENCES entities(general__uuid) ON DELETE CASCADE,
-    can_view_role TEXT REFERENCES roles(role_name),
-    can_mutate_role TEXT REFERENCES roles(role_name),
-    has_full_access BOOLEAN DEFAULT FALSE,
-    PRIMARY KEY (entity_id)
+    CONSTRAINT check_shadow_quality CHECK (babylonjs__shadow_quality IN ('LOW', 'MEDIUM', 'HIGH'))
 );
 
 CREATE TABLE entities_metadata (
@@ -248,10 +229,9 @@ CREATE TABLE entities_metadata (
 -- ENTITY SCRIPTS
 --
 CREATE TABLE entity_scripts (
+    is_world_script BOOLEAN NOT NULL DEFAULT FALSE,
     entity_id UUID NOT NULL REFERENCES entities(general__uuid) ON DELETE CASCADE,
-    entity_script_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    entity_script_id UUID PRIMARY KEY DEFAULT uuid_generate_v4()
 ) INHERITS (script_sources);
 
 --
@@ -259,10 +239,7 @@ CREATE TABLE entity_scripts (
 --
 
 -- Entity and Capability Indexes
-CREATE INDEX idx_entities_view_role ON entities(view_role);
-CREATE INDEX idx_entities_mutation_role ON entities(mutation_role);
-CREATE INDEX idx_entity_capabilities_view_role ON entity_capabilities(can_view_role);
-CREATE INDEX idx_entity_capabilities_mutate_role ON entity_capabilities(can_mutate_role);
+CREATE INDEX idx_entities_permissions_can_view_roles ON entities USING GIN (permissions__can_view_roles);
 
 -- Entity Hierarchy Indexes
 CREATE INDEX idx_entities_parent_id ON entities(general__parent_entity_id);
@@ -286,12 +263,61 @@ CREATE INDEX idx_entities_material_custom_properties ON entities USING GIN ((bab
 CREATE INDEX idx_entities_material_shader_parameters ON entities USING GIN ((babylonjs__material_shader_parameters::jsonb));
 CREATE INDEX idx_entities_physics_shape_data ON entities USING GIN ((babylonjs__physics_shape_data::jsonb));
 
--- Actions and Mutations Indexes
-CREATE INDEX idx_actions_status ON actions(status);
-CREATE INDEX idx_actions_claimed_by ON actions(claimed_by);
-CREATE INDEX idx_actions_heartbeat ON actions(last_heartbeat) 
-    WHERE status = 'IN_PROGRESS';
-CREATE INDEX idx_actions_mutation_id ON actions(mutation_id);
-CREATE INDEX idx_actions_target_entities ON actions USING GIN (target_entities);
-CREATE INDEX idx_actions_metadata ON actions USING GIN (metadata jsonb_path_ops);
-CREATE INDEX idx_mutations_type ON mutations(mutation_type);
+-- Enable RLS on entities table
+ALTER TABLE entities ENABLE ROW LEVEL SECURITY;
+
+-- View policy for specified roles
+CREATE POLICY "entities_view_policy" ON entities
+    FOR SELECT
+    USING (
+        -- Entity is visible if the user has any of the roles listed in permissions__can_view_roles
+        EXISTS (
+            SELECT 1 
+            FROM agent_roles ar
+            WHERE ar.agent_id = auth.uid()
+            AND ar.is_active = true
+            AND ar.role_name = ANY(entities.permissions__can_view_roles)
+        )
+    );
+
+-- Update policy for system users
+CREATE POLICY "entities_update_policy" ON entities
+    FOR UPDATE
+    USING (
+        EXISTS (
+            SELECT 1 
+            FROM agent_roles ar
+            JOIN roles r ON ar.role_name = r.role_name
+            WHERE ar.agent_id = auth.uid()
+            AND ar.is_active = true
+            AND r.is_system = true
+        )
+    );
+
+-- Insert policy for system users
+CREATE POLICY "entities_insert_policy" ON entities
+    FOR INSERT
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 
+            FROM agent_roles ar
+            JOIN roles r ON ar.role_name = r.role_name
+            WHERE ar.agent_id = auth.uid()
+            AND ar.is_active = true
+            AND r.is_system = true
+        )
+    );
+
+-- Delete policy for system users
+CREATE POLICY "entities_delete_policy" ON entities
+    FOR DELETE
+    USING (
+        EXISTS (
+            SELECT 1 
+            FROM agent_roles ar
+            JOIN roles r ON ar.role_name = r.role_name
+            WHERE ar.agent_id = auth.uid()
+            AND ar.is_active = true
+            AND r.is_system = true
+        )
+    );

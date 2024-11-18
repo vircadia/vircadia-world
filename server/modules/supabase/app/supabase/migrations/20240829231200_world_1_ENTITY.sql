@@ -231,7 +231,8 @@ CREATE TABLE entities_metadata (
 CREATE TABLE entity_scripts (
     is_world_script BOOLEAN NOT NULL DEFAULT FALSE,
     entity_id UUID NOT NULL REFERENCES entities(general__uuid) ON DELETE CASCADE,
-    entity_script_id UUID PRIMARY KEY DEFAULT uuid_generate_v4()
+    entity_script_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    permissions__can_view_roles TEXT[]
 ) INHERITS (script_sources);
 
 --
@@ -310,6 +311,94 @@ CREATE POLICY "entities_insert_policy" ON entities
 
 -- Delete policy for system users
 CREATE POLICY "entities_delete_policy" ON entities
+    FOR DELETE
+    USING (
+        EXISTS (
+            SELECT 1 
+            FROM agent_roles ar
+            JOIN roles r ON ar.role_name = r.role_name
+            WHERE ar.agent_id = auth.uid()
+            AND ar.is_active = true
+            AND r.is_system = true
+        )
+    );
+
+-- Trigger function to enforce foreign key constraint on array elements
+CREATE OR REPLACE FUNCTION check_entity_permissions_roles()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Check each role in the permissions__can_view_roles array
+    PERFORM 1
+    FROM unnest(NEW.permissions__can_view_roles) AS role
+    WHERE NOT EXISTS (
+        SELECT 1 FROM roles WHERE role_name = role
+    );
+
+    IF FOUND THEN
+        RAISE EXCEPTION 'Role not found in roles table';
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger for entities table
+CREATE TRIGGER enforce_entities_permissions_roles
+BEFORE INSERT OR UPDATE ON entities
+FOR EACH ROW EXECUTE FUNCTION check_entity_permissions_roles();
+
+-- Trigger for entity_scripts table
+CREATE TRIGGER enforce_entity_scripts_permissions_roles
+BEFORE INSERT OR UPDATE ON entity_scripts
+FOR EACH ROW EXECUTE FUNCTION check_entity_permissions_roles();
+
+-- Enable RLS on entities_metadata table
+ALTER TABLE entities_metadata ENABLE ROW LEVEL SECURITY;
+
+-- View policy for `entities_metadata`
+CREATE POLICY "entities_metadata_view_policy" ON entities_metadata
+    FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 
+            FROM entities e
+            JOIN agent_roles ar ON ar.role_name = ANY(e.permissions__can_view_roles)
+            WHERE e.general__uuid = entities_metadata.entity_id
+            AND ar.agent_id = auth.uid()
+            AND ar.is_active = true
+        )
+    );
+
+-- Update policy for `entities_metadata`
+CREATE POLICY "entities_metadata_update_policy" ON entities_metadata
+    FOR UPDATE
+    USING (
+        EXISTS (
+            SELECT 1 
+            FROM agent_roles ar
+            JOIN roles r ON ar.role_name = r.role_name
+            WHERE ar.agent_id = auth.uid()
+            AND ar.is_active = true
+            AND r.is_system = true
+        )
+    );
+
+-- Insert policy for `entities_metadata`
+CREATE POLICY "entities_metadata_insert_policy" ON entities_metadata
+    FOR INSERT
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 
+            FROM agent_roles ar
+            JOIN roles r ON ar.role_name = r.role_name
+            WHERE ar.agent_id = auth.uid()
+            AND ar.is_active = true
+            AND r.is_system = true
+        )
+    );
+
+-- Delete policy for `entities_metadata`
+CREATE POLICY "entities_metadata_delete_policy" ON entities_metadata
     FOR DELETE
     USING (
         EXISTS (

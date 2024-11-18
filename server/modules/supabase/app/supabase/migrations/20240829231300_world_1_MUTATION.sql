@@ -19,8 +19,32 @@ CREATE TABLE mutations (
     mutation_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     mutation_type mutation_type NOT NULL,
     update_category update_category NOT NULL,
-    required_role TEXT REFERENCES roles(role_name)
+    required_role TEXT[] NOT NULL
 );
+
+-- Trigger function to enforce foreign key constraint on array elements
+CREATE OR REPLACE FUNCTION check_required_roles()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Check each role in the required_role array
+    PERFORM 1
+    FROM unnest(NEW.required_role) AS role
+    WHERE NOT EXISTS (
+        SELECT 1 FROM roles WHERE role_name = role
+    );
+
+    IF FOUND THEN
+        RAISE EXCEPTION 'Role not found in roles table';
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger to call the function on insert or update
+CREATE TRIGGER enforce_required_roles
+BEFORE INSERT OR UPDATE ON mutations
+FOR EACH ROW EXECUTE FUNCTION check_required_roles();
 
 CREATE TABLE actions (
     action_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

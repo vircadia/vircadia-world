@@ -44,7 +44,7 @@ max_client_conn = 2000
 enabled = true
 # Specifies an ordered list of seed files to load during db reset.
 # Supports glob patterns relative to supabase directory. For example:
-sql_paths = ['./seed/TEMP_DISABLE/*.sql']
+sql_paths = ['./seed/*.sql']
 
 [realtime]
 enabled = true

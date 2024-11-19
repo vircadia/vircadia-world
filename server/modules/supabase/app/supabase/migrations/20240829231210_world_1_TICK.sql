@@ -122,28 +122,28 @@ BEGIN
             tick_start_time,
             tick_end_time,
             tick_duration_ms,
-            name,
-            type,
-            position_x,
-            position_y,
-            position_z,
-            rotation_x,
-            rotation_y,
-            rotation_z,
-            rotation_w,
-            scale_x,
-            scale_y,
-            scale_z,
-            velocity_x,
-            velocity_y,
-            velocity_z,
-            angular_velocity_x,
-            angular_velocity_y,
-            angular_velocity_z,
-            mass,
-            restitution,
-            friction,
-            is_static
+            general__name,
+            general__type,
+            babylonjs__transform_position_x,
+            babylonjs__transform_position_y,
+            babylonjs__transform_position_z,
+            babylonjs__transform_rotation_x,
+            babylonjs__transform_rotation_y,
+            babylonjs__transform_rotation_z,
+            babylonjs__transform_rotation_w,
+            babylonjs__transform_scale_x,
+            babylonjs__transform_scale_y,
+            babylonjs__transform_scale_z,
+            babylonjs__physics_velocity_x,
+            babylonjs__physics_velocity_y,
+            babylonjs__physics_velocity_z,
+            babylonjs__physics_angular_velocity_x,
+            babylonjs__physics_angular_velocity_y,
+            babylonjs__physics_angular_velocity_z,
+            babylonjs__physics_mass,
+            babylonjs__physics_restitution,
+            babylonjs__physics_friction,
+            babylonjs__physics_is_static
         )
         SELECT 
             general__uuid AS entity_id,
@@ -217,19 +217,19 @@ CREATE OR REPLACE FUNCTION get_entity_state_at_timestamp(
     target_timestamp timestamptz
 ) RETURNS TABLE (
     entity_id uuid,
-    position_x float,
-    position_y float,
-    position_z float,
-    rotation_x float,
-    rotation_y float,
-    rotation_z float,
-    rotation_w float,
-    velocity_x float,
-    velocity_y float,
-    velocity_z float,
-    angular_velocity_x float,
-    angular_velocity_y float,
-    angular_velocity_z float
+    babylonjs__transform_position_x float,
+    babylonjs__transform_position_y float,
+    babylonjs__transform_position_z float,
+    babylonjs__transform_rotation_x float,
+    babylonjs__transform_rotation_y float,
+    babylonjs__transform_rotation_z float,
+    babylonjs__transform_rotation_w float,
+    babylonjs__physics_velocity_x float,
+    babylonjs__physics_velocity_y float,
+    babylonjs__physics_velocity_z float,
+    babylonjs__physics_angular_velocity_x float,
+    babylonjs__physics_angular_velocity_y float,
+    babylonjs__physics_angular_velocity_z float
 ) AS $$
 BEGIN
     RETURN QUERY
@@ -244,10 +244,19 @@ BEGIN
     )
     SELECT 
         entity_id,
-        position_x, position_y, position_z,
-        rotation_x, rotation_y, rotation_z, rotation_w,
-        velocity_x, velocity_y, velocity_z,
-        angular_velocity_x, angular_velocity_y, angular_velocity_z
+        babylonjs__transform_position_x,
+        babylonjs__transform_position_y,
+        babylonjs__transform_position_z,
+        babylonjs__transform_rotation_x,
+        babylonjs__transform_rotation_y,
+        babylonjs__transform_rotation_z,
+        babylonjs__transform_rotation_w,
+        babylonjs__physics_velocity_x,
+        babylonjs__physics_velocity_y,
+        babylonjs__physics_velocity_z,
+        babylonjs__physics_angular_velocity_x,
+        babylonjs__physics_angular_velocity_y,
+        babylonjs__physics_angular_velocity_z
     FROM closest_states
     WHERE rn = 1;
 END;

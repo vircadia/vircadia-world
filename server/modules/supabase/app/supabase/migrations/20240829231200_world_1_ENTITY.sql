@@ -234,10 +234,10 @@ CREATE TABLE entities_metadata (
     metadata_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     entity_id UUID NOT NULL REFERENCES entities(general__uuid) ON DELETE CASCADE,
     key TEXT NOT NULL,
-    values_text TEXT[],
-    values_numeric NUMERIC[],
-    values_boolean BOOLEAN[],
-    values_timestamp TIMESTAMPTZ[],
+    values__text TEXT[],
+    values__numeric NUMERIC[],
+    values__boolean BOOLEAN[],
+    values__timestamp TIMESTAMPTZ[],
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE (entity_id, key)
@@ -247,7 +247,7 @@ CREATE TABLE entities_metadata (
 -- ENTITY SCRIPTS
 --
 CREATE TABLE entity_scripts (
-    is_world_script BOOLEAN NOT NULL DEFAULT FALSE,
+    general__is_world_script BOOLEAN NOT NULL DEFAULT FALSE,
     entity_id UUID NOT NULL REFERENCES entities(general__uuid) ON DELETE CASCADE,
     entity_script_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     permissions__can_view_roles TEXT[]

@@ -38,38 +38,31 @@ CREATE TYPE transform AS (
 );
 
 --
--- ENUMS
---
-CREATE TYPE babylon_lod_mode AS ENUM ('distance', 'size');
-CREATE TYPE babylon_lod_level AS ENUM ('LOD0', 'LOD1', 'LOD2', 'LOD3', 'LOD4');
-CREATE TYPE babylon_billboard_mode AS ENUM (
-    'BILLBOARDMODE_NONE',
-    'BILLBOARDMODE_X',
-    'BILLBOARDMODE_Y',
-    'BILLBOARDMODE_Z',
-    'BILLBOARDMODE_ALL'
-);
-CREATE TYPE babylon_light_mode AS ENUM ('default', 'shadowsOnly', 'specular');
-CREATE TYPE babylon_texture_color_space AS ENUM ('linear', 'sRGB', 'gamma');
-CREATE TYPE script_compilation_status AS ENUM ('PENDING', 'COMPILED', 'FAILED');
-
---
 -- SCRIPT SOURCES (BASE TABLE)
 --
 CREATE TABLE script_sources (
     web__compiled__node__script TEXT,
     web__compiled__node__script_sha256 TEXT,
-    web__compiled__node__script_status script_compilation_status,
+    web__compiled__node__script_status TEXT,
     web__compiled__bun__script TEXT,
     web__compiled__bun__script_sha256 TEXT,
-    web__compiled__bun__script_status script_compilation_status,
+    web__compiled__bun__script_status TEXT,
     web__compiled__browser__script TEXT,
     web__compiled__browser__script_sha256 TEXT,
-    web__compiled__browser__script_status script_compilation_status,
+    web__compiled__browser__script_status TEXT,
     git_repo_entry_path TEXT,
     git_repo_url TEXT,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+
+    CONSTRAINT check_script_compilation_status CHECK (
+        (web__compiled__node__script_status IS NULL OR 
+         web__compiled__node__script_status IN ('PENDING', 'COMPILED', 'FAILED')) AND
+        (web__compiled__bun__script_status IS NULL OR 
+         web__compiled__bun__script_status IN ('PENDING', 'COMPILED', 'FAILED')) AND
+        (web__compiled__browser__script_status IS NULL OR 
+         web__compiled__browser__script_status IN ('PENDING', 'COMPILED', 'FAILED'))
+    )
 );
 
 --
@@ -102,15 +95,15 @@ CREATE TABLE entities (
     babylonjs__mesh_gltf_data JSONB,
     babylonjs__mesh_physics_properties JSON,
     babylonjs__mesh_joints joint[],
-    babylonjs__lod_mode babylon_lod_mode,
-    babylonjs__lod_level babylon_lod_level,
+    babylonjs__lod_mode TEXT,
+    babylonjs__lod_level TEXT,
     babylonjs__lod_auto BOOLEAN,
     babylonjs__lod_distance NUMERIC,
     babylonjs__lod_size NUMERIC,
     babylonjs__lod_hide NUMERIC,
-    babylonjs__billboard_mode babylon_billboard_mode,
+    babylonjs__billboard_mode TEXT,
     babylonjs__light_type TEXT,
-    babylonjs__light_mode babylon_light_mode,
+    babylonjs__light_mode TEXT,
     babylonjs__light_intensity FLOAT,
     babylonjs__light_range FLOAT,
     babylonjs__light_radius FLOAT,
@@ -144,23 +137,23 @@ CREATE TABLE entities (
     babylonjs__material_backFaceCulling BOOLEAN,
     babylonjs__material_wireframe BOOLEAN,
     babylonjs__material_diffuse_texture TEXT,
-    babylonjs__material_diffuse_texture_color_space babylon_texture_color_space,
+    babylonjs__material_diffuse_texture_color_space TEXT,
     babylonjs__material_ambient_texture TEXT,
-    babylonjs__material_ambient_texture_color_space babylon_texture_color_space,
+    babylonjs__material_ambient_texture_color_space TEXT,
     babylonjs__material_opacity_texture TEXT,
-    babylonjs__material_opacity_texture_color_space babylon_texture_color_space,
+    babylonjs__material_opacity_texture_color_space TEXT,
     babylonjs__material_reflection_texture TEXT,
-    babylonjs__material_reflection_texture_color_space babylon_texture_color_space,
+    babylonjs__material_reflection_texture_color_space TEXT,
     babylonjs__material_emissive_texture TEXT,
-    babylonjs__material_emissive_texture_color_space babylon_texture_color_space,
+    babylonjs__material_emissive_texture_color_space TEXT,
     babylonjs__material_specular_texture TEXT,
-    babylonjs__material_specular_texture_color_space babylon_texture_color_space,
+    babylonjs__material_specular_texture_color_space TEXT,
     babylonjs__material_bump_texture TEXT,
-    babylonjs__material_bump_texture_color_space babylon_texture_color_space,
+    babylonjs__material_bump_texture_color_space TEXT,
     babylonjs__material_lightmap_texture TEXT,
-    babylonjs__material_lightmap_texture_color_space babylon_texture_color_space,
+    babylonjs__material_lightmap_texture_color_space TEXT,
     babylonjs__material_refraction_texture TEXT,
-    babylonjs__material_refraction_texture_color_space babylon_texture_color_space,
+    babylonjs__material_refraction_texture_color_space TEXT,
     babylonjs__material_specular_power FLOAT,
     babylonjs__material_use_alpha_from_diffuse_texture BOOLEAN,
     babylonjs__material_use_emissive_as_illumination BOOLEAN,
@@ -176,13 +169,13 @@ CREATE TABLE entities (
     babylonjs__material_max_simultaneous_lights INTEGER,
     babylonjs__material_direct_intensity FLOAT,
     babylonjs__material_environment_texture TEXT,
-    babylonjs__material_environment_texture_color_space babylon_texture_color_space,
+    babylonjs__material_environment_texture_color_space TEXT,
     babylonjs__material_reflectivity_texture TEXT,
-    babylonjs__material_reflectivity_texture_color_space babylon_texture_color_space,
+    babylonjs__material_reflectivity_texture_color_space TEXT,
     babylonjs__material_metallic_texture TEXT,
-    babylonjs__material_metallic_texture_color_space babylon_texture_color_space,
+    babylonjs__material_metallic_texture_color_space TEXT,
     babylonjs__material_microsurface_texture TEXT,
-    babylonjs__material_microsurface_texture_color_space babylon_texture_color_space,
+    babylonjs__material_microsurface_texture_color_space TEXT,
     babylonjs__material_ambient_texture_strength FLOAT,
     babylonjs__material_ambient_texture_impact_on_analytical_lights FLOAT,
     babylonjs__material_metallic_f0_factor FLOAT,
@@ -225,9 +218,47 @@ CREATE TABLE entities (
     permissions__can_view_roles TEXT[],
 
 
-    CONSTRAINT check_general_type CHECK (general__type IN ('MODEL', 'LIGHT', 'VOLUME', 'AGENT', 'MATERIAL_STANDARD', 'MATERIAL_PROCEDURAL')),
+    CONSTRAINT check_general_type CHECK (general__type IN ('MESH', 'LIGHT', 'VOLUME', 'MATERIAL')),
+    CONSTRAINT check_lod_mode CHECK (babylonjs__lod_mode IN ('distance', 'size')),
+    CONSTRAINT check_lod_level CHECK (babylonjs__lod_level IN ('LOD0', 'LOD1', 'LOD2', 'LOD3', 'LOD4')),
+    CONSTRAINT check_billboard_mode CHECK (babylonjs__billboard_mode IN (
+        'BILLBOARDMODE_NONE',
+        'BILLBOARDMODE_X',
+        'BILLBOARDMODE_Y',
+        'BILLBOARDMODE_Z',
+        'BILLBOARDMODE_ALL'
+    )),
     CONSTRAINT check_light_type CHECK (babylonjs__light_type IN ('POINT', 'DIRECTIONAL', 'SPOT', 'HEMISPHERIC')),
-    CONSTRAINT check_shadow_quality CHECK (babylonjs__shadow_quality IN ('LOW', 'MEDIUM', 'HIGH'))
+    CONSTRAINT check_light_mode CHECK (babylonjs__light_mode IN ('default', 'shadowsOnly', 'specular')),
+    CONSTRAINT check_shadow_quality CHECK (babylonjs__shadow_quality IN ('LOW', 'MEDIUM', 'HIGH')),
+    CONSTRAINT check_texture_color_space CHECK (
+        (babylonjs__material_diffuse_texture_color_space IS NULL OR 
+         babylonjs__material_diffuse_texture_color_space IN ('linear', 'sRGB', 'gamma')) AND
+        (babylonjs__material_ambient_texture_color_space IS NULL OR 
+         babylonjs__material_ambient_texture_color_space IN ('linear', 'sRGB', 'gamma')) AND
+        (babylonjs__material_opacity_texture_color_space IS NULL OR 
+         babylonjs__material_opacity_texture_color_space IN ('linear', 'sRGB', 'gamma')) AND
+        (babylonjs__material_reflection_texture_color_space IS NULL OR 
+         babylonjs__material_reflection_texture_color_space IN ('linear', 'sRGB', 'gamma')) AND
+        (babylonjs__material_emissive_texture_color_space IS NULL OR 
+         babylonjs__material_emissive_texture_color_space IN ('linear', 'sRGB', 'gamma')) AND
+        (babylonjs__material_specular_texture_color_space IS NULL OR 
+         babylonjs__material_specular_texture_color_space IN ('linear', 'sRGB', 'gamma')) AND
+        (babylonjs__material_bump_texture_color_space IS NULL OR 
+         babylonjs__material_bump_texture_color_space IN ('linear', 'sRGB', 'gamma')) AND
+        (babylonjs__material_lightmap_texture_color_space IS NULL OR 
+         babylonjs__material_lightmap_texture_color_space IN ('linear', 'sRGB', 'gamma')) AND
+        (babylonjs__material_refraction_texture_color_space IS NULL OR 
+         babylonjs__material_refraction_texture_color_space IN ('linear', 'sRGB', 'gamma')) AND
+        (babylonjs__material_environment_texture_color_space IS NULL OR 
+         babylonjs__material_environment_texture_color_space IN ('linear', 'sRGB', 'gamma')) AND
+        (babylonjs__material_reflectivity_texture_color_space IS NULL OR 
+         babylonjs__material_reflectivity_texture_color_space IN ('linear', 'sRGB', 'gamma')) AND
+        (babylonjs__material_metallic_texture_color_space IS NULL OR 
+         babylonjs__material_metallic_texture_color_space IN ('linear', 'sRGB', 'gamma')) AND
+        (babylonjs__material_microsurface_texture_color_space IS NULL OR 
+         babylonjs__material_microsurface_texture_color_space IN ('linear', 'sRGB', 'gamma'))
+    )
 );
 
 CREATE TABLE entities_metadata (

@@ -218,7 +218,7 @@ CREATE TABLE entities (
     permissions__can_view_roles TEXT[],
 
 
-    CONSTRAINT check_general_type CHECK (general__type IN ('MESH', 'LIGHT', 'VOLUME', 'MATERIAL')),
+    CONSTRAINT check_general_type CHECK (general__type IN ('MESH', 'LIGHT', 'VOLUME', 'MATERIAL', 'CAMERA')),
     CONSTRAINT check_lod_mode CHECK (babylonjs__lod_mode IN ('distance', 'size')),
     CONSTRAINT check_lod_level CHECK (babylonjs__lod_level IN ('LOD0', 'LOD1', 'LOD2', 'LOD3', 'LOD4')),
     CONSTRAINT check_billboard_mode CHECK (babylonjs__billboard_mode IN (

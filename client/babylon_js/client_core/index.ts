@@ -4,23 +4,21 @@ import {
     type SupabaseClient,
     type Provider,
 } from "@supabase/supabase-js";
-import type * as BABYLON from "@babylonjs/core";
+import type { Scene } from "@babylonjs/core";
 
-interface WorldConfig {
-    url: string;
-    key: string;
-    scene: BABYLON.Scene;
-    email?: string;
-    password?: string;
-}
-
-export class World {
+export class ClientCore {
     private supabase: SupabaseClient | null = null;
-    private _scene: BABYLON.Scene | null = null;
-    private _isConnected: boolean = false;
-    private _isAuthenticated: boolean = false;
+    private _scene: Scene | null = null;
+    private _isConnected = false;
+    private _isAuthenticated = false;
 
-    constructor(config: WorldConfig) {
+    constructor(config: {
+        url: string;
+        key: string;
+        scene: Scene;
+        email?: string;
+        password?: string;
+    }) {
         makeAutoObservable(this, {}, { autoBind: true });
 
         this.connect(config);
@@ -39,11 +37,27 @@ export class World {
         return this._isAuthenticated;
     }
 
-    private async connect({ url, key, scene, email, password }: WorldConfig) {
+    get client() {
+        return this.supabase;
+    }
+
+    private async connect({
+        url,
+        key,
+        scene,
+        email,
+        password,
+    }: {
+        url: string;
+        key: string;
+        scene: Scene;
+        email?: string;
+        password?: string;
+    }): Promise<SupabaseClient> {
         try {
             this._scene = scene;
             this.supabase = createClient(url, key);
-            await this.supabase.realtime.connect();
+            this.supabase.realtime.connect();
             this._isConnected = true;
 
             if (email && password) {
@@ -55,6 +69,8 @@ export class World {
                 type: "info",
                 url,
             });
+
+            return this.supabase;
         } catch (error) {
             console.error("Failed to connect to world:", error);
             await this.destroy();
@@ -82,19 +98,6 @@ export class World {
             console.error("Error destroying world:", error);
             throw error;
         }
-    }
-
-    // Add methods for world interaction here
-    // For example:
-    async subscribeToChannel(
-        channelName: string,
-        callback: (payload: any) => void,
-    ) {
-        if (!this.supabase || !this._isConnected) {
-            throw new Error("World not connected");
-        }
-
-        return this.supabase.channel(channelName).subscribe(callback);
     }
 
     async loginWithEmail(email: string, password: string) {

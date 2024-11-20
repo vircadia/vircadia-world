@@ -3,6 +3,7 @@ import { type BuildOutput, build } from "bun";
 import { temporaryDirectory } from "tempy";
 import { log } from "../../../../sdk/vircadia-world-sdk-ts/module/general/log";
 import { World } from "../../../../sdk/vircadia-world-sdk-ts/schema/schema";
+import type { ClientCore } from "../../client_core";
 
 // Helper function to clone and prepare git repos
 async function prepareGitRepo(
@@ -132,11 +133,6 @@ async function compileScript(path: string, debugMode: boolean) {
             ...(debugMode && { stack: error.stack }),
         };
     }
-}
-
-interface ServiceConfig {
-    debug: boolean;
-    supabase: SupabaseClient;
 }
 
 async function handleEntityChange(
@@ -308,12 +304,15 @@ function checkIfCompilationNeeded(entity: any): boolean {
 }
 
 export class BunScriptBundleService {
-    private supabase: SupabaseClient;
+    private worldClient: ClientCore;
     private debug: boolean;
-    private subscription: RealtimeChannel | null = null;
+    private subscription: RealtimeChannel | undefined = undefined;
 
-    constructor(config: ServiceConfig) {
-        this.supabase = config.supabase;
+    constructor(config: {
+        worldClient: ClientCore;
+        debug: boolean;
+    }) {
+        this.worldClient = config.worldClient;
         this.debug = config.debug;
     }
 
@@ -324,8 +323,8 @@ export class BunScriptBundleService {
             debug: this.debug,
         });
 
-        this.subscription = this.supabase
-            .channel("entity-script-changes")
+        this.subscription = this.worldClient.client
+            ?.channel("entity-script-changes")
             .on(
                 "postgres_changes",
                 {
@@ -347,7 +346,7 @@ export class BunScriptBundleService {
     async stop() {
         if (this.subscription) {
             await this.subscription.unsubscribe();
-            this.subscription = null;
+            this.subscription = undefined;
             log({
                 message: "Babylon Script Bundle Service stopped",
                 type: "info",
@@ -357,11 +356,14 @@ export class BunScriptBundleService {
     }
 
     private async handleEntityChange(payload: any) {
-        return handleEntityChange(payload, this.debug, this.supabase);
+        return handleEntityChange(payload, this.debug, this.worldClient.client);
     }
 }
 
-export async function startBunScriptBundleService(config: ServiceConfig) {
+export async function startBunScriptBundleService(config: {
+    worldClient: ClientCore;
+    debug: boolean;
+}) {
     const service = new BunScriptBundleService(config);
     await service.start();
     return service;

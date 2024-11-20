@@ -41,5 +41,5 @@ If you update the schemas, you need to generate the types again. You can use the
 following command:
 
 ```bash
-supabase --workdir $PWD gen types --lang=typescript --local > ../../vircadia-world-sdk-ts/shared/modules/vircadia-world-meta/typescript/database.types.ts
+supabase --workdir $PWD gen types --lang=typescript --local > ../../../../sdk/vircadia-world-sdk-ts/schema/database.types.ts
 ```

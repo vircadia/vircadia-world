@@ -1,6 +1,6 @@
 import { startBunScriptBundleService } from "./service/bun_script_bundle";
 import { ClientCore } from "../client_core";
-import { ClientCore__VircadiaConfig } from "../client_core/vircadia.client.config";
+import { ClientCore__VircadiaConfig } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.client.config";
 import { type Engine, NullEngine, Scene } from "@babylonjs/core";
 
 let worldClient: ClientCore | null = null;

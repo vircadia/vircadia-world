@@ -226,7 +226,6 @@ CREATE TABLE entities (
     babylonjs__material_enable_specular_anti_aliasing BOOLEAN,
     babylonjs__material_environment_intensity FLOAT,
     babylonjs__material_index_of_refraction FLOAT,
-    babylonjs__material_max_simultaneous_lights INTEGER,
     babylonjs__material_direct_intensity FLOAT,
     babylonjs__material_environment_texture TEXT,
     babylonjs__material_environment_texture_color_space texture_color_space_enum,
@@ -415,7 +414,7 @@ CREATE POLICY "entities_view_policy" ON entities
             FROM agent_roles ar
             WHERE ar.agent_id = auth.uid()
             AND ar.is_active = true
-            AND ar.role_name = ANY(entities.permissions__can_view_roles)
+            AND ar.role_name = ANY(entities.general__permissions__can_view_roles)
         )
     );
 
@@ -481,7 +480,7 @@ CREATE POLICY "entities_metadata_view_policy" ON entities_metadata
         EXISTS (
             SELECT 1 
             FROM entities e
-            JOIN agent_roles ar ON ar.role_name = ANY(e.permissions__can_view_roles)
+            JOIN agent_roles ar ON ar.role_name = ANY(e.general__permissions__can_view_roles)
             WHERE e.general__uuid = entities_metadata.entity_id
             AND ar.agent_id = auth.uid()
             AND ar.is_active = true

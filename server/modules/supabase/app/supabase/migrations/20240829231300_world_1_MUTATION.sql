@@ -1,9 +1,7 @@
 --
--- MUTATIONS AND ACTIONS
+-- ACTIONS
 --
 
-CREATE TYPE mutation_type AS ENUM ('INSERT', 'UPDATE', 'DELETE');
-CREATE TYPE update_category AS ENUM ('FORCE', 'PROPERTY');
 CREATE TYPE action_status AS ENUM (
     'PENDING',
     'IN_PROGRESS',
@@ -14,73 +12,184 @@ CREATE TYPE action_status AS ENUM (
     'CANCELLED'
 );
 
-CREATE TABLE mutations (
-    LIKE script_sources INCLUDING ALL,
-    general__mutation_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    general__mutation_type mutation_type NOT NULL,
-    general__update_category update_category NOT NULL,
-    permissions__required_role TEXT[] NOT NULL
-);
-
--- Trigger function to enforce foreign key constraint on array elements
-CREATE OR REPLACE FUNCTION check_required_roles()
-RETURNS TRIGGER AS $$
-BEGIN
-    -- Check each role in the required_role array
-    PERFORM 1
-    FROM unnest(NEW.required_role) AS role
-    WHERE NOT EXISTS (
-        SELECT 1 FROM roles WHERE role_name = role
-    );
-
-    IF FOUND THEN
-        RAISE EXCEPTION 'Role not found in roles table';
-    END IF;
-
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Trigger to call the function on insert or update
-CREATE TRIGGER enforce_required_roles
-BEFORE INSERT OR UPDATE ON mutations
-FOR EACH ROW EXECUTE FUNCTION check_required_roles();
-
 CREATE TABLE actions (
     general__action_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    general__mutation_id UUID REFERENCES mutations(general__mutation_id) NOT NULL,
+    general__entity_script_id UUID REFERENCES entity_scripts(entity_script_id) NOT NULL,
     general__action_status action_status NOT NULL DEFAULT 'PENDING',
     general__claimed_by UUID REFERENCES agent_profiles(id),
-    general__target_entities UUID[] NOT NULL,
-    general__action_data JSONB,
+    general__action_data JSONB NOT NULL,
     general__last_heartbeat TIMESTAMPTZ,
-    general__timeout_duration INTERVAL NOT NULL DEFAULT '5 minutes'::INTERVAL,
-    general__created_at TIMESTAMPTZ DEFAULT NOW()
+    general__created_at TIMESTAMPTZ DEFAULT NOW(),
+    general__created_by UUID DEFAULT auth.uid(),
+    CONSTRAINT check_action_data_format CHECK (
+        general__action_data ? 'operation' AND
+        general__action_data ? 'entity_id' AND
+        general__action_data ? 'action_input' AND
+        (general__action_data->>'operation' IN ('INSERT', 'UPDATE', 'DELETE'))
+    )
 );
 
--- Mutation and Action Indexes
-CREATE INDEX idx_mutations_required_role ON mutations(permissions__required_role);
-CREATE INDEX idx_mutations_type ON mutations(general__mutation_type);
+-- Entity Mutation Functions
+CREATE OR REPLACE FUNCTION create_entity_with_action(
+    p_entity_script_id UUID,
+    p_action_input JSONB,
+    p_entity_data JSONB
+) RETURNS UUID AS $$
+DECLARE
+    v_entity_id UUID;
+BEGIN
+    -- Validate script exists
+    IF NOT EXISTS (SELECT 1 FROM entity_scripts WHERE entity_script_id = p_entity_script_id) THEN
+        RAISE EXCEPTION 'Invalid entity_script_id';
+    END IF;
+
+    -- Create the entity
+    INSERT INTO entities (
+        general__uuid,
+        general__name,
+        general__type,
+        permissions__can_view_roles,
+        general__created_at,
+        general__updated_at
+    )
+    SELECT 
+        coalesce(p_entity_data->>'general__uuid', uuid_generate_v4()),
+        p_entity_data->>'general__name',
+        (p_entity_data->>'general__type')::general_type_enum,
+        (p_entity_data->'permissions__can_view_roles')::text[],
+        NOW(),
+        NOW()
+    RETURNING general__uuid INTO v_entity_id;
+
+    -- Create the action record
+    INSERT INTO actions (
+        general__entity_script_id,
+        general__action_status,
+        general__action_data,
+        general__created_by
+    ) 
+    SELECT
+        p_entity_script_id,
+        'COMPLETED',
+        jsonb_build_object(
+            'operation', 'INSERT',
+            'entity_id', v_entity_id,
+            'action_input', p_action_input,
+            'resulting_entity', row_to_json(e)::jsonb
+        ),
+        auth.uid()
+    FROM entities e WHERE e.general__uuid = v_entity_id;
+
+    RETURN v_entity_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION update_entity_with_action(
+    p_entity_id UUID,
+    p_entity_script_id UUID,
+    p_action_input JSONB,
+    p_entity_data JSONB
+) RETURNS VOID AS $$
+DECLARE
+    v_old_data JSONB;
+    v_new_data JSONB;
+BEGIN
+    -- Capture old state
+    SELECT row_to_json(e)::jsonb INTO v_old_data 
+    FROM entities e WHERE e.general__uuid = p_entity_id;
+
+    IF v_old_data IS NULL THEN
+        RAISE EXCEPTION 'Entity not found';
+    END IF;
+
+    -- Update the entity
+    UPDATE entities
+    SET
+        general__name = COALESCE(p_entity_data->>'general__name', general__name),
+        general__type = COALESCE((p_entity_data->>'general__type')::general_type_enum, general__type),
+        permissions__can_view_roles = COALESCE((p_entity_data->'permissions__can_view_roles')::text[], permissions__can_view_roles),
+        general__updated_at = NOW()
+    WHERE general__uuid = p_entity_id;
+
+    -- Get updated entity data
+    SELECT row_to_json(e)::jsonb INTO v_new_data
+    FROM entities e WHERE e.general__uuid = p_entity_id;
+
+    -- Create action record
+    INSERT INTO actions (
+        general__entity_script_id,
+        general__action_status,
+        general__action_data,
+        general__created_by
+    ) VALUES (
+        p_entity_script_id,
+        'COMPLETED',
+        jsonb_build_object(
+            'operation', 'UPDATE',
+            'entity_id', p_entity_id,
+            'action_input', p_action_input,
+            'old_entity', v_old_data,
+            'resulting_entity', v_new_data
+        ),
+        auth.uid()
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION delete_entity_with_action(
+    p_entity_id UUID,
+    p_entity_script_id UUID,
+    p_action_input JSONB
+) RETURNS VOID AS $$
+DECLARE
+    v_old_data JSONB;
+BEGIN
+    -- Capture old state
+    SELECT row_to_json(e)::jsonb INTO v_old_data 
+    FROM entities e WHERE e.general__uuid = p_entity_id;
+
+    IF v_old_data IS NULL THEN
+        RAISE EXCEPTION 'Entity not found';
+    END IF;
+
+    -- Delete the entity
+    DELETE FROM entities WHERE general__uuid = p_entity_id;
+
+    -- Create action record
+    INSERT INTO actions (
+        general__entity_script_id,
+        general__action_status,
+        general__action_data,
+        general__created_by
+    ) VALUES (
+        p_entity_script_id,
+        'COMPLETED',
+        jsonb_build_object(
+            'operation', 'DELETE',
+            'entity_id', p_entity_id,
+            'action_input', p_action_input,
+            'deleted_entity', v_old_data
+        ),
+        auth.uid()
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Action Indexes
 CREATE INDEX idx_actions_status ON actions(general__action_status);
 CREATE INDEX idx_actions_claimed_by ON actions(general__claimed_by);
 CREATE INDEX idx_actions_heartbeat ON actions(general__last_heartbeat) 
     WHERE general__action_status = 'IN_PROGRESS';
-CREATE INDEX idx_actions_mutation_id ON actions(general__mutation_id);
-CREATE INDEX idx_actions_target_entities ON actions USING GIN (general__target_entities);
-CREATE INDEX idx_actions_metadata ON actions USING GIN (general__action_data jsonb_path_ops);
 
 -- Enable RLS
-ALTER TABLE mutations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE actions ENABLE ROW LEVEL SECURITY;
 
--- Mutations policies
-CREATE POLICY mutations_read_all ON mutations
+-- RLS Policies
+CREATE POLICY actions_read_creator_and_system ON actions
     FOR SELECT TO PUBLIC
-    USING (true);
-
-CREATE POLICY mutations_modify_system ON mutations
-    FOR ALL TO PUBLIC
     USING (
+        auth.uid() = general__created_by
+        OR 
         EXISTS (
             SELECT 1 FROM agent_roles ar
             WHERE ar.agent_id = auth.uid()
@@ -91,11 +200,6 @@ CREATE POLICY mutations_modify_system ON mutations
             AND ar.is_active = true
         )
     );
-
--- Actions policies
-CREATE POLICY actions_read_all ON actions
-    FOR SELECT TO PUBLIC
-    USING (true);
 
 CREATE POLICY actions_create_system ON actions
     FOR INSERT TO PUBLIC
@@ -140,6 +244,7 @@ CREATE POLICY actions_update_status_claimed ON actions
         )
     );
 
+-- Utility Functions
 CREATE OR REPLACE FUNCTION expire_abandoned_actions(threshold_ms INTEGER)
 RETURNS void AS $$
 BEGIN
@@ -153,7 +258,6 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION cleanup_inactive_actions(retain_count INTEGER)
 RETURNS void AS $$
 BEGIN
-    -- Delete excess inactive actions, keeping the most recent ones
     DELETE FROM actions
     WHERE general__action_id IN (
         SELECT general__action_id
@@ -170,3 +274,10 @@ BEGIN
     );
 END;
 $$ LANGUAGE plpgsql;
+
+-- Grant execute permissions on functions
+GRANT EXECUTE ON FUNCTION create_entity_with_action TO PUBLIC;
+GRANT EXECUTE ON FUNCTION update_entity_with_action TO PUBLIC;
+GRANT EXECUTE ON FUNCTION delete_entity_with_action TO PUBLIC;
+GRANT EXECUTE ON FUNCTION expire_abandoned_actions TO PUBLIC;
+GRANT EXECUTE ON FUNCTION cleanup_inactive_actions TO PUBLIC;

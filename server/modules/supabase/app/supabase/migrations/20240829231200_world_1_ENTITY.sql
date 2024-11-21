@@ -37,6 +37,21 @@ CREATE TYPE transform AS (
     scale vector3
 );
 
+CREATE TYPE general_type_enum AS ENUM ('MESH', 'LIGHT', 'VOLUME', 'MATERIAL', 'CAMERA');
+CREATE TYPE lod_mode_enum AS ENUM ('distance', 'size');
+CREATE TYPE lod_level_enum AS ENUM ('LOD0', 'LOD1', 'LOD2', 'LOD3', 'LOD4');
+CREATE TYPE billboard_mode_enum AS ENUM (
+    'BILLBOARDMODE_NONE',
+    'BILLBOARDMODE_X',
+    'BILLBOARDMODE_Y',
+    'BILLBOARDMODE_Z',
+    'BILLBOARDMODE_ALL'
+);
+CREATE TYPE light_type_enum AS ENUM ('POINT', 'DIRECTIONAL', 'SPOT', 'HEMISPHERIC');
+CREATE TYPE light_mode_enum AS ENUM ('default', 'shadowsOnly', 'specular');
+CREATE TYPE shadow_quality_enum AS ENUM ('LOW', 'MEDIUM', 'HIGH');
+CREATE TYPE texture_color_space_enum AS ENUM ('linear', 'sRGB', 'gamma');
+
 --
 -- SCRIPT SOURCES (BASE TABLE)
 --
@@ -71,7 +86,7 @@ CREATE TABLE script_sources (
 CREATE TABLE entities (
     general__uuid UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     general__name VARCHAR(255) NOT NULL,
-    general__type TEXT NOT NULL,
+    general__type general_type_enum NOT NULL,
     general__semantic_version TEXT NOT NULL DEFAULT '1.0.0',
     general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -95,15 +110,15 @@ CREATE TABLE entities (
     babylonjs__mesh_gltf_data JSONB,
     babylonjs__mesh_physics_properties JSON,
     babylonjs__mesh_joints joint[],
-    babylonjs__lod_mode TEXT,
-    babylonjs__lod_level TEXT,
+    babylonjs__lod_mode lod_mode_enum,
+    babylonjs__lod_level lod_level_enum,
     babylonjs__lod_auto BOOLEAN,
     babylonjs__lod_distance NUMERIC,
     babylonjs__lod_size NUMERIC,
     babylonjs__lod_hide NUMERIC,
-    babylonjs__billboard_mode TEXT,
-    babylonjs__light_type TEXT,
-    babylonjs__light_mode TEXT,
+    babylonjs__billboard_mode billboard_mode_enum,
+    babylonjs__light_type light_type_enum,
+    babylonjs__light_mode light_mode_enum,
     babylonjs__light_intensity FLOAT,
     babylonjs__light_range FLOAT,
     babylonjs__light_radius FLOAT,
@@ -121,7 +136,7 @@ CREATE TABLE entities (
     babylonjs__shadow_darkness FLOAT,
     babylonjs__shadow_frustum_size FLOAT,
     babylonjs__shadow_map_size INTEGER,
-    babylonjs__shadow_quality TEXT,
+    babylonjs__shadow_quality shadow_quality_enum,
     babylonjs__exclude_mesh_ids TEXT[],
     babylonjs__include_only_mesh_ids TEXT[],
     
@@ -137,23 +152,23 @@ CREATE TABLE entities (
     babylonjs__material_backFaceCulling BOOLEAN,
     babylonjs__material_wireframe BOOLEAN,
     babylonjs__material_diffuse_texture TEXT,
-    babylonjs__material_diffuse_texture_color_space TEXT,
+    babylonjs__material_diffuse_texture_color_space texture_color_space_enum,
     babylonjs__material_ambient_texture TEXT,
-    babylonjs__material_ambient_texture_color_space TEXT,
+    babylonjs__material_ambient_texture_color_space texture_color_space_enum,
     babylonjs__material_opacity_texture TEXT,
-    babylonjs__material_opacity_texture_color_space TEXT,
+    babylonjs__material_opacity_texture_color_space texture_color_space_enum,
     babylonjs__material_reflection_texture TEXT,
-    babylonjs__material_reflection_texture_color_space TEXT,
+    babylonjs__material_reflection_texture_color_space texture_color_space_enum,
     babylonjs__material_emissive_texture TEXT,
-    babylonjs__material_emissive_texture_color_space TEXT,
+    babylonjs__material_emissive_texture_color_space texture_color_space_enum,
     babylonjs__material_specular_texture TEXT,
-    babylonjs__material_specular_texture_color_space TEXT,
+    babylonjs__material_specular_texture_color_space texture_color_space_enum,
     babylonjs__material_bump_texture TEXT,
-    babylonjs__material_bump_texture_color_space TEXT,
+    babylonjs__material_bump_texture_color_space texture_color_space_enum,
     babylonjs__material_lightmap_texture TEXT,
-    babylonjs__material_lightmap_texture_color_space TEXT,
+    babylonjs__material_lightmap_texture_color_space texture_color_space_enum,
     babylonjs__material_refraction_texture TEXT,
-    babylonjs__material_refraction_texture_color_space TEXT,
+    babylonjs__material_refraction_texture_color_space texture_color_space_enum,
     babylonjs__material_specular_power FLOAT,
     babylonjs__material_use_alpha_from_diffuse_texture BOOLEAN,
     babylonjs__material_use_emissive_as_illumination BOOLEAN,
@@ -169,13 +184,13 @@ CREATE TABLE entities (
     babylonjs__material_max_simultaneous_lights INTEGER,
     babylonjs__material_direct_intensity FLOAT,
     babylonjs__material_environment_texture TEXT,
-    babylonjs__material_environment_texture_color_space TEXT,
+    babylonjs__material_environment_texture_color_space texture_color_space_enum,
     babylonjs__material_reflectivity_texture TEXT,
-    babylonjs__material_reflectivity_texture_color_space TEXT,
+    babylonjs__material_reflectivity_texture_color_space texture_color_space_enum,
     babylonjs__material_metallic_texture TEXT,
-    babylonjs__material_metallic_texture_color_space TEXT,
+    babylonjs__material_metallic_texture_color_space texture_color_space_enum,
     babylonjs__material_microsurface_texture TEXT,
-    babylonjs__material_microsurface_texture_color_space TEXT,
+    babylonjs__material_microsurface_texture_color_space texture_color_space_enum,
     babylonjs__material_ambient_texture_strength FLOAT,
     babylonjs__material_ambient_texture_impact_on_analytical_lights FLOAT,
     babylonjs__material_metallic_f0_factor FLOAT,
@@ -215,50 +230,7 @@ CREATE TABLE entities (
     babylonjs__physics_angular_velocity_z FLOAT DEFAULT 0,
     babylonjs__physics_is_static BOOLEAN DEFAULT false,
 
-    permissions__can_view_roles TEXT[],
-
-
-    CONSTRAINT check_general_type CHECK (general__type IN ('MESH', 'LIGHT', 'VOLUME', 'MATERIAL', 'CAMERA')),
-    CONSTRAINT check_lod_mode CHECK (babylonjs__lod_mode IN ('distance', 'size')),
-    CONSTRAINT check_lod_level CHECK (babylonjs__lod_level IN ('LOD0', 'LOD1', 'LOD2', 'LOD3', 'LOD4')),
-    CONSTRAINT check_billboard_mode CHECK (babylonjs__billboard_mode IN (
-        'BILLBOARDMODE_NONE',
-        'BILLBOARDMODE_X',
-        'BILLBOARDMODE_Y',
-        'BILLBOARDMODE_Z',
-        'BILLBOARDMODE_ALL'
-    )),
-    CONSTRAINT check_light_type CHECK (babylonjs__light_type IN ('POINT', 'DIRECTIONAL', 'SPOT', 'HEMISPHERIC')),
-    CONSTRAINT check_light_mode CHECK (babylonjs__light_mode IN ('default', 'shadowsOnly', 'specular')),
-    CONSTRAINT check_shadow_quality CHECK (babylonjs__shadow_quality IN ('LOW', 'MEDIUM', 'HIGH')),
-    CONSTRAINT check_texture_color_space CHECK (
-        (babylonjs__material_diffuse_texture_color_space IS NULL OR 
-         babylonjs__material_diffuse_texture_color_space IN ('linear', 'sRGB', 'gamma')) AND
-        (babylonjs__material_ambient_texture_color_space IS NULL OR 
-         babylonjs__material_ambient_texture_color_space IN ('linear', 'sRGB', 'gamma')) AND
-        (babylonjs__material_opacity_texture_color_space IS NULL OR 
-         babylonjs__material_opacity_texture_color_space IN ('linear', 'sRGB', 'gamma')) AND
-        (babylonjs__material_reflection_texture_color_space IS NULL OR 
-         babylonjs__material_reflection_texture_color_space IN ('linear', 'sRGB', 'gamma')) AND
-        (babylonjs__material_emissive_texture_color_space IS NULL OR 
-         babylonjs__material_emissive_texture_color_space IN ('linear', 'sRGB', 'gamma')) AND
-        (babylonjs__material_specular_texture_color_space IS NULL OR 
-         babylonjs__material_specular_texture_color_space IN ('linear', 'sRGB', 'gamma')) AND
-        (babylonjs__material_bump_texture_color_space IS NULL OR 
-         babylonjs__material_bump_texture_color_space IN ('linear', 'sRGB', 'gamma')) AND
-        (babylonjs__material_lightmap_texture_color_space IS NULL OR 
-         babylonjs__material_lightmap_texture_color_space IN ('linear', 'sRGB', 'gamma')) AND
-        (babylonjs__material_refraction_texture_color_space IS NULL OR 
-         babylonjs__material_refraction_texture_color_space IN ('linear', 'sRGB', 'gamma')) AND
-        (babylonjs__material_environment_texture_color_space IS NULL OR 
-         babylonjs__material_environment_texture_color_space IN ('linear', 'sRGB', 'gamma')) AND
-        (babylonjs__material_reflectivity_texture_color_space IS NULL OR 
-         babylonjs__material_reflectivity_texture_color_space IN ('linear', 'sRGB', 'gamma')) AND
-        (babylonjs__material_metallic_texture_color_space IS NULL OR 
-         babylonjs__material_metallic_texture_color_space IN ('linear', 'sRGB', 'gamma')) AND
-        (babylonjs__material_microsurface_texture_color_space IS NULL OR 
-         babylonjs__material_microsurface_texture_color_space IN ('linear', 'sRGB', 'gamma'))
-    )
+    permissions__can_view_roles TEXT[]
 );
 
 CREATE TABLE entities_metadata (
@@ -277,11 +249,10 @@ CREATE TABLE entities_metadata (
 --
 -- ENTITY SCRIPTS
 --
+
 CREATE TABLE entity_scripts (
-    general__is_world_script BOOLEAN NOT NULL DEFAULT FALSE,
     entity_id UUID NOT NULL REFERENCES entities(general__uuid) ON DELETE CASCADE,
-    entity_script_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    permissions__can_view_roles TEXT[]
+    entity_script_id UUID PRIMARY KEY DEFAULT uuid_generate_v4()
 ) INHERITS (script_sources);
 
 --
@@ -320,7 +291,6 @@ ALTER TABLE entities ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "entities_view_policy" ON entities
     FOR SELECT
     USING (
-        -- Entity is visible if the user has any of the roles listed in permissions__can_view_roles
         EXISTS (
             SELECT 1 
             FROM agent_roles ar
@@ -330,46 +300,27 @@ CREATE POLICY "entities_view_policy" ON entities
         )
     );
 
--- Update policy for system users
+-- Update policy - ONLY allow through mutation functions
 CREATE POLICY "entities_update_policy" ON entities
     FOR UPDATE
     USING (
-        EXISTS (
-            SELECT 1 
-            FROM agent_roles ar
-            JOIN roles r ON ar.role_name = r.role_name
-            WHERE ar.agent_id = auth.uid()
-            AND ar.is_active = true
-            AND r.is_system = true
-        )
+        -- Only allow updates through our mutation functions
+        -- which run as security definer
+        current_setting('role') = 'rls_definer'
     );
 
--- Insert policy for system users
+-- Insert policy - ONLY allow through mutation functions
 CREATE POLICY "entities_insert_policy" ON entities
     FOR INSERT
     WITH CHECK (
-        EXISTS (
-            SELECT 1 
-            FROM agent_roles ar
-            JOIN roles r ON ar.role_name = r.role_name
-            WHERE ar.agent_id = auth.uid()
-            AND ar.is_active = true
-            AND r.is_system = true
-        )
+        current_setting('role') = 'rls_definer'
     );
 
--- Delete policy for system users
+-- Delete policy - ONLY allow through mutation functions
 CREATE POLICY "entities_delete_policy" ON entities
     FOR DELETE
     USING (
-        EXISTS (
-            SELECT 1 
-            FROM agent_roles ar
-            JOIN roles r ON ar.role_name = r.role_name
-            WHERE ar.agent_id = auth.uid()
-            AND ar.is_active = true
-            AND r.is_system = true
-        )
+        current_setting('role') = 'rls_definer'
     );
 
 -- Trigger function to enforce foreign key constraint on array elements
@@ -459,3 +410,4 @@ CREATE POLICY "entities_metadata_delete_policy" ON entities_metadata
             AND r.is_system = true
         )
     );
+

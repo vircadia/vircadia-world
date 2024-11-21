@@ -37,7 +37,58 @@ CREATE TYPE transform AS (
     scale vector3
 );
 
-CREATE TYPE general_type_enum AS ENUM ('MESH', 'LIGHT', 'VOLUME', 'MATERIAL', 'CAMERA');
+CREATE TYPE entity_type_babylonjs_enum AS ENUM (
+    -- Core object types
+    'MESH',
+    'LIGHT',
+    'CAMERA',
+    'MATERIAL',
+    
+    -- Additional mesh types
+    'INSTANCE_MESH',
+    'GROUND_MESH',
+    'BOX_MESH', 
+    'SPHERE_MESH',
+    'CYLINDER_MESH',
+    'PLANE_MESH',
+    'DISC_MESH',
+    'TORUS_MESH',
+    'CAPSULE_MESH',
+    
+    -- Special mesh types
+    'SPRITE',
+    'PARTICLE_SYSTEM',
+    'GLTF_MESH',
+    'VOLUME',
+    'SKELETAL_MESH',
+    'MORPH_MESH',
+    'INSTANCED_MESH',
+    
+    -- Scene components
+    'TRANSFORM_NODE',
+    'BONE_NODE',
+    'PHYSICS_BODY',
+    'COLLISION_MESH',
+    
+    -- Effects & Environment
+    'SKYBOX',
+    'ENVIRONMENT',
+    'POST_PROCESS',
+    'LENS_FLARE',
+    'REFLECTION_PROBE',
+    
+    -- Controls & UI
+    'GUI_ELEMENT',
+    'CONTROL',
+    
+    -- Audio
+    'SOUND',
+    
+    -- Animation
+    'ANIMATION',
+    'ANIMATION_GROUP'
+);
+
 CREATE TYPE lod_mode_enum AS ENUM ('distance', 'size');
 CREATE TYPE lod_level_enum AS ENUM ('LOD0', 'LOD1', 'LOD2', 'LOD3', 'LOD4');
 CREATE TYPE billboard_mode_enum AS ENUM (
@@ -53,45 +104,20 @@ CREATE TYPE shadow_quality_enum AS ENUM ('LOW', 'MEDIUM', 'HIGH');
 CREATE TYPE texture_color_space_enum AS ENUM ('linear', 'sRGB', 'gamma');
 
 --
--- SCRIPT SOURCES (BASE TABLE)
---
-CREATE TABLE script_sources (
-    web__compiled__node__script TEXT,
-    web__compiled__node__script_sha256 TEXT,
-    web__compiled__node__script_status TEXT,
-    web__compiled__bun__script TEXT,
-    web__compiled__bun__script_sha256 TEXT,
-    web__compiled__bun__script_status TEXT,
-    web__compiled__browser__script TEXT,
-    web__compiled__browser__script_sha256 TEXT,
-    web__compiled__browser__script_status TEXT,
-    git_repo_entry_path TEXT,
-    git_repo_url TEXT,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-
-    CONSTRAINT check_script_compilation_status CHECK (
-        (web__compiled__node__script_status IS NULL OR 
-         web__compiled__node__script_status IN ('PENDING', 'COMPILED', 'FAILED')) AND
-        (web__compiled__bun__script_status IS NULL OR 
-         web__compiled__bun__script_status IN ('PENDING', 'COMPILED', 'FAILED')) AND
-        (web__compiled__browser__script_status IS NULL OR 
-         web__compiled__browser__script_status IN ('PENDING', 'COMPILED', 'FAILED'))
-    )
-);
-
---
 -- ENTITIES AND CAPABILITIES
 --
+
 CREATE TABLE entities (
     general__uuid UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     general__name VARCHAR(255) NOT NULL,
-    general__type general_type_enum NOT NULL,
     general__semantic_version TEXT NOT NULL DEFAULT '1.0.0',
     general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     general__parent_entity_id UUID REFERENCES entities(general__uuid) ON DELETE CASCADE,
-    
+    general__permissions__can_view_roles TEXT[],
+
+    babylonjs__type entity_type_babylonjs_enum NOT NULL,
+
     babylonjs__transform_position_x FLOAT DEFAULT 0,
     babylonjs__transform_position_y FLOAT DEFAULT 0,
     babylonjs__transform_position_z FLOAT DEFAULT 0,
@@ -110,13 +136,30 @@ CREATE TABLE entities (
     babylonjs__mesh_gltf_data JSONB,
     babylonjs__mesh_physics_properties JSON,
     babylonjs__mesh_joints joint[],
+    babylonjs__mesh_check_collisions BOOLEAN DEFAULT FALSE,
+    babylonjs__mesh_is_pickable BOOLEAN DEFAULT FALSE,
+    babylonjs__mesh_is_visible BOOLEAN DEFAULT TRUE,
+    babylonjs__mesh_receive_shadows BOOLEAN DEFAULT FALSE,
+    babylonjs__mesh_visibility FLOAT DEFAULT 1.0,
+    babylonjs__mesh_rendering_group_id INTEGER,
+    babylonjs__mesh_has_vertex_alpha BOOLEAN DEFAULT FALSE,
+    babylonjs__mesh_use_vertex_colors BOOLEAN DEFAULT TRUE,
+    babylonjs__mesh_overlay_color color4,
+    babylonjs__mesh_overlay_alpha FLOAT,
+    babylonjs__mesh_infinite_distance BOOLEAN DEFAULT FALSE,
+    babylonjs__mesh_show_bounding_box BOOLEAN DEFAULT FALSE,
+    babylonjs__mesh_show_subMeshes_bounding_box BOOLEAN DEFAULT FALSE,
+    babylonjs__mesh_alpha_index INTEGER DEFAULT 1000,
+
     babylonjs__lod_mode lod_mode_enum,
     babylonjs__lod_level lod_level_enum,
     babylonjs__lod_auto BOOLEAN,
     babylonjs__lod_distance NUMERIC,
     babylonjs__lod_size NUMERIC,
     babylonjs__lod_hide NUMERIC,
+
     babylonjs__billboard_mode billboard_mode_enum,
+
     babylonjs__light_type light_type_enum,
     babylonjs__light_mode light_mode_enum,
     babylonjs__light_intensity FLOAT,
@@ -130,6 +173,13 @@ CREATE TABLE entities (
     babylonjs__light_ground_color color4,
     babylonjs__light_intensity_mode TEXT,
     babylonjs__light_falloff_type TEXT,
+    babylonjs__light_shadow_min_z FLOAT,
+    babylonjs__light_shadow_max_z FLOAT,
+    babylonjs__light_projection_texture_matrix NUMERIC[16],
+    babylonjs__light_custom_projection_texture TEXT,
+    babylonjs__light_exclude_mesh_ids TEXT[],
+    babylonjs__light_include_only_mesh_ids TEXT[],
+
     babylonjs__shadow_enabled BOOLEAN,
     babylonjs__shadow_bias FLOAT,
     babylonjs__shadow_blur_kernel FLOAT,
@@ -137,12 +187,7 @@ CREATE TABLE entities (
     babylonjs__shadow_frustum_size FLOAT,
     babylonjs__shadow_map_size INTEGER,
     babylonjs__shadow_quality shadow_quality_enum,
-    babylonjs__exclude_mesh_ids TEXT[],
-    babylonjs__include_only_mesh_ids TEXT[],
-    
-    agent__ai_properties JSON,
-    agent__inventory JSON,
-    
+
     babylonjs__material_type TEXT,
     babylonjs__material_ambient color4,
     babylonjs__material_diffuse color4,
@@ -209,7 +254,16 @@ CREATE TABLE entities (
     babylonjs__material_shader_code TEXT,
     babylonjs__material_shader_parameters JSON,
     babylonjs__material_custom_properties JSON,
-    
+    babylonjs__material_fresnel_parameters JSON,
+    babylonjs__material_parallax_scale FLOAT,
+    babylonjs__material_parallax_bias FLOAT,
+    babylonjs__material_use_parallax BOOLEAN DEFAULT FALSE,
+    babylonjs__material_use_parallax_occlusion BOOLEAN DEFAULT FALSE,
+    babylonjs__material_disable_lighting BOOLEAN DEFAULT FALSE,
+    babylonjs__material_max_simultaneous_lights INTEGER DEFAULT 4,
+    babylonjs__material_use_horizon_occlusion BOOLEAN DEFAULT TRUE,
+    babylonjs__material_use_radiance_occlusion BOOLEAN DEFAULT TRUE,
+
     babylonjs__physics_motion_type TEXT,
     babylonjs__physics_mass FLOAT DEFAULT 1,
     babylonjs__physics_friction FLOAT DEFAULT 0.5,
@@ -229,8 +283,41 @@ CREATE TABLE entities (
     babylonjs__physics_angular_velocity_y FLOAT DEFAULT 0,
     babylonjs__physics_angular_velocity_z FLOAT DEFAULT 0,
     babylonjs__physics_is_static BOOLEAN DEFAULT false,
+    babylonjs__physics_center_of_mass vector3,
+    babylonjs__physics_inertia_tensor vector3,
+    babylonjs__physics_sleeping_threshold_linear FLOAT,
+    babylonjs__physics_sleeping_threshold_angular FLOAT,
+    babylonjs__physics_collision_response BOOLEAN DEFAULT TRUE,
+    babylonjs__physics_collision_retry_count INTEGER DEFAULT 3,
+    babylonjs__physics_use_gravity BOOLEAN DEFAULT TRUE,
 
-    permissions__can_view_roles TEXT[]
+    babylonjs__animation_auto_animate BOOLEAN DEFAULT TRUE,
+    babylonjs__animation_auto_animate_from INTEGER DEFAULT 0,
+    babylonjs__animation_auto_animate_to INTEGER DEFAULT 100,
+    babylonjs__animation_auto_animate_loop BOOLEAN DEFAULT TRUE,
+    babylonjs__animation_auto_animate_speed_ratio FLOAT DEFAULT 1.0,
+
+    babylonjs__camera_fov FLOAT,
+    babylonjs__camera_min_z FLOAT,
+    babylonjs__camera_max_z FLOAT,
+    babylonjs__camera_inertia FLOAT,
+    babylonjs__camera_speed FLOAT,
+    babylonjs__camera_check_collisions BOOLEAN,
+    babylonjs__camera_apply_gravity BOOLEAN,
+    babylonjs__camera_ellipsoid vector3,
+    babylonjs__camera_ellipsoid_offset vector3,
+    babylonjs__camera_rotation_speed FLOAT,
+    babylonjs__camera_angle FLOAT,
+    babylonjs__camera_beta FLOAT,
+    babylonjs__camera_alpha FLOAT,
+    babylonjs__camera_radius FLOAT,
+    babylonjs__camera_target vector3,
+
+    babylonjs__state_is_enabled BOOLEAN DEFAULT TRUE,
+    babylonjs__state_is_picked BOOLEAN DEFAULT FALSE,
+    babylonjs__state_freeze_world_matrix BOOLEAN DEFAULT FALSE,
+    babylonjs__state_ignore_parent_scaling BOOLEAN DEFAULT FALSE,
+    babylonjs__state_preserve_parent_rotation_for_billboard BOOLEAN DEFAULT FALSE
 );
 
 CREATE TABLE entities_metadata (
@@ -252,37 +339,69 @@ CREATE TABLE entities_metadata (
 
 CREATE TABLE entity_scripts (
     entity_id UUID NOT NULL REFERENCES entities(general__uuid) ON DELETE CASCADE,
-    entity_script_id UUID PRIMARY KEY DEFAULT uuid_generate_v4()
-) INHERITS (script_sources);
+    entity_script_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+
+    web__compiled__node__script TEXT,
+    web__compiled__node__script_sha256 TEXT,
+    web__compiled__node__script_status TEXT,
+    web__compiled__bun__script TEXT,
+    web__compiled__bun__script_sha256 TEXT,
+    web__compiled__bun__script_status TEXT,
+    web__compiled__browser__script TEXT,
+    web__compiled__browser__script_sha256 TEXT,
+    web__compiled__browser__script_status TEXT,
+    git_repo_entry_path TEXT,
+    git_repo_url TEXT,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+
+    CONSTRAINT check_script_compilation_status CHECK (
+        (web__compiled__node__script_status IS NULL OR 
+         web__compiled__node__script_status IN ('PENDING', 'COMPILED', 'FAILED')) AND
+        (web__compiled__bun__script_status IS NULL OR 
+         web__compiled__bun__script_status IN ('PENDING', 'COMPILED', 'FAILED')) AND
+        (web__compiled__browser__script_status IS NULL OR 
+         web__compiled__browser__script_status IN ('PENDING', 'COMPILED', 'FAILED'))
+    )
+);
 
 --
 -- INDEXES
 --
 
--- Entity and Capability Indexes
-CREATE INDEX idx_entities_permissions_can_view_roles ON entities USING GIN (permissions__can_view_roles);
-
--- Entity Hierarchy Indexes
+-- Core indexes
+CREATE INDEX idx_entities_general__permissions__can_view_roles ON entities USING GIN (general__permissions__can_view_roles);
 CREATE INDEX idx_entities_parent_id ON entities(general__parent_entity_id);
-CREATE INDEX idx_entities_type ON entities(general__type);
 CREATE INDEX idx_entities_created_at ON entities(general__created_at);
 CREATE INDEX idx_entities_updated_at ON entities(general__updated_at);
+CREATE INDEX idx_entities_semantic_version ON entities(general__semantic_version);
+
+-- Mesh-related indexes
 CREATE INDEX idx_entities_mesh_instance_of_id ON entities(babylonjs__mesh_instance_of_id);
 CREATE INDEX idx_entities_mesh_material_id ON entities(babylonjs__mesh_material_id);
 CREATE INDEX idx_entities_mesh_is_instance ON entities(babylonjs__mesh_is_instance) 
     WHERE babylonjs__mesh_is_instance = TRUE;
-CREATE INDEX idx_entities_semantic_version ON entities(general__semantic_version);
+CREATE INDEX idx_entities_mesh_gltf_data ON entities USING GIN (babylonjs__mesh_gltf_data);
+
+-- Visual and rendering indexes
 CREATE INDEX idx_entities_lod_level ON entities(babylonjs__lod_level);
 CREATE INDEX idx_entities_light_mode ON entities(babylonjs__light_mode);
+CREATE INDEX idx_entities_light_type ON entities(babylonjs__light_type);
+CREATE INDEX idx_entities_babylonjs_type ON entities(babylonjs__type);
 
--- JSON/JSONB Indexes
-CREATE INDEX idx_entities_mesh_gltf_data ON entities USING GIN (babylonjs__mesh_gltf_data);
-CREATE INDEX idx_entities_mesh_physics_properties ON entities USING GIN ((babylonjs__mesh_physics_properties::jsonb));
-CREATE INDEX idx_entities_agent_ai_properties ON entities USING GIN ((agent__ai_properties::jsonb));
-CREATE INDEX idx_entities_agent_inventory ON entities USING GIN ((agent__inventory::jsonb));
+-- Material indexes
+CREATE INDEX idx_entities_material_type ON entities(babylonjs__material_type);
 CREATE INDEX idx_entities_material_custom_properties ON entities USING GIN ((babylonjs__material_custom_properties::jsonb));
 CREATE INDEX idx_entities_material_shader_parameters ON entities USING GIN ((babylonjs__material_shader_parameters::jsonb));
+
+-- Physics indexes
 CREATE INDEX idx_entities_physics_shape_data ON entities USING GIN ((babylonjs__physics_shape_data::jsonb));
+CREATE INDEX idx_entities_physics_is_static ON entities(babylonjs__physics_is_static)
+    WHERE babylonjs__physics_is_static = TRUE;
+
+-- State indexes
+CREATE INDEX idx_entities_state_is_enabled ON entities(babylonjs__state_is_enabled)
+    WHERE babylonjs__state_is_enabled = FALSE;
 
 -- Enable RLS on entities table
 ALTER TABLE entities ENABLE ROW LEVEL SECURITY;

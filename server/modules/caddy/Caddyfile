@@ -1,0 +1,26 @@
+{
+    # Global options block
+    # Use staging CA during testing
+    # acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+api-antares.vircadia.com {
+    tls {
+        on_demand
+    }
+    
+    reverse_proxy localhost:54321 {
+        header_up Host {http.request.host}
+    }
+}
+
+studio-antares.vircadia.com {
+    tls {
+        on_demand
+    }
+    
+    reverse_proxy localhost:54323 {
+        header_up Host {http.request.host}
+        header_up X-Real-IP {http.request.remote}
+    }
+}

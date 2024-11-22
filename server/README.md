@@ -55,36 +55,7 @@ bun install
 
 You should use a reverse proxy to make your world available publicly, you can use any app / service to do this, but generally we recommend Caddy for its simplicity.
 
-Where `54321` and `54323` are your Supabase API and Studio ports (adjust if you change your API or Studio port in `modules/supabase/app/supabase/config.toml`):
-
-```
-{
-    # Global options block
-    # Use staging CA during testing
-    # acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
-}
-
-api.[your-domain].com {
-    tls {
-        on_demand
-    }
-    
-    reverse_proxy localhost:54321 {
-        header_up Host {http.request.host}
-    }
-}
-
-studio.[your-domain].com {
-    tls {
-        on_demand
-    }
-    
-    reverse_proxy localhost:54323 {
-        header_up Host {http.request.host}
-        header_up X-Real-IP {http.request.remote}
-    }
-}
-```
+Where `54321` and `54323` are your Supabase API and Studio ports (adjust if you change your API or Studio port in `modules/supabase/app/supabase/config.toml`): [Caddyfile](modules/caddy/Caddyfile)
 
 ## Running
 

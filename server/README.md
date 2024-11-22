@@ -14,7 +14,11 @@ Vircadia World is a very simple to use framework for developing connected worlds
 * Homebrew
 * Docker
 
-Then install the prerequisites:
+#### Homebrew
+
+Install Homebrew correctly, including all extras they recommend.
+
+Then install the Supabase and Bun.sh with Homebrew:
 
 ```sh
 # Supabase CLI
@@ -25,6 +29,8 @@ brew install supabase
 brew tap oven-sh/bun
 brew install bun
 ```
+
+#### Docker
 
 You must install Docker as well: [https://docs.docker.com/engine/install/](https://docs.docker.com/engine/install/).
 

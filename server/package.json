@@ -14,12 +14,13 @@
     "@babylonjs/core": "^7.32.5",
     "eight-colors": "^1.3.1",
     "tmp": "^0.2.3",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "supabase": "1.223.10"
   },
   "devDependencies": {
-    "@types/bun": "^1.1.12",
+    "@types/bun": "latest",
     "@types/node": "latest",
-    "@types/tmp": "^0.2.6"
+    "@types/tmp": "latest"
   },
   "module": "index.ts",
   "peerDependencies": {

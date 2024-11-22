@@ -8,31 +8,58 @@ Vircadia World is a very simple to use framework for developing connected worlds
 
 ### Prerequisites
 
-*Notice: Homebrew requires a non-root user to operate correctly, so you should create or use a non-root administrator account to complete this process and operate the Vircadia World Server.*
-
 * Git
-* Homebrew
 * Docker
+* Caddy
+* unzip
+* A domain with subdomains for your world, SSL is required (auto-generated with Caddy)
 
-#### Homebrew
+#### Install unzip (if not already installed)
 
-Install Homebrew correctly, including all extras they recommend.
+On Ubuntu/Debian:
+```sh
+sudo apt-get update && sudo apt-get install unzip
+```
 
-Then install the Supabase and Bun.sh with Homebrew:
+On CentOS/RHEL:
+```sh
+sudo yum install unzip
+```
+
+#### Bun
+
+Install Bun directly using their install script:
 
 ```sh
-# Supabase CLI
-brew tap supabase/tap
-brew install supabase
-
-# Bun
-brew tap oven-sh/bun
-brew install bun
+curl -fsSL https://bun.sh/install | bash
 ```
+
+After installation, restart your terminal or run:
+```sh
+source ~/.bashrc  # or source ~/.zshrc if using zsh
+```
+
+#### Supabase CLI
+
+Install Supabase CLI globally using Bun:
+
+```sh
+bun install -g supabase
+```
+
+Be sure to add the global bin folder to your PATH, e.g. for a user named "user":
+
+```sh
+warn: To run "supabase", add the global bin folder to $PATH:
+
+export PATH="/home/user/.bun/bin:$PATH"
+```
+
+You can then use Supabase CLI with `bunx supabase` commands.
 
 #### Docker
 
-You must install Docker as well: [https://docs.docker.com/engine/install/](https://docs.docker.com/engine/install/).
+[https://docs.docker.com/engine/install/](https://docs.docker.com/engine/install/)
 
 After installing Docker, make sure your user is in the docker group to run Docker commands without sudo:
 
@@ -40,6 +67,10 @@ After installing Docker, make sure your user is in the docker group to run Docke
 sudo usermod -aG docker $USER
 newgrp docker
 ```
+
+#### Caddy
+
+[https://caddyserver.com/docs/install](https://caddyserver.com/docs/install)
 
 ### Install dependencies
 
@@ -50,15 +81,23 @@ bun install
 ## Configuration
 
 * [Supabase](modules/supabase/README.md)
-
-### Reverse Proxy (Production)
-
-You should use a reverse proxy to make your world available publicly, you can use any app / service to do this, but generally we recommend Caddy for its simplicity.
-
-Where `54321` and `54323` are your Supabase API and Studio ports (adjust if you change your API or Studio port in `modules/supabase/app/supabase/config.toml`): [Caddyfile](modules/caddy/Caddyfile)
+* [Caddy](modules/caddy/README.md)
 
 ## Running
 
+### Start the server
+
 ```bash
 bun run start
+```
+
+### Start the reverse proxy
+
+Launch Caddy:
+
+If you installed Caddy normally and it is deployed as a system process, you must first stop the system service before running it again.
+
+```sh
+cd modules/caddy
+sudo caddy start
 ```

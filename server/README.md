@@ -8,6 +8,8 @@ Vircadia World is a very simple to use framework for developing connected worlds
 
 ### Prerequisites
 
+*Notice: Homebrew requires a non-root user to operate correctly, so you should create or use a non-root administrator account to complete this process and operate the Vircadia World Server.*
+
 * Git
 * Homebrew
 * Docker

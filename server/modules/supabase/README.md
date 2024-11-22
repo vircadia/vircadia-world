@@ -4,7 +4,7 @@ To debug and perform manual commands with Supabase CLI, use the following
 command in the `app` directory:
 
 ```bash
-supabase --workdir $PWD [command]
+bunx supabase --workdir $PWD [command]
 ```
 
 ## Configuration
@@ -29,7 +29,7 @@ If you need to reset the database, all the data, and its structure, you can use
 the following command:
 
 ```bash
-supabase --workdir $PWD db reset
+bunx supabase --workdir $PWD db reset
 ```
 
 Be careful with this command, as it will delete all existing data and cannot be
@@ -41,5 +41,5 @@ If you update the schemas, you need to generate the types again. You can use the
 following command:
 
 ```bash
-supabase --workdir $PWD gen types --lang=typescript --local > ../../../../sdk/vircadia-world-sdk-ts/schema/database.types.ts
+bunx supabase --workdir $PWD gen types --lang=typescript --local > ../../../../sdk/vircadia-world-sdk-ts/schema/database.types.ts
 ```

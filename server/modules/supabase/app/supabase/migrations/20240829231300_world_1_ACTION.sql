@@ -47,7 +47,7 @@ BEGIN
     INSERT INTO entities (
         general__uuid,
         general__name,
-        general__type,
+        babylonjs__type,
         permissions__can_view_roles,
         general__created_at,
         general__updated_at
@@ -55,7 +55,7 @@ BEGIN
     SELECT 
         coalesce(p_entity_data->>'general__uuid', uuid_generate_v4()),
         p_entity_data->>'general__name',
-        (p_entity_data->>'general__type')::general_type_enum,
+        (p_entity_data->>'babylonjs__type')::general_type_enum,
         (p_entity_data->'permissions__can_view_roles')::text[],
         NOW(),
         NOW()
@@ -106,7 +106,7 @@ BEGIN
     UPDATE entities
     SET
         general__name = COALESCE(p_entity_data->>'general__name', general__name),
-        general__type = COALESCE((p_entity_data->>'general__type')::general_type_enum, general__type),
+        babylonjs__type = COALESCE((p_entity_data->>'babylonjs__type')::general_type_enum, babylonjs__type),
         permissions__can_view_roles = COALESCE((p_entity_data->'permissions__can_view_roles')::text[], permissions__can_view_roles),
         general__updated_at = NOW()
     WHERE general__uuid = p_entity_id;

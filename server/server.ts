@@ -55,7 +55,7 @@ async function startServices(debugMode: boolean) {
         });
     } catch (error) {
         log({
-            message: `Failed to start world services: ${error}`,
+            message: `Failed to start world services: ${JSON.stringify(error)}`,
             type: "error",
         });
         process.exit(1);

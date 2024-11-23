@@ -89,19 +89,19 @@ CREATE TYPE entity_type_babylonjs_enum AS ENUM (
     'ANIMATION_GROUP'
 );
 
-CREATE TYPE lod_mode_enum AS ENUM ('distance', 'size');
-CREATE TYPE lod_level_enum AS ENUM ('LOD0', 'LOD1', 'LOD2', 'LOD3', 'LOD4');
-CREATE TYPE billboard_mode_enum AS ENUM (
+CREATE TYPE babylonjs__lod_mode_enum AS ENUM ('distance', 'size');
+CREATE TYPE babylonjs__lod_level_enum AS ENUM ('LOD0', 'LOD1', 'LOD2', 'LOD3', 'LOD4');
+CREATE TYPE babylonjs__billboard_mode_enum AS ENUM (
     'BILLBOARDMODE_NONE',
     'BILLBOARDMODE_X',
     'BILLBOARDMODE_Y',
     'BILLBOARDMODE_Z',
     'BILLBOARDMODE_ALL'
 );
-CREATE TYPE light_type_enum AS ENUM ('POINT', 'DIRECTIONAL', 'SPOT', 'HEMISPHERIC');
-CREATE TYPE light_mode_enum AS ENUM ('default', 'shadowsOnly', 'specular');
-CREATE TYPE shadow_quality_enum AS ENUM ('LOW', 'MEDIUM', 'HIGH');
-CREATE TYPE texture_color_space_enum AS ENUM ('linear', 'sRGB', 'gamma');
+CREATE TYPE babylonjs__light_type_enum AS ENUM ('POINT', 'DIRECTIONAL', 'SPOT', 'HEMISPHERIC');
+CREATE TYPE babylonjs__light_mode_enum AS ENUM ('default', 'shadowsOnly', 'specular');
+CREATE TYPE babylonjs__shadow_quality_enum AS ENUM ('LOW', 'MEDIUM', 'HIGH');
+CREATE TYPE babylonjs__texture_color_space_enum AS ENUM ('linear', 'sRGB', 'gamma');
 
 --
 -- ENTITIES AND CAPABILITIES
@@ -151,17 +151,17 @@ CREATE TABLE entities (
     babylonjs__mesh_show_subMeshes_bounding_box BOOLEAN DEFAULT FALSE,
     babylonjs__mesh_alpha_index INTEGER DEFAULT 1000,
 
-    babylonjs__lod_mode lod_mode_enum,
-    babylonjs__lod_level lod_level_enum,
+    babylonjs__lod_mode babylonjs__lod_mode_enum,
+    babylonjs__lod_level babylonjs__lod_level_enum,
     babylonjs__lod_auto BOOLEAN,
     babylonjs__lod_distance NUMERIC,
     babylonjs__lod_size NUMERIC,
     babylonjs__lod_hide NUMERIC,
 
-    babylonjs__billboard_mode billboard_mode_enum,
+    babylonjs__billboard_mode babylonjs__billboard_mode_enum,
 
-    babylonjs__light_type light_type_enum,
-    babylonjs__light_mode light_mode_enum,
+    babylonjs__light_type babylonjs__light_type_enum,
+    babylonjs__light_mode babylonjs__light_mode_enum,
     babylonjs__light_intensity FLOAT,
     babylonjs__light_range FLOAT,
     babylonjs__light_radius FLOAT,
@@ -186,7 +186,7 @@ CREATE TABLE entities (
     babylonjs__shadow_darkness FLOAT,
     babylonjs__shadow_frustum_size FLOAT,
     babylonjs__shadow_map_size INTEGER,
-    babylonjs__shadow_quality shadow_quality_enum,
+    babylonjs__shadow_quality babylonjs__shadow_quality_enum,
 
     babylonjs__material_type TEXT,
     babylonjs__material_ambient color4,
@@ -197,23 +197,23 @@ CREATE TABLE entities (
     babylonjs__material_backFaceCulling BOOLEAN,
     babylonjs__material_wireframe BOOLEAN,
     babylonjs__material_diffuse_texture TEXT,
-    babylonjs__material_diffuse_texture_color_space texture_color_space_enum,
+    babylonjs__material_diffuse_texture_color_space babylonjs__texture_color_space_enum,
     babylonjs__material_ambient_texture TEXT,
-    babylonjs__material_ambient_texture_color_space texture_color_space_enum,
+    babylonjs__material_ambient_texture_color_space babylonjs__texture_color_space_enum,
     babylonjs__material_opacity_texture TEXT,
-    babylonjs__material_opacity_texture_color_space texture_color_space_enum,
+    babylonjs__material_opacity_texture_color_space babylonjs__texture_color_space_enum,
     babylonjs__material_reflection_texture TEXT,
-    babylonjs__material_reflection_texture_color_space texture_color_space_enum,
+    babylonjs__material_reflection_texture_color_space babylonjs__texture_color_space_enum,
     babylonjs__material_emissive_texture TEXT,
-    babylonjs__material_emissive_texture_color_space texture_color_space_enum,
+    babylonjs__material_emissive_texture_color_space babylonjs__texture_color_space_enum,
     babylonjs__material_specular_texture TEXT,
-    babylonjs__material_specular_texture_color_space texture_color_space_enum,
+    babylonjs__material_specular_texture_color_space babylonjs__texture_color_space_enum,
     babylonjs__material_bump_texture TEXT,
-    babylonjs__material_bump_texture_color_space texture_color_space_enum,
+    babylonjs__material_bump_texture_color_space babylonjs__texture_color_space_enum,
     babylonjs__material_lightmap_texture TEXT,
-    babylonjs__material_lightmap_texture_color_space texture_color_space_enum,
+    babylonjs__material_lightmap_texture_color_space babylonjs__texture_color_space_enum,
     babylonjs__material_refraction_texture TEXT,
-    babylonjs__material_refraction_texture_color_space texture_color_space_enum,
+    babylonjs__material_refraction_texture_color_space babylonjs__texture_color_space_enum,
     babylonjs__material_specular_power FLOAT,
     babylonjs__material_use_alpha_from_diffuse_texture BOOLEAN,
     babylonjs__material_use_emissive_as_illumination BOOLEAN,
@@ -228,13 +228,13 @@ CREATE TABLE entities (
     babylonjs__material_index_of_refraction FLOAT,
     babylonjs__material_direct_intensity FLOAT,
     babylonjs__material_environment_texture TEXT,
-    babylonjs__material_environment_texture_color_space texture_color_space_enum,
+    babylonjs__material_environment_texture_color_space babylonjs__texture_color_space_enum,
     babylonjs__material_reflectivity_texture TEXT,
-    babylonjs__material_reflectivity_texture_color_space texture_color_space_enum,
+    babylonjs__material_reflectivity_texture_color_space babylonjs__texture_color_space_enum,
     babylonjs__material_metallic_texture TEXT,
-    babylonjs__material_metallic_texture_color_space texture_color_space_enum,
+    babylonjs__material_metallic_texture_color_space babylonjs__texture_color_space_enum,
     babylonjs__material_microsurface_texture TEXT,
-    babylonjs__material_microsurface_texture_color_space texture_color_space_enum,
+    babylonjs__material_microsurface_texture_color_space babylonjs__texture_color_space_enum,
     babylonjs__material_ambient_texture_strength FLOAT,
     babylonjs__material_ambient_texture_impact_on_analytical_lights FLOAT,
     babylonjs__material_metallic_f0_factor FLOAT,

@@ -62,7 +62,7 @@ export class WorldTickManager {
             });
         } catch (error) {
             log({
-                message: `Failed to initialize tick capture service: ${error}`,
+                message: `Failed to initialize tick capture service: ${JSON.stringify(error)}`,
                 debug: this.debugMode,
                 type: "error",
             });
@@ -150,7 +150,7 @@ export class WorldTickManager {
 
             if (timeError) {
                 log({
-                    message: `Failed to get server time: ${timeError}`,
+                    message: `Failed to get server time: ${JSON.stringify(timeError)}`,
                     debug: this.debugMode,
                     type: "error",
                 });

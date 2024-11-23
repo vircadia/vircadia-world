@@ -422,8 +422,6 @@ CREATE POLICY "entities_view_policy" ON entities
 CREATE POLICY "entities_update_policy" ON entities
     FOR UPDATE
     USING (
-        -- Only allow updates through our mutation functions
-        -- which run as security definer
         current_setting('role') = 'rls_definer'
     );
 

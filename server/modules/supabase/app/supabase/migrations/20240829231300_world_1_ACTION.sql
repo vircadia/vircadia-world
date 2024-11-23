@@ -22,44 +22,109 @@ CREATE TABLE actions (
     general__created_at TIMESTAMPTZ DEFAULT NOW(),
     general__created_by UUID DEFAULT auth.uid(),
     CONSTRAINT check_action_data_format CHECK (
-        general__action_data ? 'operation' AND
-        general__action_data ? 'entity_id' AND
+        general__action_data ? 'operations' AND
         general__action_data ? 'action_input' AND
-        (general__action_data->>'operation' IN ('INSERT', 'UPDATE', 'DELETE'))
+        general__action_data ? 'sql_query' AND
+        jsonb_typeof(general__action_data->'operations') = 'array'
     )
 );
 
+-- Add a trigger to validate operations array content
+CREATE OR REPLACE FUNCTION validate_action_operations()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NOT (
+        SELECT bool_and(
+            operation->>'operation' IN ('INSERT', 'UPDATE', 'DELETE') AND
+            operation ? 'entity_id'
+        )
+        FROM jsonb_array_elements(NEW.general__action_data->'operations') as operation
+    ) THEN
+        RAISE EXCEPTION 'Invalid operations array format';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER validate_action_operations_trigger
+    BEFORE INSERT OR UPDATE ON actions
+    FOR EACH ROW
+    EXECUTE FUNCTION validate_action_operations();
+
 -- Entity Mutation Functions
-CREATE OR REPLACE FUNCTION create_entity_with_action(
+CREATE OR REPLACE FUNCTION execute_entity_action(
     p_entity_script_id UUID,
     p_action_input JSONB,
-    p_entity_data JSONB
-) RETURNS UUID AS $$
+    p_sql_query TEXT
+) RETURNS JSONB AS $$
 DECLARE
+    v_affected_entities JSONB[];
+    v_old_data JSONB;
+    v_new_data JSONB;
     v_entity_id UUID;
+    v_operation TEXT;
+    v_result JSONB;
 BEGIN
     -- Validate script exists
     IF NOT EXISTS (SELECT 1 FROM entity_scripts WHERE entity_script_id = p_entity_script_id) THEN
         RAISE EXCEPTION 'Invalid entity_script_id';
     END IF;
 
-    -- Create the entity
-    INSERT INTO entities (
-        general__uuid,
-        general__name,
-        babylonjs__type,
-        permissions__can_view_roles,
-        general__created_at,
-        general__updated_at
-    )
-    SELECT 
-        coalesce(p_entity_data->>'general__uuid', uuid_generate_v4()),
-        p_entity_data->>'general__name',
-        (p_entity_data->>'babylonjs__type')::general_type_enum,
-        (p_entity_data->'permissions__can_view_roles')::text[],
-        NOW(),
-        NOW()
-    RETURNING general__uuid INTO v_entity_id;
+    -- Validate system role
+    IF NOT EXISTS (
+        SELECT 1 FROM agent_roles ar
+        WHERE ar.agent_id = auth.uid()
+        AND ar.role_name IN (
+            SELECT role_name FROM roles 
+            WHERE is_system = true AND is_active = true
+        )
+        AND ar.is_active = true
+    ) THEN
+        RAISE EXCEPTION 'Insufficient permissions';
+    END IF;
+
+    -- Execute the provided SQL query and capture the results
+    -- The query should return a table with columns: operation, entity_id
+    CREATE TEMP TABLE action_results ON COMMIT DROP AS
+    EXECUTE p_sql_query;
+
+    -- Process each affected entity
+    FOR v_operation, v_entity_id IN 
+        SELECT operation, entity_id::UUID FROM action_results
+    LOOP
+        -- For updates and deletes, capture old state
+        IF v_operation IN ('UPDATE', 'DELETE') THEN
+            SELECT row_to_json(e)::jsonb INTO v_old_data 
+            FROM entities e WHERE e.general__uuid = v_entity_id;
+        END IF;
+
+        -- For inserts and updates, capture new state
+        IF v_operation IN ('INSERT', 'UPDATE') THEN
+            SELECT row_to_json(e)::jsonb INTO v_new_data
+            FROM entities e WHERE e.general__uuid = v_entity_id;
+        END IF;
+
+        -- Build result object for this operation
+        v_result = jsonb_build_object(
+            'operation', v_operation,
+            'entity_id', v_entity_id
+        );
+
+        -- Add appropriate entity data based on operation
+        CASE v_operation
+            WHEN 'INSERT' THEN
+                v_result = v_result || jsonb_build_object('resulting_entity', v_new_data);
+            WHEN 'UPDATE' THEN
+                v_result = v_result || jsonb_build_object(
+                    'old_entity', v_old_data,
+                    'resulting_entity', v_new_data
+                );
+            WHEN 'DELETE' THEN
+                v_result = v_result || jsonb_build_object('deleted_entity', v_old_data);
+        END CASE;
+
+        v_affected_entities = array_append(v_affected_entities, v_result);
+    END LOOP;
 
     -- Create the action record
     INSERT INTO actions (
@@ -67,113 +132,20 @@ BEGIN
         general__action_status,
         general__action_data,
         general__created_by
-    ) 
-    SELECT
-        p_entity_script_id,
-        'COMPLETED',
-        jsonb_build_object(
-            'operation', 'INSERT',
-            'entity_id', v_entity_id,
-            'action_input', p_action_input,
-            'resulting_entity', row_to_json(e)::jsonb
-        ),
-        auth.uid()
-    FROM entities e WHERE e.general__uuid = v_entity_id;
-
-    RETURN v_entity_id;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-CREATE OR REPLACE FUNCTION update_entity_with_action(
-    p_entity_id UUID,
-    p_entity_script_id UUID,
-    p_action_input JSONB,
-    p_entity_data JSONB
-) RETURNS VOID AS $$
-DECLARE
-    v_old_data JSONB;
-    v_new_data JSONB;
-BEGIN
-    -- Capture old state
-    SELECT row_to_json(e)::jsonb INTO v_old_data 
-    FROM entities e WHERE e.general__uuid = p_entity_id;
-
-    IF v_old_data IS NULL THEN
-        RAISE EXCEPTION 'Entity not found';
-    END IF;
-
-    -- Update the entity
-    UPDATE entities
-    SET
-        general__name = COALESCE(p_entity_data->>'general__name', general__name),
-        babylonjs__type = COALESCE((p_entity_data->>'babylonjs__type')::general_type_enum, babylonjs__type),
-        permissions__can_view_roles = COALESCE((p_entity_data->'permissions__can_view_roles')::text[], permissions__can_view_roles),
-        general__updated_at = NOW()
-    WHERE general__uuid = p_entity_id;
-
-    -- Get updated entity data
-    SELECT row_to_json(e)::jsonb INTO v_new_data
-    FROM entities e WHERE e.general__uuid = p_entity_id;
-
-    -- Create action record
-    INSERT INTO actions (
-        general__entity_script_id,
-        general__action_status,
-        general__action_data,
-        general__created_by
     ) VALUES (
         p_entity_script_id,
         'COMPLETED',
         jsonb_build_object(
-            'operation', 'UPDATE',
-            'entity_id', p_entity_id,
+            'operations', to_jsonb(v_affected_entities),
             'action_input', p_action_input,
-            'old_entity', v_old_data,
-            'resulting_entity', v_new_data
+            'sql_query', p_sql_query
         ),
         auth.uid()
     );
+
+    RETURN to_jsonb(v_affected_entities);
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-CREATE OR REPLACE FUNCTION delete_entity_with_action(
-    p_entity_id UUID,
-    p_entity_script_id UUID,
-    p_action_input JSONB
-) RETURNS VOID AS $$
-DECLARE
-    v_old_data JSONB;
-BEGIN
-    -- Capture old state
-    SELECT row_to_json(e)::jsonb INTO v_old_data 
-    FROM entities e WHERE e.general__uuid = p_entity_id;
-
-    IF v_old_data IS NULL THEN
-        RAISE EXCEPTION 'Entity not found';
-    END IF;
-
-    -- Delete the entity
-    DELETE FROM entities WHERE general__uuid = p_entity_id;
-
-    -- Create action record
-    INSERT INTO actions (
-        general__entity_script_id,
-        general__action_status,
-        general__action_data,
-        general__created_by
-    ) VALUES (
-        p_entity_script_id,
-        'COMPLETED',
-        jsonb_build_object(
-            'operation', 'DELETE',
-            'entity_id', p_entity_id,
-            'action_input', p_action_input,
-            'deleted_entity', v_old_data
-        ),
-        auth.uid()
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY INVOKER;
 
 -- Action Indexes
 CREATE INDEX idx_actions_status ON actions(general__action_status);
@@ -276,8 +248,6 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Grant execute permissions on functions
-GRANT EXECUTE ON FUNCTION create_entity_with_action TO PUBLIC;
-GRANT EXECUTE ON FUNCTION update_entity_with_action TO PUBLIC;
-GRANT EXECUTE ON FUNCTION delete_entity_with_action TO PUBLIC;
+GRANT EXECUTE ON FUNCTION execute_entity_action TO PUBLIC;
 GRANT EXECUTE ON FUNCTION expire_abandoned_actions TO PUBLIC;
 GRANT EXECUTE ON FUNCTION cleanup_inactive_actions TO PUBLIC;

@@ -144,8 +144,6 @@ export class WorldTickManager {
 
     async captureTick() {
         try {
-            const startTime = performance.now();
-
             // Get current server time before capture
             const { data: timeData, error: timeError } =
                 await this.supabase.rpc("get_server_time");
@@ -161,6 +159,9 @@ export class WorldTickManager {
 
             const currentServerTime = new Date(timeData);
 
+            // Start measuring actual tick capture performance here
+            const startTime = performance.now();
+
             // Update: Changed function name from capture_entity_state to capture_tick_state
             const { error: captureError } =
                 await this.supabase.rpc("capture_tick_state");
@@ -175,11 +176,11 @@ export class WorldTickManager {
                 this.lastServerTime = currentServerTime;
                 this.tickCount++;
 
-                // Log performance metrics
+                // Log performance metrics for just the capture operation
                 const elapsed = performance.now() - startTime;
                 if (elapsed > this.targetIntervalMs) {
                     log({
-                        message: `Tick took ${elapsed.toFixed(2)}ms (target: ${this.targetIntervalMs}ms)`,
+                        message: `Tick capture took ${elapsed.toFixed(2)}ms (target: ${this.targetIntervalMs}ms)`,
                         debug: this.debugMode,
                         type: "warn",
                     });

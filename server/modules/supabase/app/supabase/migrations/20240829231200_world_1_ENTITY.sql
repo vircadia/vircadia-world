@@ -37,32 +37,23 @@ CREATE TYPE transform AS (
     scale vector3
 );
 
-CREATE TYPE entity_type_babylonjs_enum AS ENUM (
+CREATE TYPE babylonjs_entity_type AS ENUM (
     -- Core object types
-    'MESH',
     'LIGHT',
     'CAMERA',
     'MATERIAL',
     
     -- Additional mesh types
-    'INSTANCE_MESH',
+    'INSTANCED_MESH',
     'GROUND_MESH',
-    'BOX_MESH', 
-    'SPHERE_MESH',
-    'CYLINDER_MESH',
-    'PLANE_MESH',
-    'DISC_MESH',
-    'TORUS_MESH',
-    'CAPSULE_MESH',
+    'MESH',
     
     -- Special mesh types
     'SPRITE',
     'PARTICLE_SYSTEM',
-    'GLTF_MESH',
     'VOLUME',
     'SKELETAL_MESH',
     'MORPH_MESH',
-    'INSTANCED_MESH',
     
     -- Scene components
     'TRANSFORM_NODE',
@@ -116,7 +107,7 @@ CREATE TABLE entities (
     general__parent_entity_id UUID REFERENCES entities(general__uuid) ON DELETE CASCADE,
     general__permissions__roles__view TEXT[],
 
-    babylonjs__type entity_type_babylonjs_enum NOT NULL,
+    babylonjs__type babylonjs_entity_type NOT NULL,
 
     babylonjs__transform_position_x FLOAT DEFAULT 0,
     babylonjs__transform_position_y FLOAT DEFAULT 0,

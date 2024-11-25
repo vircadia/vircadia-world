@@ -2,55 +2,60 @@
 -- AGENTS AND AUTH
 --
 CREATE TABLE public.agent_profiles (
-    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-    username TEXT UNIQUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    password_last_changed TIMESTAMPTZ
+    general__uuid UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    profile__username TEXT UNIQUE,
+    general__created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    general__updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    auth__password_last_changed TIMESTAMPTZ
 );
 
 CREATE TABLE public.auth_providers (
-    provider_name TEXT PRIMARY KEY,
-    description TEXT,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    auth__provider_name TEXT PRIMARY KEY,
+    meta__description TEXT,
+    auth__is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    general__created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE public.agent_auth_providers (
-    agent_id UUID REFERENCES public.agent_profiles(id) ON DELETE CASCADE,
-    provider_name TEXT REFERENCES public.auth_providers(provider_name) ON DELETE CASCADE,
-    provider_uid TEXT,
-    is_primary BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (agent_id, provider_name)
+    auth__agent_id UUID REFERENCES public.agent_profiles(general__uuid) ON DELETE CASCADE,
+    auth__provider_name TEXT REFERENCES public.auth_providers(auth__provider_name) ON DELETE CASCADE,
+    auth__provider_uid TEXT,
+    auth__is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+    general__created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (auth__agent_id, auth__provider_name)
 );
 
 CREATE TABLE public.roles (
-    role_name TEXT PRIMARY KEY,
-    description TEXT,
-    is_system BOOLEAN NOT NULL DEFAULT FALSE,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    auth__role_name TEXT PRIMARY KEY,
+    meta__description TEXT,
+    auth__is_system BOOLEAN NOT NULL DEFAULT FALSE,
+    auth__is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    auth__can_insert BOOLEAN NOT NULL DEFAULT FALSE,
+    general__created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE public.agent_roles (
-    agent_id UUID REFERENCES public.agent_profiles(id) ON DELETE CASCADE,
-    role_name TEXT REFERENCES public.roles(role_name) ON DELETE CASCADE,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    granted_by UUID REFERENCES public.agent_profiles(id),
-    PRIMARY KEY (agent_id, role_name)
+    auth__agent_id UUID REFERENCES public.agent_profiles(general__uuid) ON DELETE CASCADE,
+    auth__role_name TEXT REFERENCES public.roles(auth__role_name) ON DELETE CASCADE,
+    auth__is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    auth__granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    auth__granted_by UUID REFERENCES public.agent_profiles(general__uuid),
+    PRIMARY KEY (auth__agent_id, auth__role_name)
 );
 
 CREATE TABLE public.agent_sessions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    agent_id UUID REFERENCES public.agent_profiles(id) ON DELETE CASCADE,
-    provider_name TEXT REFERENCES public.auth_providers(provider_name),
-    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    metadata JSONB,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE
+    general__session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    auth__agent_id UUID REFERENCES public.agent_profiles(general__uuid) ON DELETE CASCADE,
+    auth__provider_name TEXT REFERENCES public.auth_providers(auth__provider_name),
+    session__started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    session__last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    meta__metadata JSONB,
+    session__is_active BOOLEAN NOT NULL DEFAULT TRUE
 );
 
 -- Indexes for Agent-related tables
-CREATE INDEX idx_agent_roles_is_active ON agent_roles(is_active);
+CREATE INDEX idx_agent_roles_is_active ON agent_roles(auth__is_active);
+CREATE INDEX idx_agent_roles_auth__role_name ON agent_roles(auth__role_name);
+CREATE INDEX idx_agent_roles_auth__agent_id ON agent_roles(auth__agent_id);
+CREATE INDEX idx_agent_sessions_auth__agent_id ON agent_sessions(auth__agent_id);
+CREATE INDEX idx_agent_sessions_auth__provider_name ON agent_sessions(auth__provider_name);

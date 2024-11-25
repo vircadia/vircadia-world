@@ -1,11 +1,11 @@
-INSERT INTO public.auth_providers (provider_name, description, is_active) VALUES
+INSERT INTO public.auth_providers (auth__provider_name, meta__description, auth__is_active) VALUES
     ('email', 'Email and password authentication', TRUE),
     ('anonymous', 'Anonymous authentication', TRUE),
     ('google', 'Google OAuth', TRUE),
     ('github', 'GitHub OAuth', TRUE),
     ('discord', 'Discord OAuth', TRUE);
 
-INSERT INTO public.roles (role_name, description, is_system, is_active) VALUES
+INSERT INTO public.roles (auth__role_name, meta__description, auth__is_system, auth__is_active) VALUES
     ('guest', 'Default role for all users', TRUE, TRUE),
     ('user', 'Authenticated user role', TRUE, TRUE),
     ('admin', 'Administrative role', TRUE, TRUE);
@@ -58,15 +58,15 @@ BEGIN
 
     -- Create admin agent profile
     -- Note: The trigger will automatically add anonymous provider and guest role
-    INSERT INTO agent_profiles (id, username)
+    INSERT INTO agent_profiles (general__uuid, profile__username)
     VALUES (admin_uuid, 'admin');
 
     -- Add email provider for admin
-    INSERT INTO agent_auth_providers (agent_id, provider_name, is_primary)
+    INSERT INTO agent_auth_providers (auth__agent_id, auth__provider_name, auth__is_primary)
     VALUES (admin_uuid, 'email', TRUE);
 
     -- Grant admin role
-    INSERT INTO agent_roles (agent_id, role_name, granted_by)
+    INSERT INTO agent_roles (auth__agent_id, auth__role_name, auth__granted_by)
     VALUES (admin_uuid, 'admin', admin_uuid);
 
     RAISE NOTICE 'Admin account created with UUID: %', admin_uuid;

@@ -10,21 +10,22 @@ CREATE TABLE entities (
     general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     general__parent_entity_id UUID REFERENCES entities(general__uuid) ON DELETE CASCADE,
     general__permissions__roles__view TEXT[],
+    general__permissions__roles__full TEXT[],
 
-    type__babylonjs TEXT NOT NULL,
+    type__babylonjs TEXT NOT NULL
 );
 
 CREATE TABLE entities_metadata (
-    metadata_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    entity_id UUID NOT NULL REFERENCES entities(general__uuid) ON DELETE CASCADE,
+    general__metadata_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    general__entity_id UUID NOT NULL REFERENCES entities(general__uuid) ON DELETE CASCADE,
     key__name TEXT NOT NULL,
     values__text TEXT[],
     values__numeric NUMERIC[],
     values__boolean BOOLEAN[],
     values__timestamp TIMESTAMPTZ[],
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE (entity_id, key__name)
+    general__created_at TIMESTAMPTZ DEFAULT NOW(),
+    general__updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (general__entity_id, key__name)
 );
 
 --
@@ -32,8 +33,8 @@ CREATE TABLE entities_metadata (
 --
 
 CREATE TABLE entity_scripts (
-    entity_id UUID NOT NULL REFERENCES entities(general__uuid) ON DELETE CASCADE,
-    entity_script_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    general__entity_id UUID NOT NULL REFERENCES entities(general__uuid) ON DELETE CASCADE,
+    general__script_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
 
     web__compiled__node__script TEXT,
     web__compiled__node__script_sha256 TEXT,
@@ -44,10 +45,10 @@ CREATE TABLE entity_scripts (
     web__compiled__browser__script TEXT,
     web__compiled__browser__script_sha256 TEXT,
     web__compiled__browser__script_status TEXT,
-    git_repo_entry_path TEXT,
-    git_repo_url TEXT,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    source__git__repo_entry_path TEXT,
+    source__git__repo_url TEXT,
+    general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 
     CONSTRAINT check_script_compilation_status CHECK (
         (web__compiled__node__script_status IS NULL OR 
@@ -64,6 +65,7 @@ CREATE TABLE entity_scripts (
 --
 
 CREATE INDEX idx_entities_general__permissions__roles__view ON entities USING GIN (general__permissions__roles__view);
+CREATE INDEX idx_entities_general__permissions__roles__full ON entities USING GIN (general__permissions__roles__full);
 CREATE INDEX idx_entities_parent_id ON entities(general__parent_entity_id);
 CREATE INDEX idx_entities_created_at ON entities(general__created_at);
 CREATE INDEX idx_entities_updated_at ON entities(general__updated_at);
@@ -74,37 +76,67 @@ CREATE INDEX idx_entities_type_babylonjs ON entities(type__babylonjs);
 ALTER TABLE entities ENABLE ROW LEVEL SECURITY;
 
 -- View policy for specified roles
+DROP POLICY IF EXISTS "entities_view_policy" ON entities;
 CREATE POLICY "entities_view_policy" ON entities
     FOR SELECT
     USING (
         EXISTS (
             SELECT 1 
             FROM agent_roles ar
-            WHERE ar.agent_id = auth.uid()
-            AND ar.is_active = true
-            AND ar.role_name = ANY(entities.general__permissions__roles__view)
+            WHERE ar.auth__agent_id = auth.uid()
+            AND ar.auth__is_active = true
+            AND (
+                ar.auth__role_name = ANY(entities.general__permissions__roles__view)
+                OR ar.auth__role_name = ANY(entities.general__permissions__roles__full)
+            )
         )
     );
 
--- Update policy - ONLY allow through mutation functions
+-- Update policy - Allow users with full permissions AND only through functions
+DROP POLICY IF EXISTS "entities_update_policy" ON entities;
 CREATE POLICY "entities_update_policy" ON entities
     FOR UPDATE
     USING (
         current_setting('role') = 'rls_definer'
+        AND EXISTS (
+            SELECT 1 
+            FROM agent_roles ar
+            WHERE ar.auth__agent_id = auth.uid()
+            AND ar.auth__is_active = true
+            AND ar.auth__role_name = ANY(entities.general__permissions__roles__full)
+        )
     );
 
--- Insert policy - ONLY allow through mutation functions
+-- Insert policy - Only through functions AND with proper role
+DROP POLICY IF EXISTS "entities_insert_policy" ON entities;
 CREATE POLICY "entities_insert_policy" ON entities
     FOR INSERT
     WITH CHECK (
         current_setting('role') = 'rls_definer'
+        AND EXISTS (
+            SELECT 1 
+            FROM agent_roles ar
+            JOIN roles r ON r.auth__role_name = ar.auth__role_name
+            WHERE ar.auth__agent_id = auth.uid()
+            AND ar.auth__is_active = true
+            AND r.auth__is_active = true
+            AND r.auth__can_insert = true
+        )
     );
 
--- Delete policy - ONLY allow through mutation functions
+-- Delete policy - Only through functions AND with full permissions
+DROP POLICY IF EXISTS "entities_delete_policy" ON entities;
 CREATE POLICY "entities_delete_policy" ON entities
     FOR DELETE
     USING (
         current_setting('role') = 'rls_definer'
+        AND EXISTS (
+            SELECT 1 
+            FROM agent_roles ar
+            WHERE ar.auth__agent_id = auth.uid()
+            AND ar.auth__is_active = true
+            AND ar.auth__role_name = ANY(entities.general__permissions__roles__full)
+        )
     );
 
 -- Trigger function to enforce foreign key constraint on array elements
@@ -140,61 +172,61 @@ FOR EACH ROW EXECUTE FUNCTION check_entity_permissions_roles();
 ALTER TABLE entities_metadata ENABLE ROW LEVEL SECURITY;
 
 -- View policy for `entities_metadata`
+DROP POLICY IF EXISTS "entities_metadata_view_policy" ON entities_metadata;
 CREATE POLICY "entities_metadata_view_policy" ON entities_metadata
     FOR SELECT
     USING (
         EXISTS (
             SELECT 1 
             FROM entities e
-            JOIN agent_roles ar ON ar.role_name = ANY(e.general__permissions__roles__view)
-            WHERE e.general__uuid = entities_metadata.entity_id
-            AND ar.agent_id = auth.uid()
-            AND ar.is_active = true
+            JOIN agent_roles ar ON (
+                ar.auth__role_name = ANY(e.general__permissions__roles__view)
+                OR ar.auth__role_name = ANY(e.general__permissions__roles__full)
+            )
+            WHERE e.general__uuid = entities_metadata.general__entity_id
+            AND ar.auth__agent_id = auth.uid()
+            AND ar.auth__is_active = true
         )
     );
 
--- Update policy for `entities_metadata`
+-- New policies that only allow changes through functions
+DROP POLICY IF EXISTS "entities_metadata_update_policy" ON entities_metadata;
 CREATE POLICY "entities_metadata_update_policy" ON entities_metadata
     FOR UPDATE
     USING (
-        EXISTS (
+        current_setting('role') = 'rls_definer'
+        AND EXISTS (
             SELECT 1 
-            FROM agent_roles ar
-            JOIN roles r ON ar.role_name = r.role_name
-            WHERE ar.agent_id = auth.uid()
-            AND ar.is_active = true
-            AND r.is_system = true
+            FROM entities e
+            JOIN agent_roles ar ON ar.auth__role_name = ANY(e.general__permissions__roles__full)
+            WHERE e.general__uuid = entities_metadata.general__entity_id
+            AND ar.auth__agent_id = auth.uid()
+            AND ar.auth__is_active = true
         )
     );
 
--- Insert policy for `entities_metadata`
+DROP POLICY IF EXISTS "entities_metadata_insert_policy" ON entities_metadata;
 CREATE POLICY "entities_metadata_insert_policy" ON entities_metadata
     FOR INSERT
     WITH CHECK (
-        EXISTS (
-            SELECT 1 
-            FROM agent_roles ar
-            JOIN roles r ON ar.role_name = r.role_name
-            WHERE ar.agent_id = auth.uid()
-            AND ar.is_active = true
-            AND r.is_system = true
-        )
+        current_setting('role') = 'rls_definer'
     );
 
--- Delete policy for `entities_metadata`
+DROP POLICY IF EXISTS "entities_metadata_delete_policy" ON entities_metadata;
 CREATE POLICY "entities_metadata_delete_policy" ON entities_metadata
     FOR DELETE
     USING (
-        EXISTS (
+        current_setting('role') = 'rls_definer'
+        AND EXISTS (
             SELECT 1 
-            FROM agent_roles ar
-            JOIN roles r ON ar.role_name = r.role_name
-            WHERE ar.agent_id = auth.uid()
-            AND ar.is_active = true
-            AND r.is_system = true
+            FROM entities e
+            JOIN agent_roles ar ON ar.auth__role_name = ANY(e.general__permissions__roles__full)
+            WHERE e.general__uuid = entities_metadata.general__entity_id
+            AND ar.auth__agent_id = auth.uid()
+            AND ar.auth__is_active = true
         )
     );
 
--- Add index for faster metadata lookups by key__name and entity_id
-CREATE INDEX idx_entities_key__name_entity ON entities_metadata(key__name, entity_id);
+-- Add index for faster metadata lookups by key__name and general__entity_id
+CREATE INDEX idx_entities_key__name_entity ON entities_metadata(key__name, general__entity_id);
 

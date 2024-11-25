@@ -14,9 +14,9 @@ CREATE TYPE action_status AS ENUM (
 
 CREATE TABLE actions (
     general__action_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    general__entity_script_id UUID REFERENCES entity_scripts(entity_script_id) NOT NULL,
+    general__entity_script_id UUID REFERENCES entity_scripts(general__script_id) NOT NULL,
     general__action_status action_status NOT NULL DEFAULT 'PENDING',
-    general__claimed_by UUID REFERENCES agent_profiles(id),
+    general__claimed_by UUID REFERENCES agent_profiles(general__uuid),
     general__action_query JSONB NOT NULL,
     general__last_heartbeat TIMESTAMPTZ,
     general__created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -31,8 +31,8 @@ CREATE OR REPLACE FUNCTION execute_entity_action(
 ) RETURNS VOID AS $$
 BEGIN
     -- Validate script exists
-    IF NOT EXISTS (SELECT 1 FROM entity_scripts WHERE entity_script_id = p_entity_script_id) THEN
-        RAISE EXCEPTION 'Invalid entity_script_id';
+    IF NOT EXISTS (SELECT 1 FROM entity_scripts WHERE general__script_id = p_entity_script_id) THEN
+        RAISE EXCEPTION 'Invalid general__script_id';
     END IF;
 
     -- Execute the query - RLS will automatically check permissions
@@ -70,12 +70,12 @@ CREATE POLICY actions_read_creator_and_system ON actions
         OR 
         EXISTS (
             SELECT 1 FROM agent_roles ar
-            WHERE ar.agent_id = auth.uid()
-            AND ar.role_name IN (
-                SELECT role_name FROM roles 
-                WHERE is_system = true AND is_active = true
+            WHERE ar.auth__agent_id = auth.uid()
+            AND ar.auth__role_name IN (
+                SELECT auth__role_name FROM roles 
+                WHERE auth__is_system = true AND auth__is_active = true
             )
-            AND ar.is_active = true
+            AND ar.auth__is_active = true
         )
     );
 
@@ -84,12 +84,12 @@ CREATE POLICY actions_create_system ON actions
     WITH CHECK (
         EXISTS (
             SELECT 1 FROM agent_roles ar
-            WHERE ar.agent_id = auth.uid()
-            AND ar.role_name IN (
-                SELECT role_name FROM roles 
-                WHERE is_system = true AND is_active = true
+            WHERE ar.auth__agent_id = auth.uid()
+            AND ar.auth__role_name IN (
+                SELECT auth__role_name FROM roles 
+                WHERE auth__is_system = true AND auth__is_active = true
             )
-            AND ar.is_active = true
+            AND ar.auth__is_active = true
         )
     );
 
@@ -98,12 +98,12 @@ CREATE POLICY actions_update_status_claimed ON actions
     USING (
         EXISTS (
             SELECT 1 FROM agent_roles ar
-            WHERE ar.agent_id = auth.uid()
-            AND ar.role_name IN (
-                SELECT role_name FROM roles 
-                WHERE is_system = true AND is_active = true
+            WHERE ar.auth__agent_id = auth.uid()
+            AND ar.auth__role_name IN (
+                SELECT auth__role_name FROM roles 
+                WHERE auth__is_system = true AND auth__is_active = true
             )
-            AND ar.is_active = true
+            AND ar.auth__is_active = true
         )
     )
     WITH CHECK (
@@ -113,12 +113,12 @@ CREATE POLICY actions_update_status_claimed ON actions
         AND
         EXISTS (
             SELECT 1 FROM agent_roles ar
-            WHERE ar.agent_id = auth.uid()
-            AND ar.role_name IN (
-                SELECT role_name FROM roles 
-                WHERE is_system = true AND is_active = true
+            WHERE ar.auth__agent_id = auth.uid()
+            AND ar.auth__role_name IN (
+                SELECT auth__role_name FROM roles 
+                WHERE auth__is_system = true AND auth__is_active = true
             )
-            AND ar.is_active = true
+            AND ar.auth__is_active = true
         )
     );
 

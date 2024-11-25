@@ -3,7 +3,7 @@ CREATE TABLE entity_states (
     LIKE entities INCLUDING DEFAULTS INCLUDING CONSTRAINTS,
     
     -- Additional metadata for state tracking
-    entity_id uuid NOT NULL REFERENCES entities(general__uuid) ON DELETE CASCADE,
+    general__entity_id uuid NOT NULL REFERENCES entities(general__uuid) ON DELETE CASCADE,
     timestamp timestamptz DEFAULT now(),
     tick_number bigint NOT NULL,
     tick_start_time timestamptz,
@@ -23,14 +23,14 @@ CREATE TABLE tick_metrics (
     duration_ms double precision NOT NULL,
     states_processed int NOT NULL,
     is_delayed boolean NOT NULL,
-    created_at timestamptz DEFAULT now(),
+    general__created_at timestamptz DEFAULT now(),
     headroom_ms double precision,
     rate_limited boolean DEFAULT false,
     time_since_last_tick_ms double precision
 );
 
 -- Indexes for fast state lookups
-CREATE INDEX entity_states_lookup_idx ON entity_states (entity_id, tick_number);
+CREATE INDEX entity_states_lookup_idx ON entity_states (general__entity_id, tick_number);
 CREATE INDEX entity_states_timestamp_idx ON entity_states (timestamp);
 
 -- Enable RLS on entity_states table
@@ -43,10 +43,10 @@ CREATE POLICY "entity_states_view_policy" ON entity_states
         EXISTS (
             SELECT 1 
             FROM entities e
-            JOIN agent_roles ar ON ar.role_name = ANY(e.general__permissions__roles__view)
-            WHERE e.general__uuid = entity_states.entity_id
-            AND ar.agent_id = auth.uid()
-            AND ar.is_active = true
+            JOIN agent_roles ar ON ar.auth__role_name = ANY(e.general__permissions__roles__view)
+            WHERE e.general__uuid = entity_states.general__entity_id
+            AND ar.auth__agent_id = auth.uid()
+            AND ar.auth__is_active = true
         )
     );
 
@@ -57,10 +57,10 @@ CREATE POLICY "entity_states_update_policy" ON entity_states
         EXISTS (
             SELECT 1 
             FROM agent_roles ar
-            JOIN roles r ON ar.role_name = r.role_name
-            WHERE ar.agent_id = auth.uid()
-            AND ar.is_active = true
-            AND r.is_system = true
+            JOIN roles r ON ar.auth__role_name = r.auth__role_name
+            WHERE ar.auth__agent_id = auth.uid()
+            AND ar.auth__is_active = true
+            AND r.auth__is_system = true
         )
     );
 
@@ -70,10 +70,10 @@ CREATE POLICY "entity_states_insert_policy" ON entity_states
         EXISTS (
             SELECT 1 
             FROM agent_roles ar
-            JOIN roles r ON ar.role_name = r.role_name
-            WHERE ar.agent_id = auth.uid()
-            AND ar.is_active = true
-            AND r.is_system = true
+            JOIN roles r ON ar.auth__role_name = r.auth__role_name
+            WHERE ar.auth__agent_id = auth.uid()
+            AND ar.auth__is_active = true
+            AND r.auth__is_system = true
         )
     );
 
@@ -83,10 +83,10 @@ CREATE POLICY "entity_states_delete_policy" ON entity_states
         EXISTS (
             SELECT 1 
             FROM agent_roles ar
-            JOIN roles r ON ar.role_name = r.role_name
-            WHERE ar.agent_id = auth.uid()
-            AND ar.is_active = true
-            AND r.is_system = true
+            JOIN roles r ON ar.auth__role_name = r.auth__role_name
+            WHERE ar.auth__agent_id = auth.uid()
+            AND ar.auth__is_active = true
+            AND r.auth__is_system = true
         )
     );
 
@@ -95,7 +95,7 @@ CREATE TABLE entity_metadata_states (
     LIKE entities_metadata INCLUDING DEFAULTS INCLUDING CONSTRAINTS,
     
     -- Additional metadata for state tracking
-    entity_metadata_id uuid NOT NULL REFERENCES entities_metadata(metadata_id) ON DELETE CASCADE,
+    entity_metadata_id uuid NOT NULL REFERENCES entities_metadata(general__metadata_id) ON DELETE CASCADE,
     timestamp timestamptz DEFAULT now(),
     tick_number bigint NOT NULL,
     tick_start_time timestamptz,
@@ -103,7 +103,7 @@ CREATE TABLE entity_metadata_states (
     tick_duration_ms double precision,
     
     -- Override the primary key
-    CONSTRAINT entity_metadata_states_pkey PRIMARY KEY (metadata_id)
+    CONSTRAINT entity_metadata_states_pkey PRIMARY KEY (general__metadata_id)
 );
 
 -- Indexes for fast metadata state lookups
@@ -120,11 +120,11 @@ CREATE POLICY "entity_metadata_states_view_policy" ON entity_metadata_states
         EXISTS (
             SELECT 1 
             FROM entities_metadata em
-            JOIN entities e ON e.general__uuid = em.entity_id
-            JOIN agent_roles ar ON ar.role_name = ANY(e.general__permissions__roles__view)
-            WHERE em.metadata_id = entity_metadata_states.entity_metadata_id
-            AND ar.agent_id = auth.uid()
-            AND ar.is_active = true
+            JOIN entities e ON e.general__uuid = em.general__entity_id
+            JOIN agent_roles ar ON ar.auth__role_name = ANY(e.general__permissions__roles__view)
+            WHERE em.general__metadata_id = entity_metadata_states.entity_metadata_id
+            AND ar.auth__agent_id = auth.uid()
+            AND ar.auth__is_active = true
         )
     );
 
@@ -135,10 +135,10 @@ CREATE POLICY "entity_metadata_states_update_policy" ON entity_metadata_states
         EXISTS (
             SELECT 1 
             FROM agent_roles ar
-            JOIN roles r ON ar.role_name = r.role_name
-            WHERE ar.agent_id = auth.uid()
-            AND ar.is_active = true
-            AND r.is_system = true
+            JOIN roles r ON ar.auth__role_name = r.auth__role_name
+            WHERE ar.auth__agent_id = auth.uid()
+            AND ar.auth__is_active = true
+            AND r.auth__is_system = true
         )
     );
 
@@ -148,10 +148,10 @@ CREATE POLICY "entity_metadata_states_insert_policy" ON entity_metadata_states
         EXISTS (
             SELECT 1 
             FROM agent_roles ar
-            JOIN roles r ON ar.role_name = r.role_name
-            WHERE ar.agent_id = auth.uid()
-            AND ar.is_active = true
-            AND r.is_system = true
+            JOIN roles r ON ar.auth__role_name = r.auth__role_name
+            WHERE ar.auth__agent_id = auth.uid()
+            AND ar.auth__is_active = true
+            AND r.auth__is_system = true
         )
     );
 
@@ -161,10 +161,10 @@ CREATE POLICY "entity_metadata_states_delete_policy" ON entity_metadata_states
         EXISTS (
             SELECT 1 
             FROM agent_roles ar
-            JOIN roles r ON ar.role_name = r.role_name
-            WHERE ar.agent_id = auth.uid()
-            AND ar.is_active = true
-            AND r.is_system = true
+            JOIN roles r ON ar.auth__role_name = r.auth__role_name
+            WHERE ar.auth__agent_id = auth.uid()
+            AND ar.auth__is_active = true
+            AND r.auth__is_system = true
         )
     );
 
@@ -196,7 +196,7 @@ BEGIN
     -- Insert entity states
     WITH inserted AS (
         INSERT INTO entity_states (
-            entity_id,
+            general__entity_id,
             tick_number,
             tick_start_time,
             tick_end_time,
@@ -211,7 +211,7 @@ BEGIN
             type__babylonjs
         )
         SELECT 
-            general__uuid AS entity_id,
+            general__uuid AS general__entity_id,
             current_tick,
             tick_start,
             clock_timestamp(),
@@ -232,15 +232,15 @@ BEGIN
     -- Insert metadata states
     WITH inserted_metadata AS (
         INSERT INTO entity_metadata_states (
-            metadata_id,
-            entity_id,
+            general__metadata_id,
+            general__entity_id,
             key__name,
             values__text,
             values__numeric,
             values__boolean,
             values__timestamp,
-            created_at,
-            updated_at,
+            general__created_at,
+            general__updated_at,
             
             entity_metadata_id,
             tick_number,
@@ -249,17 +249,17 @@ BEGIN
             tick_duration_ms
         )
         SELECT 
-            metadata_id,
-            entity_id,
+            general__metadata_id,
+            general__entity_id,
             key__name,
             values__text,
             values__numeric,
             values__boolean,
             values__timestamp,
-            created_at,
-            updated_at,
+            general__created_at,
+            general__updated_at,
             
-            metadata_id AS entity_metadata_id,
+            general__metadata_id AS entity_metadata_id,
             current_tick,
             tick_start,
             clock_timestamp(),
@@ -418,7 +418,7 @@ DECLARE
 BEGIN
     WITH deleted_metrics AS (
         DELETE FROM tick_metrics 
-        WHERE created_at < (now() - (
+        WHERE general__created_at < (now() - (
             SELECT (value#>>'{}'::text[])::int * interval '1 millisecond' 
             FROM world_config 
             WHERE key = 'tick_metrics_history_ms'
@@ -444,10 +444,10 @@ CREATE POLICY "tick_metrics_view_policy" ON tick_metrics
         EXISTS (
             SELECT 1 
             FROM agent_roles ar
-            JOIN roles r ON ar.role_name = r.role_name
-            WHERE ar.agent_id = auth.uid()
-            AND ar.is_active = true
-            AND r.is_system = true
+            JOIN roles r ON ar.auth__role_name = r.auth__role_name
+            WHERE ar.auth__agent_id = auth.uid()
+            AND ar.auth__is_active = true
+            AND r.auth__is_system = true
         )
     );
 
@@ -457,10 +457,10 @@ CREATE POLICY "tick_metrics_update_policy" ON tick_metrics
         EXISTS (
             SELECT 1 
             FROM agent_roles ar
-            JOIN roles r ON ar.role_name = r.role_name
-            WHERE ar.agent_id = auth.uid()
-            AND ar.is_active = true
-            AND r.is_system = true
+            JOIN roles r ON ar.auth__role_name = r.auth__role_name
+            WHERE ar.auth__agent_id = auth.uid()
+            AND ar.auth__is_active = true
+            AND r.auth__is_system = true
         )
     );
 
@@ -470,10 +470,10 @@ CREATE POLICY "tick_metrics_insert_policy" ON tick_metrics
         EXISTS (
             SELECT 1 
             FROM agent_roles ar
-            JOIN roles r ON ar.role_name = r.role_name
-            WHERE ar.agent_id = auth.uid()
-            AND ar.is_active = true
-            AND r.is_system = true
+            JOIN roles r ON ar.auth__role_name = r.auth__role_name
+            WHERE ar.auth__agent_id = auth.uid()
+            AND ar.auth__is_active = true
+            AND r.auth__is_system = true
         )
     );
 
@@ -483,9 +483,9 @@ CREATE POLICY "tick_metrics_delete_policy" ON tick_metrics
         EXISTS (
             SELECT 1 
             FROM agent_roles ar
-            JOIN roles r ON ar.role_name = r.role_name
-            WHERE ar.agent_id = auth.uid()
-            AND ar.is_active = true
-            AND r.is_system = true
+            JOIN roles r ON ar.auth__role_name = r.auth__role_name
+            WHERE ar.auth__agent_id = auth.uid()
+            AND ar.auth__is_active = true
+            AND r.auth__is_system = true
         )
     );

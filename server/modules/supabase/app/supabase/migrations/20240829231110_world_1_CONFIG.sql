@@ -8,8 +8,8 @@ CREATE TABLE world_config (
     key text PRIMARY KEY,
     value jsonb NOT NULL,
     description text,
-    created_at timestamptz DEFAULT now(),
-    updated_at timestamptz DEFAULT now()
+    general__created_at timestamptz DEFAULT now(),
+    general__updated_at timestamptz DEFAULT now()
 );
 
 -- Insert default configuration

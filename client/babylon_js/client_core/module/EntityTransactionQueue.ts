@@ -46,7 +46,7 @@ export class EntityTransactionQueue {
         metadata: EntityMetadataRow,
         action: "INSERT" | "UPDATE" | "DELETE",
     ) {
-        const metadataId = `${metadata.entity_id}:${metadata.key}`;
+        const metadataId = `${metadata.general__entity_id}:${metadata.key}`;
 
         if (action === "DELETE") {
             this.metadataInsertQueue.delete(metadataId);

@@ -172,15 +172,15 @@ async function handleEntityChange(
         // Handle local scripts
         if (Array.isArray(entity.babylonjs__script_local_scripts)) {
             for (const script of entity.babylonjs__script_local_scripts) {
-                if (script.git_repo_url && script.git_repo_entry_path) {
+                if (script.source__git__repo_url && script.source__git__repo_entry_path) {
                     const scriptPath = await prepareGitRepo(
-                        script.git_repo_url,
-                        script.git_repo_entry_path,
+                        script.source__git__repo_url,
+                        script.source__git__repo_entry_path,
                     );
                     const compiled = await compileScript(scriptPath, debug);
                     compiledLocalScripts.push({
-                        git_repo_url: script.git_repo_url,
-                        git_repo_entry_path: script.git_repo_entry_path,
+                        source__git__repo_url: script.source__git__repo_url,
+                        source__git__repo_entry_path: script.source__git__repo_entry_path,
                         compiled_browser_script:
                             compiled.compiled_browser_script,
                         compiled_browser_script_sha256:
@@ -205,15 +205,15 @@ async function handleEntityChange(
         // Handle persistent scripts
         if (Array.isArray(entity.babylonjs__script_persistent_scripts)) {
             for (const script of entity.babylonjs__script_persistent_scripts) {
-                if (script.git_repo_url && script.git_repo_entry_path) {
+                if (script.source__git__repo_url && script.source__git__repo_entry_path) {
                     const scriptPath = await prepareGitRepo(
-                        script.git_repo_url,
-                        script.git_repo_entry_path,
+                        script.source__git__repo_url,
+                        script.source__git__repo_entry_path,
                     );
                     const compiled = await compileScript(scriptPath, debug);
                     compiledPersistentScripts.push({
-                        git_repo_url: script.git_repo_url,
-                        git_repo_entry_path: script.git_repo_entry_path,
+                        source__git__repo_url: script.source__git__repo_url,
+                        source__git__repo_entry_path: script.source__git__repo_entry_path,
                         compiled_node_script: compiled.compiled_node_script,
                         compiled_node_script_sha256:
                             compiled.compiled_node_script_sha256,
@@ -269,7 +269,7 @@ async function handleEntityChange(
 
 function checkIfCompilationNeeded(entity: any): boolean {
     const verifyScriptHash = (script: any) => {
-        if (!script.git_repo_url || !script.git_repo_entry_path) return false;
+        if (!script.source__git__repo_url || !script.source__git__repo_entry_path) return false;
 
         // Check if any compilation is missing
         if (

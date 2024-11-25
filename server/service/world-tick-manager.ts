@@ -158,12 +158,10 @@ export class WorldTickManager {
             }
 
             const currentServerTime = new Date(timeData);
-
-            // Start measuring actual tick capture performance here
             const startTime = performance.now();
 
-            // Update: Changed function name from capture_entity_state to capture_tick_state
-            const { error: captureError } =
+            // Capture both entity and metadata states
+            const { data: captureData, error: captureError } =
                 await this.supabase.rpc("capture_tick_state");
 
             if (captureError) {
@@ -176,13 +174,20 @@ export class WorldTickManager {
                 this.lastServerTime = currentServerTime;
                 this.tickCount++;
 
-                // Log performance metrics for just the capture operation
+                // Log performance metrics including metadata stats
                 const elapsed = performance.now() - startTime;
                 if (elapsed > this.targetIntervalMs) {
                     log({
                         message: `Tick capture took ${elapsed.toFixed(2)}ms (target: ${this.targetIntervalMs}ms)`,
                         debug: this.debugMode,
                         type: "warn",
+                    });
+                } else if (this.debugMode) {
+                    // Optional: Add more detailed logging in debug mode
+                    log({
+                        message: `Tick ${this.tickCount} completed in ${elapsed.toFixed(2)}ms`,
+                        debug: true,
+                        type: "debug",
                     });
                 }
             }

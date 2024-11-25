@@ -90,6 +90,84 @@ CREATE POLICY "entity_states_delete_policy" ON entity_states
         )
     );
 
+-- Add metadata states table
+CREATE TABLE entity_metadata_states (
+    LIKE entities_metadata INCLUDING DEFAULTS INCLUDING CONSTRAINTS,
+    
+    -- Additional metadata for state tracking
+    entity_metadata_id uuid NOT NULL REFERENCES entities_metadata(metadata_id) ON DELETE CASCADE,
+    timestamp timestamptz DEFAULT now(),
+    tick_number bigint NOT NULL,
+    tick_start_time timestamptz,
+    tick_end_time timestamptz,
+    tick_duration_ms double precision,
+    
+    -- Override the primary key
+    CONSTRAINT entity_metadata_states_pkey PRIMARY KEY (metadata_id)
+);
+
+-- Indexes for fast metadata state lookups
+CREATE INDEX entity_metadata_states_lookup_idx ON entity_metadata_states (entity_metadata_id, tick_number);
+CREATE INDEX entity_metadata_states_timestamp_idx ON entity_metadata_states (timestamp);
+
+-- Enable RLS on entity_metadata_states table
+ALTER TABLE entity_metadata_states ENABLE ROW LEVEL SECURITY;
+
+-- View policy for entity_metadata_states (matching the entity metadata read permissions)
+CREATE POLICY "entity_metadata_states_view_policy" ON entity_metadata_states
+    FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 
+            FROM entities_metadata em
+            JOIN entities e ON e.general__uuid = em.entity_id
+            JOIN agent_roles ar ON ar.role_name = ANY(e.general__permissions__roles__view)
+            WHERE em.metadata_id = entity_metadata_states.entity_metadata_id
+            AND ar.agent_id = auth.uid()
+            AND ar.is_active = true
+        )
+    );
+
+-- Update/Insert/Delete policies for entity_metadata_states (system users only)
+CREATE POLICY "entity_metadata_states_update_policy" ON entity_metadata_states
+    FOR UPDATE
+    USING (
+        EXISTS (
+            SELECT 1 
+            FROM agent_roles ar
+            JOIN roles r ON ar.role_name = r.role_name
+            WHERE ar.agent_id = auth.uid()
+            AND ar.is_active = true
+            AND r.is_system = true
+        )
+    );
+
+CREATE POLICY "entity_metadata_states_insert_policy" ON entity_metadata_states
+    FOR INSERT
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 
+            FROM agent_roles ar
+            JOIN roles r ON ar.role_name = r.role_name
+            WHERE ar.agent_id = auth.uid()
+            AND ar.is_active = true
+            AND r.is_system = true
+        )
+    );
+
+CREATE POLICY "entity_metadata_states_delete_policy" ON entity_metadata_states
+    FOR DELETE
+    USING (
+        EXISTS (
+            SELECT 1 
+            FROM agent_roles ar
+            JOIN roles r ON ar.role_name = r.role_name
+            WHERE ar.agent_id = auth.uid()
+            AND ar.is_active = true
+            AND r.is_system = true
+        )
+    );
+
 -- Function to capture entity state
 CREATE OR REPLACE FUNCTION capture_tick_state()
 RETURNS void AS $$
@@ -99,6 +177,7 @@ DECLARE
     tick_end timestamptz;
     tick_duration double precision;
     inserted_count int;
+    metadata_inserted_count int;
     is_delayed boolean;
     tick_rate_ms int;
     headroom double precision;
@@ -114,7 +193,7 @@ BEGIN
     FROM world_config 
     WHERE key = 'tick_rate_ms';
     
-    -- Insert new states with timing information
+    -- Insert entity states
     WITH inserted AS (
         INSERT INTO entity_states (
             entity_id,
@@ -122,28 +201,14 @@ BEGIN
             tick_start_time,
             tick_end_time,
             tick_duration_ms,
+            general__uuid,
             general__name,
-            babylonjs__type,
-            babylonjs__transform_position_x,
-            babylonjs__transform_position_y,
-            babylonjs__transform_position_z,
-            babylonjs__transform_rotation_x,
-            babylonjs__transform_rotation_y,
-            babylonjs__transform_rotation_z,
-            babylonjs__transform_rotation_w,
-            babylonjs__transform_scale_x,
-            babylonjs__transform_scale_y,
-            babylonjs__transform_scale_z,
-            babylonjs__physics_velocity_x,
-            babylonjs__physics_velocity_y,
-            babylonjs__physics_velocity_z,
-            babylonjs__physics_angular_velocity_x,
-            babylonjs__physics_angular_velocity_y,
-            babylonjs__physics_angular_velocity_z,
-            babylonjs__physics_mass,
-            babylonjs__physics_restitution,
-            babylonjs__physics_friction,
-            babylonjs__physics_is_static
+            general__semantic_version,
+            general__created_at,
+            general__updated_at,
+            general__parent_entity_id,
+            general__permissions__roles__view,
+            type__babylonjs
         )
         SELECT 
             general__uuid AS entity_id,
@@ -151,32 +216,58 @@ BEGIN
             tick_start,
             clock_timestamp(),
             EXTRACT(EPOCH FROM (clock_timestamp() - tick_start))::double precision * 1000,
+            general__uuid,
             general__name,
-            babylonjs__type,
-            babylonjs__transform_position_x,
-            babylonjs__transform_position_y,
-            babylonjs__transform_position_z,
-            babylonjs__transform_rotation_x,
-            babylonjs__transform_rotation_y,
-            babylonjs__transform_rotation_z,
-            babylonjs__transform_rotation_w,
-            babylonjs__transform_scale_x,
-            babylonjs__transform_scale_y,
-            babylonjs__transform_scale_z,
-            babylonjs__physics_velocity_x,
-            babylonjs__physics_velocity_y,
-            babylonjs__physics_velocity_z,
-            babylonjs__physics_angular_velocity_x,
-            babylonjs__physics_angular_velocity_y,
-            babylonjs__physics_angular_velocity_z,
-            babylonjs__physics_mass,
-            babylonjs__physics_restitution,
-            babylonjs__physics_friction,
-            babylonjs__physics_is_static
+            general__semantic_version,
+            general__created_at,
+            general__updated_at,
+            general__parent_entity_id,
+            general__permissions__roles__view,
+            type__babylonjs
         FROM entities e
         RETURNING *
     )
     SELECT COUNT(*) INTO inserted_count FROM inserted;
+
+    -- Insert metadata states
+    WITH inserted_metadata AS (
+        INSERT INTO entity_metadata_states (
+            metadata_id,
+            entity_id,
+            key__name,
+            values__text,
+            values__numeric,
+            values__boolean,
+            values__timestamp,
+            created_at,
+            updated_at,
+            
+            entity_metadata_id,
+            tick_number,
+            tick_start_time,
+            tick_end_time,
+            tick_duration_ms
+        )
+        SELECT 
+            metadata_id,
+            entity_id,
+            key__name,
+            values__text,
+            values__numeric,
+            values__boolean,
+            values__timestamp,
+            created_at,
+            updated_at,
+            
+            metadata_id AS entity_metadata_id,
+            current_tick,
+            tick_start,
+            clock_timestamp(),
+            EXTRACT(EPOCH FROM (clock_timestamp() - tick_start))::double precision * 1000
+        FROM entities_metadata
+        RETURNING *
+    )
+    SELECT COUNT(*) INTO metadata_inserted_count FROM inserted_metadata;
 
     tick_end := clock_timestamp();
     
@@ -209,56 +300,6 @@ BEGIN
         RAISE WARNING 'Tick % exceeded target duration: %.3fms (target: %ms)',
             current_tick, tick_duration, tick_rate_ms;
     END IF;
-END;
-$$ LANGUAGE plpgsql;
-
--- Function to get entity state at a specific timestamp
-CREATE OR REPLACE FUNCTION get_entity_state_at_timestamp(
-    target_timestamp timestamptz
-) RETURNS TABLE (
-    entity_id uuid,
-    babylonjs__transform_position_x float,
-    babylonjs__transform_position_y float,
-    babylonjs__transform_position_z float,
-    babylonjs__transform_rotation_x float,
-    babylonjs__transform_rotation_y float,
-    babylonjs__transform_rotation_z float,
-    babylonjs__transform_rotation_w float,
-    babylonjs__physics_velocity_x float,
-    babylonjs__physics_velocity_y float,
-    babylonjs__physics_velocity_z float,
-    babylonjs__physics_angular_velocity_x float,
-    babylonjs__physics_angular_velocity_y float,
-    babylonjs__physics_angular_velocity_z float
-) AS $$
-BEGIN
-    RETURN QUERY
-    WITH closest_states AS (
-        SELECT 
-            es.*,
-            ROW_NUMBER() OVER (PARTITION BY es.entity_id 
-                              ORDER BY ABS(EXTRACT(EPOCH FROM (es.timestamp - target_timestamp)))) as rn
-        FROM entity_states es
-        WHERE es.timestamp BETWEEN target_timestamp - interval '1 second' 
-                              AND target_timestamp + interval '1 second'
-    )
-    SELECT 
-        entity_id,
-        babylonjs__transform_position_x,
-        babylonjs__transform_position_y,
-        babylonjs__transform_position_z,
-        babylonjs__transform_rotation_x,
-        babylonjs__transform_rotation_y,
-        babylonjs__transform_rotation_z,
-        babylonjs__transform_rotation_w,
-        babylonjs__physics_velocity_x,
-        babylonjs__physics_velocity_y,
-        babylonjs__physics_velocity_z,
-        babylonjs__physics_angular_velocity_x,
-        babylonjs__physics_angular_velocity_y,
-        babylonjs__physics_angular_velocity_z
-    FROM closest_states
-    WHERE rn = 1;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -335,7 +376,9 @@ CREATE OR REPLACE FUNCTION cleanup_old_entity_states()
 RETURNS void AS $$
 DECLARE
     states_cleaned integer;
+    metadata_states_cleaned integer;
 BEGIN
+    -- Clean entity states
     WITH deleted_states AS (
         DELETE FROM entity_states 
         WHERE timestamp < (now() - (
@@ -347,9 +390,22 @@ BEGIN
     )
     SELECT COUNT(*) INTO states_cleaned FROM deleted_states;
     
+    -- Clean metadata states
+    WITH deleted_metadata_states AS (
+        DELETE FROM entity_metadata_states 
+        WHERE timestamp < (now() - (
+            SELECT (value#>>'{}'::text[])::int * interval '1 millisecond' 
+            FROM world_config 
+            WHERE key = 'tick_buffer_duration_ms'
+        ))
+        RETURNING *
+    )
+    SELECT COUNT(*) INTO metadata_states_cleaned FROM deleted_metadata_states;
+    
     -- Log cleanup results if anything was cleaned
-    IF states_cleaned > 0 THEN
-        RAISE NOTICE 'Entity states cleanup completed: % states removed', states_cleaned;
+    IF states_cleaned > 0 OR metadata_states_cleaned > 0 THEN
+        RAISE NOTICE 'Cleanup completed: % entity states and % metadata states removed', 
+            states_cleaned, metadata_states_cleaned;
     END IF;
 END;
 $$ LANGUAGE plpgsql;

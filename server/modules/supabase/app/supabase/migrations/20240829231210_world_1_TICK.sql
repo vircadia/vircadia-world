@@ -43,7 +43,7 @@ CREATE POLICY "entity_states_view_policy" ON entity_states
         EXISTS (
             SELECT 1 
             FROM entities e
-            JOIN agent_roles ar ON ar.role_name = ANY(e.general__permissions__can_view_roles)
+            JOIN agent_roles ar ON ar.role_name = ANY(e.general__permissions__roles__view)
             WHERE e.general__uuid = entity_states.entity_id
             AND ar.agent_id = auth.uid()
             AND ar.is_active = true

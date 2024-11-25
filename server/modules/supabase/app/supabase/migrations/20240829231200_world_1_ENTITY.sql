@@ -114,7 +114,7 @@ CREATE TABLE entities (
     general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     general__parent_entity_id UUID REFERENCES entities(general__uuid) ON DELETE CASCADE,
-    general__permissions__can_view_roles TEXT[],
+    general__permissions__roles__view TEXT[],
 
     babylonjs__type entity_type_babylonjs_enum NOT NULL,
 
@@ -322,14 +322,14 @@ CREATE TABLE entities (
 CREATE TABLE entities_metadata (
     metadata_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     entity_id UUID NOT NULL REFERENCES entities(general__uuid) ON DELETE CASCADE,
-    key TEXT NOT NULL,
+    key__name TEXT NOT NULL,
     values__text TEXT[],
     values__numeric NUMERIC[],
     values__boolean BOOLEAN[],
     values__timestamp TIMESTAMPTZ[],
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE (entity_id, key)
+    UNIQUE (entity_id, key__name)
 );
 
 --
@@ -369,7 +369,7 @@ CREATE TABLE entity_scripts (
 --
 
 -- Core indexes
-CREATE INDEX idx_entities_general__permissions__can_view_roles ON entities USING GIN (general__permissions__can_view_roles);
+CREATE INDEX idx_entities_general__permissions__roles__view ON entities USING GIN (general__permissions__roles__view);
 CREATE INDEX idx_entities_parent_id ON entities(general__parent_entity_id);
 CREATE INDEX idx_entities_created_at ON entities(general__created_at);
 CREATE INDEX idx_entities_updated_at ON entities(general__updated_at);
@@ -414,7 +414,7 @@ CREATE POLICY "entities_view_policy" ON entities
             FROM agent_roles ar
             WHERE ar.agent_id = auth.uid()
             AND ar.is_active = true
-            AND ar.role_name = ANY(entities.general__permissions__can_view_roles)
+            AND ar.role_name = ANY(entities.general__permissions__roles__view)
         )
     );
 
@@ -478,7 +478,7 @@ CREATE POLICY "entities_metadata_view_policy" ON entities_metadata
         EXISTS (
             SELECT 1 
             FROM entities e
-            JOIN agent_roles ar ON ar.role_name = ANY(e.general__permissions__can_view_roles)
+            JOIN agent_roles ar ON ar.role_name = ANY(e.general__permissions__roles__view)
             WHERE e.general__uuid = entities_metadata.entity_id
             AND ar.agent_id = auth.uid()
             AND ar.is_active = true
@@ -526,4 +526,7 @@ CREATE POLICY "entities_metadata_delete_policy" ON entities_metadata
             AND r.is_system = true
         )
     );
+
+-- Add index for faster metadata lookups by key__name and entity_id
+CREATE INDEX idx_entities_key__name_entity ON entities_metadata(key__name, entity_id);
 

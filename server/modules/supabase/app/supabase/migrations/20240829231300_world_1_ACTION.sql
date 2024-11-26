@@ -88,6 +88,7 @@ CREATE POLICY actions_create_system ON actions
             AND ar.auth__role_name IN (
                 SELECT auth__role_name FROM roles 
                 WHERE auth__is_system = true AND auth__is_active = true
+                OR auth__can_insert = true AND auth__is_active = true
             )
             AND ar.auth__is_active = true
         )

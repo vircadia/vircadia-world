@@ -7,6 +7,7 @@ CREATE TABLE entities (
     general__name VARCHAR(255) NOT NULL,
     general__semantic_version TEXT NOT NULL DEFAULT '1.0.0',
     general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    general__created_by UUID DEFAULT auth.uid(),
     general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     general__parent_entity_id UUID REFERENCES entities(general__uuid) ON DELETE CASCADE,
     general__permissions__roles__view TEXT[],
@@ -24,6 +25,7 @@ CREATE TABLE entities_metadata (
     values__boolean BOOLEAN[],
     values__timestamp TIMESTAMPTZ[],
     general__created_at TIMESTAMPTZ DEFAULT NOW(),
+    general__created_by UUID DEFAULT auth.uid(),
     general__updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE (general__entity_id, key__name)
 );
@@ -75,12 +77,13 @@ CREATE INDEX idx_entities_type_babylonjs ON entities(type__babylonjs);
 -- Enable RLS on entities table
 ALTER TABLE entities ENABLE ROW LEVEL SECURITY;
 
--- View policy for specified roles
+-- View policy - Allow viewing if user has proper role OR is the creator
 DROP POLICY IF EXISTS "entities_view_policy" ON entities;
 CREATE POLICY "entities_view_policy" ON entities
     FOR SELECT
     USING (
-        EXISTS (
+        general__created_by = auth.uid()
+        OR EXISTS (
             SELECT 1 
             FROM agent_roles ar
             WHERE ar.auth__agent_id = auth.uid()
@@ -92,18 +95,21 @@ CREATE POLICY "entities_view_policy" ON entities
         )
     );
 
--- Update policy - Allow users with full permissions AND only through functions
+-- Update policy - Allow updates if user has full permissions OR is the creator
 DROP POLICY IF EXISTS "entities_update_policy" ON entities;
 CREATE POLICY "entities_update_policy" ON entities
     FOR UPDATE
     USING (
         current_setting('role') = 'rls_definer'
-        AND EXISTS (
-            SELECT 1 
-            FROM agent_roles ar
-            WHERE ar.auth__agent_id = auth.uid()
-            AND ar.auth__is_active = true
-            AND ar.auth__role_name = ANY(entities.general__permissions__roles__full)
+        AND (
+            general__created_by = auth.uid()
+            OR EXISTS (
+                SELECT 1 
+                FROM agent_roles ar
+                WHERE ar.auth__agent_id = auth.uid()
+                AND ar.auth__is_active = true
+                AND ar.auth__role_name = ANY(entities.general__permissions__roles__full)
+            )
         )
     );
 
@@ -124,18 +130,21 @@ CREATE POLICY "entities_insert_policy" ON entities
         )
     );
 
--- Delete policy - Only through functions AND with full permissions
+-- Delete policy - Allow deletion if user has full permissions OR is the creator
 DROP POLICY IF EXISTS "entities_delete_policy" ON entities;
 CREATE POLICY "entities_delete_policy" ON entities
     FOR DELETE
     USING (
         current_setting('role') = 'rls_definer'
-        AND EXISTS (
-            SELECT 1 
-            FROM agent_roles ar
-            WHERE ar.auth__agent_id = auth.uid()
-            AND ar.auth__is_active = true
-            AND ar.auth__role_name = ANY(entities.general__permissions__roles__full)
+        AND (
+            general__created_by = auth.uid()
+            OR EXISTS (
+                SELECT 1 
+                FROM agent_roles ar
+                WHERE ar.auth__agent_id = auth.uid()
+                AND ar.auth__is_active = true
+                AND ar.auth__role_name = ANY(entities.general__permissions__roles__full)
+            )
         )
     );
 
@@ -171,7 +180,7 @@ FOR EACH ROW EXECUTE FUNCTION check_entity_permissions_roles();
 -- Enable RLS on entities_metadata table
 ALTER TABLE entities_metadata ENABLE ROW LEVEL SECURITY;
 
--- View policy for `entities_metadata`
+-- View policy for entities_metadata - Allow if user has proper role OR is the creator of the parent entity
 DROP POLICY IF EXISTS "entities_metadata_view_policy" ON entities_metadata;
 CREATE POLICY "entities_metadata_view_policy" ON entities_metadata
     FOR SELECT
@@ -179,17 +188,24 @@ CREATE POLICY "entities_metadata_view_policy" ON entities_metadata
         EXISTS (
             SELECT 1 
             FROM entities e
-            JOIN agent_roles ar ON (
-                ar.auth__role_name = ANY(e.general__permissions__roles__view)
-                OR ar.auth__role_name = ANY(e.general__permissions__roles__full)
-            )
             WHERE e.general__uuid = entities_metadata.general__entity_id
-            AND ar.auth__agent_id = auth.uid()
-            AND ar.auth__is_active = true
+            AND (
+                e.general__created_by = auth.uid()
+                OR EXISTS (
+                    SELECT 1
+                    FROM agent_roles ar
+                    WHERE ar.auth__agent_id = auth.uid()
+                    AND ar.auth__is_active = true
+                    AND (
+                        ar.auth__role_name = ANY(e.general__permissions__roles__view)
+                        OR ar.auth__role_name = ANY(e.general__permissions__roles__full)
+                    )
+                )
+            )
         )
     );
 
--- New policies that only allow changes through functions
+-- Update policy for entities_metadata - Allow if user has full permissions OR is the creator
 DROP POLICY IF EXISTS "entities_metadata_update_policy" ON entities_metadata;
 CREATE POLICY "entities_metadata_update_policy" ON entities_metadata
     FOR UPDATE
@@ -198,10 +214,17 @@ CREATE POLICY "entities_metadata_update_policy" ON entities_metadata
         AND EXISTS (
             SELECT 1 
             FROM entities e
-            JOIN agent_roles ar ON ar.auth__role_name = ANY(e.general__permissions__roles__full)
             WHERE e.general__uuid = entities_metadata.general__entity_id
-            AND ar.auth__agent_id = auth.uid()
-            AND ar.auth__is_active = true
+            AND (
+                e.general__created_by = auth.uid()
+                OR EXISTS (
+                    SELECT 1
+                    FROM agent_roles ar
+                    WHERE ar.auth__agent_id = auth.uid()
+                    AND ar.auth__is_active = true
+                    AND ar.auth__role_name = ANY(e.general__permissions__roles__full)
+                )
+            )
         )
     );
 
@@ -212,6 +235,7 @@ CREATE POLICY "entities_metadata_insert_policy" ON entities_metadata
         current_setting('role') = 'rls_definer'
     );
 
+-- Delete policy for entities_metadata - Allow if user has full permissions OR is the creator
 DROP POLICY IF EXISTS "entities_metadata_delete_policy" ON entities_metadata;
 CREATE POLICY "entities_metadata_delete_policy" ON entities_metadata
     FOR DELETE
@@ -220,10 +244,17 @@ CREATE POLICY "entities_metadata_delete_policy" ON entities_metadata
         AND EXISTS (
             SELECT 1 
             FROM entities e
-            JOIN agent_roles ar ON ar.auth__role_name = ANY(e.general__permissions__roles__full)
             WHERE e.general__uuid = entities_metadata.general__entity_id
-            AND ar.auth__agent_id = auth.uid()
-            AND ar.auth__is_active = true
+            AND (
+                e.general__created_by = auth.uid()
+                OR EXISTS (
+                    SELECT 1
+                    FROM agent_roles ar
+                    WHERE ar.auth__agent_id = auth.uid()
+                    AND ar.auth__is_active = true
+                    AND ar.auth__role_name = ANY(e.general__permissions__roles__full)
+                )
+            )
         )
     );
 

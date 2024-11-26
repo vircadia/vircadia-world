@@ -144,9 +144,13 @@ export class WorldTickManager {
 
     async captureTick() {
         try {
+            const totalStartTime = performance.now();
+            
             // Get current server time before capture
+            const timeRequestStart = performance.now();
             const { data: timeData, error: timeError } =
                 await this.supabase.rpc("get_server_time");
+            const timeRequestDuration = performance.now() - timeRequestStart;
 
             if (timeError) {
                 log({
@@ -158,11 +162,12 @@ export class WorldTickManager {
             }
 
             const currentServerTime = new Date(timeData);
-            const startTime = performance.now();
 
             // Capture both entity and metadata states
+            const captureRequestStart = performance.now();
             const { data: captureData, error: captureError } =
                 await this.supabase.rpc("capture_tick_state");
+            const captureRequestDuration = performance.now() - captureRequestStart;
 
             if (captureError) {
                 log({
@@ -175,17 +180,20 @@ export class WorldTickManager {
                 this.tickCount++;
 
                 // Log performance metrics including metadata stats
-                const elapsed = performance.now() - startTime;
-                if (elapsed > this.targetIntervalMs) {
+                const totalElapsed = performance.now() - totalStartTime;
+                if (totalElapsed > this.targetIntervalMs) {
                     log({
-                        message: `Tick capture took ${elapsed.toFixed(2)}ms (target: ${this.targetIntervalMs}ms)`,
+                        message: `Tick capture took ${totalElapsed.toFixed(2)}ms (target: ${this.targetIntervalMs}ms) ` +
+                            `[time_req: ${timeRequestDuration.toFixed(2)}ms, ` +
+                            `capture_req: ${captureRequestDuration.toFixed(2)}ms]`,
                         debug: this.debugMode,
                         type: "warn",
                     });
                 } else if (this.debugMode) {
-                    // Optional: Add more detailed logging in debug mode
                     log({
-                        message: `Tick ${this.tickCount} completed in ${elapsed.toFixed(2)}ms`,
+                        message: `Tick ${this.tickCount} completed in ${totalElapsed.toFixed(2)}ms ` +
+                            `[time_req: ${timeRequestDuration.toFixed(2)}ms, ` +
+                            `capture_req: ${captureRequestDuration.toFixed(2)}ms]`,
                         debug: true,
                         type: "debug",
                     });

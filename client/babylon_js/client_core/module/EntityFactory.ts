@@ -1,22 +1,44 @@
-import { type Scene, type Node, Mesh } from "@babylonjs/core";
+import * as BABYLON from "@babylonjs/core";
 import type { EntityRow } from "../types";
 
 export class EntityFactory {
-    constructor(private scene: Scene) {}
+    constructor(private scene: BABYLON.Scene) {}
 
-    createEntity(entity: EntityRow): Node | null {
-        // Create a basic mesh as default entity representation
-        const mesh = new Mesh(`entity:${entity.general__uuid}`, this.scene);
-
-        // Apply initial properties from entity row
-        this.updateEntityProperties(mesh, entity);
-
-        return mesh;
+    createEntity(entity: EntityRow): BABYLON.Node | null {
+        try {
+            // Dynamically create the entity using the type name
+            // biome-ignore lint/suspicious/noExplicitAny: <explanation>
+            const mesh = new (BABYLON as any)[entity.type__babylonjs](
+                `${entity.general__uuid}`,
+                this.scene,
+            );
+            this.updateEntityProperties(mesh, entity);
+            return mesh;
+        } catch (error) {
+            console.warn(
+                `Failed to create entity of type ${entity.type__babylonjs}:`,
+                error,
+            );
+            return null;
+        }
     }
 
-    updateEntityProperties(node: Node, entity: EntityRow): void {
-        // Update basic properties
-        node.name = `entity:${entity.general__uuid}`;
+    updateEntityProperties(node: BABYLON.Node, entity: EntityRow): void {
+        // Update only core properties from entities table
+        node.name = `${entity.general__uuid}`;
+
+        // Store metadata using database keys
+        node.metadata = {
+            general__name: entity.general__name,
+            general__semantic_version: entity.general__semantic_version,
+            general__created_at: entity.general__created_at,
+            general__created_by: entity.general__created_by,
+            general__updated_at: entity.general__updated_at,
+            general__permissions__roles__view:
+                entity.general__permissions__roles__view,
+            general__permissions__roles__full:
+                entity.general__permissions__roles__full,
+        };
 
         // Handle parent relationship
         if (entity.general__parent_entity_id) {

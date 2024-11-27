@@ -6,7 +6,7 @@ import {
     type RealtimeChannel,
 } from "@supabase/supabase-js";
 import type { Scene } from "@babylonjs/core";
-import { EntityTransactionQueue } from "./module/EntityTransactionQueue";
+import { TransactionQueue } from "./module/TransactionQueue";
 import type { EntityRow, EntityMetadataRow } from "./types";
 
 export class ClientCore {
@@ -16,7 +16,7 @@ export class ClientCore {
     private _isAuthenticated = false;
     private entityChannel: RealtimeChannel | null = null;
     private metadataChannel: RealtimeChannel | null = null;
-    private entityTransactionQueue: EntityTransactionQueue;
+    private entityTransactionQueue: TransactionQueue;
 
     constructor(config: {
         url: string;
@@ -26,7 +26,7 @@ export class ClientCore {
         password?: string;
     }) {
         makeAutoObservable(this, {}, { autoBind: true });
-        this.entityTransactionQueue = new EntityTransactionQueue(config.scene);
+        this.entityTransactionQueue = new TransactionQueue(config.scene);
         this.connect(config);
     }
 

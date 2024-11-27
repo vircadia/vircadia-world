@@ -9,7 +9,6 @@ CREATE TABLE entities (
     general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     general__created_by UUID DEFAULT auth.uid(),
     general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    general__parent_entity_id UUID REFERENCES entities(general__uuid) ON DELETE CASCADE,
     general__permissions__roles__view TEXT[],
     general__permissions__roles__full TEXT[],
 
@@ -68,7 +67,6 @@ CREATE TABLE entity_scripts (
 
 CREATE INDEX idx_entities_general__permissions__roles__view ON entities USING GIN (general__permissions__roles__view);
 CREATE INDEX idx_entities_general__permissions__roles__full ON entities USING GIN (general__permissions__roles__full);
-CREATE INDEX idx_entities_parent_id ON entities(general__parent_entity_id);
 CREATE INDEX idx_entities_created_at ON entities(general__created_at);
 CREATE INDEX idx_entities_updated_at ON entities(general__updated_at);
 CREATE INDEX idx_entities_semantic_version ON entities(general__semantic_version);

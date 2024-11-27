@@ -1,6 +1,6 @@
 import type { Scene } from "@babylonjs/core";
 import { EntityFactory } from "./EntityFactory";
-import { MetadataHandler } from "./MetadataHandler";
+import { EntityMetadataHandler } from "./EntityMetadataHandler";
 import type {
     EntityRow,
     EntityMetadataRow,
@@ -8,9 +8,9 @@ import type {
     MetadataUpdate,
 } from "../types";
 
-export class EntityTransactionQueue {
+export class TransactionQueue {
     private entityFactory: EntityFactory;
-    private metadataHandler: MetadataHandler;
+    private metadataHandler: EntityMetadataHandler;
     private entityInsertQueue: Map<string, EntityUpdate> = new Map();
     private entityUpdateQueue: Map<string, EntityUpdate> = new Map();
     private entityDeleteQueue: Set<string> = new Set();
@@ -21,7 +21,7 @@ export class EntityTransactionQueue {
 
     constructor(private scene: Scene) {
         this.entityFactory = new EntityFactory(scene);
-        this.metadataHandler = new MetadataHandler(scene);
+        this.metadataHandler = new EntityMetadataHandler(scene);
     }
 
     queueUpdate(entity: EntityRow, action: "INSERT" | "UPDATE" | "DELETE") {

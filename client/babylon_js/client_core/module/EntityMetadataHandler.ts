@@ -1,7 +1,7 @@
 import type { Node, Scene } from "@babylonjs/core";
 import type { EntityMetadataRow } from "../types";
 
-export class MetadataHandler {
+export class EntityMetadataHandler {
     constructor(private scene: Scene) {}
 
     applyMetadata(node: Node, metadata: EntityMetadataRow): void {

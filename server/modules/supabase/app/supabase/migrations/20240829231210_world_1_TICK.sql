@@ -206,7 +206,6 @@ BEGIN
             general__semantic_version,
             general__created_at,
             general__updated_at,
-            general__parent_entity_id,
             general__permissions__roles__view,
             type__babylonjs
         )
@@ -221,7 +220,6 @@ BEGIN
             general__semantic_version,
             general__created_at,
             general__updated_at,
-            general__parent_entity_id,
             general__permissions__roles__view,
             type__babylonjs
         FROM entities e

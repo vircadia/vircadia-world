@@ -33,31 +33,34 @@ CREATE TABLE entities_metadata (
 -- ENTITY SCRIPTS
 --
 
+-- Create enum for script compilation status
+CREATE TYPE script_compilation_status AS ENUM ('PENDING', 'COMPILED', 'FAILED');
+
 CREATE TABLE entity_scripts (
     general__entity_id UUID NOT NULL REFERENCES entities(general__uuid) ON DELETE CASCADE,
     general__script_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
 
-    web__compiled__node__script TEXT,
-    web__compiled__node__script_sha256 TEXT,
-    web__compiled__node__script_status TEXT,
-    web__compiled__bun__script TEXT,
-    web__compiled__bun__script_sha256 TEXT,
-    web__compiled__bun__script_status TEXT,
-    web__compiled__browser__script TEXT,
-    web__compiled__browser__script_sha256 TEXT,
-    web__compiled__browser__script_status TEXT,
+    compiled__web__node__script TEXT,
+    compiled__web__node__script_sha256 TEXT,
+    compiled__web__node__script_status script_compilation_status,
+    compiled__web__bun__script TEXT,
+    compiled__web__bun__script_sha256 TEXT,
+    compiled__web__bun__script_status script_compilation_status,
+    compiled__web__browser__script TEXT,
+    compiled__web__browser__script_sha256 TEXT,
+    compiled__web__browser__script_status script_compilation_status,
     source__git__repo_entry_path TEXT,
     source__git__repo_url TEXT,
     general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 
     CONSTRAINT check_script_compilation_status CHECK (
-        (web__compiled__node__script_status IS NULL OR 
-         web__compiled__node__script_status IN ('PENDING', 'COMPILED', 'FAILED')) AND
-        (web__compiled__bun__script_status IS NULL OR 
-         web__compiled__bun__script_status IN ('PENDING', 'COMPILED', 'FAILED')) AND
-        (web__compiled__browser__script_status IS NULL OR 
-         web__compiled__browser__script_status IN ('PENDING', 'COMPILED', 'FAILED'))
+        (compiled__web__node__script_status IS NULL OR 
+         compiled__web__node__script_status IN ('PENDING', 'COMPILED', 'FAILED')) AND
+        (compiled__web__bun__script_status IS NULL OR 
+         compiled__web__bun__script_status IN ('PENDING', 'COMPILED', 'FAILED')) AND
+        (compiled__web__browser__script_status IS NULL OR 
+         compiled__web__browser__script_status IN ('PENDING', 'COMPILED', 'FAILED'))
     )
 );
 

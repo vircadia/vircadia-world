@@ -3,7 +3,8 @@
   "module": "index.ts",
   "type": "module",
   "scripts": {
-    "start": "bun run index.ts"
+    "start": "bun run index.ts",
+    "dev": "bun run --watch index.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
@@ -13,9 +14,9 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.46.1",
+    "@supabase/supabase-js": "^2.46.2",
     "zod": "^3.23.8",
     "tempy": "^3.1.0",
-    "@babylonjs/core": "^7.34.3"
+    "@babylonjs/core": "^7.36.0"
   }
 }

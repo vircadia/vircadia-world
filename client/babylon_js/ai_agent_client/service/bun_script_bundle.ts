@@ -1,4 +1,8 @@
-import type { SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
+import type {
+    SupabaseClient,
+    RealtimeChannel,
+    RealtimePostgresChangesPayload,
+} from "@supabase/supabase-js";
 import { type BuildOutput, build } from "bun";
 import { temporaryDirectory } from "tempy";
 import { log } from "../../../../sdk/vircadia-world-sdk-ts/module/general/log";
@@ -8,7 +12,6 @@ import type {
     Enums,
 } from "../../../../sdk/vircadia-world-sdk-ts/schema/schema.database";
 import type { Tables } from "../../../../sdk/vircadia-world-sdk-ts/schema/schema.database";
-type Entity = Tables<"entities">;
 type EntityScript = Tables<"entity_scripts">;
 
 // Helper function to clone and prepare git repos
@@ -123,8 +126,10 @@ async function compileScript(path: string, debugMode: boolean) {
             build_logs: results.map((r) => r.logs),
         };
     } catch (error) {
+        const errorMessage =
+            error instanceof Error ? error.message : String(error);
         log({
-            message: `Error bundling script ${path}: ${error}`,
+            message: `Error bundling script ${path}: ${errorMessage}`,
             type: "error",
             debug: debugMode,
         });
@@ -135,214 +140,24 @@ async function compileScript(path: string, debugMode: boolean) {
                 "FAILED" as Enums<"script_compilation_status">,
             compiled_bun_script_status:
                 "FAILED" as Enums<"script_compilation_status">,
-            error: `Bundling error: ${error.message}`,
-            ...(debugMode && { stack: error.stack }),
+            error: `Bundling error: ${errorMessage}`,
+            ...(debugMode && {
+                stack: error instanceof Error ? error.stack : undefined,
+            }),
         };
     }
-}
-
-async function handleEntityChange(
-    payload: {
-        eventType: "INSERT" | "UPDATE" | "DELETE";
-        new: Entity & {
-            babylonjs__script_local_scripts?: EntityScript[];
-            babylonjs__script_persistent_scripts?: EntityScript[];
-        };
-        old: Entity | null;
-    },
-    debug: boolean,
-    supabase: SupabaseClient<Database>,
-) {
-    // Log the incoming payload for debugging
-    log({
-        message: `Received entity change: ${JSON.stringify(payload, null, 2).substring(0, 100)}`,
-        type: "info",
-        debug: debug,
-    });
-
-    if (payload.eventType === "DELETE") return;
-
-    const entity = payload.new;
-    const oldEntity = payload.old;
-
-    const needsCompilation = checkIfCompilationNeeded(entity);
-
-    // For debugging, log why we're proceeding or not
-    log({
-        message: `Entity ${entity.general__uuid} needs compilation: ${needsCompilation}`,
-        type: "info",
-        debug: debug,
-    });
-
-    if (!needsCompilation) return;
-
-    try {
-        const compiledLocalScripts: EntityScript[] = [];
-        const compiledPersistentScripts: EntityScript[] = [];
-
-        // Handle local scripts
-        if (Array.isArray(entity.babylonjs__script_local_scripts)) {
-            for (const script of entity.babylonjs__script_local_scripts) {
-                if (
-                    script.source__git__repo_url &&
-                    script.source__git__repo_entry_path
-                ) {
-                    const scriptPath = await prepareGitRepo(
-                        script.source__git__repo_url,
-                        script.source__git__repo_entry_path,
-                    );
-                    const compiled = await compileScript(scriptPath, debug);
-                    compiledLocalScripts.push({
-                        source__git__repo_url: script.source__git__repo_url,
-                        source__git__repo_entry_path:
-                            script.source__git__repo_entry_path,
-                        compiled__web__browser__script:
-                            compiled.compiled_browser_script,
-                        compiled__web__browser__script_sha256:
-                            compiled.compiled_browser_script_sha256,
-                        compiled__web__browser__script_status:
-                            compiled.compiled_browser_script_status,
-                        compiled__web__bun__script:
-                            compiled.compiled_bun_script,
-                        compiled__web__bun__script_sha256:
-                            compiled.compiled_bun_script_sha256,
-                        compiled__web__bun__script_status:
-                            compiled.compiled_bun_script_status,
-                        compiled__web__node__script:
-                            compiled.compiled_node_script,
-                        compiled__web__node__script_sha256:
-                            compiled.compiled_node_script_sha256,
-                        compiled__web__node__script_status:
-                            compiled.compiled_node_script_status,
-                        general__entity_id: entity.general__uuid,
-                        general__script_id:
-                            script.general__script_id ?? crypto.randomUUID(),
-                        general__created_at: new Date().toISOString(),
-                        general__updated_at: new Date().toISOString(),
-                    });
-                }
-            }
-        }
-
-        // Handle persistent scripts
-        if (Array.isArray(entity.babylonjs__script_persistent_scripts)) {
-            for (const script of entity.babylonjs__script_persistent_scripts) {
-                if (
-                    script.source__git__repo_url &&
-                    script.source__git__repo_entry_path
-                ) {
-                    const scriptPath = await prepareGitRepo(
-                        script.source__git__repo_url,
-                        script.source__git__repo_entry_path,
-                    );
-                    const compiled = await compileScript(scriptPath, debug);
-                    compiledPersistentScripts.push({
-                        source__git__repo_url: script.source__git__repo_url,
-                        source__git__repo_entry_path:
-                            script.source__git__repo_entry_path,
-                        compiled__web__node__script:
-                            compiled.compiled_node_script,
-                        compiled__web__node__script_sha256:
-                            compiled.compiled_node_script_sha256,
-                        compiled__web__node__script_status:
-                            compiled.compiled_node_script_status,
-                        compiled__web__browser__script:
-                            compiled.compiled_browser_script,
-                        compiled__web__browser__script_sha256:
-                            compiled.compiled_browser_script_sha256,
-                        compiled__web__browser__script_status:
-                            compiled.compiled_browser_script_status,
-                        compiled__web__bun__script:
-                            compiled.compiled_bun_script,
-                        compiled__web__bun__script_sha256:
-                            compiled.compiled_bun_script_sha256,
-                        compiled__web__bun__script_status:
-                            compiled.compiled_bun_script_status,
-                        general__entity_id: entity.general__uuid,
-                        general__script_id:
-                            script.general__script_id ?? crypto.randomUUID(),
-                        general__created_at: new Date().toISOString(),
-                        general__updated_at: new Date().toISOString(),
-                    });
-                }
-            }
-        }
-
-        // Update the entity with compiled scripts
-        const { error } = await supabase
-            .from("entities")
-            .update({
-                babylonjs__script_local_scripts: compiledLocalScripts,
-                babylonjs__script_persistent_scripts: compiledPersistentScripts,
-            })
-            .eq("general__uuid", entity.general__uuid);
-
-        if (error) {
-            log({
-                message: "Error updating entity with compiled scripts:",
-                type: "error",
-                debug: debug,
-            });
-        }
-    } catch (error) {
-        log({
-            message: `Error processing scripts for entity: ${entity.general__uuid}`,
-            type: "error",
-            debug: debug,
-        });
-    }
-}
-
-function checkIfCompilationNeeded(entity: any): boolean {
-    const verifyScriptHash = (script: any) => {
-        if (
-            !script.source__git__repo_url ||
-            !script.source__git__repo_entry_path
-        )
-            return false;
-
-        // Check if any compilation is missing
-        if (
-            !script.compiled_node_script ||
-            !script.compiled_browser_script ||
-            !script.compiled_bun_script
-        ) {
-            return true;
-        }
-
-        // Verify hashes match their compiled code
-        const nodeHash = Bun.hash(script.compiled_node_script).toString();
-        const browserHash = Bun.hash(script.compiled_browser_script).toString();
-        const bunHash = Bun.hash(script.compiled_bun_script).toString();
-
-        return (
-            nodeHash !== script.compiled_node_script_sha256 ||
-            browserHash !== script.compiled_browser_script_sha256 ||
-            bunHash !== script.compiled_bun_script_sha256
-        );
-    };
-
-    const needsLocalCompilation =
-        Array.isArray(entity.babylonjs__script_local_scripts) &&
-        entity.babylonjs__script_local_scripts.some(verifyScriptHash);
-
-    const needsPersistentCompilation =
-        Array.isArray(entity.babylonjs__script_persistent_scripts) &&
-        entity.babylonjs__script_persistent_scripts.some(verifyScriptHash);
-
-    return needsLocalCompilation || needsPersistentCompilation;
 }
 
 export class BunScriptBundleService {
-    private worldClient: ClientCore;
+    private supabaseClient: SupabaseClient<Database, "public">;
     private debug: boolean;
     private subscription: RealtimeChannel | undefined = undefined;
 
     constructor(config: {
-        worldClient: ClientCore;
+        worldClient: SupabaseClient<Database, "public">;
         debug: boolean;
     }) {
-        this.worldClient = config.worldClient;
+        this.supabaseClient = config.worldClient;
         this.debug = config.debug;
     }
 
@@ -353,16 +168,130 @@ export class BunScriptBundleService {
             debug: this.debug,
         });
 
-        this.subscription = this.worldClient.client
-            ?.channel("entity-script-changes")
+        this.subscription = this.supabaseClient
+            .channel("entity-script-changes")
             .on(
                 "postgres_changes",
                 {
                     event: "*",
                     schema: "public",
-                    table: "entities",
+                    table: "entity_scripts",
                 },
-                (payload) => this.handleEntityChange(payload),
+                async (payload) => {
+                    log({
+                        message: `Received script change: ${JSON.stringify(payload, null, 2).substring(0, 100)}`,
+                        type: "info",
+                        debug: this.debug,
+                    });
+
+                    if (payload.eventType === "DELETE") return;
+
+                    const script = payload.new;
+
+                    // Basic validation
+                    if (
+                        !script.source__git__repo_url ||
+                        !script.source__git__repo_entry_path
+                    )
+                        return;
+
+                    // Check if compilation is needed
+                    const needsCompilation =
+                        !script.compiled__web__node__script ||
+                        !script.compiled__web__browser__script ||
+                        !script.compiled__web__bun__script ||
+                        (script.compiled__web__node__script &&
+                            Bun.hash(
+                                script.compiled__web__node__script,
+                            ).toString() !==
+                                script.compiled__web__node__script_sha256) ||
+                        (script.compiled__web__browser__script &&
+                            Bun.hash(
+                                script.compiled__web__browser__script,
+                            ).toString() !==
+                                script.compiled__web__browser__script_sha256) ||
+                        (script.compiled__web__bun__script &&
+                            Bun.hash(
+                                script.compiled__web__bun__script,
+                            ).toString() !==
+                                script.compiled__web__bun__script_sha256);
+
+                    if (!needsCompilation) {
+                        log({
+                            message: `Script ${script.general__script_id} is up to date, skipping compilation`,
+                            type: "info",
+                            debug: this.debug,
+                        });
+                        return;
+                    }
+
+                    try {
+                        const scriptPath = await prepareGitRepo(
+                            script.source__git__repo_url,
+                            script.source__git__repo_entry_path,
+                        );
+
+                        const compiled = await compileScript(
+                            scriptPath,
+                            this.debug,
+                        );
+
+                        // Update the script with compiled versions
+                        const { error } = await this.supabaseClient
+                            .from("entity_scripts")
+                            .update({
+                                compiled__web__browser__script:
+                                    compiled.compiled_browser_script ?? null,
+                                compiled__web__browser__script_sha256:
+                                    compiled.compiled_browser_script_sha256 ??
+                                    null,
+                                compiled__web__browser__script_status:
+                                    compiled.compiled_browser_script_status,
+                                compiled__web__bun__script:
+                                    compiled.compiled_bun_script ?? null,
+                                compiled__web__bun__script_sha256:
+                                    compiled.compiled_bun_script_sha256 ?? null,
+                                compiled__web__bun__script_status:
+                                    compiled.compiled_bun_script_status,
+                                compiled__web__node__script:
+                                    compiled.compiled_node_script ?? null,
+                                compiled__web__node__script_sha256:
+                                    compiled.compiled_node_script_sha256 ??
+                                    null,
+                                compiled__web__node__script_status:
+                                    compiled.compiled_node_script_status,
+                                general__updated_at: new Date().toISOString(),
+                            })
+                            .eq(
+                                "general__script_id",
+                                script.general__script_id,
+                            );
+
+                        if (error) {
+                            log({
+                                message: `Error updating script ${script.general__script_id}: ${error.message}`,
+                                type: "error",
+                                debug: this.debug,
+                            });
+                        }
+                    } catch (error) {
+                        const errorMessage =
+                            error instanceof Error
+                                ? error.message
+                                : String(error);
+                        log({
+                            message: `Error processing script ${script.general__script_id}: ${errorMessage}`,
+                            type: "error",
+                            debug: this.debug,
+                            ...(this.debug && {
+                                stack:
+                                    error instanceof Error
+                                        ? error.stack
+                                        : undefined,
+                            }),
+                        });
+                    }
+                },
             )
             .subscribe();
 
@@ -384,14 +313,10 @@ export class BunScriptBundleService {
             });
         }
     }
-
-    private async handleEntityChange(payload: any) {
-        return handleEntityChange(payload, this.debug, this.worldClient.client);
-    }
 }
 
 export async function startBunScriptBundleService(config: {
-    worldClient: ClientCore;
+    worldClient: SupabaseClient<Database, "public">;
     debug: boolean;
 }) {
     const service = new BunScriptBundleService(config);

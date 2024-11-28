@@ -1,7 +1,7 @@
 import { parseArgs } from "node:util";
 import { Supabase } from "./modules/supabase/supabase_manager.ts";
 import { log } from "../sdk/vircadia-world-sdk-ts/module/general/log.ts";
-import { Config } from "../sdk/vircadia-world-sdk-ts/schema/schema.ts";
+import { Config } from "../sdk/vircadia-world-sdk-ts/schema/schema.general.ts";
 
 // Services
 import { WorldTickManager } from "./service/world-tick-manager.ts";

@@ -7,7 +7,7 @@ import {
 } from "@supabase/supabase-js";
 import type { Scene } from "@babylonjs/core";
 import { TransactionQueue } from "./module/TransactionQueue";
-import type { EntityRow, EntityMetadataRow } from "./types";
+import type { EntityRow } from "./types";
 
 export class ClientCore {
     private supabase: SupabaseClient | null = null;
@@ -15,7 +15,6 @@ export class ClientCore {
     private _isConnected = false;
     private _isAuthenticated = false;
     private entityChannel: RealtimeChannel | null = null;
-    private metadataChannel: RealtimeChannel | null = null;
     private entityTransactionQueue: TransactionQueue;
 
     constructor(config: {
@@ -111,36 +110,12 @@ export class ClientCore {
         );
 
         this.entityChannel.subscribe();
-
-        this.metadataChannel = this.supabase.channel("metadata_changes").on(
-            "postgres_changes",
-            {
-                event: "*",
-                schema: "public",
-                table: "entities_metadata",
-            },
-            (payload) => {
-                const metadata = (
-                    payload.eventType === "DELETE" ? payload.old : payload.new
-                ) as EntityMetadataRow;
-                this.entityTransactionQueue.queueMetadataUpdate(
-                    metadata,
-                    payload.eventType,
-                );
-            },
-        );
-
-        this.metadataChannel.subscribe();
     }
 
     async destroy() {
         try {
             if (this.entityChannel) {
                 await this.entityChannel.unsubscribe();
-            }
-
-            if (this.metadataChannel) {
-                await this.metadataChannel.unsubscribe();
             }
 
             if (this.supabase) {

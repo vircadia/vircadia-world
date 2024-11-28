@@ -2,8 +2,14 @@ import type { SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
 import { type BuildOutput, build } from "bun";
 import { temporaryDirectory } from "tempy";
 import { log } from "../../../../sdk/vircadia-world-sdk-ts/module/general/log";
-import { World } from "../../../../sdk/vircadia-world-sdk-ts/schema/schema";
 import type { ClientCore } from "../../client_core";
+import type {
+    Database,
+    Enums,
+} from "../../../../sdk/vircadia-world-sdk-ts/schema/schema.database";
+import type { Tables } from "../../../../sdk/vircadia-world-sdk-ts/schema/schema.database";
+type Entity = Tables<"entities">;
+type EntityScript = Tables<"entity_scripts">;
 
 // Helper function to clone and prepare git repos
 async function prepareGitRepo(
@@ -94,25 +100,25 @@ async function compileScript(path: string, debugMode: boolean) {
                 compiled_node_script: nodeCode,
                 compiled_node_script_sha256: nodeHash,
                 compiled_node_script_status:
-                    World.Babylon.Script.E_CompilationStatus.COMPILED,
+                    "COMPILED" as Enums<"script_compilation_status">,
                 compiled_browser_script: browserCode,
                 compiled_browser_script_sha256: browserHash,
                 compiled_browser_script_status:
-                    World.Babylon.Script.E_CompilationStatus.COMPILED,
+                    "COMPILED" as Enums<"script_compilation_status">,
                 compiled_bun_script: bunCode,
                 compiled_bun_script_sha256: bunHash,
                 compiled_bun_script_status:
-                    World.Babylon.Script.E_CompilationStatus.COMPILED,
+                    "COMPILED" as Enums<"script_compilation_status">,
             };
         }
 
         return {
             compiled_node_script_status:
-                World.Babylon.Script.E_CompilationStatus.FAILED,
+                "FAILED" as Enums<"script_compilation_status">,
             compiled_browser_script_status:
-                World.Babylon.Script.E_CompilationStatus.FAILED,
+                "FAILED" as Enums<"script_compilation_status">,
             compiled_bun_script_status:
-                World.Babylon.Script.E_CompilationStatus.FAILED,
+                "FAILED" as Enums<"script_compilation_status">,
             error: "One or more builds failed",
             build_logs: results.map((r) => r.logs),
         };
@@ -124,11 +130,11 @@ async function compileScript(path: string, debugMode: boolean) {
         });
         return {
             compiled_node_script_status:
-                World.Babylon.Script.E_CompilationStatus.FAILED,
+                "FAILED" as Enums<"script_compilation_status">,
             compiled_browser_script_status:
-                World.Babylon.Script.E_CompilationStatus.FAILED,
+                "FAILED" as Enums<"script_compilation_status">,
             compiled_bun_script_status:
-                World.Babylon.Script.E_CompilationStatus.FAILED,
+                "FAILED" as Enums<"script_compilation_status">,
             error: `Bundling error: ${error.message}`,
             ...(debugMode && { stack: error.stack }),
         };
@@ -136,9 +142,16 @@ async function compileScript(path: string, debugMode: boolean) {
 }
 
 async function handleEntityChange(
-    payload: any,
+    payload: {
+        eventType: "INSERT" | "UPDATE" | "DELETE";
+        new: Entity & {
+            babylonjs__script_local_scripts?: EntityScript[];
+            babylonjs__script_persistent_scripts?: EntityScript[];
+        };
+        old: Entity | null;
+    },
     debug: boolean,
-    supabase: SupabaseClient,
+    supabase: SupabaseClient<Database>,
 ) {
     // Log the incoming payload for debugging
     log({
@@ -164,15 +177,16 @@ async function handleEntityChange(
     if (!needsCompilation) return;
 
     try {
-        const compiledLocalScripts: World.Babylon.Script.I_BABYLON_SCRIPT_SOURCE[] =
-            [];
-        const compiledPersistentScripts: World.Babylon.Script.I_BABYLON_SCRIPT_SOURCE[] =
-            [];
+        const compiledLocalScripts: EntityScript[] = [];
+        const compiledPersistentScripts: EntityScript[] = [];
 
         // Handle local scripts
         if (Array.isArray(entity.babylonjs__script_local_scripts)) {
             for (const script of entity.babylonjs__script_local_scripts) {
-                if (script.source__git__repo_url && script.source__git__repo_entry_path) {
+                if (
+                    script.source__git__repo_url &&
+                    script.source__git__repo_entry_path
+                ) {
                     const scriptPath = await prepareGitRepo(
                         script.source__git__repo_url,
                         script.source__git__repo_entry_path,
@@ -180,23 +194,31 @@ async function handleEntityChange(
                     const compiled = await compileScript(scriptPath, debug);
                     compiledLocalScripts.push({
                         source__git__repo_url: script.source__git__repo_url,
-                        source__git__repo_entry_path: script.source__git__repo_entry_path,
-                        compiled_browser_script:
+                        source__git__repo_entry_path:
+                            script.source__git__repo_entry_path,
+                        compiled__web__browser__script:
                             compiled.compiled_browser_script,
-                        compiled_browser_script_sha256:
+                        compiled__web__browser__script_sha256:
                             compiled.compiled_browser_script_sha256,
-                        compiled_browser_script_status:
+                        compiled__web__browser__script_status:
                             compiled.compiled_browser_script_status,
-                        compiled_bun_script: compiled.compiled_bun_script,
-                        compiled_bun_script_sha256:
+                        compiled__web__bun__script:
+                            compiled.compiled_bun_script,
+                        compiled__web__bun__script_sha256:
                             compiled.compiled_bun_script_sha256,
-                        compiled_bun_script_status:
+                        compiled__web__bun__script_status:
                             compiled.compiled_bun_script_status,
-                        compiled_node_script: compiled.compiled_node_script,
-                        compiled_node_script_sha256:
+                        compiled__web__node__script:
+                            compiled.compiled_node_script,
+                        compiled__web__node__script_sha256:
                             compiled.compiled_node_script_sha256,
-                        compiled_node_script_status:
+                        compiled__web__node__script_status:
                             compiled.compiled_node_script_status,
+                        general__entity_id: entity.general__uuid,
+                        general__script_id:
+                            script.general__script_id ?? crypto.randomUUID(),
+                        general__created_at: new Date().toISOString(),
+                        general__updated_at: new Date().toISOString(),
                     });
                 }
             }
@@ -205,7 +227,10 @@ async function handleEntityChange(
         // Handle persistent scripts
         if (Array.isArray(entity.babylonjs__script_persistent_scripts)) {
             for (const script of entity.babylonjs__script_persistent_scripts) {
-                if (script.source__git__repo_url && script.source__git__repo_entry_path) {
+                if (
+                    script.source__git__repo_url &&
+                    script.source__git__repo_entry_path
+                ) {
                     const scriptPath = await prepareGitRepo(
                         script.source__git__repo_url,
                         script.source__git__repo_entry_path,
@@ -213,23 +238,31 @@ async function handleEntityChange(
                     const compiled = await compileScript(scriptPath, debug);
                     compiledPersistentScripts.push({
                         source__git__repo_url: script.source__git__repo_url,
-                        source__git__repo_entry_path: script.source__git__repo_entry_path,
-                        compiled_node_script: compiled.compiled_node_script,
-                        compiled_node_script_sha256:
+                        source__git__repo_entry_path:
+                            script.source__git__repo_entry_path,
+                        compiled__web__node__script:
+                            compiled.compiled_node_script,
+                        compiled__web__node__script_sha256:
                             compiled.compiled_node_script_sha256,
-                        compiled_node_script_status:
+                        compiled__web__node__script_status:
                             compiled.compiled_node_script_status,
-                        compiled_browser_script:
+                        compiled__web__browser__script:
                             compiled.compiled_browser_script,
-                        compiled_browser_script_sha256:
+                        compiled__web__browser__script_sha256:
                             compiled.compiled_browser_script_sha256,
-                        compiled_browser_script_status:
+                        compiled__web__browser__script_status:
                             compiled.compiled_browser_script_status,
-                        compiled_bun_script: compiled.compiled_bun_script,
-                        compiled_bun_script_sha256:
+                        compiled__web__bun__script:
+                            compiled.compiled_bun_script,
+                        compiled__web__bun__script_sha256:
                             compiled.compiled_bun_script_sha256,
-                        compiled_bun_script_status:
+                        compiled__web__bun__script_status:
                             compiled.compiled_bun_script_status,
+                        general__entity_id: entity.general__uuid,
+                        general__script_id:
+                            script.general__script_id ?? crypto.randomUUID(),
+                        general__created_at: new Date().toISOString(),
+                        general__updated_at: new Date().toISOString(),
                     });
                 }
             }
@@ -239,15 +272,8 @@ async function handleEntityChange(
         const { error } = await supabase
             .from("entities")
             .update({
-                babylonjs__script_local_scripts: compiledLocalScripts.map(
-                    (script) => ({
-                        ...script,
-                    }),
-                ),
-                babylonjs__script_persistent_scripts:
-                    compiledPersistentScripts.map((script) => ({
-                        ...script,
-                    })),
+                babylonjs__script_local_scripts: compiledLocalScripts,
+                babylonjs__script_persistent_scripts: compiledPersistentScripts,
             })
             .eq("general__uuid", entity.general__uuid);
 
@@ -269,7 +295,11 @@ async function handleEntityChange(
 
 function checkIfCompilationNeeded(entity: any): boolean {
     const verifyScriptHash = (script: any) => {
-        if (!script.source__git__repo_url || !script.source__git__repo_entry_path) return false;
+        if (
+            !script.source__git__repo_url ||
+            !script.source__git__repo_entry_path
+        )
+            return false;
 
         // Check if any compilation is missing
         if (

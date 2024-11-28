@@ -1,27 +1,16 @@
 import type { Scene } from "@babylonjs/core";
 import { EntityFactory } from "./EntityFactory";
-import { EntityMetadataHandler } from "./EntityMetadataHandler";
-import type {
-    EntityRow,
-    EntityMetadataRow,
-    EntityUpdate,
-    MetadataUpdate,
-} from "../types";
+import type { EntityRow, EntityUpdate } from "../types";
 
 export class TransactionQueue {
     private entityFactory: EntityFactory;
-    private metadataHandler: EntityMetadataHandler;
     private entityInsertQueue: Map<string, EntityUpdate> = new Map();
     private entityUpdateQueue: Map<string, EntityUpdate> = new Map();
     private entityDeleteQueue: Set<string> = new Set();
-    private metadataInsertQueue: Map<string, MetadataUpdate> = new Map();
-    private metadataUpdateQueue: Map<string, MetadataUpdate> = new Map();
-    private metadataDeleteQueue: Set<string> = new Set();
     private isProcessing = false;
 
     constructor(private scene: Scene) {
         this.entityFactory = new EntityFactory(scene);
-        this.metadataHandler = new EntityMetadataHandler(scene);
     }
 
     queueUpdate(entity: EntityRow, action: "INSERT" | "UPDATE" | "DELETE") {
@@ -42,27 +31,6 @@ export class TransactionQueue {
         this.entityUpdateQueue.set(uuid, update);
     }
 
-    queueMetadataUpdate(
-        metadata: EntityMetadataRow,
-        action: "INSERT" | "UPDATE" | "DELETE",
-    ) {
-        const metadataId = `${metadata.general__entity_id}:${metadata.key}`;
-
-        if (action === "DELETE") {
-            this.metadataInsertQueue.delete(metadataId);
-            this.metadataUpdateQueue.delete(metadataId);
-            this.metadataDeleteQueue.add(metadataId);
-            return;
-        }
-
-        const update: MetadataUpdate = {
-            metadata,
-            timestamp: Date.now(),
-        };
-
-        this.metadataUpdateQueue.set(metadataId, update);
-    }
-
     processQueues(scene: Scene) {
         if (this.isProcessing) return;
         this.isProcessing = true;
@@ -72,15 +40,6 @@ export class TransactionQueue {
             this.entityFactory.deleteEntity(uuid);
         }
         this.entityDeleteQueue.clear();
-
-        for (const metadataId of this.metadataDeleteQueue) {
-            const [entityId, key] = metadataId.split(":");
-            const node = scene.getNodeByName(`entity:${entityId}`);
-            if (node) {
-                this.metadataHandler.removeMetadata(node, key);
-            }
-        }
-        this.metadataDeleteQueue.clear();
 
         // Process entity updates
         for (const [uuid, update] of this.entityUpdateQueue) {
@@ -92,16 +51,6 @@ export class TransactionQueue {
             }
         }
         this.entityUpdateQueue.clear();
-
-        // Process metadata updates
-        for (const [metadataId, update] of this.metadataUpdateQueue) {
-            const [entityId] = metadataId.split(":");
-            const node = scene.getNodeByName(`entity:${entityId}`);
-            if (node) {
-                this.metadataHandler.applyMetadata(node, update.metadata);
-            }
-        }
-        this.metadataUpdateQueue.clear();
 
         this.isProcessing = false;
     }

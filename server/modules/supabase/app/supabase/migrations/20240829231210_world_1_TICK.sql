@@ -43,7 +43,7 @@ CREATE POLICY "entity_states_view_policy" ON entity_states
         EXISTS (
             SELECT 1 
             FROM entities e
-            JOIN agent_roles ar ON ar.auth__role_name = ANY(e.general__permissions__roles__view)
+            JOIN agent_roles ar ON ar.auth__role_name = ANY(e.permissions__roles__view)
             WHERE e.general__uuid = entity_states.general__entity_id
             AND ar.auth__agent_id = auth.uid()
             AND ar.auth__is_active = true
@@ -121,7 +121,7 @@ CREATE POLICY "entity_metadata_states_view_policy" ON entity_metadata_states
             SELECT 1 
             FROM entities_metadata em
             JOIN entities e ON e.general__uuid = em.general__entity_id
-            JOIN agent_roles ar ON ar.auth__role_name = ANY(e.general__permissions__roles__view)
+            JOIN agent_roles ar ON ar.auth__role_name = ANY(e.permissions__roles__view)
             WHERE em.general__metadata_id = entity_metadata_states.entity_metadata_id
             AND ar.auth__agent_id = auth.uid()
             AND ar.auth__is_active = true
@@ -206,7 +206,7 @@ BEGIN
             general__semantic_version,
             general__created_at,
             general__updated_at,
-            general__permissions__roles__view,
+            permissions__roles__view,
             type__babylonjs
         )
         SELECT 
@@ -220,7 +220,7 @@ BEGIN
             general__semantic_version,
             general__created_at,
             general__updated_at,
-            general__permissions__roles__view,
+            permissions__roles__view,
             type__babylonjs
         FROM entities e
         RETURNING *

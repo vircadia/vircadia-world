@@ -1,7 +1,8 @@
-import type { World } from "../../../sdk/vircadia-world-sdk-ts/schema/schema";
+import type { Database } from "../../../sdk/vircadia-world-sdk-ts/schema/schema.database";
 
-export type EntityRow = World.Tables<"entities">;
-export type EntityMetadataRow = World.Tables<"entities_metadata">;
+export type EntityRow = Database["public"]["Tables"]["entities"];
+export type EntityMetadataRow =
+    Database["public"]["Tables"]["entities_metadata"];
 
 export type EntityUpdate = {
     entity: EntityRow;

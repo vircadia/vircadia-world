@@ -34,21 +34,9 @@ export class EntityFactory {
             general__created_at: entity.general__created_at,
             general__created_by: entity.general__created_by,
             general__updated_at: entity.general__updated_at,
-            general__permissions__roles__view:
-                entity.general__permissions__roles__view,
-            general__permissions__roles__full:
-                entity.general__permissions__roles__full,
+            permissions__roles__view: entity.permissions__roles__view,
+            permissions__roles__full: entity.permissions__roles__full,
         };
-
-        // Handle parent relationship
-        if (entity.general__parent_entity_id) {
-            const parentNode = this.scene.getNodeByName(
-                `entity:${entity.general__parent_entity_id}`,
-            );
-            if (parentNode) {
-                node.parent = parentNode;
-            }
-        }
     }
 
     deleteEntity(uuid: string): void {

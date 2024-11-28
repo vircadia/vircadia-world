@@ -30,7 +30,8 @@ CREATE TABLE public.roles (
     meta__description TEXT,
     auth__is_system BOOLEAN NOT NULL DEFAULT FALSE,
     auth__is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    auth__can_insert BOOLEAN NOT NULL DEFAULT FALSE,
+    auth__entity__object__can_insert BOOLEAN NOT NULL DEFAULT FALSE,
+    auth__entity__script__can_insert BOOLEAN NOT NULL DEFAULT FALSE,
     general__created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

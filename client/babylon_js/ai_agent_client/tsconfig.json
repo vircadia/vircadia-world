@@ -9,7 +9,7 @@
         "allowJs": true,
 
         // Add Bun types
-        "types": ["bun-types"],
+        "types": ["@types/bun", "@types/node"],
 
         // Bundler mode
         "moduleResolution": "bundler",

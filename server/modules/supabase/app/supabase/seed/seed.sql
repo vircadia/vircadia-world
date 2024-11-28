@@ -5,15 +5,22 @@ INSERT INTO public.auth_providers (auth__provider_name, meta__description, auth_
     ('github', 'GitHub OAuth', TRUE),
     ('discord', 'Discord OAuth', TRUE);
 
-INSERT INTO public.roles (auth__role_name, meta__description, auth__is_system, auth__is_active) VALUES
-    ('guest', 'Default role for all users', TRUE, TRUE),
-    ('user', 'Authenticated user role', TRUE, TRUE),
-    ('admin', 'Administrative role', TRUE, TRUE);
+INSERT INTO public.roles (
+    auth__role_name, 
+    meta__description, 
+    auth__is_system, 
+    auth__is_active,
+    auth__entity__object__can_insert,
+    auth__entity__script__can_insert
+) VALUES
+    ('guest', 'Default role for all users', TRUE, TRUE, FALSE, FALSE),
+    ('user', 'Authenticated user role', TRUE, TRUE, TRUE, TRUE),
+    ('admin', 'Administrative role', TRUE, TRUE, TRUE, TRUE);
 
 -- Set up default admin credentials
 DO $$
 DECLARE
-    admin_email TEXT := 'admin@vircadia.com';
+    admin_email TEXT := 'admin@changeme.com';
     admin_password TEXT := 'CHANGE_ME!';
     admin_uuid UUID;
 BEGIN

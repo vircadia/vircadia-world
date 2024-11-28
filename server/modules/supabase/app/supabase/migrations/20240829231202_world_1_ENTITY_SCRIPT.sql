@@ -21,7 +21,7 @@ CREATE TABLE entity_scripts (
     source__git__repo_url TEXT,
     general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    general__created_by UUID DEFAULT auth.uid(),
+    general__created_by UUID DEFAULT auth.uid()
 ) INHERITS (permissions);
 
 -- Enable RLS

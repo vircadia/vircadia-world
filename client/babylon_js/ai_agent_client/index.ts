@@ -1,7 +1,7 @@
 import { startBunScriptBundleService } from "./service/bun_script_bundle";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { type Engine, NullEngine, Scene } from "@babylonjs/core";
-import { ClientCore__VircadiaConfig } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.client.config";
+import { VircadiaConfig_Client } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.client.config";
 import type { Database } from "../../../sdk/vircadia-world-sdk-ts/schema/schema.database";
 import type { Script } from "../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import { log } from "../../../sdk/vircadia-world-sdk-ts/module/general/log";
@@ -228,21 +228,21 @@ async function initializeClientCore() {
         scene = new Scene(engine);
 
         await connect(
-            ClientCore__VircadiaConfig.defaultWorldSupabaseUrl,
-            ClientCore__VircadiaConfig.defaultWorldSupabaseAnonKey,
+            VircadiaConfig_Client.defaultWorldSupabaseUrl,
+            VircadiaConfig_Client.defaultWorldSupabaseAnonKey,
         );
 
         // Optional login if credentials are provided
         if (
-            ClientCore__VircadiaConfig.defaultWorldAccountUsername &&
-            ClientCore__VircadiaConfig.defaultWorldAccountPassword &&
+            VircadiaConfig_Client.defaultWorldAccountUsername &&
+            VircadiaConfig_Client.defaultWorldAccountPassword &&
             supabase
         ) {
             await supabase.auth
                 .signInWithPassword({
-                    email: ClientCore__VircadiaConfig.defaultWorldAccountUsername,
+                    email: VircadiaConfig_Client.defaultWorldAccountUsername,
                     password:
-                        ClientCore__VircadiaConfig.defaultWorldAccountPassword,
+                        VircadiaConfig_Client.defaultWorldAccountPassword,
                 })
                 .catch((error) => {
                     log({

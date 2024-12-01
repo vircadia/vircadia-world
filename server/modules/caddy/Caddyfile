@@ -9,7 +9,7 @@ api-antares.vircadia.com {
         on_demand
     }
     
-    reverse_proxy localhost:54321 {
+    reverse_proxy localhost:8000 {
         header_up Host {http.request.host}
     }
 }
@@ -19,7 +19,7 @@ studio-antares.vircadia.com {
         on_demand
     }
     
-    reverse_proxy localhost:54323 {
+    reverse_proxy localhost:8000 {
         header_up Host {http.request.host}
         header_up X-Real-IP {http.request.remote}
     }

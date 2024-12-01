@@ -1,16 +1,16 @@
 import { parseArgs } from "node:util";
 import { Supabase } from "./modules/supabase/supabase_manager.ts";
 import { log } from "../sdk/vircadia-world-sdk-ts/module/general/log.ts";
-import { Config } from "../sdk/vircadia-world-sdk-ts/schema/schema.general.ts";
+import { VircadiaConfig_Server } from "./vircadia.config.server.ts";
 
 // Services
 import { WorldTickManager } from "./service/world-tick-manager.ts";
 import { WorldActionManager } from "./service/world-action-manager.ts";
 
-const config = loadConfig();
+const config = VircadiaConfig_Server;
 
 async function init() {
-    const debugMode = config[Config.E_SERVER_CONFIG.DEBUG];
+    const debugMode = config.debug;
 
     if (debugMode) {
         log({ message: "Server debug mode enabled", type: "info" });
@@ -69,7 +69,7 @@ async function startSupabase(debugMode: boolean) {
     }
 
     const supabase = Supabase.getInstance(debugMode);
-    const forceRestart = config[Config.E_SERVER_CONFIG.FORCE_RESTART_SUPABASE];
+    const forceRestart = config.forceRestartSupabase;
     const isRunning = await supabase.isRunning();
 
     if (!isRunning || forceRestart) {
@@ -96,7 +96,10 @@ async function startSupabase(debugMode: boolean) {
     }
 
     try {
-        await supabase.initializeAdminClient();
+        await supabase.initializeAdminClient({
+            apiUrl: config.supabaseUrl,
+            serviceRoleKey: config.supabaseServiceRoleKey,
+        });
     } catch (error) {
         log({
             message: `Failed to initialize admin client: ${error}`,
@@ -111,8 +114,8 @@ async function startSupabase(debugMode: boolean) {
 async function startBunServer(debugMode: boolean) {
     log({ message: "Starting Bun HTTP server", type: "info" });
 
-    const host = config[Config.E_SERVER_CONFIG.INTERNAL_SERVER_HOST];
-    const port = config[Config.E_SERVER_CONFIG.INTERNAL_SERVER_PORT];
+    const host = config.serverHost;
+    const port = config.serverPort;
 
     const server = Bun.serve({
         port,
@@ -130,52 +133,3 @@ async function startBunServer(debugMode: boolean) {
 }
 
 await init();
-
-export function loadConfig(): {
-    [Config.E_SERVER_CONFIG.DEBUG]: boolean;
-    [Config.E_SERVER_CONFIG.INTERNAL_SERVER_PORT]: number;
-    [Config.E_SERVER_CONFIG.INTERNAL_SERVER_HOST]: string;
-    [Config.E_SERVER_CONFIG.FORCE_RESTART_SUPABASE]: boolean;
-} {
-    const args = parseArgs({
-        args: process.argv.slice(2),
-        options: {
-            [Config.E_SERVER_ARGUMENT.DEBUG]: { type: "boolean" },
-            [Config.E_SERVER_ARGUMENT.INTERNAL_SERVER_PORT]: { type: "string" },
-            [Config.E_SERVER_ARGUMENT.INTERNAL_SERVER_HOST]: { type: "string" },
-            [Config.E_SERVER_ARGUMENT.FORCE_RESTART_SUPABASE]: {
-                type: "boolean",
-            },
-        },
-    });
-
-    const debugMode =
-        process.env[Config.E_SERVER_CONFIG.DEBUG] === "true" ||
-        args.values[Config.E_SERVER_ARGUMENT.DEBUG] ||
-        false;
-
-    const serverPort = Number.parseInt(
-        process.env[Config.E_SERVER_CONFIG.INTERNAL_SERVER_PORT] ||
-            args.values[
-                Config.E_SERVER_ARGUMENT.INTERNAL_SERVER_PORT
-            ]?.toString() ||
-            "3020",
-    );
-
-    const serverHost =
-        process.env[Config.E_SERVER_CONFIG.INTERNAL_SERVER_HOST] ||
-        args.values[Config.E_SERVER_ARGUMENT.INTERNAL_SERVER_HOST] ||
-        "localhost";
-
-    const forceRestartSupabase =
-        process.env[Config.E_SERVER_CONFIG.FORCE_RESTART_SUPABASE] === "true" ||
-        args.values[Config.E_SERVER_ARGUMENT.FORCE_RESTART_SUPABASE] ||
-        false;
-
-    return {
-        [Config.E_SERVER_CONFIG.DEBUG]: debugMode,
-        [Config.E_SERVER_CONFIG.INTERNAL_SERVER_PORT]: serverPort,
-        [Config.E_SERVER_CONFIG.INTERNAL_SERVER_HOST]: serverHost,
-        [Config.E_SERVER_CONFIG.FORCE_RESTART_SUPABASE]: forceRestartSupabase,
-    };
-}

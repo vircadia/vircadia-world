@@ -4,12 +4,11 @@ Vircadia World is a very simple to use framework for developing connected worlds
 
 *Warning: Vircadia World is simple relative to all other alternatives, however setting up and deploying your own world still requires some level of technical experience.*
 
-## Installation (Debian/Ubuntu)
+## Installation & Configuration (Debian/Ubuntu)
 
 ### Prerequisites
 
 * Git
-* Docker Engine
 * Caddy
 * NVM
     * Bun.sh
@@ -17,18 +16,17 @@ Vircadia World is a very simple to use framework for developing connected worlds
 
 #### Caddy
 
-[https://caddyserver.com/docs/install](https://caddyserver.com/docs/install)
+[Caddy](modules/caddy/README.md)
+
+#### Pocketbase
+
+[Pocketbase](modules/pocketbase/README.md)
 
 ### Install Dependencies
 
 ```sh
 bun install
 ```
-
-## Configuration
-
-* [Supabase](modules/supabase/README.md)
-* [Caddy](modules/caddy/README.md)
 
 ## Running
 

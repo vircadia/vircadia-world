@@ -1,10 +1,16 @@
 # Caddy
 
+## Installation
+
+[https://caddyserver.com/docs/install](https://caddyserver.com/docs/install)
+
+## Configuration
+
 You should use a reverse proxy to make your world available publicly, you can use any app / service to do this, but generally we recommend Caddy for its simplicity.
 
 Where `54321` and `54323` are your Supabase API and Studio ports (adjust if you change your API or Studio port in `modules/supabase/app/supabase/config.toml`), you must also use your own subdomains: [Caddyfile](modules/caddy/Caddyfile)
 
-## Open Required Ports
+### Open Required Ports
 
 The following ports need to be accessible from the internet:
 - 443 (HTTPS)

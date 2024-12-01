@@ -1,5 +1,5 @@
-import { parseArgs } from "node:util";
 import { Supabase } from "./modules/supabase/supabase_manager.ts";
+import { PocketBaseManager } from "./modules/pocketbase/pocketbase_manager.ts";
 import { log } from "../sdk/vircadia-world-sdk-ts/module/general/log.ts";
 import { VircadiaConfig_Server } from "./vircadia.config.server.ts";
 
@@ -19,6 +19,7 @@ async function init() {
     log({ message: "Starting Vircadia World Server", type: "info" });
 
     await startSupabase(debugMode);
+    await startPocketBase(debugMode);
     await startBunServer(debugMode);
     await startServices(debugMode);
 }
@@ -109,6 +110,13 @@ async function startSupabase(debugMode: boolean) {
     }
 
     log({ message: "Supabase services are running correctly.", type: "info" });
+}
+
+async function startPocketBase(debugMode: boolean) {
+    log({ message: "Starting PocketBase", type: "info" });
+
+    const pocketbase = PocketBaseManager.getInstance(debugMode);
+    await pocketbase.initializeAndStart();
 }
 
 async function startBunServer(debugMode: boolean) {

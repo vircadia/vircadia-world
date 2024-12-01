@@ -18,9 +18,9 @@ Vircadia World is a very simple to use framework for developing connected worlds
 
 [Caddy](modules/caddy/README.md)
 
-#### Pocketbase
+#### PocketBase
 
-[Pocketbase](modules/pocketbase/README.md)
+[PocketBase](modules/pocketbase/README.md)
 
 ### Install Dependencies
 

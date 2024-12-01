@@ -1,4 +1,3 @@
-import { Supabase } from "./modules/supabase/supabase_manager.ts";
 import { PocketBaseManager } from "./modules/pocketbase/pocketbase_manager.ts";
 import { log } from "../sdk/vircadia-world-sdk-ts/module/general/log.ts";
 import { VircadiaConfig_Server } from "./vircadia.config.server.ts";
@@ -18,10 +17,9 @@ async function init() {
 
     log({ message: "Starting Vircadia World Server", type: "info" });
 
-    await startSupabase(debugMode);
     await startPocketBase(debugMode);
     await startBunServer(debugMode);
-    await startServices(debugMode);
+    // await startServices(debugMode);
 }
 
 let worldTickManager: WorldTickManager | null = null;
@@ -31,21 +29,21 @@ async function startServices(debugMode: boolean) {
     log({ message: "Starting world services", type: "info" });
 
     try {
-        const supabase = Supabase.getInstance(debugMode);
-        const supabaseClient = supabase.getAdminClient();
+        const pocketbase = PocketBaseManager.getInstance(debugMode);
+        const pocketbaseClient = pocketbase.getClient();
 
-        if (!supabaseClient) {
-            throw new Error("Supabase admin client not initialized");
+        if (!pocketbaseClient) {
+            throw new Error("PocketBase admin client not initialized");
         }
 
         // Initialize frame capture service with existing client
-        worldTickManager = new WorldTickManager(supabaseClient, debugMode);
+        worldTickManager = new WorldTickManager(pocketbaseClient, debugMode);
 
         await worldTickManager.initialize();
         worldTickManager.start();
 
         // Initialize action manager with existing client
-        worldActionManager = new WorldActionManager(supabaseClient, debugMode);
+        worldActionManager = new WorldActionManager(pocketbaseClient, debugMode);
 
         await worldActionManager.initialize();
         worldActionManager.start();
@@ -61,55 +59,6 @@ async function startServices(debugMode: boolean) {
         });
         process.exit(1);
     }
-}
-
-async function startSupabase(debugMode: boolean) {
-    log({ message: "Starting Supabase", type: "info" });
-    if (debugMode) {
-        log({ message: "Supabase debug mode enabled", type: "info" });
-    }
-
-    const supabase = Supabase.getInstance(debugMode);
-    const forceRestart = config.forceRestartSupabase;
-    const isRunning = await supabase.isRunning();
-
-    if (!isRunning || forceRestart) {
-        try {
-            await supabase.initializeAndStart({
-                forceRestart: forceRestart,
-            });
-        } catch (error) {
-            log({
-                message: `Failed to initialize and start Supabase: ${error}`,
-                type: "error",
-            });
-            await supabase.debugStatus();
-        }
-
-        if (!(await supabase.isRunning())) {
-            log({
-                message:
-                    "Supabase services are not running after initialization. Exiting.",
-                type: "error",
-            });
-            process.exit(1);
-        }
-    }
-
-    try {
-        await supabase.initializeAdminClient({
-            apiUrl: config.supabaseUrl,
-            serviceRoleKey: config.supabaseServiceRoleKey,
-        });
-    } catch (error) {
-        log({
-            message: `Failed to initialize admin client: ${error}`,
-            type: "error",
-        });
-        process.exit(1);
-    }
-
-    log({ message: "Supabase services are running correctly.", type: "info" });
 }
 
 async function startPocketBase(debugMode: boolean) {

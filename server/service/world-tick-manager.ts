@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import PocketBase from 'pocketbase';
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 
 export class WorldTickManager {
@@ -13,7 +13,7 @@ export class WorldTickManager {
     private configSubscription: any = null;
 
     constructor(
-        private readonly supabase: SupabaseClient,
+        private readonly pb: PocketBase,
         private readonly debugMode: boolean = false,
     ) {
         this.debugMode = debugMode;
@@ -22,37 +22,20 @@ export class WorldTickManager {
     async initialize() {
         try {
             // Fetch initial config values
-            const { data: configData, error: configError } = await this.supabase
-                .from("world_config")
-                .select("*");
-
-            if (configError) throw configError;
+            const configData = await this.pb.collection('world_config').getFullList();
 
             // Update config values
             this.updateConfigValues(configData);
 
             // Subscribe to config changes
-            this.configSubscription = this.supabase
-                .channel("world_config_changes")
-                .on(
-                    "postgres_changes",
-                    {
-                        event: "*",
-                        schema: "public",
-                        table: "world_config",
-                    },
-                    (payload) => {
-                        this.handleConfigChange(payload.new);
-                    },
-                )
-                .subscribe();
+            this.configSubscription = await this.pb.collection('world_config').subscribe('*', 
+                (data) => {
+                    this.handleConfigChange(data.record);
+                }
+            );
 
             // Get current server time
-            const { data: timeData, error: timeError } =
-                await this.supabase.rpc("get_server_time");
-
-            if (timeError) throw timeError;
-
+            const timeData = await this.pb.send('/api/utils/now', {});
             this.lastServerTime = new Date(timeData);
 
             log({
@@ -64,7 +47,7 @@ export class WorldTickManager {
             log({
                 message: `Failed to initialize tick capture service: ${JSON.stringify(error)}`,
                 debug: this.debugMode,
-                type: "error",
+                type: "error", 
             });
             throw error;
         }
@@ -82,7 +65,6 @@ export class WorldTickManager {
                 const newInterval = Number.parseFloat(config.value);
                 if (this.targetIntervalMs !== newInterval) {
                     this.targetIntervalMs = newInterval;
-                    // Restart the service if it's running to apply new interval
                     if (this.intervalId) {
                         this.stop();
                         this.start();
@@ -100,15 +82,12 @@ export class WorldTickManager {
     }
 
     private setupCleanupTimers() {
-        // Clear existing timers if any
-        if (this.entityStatesCleanupId)
-            clearInterval(this.entityStatesCleanupId);
+        if (this.entityStatesCleanupId) clearInterval(this.entityStatesCleanupId);
         if (this.tickMetricsCleanupId) clearInterval(this.tickMetricsCleanupId);
 
-        // Setup entity states cleanup timer (runs at tickBufferDurationMs interval)
         this.entityStatesCleanupId = setInterval(async () => {
             try {
-                await this.supabase.rpc("cleanup_old_entity_states");
+                await this.pb.send('/api/collections/entity_states/cleanup', {});
                 log({
                     message: "Entity states cleanup completed",
                     debug: this.debugMode,
@@ -123,10 +102,9 @@ export class WorldTickManager {
             }
         }, this.tickBufferDurationMs);
 
-        // Setup tick metrics cleanup timer (runs at tickMetricsHistorySeconds interval)
         this.tickMetricsCleanupId = setInterval(async () => {
             try {
-                await this.supabase.rpc("cleanup_old_tick_metrics");
+                await this.pb.send('/api/collections/tick_metrics/cleanup', {});
                 log({
                     message: "Tick metrics cleanup completed",
                     debug: this.debugMode,
@@ -146,58 +124,39 @@ export class WorldTickManager {
         try {
             const totalStartTime = performance.now();
             
-            // Get current server time before capture
+            // Get current server time
             const timeRequestStart = performance.now();
-            const { data: timeData, error: timeError } =
-                await this.supabase.rpc("get_server_time");
+            const timeData = await this.pb.send('/api/utils/now', {});
             const timeRequestDuration = performance.now() - timeRequestStart;
-
-            if (timeError) {
-                log({
-                    message: `Failed to get server time: ${JSON.stringify(timeError)}`,
-                    debug: this.debugMode,
-                    type: "error",
-                });
-                return;
-            }
 
             const currentServerTime = new Date(timeData);
 
-            // Capture both entity and metadata states
+            // Capture tick state
             const captureRequestStart = performance.now();
-            const { data: captureData, error: captureError } =
-                await this.supabase.rpc("capture_tick_state");
+            const captureData = await this.pb.send('/api/collections/tick_state/capture', {});
             const captureRequestDuration = performance.now() - captureRequestStart;
 
-            if (captureError) {
-                log({
-                    message: `Tick capture failed: ${JSON.stringify(captureError)}`,
-                    debug: this.debugMode,
-                    type: "error",
-                });
-            } else {
-                this.lastServerTime = currentServerTime;
-                this.tickCount++;
+            this.lastServerTime = currentServerTime;
+            this.tickCount++;
 
-                // Log performance metrics including metadata stats
-                const totalElapsed = performance.now() - totalStartTime;
-                if (totalElapsed > this.targetIntervalMs) {
-                    log({
-                        message: `Tick capture took ${totalElapsed.toFixed(2)}ms (target: ${this.targetIntervalMs}ms) ` +
-                            `[time_req: ${timeRequestDuration.toFixed(2)}ms, ` +
-                            `capture_req: ${captureRequestDuration.toFixed(2)}ms]`,
-                        debug: this.debugMode,
-                        type: "warn",
-                    });
-                } else if (this.debugMode) {
-                    log({
-                        message: `Tick ${this.tickCount} completed in ${totalElapsed.toFixed(2)}ms ` +
-                            `[time_req: ${timeRequestDuration.toFixed(2)}ms, ` +
-                            `capture_req: ${captureRequestDuration.toFixed(2)}ms]`,
-                        debug: true,
-                        type: "debug",
-                    });
-                }
+            // Log performance metrics
+            const totalElapsed = performance.now() - totalStartTime;
+            if (totalElapsed > this.targetIntervalMs) {
+                log({
+                    message: `Tick capture took ${totalElapsed.toFixed(2)}ms (target: ${this.targetIntervalMs}ms) ` +
+                        `[time_req: ${timeRequestDuration.toFixed(2)}ms, ` +
+                        `capture_req: ${captureRequestDuration.toFixed(2)}ms]`,
+                    debug: this.debugMode,
+                    type: "warn",
+                });
+            } else if (this.debugMode) {
+                log({
+                    message: `Tick ${this.tickCount} completed in ${totalElapsed.toFixed(2)}ms ` +
+                        `[time_req: ${timeRequestDuration.toFixed(2)}ms, ` +
+                        `capture_req: ${captureRequestDuration.toFixed(2)}ms]`,
+                    debug: true,
+                    type: "debug",
+                });
             }
         } catch (error) {
             log({

@@ -102,11 +102,52 @@ export class PocketBaseManager {
                 stderr: "pipe",
             });
 
-            // Initialize client
-            this.initializeClient();
+            // Handle stdout using Bun's stream reading
+            const stdoutReader = this.pocketbaseProcess.stdout.getReader();
+            (async () => {
+                while (true) {
+                    const { done, value } = await stdoutReader.read();
+                    if (done) break;
+                    
+                    if (value) {
+                        const output = new TextDecoder().decode(value);
+                        log({
+                            message: `PocketBase Output: ${output}`,
+                            type: "info",
+                            debug: PocketBaseManager.isDebug(),
+                        });
+                    }
+                }
+            })();
 
-            // Wait for server to be ready
+            // Handle stderr using Bun's stream reading
+            const stderrReader = this.pocketbaseProcess.stderr.getReader();
+            (async () => {
+                while (true) {
+                    const { done, value } = await stderrReader.read();
+                    if (done) break;
+                    
+                    if (value) {
+                        const error = new TextDecoder().decode(value);
+                        log({
+                            message: `PocketBase Error: ${error}`,
+                            type: "error",
+                            debug: PocketBaseManager.isDebug(),
+                        });
+
+                        // If we detect a migration error, we should throw it
+                        if (error.includes("Failed to apply migration")) {
+                            throw new Error(`Migration Error: ${error}`);
+                        }
+                    }
+                }
+            })();
+
+            // Wait for server to be ready FIRST
             await this.waitForServer();
+
+            // Initialize client AFTER server is confirmed ready
+            this.initializeClient();
 
             log({
                 message: "PocketBase server started successfully",
@@ -157,24 +198,58 @@ export class PocketBaseManager {
     }
 
     private async waitForServer(): Promise<void> {
-        const maxAttempts = 30;
-        const delayMs = 1000;
+        const maxAttempts = 60;
+        const delayMs = 500;
+        
+        log({
+            message: "Waiting for PocketBase server to start...",
+            type: "info",
+            debug: PocketBaseManager.isDebug(),
+        });
 
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
-            if (await this.isRunning()) {
-                return;
+            try {
+                if (await this.isRunning()) {
+                    log({
+                        message: `PocketBase server responded after ${attempt + 1} attempts`,
+                        type: "success",
+                        debug: PocketBaseManager.isDebug(),
+                    });
+                    return;
+                }
+            } catch (error) {
+                log({
+                    message: `Attempt ${attempt + 1}/${maxAttempts} failed: ${error.message}`,
+                    type: "warning",
+                    debug: PocketBaseManager.isDebug(),
+                });
             }
+
+            if ((attempt + 1) % 10 === 0) {
+                log({
+                    message: `Still waiting for PocketBase server... (${attempt + 1}/${maxAttempts} attempts)`,
+                    type: "info",
+                    debug: PocketBaseManager.isDebug(),
+                });
+            }
+
             await new Promise(resolve => setTimeout(resolve, delayMs));
         }
-        throw new Error("PocketBase server failed to start in time");
+
+        const error = new Error("PocketBase server failed to start within the timeout period");
+        log({
+            message: error.message,
+            type: "error",
+            debug: PocketBaseManager.isDebug(),
+        });
+        throw error;
     }
 
     async isRunning(): Promise<boolean> {
-        if (!this.pocketbaseClient) return false;
-
         try {
-            // Try to make a simple health check request
-            await this.pocketbaseClient.health.check();
+            // Create a temporary client if none exists
+            const client = this.pocketbaseClient || new PocketBase('http://127.0.0.1:8090');
+            await client.health.check();
             return true;
         } catch {
             return false;

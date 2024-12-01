@@ -1,4 +1,4 @@
-# Pocketbase
+# PocketBase
 
 ## Installation
 

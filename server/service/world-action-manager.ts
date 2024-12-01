@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import PocketBase from 'pocketbase';
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 
 export class WorldActionManager {
@@ -7,11 +7,11 @@ export class WorldActionManager {
     private targetIntervalMs = 50;
     private actionAbandonedThresholdMs = 300000; // 5 minutes default
     private actionInactiveHistoryCount = 10000;
-    private actionCleanupRateMs = 5000; // Add default cleanup rate
+    private actionCleanupRateMs = 5000;
     private configSubscription: any = null;
 
     constructor(
-        private readonly supabase: SupabaseClient,
+        private readonly pb: PocketBase,
         private readonly debugMode: boolean = false,
     ) {
         this.debugMode = debugMode;
@@ -20,30 +20,17 @@ export class WorldActionManager {
     async initialize() {
         try {
             // Fetch initial config values
-            const { data: configData, error: configError } = await this.supabase
-                .from("world_config")
-                .select("*");
-
-            if (configError) throw configError;
+            const configData = await this.pb.collection('world_config').getFullList();
 
             // Update config values
             this.updateConfigValues(configData);
 
             // Subscribe to config changes
-            this.configSubscription = this.supabase
-                .channel("world_config_changes")
-                .on(
-                    "postgres_changes",
-                    {
-                        event: "*",
-                        schema: "public",
-                        table: "world_config",
-                    },
-                    (payload) => {
-                        this.handleConfigChange(payload.new);
-                    },
-                )
-                .subscribe();
+            this.configSubscription = await this.pb.collection('world_config').subscribe('*', 
+                (data) => {
+                    this.handleConfigChange(data.record);
+                }
+            );
 
             log({
                 message: `Initialized action manager with abandoned threshold: ${this.actionAbandonedThresholdMs}ms`,
@@ -69,9 +56,7 @@ export class WorldActionManager {
     private handleConfigChange(config: any) {
         switch (config.key) {
             case "action_abandoned_threshold_ms":
-                this.actionAbandonedThresholdMs = Number.parseFloat(
-                    config.value,
-                );
+                this.actionAbandonedThresholdMs = Number.parseFloat(config.value);
                 break;
             case "action_inactive_history_count":
                 this.actionInactiveHistoryCount = Number.parseInt(config.value);
@@ -85,32 +70,20 @@ export class WorldActionManager {
         }
     }
 
-    private setupCleanupTimers() {
-        // Clear existing timer if any
+    private async setupCleanupTimers() {
         if (this.actionCleanupId) clearInterval(this.actionCleanupId);
 
-        // Setup action cleanup timer using configurable rate
         this.actionCleanupId = setInterval(async () => {
             try {
-                // First, mark abandoned actions as expired
-                const { error: expireError } = await this.supabase.rpc(
-                    "expire_abandoned_actions",
-                    {
-                        threshold_ms: this.actionAbandonedThresholdMs,
-                    },
-                );
+                // Mark abandoned actions as expired
+                await this.pb.send('/api/expire_abandoned_actions', {
+                    threshold_ms: this.actionAbandonedThresholdMs,
+                });
 
-                if (expireError) throw expireError;
-
-                // Then, clean up excess inactive actions
-                const { error: cleanupError } = await this.supabase.rpc(
-                    "cleanup_inactive_actions",
-                    {
-                        retain_count: this.actionInactiveHistoryCount,
-                    },
-                );
-
-                if (cleanupError) throw cleanupError;
+                // Clean up excess inactive actions
+                await this.pb.send('/api/cleanup_inactive_actions', {
+                    retain_count: this.actionInactiveHistoryCount,
+                });
 
                 log({
                     message: "Action cleanup completed",
@@ -119,14 +92,12 @@ export class WorldActionManager {
                 });
             } catch (error) {
                 log({
-                    message: `Error during action cleanup: ${JSON.stringify(
-                        error,
-                    )}`,
+                    message: `Error during action cleanup: ${JSON.stringify(error)}`,
                     debug: this.debugMode,
                     type: "error",
                 });
             }
-        }, this.actionCleanupRateMs); // Use configured cleanup rate instead of calculated one
+        }, this.actionCleanupRateMs);
     }
 
     start() {
@@ -145,7 +116,6 @@ export class WorldActionManager {
             type: "debug",
         });
 
-        // Setup cleanup timer
         this.setupCleanupTimers();
     }
 
@@ -154,9 +124,8 @@ export class WorldActionManager {
             clearInterval(this.actionCleanupId);
             this.actionCleanupId = null;
 
-            // Clean up subscription
             if (this.configSubscription) {
-                this.configSubscription.unsubscribe();
+                this.pb.collection('world_config').unsubscribe();
                 this.configSubscription = null;
             }
 

@@ -4,7 +4,3 @@
 [submodule "sdk/vircadia-world-sdk-py"]
 	path = sdk/vircadia-world-sdk-py
 	url = https://github.com/vircadia/vircadia-world-sdk-py.git
-[submodule "server/modules/supabase/app"]
-	path = server/modules/supabase/app
-	url = https://github.com/supabase/supabase.git
-	shallow = true

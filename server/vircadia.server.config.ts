@@ -15,6 +15,12 @@ const envSchema = z.object({
     VRCA_SERVER_INTERNAL_SERVER_PORT: z.string().default("3020"),
     VRCA_SERVER_INTERNAL_SERVER_HOST: z.string().default("0.0.0.0"),
     VRCA_SERVER_FORCE_RESTART_SUPABASE: z.boolean().default(false),
+    VRCA_SERVER_ADMIN_IPS: z
+        .string()
+        .default("127.0.0.1,::1")
+        .transform((ips) => ips.split(",")),
+    VRCA_SERVER_ADMIN_API_KEY: z.string().min(32).optional(),
+    VRCA_SERVER_DEV_MODE: z.boolean().default(false),
 });
 
 const env = envSchema.parse(import.meta.env);
@@ -26,4 +32,7 @@ export const VircadiaConfig_Server = {
     serverPort: Number.parseInt(env.VRCA_SERVER_INTERNAL_SERVER_PORT),
     serverHost: env.VRCA_SERVER_INTERNAL_SERVER_HOST,
     forceRestartSupabase: env.VRCA_SERVER_FORCE_RESTART_SUPABASE,
+    adminIps: env.VRCA_SERVER_ADMIN_IPS,
+    adminApiKey: env.VRCA_SERVER_ADMIN_API_KEY,
+    devMode: env.VRCA_SERVER_DEV_MODE,
 };

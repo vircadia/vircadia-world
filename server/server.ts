@@ -1,12 +1,13 @@
-import { PocketBaseManager } from "./modules/pocketbase/pocketbase_manager.ts";
+import { VircadiaConfig_Server } from "./vircadia.server.config.ts";
 import { log } from "../sdk/vircadia-world-sdk-ts/module/general/log.ts";
-import { VircadiaConfig_Server } from "./vircadia.config.server.ts";
-
-// Services
+import { SQLiteManager } from "./database/sqlite/sqlite_manager.ts";
 import { WorldTickManager } from "./service/world-tick-manager.ts";
 import { WorldActionManager } from "./service/world-action-manager.ts";
+import { AuthManager } from "./auth/auth_manager.ts";
 
 const config = VircadiaConfig_Server;
+let worldTickManager: WorldTickManager | null = null;
+let worldActionManager: WorldActionManager | null = null;
 
 async function init() {
     const debugMode = config.debug;
@@ -17,76 +18,55 @@ async function init() {
 
     log({ message: "Starting Vircadia World Server", type: "info" });
 
-    await startPocketBase(debugMode);
-    await startBunServer(debugMode);
-    // await startServices(debugMode);
-}
-
-let worldTickManager: WorldTickManager | null = null;
-let worldActionManager: WorldActionManager | null = null;
-
-async function startServices(debugMode: boolean) {
-    log({ message: "Starting world services", type: "info" });
-
     try {
-        const pocketbase = PocketBaseManager.getInstance(debugMode);
-        const pocketbaseClient = pocketbase.getClient();
+        // ===== Database Initialization =====
+        log({ message: "Initializing database", type: "info" });
+        const sqliteManager = SQLiteManager.getInstance(debugMode);
+        sqliteManager.runMigrations();
 
-        if (!pocketbaseClient) {
-            throw new Error("PocketBase admin client not initialized");
-        }
+        // ===== Auth Manager =====
+        log({ message: "Initializing auth manager", type: "info" });
+        const authManager = AuthManager.getInstance(debugMode);
 
-        // Initialize frame capture service with existing client
-        worldTickManager = new WorldTickManager(pocketbaseClient, debugMode);
+        // ===== HTTP Server =====
+        log({ message: "Starting Bun HTTP server", type: "info" });
+        const server = Bun.serve({
+            port: config.serverPort,
+            hostname: config.serverHost,
+            development: debugMode,
+            fetch: async (req) => {
+                return new Response("Not Found", { status: 404 });
+            },
+        });
+        log({
+            message: `Bun HTTP server running at http://${config.serverHost}:${config.serverPort}`,
+            type: "success",
+        });
 
+        // ===== World Services =====
+        log({ message: "Starting world services", type: "info" });
+
+        // Initialize world tick manager
+        worldTickManager = new WorldTickManager(debugMode);
         await worldTickManager.initialize();
         worldTickManager.start();
 
-        // Initialize action manager with existing client
-        worldActionManager = new WorldActionManager(pocketbaseClient, debugMode);
-
+        // Initialize world action manager
+        worldActionManager = new WorldActionManager(sqliteManager, debugMode);
         await worldActionManager.initialize();
         worldActionManager.start();
 
         log({
-            message: "World frame capture service started successfully",
+            message: "World services started successfully",
             type: "success",
         });
     } catch (error) {
         log({
-            message: `Failed to start world services: ${JSON.stringify(error)}`,
+            message: `Server initialization failed: ${JSON.stringify(error)}`,
             type: "error",
         });
         process.exit(1);
     }
-}
-
-async function startPocketBase(debugMode: boolean) {
-    log({ message: "Starting PocketBase", type: "info" });
-
-    const pocketbase = PocketBaseManager.getInstance(debugMode);
-    await pocketbase.initializeAndStart();
-}
-
-async function startBunServer(debugMode: boolean) {
-    log({ message: "Starting Bun HTTP server", type: "info" });
-
-    const host = config.serverHost;
-    const port = config.serverPort;
-
-    const server = Bun.serve({
-        port,
-        hostname: host,
-        development: debugMode,
-        fetch: async (req) => {
-            return new Response("Not Found", { status: 404 });
-        },
-    });
-
-    log({
-        message: `Bun HTTP server running at http://${host}:${port}`,
-        type: "success",
-    });
 }
 
 await init();

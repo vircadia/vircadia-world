@@ -5,8 +5,9 @@ migrate((db) => {
         name: 'world_config',
         type: 'base',
         system: false,
-        schema: [
+        fields: [
             {
+                id: 'key',
                 name: 'key',
                 type: 'text',
                 system: false,
@@ -14,12 +15,14 @@ migrate((db) => {
                 unique: true
             },
             {
+                id: 'value',
                 name: 'value',
                 type: 'json',
                 system: false,
                 required: true
             },
             {
+                id: 'description',
                 name: 'description',
                 type: 'text',
                 system: false,
@@ -27,7 +30,6 @@ migrate((db) => {
             }
         ],
         indexes: ["CREATE UNIQUE INDEX idx_config_key ON world_config (key)"],
-        // Only system roles can modify config, but authenticated users can view
         listRule: "@request.auth.id != ''",
         viewRule: "@request.auth.id != ''",
         createRule: null,
@@ -35,7 +37,10 @@ migrate((db) => {
         deleteRule: null
     });
 
-    // Insert default configuration
+    // Save the collection first
+    db.save(worldConfig);
+
+    // Insert default configurations
     const defaultConfigs = [
         {
             key: 'tick_rate_ms',
@@ -69,21 +74,14 @@ migrate((db) => {
         }
     ];
 
-    return {
-        collections: [worldConfig],
-        // Insert default configurations after collection creation
-        afterSync: async () => {
-            const collection = db.collection('world_config');
-            for (const config of defaultConfigs) {
-                await collection.create({
-                    key: config.key,
-                    value: JSON.stringify(config.value),
-                    description: config.description
-                });
-            }
-        }
-    };
+    // Insert default configurations
+    for (const config of defaultConfigs) {
+        const record = new Record(worldConfig);
+        record.load(config);
+        db.save(record);
+    }
 }, (db) => {
     // Revert migration
-    db.deleteCollection('world_config');
+    const worldConfig = db.findCollectionByNameOrId('world_config');
+    db.delete(worldConfig);
 });

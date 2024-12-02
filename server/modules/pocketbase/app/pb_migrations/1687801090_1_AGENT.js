@@ -33,16 +33,16 @@ migrate((db) => {
                 default: true,
             },
             {
-                id: 'can_insert_object',
+                id: 'can_insert_entity',
                 type: 'bool',
-                name: 'can_insert_object',
-                required: true,
+                name: 'can_insert_entity',
+                required: false,
             },
             {
                 id: 'can_insert_script',
                 type: 'bool',
                 name: 'can_insert_script',
-                required: true,
+                required: false,
             }
         ],
         indexes: [
@@ -56,6 +56,39 @@ migrate((db) => {
         deleteRule: '',
     });
     db.save(roles);
+
+    const defaultRoles = [
+        {
+            name: 'guest',
+            description: 'Default role for all users',
+            is_system: true,
+            is_active: true,
+            can_insert_entity: false,
+            can_insert_script: false,
+        },
+        {
+            name: 'user',
+            description: 'Authenticated user role',
+            is_system: true,
+            is_active: true,
+            can_insert_entity: true,
+            can_insert_script: true,
+        },
+        {
+            name: 'admin',
+            description: 'Administrative role',
+            is_system: true,
+            is_active: true,
+            can_insert_entity: true,
+            can_insert_script: true,
+        }
+    ];
+
+    for (const role of defaultRoles) {
+        const record = new Record(roles);
+        record.load(role);
+        db.save(record);
+    }
 
     const userRoles = new Collection({
         name: 'user_roles',

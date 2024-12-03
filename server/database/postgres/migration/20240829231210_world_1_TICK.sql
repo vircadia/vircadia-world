@@ -45,7 +45,7 @@ CREATE POLICY "entity_states_view_policy" ON entity_states
             FROM entities e
             JOIN agent_roles ar ON ar.auth__role_name = ANY(e.permissions__roles__view)
             WHERE e.general__uuid = entity_states.general__entity_id
-            AND ar.auth__agent_id = auth.uid()
+            AND ar.auth__agent_id = auth_uid()
             AND ar.auth__is_active = true
         )
     );
@@ -58,7 +58,7 @@ CREATE POLICY "entity_states_update_policy" ON entity_states
             SELECT 1 
             FROM agent_roles ar
             JOIN roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth.uid()
+            WHERE ar.auth__agent_id = auth_uid()
             AND ar.auth__is_active = true
             AND r.auth__is_system = true
         )
@@ -71,7 +71,7 @@ CREATE POLICY "entity_states_insert_policy" ON entity_states
             SELECT 1 
             FROM agent_roles ar
             JOIN roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth.uid()
+            WHERE ar.auth__agent_id = auth_uid()
             AND ar.auth__is_active = true
             AND r.auth__is_system = true
         )
@@ -84,7 +84,7 @@ CREATE POLICY "entity_states_delete_policy" ON entity_states
             SELECT 1 
             FROM agent_roles ar
             JOIN roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth.uid()
+            WHERE ar.auth__agent_id = auth_uid()
             AND ar.auth__is_active = true
             AND r.auth__is_system = true
         )
@@ -123,7 +123,7 @@ CREATE POLICY "entity_metadata_states_view_policy" ON entity_metadata_states
             JOIN entities e ON e.general__uuid = em.general__entity_id
             JOIN agent_roles ar ON ar.auth__role_name = ANY(e.permissions__roles__view)
             WHERE em.general__metadata_id = entity_metadata_states.entity_metadata_id
-            AND ar.auth__agent_id = auth.uid()
+            AND ar.auth__agent_id = auth_uid()
             AND ar.auth__is_active = true
         )
     );
@@ -136,7 +136,7 @@ CREATE POLICY "entity_metadata_states_update_policy" ON entity_metadata_states
             SELECT 1 
             FROM agent_roles ar
             JOIN roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth.uid()
+            WHERE ar.auth__agent_id = auth_uid()
             AND ar.auth__is_active = true
             AND r.auth__is_system = true
         )
@@ -149,7 +149,7 @@ CREATE POLICY "entity_metadata_states_insert_policy" ON entity_metadata_states
             SELECT 1 
             FROM agent_roles ar
             JOIN roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth.uid()
+            WHERE ar.auth__agent_id = auth_uid()
             AND ar.auth__is_active = true
             AND r.auth__is_system = true
         )
@@ -162,13 +162,13 @@ CREATE POLICY "entity_metadata_states_delete_policy" ON entity_metadata_states
             SELECT 1 
             FROM agent_roles ar
             JOIN roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth.uid()
+            WHERE ar.auth__agent_id = auth_uid()
             AND ar.auth__is_active = true
             AND r.auth__is_system = true
         )
     );
 
--- Function to capture entity state
+-- Function to capture entity state - needs SECURITY DEFINER to bypass RLS
 CREATE OR REPLACE FUNCTION capture_tick_state()
 RETURNS void AS $$
 DECLARE
@@ -182,6 +182,18 @@ DECLARE
     tick_rate_ms int;
     headroom double precision;
 BEGIN
+    -- Verify caller has system role
+    IF NOT EXISTS (
+        SELECT 1 
+        FROM agent_roles ar
+        JOIN roles r ON ar.auth__role_name = r.auth__role_name
+        WHERE ar.auth__agent_id = auth_uid()
+        AND ar.auth__is_active = true
+        AND r.auth__is_system = true
+    ) THEN
+        RAISE EXCEPTION 'Permission denied: System role required';
+    END IF;
+
     -- Get configured tick rate
     SELECT (value#>>'{}'::text[])::int INTO tick_rate_ms 
     FROM world_config 
@@ -299,17 +311,17 @@ BEGIN
             current_tick, tick_duration, tick_rate_ms;
     END IF;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Function to get current server time
+-- Simple utility function - no special privileges needed
 CREATE OR REPLACE FUNCTION get_server_time()
 RETURNS timestamptz AS $$
 BEGIN
     RETURN CURRENT_TIMESTAMP;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY INVOKER;
 
--- Update trigger_frame_capture to use frame_metrics
+-- Trigger function needs SECURITY DEFINER to bypass RLS
 CREATE OR REPLACE FUNCTION trigger_tick_capture()
 RETURNS trigger AS $$
 DECLARE
@@ -319,6 +331,18 @@ DECLARE
     current_tick bigint;
     tick_rate_ms int;
 BEGIN
+    -- Verify caller has system role
+    IF NOT EXISTS (
+        SELECT 1 
+        FROM agent_roles ar
+        JOIN roles r ON ar.auth__role_name = r.auth__role_name
+        WHERE ar.auth__agent_id = auth_uid()
+        AND ar.auth__is_active = true
+        AND r.auth__is_system = true
+    ) THEN
+        RAISE EXCEPTION 'Permission denied: System role required';
+    END IF;
+
     now_time := clock_timestamp();
     
     -- Get last frame time from frame_metrics
@@ -367,15 +391,27 @@ BEGIN
     
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Function to cleanup old entity states (runs more frequently due to shorter retention)
+-- Cleanup functions need SECURITY DEFINER to bypass RLS
 CREATE OR REPLACE FUNCTION cleanup_old_entity_states()
 RETURNS void AS $$
 DECLARE
     states_cleaned integer;
     metadata_states_cleaned integer;
 BEGIN
+    -- Verify caller has system role
+    IF NOT EXISTS (
+        SELECT 1 
+        FROM agent_roles ar
+        JOIN roles r ON ar.auth__role_name = r.auth__role_name
+        WHERE ar.auth__agent_id = auth_uid()
+        AND ar.auth__is_active = true
+        AND r.auth__is_system = true
+    ) THEN
+        RAISE EXCEPTION 'Permission denied: System role required';
+    END IF;
+
     -- Clean entity states
     WITH deleted_states AS (
         DELETE FROM entity_states 
@@ -406,14 +442,25 @@ BEGIN
             states_cleaned, metadata_states_cleaned;
     END IF;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Function to cleanup old frame metrics (runs less frequently due to longer retention)
 CREATE OR REPLACE FUNCTION cleanup_old_tick_metrics()
 RETURNS void AS $$
 DECLARE
     metrics_cleaned integer;
 BEGIN
+    -- Verify caller has system role
+    IF NOT EXISTS (
+        SELECT 1 
+        FROM agent_roles ar
+        JOIN roles r ON ar.auth__role_name = r.auth__role_name
+        WHERE ar.auth__agent_id = auth_uid()
+        AND ar.auth__is_active = true
+        AND r.auth__is_system = true
+    ) THEN
+        RAISE EXCEPTION 'Permission denied: System role required';
+    END IF;
+
     WITH deleted_metrics AS (
         DELETE FROM tick_metrics 
         WHERE general__created_at < (now() - (
@@ -430,7 +477,7 @@ BEGIN
         RAISE NOTICE 'Tick metrics cleanup completed: % metrics removed', metrics_cleaned;
     END IF;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Enable RLS on tick_metrics table
 ALTER TABLE tick_metrics ENABLE ROW LEVEL SECURITY;
@@ -443,7 +490,7 @@ CREATE POLICY "tick_metrics_view_policy" ON tick_metrics
             SELECT 1 
             FROM agent_roles ar
             JOIN roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth.uid()
+            WHERE ar.auth__agent_id = auth_uid()
             AND ar.auth__is_active = true
             AND r.auth__is_system = true
         )
@@ -456,7 +503,7 @@ CREATE POLICY "tick_metrics_update_policy" ON tick_metrics
             SELECT 1 
             FROM agent_roles ar
             JOIN roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth.uid()
+            WHERE ar.auth__agent_id = auth_uid()
             AND ar.auth__is_active = true
             AND r.auth__is_system = true
         )
@@ -469,7 +516,7 @@ CREATE POLICY "tick_metrics_insert_policy" ON tick_metrics
             SELECT 1 
             FROM agent_roles ar
             JOIN roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth.uid()
+            WHERE ar.auth__agent_id = auth_uid()
             AND ar.auth__is_active = true
             AND r.auth__is_system = true
         )
@@ -482,7 +529,7 @@ CREATE POLICY "tick_metrics_delete_policy" ON tick_metrics
             SELECT 1 
             FROM agent_roles ar
             JOIN roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth.uid()
+            WHERE ar.auth__agent_id = auth_uid()
             AND ar.auth__is_active = true
             AND r.auth__is_system = true
         )

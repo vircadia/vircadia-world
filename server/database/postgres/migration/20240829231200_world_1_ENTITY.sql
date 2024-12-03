@@ -12,7 +12,7 @@ CREATE TABLE entities (
     general__name VARCHAR(255) NOT NULL,
     general__semantic_version TEXT NOT NULL DEFAULT '1.0.0',
     general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    general__created_by UUID DEFAULT auth.uid(),
+    general__created_by UUID DEFAULT auth_uid(),
     general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     type__babylonjs TEXT NOT NULL,
     scripts__ids UUID[] DEFAULT '{}'
@@ -27,7 +27,7 @@ CREATE TABLE entities_metadata (
     values__boolean BOOLEAN[],
     values__timestamp TIMESTAMPTZ[],
     general__created_at TIMESTAMPTZ DEFAULT NOW(),
-    general__created_by UUID DEFAULT auth.uid(),
+    general__created_by UUID DEFAULT auth_uid(),
     general__updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE (general__entity_id, key__name)
 );
@@ -51,11 +51,11 @@ ALTER TABLE entities ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "entities_view_policy" ON entities
     FOR SELECT
     USING (
-        general__created_by = auth.uid()
+        general__created_by = auth_uid()
         OR EXISTS (
             SELECT 1 
             FROM agent_roles ar
-            WHERE ar.auth__agent_id = auth.uid()
+            WHERE ar.auth__agent_id = auth_uid()
             AND ar.auth__is_active = true
             AND (
                 ar.auth__role_name = ANY(entities.permissions__roles__view)
@@ -68,29 +68,25 @@ CREATE POLICY "entities_view_policy" ON entities
 CREATE POLICY "entities_update_policy" ON entities
     FOR UPDATE
     USING (
-        current_setting('role') = 'rls_definer'
-        AND (
-            general__created_by = auth.uid()
-            OR EXISTS (
-                SELECT 1 
-                FROM agent_roles ar
-                WHERE ar.auth__agent_id = auth.uid()
-                AND ar.auth__is_active = true
-                AND ar.auth__role_name = ANY(entities.permissions__roles__full)
-            )
+        general__created_by = auth_uid()
+        OR EXISTS (
+            SELECT 1 
+            FROM agent_roles ar
+            WHERE ar.auth__agent_id = auth_uid()
+            AND ar.auth__is_active = true
+            AND ar.auth__role_name = ANY(entities.permissions__roles__full)
         )
     );
 
--- Insert policy - Only through functions AND with proper role
+-- Insert policy - Only with proper role
 CREATE POLICY "entities_insert_policy" ON entities
     FOR INSERT
     WITH CHECK (
-        current_setting('role') = 'rls_definer'
-        AND EXISTS (
+        EXISTS (
             SELECT 1 
             FROM agent_roles ar
             JOIN roles r ON r.auth__role_name = ar.auth__role_name
-            WHERE ar.auth__agent_id = auth.uid()
+            WHERE ar.auth__agent_id = auth_uid()
             AND ar.auth__is_active = true
             AND r.auth__is_active = true
             AND r.auth__entity__object__can_insert = true
@@ -101,16 +97,13 @@ CREATE POLICY "entities_insert_policy" ON entities
 CREATE POLICY "entities_delete_policy" ON entities
     FOR DELETE
     USING (
-        current_setting('role') = 'rls_definer'
-        AND (
-            general__created_by = auth.uid()
-            OR EXISTS (
-                SELECT 1 
-                FROM agent_roles ar
-                WHERE ar.auth__agent_id = auth.uid()
-                AND ar.auth__is_active = true
-                AND ar.auth__role_name = ANY(entities.permissions__roles__full)
-            )
+        general__created_by = auth_uid()
+        OR EXISTS (
+            SELECT 1 
+            FROM agent_roles ar
+            WHERE ar.auth__agent_id = auth_uid()
+            AND ar.auth__is_active = true
+            AND ar.auth__role_name = ANY(entities.permissions__roles__full)
         )
     );
 
@@ -150,11 +143,11 @@ CREATE POLICY "entities_metadata_view_policy" ON entities_metadata
             FROM entities e
             WHERE e.general__uuid = entities_metadata.general__entity_id
             AND (
-                e.general__created_by = auth.uid()
+                e.general__created_by = auth_uid()
                 OR EXISTS (
                     SELECT 1
                     FROM agent_roles ar
-                    WHERE ar.auth__agent_id = auth.uid()
+                    WHERE ar.auth__agent_id = auth_uid()
                     AND ar.auth__is_active = true
                     AND (
                         ar.auth__role_name = ANY(e.permissions__roles__view)
@@ -175,11 +168,11 @@ CREATE POLICY "entities_metadata_update_policy" ON entities_metadata
             FROM entities e
             WHERE e.general__uuid = entities_metadata.general__entity_id
             AND (
-                e.general__created_by = auth.uid()
+                e.general__created_by = auth_uid()
                 OR EXISTS (
                     SELECT 1
                     FROM agent_roles ar
-                    WHERE ar.auth__agent_id = auth.uid()
+                    WHERE ar.auth__agent_id = auth_uid()
                     AND ar.auth__is_active = true
                     AND ar.auth__role_name = ANY(e.permissions__roles__full)
                 )
@@ -203,11 +196,11 @@ CREATE POLICY "entities_metadata_delete_policy" ON entities_metadata
             FROM entities e
             WHERE e.general__uuid = entities_metadata.general__entity_id
             AND (
-                e.general__created_by = auth.uid()
+                e.general__created_by = auth_uid()
                 OR EXISTS (
                     SELECT 1
                     FROM agent_roles ar
-                    WHERE ar.auth__agent_id = auth.uid()
+                    WHERE ar.auth__agent_id = auth_uid()
                     AND ar.auth__is_active = true
                     AND ar.auth__role_name = ANY(e.permissions__roles__full)
                 )

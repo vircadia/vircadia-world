@@ -1,6 +1,5 @@
 -- Required extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "ltree";
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 
 -- Configuration table
@@ -20,5 +19,3 @@ INSERT INTO world_config (key, value, description) VALUES
 ('action_cleanup_rate_ms', '5000'::jsonb, 'How often to clean up actions in milliseconds (5 seconds default)'),
 ('action_abandoned_threshold_ms', '5000'::jsonb, 'Time after which an action with an old heartbeat is considered abandoned (5 seconds default)'),
 ('action_inactive_history_count', '10000'::jsonb, 'Number of inactive actions to retain in history');
-
-ALTER PUBLICATION supabase_realtime ADD TABLE world_config;

@@ -21,7 +21,7 @@ CREATE TABLE entity_scripts (
     source__git__repo_url TEXT,
     general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    general__created_by UUID DEFAULT auth.uid()
+    general__created_by UUID DEFAULT auth_uid()
 ) INHERITS (permissions);
 
 -- Enable RLS
@@ -36,7 +36,7 @@ CREATE POLICY "Allow viewing scripts with proper role" ON entity_scripts
             EXISTS (
                 SELECT 1 FROM agent_roles ar
                 JOIN roles r ON ar.auth__role_name = r.auth__role_name
-                WHERE ar.auth__agent_id = auth.uid()
+                WHERE ar.auth__agent_id = auth_uid()
                 AND ar.auth__is_active = true
                 AND (r.auth__entity__script__can_insert = true OR r.auth__is_system = true)
             )
@@ -44,13 +44,13 @@ CREATE POLICY "Allow viewing scripts with proper role" ON entity_scripts
             -- Check for view/full permission roles
             EXISTS (
                 SELECT 1 FROM agent_roles ar
-                WHERE ar.auth__agent_id = auth.uid()
+                WHERE ar.auth__agent_id = auth_uid()
                 AND ar.auth__is_active = true
                 AND ar.auth__role_name = ANY(permissions__roles__view || permissions__roles__full)
             )
         ) OR (
             -- Allow creator to view their own scripts
-            general__created_by = auth.uid()
+            general__created_by = auth_uid()
         )
     );
 
@@ -61,7 +61,7 @@ CREATE POLICY "Allow inserting scripts with proper role" ON entity_scripts
         EXISTS (
             SELECT 1 FROM agent_roles ar
             JOIN roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth.uid()
+            WHERE ar.auth__agent_id = auth_uid()
             AND ar.auth__is_active = true
             AND (r.auth__entity__script__can_insert = true OR r.auth__is_system = true)
         )
@@ -76,7 +76,7 @@ CREATE POLICY "Allow updating scripts with proper role" ON entity_scripts
             EXISTS (
                 SELECT 1 FROM agent_roles ar
                 JOIN roles r ON ar.auth__role_name = r.auth__role_name
-                WHERE ar.auth__agent_id = auth.uid()
+                WHERE ar.auth__agent_id = auth_uid()
                 AND ar.auth__is_active = true
                 AND (r.auth__entity__script__can_insert = true OR r.auth__is_system = true)
             )
@@ -84,13 +84,13 @@ CREATE POLICY "Allow updating scripts with proper role" ON entity_scripts
             -- Check for full permission roles
             EXISTS (
                 SELECT 1 FROM agent_roles ar
-                WHERE ar.auth__agent_id = auth.uid()
+                WHERE ar.auth__agent_id = auth_uid()
                 AND ar.auth__is_active = true
                 AND ar.auth__role_name = ANY(permissions__roles__full)
             )
         ) OR (
             -- Allow creator to update their own scripts
-            general__created_by = auth.uid()
+            general__created_by = auth_uid()
         )
     );
 
@@ -103,7 +103,7 @@ CREATE POLICY "Allow deleting scripts with proper role" ON entity_scripts
             EXISTS (
                 SELECT 1 FROM agent_roles ar
                 JOIN roles r ON ar.auth__role_name = r.auth__role_name
-                WHERE ar.auth__agent_id = auth.uid()
+                WHERE ar.auth__agent_id = auth_uid()
                 AND ar.auth__is_active = true
                 AND (r.auth__entity__script__can_insert = true OR r.auth__is_system = true)
             )
@@ -111,13 +111,13 @@ CREATE POLICY "Allow deleting scripts with proper role" ON entity_scripts
             -- Check for full permission roles
             EXISTS (
                 SELECT 1 FROM agent_roles ar
-                WHERE ar.auth__agent_id = auth.uid()
+                WHERE ar.auth__agent_id = auth_uid()
                 AND ar.auth__is_active = true
                 AND ar.auth__role_name = ANY(permissions__roles__full)
             )
         ) OR (
             -- Allow creator to delete their own scripts
-            general__created_by = auth.uid()
+            general__created_by = auth_uid()
         )
     );
 

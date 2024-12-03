@@ -8,7 +8,7 @@ CREATE TABLE seed_scripts (
     general__order INTEGER NOT NULL,
     general__is_active BOOLEAN DEFAULT true,
     general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    general__created_by UUID DEFAULT auth.uid(),
+    general__created_by UUID DEFAULT auth_uid(),
     general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(general__order, general__is_active)
 );
@@ -24,7 +24,7 @@ CREATE POLICY "seed_scripts_view_policy" ON seed_scripts
         EXISTS (
             SELECT 1 
             FROM agent_roles ar
-            WHERE ar.auth__agent_id = auth.uid()
+            WHERE ar.auth__agent_id = auth_uid()
             AND ar.auth__is_active = true
         )
     );
@@ -43,7 +43,7 @@ CREATE POLICY "seed_scripts_update_policy" ON seed_scripts
             SELECT 1 
             FROM agent_roles ar
             JOIN roles r ON r.auth__role_name = ar.auth__role_name
-            WHERE ar.auth__agent_id = auth.uid()
+            WHERE ar.auth__agent_id = auth_uid()
             AND ar.auth__is_active = true
             AND r.auth__is_system = true
         )

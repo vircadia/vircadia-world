@@ -1,6 +1,6 @@
 import { VircadiaConfig_Server } from "./vircadia.server.config.ts";
 import { log } from "../sdk/vircadia-world-sdk-ts/module/general/log.ts";
-import { PostgresManager } from "./database/postgres/postgres_manager.ts";
+import { PostgresManager } from "./database/postgres/postgres_client.ts";
 import { WorldTickManager } from "./service/world-tick-manager.ts";
 import { WorldActionManager } from "./service/world-action-manager.ts";
 import { AuthManager } from "./auth/auth_manager.ts";
@@ -23,13 +23,6 @@ async function init() {
         log({ message: "Initializing database", type: "info" });
         const postgresManager = PostgresManager.getInstance(debugMode);
         await postgresManager.initialize(config.postgres);
-
-        // Print connection string if in debug mode
-        if (debugMode) {
-            console.log(
-                `PostgreSQL Connection String: ${postgresManager.getConnectionString()}`,
-            );
-        }
 
         // ===== Auth Manager =====
         log({ message: "Initializing auth manager", type: "info" });

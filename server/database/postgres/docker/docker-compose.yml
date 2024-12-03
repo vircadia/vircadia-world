@@ -1,6 +1,6 @@
 services:
   postgres:
-    build: .
+    image: postgres:latest
     container_name: ${POSTGRES_CONTAINER_NAME}
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
@@ -10,7 +10,7 @@ services:
     ports:
       - "${POSTGRES_PORT}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - vircadia_world_postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 5s
@@ -18,4 +18,4 @@ services:
       retries: 5
 
 volumes:
-  postgres_data:
+  vircadia_world_postgres_data:

@@ -39,7 +39,7 @@ const envSchema = z.object({
     VRCA_SERVER_POSTGRES_USER: z.string().default("vircadia"),
     VRCA_SERVER_POSTGRES_PASSWORD: z.string().default("CHANGE_ME!"),
     VRCA_SERVER_POSTGRES_CONTAINER: z.string().default("vircadia_world_db"),
-    VRCA_SERVER_POSTGRES_EXTENSIONS: z.string().default("uuid-ossp,pg_cron"),
+    VRCA_SERVER_POSTGRES_EXTENSIONS: z.string().default("uuid-ossp"),
 });
 
 const env = envSchema.parse(import.meta.env);

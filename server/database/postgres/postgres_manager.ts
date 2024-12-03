@@ -10,9 +10,8 @@ export class PostgresManager {
     private static debugMode = false;
     private static readonly MIGRATIONS_DIR = path.join(
         dirname(fileURLToPath(import.meta.url)),
-        "migration",
+        "migrations",
     );
-    private static readonly CONTAINER_NAME = "vircadia-world-postgres";
     private sql: postgres.Sql | null = null;
     private config!: {
         host: string;
@@ -21,8 +20,6 @@ export class PostgresManager {
         user: string;
         password: string;
         extensions: string[];
-        hardResetDatabase: boolean;
-        softResetDatabase: boolean;
     };
 
     private constructor() {}
@@ -42,8 +39,6 @@ export class PostgresManager {
         user: string;
         password: string;
         extensions: string[];
-        hardResetDatabase: boolean;
-        softResetDatabase: boolean;
     }): Promise<void> {
         this.config = config;
 
@@ -54,97 +49,9 @@ export class PostgresManager {
         });
 
         try {
-            const dockerComposePath = path.join(
-                dirname(fileURLToPath(import.meta.url)),
-                "docker/docker-compose.yml",
-            );
-
-            // Check if container exists and is running
-            const process = Bun.spawn([
-                "docker",
-                "ps",
-                "-q",
-                "-f",
-                `name=${PostgresManager.CONTAINER_NAME}`,
-            ]);
-            const containerStatus = await new Response(process.stdout).text();
-            const containerExists = containerStatus.trim().length > 0;
-
-            if (config.hardResetDatabase || !containerExists) {
-                log({
-                    message: config.hardResetDatabase
-                        ? "Performing hard reset: Recreating PostgreSQL container and volume..."
-                        : "PostgreSQL container not found. Creating new container...",
-                    type: "info",
-                    debug: PostgresManager.debugMode,
-                });
-
-                // Stop and remove container with its volume if it exists
-                await Bun.spawn([
-                    "docker-compose",
-                    "-f",
-                    dockerComposePath,
-                    "down",
-                    "-v",
-                ]).exited;
-
-                // Set up environment variables for docker-compose
-                const env = {
-                    POSTGRES_CONTAINER_NAME: PostgresManager.CONTAINER_NAME,
-                    POSTGRES_DB: config.database,
-                    POSTGRES_USER: config.user,
-                    POSTGRES_PASSWORD: config.password,
-                    POSTGRES_PORT: config.port.toString(),
-                    POSTGRES_EXTENSIONS: config.extensions.join(","),
-                };
-
-                // Recreate the container with proper environment variables
-                const dockerProcess = Bun.spawn(
-                    ["docker-compose", "-f", dockerComposePath, "up", "-d"],
-                    {
-                        env: env,
-                        stderr: "pipe",
-                    },
-                );
-
-                // Handle stderr differently
-                const stderrText = await new Response(
-                    dockerProcess.stderr,
-                ).text();
-                if (stderrText && !stderrText.includes("WARN")) {
-                    throw new Error(
-                        `Failed to start PostgreSQL container: ${stderrText}`,
-                    );
-                }
-                await dockerProcess.exited;
-
-                // Give it a moment to start up
-                await new Promise((resolve) => setTimeout(resolve, 2000));
-            } else {
-                log({
-                    message: "Using existing PostgreSQL container",
-                    type: "info",
-                    debug: PostgresManager.debugMode,
-                });
-            }
-
-            // Initialize the client and establish connection
             await this.initializeClient();
             await this.waitForHealthyConnection();
             await this.enableExtensions();
-
-            // For soft reset, clean the database contents
-            if (config.softResetDatabase) {
-                log({
-                    message:
-                        "Performing soft reset: Cleaning database contents...",
-                    type: "info",
-                    debug: PostgresManager.debugMode,
-                });
-                await this.resetDatabase();
-            }
-
-            // Run migrations in all cases
             await this.runMigrations();
         } catch (error) {
             log({
@@ -285,92 +192,59 @@ export class PostgresManager {
         return this.sql;
     }
 
-    public async stop(): Promise<void> {
+    public async disconnect(): Promise<void> {
         if (this.sql) {
             await this.sql.end();
             this.sql = null;
         }
 
-        await Bun.spawn(["docker", "rm", "-f", PostgresManager.CONTAINER_NAME])
-            .exited;
-
         log({
-            message: "PostgreSQL stopped",
+            message: "PostgreSQL connection closed",
             type: "info",
             debug: PostgresManager.debugMode,
         });
     }
 
-    public async isHealthy(): Promise<boolean> {
-        if (!this.sql) return false;
-
-        try {
-            await this.sql`SELECT 1`;
-            return true;
-        } catch {
-            return false;
-        }
-    }
-
-    public async resetMigrations(hard = false): Promise<void> {
+    public async softResetDatabase(): Promise<void> {
         if (!this.sql) {
-            throw new Error(
-                "PostgreSQL client not initialized. Call initialize() first.",
-            );
+            throw new Error("PostgreSQL client not initialized");
         }
 
-        if (hard) {
-            log({
-                message:
-                    "Performing hard reset: Recreating PostgreSQL container...",
-                type: "info",
-                debug: PostgresManager.debugMode,
-            });
+        log({
+            message: "Dropping all database objects...",
+            type: "info",
+            debug: PostgresManager.debugMode,
+        });
 
-            // Stop current connection
-            if (this.sql) {
-                await this.sql.end();
-                this.sql = null;
-            }
-
-            // Remove the container
-            await Bun.spawn([
-                "docker",
-                "rm",
-                "-f",
-                PostgresManager.CONTAINER_NAME,
-            ]).exited;
-
-            // Reinitialize the client and wait for healthy connection
-            await this.initializeClient();
-            await this.waitForHealthyConnection();
-        } else {
-            log({
-                message:
-                    "Performing soft reset: Dropping all database objects...",
-                type: "info",
-                debug: PostgresManager.debugMode,
-            });
-        }
-
-        // Drop all database objects
+        // Drop all database objects including enums
         await this.sql.unsafe(`
             DO $$ DECLARE
                 r RECORD;
             BEGIN
-                -- Drop all tables, views, and types
-                FOR r IN (
-                    SELECT tablename FROM pg_tables 
-                    WHERE schemaname = current_schema()
-                    UNION
-                    SELECT viewname FROM pg_views 
-                    WHERE schemaname = current_schema()
-                    UNION
-                    SELECT typname FROM pg_type 
-                    WHERE typnamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())
-                    AND typtype = 'e'  -- enum types
-                ) LOOP
+                -- Disable all triggers
+                FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = current_schema()) LOOP
+                    EXECUTE 'ALTER TABLE IF EXISTS ' || quote_ident(r.tablename) || ' DISABLE TRIGGER ALL';
+                END LOOP;
+
+                -- Drop all tables
+                FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = current_schema()) LOOP
                     EXECUTE 'DROP TABLE IF EXISTS ' || quote_ident(r.tablename) || ' CASCADE';
+                END LOOP;
+
+                -- Drop all views
+                FOR r IN (SELECT viewname FROM pg_views WHERE schemaname = current_schema()) LOOP
+                    EXECUTE 'DROP VIEW IF EXISTS ' || quote_ident(r.viewname) || ' CASCADE';
+                END LOOP;
+
+                -- Drop all enums
+                FOR r IN (
+                    SELECT t.typname
+                    FROM pg_type t
+                    JOIN pg_namespace n ON t.typnamespace = n.oid
+                    WHERE n.nspname = current_schema()
+                    AND t.typtype = 'e'
+                ) LOOP
+                    EXECUTE 'DROP TYPE IF EXISTS ' || quote_ident(r.typname) || ' CASCADE';
                 END LOOP;
             END $$;
         `);
@@ -419,57 +293,5 @@ export class PostgresManager {
                 });
             }
         }
-    }
-
-    // New method to handle database reset
-    private async resetDatabase(): Promise<void> {
-        if (!this.sql) {
-            throw new Error("PostgreSQL client not initialized");
-        }
-
-        log({
-            message: "Dropping all database objects...",
-            type: "info",
-            debug: PostgresManager.debugMode,
-        });
-
-        // Drop all database objects including enums
-        await this.sql.unsafe(`
-            DO $$ DECLARE
-                r RECORD;
-            BEGIN
-                -- Disable all triggers
-                FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = current_schema()) LOOP
-                    EXECUTE 'ALTER TABLE IF EXISTS ' || quote_ident(r.tablename) || ' DISABLE TRIGGER ALL';
-                END LOOP;
-
-                -- Drop all tables
-                FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = current_schema()) LOOP
-                    EXECUTE 'DROP TABLE IF EXISTS ' || quote_ident(r.tablename) || ' CASCADE';
-                END LOOP;
-
-                -- Drop all views
-                FOR r IN (SELECT viewname FROM pg_views WHERE schemaname = current_schema()) LOOP
-                    EXECUTE 'DROP VIEW IF EXISTS ' || quote_ident(r.viewname) || ' CASCADE';
-                END LOOP;
-
-                -- Drop all enums
-                FOR r IN (
-                    SELECT t.typname
-                    FROM pg_type t
-                    JOIN pg_namespace n ON t.typnamespace = n.oid
-                    WHERE n.nspname = current_schema()
-                    AND t.typtype = 'e'
-                ) LOOP
-                    EXECUTE 'DROP TYPE IF EXISTS ' || quote_ident(r.typname) || ' CASCADE';
-                END LOOP;
-            END $$;
-        `);
-
-        log({
-            message: "Database reset complete",
-            type: "info",
-            debug: PostgresManager.debugMode,
-        });
     }
 }

@@ -7,7 +7,11 @@
     "dev-debug": "VIRCADIA_WORLD_SERVER_DEBUG=true bun run --watch server.ts",
     "test": "bun test",
     "start": "bun run server.ts",
-    "build": "bun build server.ts --outfile=server"
+    "build": "bun build server.ts --outfile=server",
+    "db:up": "bun run database/postgres/postgres_docker_manager.ts up",
+    "db:down": "bun run database/postgres/postgres_docker_manager.ts down",
+    "db:reset": "bun run database/postgres/postgres_docker_manager.ts reset",
+    "db:health": "bun run database/postgres/postgres_docker_manager.ts health"
   },
   "dependencies": {
     "@babylonjs/core": "^7.37.0",

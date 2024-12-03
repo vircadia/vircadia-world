@@ -14,7 +14,7 @@ const DOCKER_COMPOSE_PATH = path.join(
 
 const MIGRATIONS_DIR = path.join(
     dirname(fileURLToPath(import.meta.url)),
-    "migrations",
+    "migration",
 );
 
 function getDockerEnv() {
@@ -148,9 +148,13 @@ export async function up() {
                 type: "success",
             });
         }
+
+        // Add migration execution here
+        log({ message: "Running initial migrations...", type: "info" });
+        await runMigrations(sql); // Pass the existing SQL connection
     } catch (error) {
         log({
-            message: `Failed to install extensions: ${error.message}`,
+            message: `Failed to initialize database: ${error.message}`,
             type: "error",
         });
         throw error;
@@ -159,7 +163,8 @@ export async function up() {
     }
 
     log({
-        message: "PostgreSQL container started with extensions installed",
+        message:
+            "PostgreSQL container started with extensions installed and migrations applied",
         type: "success",
     });
 }
@@ -312,6 +317,11 @@ export async function runMigrations(existingClient?: postgres.Sql) {
     }
 }
 
+export async function restart() {
+    await down();
+    await up();
+}
+
 // If this file is run directly
 if (import.meta.main) {
     const command = Bun.argv[2];
@@ -337,9 +347,12 @@ if (import.meta.main) {
         case "connection-string":
             connectionString();
             break;
+        case "restart":
+            await restart();
+            break;
         default:
             console.error(
-                "Valid commands: up, down, hard-reset, health, soft-reset, migrate, connection-string",
+                "Valid commands: up, down, hard-reset, health, soft-reset, migrate, connection-string, restart",
             );
             process.exit(1);
     }

@@ -13,7 +13,8 @@
     "db:soft-reset": "bun run database/postgres/postgres_cli.ts soft-reset",
     "db:hard-reset": "bun run database/postgres/postgres_cli.ts hard-reset",
     "db:health": "bun run database/postgres/postgres_cli.ts health",
-    "db:connection-string": "bun run database/postgres/postgres_cli.ts connection-string"
+    "db:connection-string": "bun run database/postgres/postgres_cli.ts connection-string",
+    "db:restart": "bun run database/postgres/postgres_cli.ts restart"
   },
   "dependencies": {
     "@babylonjs/core": "^7.37.0",

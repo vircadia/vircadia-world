@@ -17,7 +17,6 @@ CREATE TABLE seed_scripts (
 ALTER TABLE seed_scripts ENABLE ROW LEVEL SECURITY;
 
 -- View policy - Allow viewing if user has proper role
-DROP POLICY IF EXISTS "seed_scripts_view_policy" ON seed_scripts;
 CREATE POLICY "seed_scripts_view_policy" ON seed_scripts
     FOR SELECT
     USING (
@@ -30,12 +29,10 @@ CREATE POLICY "seed_scripts_view_policy" ON seed_scripts
     );
 
 -- Insert/Update/Delete policies - Only allow through functions
-DROP POLICY IF EXISTS "seed_scripts_insert_policy" ON seed_scripts;
 CREATE POLICY "seed_scripts_insert_policy" ON seed_scripts
     FOR INSERT
     WITH CHECK (current_setting('role') = 'rls_definer');
 
-DROP POLICY IF EXISTS "seed_scripts_update_policy" ON seed_scripts;
 CREATE POLICY "seed_scripts_update_policy" ON seed_scripts
     FOR UPDATE
     USING (
@@ -50,7 +47,6 @@ CREATE POLICY "seed_scripts_update_policy" ON seed_scripts
         OR current_setting('role') = 'rls_definer'
     );
 
-DROP POLICY IF EXISTS "seed_scripts_delete_policy" ON seed_scripts;
 CREATE POLICY "seed_scripts_delete_policy" ON seed_scripts
     FOR DELETE
     USING (current_setting('role') = 'rls_definer');

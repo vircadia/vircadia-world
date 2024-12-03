@@ -1,6 +1,6 @@
 import { VircadiaConfig_Server } from "./vircadia.server.config.ts";
 import { log } from "../sdk/vircadia-world-sdk-ts/module/general/log.ts";
-import { PostgresManager } from "./database/postgres/postgres_client.ts";
+import { PostgresClient } from "./database/postgres/postgres_client.ts";
 import { WorldTickManager } from "./service/world-tick-manager.ts";
 import { WorldActionManager } from "./service/world-action-manager.ts";
 import { AuthManager } from "./auth/auth_manager.ts";
@@ -20,12 +20,12 @@ async function init() {
 
     try {
         // ===== Database Initialization =====
-        log({ message: "Initializing database", type: "info" });
-        const postgresManager = PostgresManager.getInstance(debugMode);
-        await postgresManager.initialize(config.postgres);
+        log({ message: "Initializing database client", type: "info" });
+        const postgresClient = PostgresClient.getInstance(debugMode);
+        await postgresClient.initialize(config.postgres);
 
         // ===== Auth Manager =====
-        log({ message: "Initializing auth manager", type: "info" });
+        // log({ message: "Initializing auth manager", type: "info" });
         // const authManager = AuthManager.getInstance(debugMode);
 
         // ===== HTTP Server =====
@@ -46,15 +46,15 @@ async function init() {
         // ===== World Services =====
         log({ message: "Starting world services", type: "info" });
 
-        // // Initialize world tick manager
-        // worldTickManager = new WorldTickManager(debugMode);
-        // await worldTickManager.initialize();
-        // worldTickManager.start();
+        // Initialize world tick manager
+        worldTickManager = new WorldTickManager(postgresClient, debugMode);
+        await worldTickManager.initialize();
+        worldTickManager.start();
 
-        // // Initialize world action manager
-        // worldActionManager = new WorldActionManager(postgresManager, debugMode);
-        // await worldActionManager.initialize();
-        // worldActionManager.start();
+        // Initialize world action manager
+        worldActionManager = new WorldActionManager(postgresClient, debugMode);
+        await worldActionManager.initialize();
+        worldActionManager.start();
 
         log({
             message: "World services started successfully",

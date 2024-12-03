@@ -188,7 +188,7 @@ export async function hardReset() {
 export function connectionString(): void {
     const config = VircadiaConfig_Server.postgres;
     log({
-        message: `PostgreSQL Connection String: postgres://${config.user}:${config.password}@${config.host}:${config.port}/${config.database}`,
+        message: `PostgreSQL Connection String:\n\npostgres://${config.user}:${config.password}@${config.host}:${config.port}/${config.database}\n`,
         type: "info",
     });
 }

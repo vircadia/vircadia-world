@@ -1,5 +1,6 @@
-import PocketBase from 'pocketbase';
+import type { PostgresClient } from "../database/postgres/postgres_client";
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
+import type postgres from "postgres";
 
 export class WorldTickManager {
     private intervalId: Timer | null = null;
@@ -10,33 +11,29 @@ export class WorldTickManager {
     private tickCount = 0;
     private tickBufferDurationMs = 1000;
     private tickMetricsHistoryMs = 3600;
-    private configSubscription: any = null;
+    private sql: postgres.Sql;
 
     constructor(
-        private readonly pb: PocketBase,
+        private readonly postgresClient: PostgresClient,
         private readonly debugMode: boolean = false,
     ) {
-        this.debugMode = debugMode;
+        this.sql = postgresClient.getClient();
     }
 
     async initialize() {
         try {
             // Fetch initial config values
-            const configData = await this.pb.collection('world_config').getFullList();
+            const configData = await this.sql`
+                SELECT key, value FROM world_config 
+                WHERE key IN ('tick_rate_ms', 'tick_buffer_duration_ms', 'tick_metrics_history_ms')
+            `;
 
             // Update config values
             this.updateConfigValues(configData);
 
-            // Subscribe to config changes
-            this.configSubscription = await this.pb.collection('world_config').subscribe('*', 
-                (data) => {
-                    this.handleConfigChange(data.record);
-                }
-            );
-
             // Get current server time
-            const timeData = await this.pb.send('/api/utils/now', {});
-            this.lastServerTime = new Date(timeData);
+            const timeData = await this.sql`SELECT get_server_time()`;
+            this.lastServerTime = timeData[0].get_server_time;
 
             log({
                 message: `Initialized with tick duration: ${this.targetIntervalMs}ms, server time: ${this.lastServerTime}`,
@@ -45,9 +42,9 @@ export class WorldTickManager {
             });
         } catch (error) {
             log({
-                message: `Failed to initialize tick capture service: ${JSON.stringify(error)}`,
+                message: `Failed to initialize tick capture service: ${error}`,
                 debug: this.debugMode,
-                type: "error", 
+                type: "error",
             });
             throw error;
         }
@@ -55,39 +52,28 @@ export class WorldTickManager {
 
     private updateConfigValues(configData: any[]) {
         for (const config of configData) {
-            this.handleConfigChange(config);
-        }
-    }
-
-    private handleConfigChange(config: any) {
-        switch (config.key) {
-            case "tick_rate_ms": {
-                const newInterval = Number.parseFloat(config.value);
-                if (this.targetIntervalMs !== newInterval) {
-                    this.targetIntervalMs = newInterval;
-                    if (this.intervalId) {
-                        this.stop();
-                        this.start();
-                    }
-                }
-                break;
+            switch (config.key) {
+                case "tick_rate_ms":
+                    this.targetIntervalMs = Number.parseFloat(config.value);
+                    break;
+                case "tick_buffer_duration_ms":
+                    this.tickBufferDurationMs = Number.parseFloat(config.value);
+                    break;
+                case "tick_metrics_history_ms":
+                    this.tickMetricsHistoryMs = Number.parseFloat(config.value);
+                    break;
             }
-            case "tick_buffer_duration_ms":
-                this.tickBufferDurationMs = Number.parseFloat(config.value);
-                break;
-            case "tick_metrics_history_ms":
-                this.tickMetricsHistoryMs = Number.parseFloat(config.value);
-                break;
         }
     }
 
     private setupCleanupTimers() {
-        if (this.entityStatesCleanupId) clearInterval(this.entityStatesCleanupId);
+        if (this.entityStatesCleanupId)
+            clearInterval(this.entityStatesCleanupId);
         if (this.tickMetricsCleanupId) clearInterval(this.tickMetricsCleanupId);
 
         this.entityStatesCleanupId = setInterval(async () => {
             try {
-                await this.pb.send('/api/collections/entity_states/cleanup', {});
+                await this.sql`SELECT cleanup_old_entity_states()`;
                 log({
                     message: "Entity states cleanup completed",
                     debug: this.debugMode,
@@ -104,7 +90,7 @@ export class WorldTickManager {
 
         this.tickMetricsCleanupId = setInterval(async () => {
             try {
-                await this.pb.send('/api/collections/tick_metrics/cleanup', {});
+                await this.sql`SELECT cleanup_old_tick_metrics()`;
                 log({
                     message: "Tick metrics cleanup completed",
                     debug: this.debugMode,
@@ -123,18 +109,19 @@ export class WorldTickManager {
     async captureTick() {
         try {
             const totalStartTime = performance.now();
-            
+
             // Get current server time
             const timeRequestStart = performance.now();
-            const timeData = await this.pb.send('/api/utils/now', {});
+            const timeData = await this.sql`SELECT get_server_time()`;
             const timeRequestDuration = performance.now() - timeRequestStart;
 
-            const currentServerTime = new Date(timeData);
+            const currentServerTime = timeData[0].get_server_time;
 
             // Capture tick state
             const captureRequestStart = performance.now();
-            const captureData = await this.pb.send('/api/collections/tick_state/capture', {});
-            const captureRequestDuration = performance.now() - captureRequestStart;
+            await this.sql`SELECT capture_tick_state()`;
+            const captureRequestDuration =
+                performance.now() - captureRequestStart;
 
             this.lastServerTime = currentServerTime;
             this.tickCount++;
@@ -143,7 +130,8 @@ export class WorldTickManager {
             const totalElapsed = performance.now() - totalStartTime;
             if (totalElapsed > this.targetIntervalMs) {
                 log({
-                    message: `Tick capture took ${totalElapsed.toFixed(2)}ms (target: ${this.targetIntervalMs}ms) ` +
+                    message:
+                        `Tick capture took ${totalElapsed.toFixed(2)}ms (target: ${this.targetIntervalMs}ms) ` +
                         `[time_req: ${timeRequestDuration.toFixed(2)}ms, ` +
                         `capture_req: ${captureRequestDuration.toFixed(2)}ms]`,
                     debug: this.debugMode,
@@ -151,7 +139,8 @@ export class WorldTickManager {
                 });
             } else if (this.debugMode) {
                 log({
-                    message: `Tick ${this.tickCount} completed in ${totalElapsed.toFixed(2)}ms ` +
+                    message:
+                        `Tick ${this.tickCount} completed in ${totalElapsed.toFixed(2)}ms ` +
                         `[time_req: ${timeRequestDuration.toFixed(2)}ms, ` +
                         `capture_req: ${captureRequestDuration.toFixed(2)}ms]`,
                     debug: true,
@@ -229,12 +218,6 @@ export class WorldTickManager {
             if (this.tickMetricsCleanupId) {
                 clearInterval(this.tickMetricsCleanupId);
                 this.tickMetricsCleanupId = null;
-            }
-
-            // Clean up subscription
-            if (this.configSubscription) {
-                this.configSubscription.unsubscribe();
-                this.configSubscription = null;
             }
 
             log({

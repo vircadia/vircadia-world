@@ -1,5 +1,6 @@
-import PocketBase from 'pocketbase';
+import type { PostgresClient } from "../database/postgres/postgres_client";
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
+import type postgres from "postgres";
 
 export class WorldActionManager {
     private intervalId: Timer | null = null;
@@ -8,29 +9,25 @@ export class WorldActionManager {
     private actionAbandonedThresholdMs = 300000; // 5 minutes default
     private actionInactiveHistoryCount = 10000;
     private actionCleanupRateMs = 5000;
-    private configSubscription: any = null;
+    private sql: postgres.Sql;
 
     constructor(
-        private readonly pb: PocketBase,
+        private readonly postgresClient: PostgresClient,
         private readonly debugMode: boolean = false,
     ) {
-        this.debugMode = debugMode;
+        this.sql = postgresClient.getClient();
     }
 
     async initialize() {
         try {
             // Fetch initial config values
-            const configData = await this.pb.collection('world_config').getFullList();
+            const configData = await this.sql`
+                SELECT key, value FROM world_config 
+                WHERE key IN ('action_abandoned_threshold_ms', 'action_inactive_history_count', 'action_cleanup_rate_ms')
+            `;
 
             // Update config values
             this.updateConfigValues(configData);
-
-            // Subscribe to config changes
-            this.configSubscription = await this.pb.collection('world_config').subscribe('*', 
-                (data) => {
-                    this.handleConfigChange(data.record);
-                }
-            );
 
             log({
                 message: `Initialized action manager with abandoned threshold: ${this.actionAbandonedThresholdMs}ms`,
@@ -49,24 +46,24 @@ export class WorldActionManager {
 
     private updateConfigValues(configData: any[]) {
         for (const config of configData) {
-            this.handleConfigChange(config);
-        }
-    }
-
-    private handleConfigChange(config: any) {
-        switch (config.key) {
-            case "action_abandoned_threshold_ms":
-                this.actionAbandonedThresholdMs = Number.parseFloat(config.value);
-                break;
-            case "action_inactive_history_count":
-                this.actionInactiveHistoryCount = Number.parseInt(config.value);
-                break;
-            case "action_cleanup_rate_ms":
-                this.actionCleanupRateMs = Number.parseFloat(config.value);
-                if (this.actionCleanupId) {
-                    this.setupCleanupTimers();
-                }
-                break;
+            switch (config.key) {
+                case "action_abandoned_threshold_ms":
+                    this.actionAbandonedThresholdMs = Number.parseFloat(
+                        config.value,
+                    );
+                    break;
+                case "action_inactive_history_count":
+                    this.actionInactiveHistoryCount = Number.parseInt(
+                        config.value,
+                    );
+                    break;
+                case "action_cleanup_rate_ms":
+                    this.actionCleanupRateMs = Number.parseFloat(config.value);
+                    if (this.actionCleanupId) {
+                        this.setupCleanupTimers();
+                    }
+                    break;
+            }
         }
     }
 
@@ -76,14 +73,12 @@ export class WorldActionManager {
         this.actionCleanupId = setInterval(async () => {
             try {
                 // Mark abandoned actions as expired
-                await this.pb.send('/api/expire_abandoned_actions', {
-                    threshold_ms: this.actionAbandonedThresholdMs,
-                });
+                await this
+                    .sql`SELECT expire_abandoned_actions(${this.actionAbandonedThresholdMs})`;
 
                 // Clean up excess inactive actions
-                await this.pb.send('/api/cleanup_inactive_actions', {
-                    retain_count: this.actionInactiveHistoryCount,
-                });
+                await this
+                    .sql`SELECT cleanup_inactive_actions(${this.actionInactiveHistoryCount})`;
 
                 log({
                     message: "Action cleanup completed",
@@ -123,11 +118,6 @@ export class WorldActionManager {
         if (this.actionCleanupId) {
             clearInterval(this.actionCleanupId);
             this.actionCleanupId = null;
-
-            if (this.configSubscription) {
-                this.pb.collection('world_config').unsubscribe();
-                this.configSubscription = null;
-            }
 
             log({
                 message: "Action manager stopped",

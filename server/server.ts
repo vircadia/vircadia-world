@@ -24,13 +24,6 @@ async function init() {
         const postgresManager = PostgresManager.getInstance(debugMode);
         await postgresManager.initialize(config.postgres);
 
-        // Check if reset is needed
-        if (config.postgres.resetDatabase || config.devMode) {
-            await postgresManager.resetMigrations();
-        } else if (await promptForReset()) {
-            await postgresManager.resetMigrations();
-        }
-
         // Print connection string if in debug mode
         if (debugMode) {
             console.log(
@@ -81,16 +74,6 @@ async function init() {
         });
         process.exit(1);
     }
-}
-
-async function promptForReset(): Promise<boolean> {
-    return new Promise((resolve) => {
-        process.stdout.write("Reset database and re-run migrations? (y/N): ");
-        process.stdin.once("data", (data) => {
-            const input = data.toString().trim().toLowerCase();
-            resolve(input === "y");
-        });
-    });
 }
 
 await init();

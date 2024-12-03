@@ -12,6 +12,7 @@ export class PostgresManager {
         dirname(fileURLToPath(import.meta.url)),
         "migration",
     );
+    private static readonly CONTAINER_NAME = "vircadia-world-postgres";
     private sql: postgres.Sql | null = null;
     private config!: {
         host: string;
@@ -19,8 +20,9 @@ export class PostgresManager {
         database: string;
         user: string;
         password: string;
-        containerName: string;
         extensions: string[];
+        hardResetDatabase: boolean;
+        softResetDatabase: boolean;
     };
 
     private constructor() {}
@@ -39,22 +41,111 @@ export class PostgresManager {
         database: string;
         user: string;
         password: string;
-        containerName: string;
         extensions: string[];
+        hardResetDatabase: boolean;
+        softResetDatabase: boolean;
     }): Promise<void> {
         this.config = config;
 
         log({
-            message: "Initializing PostgreSQL...",
+            message: "Initializing PostgreSQL connection...",
             type: "info",
             debug: PostgresManager.debugMode,
         });
 
         try {
-            await this.startContainer();
-            await this.waitForHealthyContainer();
+            const dockerComposePath = path.join(
+                dirname(fileURLToPath(import.meta.url)),
+                "docker/docker-compose.yml",
+            );
+
+            // Check if container exists and is running
+            const process = Bun.spawn([
+                "docker",
+                "ps",
+                "-q",
+                "-f",
+                `name=${PostgresManager.CONTAINER_NAME}`,
+            ]);
+            const containerStatus = await new Response(process.stdout).text();
+            const containerExists = containerStatus.trim().length > 0;
+
+            if (config.hardResetDatabase || !containerExists) {
+                log({
+                    message: config.hardResetDatabase
+                        ? "Performing hard reset: Recreating PostgreSQL container and volume..."
+                        : "PostgreSQL container not found. Creating new container...",
+                    type: "info",
+                    debug: PostgresManager.debugMode,
+                });
+
+                // Stop and remove container with its volume if it exists
+                await Bun.spawn([
+                    "docker-compose",
+                    "-f",
+                    dockerComposePath,
+                    "down",
+                    "-v",
+                ]).exited;
+
+                // Set up environment variables for docker-compose
+                const env = {
+                    POSTGRES_CONTAINER_NAME: PostgresManager.CONTAINER_NAME,
+                    POSTGRES_DB: config.database,
+                    POSTGRES_USER: config.user,
+                    POSTGRES_PASSWORD: config.password,
+                    POSTGRES_PORT: config.port.toString(),
+                    POSTGRES_EXTENSIONS: config.extensions.join(","),
+                };
+
+                // Recreate the container with proper environment variables
+                const dockerProcess = Bun.spawn(
+                    ["docker-compose", "-f", dockerComposePath, "up", "-d"],
+                    {
+                        env: env,
+                        stderr: "pipe",
+                    },
+                );
+
+                // Handle stderr differently
+                const stderrText = await new Response(
+                    dockerProcess.stderr,
+                ).text();
+                if (stderrText && !stderrText.includes("WARN")) {
+                    throw new Error(
+                        `Failed to start PostgreSQL container: ${stderrText}`,
+                    );
+                }
+                await dockerProcess.exited;
+
+                // Give it a moment to start up
+                await new Promise((resolve) => setTimeout(resolve, 2000));
+            } else {
+                log({
+                    message: "Using existing PostgreSQL container",
+                    type: "info",
+                    debug: PostgresManager.debugMode,
+                });
+            }
+
+            // Initialize the client and establish connection
             await this.initializeClient();
-            await this.loadExtensions();
+            await this.waitForHealthyConnection();
+            await this.enableExtensions();
+
+            // For soft reset, clean the database contents
+            if (config.softResetDatabase) {
+                log({
+                    message:
+                        "Performing soft reset: Cleaning database contents...",
+                    type: "info",
+                    debug: PostgresManager.debugMode,
+                });
+                await this.resetDatabase();
+            }
+
+            // Run migrations in all cases
+            await this.runMigrations();
         } catch (error) {
             log({
                 message: `PostgreSQL initialization failed: ${error.message}`,
@@ -63,140 +154,6 @@ export class PostgresManager {
             });
             throw error;
         }
-    }
-
-    private async startContainer(): Promise<void> {
-        // Stop existing container if it exists - ignore errors
-        try {
-            await Bun.spawn(["docker", "rm", "-f", this.config.containerName])
-                .exited;
-        } catch (error) {
-            // Ignore errors when container doesn't exist
-            log({
-                message: `Container removal skipped: ${error.message}`,
-                type: "info",
-                debug: PostgresManager.debugMode,
-            });
-        }
-
-        // Pull the postgres image first
-        log({
-            message: "Pulling PostgreSQL image...",
-            type: "info",
-            debug: PostgresManager.debugMode,
-        });
-
-        const pullProc = Bun.spawn(["docker", "pull", "postgres:latest"], {
-            stdout: "pipe",
-        });
-
-        // Stream the pull output
-        const reader = pullProc.stdout.getReader();
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            const output = new TextDecoder().decode(value);
-            log({
-                message: output.trim(),
-                type: "info",
-                debug: PostgresManager.debugMode,
-            });
-        }
-
-        const pullProcExitCode = await pullProc.exited;
-        if (pullProcExitCode !== 0) {
-            throw new Error("Failed to pull PostgreSQL image");
-        }
-
-        // Start the container with initial setup and Trunk installation
-        const proc = Bun.spawn([
-            "docker",
-            "run",
-            "-d",
-            "--name",
-            this.config.containerName,
-            "-p",
-            `${this.config.port}:5432`,
-            "-e",
-            `POSTGRES_DB=${this.config.database}`,
-            "-e",
-            `POSTGRES_USER=${this.config.user}`,
-            "-e",
-            `POSTGRES_PASSWORD=${this.config.password}`,
-            "--volume",
-            "/usr/local/lib/postgresql:/usr/local/lib/postgresql",
-            "postgres:latest",
-        ]);
-
-        const procExitCode = await proc.exited;
-        if (procExitCode !== 0) {
-            throw new Error("Failed to start PostgreSQL container");
-        }
-
-        // Install Trunk in the container
-        await this.installTrunk();
-    }
-
-    private async installTrunk(): Promise<void> {
-        log({
-            message: "Installing Trunk in PostgreSQL container...",
-            type: "info",
-            debug: PostgresManager.debugMode,
-        });
-
-        const commands = [
-            "apt-get update",
-            "apt-get install -y curl build-essential",
-            "curl https://sh.rustup.rs -sSf | sh -s -- -y",
-            "source $HOME/.cargo/env && cargo install pg-trunk",
-        ].join(" && ");
-
-        const installProc = Bun.spawn([
-            "docker",
-            "exec",
-            this.config.containerName,
-            "bash",
-            "-c",
-            commands,
-        ]);
-
-        const installExitCode = await installProc.exited;
-        if (installExitCode !== 0) {
-            throw new Error("Failed to install Trunk in container");
-        }
-    }
-
-    private async waitForHealthyContainer(): Promise<void> {
-        let attempts = 0;
-        const maxAttempts = 30; // 30 seconds timeout
-
-        while (attempts < maxAttempts) {
-            const proc = Bun.spawn([
-                "docker",
-                "exec",
-                this.config.containerName,
-                "pg_isready",
-                "-U",
-                this.config.user,
-            ]);
-
-            const exitCode = await proc.exited;
-
-            if (exitCode === 0) {
-                log({
-                    message: "PostgreSQL container is healthy",
-                    type: "success",
-                    debug: PostgresManager.debugMode,
-                });
-                return;
-            }
-
-            attempts++;
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-        }
-
-        throw new Error("PostgreSQL container failed to become healthy");
     }
 
     private async initializeClient(): Promise<void> {
@@ -208,20 +165,28 @@ export class PostgresManager {
             password: this.config.password,
             onnotice: () => {}, // Suppress notice messages
         });
+    }
 
-        // Test connection
-        try {
-            await this.sql`SELECT 1`;
-            log({
-                message: "PostgreSQL client connected successfully",
-                type: "success",
-                debug: PostgresManager.debugMode,
-            });
-        } catch (error) {
-            throw new Error(
-                `Failed to connect to PostgreSQL: ${error.message}`,
-            );
+    private async waitForHealthyConnection(): Promise<void> {
+        let attempts = 0;
+        const maxAttempts = 30; // 30 seconds timeout
+
+        while (attempts < maxAttempts) {
+            try {
+                await this.sql`SELECT 1`;
+                log({
+                    message: "PostgreSQL connection is healthy",
+                    type: "success",
+                    debug: PostgresManager.debugMode,
+                });
+                return;
+            } catch (error) {
+                attempts++;
+                await new Promise((resolve) => setTimeout(resolve, 1000));
+            }
         }
+
+        throw new Error("PostgreSQL connection failed to become healthy");
     }
 
     private async createMigrationsTable(): Promise<void> {
@@ -326,7 +291,7 @@ export class PostgresManager {
             this.sql = null;
         }
 
-        await Bun.spawn(["docker", "rm", "-f", this.config.containerName])
+        await Bun.spawn(["docker", "rm", "-f", PostgresManager.CONTAINER_NAME])
             .exited;
 
         log({
@@ -347,25 +312,64 @@ export class PostgresManager {
         }
     }
 
-    public async resetMigrations(): Promise<void> {
+    public async resetMigrations(hard = false): Promise<void> {
         if (!this.sql) {
             throw new Error(
                 "PostgreSQL client not initialized. Call initialize() first.",
             );
         }
 
-        log({
-            message: "Resetting database and re-running migrations...",
-            type: "info",
-            debug: PostgresManager.debugMode,
-        });
+        if (hard) {
+            log({
+                message:
+                    "Performing hard reset: Recreating PostgreSQL container...",
+                type: "info",
+                debug: PostgresManager.debugMode,
+            });
 
-        // Drop all tables
+            // Stop current connection
+            if (this.sql) {
+                await this.sql.end();
+                this.sql = null;
+            }
+
+            // Remove the container
+            await Bun.spawn([
+                "docker",
+                "rm",
+                "-f",
+                PostgresManager.CONTAINER_NAME,
+            ]).exited;
+
+            // Reinitialize the client and wait for healthy connection
+            await this.initializeClient();
+            await this.waitForHealthyConnection();
+        } else {
+            log({
+                message:
+                    "Performing soft reset: Dropping all database objects...",
+                type: "info",
+                debug: PostgresManager.debugMode,
+            });
+        }
+
+        // Drop all database objects
         await this.sql.unsafe(`
             DO $$ DECLARE
                 r RECORD;
             BEGIN
-                FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = current_schema()) LOOP
+                -- Drop all tables, views, and types
+                FOR r IN (
+                    SELECT tablename FROM pg_tables 
+                    WHERE schemaname = current_schema()
+                    UNION
+                    SELECT viewname FROM pg_views 
+                    WHERE schemaname = current_schema()
+                    UNION
+                    SELECT typname FROM pg_type 
+                    WHERE typnamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())
+                    AND typtype = 'e'  -- enum types
+                ) LOOP
                     EXECUTE 'DROP TABLE IF EXISTS ' || quote_ident(r.tablename) || ' CASCADE';
                 END LOOP;
             END $$;
@@ -390,58 +394,82 @@ export class PostgresManager {
         return `postgres://${this.config.user}:${this.config.password}@${this.config.host}:${this.config.port}/${this.config.database}`;
     }
 
-    private async loadExtensions(): Promise<void> {
+    private async enableExtensions(): Promise<void> {
         if (!this.sql) {
-            throw new Error(
-                "PostgreSQL client not initialized. Call initialize() first.",
-            );
+            throw new Error("PostgreSQL client not initialized");
         }
 
-        const extensions = this.config.extensions || [];
-
-        for (const extension of extensions) {
+        // Simply create the extensions as they should already be installed by Trunk
+        for (const extension of this.config.extensions) {
             try {
-                log({
-                    message: `Installing PostgreSQL extension via Trunk: ${extension}`,
-                    type: "info",
-                    debug: PostgresManager.debugMode,
-                });
-
-                // Install extension using Trunk
-                const installProc = Bun.spawn([
-                    "docker",
-                    "exec",
-                    this.config.containerName,
-                    "bash",
-                    "-c",
-                    `source $HOME/.cargo/env && trunk install ${extension}`,
-                ]);
-
-                const installExitCode = await installProc.exited;
-                if (installExitCode !== 0) {
-                    throw new Error(
-                        `Failed to install extension ${extension} via Trunk`,
-                    );
-                }
-
-                // Create extension in database
                 await this.sql.unsafe(
-                    `CREATE EXTENSION IF NOT EXISTS "${extension}";`,
+                    `CREATE EXTENSION IF NOT EXISTS "${extension}"`,
                 );
 
                 log({
-                    message: `Successfully installed and loaded extension: ${extension}`,
+                    message: `Enabled PostgreSQL extension: ${extension}`,
                     type: "success",
                     debug: PostgresManager.debugMode,
                 });
             } catch (error) {
                 log({
-                    message: `Failed to load extension ${extension}: ${error.message}`,
-                    type: "error",
+                    message: `Failed to enable extension ${extension}: ${error.message}`,
+                    type: "warning",
                     debug: PostgresManager.debugMode,
                 });
-                throw error;
             }
         }
+    }
+
+    // New method to handle database reset
+    private async resetDatabase(): Promise<void> {
+        if (!this.sql) {
+            throw new Error("PostgreSQL client not initialized");
+        }
+
+        log({
+            message: "Dropping all database objects...",
+            type: "info",
+            debug: PostgresManager.debugMode,
+        });
+
+        // Drop all database objects including enums
+        await this.sql.unsafe(`
+            DO $$ DECLARE
+                r RECORD;
+            BEGIN
+                -- Disable all triggers
+                FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = current_schema()) LOOP
+                    EXECUTE 'ALTER TABLE IF EXISTS ' || quote_ident(r.tablename) || ' DISABLE TRIGGER ALL';
+                END LOOP;
+
+                -- Drop all tables
+                FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = current_schema()) LOOP
+                    EXECUTE 'DROP TABLE IF EXISTS ' || quote_ident(r.tablename) || ' CASCADE';
+                END LOOP;
+
+                -- Drop all views
+                FOR r IN (SELECT viewname FROM pg_views WHERE schemaname = current_schema()) LOOP
+                    EXECUTE 'DROP VIEW IF EXISTS ' || quote_ident(r.viewname) || ' CASCADE';
+                END LOOP;
+
+                -- Drop all enums
+                FOR r IN (
+                    SELECT t.typname
+                    FROM pg_type t
+                    JOIN pg_namespace n ON t.typnamespace = n.oid
+                    WHERE n.nspname = current_schema()
+                    AND t.typtype = 'e'
+                ) LOOP
+                    EXECUTE 'DROP TYPE IF EXISTS ' || quote_ident(r.typname) || ' CASCADE';
+                END LOOP;
+            END $$;
+        `);
+
+        log({
+            message: "Database reset complete",
+            type: "info",
+            debug: PostgresManager.debugMode,
+        });
     }
 }

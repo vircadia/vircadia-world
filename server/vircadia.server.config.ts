@@ -17,7 +17,8 @@ const { values: args } = parseArgs({
         "postgres-user": { type: "string" },
         "postgres-password": { type: "string" },
         "postgres-container": { type: "string" },
-        "postgres-reset-database": { type: "boolean" },
+        "postgres-hard-reset-database": { type: "boolean" },
+        "postgres-soft-reset-database": { type: "boolean" },
         "postgres-extensions": { type: "string" },
     },
 });
@@ -38,7 +39,8 @@ const envSchema = z.object({
     VRCA_SERVER_POSTGRES_USER: z.string().default("vircadia"),
     VRCA_SERVER_POSTGRES_PASSWORD: z.string().default("CHANGE_ME!"),
     VRCA_SERVER_POSTGRES_CONTAINER: z.string().default("vircadia_world_db"),
-    VRCA_SERVER_POSTGRES_RESET_DATABASE: z.boolean().default(false),
+    VRCA_SERVER_POSTGRES_HARD_RESET_DATABASE: z.boolean().default(false),
+    VRCA_SERVER_POSTGRES_SOFT_RESET_DATABASE: z.boolean().default(false),
     VRCA_SERVER_POSTGRES_EXTENSIONS: z.string().default("uuid-ossp,pg_cron"),
 });
 
@@ -63,9 +65,12 @@ export const VircadiaConfig_Server = {
             args["postgres-password"] ?? env.VRCA_SERVER_POSTGRES_PASSWORD,
         containerName:
             args["postgres-container"] ?? env.VRCA_SERVER_POSTGRES_CONTAINER,
-        resetDatabase:
-            args["postgres-reset-database"] ??
-            env.VRCA_SERVER_POSTGRES_RESET_DATABASE,
+        hardResetDatabase:
+            args["postgres-hard-reset-database"] ??
+            env.VRCA_SERVER_POSTGRES_HARD_RESET_DATABASE,
+        softResetDatabase:
+            args["postgres-soft-reset-database"] ??
+            env.VRCA_SERVER_POSTGRES_SOFT_RESET_DATABASE,
         extensions: (
             args["postgres-extensions"] ?? env.VRCA_SERVER_POSTGRES_EXTENSIONS
         )

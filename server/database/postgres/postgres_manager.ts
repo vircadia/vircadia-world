@@ -2,11 +2,16 @@ import postgres from "postgres";
 import { log } from "../../../sdk/vircadia-world-sdk-ts/module/general/log.ts";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
 
 export class PostgresManager {
     private static instance: PostgresManager | null = null;
     private static debugMode = false;
-    private static readonly MIGRATIONS_DIR = "./migration";
+    private static readonly MIGRATIONS_DIR = path.join(
+        dirname(fileURLToPath(import.meta.url)),
+        "migration",
+    );
     private sql: postgres.Sql | null = null;
     private config!: {
         host: string;
@@ -15,6 +20,7 @@ export class PostgresManager {
         user: string;
         password: string;
         containerName: string;
+        extensions: string[];
     };
 
     private constructor() {}
@@ -34,6 +40,7 @@ export class PostgresManager {
         user: string;
         password: string;
         containerName: string;
+        extensions: string[];
     }): Promise<void> {
         this.config = config;
 
@@ -47,6 +54,7 @@ export class PostgresManager {
             await this.startContainer();
             await this.waitForHealthyContainer();
             await this.initializeClient();
+            await this.loadExtensions();
         } catch (error) {
             log({
                 message: `PostgreSQL initialization failed: ${error.message}`,
@@ -101,7 +109,7 @@ export class PostgresManager {
             throw new Error("Failed to pull PostgreSQL image");
         }
 
-        // Start the container
+        // Start the container with initial setup and Trunk installation
         const proc = Bun.spawn([
             "docker",
             "run",
@@ -116,13 +124,46 @@ export class PostgresManager {
             `POSTGRES_USER=${this.config.user}`,
             "-e",
             `POSTGRES_PASSWORD=${this.config.password}`,
+            "--volume",
+            "/usr/local/lib/postgresql:/usr/local/lib/postgresql",
             "postgres:latest",
         ]);
 
         const procExitCode = await proc.exited;
-
         if (procExitCode !== 0) {
             throw new Error("Failed to start PostgreSQL container");
+        }
+
+        // Install Trunk in the container
+        await this.installTrunk();
+    }
+
+    private async installTrunk(): Promise<void> {
+        log({
+            message: "Installing Trunk in PostgreSQL container...",
+            type: "info",
+            debug: PostgresManager.debugMode,
+        });
+
+        const commands = [
+            "apt-get update",
+            "apt-get install -y curl build-essential",
+            "curl https://sh.rustup.rs -sSf | sh -s -- -y",
+            "source $HOME/.cargo/env && cargo install pg-trunk",
+        ].join(" && ");
+
+        const installProc = Bun.spawn([
+            "docker",
+            "exec",
+            this.config.containerName,
+            "bash",
+            "-c",
+            commands,
+        ]);
+
+        const installExitCode = await installProc.exited;
+        if (installExitCode !== 0) {
+            throw new Error("Failed to install Trunk in container");
         }
     }
 
@@ -303,6 +344,104 @@ export class PostgresManager {
             return true;
         } catch {
             return false;
+        }
+    }
+
+    public async resetMigrations(): Promise<void> {
+        if (!this.sql) {
+            throw new Error(
+                "PostgreSQL client not initialized. Call initialize() first.",
+            );
+        }
+
+        log({
+            message: "Resetting database and re-running migrations...",
+            type: "info",
+            debug: PostgresManager.debugMode,
+        });
+
+        // Drop all tables
+        await this.sql.unsafe(`
+            DO $$ DECLARE
+                r RECORD;
+            BEGIN
+                FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = current_schema()) LOOP
+                    EXECUTE 'DROP TABLE IF EXISTS ' || quote_ident(r.tablename) || ' CASCADE';
+                END LOOP;
+            END $$;
+        `);
+
+        log({
+            message: "Database reset complete. Running migrations...",
+            type: "info",
+            debug: PostgresManager.debugMode,
+        });
+
+        // Re-run migrations
+        await this.runMigrations();
+    }
+
+    public getConnectionString(): string {
+        if (!this.config) {
+            throw new Error(
+                "PostgreSQL not configured. Call initialize() first.",
+            );
+        }
+        return `postgres://${this.config.user}:${this.config.password}@${this.config.host}:${this.config.port}/${this.config.database}`;
+    }
+
+    private async loadExtensions(): Promise<void> {
+        if (!this.sql) {
+            throw new Error(
+                "PostgreSQL client not initialized. Call initialize() first.",
+            );
+        }
+
+        const extensions = this.config.extensions || [];
+
+        for (const extension of extensions) {
+            try {
+                log({
+                    message: `Installing PostgreSQL extension via Trunk: ${extension}`,
+                    type: "info",
+                    debug: PostgresManager.debugMode,
+                });
+
+                // Install extension using Trunk
+                const installProc = Bun.spawn([
+                    "docker",
+                    "exec",
+                    this.config.containerName,
+                    "bash",
+                    "-c",
+                    `source $HOME/.cargo/env && trunk install ${extension}`,
+                ]);
+
+                const installExitCode = await installProc.exited;
+                if (installExitCode !== 0) {
+                    throw new Error(
+                        `Failed to install extension ${extension} via Trunk`,
+                    );
+                }
+
+                // Create extension in database
+                await this.sql.unsafe(
+                    `CREATE EXTENSION IF NOT EXISTS "${extension}";`,
+                );
+
+                log({
+                    message: `Successfully installed and loaded extension: ${extension}`,
+                    type: "success",
+                    debug: PostgresManager.debugMode,
+                });
+            } catch (error) {
+                log({
+                    message: `Failed to load extension ${extension}: ${error.message}`,
+                    type: "error",
+                    debug: PostgresManager.debugMode,
+                });
+                throw error;
+            }
         }
     }
 }

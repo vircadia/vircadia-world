@@ -1,7 +1,3 @@
--- Required extensions
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS pg_cron;
-
 -- Configuration table
 CREATE TABLE world_config (
     key text PRIMARY KEY,

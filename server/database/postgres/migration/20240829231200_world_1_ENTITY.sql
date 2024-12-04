@@ -51,7 +51,8 @@ ALTER TABLE entities ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "entities_view_policy" ON entities
     FOR SELECT
     USING (
-        general__created_by = auth_uid()
+        is_system_agent(current_setting('client.ip', TRUE))
+        OR general__created_by = auth_uid()
         OR EXISTS (
             SELECT 1 
             FROM agent_roles ar
@@ -68,7 +69,8 @@ CREATE POLICY "entities_view_policy" ON entities
 CREATE POLICY "entities_update_policy" ON entities
     FOR UPDATE
     USING (
-        general__created_by = auth_uid()
+        is_system_agent(current_setting('client.ip', TRUE))
+        OR general__created_by = auth_uid()
         OR EXISTS (
             SELECT 1 
             FROM agent_roles ar
@@ -97,7 +99,8 @@ CREATE POLICY "entities_insert_policy" ON entities
 CREATE POLICY "entities_delete_policy" ON entities
     FOR DELETE
     USING (
-        general__created_by = auth_uid()
+        is_system_agent(current_setting('client.ip', TRUE))
+        OR general__created_by = auth_uid()
         OR EXISTS (
             SELECT 1 
             FROM agent_roles ar
@@ -162,7 +165,7 @@ CREATE POLICY "entities_metadata_view_policy" ON entities_metadata
 CREATE POLICY "entities_metadata_update_policy" ON entities_metadata
     FOR UPDATE
     USING (
-        current_setting('role') = 'rls_definer'
+        is_system_agent(current_setting('client.ip', TRUE))
         AND EXISTS (
             SELECT 1 
             FROM entities e
@@ -183,14 +186,14 @@ CREATE POLICY "entities_metadata_update_policy" ON entities_metadata
 CREATE POLICY "entities_metadata_insert_policy" ON entities_metadata
     FOR INSERT
     WITH CHECK (
-        current_setting('role') = 'rls_definer'
+        is_system_agent(current_setting('client.ip', TRUE))
     );
 
 -- Delete policy for entities_metadata - Allow if user has full permissions OR is the creator
 CREATE POLICY "entities_metadata_delete_policy" ON entities_metadata
     FOR DELETE
     USING (
-        current_setting('role') = 'rls_definer'
+        is_system_agent(current_setting('client.ip', TRUE))
         AND EXISTS (
             SELECT 1 
             FROM entities e
@@ -210,4 +213,9 @@ CREATE POLICY "entities_metadata_delete_policy" ON entities_metadata
 
 -- Add index for faster metadata lookups by key__name and general__entity_id
 CREATE INDEX idx_entities_key__name_entity ON entities_metadata(key__name, general__entity_id);
+
+-- Modify policies to include IP check
+CREATE POLICY "entities_admin_policy" ON entities
+    FOR ALL
+    USING (is_system_agent(current_setting('client.ip', TRUE)));
 

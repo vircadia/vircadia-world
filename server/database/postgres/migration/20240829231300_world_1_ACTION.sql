@@ -71,7 +71,8 @@ ALTER TABLE actions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY actions_read_creator_and_system ON actions
     FOR SELECT TO PUBLIC
     USING (
-        auth_uid() = general__created_by
+        is_system_agent(current_setting('client.ip', TRUE))
+        OR auth_uid() = general__created_by
         OR 
         EXISTS (
             SELECT 1 FROM agent_roles ar

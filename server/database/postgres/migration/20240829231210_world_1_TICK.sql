@@ -182,16 +182,19 @@ DECLARE
     tick_rate_ms int;
     headroom double precision;
 BEGIN
-    -- Verify caller has system role
-    IF NOT EXISTS (
-        SELECT 1 
-        FROM agent_roles ar
-        JOIN roles r ON ar.auth__role_name = r.auth__role_name
-        WHERE ar.auth__agent_id = auth_uid()
-        AND ar.auth__is_active = true
-        AND r.auth__is_system = true
+    -- Check admin IP or system role
+    IF NOT (
+        is_system_agent(current_setting('client.ip', TRUE))
+        OR EXISTS (
+            SELECT 1 
+            FROM agent_roles ar
+            JOIN roles r ON ar.auth__role_name = r.auth__role_name
+            WHERE ar.auth__agent_id = auth_uid()
+            AND ar.auth__is_active = true
+            AND r.auth__is_system = true
+        )
     ) THEN
-        RAISE EXCEPTION 'Permission denied: System role required';
+        RAISE EXCEPTION 'Permission denied: Admin IP or system role required';
     END IF;
 
     -- Get configured tick rate

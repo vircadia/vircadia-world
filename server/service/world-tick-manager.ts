@@ -1,6 +1,7 @@
 import type { PostgresClient } from "../database/postgres/postgres_client";
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 import type postgres from "postgres";
+import type { Hono } from "hono";
 
 export class WorldTickManager {
     private intervalId: Timer | null = null;
@@ -234,5 +235,34 @@ export class WorldTickManager {
             lastServerTime: this.lastServerTime,
             targetInterval: this.targetIntervalMs,
         };
+    }
+
+    addRoutes(app: Hono) {
+        const routes = app.basePath("/services/world-tick");
+
+        // Add stats endpoint
+        routes.get("/stats", (c) => {
+            return c.json(this.getStats());
+        });
+
+        // Add control endpoints
+        routes.post("/stop", (c) => {
+            this.stop();
+            return c.json({ status: "stopped" });
+        });
+
+        routes.post("/start", (c) => {
+            this.start();
+            return c.json({ status: "started" });
+        });
+
+        if (this.debugMode) {
+            // Debug endpoints
+            routes.get("/force-cleanup", async (c) => {
+                await this.sql`SELECT cleanup_old_entity_states()`;
+                await this.sql`SELECT cleanup_old_tick_metrics()`;
+                return c.json({ status: "cleanup completed" });
+            });
+        }
     }
 }

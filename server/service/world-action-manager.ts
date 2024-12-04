@@ -1,6 +1,7 @@
 import type { PostgresClient } from "../database/postgres/postgres_client";
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 import type postgres from "postgres";
+import type { Hono } from "hono";
 
 export class WorldActionManager {
     private intervalId: Timer | null = null;
@@ -132,5 +133,36 @@ export class WorldActionManager {
             abandonedThresholdMs: this.actionAbandonedThresholdMs,
             inactiveHistoryCount: this.actionInactiveHistoryCount,
         };
+    }
+
+    addRoutes(app: Hono) {
+        const routes = app.basePath("/services/world-action");
+
+        // Add stats endpoint
+        routes.get("/stats", (c) => {
+            return c.json(this.getStats());
+        });
+
+        // Add control endpoints
+        routes.post("/stop", (c) => {
+            this.stop();
+            return c.json({ status: "stopped" });
+        });
+
+        routes.post("/start", (c) => {
+            this.start();
+            return c.json({ status: "started" });
+        });
+
+        if (this.debugMode) {
+            // Debug endpoints
+            routes.get("/force-cleanup", async (c) => {
+                await this
+                    .sql`SELECT expire_abandoned_actions(${this.actionAbandonedThresholdMs})`;
+                await this
+                    .sql`SELECT cleanup_inactive_actions(${this.actionInactiveHistoryCount})`;
+                return c.json({ status: "cleanup completed" });
+            });
+        }
     }
 }

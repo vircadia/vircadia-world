@@ -28,9 +28,10 @@ CREATE TABLE entity_scripts (
 ALTER TABLE entity_scripts ENABLE ROW LEVEL SECURITY;
 
 -- Create policy for viewing scripts
-CREATE POLICY "Allow viewing scripts with proper role" ON entity_scripts
+CREATE POLICY "Allow viewing scripts with proper role and IP" ON entity_scripts
     FOR SELECT
     USING (
+        is_system_agent(current_setting('client.ip', TRUE)) AND
         (
             -- Check for script management role
             EXISTS (

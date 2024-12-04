@@ -65,6 +65,10 @@ CREATE TABLE public.auth_provider_roles (
     PRIMARY KEY (auth__provider_name, auth__provider_role_name)
 );
 
+-- Enable RLS
+ALTER TABLE agent_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE agent_roles ENABLE ROW LEVEL SECURITY;
+
 -- Indexes for Agent-related tables
 CREATE INDEX idx_agent_roles_is_active ON agent_roles(auth__is_active);
 CREATE INDEX idx_agent_roles_auth__role_name ON agent_roles(auth__role_name);
@@ -114,3 +118,58 @@ CREATE TRIGGER set_agent_profile_timestamps
     BEFORE UPDATE ON agent_profiles
     FOR EACH ROW
     EXECUTE FUNCTION set_agent_timestamps();
+
+-- Function to check if an IP is in the admin whitelist
+CREATE OR REPLACE FUNCTION is_system_agent(check_ip text)
+RETURNS boolean AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 
+        FROM world_config 
+        WHERE key = 'admin_ips' 
+        AND check_ip = ANY (SELECT jsonb_array_elements_text(value))
+    );
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to get system agent id
+CREATE OR REPLACE FUNCTION get_system_agent_id() 
+RETURNS UUID AS $$
+BEGIN
+    RETURN '00000000-0000-0000-0000-000000000000'::UUID;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Modify policies to use is_system_agent
+CREATE POLICY admin_access ON agent_profiles
+    TO PUBLIC
+    USING (
+        is_system_agent(current_setting('client.ip', TRUE)) 
+        OR EXISTS (
+            SELECT 1 FROM agent_roles 
+            WHERE auth__agent_id = current_agent_id() 
+            AND auth__role_name = 'admin'
+        )
+    );
+
+-- Seed default roles
+INSERT INTO public.roles 
+    (auth__role_name, meta__description, auth__is_system, auth__is_active, auth__entity__object__can_insert, auth__entity__script__can_insert) 
+VALUES 
+    ('admin', 'System administrator with full access', TRUE, TRUE, TRUE, TRUE),
+    ('agent', 'Regular agent with basic access', TRUE, TRUE, FALSE, FALSE)
+ON CONFLICT (auth__role_name) DO NOTHING;
+
+-- Create system agent with a known UUID
+INSERT INTO public.agent_profiles 
+    (general__uuid, profile__username, auth__email, auth__password_hash) 
+VALUES 
+    ('00000000-0000-0000-0000-000000000000', 'admin', 'system@internal', NULL)
+ON CONFLICT (general__uuid) DO NOTHING;
+
+-- Assign system role to the system agent
+INSERT INTO public.agent_roles 
+    (auth__agent_id, auth__role_name, auth__is_active) 
+VALUES 
+    ('00000000-0000-0000-0000-000000000000', 'admin', TRUE)
+ON CONFLICT DO NOTHING;

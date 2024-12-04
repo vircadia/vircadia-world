@@ -137,21 +137,9 @@ export async function up() {
     });
 
     try {
-        for (const name of config.extensions) {
-            log({
-                message: `Installing PostgreSQL extension: ${name}...`,
-                type: "info",
-            });
-            await sql`CREATE EXTENSION IF NOT EXISTS ${sql(name)};`;
-            log({
-                message: `PostgreSQL extension ${name} installed successfully`,
-                type: "success",
-            });
-        }
-
         // Add migration execution here
         log({ message: "Running initial migrations...", type: "info" });
-        await runMigrations(sql); // Pass the existing SQL connection
+        await seed(sql); // Pass the existing SQL connection
     } catch (error) {
         log({
             message: `Failed to initialize database: ${error.message}`,
@@ -243,25 +231,42 @@ export async function softResetDatabase() {
             message: "Database reset complete. Running migrations...",
             type: "info",
         });
-        await runMigrations(sql);
+        await seed(sql);
     } finally {
         await sql.end();
     }
 }
 
-export async function runMigrations(existingClient?: postgres.Sql) {
-    const config = VircadiaConfig_Server.postgres;
+export async function seed(existingClient?: postgres.Sql) {
+    const config = VircadiaConfig_Server;
     const sql =
         existingClient ||
         postgres({
-            host: config.host,
-            port: config.port,
-            database: config.database,
-            username: config.user,
-            password: config.password,
+            host: config.postgres.host,
+            port: config.postgres.port,
+            database: config.postgres.database,
+            username: config.postgres.user,
+            password: config.postgres.password,
         });
 
     try {
+        for (const name of config.postgres.extensions) {
+            log({
+                message: `Installing PostgreSQL extension: ${name}...`,
+                type: "info",
+            });
+            await sql`CREATE EXTENSION IF NOT EXISTS ${sql(name)};`;
+            log({
+                message: `PostgreSQL extension ${name} installed successfully`,
+                type: "success",
+            });
+        }
+
+        // Set admin credentials as database session variables
+        await sql`
+            SELECT set_config('app.admin_ips', ${config.admin.ips}, false);
+        `;
+
         log({ message: "Running database migrations...", type: "info" });
 
         // Create migrations table if it doesn't exist
@@ -342,7 +347,7 @@ if (import.meta.main) {
             await softResetDatabase();
             break;
         case "migrate":
-            await runMigrations();
+            await seed();
             break;
         case "connection-string":
             connectionString();

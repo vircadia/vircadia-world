@@ -7,6 +7,9 @@ CREATE TYPE script_compilation_status AS ENUM ('PENDING', 'COMPILED', 'FAILED');
 
 CREATE TABLE entity_scripts (
     general__script_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    general__created_by UUID DEFAULT auth_uid(),
 
     compiled__web__node__script TEXT,
     compiled__web__node__script_sha256 TEXT,
@@ -17,11 +20,9 @@ CREATE TABLE entity_scripts (
     compiled__web__browser__script TEXT,
     compiled__web__browser__script_sha256 TEXT,
     compiled__web__browser__script_status script_compilation_status,
+
     source__git__repo_entry_path TEXT,
-    source__git__repo_url TEXT,
-    general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    general__created_by UUID DEFAULT auth_uid()
+    source__git__repo_url TEXT
 ) INHERITS (permissions);
 
 -- Enable RLS

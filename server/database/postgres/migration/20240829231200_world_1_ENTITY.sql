@@ -14,22 +14,27 @@ CREATE TABLE entities (
     general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     general__created_by UUID DEFAULT auth_uid(),
     general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    general__tags TEXT[] DEFAULT '{}',
     type__babylonjs TEXT NOT NULL,
-    scripts__ids UUID[] DEFAULT '{}'
+    scripts__ids UUID[] DEFAULT '{}',
+    performance__tick_rate_s NUMERIC DEFAULT 0.016,
+    performance__down_sync_s NUMERIC DEFAULT 0.100,
+    performance__keyframe_sync_s NUMERIC DEFAULT 1.000
 ) INHERITS (permissions);
 
 CREATE TABLE entities_metadata (
     general__metadata_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     general__entity_id UUID NOT NULL REFERENCES entities(general__uuid) ON DELETE CASCADE,
-    key__name TEXT NOT NULL,
+    general__name TEXT NOT NULL,
+    general__created_at TIMESTAMPTZ DEFAULT NOW(),
+    general__created_by UUID DEFAULT auth_uid(),
+    general__updated_at TIMESTAMPTZ DEFAULT NOW(),
     values__text TEXT[],
     values__numeric NUMERIC[],
     values__boolean BOOLEAN[],
     values__timestamp TIMESTAMPTZ[],
-    general__created_at TIMESTAMPTZ DEFAULT NOW(),
-    general__created_by UUID DEFAULT auth_uid(),
-    general__updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE (general__entity_id, key__name)
+
+    UNIQUE (general__entity_id, general__name)
 );
 
 --
@@ -43,6 +48,7 @@ CREATE INDEX idx_entities_updated_at ON entities(general__updated_at);
 CREATE INDEX idx_entities_semantic_version ON entities(general__semantic_version);
 CREATE INDEX idx_entities_type_babylonjs ON entities(type__babylonjs);
 CREATE INDEX idx_entities_scripts_ids ON entities USING GIN (scripts__ids);
+CREATE INDEX idx_entities_general_tags ON entities USING GIN (general__tags);
 
 -- Enable RLS on entities table
 ALTER TABLE entities ENABLE ROW LEVEL SECURITY;
@@ -211,8 +217,8 @@ CREATE POLICY "entities_metadata_delete_policy" ON entities_metadata
         )
     );
 
--- Add index for faster metadata lookups by key__name and general__entity_id
-CREATE INDEX idx_entities_key__name_entity ON entities_metadata(key__name, general__entity_id);
+-- Add index for faster metadata lookups by general__name and general__entity_id
+CREATE INDEX idx_entities_general__name_entity ON entities_metadata(general__name, general__entity_id);
 
 -- Modify policies to include IP check
 CREATE POLICY "entities_admin_policy" ON entities

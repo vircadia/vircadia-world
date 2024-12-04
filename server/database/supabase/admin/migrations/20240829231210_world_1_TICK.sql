@@ -232,7 +232,7 @@ BEGIN
         INSERT INTO entity_metadata_states (
             general__metadata_id,
             general__entity_id,
-            key__name,
+            general__name,
             values__text,
             values__numeric,
             values__boolean,
@@ -249,7 +249,7 @@ BEGIN
         SELECT 
             general__metadata_id,
             general__entity_id,
-            key__name,
+            general__name,
             values__text,
             values__numeric,
             values__boolean,

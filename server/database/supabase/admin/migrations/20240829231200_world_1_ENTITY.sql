@@ -21,7 +21,7 @@ CREATE TABLE entities (
 CREATE TABLE entities_metadata (
     general__metadata_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     general__entity_id UUID NOT NULL REFERENCES entities(general__uuid) ON DELETE CASCADE,
-    key__name TEXT NOT NULL,
+    general__name TEXT NOT NULL,
     values__text TEXT[],
     values__numeric NUMERIC[],
     values__boolean BOOLEAN[],
@@ -29,7 +29,7 @@ CREATE TABLE entities_metadata (
     general__created_at TIMESTAMPTZ DEFAULT NOW(),
     general__created_by UUID DEFAULT auth.uid(),
     general__updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE (general__entity_id, key__name)
+    UNIQUE (general__entity_id, general__name)
 );
 
 --
@@ -215,6 +215,6 @@ CREATE POLICY "entities_metadata_delete_policy" ON entities_metadata
         )
     );
 
--- Add index for faster metadata lookups by key__name and general__entity_id
-CREATE INDEX idx_entities_key__name_entity ON entities_metadata(key__name, general__entity_id);
+-- Add index for faster metadata lookups by general__name and general__entity_id
+CREATE INDEX idx_entities_general__name_entity ON entities_metadata(general__name, general__entity_id);
 

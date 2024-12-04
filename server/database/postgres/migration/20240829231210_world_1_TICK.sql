@@ -208,7 +208,7 @@ BEGIN
     FROM world_config 
     WHERE key = 'tick_rate_ms';
     
-    -- Insert entity states
+    -- Insert entity states only for entities due for an update
     WITH inserted AS (
         INSERT INTO entity_states (
             general__entity_id,
@@ -238,16 +238,24 @@ BEGIN
             permissions__roles__view,
             type__babylonjs
         FROM entities e
+        WHERE 
+            -- Only capture state if enough time has passed since the last capture
+            NOT EXISTS (
+                SELECT 1 
+                FROM entity_states es
+                WHERE es.general__entity_id = e.general__uuid
+                AND es.timestamp > (tick_start - (e.performance__tick_rate_s * interval '1 second'))
+            )
         RETURNING *
     )
     SELECT COUNT(*) INTO inserted_count FROM inserted;
 
-    -- Insert metadata states
+    -- Insert metadata states only for entities that were just updated
     WITH inserted_metadata AS (
         INSERT INTO entity_metadata_states (
             general__metadata_id,
             general__entity_id,
-            key__name,
+            general__name,
             values__text,
             values__numeric,
             values__boolean,
@@ -262,22 +270,29 @@ BEGIN
             tick_duration_ms
         )
         SELECT 
-            general__metadata_id,
-            general__entity_id,
-            key__name,
-            values__text,
-            values__numeric,
-            values__boolean,
-            values__timestamp,
-            general__created_at,
-            general__updated_at,
+            em.general__metadata_id,
+            em.general__entity_id,
+            em.general__name,
+            em.values__text,
+            em.values__numeric,
+            em.values__boolean,
+            em.values__timestamp,
+            em.general__created_at,
+            em.general__updated_at,
             
-            general__metadata_id AS entity_metadata_id,
+            em.general__metadata_id AS entity_metadata_id,
             current_tick,
             tick_start,
             clock_timestamp(),
             EXTRACT(EPOCH FROM (clock_timestamp() - tick_start))::double precision * 1000
-        FROM entities_metadata
+        FROM entities_metadata em
+        -- Only capture metadata for entities that were just updated
+        WHERE EXISTS (
+            SELECT 1 
+            FROM entity_states es 
+            WHERE es.tick_number = current_tick
+            AND es.general__entity_id = em.general__entity_id
+        )
         RETURNING *
     )
     SELECT COUNT(*) INTO metadata_inserted_count FROM inserted_metadata;

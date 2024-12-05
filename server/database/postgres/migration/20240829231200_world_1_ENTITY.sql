@@ -133,10 +133,9 @@ CREATE POLICY "Allow deleting scripts with proper role" ON entity_scripts
     );
 
 --
--- ENTITIES AND CAPABILITIES
+-- ENTITIES
 --
 
--- Move entities table creation here, before the trigger functions
 CREATE TABLE entities (
     general__uuid UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     general__name VARCHAR(255) NOT NULL,
@@ -150,31 +149,12 @@ CREATE TABLE entities (
     performance__server__tick_rate_s NUMERIC DEFAULT 0.016,
     performance__client__updated_at_sync_s NUMERIC DEFAULT 0.100,
     performance__client__keyframe_down_sync_s NUMERIC DEFAULT 1.000,
-    seed__is_seed BOOLEAN DEFAULT false,
     seed__order INTEGER
 ) INHERITS (permissions);
 
-CREATE UNIQUE INDEX unique_seed_order_idx ON entities(seed__order) WHERE seed__is_seed = true;
+CREATE UNIQUE INDEX unique_seed_order_idx ON entities(seed__order) WHERE seed__order IS NOT NULL;
 
-CREATE TABLE entities_metadata (
-    general__metadata_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    general__entity_id UUID NOT NULL REFERENCES entities(general__uuid) ON DELETE CASCADE,
-    general__name TEXT NOT NULL,
-    general__created_at TIMESTAMPTZ DEFAULT NOW(),
-    general__created_by UUID DEFAULT auth_uid(),
-    general__updated_at TIMESTAMPTZ DEFAULT NOW(),
-    values__text TEXT[],
-    values__numeric NUMERIC[],
-    values__boolean BOOLEAN[],
-    values__timestamp TIMESTAMPTZ[],
-
-    UNIQUE (general__entity_id, general__name)
-);
-
---
--- INDEXES
---
-
+-- Entities indexes
 CREATE INDEX idx_entities_permissions__roles__view ON entities USING GIN (permissions__roles__view);
 CREATE INDEX idx_entities_permissions__roles__full ON entities USING GIN (permissions__roles__full);
 CREATE INDEX idx_entities_created_at ON entities(general__created_at);
@@ -183,12 +163,11 @@ CREATE INDEX idx_entities_semantic_version ON entities(general__semantic_version
 CREATE INDEX idx_entities_type_babylonjs ON entities(type__babylonjs);
 CREATE INDEX idx_entities_scripts_ids ON entities USING GIN (scripts__ids);
 CREATE INDEX idx_entities_general_tags ON entities USING GIN (general__tags);
-CREATE INDEX idx_entities_seed_order ON entities(seed__order) WHERE seed__is_seed = true;
 
 -- Enable RLS on entities table
 ALTER TABLE entities ENABLE ROW LEVEL SECURITY;
 
--- View policy - Allow viewing if user has proper role OR is the creator
+-- Entities policies
 CREATE POLICY "entities_view_policy" ON entities
     FOR SELECT
     USING (
@@ -206,7 +185,6 @@ CREATE POLICY "entities_view_policy" ON entities
         )
     );
 
--- Update policy - Allow updates if user has full permissions OR is the creator
 CREATE POLICY "entities_update_policy" ON entities
     FOR UPDATE
     USING (
@@ -221,7 +199,6 @@ CREATE POLICY "entities_update_policy" ON entities
         )
     );
 
--- Insert policy - Only with proper role
 CREATE POLICY "entities_insert_policy" ON entities
     FOR INSERT
     WITH CHECK (
@@ -236,7 +213,6 @@ CREATE POLICY "entities_insert_policy" ON entities
         )
     );
 
--- Delete policy - Allow deletion if user has full permissions OR is the creator
 CREATE POLICY "entities_delete_policy" ON entities
     FOR DELETE
     USING (
@@ -251,34 +227,36 @@ CREATE POLICY "entities_delete_policy" ON entities
         )
     );
 
--- Trigger function to enforce foreign key constraint on array elements
-CREATE OR REPLACE FUNCTION check_entity_permissions_roles()
-RETURNS TRIGGER AS $$
-BEGIN
-    -- Check each role in the permissions__can_view_roles array
-    PERFORM 1
-    FROM unnest(NEW.permissions__can_view_roles) AS role
-    WHERE NOT EXISTS (
-        SELECT 1 FROM roles WHERE role_name = role
-    );
+CREATE POLICY "entities_admin_policy" ON entities
+    FOR ALL
+    USING (is_system_agent(current_setting('client.ip', TRUE)));
 
-    IF FOUND THEN
-        RAISE EXCEPTION 'Role not found in roles table';
-    END IF;
+--
+-- ENTITIES METADATA
+--
 
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+CREATE TABLE entities_metadata (
+    general__metadata_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    general__entity_id UUID NOT NULL REFERENCES entities(general__uuid) ON DELETE CASCADE,
+    general__name TEXT NOT NULL,
+    general__created_at TIMESTAMPTZ DEFAULT NOW(),
+    general__created_by UUID DEFAULT auth_uid(),
+    general__updated_at TIMESTAMPTZ DEFAULT NOW(),
+    values__text TEXT[],
+    values__numeric NUMERIC[],
+    values__boolean BOOLEAN[],
+    values__timestamp TIMESTAMPTZ[],
 
--- Trigger for entities table
-CREATE TRIGGER enforce_entities_permissions_roles
-BEFORE INSERT OR UPDATE ON entities
-FOR EACH ROW EXECUTE FUNCTION check_entity_permissions_roles();
+    UNIQUE (general__entity_id, general__name)
+);
 
 -- Enable RLS on entities_metadata table
 ALTER TABLE entities_metadata ENABLE ROW LEVEL SECURITY;
 
--- View policy for entities_metadata - Allow if user has proper role OR is the creator of the parent entity
+-- Add index for faster metadata lookups
+CREATE INDEX idx_entities_general__name_entity ON entities_metadata(general__name, general__entity_id);
+
+-- Entities metadata policies
 CREATE POLICY "entities_metadata_view_policy" ON entities_metadata
     FOR SELECT
     USING (
@@ -302,7 +280,6 @@ CREATE POLICY "entities_metadata_view_policy" ON entities_metadata
         )
     );
 
--- Update policy for entities_metadata - Allow if user has full permissions OR is the creator
 CREATE POLICY "entities_metadata_update_policy" ON entities_metadata
     FOR UPDATE
     USING (
@@ -330,7 +307,6 @@ CREATE POLICY "entities_metadata_insert_policy" ON entities_metadata
         is_system_agent(current_setting('client.ip', TRUE))
     );
 
--- Delete policy for entities_metadata - Allow if user has full permissions OR is the creator
 CREATE POLICY "entities_metadata_delete_policy" ON entities_metadata
     FOR DELETE
     USING (
@@ -351,14 +327,6 @@ CREATE POLICY "entities_metadata_delete_policy" ON entities_metadata
             )
         )
     );
-
--- Add index for faster metadata lookups by general__name and general__entity_id
-CREATE INDEX idx_entities_general__name_entity ON entities_metadata(general__name, general__entity_id);
-
--- Modify policies to include IP check
-CREATE POLICY "entities_admin_policy" ON entities
-    FOR ALL
-    USING (is_system_agent(current_setting('client.ip', TRUE)));
 
 --
 -- ENTITY ACTIONS

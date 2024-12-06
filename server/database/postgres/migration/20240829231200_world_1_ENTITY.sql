@@ -146,13 +146,13 @@ CREATE TABLE entities (
     general__tags TEXT[] DEFAULT '{}',
     type__babylonjs TEXT NOT NULL,
     scripts__ids UUID[] DEFAULT '{}',
-    performance__server__tick_rate_s NUMERIC DEFAULT 0.016,
-    performance__client__updated_at_sync_s NUMERIC DEFAULT 0.100,
-    performance__client__keyframe_down_sync_s NUMERIC DEFAULT 1.000,
-    seed__order INTEGER
+    performance__server__tick_rate_ms NUMERIC DEFAULT 16,
+    performance__client__updated_at_sync_ms NUMERIC DEFAULT 100,
+    performance__client__keyframe_down_sync_ms NUMERIC DEFAULT 1000,
+    general__load_priority INTEGER
 ) INHERITS (permissions);
 
-CREATE UNIQUE INDEX unique_seed_order_idx ON entities(seed__order) WHERE seed__order IS NOT NULL;
+CREATE UNIQUE INDEX unique_seed_order_idx ON entities(general__load_priority) WHERE general__load_priority IS NOT NULL;
 
 -- Entities indexes
 CREATE INDEX idx_entities_permissions__roles__view ON entities USING GIN (permissions__roles__view);

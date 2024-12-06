@@ -244,7 +244,7 @@ BEGIN
                 SELECT 1 
                 FROM entity_states es
                 WHERE es.general__entity_id = e.general__uuid
-                AND es.timestamp > (tick_start - (e.performance__server__tick_rate_s * interval '1 second'))
+                AND es.timestamp > (tick_start - (e.performance__server__tick_rate_ms * interval '1 second'))
             )
         RETURNING *
     )

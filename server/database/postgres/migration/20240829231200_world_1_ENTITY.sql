@@ -17,8 +17,10 @@ CREATE TYPE script_compilation_status AS ENUM ('PENDING', 'COMPILED', 'FAILED');
 CREATE TABLE entity_scripts (
     general__script_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     general__created_by UUID DEFAULT auth_uid(),
+    general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    general__updated_by UUID DEFAULT auth_uid(),
+    general__tags TEXT[],
 
     compiled__web__node__script TEXT,
     compiled__web__node__script_sha256 TEXT,
@@ -143,13 +145,14 @@ CREATE TABLE entities (
     general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     general__created_by UUID DEFAULT auth_uid(),
     general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    general__tags TEXT[] DEFAULT '{}',
-    type__babylonjs TEXT NOT NULL,
+    general__updated_by UUID DEFAULT auth_uid(),
+    general__load_priority INTEGER,
+    general__initialized_at TIMESTAMPTZ DEFAULT NULL,
+    general__initialized_by UUID DEFAULT NULL,
     scripts__ids UUID[] DEFAULT '{}',
     performance__server__tick_rate_ms NUMERIC DEFAULT 16,
     performance__client__updated_at_sync_ms NUMERIC DEFAULT 100,
-    performance__client__keyframe_down_sync_ms NUMERIC DEFAULT 1000,
-    general__load_priority INTEGER
+    performance__client__keyframe_down_sync_ms NUMERIC DEFAULT 1000
 ) INHERITS (permissions);
 
 CREATE UNIQUE INDEX unique_seed_order_idx ON entities(general__load_priority) WHERE general__load_priority IS NOT NULL;
@@ -160,9 +163,7 @@ CREATE INDEX idx_entities_permissions__roles__full ON entities USING GIN (permis
 CREATE INDEX idx_entities_created_at ON entities(general__created_at);
 CREATE INDEX idx_entities_updated_at ON entities(general__updated_at);
 CREATE INDEX idx_entities_semantic_version ON entities(general__semantic_version);
-CREATE INDEX idx_entities_type_babylonjs ON entities(type__babylonjs);
 CREATE INDEX idx_entities_scripts_ids ON entities USING GIN (scripts__ids);
-CREATE INDEX idx_entities_general_tags ON entities USING GIN (general__tags);
 
 -- Enable RLS on entities table
 ALTER TABLE entities ENABLE ROW LEVEL SECURITY;

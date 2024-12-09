@@ -7,6 +7,12 @@ CREATE TABLE permissions (
     permissions__roles__full TEXT[]
 );
 
+CREATE TABLE performance (
+    performance__server__tick_rate_ms NUMERIC DEFAULT 16,
+    performance__client__updated_at_sync_ms NUMERIC DEFAULT 100,
+    performance__client__keyframe_down_sync_ms NUMERIC DEFAULT 1000
+);
+
 --
 -- ENTITY SCRIPTS
 --
@@ -20,7 +26,6 @@ CREATE TABLE entity_scripts (
     general__created_by UUID DEFAULT auth_uid(),
     general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     general__updated_by UUID DEFAULT auth_uid(),
-    general__tags TEXT[],
 
     compiled__web__node__script TEXT,
     compiled__web__node__script_sha256 TEXT,
@@ -34,7 +39,7 @@ CREATE TABLE entity_scripts (
 
     source__git__repo_entry_path TEXT,
     source__git__repo_url TEXT
-) INHERITS (permissions);
+) INHERITS (permissions, performance);
 
 -- Enable RLS
 ALTER TABLE entity_scripts ENABLE ROW LEVEL SECURITY;
@@ -149,11 +154,8 @@ CREATE TABLE entities (
     general__load_priority INTEGER,
     general__initialized_at TIMESTAMPTZ DEFAULT NULL,
     general__initialized_by UUID DEFAULT NULL,
-    scripts__ids UUID[] DEFAULT '{}',
-    performance__server__tick_rate_ms NUMERIC DEFAULT 16,
-    performance__client__updated_at_sync_ms NUMERIC DEFAULT 100,
-    performance__client__keyframe_down_sync_ms NUMERIC DEFAULT 1000
-) INHERITS (permissions);
+    scripts__ids UUID[] DEFAULT '{}'
+) INHERITS (performance, permissions);
 
 CREATE UNIQUE INDEX unique_seed_order_idx ON entities(general__load_priority) WHERE general__load_priority IS NOT NULL;
 
@@ -249,7 +251,7 @@ CREATE TABLE entities_metadata (
     values__timestamp TIMESTAMPTZ[],
 
     UNIQUE (general__entity_id, general__name)
-);
+) INHERITS (performance);
 
 -- Enable RLS on entities_metadata table
 ALTER TABLE entities_metadata ENABLE ROW LEVEL SECURITY;

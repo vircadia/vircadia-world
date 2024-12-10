@@ -5,10 +5,12 @@ import { WorldTickManager } from "./service/world-tick-manager.ts";
 import { WorldActionManager } from "./service/world-action-manager.ts";
 import { Hono } from "hono";
 import { logger } from "hono/logger";
+import { WorldAuthManager } from "./service/world-auth-manager";
 
 const config = VircadiaConfig_Server;
 let worldTickManager: WorldTickManager | null = null;
 let worldActionManager: WorldActionManager | null = null;
+let worldAuthManager: WorldAuthManager | null = null;
 
 async function init() {
     const debugMode = config.debug;
@@ -68,6 +70,19 @@ async function init() {
         await worldActionManager.initialize();
         worldActionManager.addRoutes(app);
         worldActionManager.start();
+
+        // Initialize world auth manager
+        worldAuthManager = new WorldAuthManager(
+            postgresClient.getClient(),
+            {
+                jwtSecret: process.env.JWT_SECRET || "your-secret-key",
+                sessionDuration: "24h",
+                bcryptRounds: 10,
+            },
+            true,
+        );
+        await worldAuthManager.initialize();
+        worldAuthManager.addRoutes(app);
 
         // ===== HTTP Server =====
         log({ message: "Starting Bun HTTP server", type: "info" });

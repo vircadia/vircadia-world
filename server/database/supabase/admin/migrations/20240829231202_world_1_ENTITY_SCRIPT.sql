@@ -38,7 +38,7 @@ CREATE POLICY "Allow viewing scripts with proper role" ON entity_scripts
                 JOIN roles r ON ar.auth__role_name = r.auth__role_name
                 WHERE ar.auth__agent_id = auth.uid()
                 AND ar.auth__is_active = true
-                AND (r.auth__entity__script__can_insert = true OR r.auth__is_system = true)
+                AND (r.auth__entity__script__full = true OR r.auth__is_system = true)
             )
         ) OR (
             -- Check for view/full permission roles
@@ -63,7 +63,7 @@ CREATE POLICY "Allow inserting scripts with proper role" ON entity_scripts
             JOIN roles r ON ar.auth__role_name = r.auth__role_name
             WHERE ar.auth__agent_id = auth.uid()
             AND ar.auth__is_active = true
-            AND (r.auth__entity__script__can_insert = true OR r.auth__is_system = true)
+            AND (r.auth__entity__script__full = true OR r.auth__is_system = true)
         )
     );
 
@@ -78,7 +78,7 @@ CREATE POLICY "Allow updating scripts with proper role" ON entity_scripts
                 JOIN roles r ON ar.auth__role_name = r.auth__role_name
                 WHERE ar.auth__agent_id = auth.uid()
                 AND ar.auth__is_active = true
-                AND (r.auth__entity__script__can_insert = true OR r.auth__is_system = true)
+                AND (r.auth__entity__script__full = true OR r.auth__is_system = true)
             )
         ) OR (
             -- Check for full permission roles
@@ -105,7 +105,7 @@ CREATE POLICY "Allow deleting scripts with proper role" ON entity_scripts
                 JOIN roles r ON ar.auth__role_name = r.auth__role_name
                 WHERE ar.auth__agent_id = auth.uid()
                 AND ar.auth__is_active = true
-                AND (r.auth__entity__script__can_insert = true OR r.auth__is_system = true)
+                AND (r.auth__entity__script__full = true OR r.auth__is_system = true)
             )
         ) OR (
             -- Check for full permission roles

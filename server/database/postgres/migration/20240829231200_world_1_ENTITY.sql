@@ -37,49 +37,27 @@ CREATE TABLE entity_scripts (
 
     source__git__repo_entry_path TEXT,
     source__git__repo_url TEXT
-) INHERITS (permissions, performance);
+) INHERITS (performance);
 
 -- Enable RLS
 ALTER TABLE entity_scripts ENABLE ROW LEVEL SECURITY;
 
--- Create policy for viewing scripts
-CREATE POLICY "Allow viewing scripts with proper role and IP" ON entity_scripts
+-- Allow all users to view scripts
+CREATE POLICY "Allow viewing scripts" ON entity_scripts
     FOR SELECT
-    USING (
-        is_admin_agent() OR
-        (
-            -- Check for script management role
-            EXISTS (
-                SELECT 1 FROM agent_roles ar
-                JOIN roles r ON ar.auth__role_name = r.auth__role_name
-                WHERE ar.auth__agent_id = auth_uid()
-                AND ar.auth__is_active = true
-                AND (r.auth__entity__script__can_insert = true OR r.auth__is_system = true)
-            )
-        ) OR (
-            -- Check for view/full permission roles
-            EXISTS (
-                SELECT 1 FROM agent_roles ar
-                WHERE ar.auth__agent_id = auth_uid()
-                AND ar.auth__is_active = true
-                AND ar.auth__role_name = ANY(permissions__roles__view || permissions__roles__full)
-            )
-        ) OR (
-            -- Allow creator to view their own scripts
-            general__created_by = auth_uid()
-        )
-    );
+    USING (true);
 
 -- Create policy for inserting scripts
 CREATE POLICY "Allow inserting scripts with proper role" ON entity_scripts
     FOR INSERT
     WITH CHECK (
-        EXISTS (
+        is_admin_agent()
+        OR EXISTS (
             SELECT 1 FROM agent_roles ar
             JOIN roles r ON ar.auth__role_name = r.auth__role_name
             WHERE ar.auth__agent_id = auth_uid()
             AND ar.auth__is_active = true
-            AND (r.auth__entity__script__can_insert = true OR r.auth__is_system = true)
+            AND r.auth__entity__script__full = true
         )
     );
 
@@ -87,26 +65,13 @@ CREATE POLICY "Allow inserting scripts with proper role" ON entity_scripts
 CREATE POLICY "Allow updating scripts with proper role" ON entity_scripts
     FOR UPDATE
     USING (
-        (
-            -- Check for script management role
-            EXISTS (
-                SELECT 1 FROM agent_roles ar
-                JOIN roles r ON ar.auth__role_name = r.auth__role_name
-                WHERE ar.auth__agent_id = auth_uid()
-                AND ar.auth__is_active = true
-                AND (r.auth__entity__script__can_insert = true OR r.auth__is_system = true)
-            )
-        ) OR (
-            -- Check for full permission roles
-            EXISTS (
-                SELECT 1 FROM agent_roles ar
-                WHERE ar.auth__agent_id = auth_uid()
-                AND ar.auth__is_active = true
-                AND ar.auth__role_name = ANY(permissions__roles__full)
-            )
-        ) OR (
-            -- Allow creator to update their own scripts
-            general__created_by = auth_uid()
+        is_admin_agent()
+        OR EXISTS (
+            SELECT 1 FROM agent_roles ar
+            JOIN roles r ON ar.auth__role_name = r.auth__role_name
+            WHERE ar.auth__agent_id = auth_uid()
+            AND ar.auth__is_active = true
+            AND r.auth__entity__script__full = true
         )
     );
 
@@ -114,26 +79,13 @@ CREATE POLICY "Allow updating scripts with proper role" ON entity_scripts
 CREATE POLICY "Allow deleting scripts with proper role" ON entity_scripts
     FOR DELETE
     USING (
-        (
-            -- Check for script management role
-            EXISTS (
-                SELECT 1 FROM agent_roles ar
-                JOIN roles r ON ar.auth__role_name = r.auth__role_name
-                WHERE ar.auth__agent_id = auth_uid()
-                AND ar.auth__is_active = true
-                AND (r.auth__entity__script__can_insert = true OR r.auth__is_system = true)
-            )
-        ) OR (
-            -- Check for full permission roles
-            EXISTS (
-                SELECT 1 FROM agent_roles ar
-                WHERE ar.auth__agent_id = auth_uid()
-                AND ar.auth__is_active = true
-                AND ar.auth__role_name = ANY(permissions__roles__full)
-            )
-        ) OR (
-            -- Allow creator to delete their own scripts
-            general__created_by = auth_uid()
+        is_admin_agent()
+        OR EXISTS (
+            SELECT 1 FROM agent_roles ar
+            JOIN roles r ON ar.auth__role_name = r.auth__role_name
+            WHERE ar.auth__agent_id = auth_uid()
+            AND ar.auth__is_active = true
+            AND r.auth__entity__script__full = true
         )
     );
 

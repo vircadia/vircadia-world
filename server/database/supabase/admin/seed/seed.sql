@@ -11,7 +11,7 @@ INSERT INTO public.roles (
     auth__is_system, 
     auth__is_active,
     auth__entity__object__can_insert,
-    auth__entity__script__can_insert
+    auth__entity__script__full
 ) VALUES
     ('guest', 'Default role for all users', TRUE, TRUE, FALSE, FALSE),
     ('user', 'Authenticated user role', TRUE, TRUE, TRUE, TRUE),

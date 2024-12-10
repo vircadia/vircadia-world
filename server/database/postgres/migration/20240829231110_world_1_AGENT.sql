@@ -34,7 +34,7 @@ CREATE TABLE public.roles (
     auth__is_system BOOLEAN NOT NULL DEFAULT FALSE,
     auth__is_active BOOLEAN NOT NULL DEFAULT TRUE,
     auth__entity__object__can_insert BOOLEAN NOT NULL DEFAULT FALSE,
-    auth__entity__script__can_insert BOOLEAN NOT NULL DEFAULT FALSE,
+    auth__entity__script__full BOOLEAN NOT NULL DEFAULT FALSE,
     general__created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -99,8 +99,19 @@ $$ LANGUAGE plpgsql;
 -- Add a function to replace auth.uid() calls
 CREATE OR REPLACE FUNCTION auth_uid() 
 RETURNS UUID AS $$
+DECLARE
+    session_agent_id UUID;
 BEGIN
-    RETURN current_agent_id();
+    -- Get the agent_id from the current active session
+    SELECT auth__agent_id INTO session_agent_id
+    FROM agent_sessions
+    WHERE session__is_active = true
+    AND session__last_seen_at > (NOW() - INTERVAL '24 hours')
+    ORDER BY session__last_seen_at DESC
+    LIMIT 1;
+    
+    -- Return anonymous user UUID if no session exists
+    RETURN COALESCE(session_agent_id, '00000000-0000-0000-0000-000000000001'::UUID);
 END;
 $$ LANGUAGE plpgsql;
 
@@ -181,24 +192,27 @@ $$ LANGUAGE plpgsql;
 
 -- Seed default roles
 INSERT INTO public.roles 
-    (auth__role_name, meta__description, auth__is_system, auth__is_active, auth__entity__object__can_insert, auth__entity__script__can_insert) 
+    (auth__role_name, meta__description, auth__is_system, auth__is_active, auth__entity__object__can_insert, auth__entity__script__full) 
 VALUES 
     ('admin', 'System administrator with full access', TRUE, TRUE, TRUE, TRUE),
-    ('agent', 'Regular agent with basic access', TRUE, TRUE, FALSE, FALSE)
+    ('agent', 'Regular agent with basic access', TRUE, TRUE, FALSE, FALSE),
+    ('anon', 'Anonymous user with limited access', TRUE, TRUE, FALSE, FALSE)
 ON CONFLICT (auth__role_name) DO NOTHING;
 
 -- Create system agent with a known UUID
 INSERT INTO public.agent_profiles 
     (general__uuid, profile__username, auth__email, auth__password_hash) 
 VALUES 
-    ('00000000-0000-0000-0000-000000000000', 'admin', 'system@internal', NULL)
+    ('00000000-0000-0000-0000-000000000000', 'admin', 'system@internal', NULL),
+    ('00000000-0000-0000-0000-000000000001', 'anon', 'anon@internal', NULL)
 ON CONFLICT (general__uuid) DO NOTHING;
 
 -- Assign system role to the system agent
 INSERT INTO public.agent_roles 
     (auth__agent_id, auth__role_name, auth__is_active) 
 VALUES 
-    ('00000000-0000-0000-0000-000000000000', 'admin', TRUE)
+    ('00000000-0000-0000-0000-000000000000', 'admin', TRUE),
+    ('00000000-0000-0000-0000-000000000001', 'anon', TRUE)
 ON CONFLICT DO NOTHING;
 
 CREATE OR REPLACE FUNCTION is_admin_agent()
@@ -251,5 +265,13 @@ BEGIN
         'is_superuser', is_superuser,
         'roles', (SELECT jsonb_agg(auth__role_name) FROM agent_roles WHERE auth__agent_id = auth_uid() AND auth__is_active = true)
     );
+END;
+$$ LANGUAGE plpgsql;
+
+-- Add helper function to check if current user is anonymous
+CREATE OR REPLACE FUNCTION is_anon_agent()
+RETURNS boolean AS $$
+BEGIN
+    RETURN auth_uid() = '00000000-0000-0000-0000-000000000001'::UUID;
 END;
 $$ LANGUAGE plpgsql;

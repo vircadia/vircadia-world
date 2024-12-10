@@ -33,7 +33,7 @@ CREATE TABLE roles (
     auth__is_system INTEGER NOT NULL DEFAULT 0,  -- Changed BOOLEAN to INTEGER
     auth__is_active INTEGER NOT NULL DEFAULT 1,  -- Changed BOOLEAN to INTEGER
     auth__entity__object__can_insert INTEGER NOT NULL DEFAULT 0,  -- Changed BOOLEAN to INTEGER
-    auth__entity__script__can_insert INTEGER NOT NULL DEFAULT 0,  -- Changed BOOLEAN to INTEGER
+    auth__entity__script__full INTEGER NOT NULL DEFAULT 0,  -- Changed BOOLEAN to INTEGER
     general__created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

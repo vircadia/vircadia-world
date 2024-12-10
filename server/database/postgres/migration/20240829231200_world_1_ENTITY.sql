@@ -8,9 +8,7 @@ CREATE TABLE permissions (
 );
 
 CREATE TABLE performance (
-    performance__server__tick_rate_ms NUMERIC DEFAULT 16,
-    performance__client__updated_at_sync_ms NUMERIC DEFAULT 100,
-    performance__client__keyframe_down_sync_ms NUMERIC DEFAULT 1000
+    performance__sync_group TEXT DEFAULT 'NORMAL' NOT NULL
 );
 
 --

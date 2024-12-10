@@ -18,6 +18,7 @@ CREATE TABLE entity_states (
 CREATE TABLE tick_metrics (
     id uuid DEFAULT uuid_generate_v4() PRIMARY KEY,
     tick_number bigint NOT NULL,
+    sync_group TEXT NOT NULL,
     start_time timestamptz NOT NULL,
     end_time timestamptz NOT NULL,
     duration_ms double precision NOT NULL,
@@ -179,8 +180,8 @@ DECLARE
     inserted_count int;
     metadata_inserted_count int;
     is_delayed boolean;
-    tick_rate_ms int;
     headroom double precision;
+    sync_groups jsonb;
 BEGIN
     -- Check admin IP or system role
     IF NOT (
@@ -197,18 +198,14 @@ BEGIN
         RAISE EXCEPTION 'Permission denied: Admin IP or system role required';
     END IF;
 
-    -- Get configured tick rate
-    SELECT (value#>>'{}'::text[])::int INTO tick_rate_ms 
+    -- Get sync groups configuration
+    SELECT value INTO sync_groups 
     FROM world_config 
-    WHERE key = 'tick_rate_ms';
+    WHERE key = 'sync_groups';
     
     tick_start := clock_timestamp();
     
-    SELECT FLOOR(EXTRACT(EPOCH FROM tick_start) * 1000 / tick_rate_ms)::bigint INTO current_tick
-    FROM world_config 
-    WHERE key = 'tick_rate_ms';
-    
-    -- Insert entity states only for entities due for an update
+    -- Insert entity states for each sync group that needs an update
     WITH inserted AS (
         INSERT INTO entity_states (
             general__entity_id,
@@ -239,13 +236,35 @@ BEGIN
             type__babylonjs
         FROM entities e
         WHERE 
-            -- Only capture state if enough time has passed since the last capture
-            NOT EXISTS (
-                SELECT 1 
-                FROM entity_states es
-                WHERE es.general__entity_id = e.general__uuid
-                AND es.timestamp > (tick_start - (e.performance__server__tick_rate_ms * interval '1 second'))
-            )
+            -- Calculate if this entity needs a tick update based on its sync group
+            CASE 
+                WHEN e.performance__sync_group IS NOT NULL THEN
+                    -- Get tick rate from sync group
+                    NOT EXISTS (
+                        SELECT 1 
+                        FROM entity_states es
+                        WHERE es.general__entity_id = e.general__uuid
+                        AND es.timestamp > (
+                            tick_start - ((sync_groups #>> 
+                                ARRAY[e.performance__sync_group, 'server_tick_rate_ms'])::int 
+                                * interval '1 millisecond'
+                            )
+                        )
+                    )
+                ELSE
+                    -- Default to NORMAL sync group
+                    NOT EXISTS (
+                        SELECT 1 
+                        FROM entity_states es
+                        WHERE es.general__entity_id = e.general__uuid
+                        AND es.timestamp > (
+                            tick_start - ((sync_groups #>> 
+                                ARRAY['NORMAL', 'server_tick_rate_ms'])::int 
+                                * interval '1 millisecond'
+                            )
+                        )
+                    )
+            END
         RETURNING *
     )
     SELECT COUNT(*) INTO inserted_count FROM inserted;
@@ -301,12 +320,16 @@ BEGIN
     
     -- More precise duration calculation using microseconds
     tick_duration := EXTRACT(EPOCH FROM (tick_end - tick_start)) * 1000.0;
-    is_delayed := tick_duration > tick_rate_ms;
-    headroom := GREATEST(tick_rate_ms - tick_duration, 0.0);  -- Ensure headroom isn't negative
+    is_delayed := tick_duration > (sync_groups #>> ARRAY[e.performance__sync_group, 'server_tick_rate_ms'])::int;
+    headroom := GREATEST(
+        (sync_groups #>> ARRAY[e.performance__sync_group, 'server_tick_rate_ms'])::int - tick_duration, 
+        0.0
+    );
 
     -- Always record frame metrics for each tick
     INSERT INTO tick_metrics (
         tick_number,
+        sync_group,
         start_time,
         end_time,
         duration_ms,
@@ -315,6 +338,7 @@ BEGIN
         headroom_ms
     ) VALUES (
         current_tick,
+        e.performance__sync_group,
         tick_start,
         tick_end,
         tick_duration,
@@ -326,7 +350,7 @@ BEGIN
     -- Raise warning if tick took too long
     IF is_delayed THEN
         RAISE WARNING 'Tick % exceeded target duration: %.3fms (target: %ms)',
-            current_tick, tick_duration, tick_rate_ms;
+            current_tick, tick_duration, (sync_groups #>> ARRAY[e.performance__sync_group, 'server_tick_rate_ms'])::int;
     END IF;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -339,7 +363,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY INVOKER;
 
--- Trigger function needs SECURITY DEFINER to bypass RLS
+-- Modified trigger function without arguments
 CREATE OR REPLACE FUNCTION trigger_tick_capture()
 RETURNS trigger AS $$
 DECLARE
@@ -347,8 +371,12 @@ DECLARE
     last_time timestamptz;
     time_since_last_ms double precision;
     current_tick bigint;
-    tick_rate_ms int;
+    sync_groups jsonb;
+    sync_group_name text;
 BEGIN
+    -- Get sync_group_name from NEW record or another source
+    sync_group_name := NEW.sync_group; -- Assuming the sync_group is passed in the NEW record
+    
     -- Verify caller has system role
     IF NOT EXISTS (
         SELECT 1 
@@ -361,11 +389,21 @@ BEGIN
         RAISE EXCEPTION 'Permission denied: System role required';
     END IF;
 
+    -- Validate sync_group_name
+    SELECT value INTO sync_groups 
+    FROM world_config 
+    WHERE key = 'sync_groups';
+    
+    IF NOT sync_groups ? sync_group_name THEN
+        RAISE EXCEPTION 'Invalid sync group: %', sync_group_name;
+    END IF;
+
     now_time := clock_timestamp();
     
-    -- Get last frame time from frame_metrics
+    -- Get last frame time for this sync group
     SELECT end_time INTO last_time 
     FROM tick_metrics 
+    WHERE sync_group = sync_group_name
     ORDER BY end_time DESC 
     LIMIT 1;
     
@@ -376,16 +414,14 @@ BEGIN
         ELSE NULL 
     END;
 
-    -- Get tick rate and calculate current tick
-    SELECT (value#>>'{}'::text[])::int INTO tick_rate_ms 
-    FROM world_config 
-    WHERE key = 'tick_rate_ms';
+    -- Calculate current tick based on sync group's tick rate
+    current_tick := FLOOR(EXTRACT(EPOCH FROM now_time) * 1000 / 
+        (sync_groups #>> ARRAY[sync_group_name, 'server_tick_rate_ms'])::int)::bigint;
     
-    current_tick := FLOOR(EXTRACT(EPOCH FROM now_time) * 1000 / tick_rate_ms)::bigint;
-    
-    -- Insert new frame metrics entry
+    -- Insert new frame metrics entry for this sync group
     INSERT INTO tick_metrics (
         tick_number,
+        sync_group,
         start_time,
         end_time,
         duration_ms,
@@ -395,17 +431,18 @@ BEGIN
         time_since_last_tick_ms
     ) VALUES (
         current_tick,
+        sync_group_name,
         now_time,
         now_time,
-        0,  -- Duration will be updated by capture_entity_state()
-        0,  -- States processed will be updated by capture_entity_state()
-        false,  -- Is delayed will be updated by capture_entity_state()
-        0,  -- Headroom will be updated by capture_entity_state()
+        0,
+        0,
+        false,
+        0,
         time_since_last_ms
     );
     
-    -- Capture the frame
-    PERFORM capture_tick_state();
+    -- Capture the frame states for this sync group
+    PERFORM capture_tick_state(sync_group_name);
     
     RETURN NEW;
 END;

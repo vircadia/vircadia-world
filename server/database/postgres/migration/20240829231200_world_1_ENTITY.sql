@@ -46,7 +46,7 @@ ALTER TABLE entity_scripts ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow viewing scripts with proper role and IP" ON entity_scripts
     FOR SELECT
     USING (
-        is_system_agent(current_setting('client.ip', TRUE)) AND
+        is_admin_agent() OR
         (
             -- Check for script management role
             EXISTS (
@@ -172,7 +172,7 @@ ALTER TABLE entities ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "entities_view_policy" ON entities
     FOR SELECT
     USING (
-        is_system_agent(current_setting('client.ip', TRUE))
+        is_admin_agent()
         OR general__created_by = auth_uid()
         OR EXISTS (
             SELECT 1 
@@ -189,7 +189,7 @@ CREATE POLICY "entities_view_policy" ON entities
 CREATE POLICY "entities_update_policy" ON entities
     FOR UPDATE
     USING (
-        is_system_agent(current_setting('client.ip', TRUE))
+        is_admin_agent()
         OR general__created_by = auth_uid()
         OR EXISTS (
             SELECT 1 
@@ -217,7 +217,7 @@ CREATE POLICY "entities_insert_policy" ON entities
 CREATE POLICY "entities_delete_policy" ON entities
     FOR DELETE
     USING (
-        is_system_agent(current_setting('client.ip', TRUE))
+        is_admin_agent()
         OR general__created_by = auth_uid()
         OR EXISTS (
             SELECT 1 
@@ -230,7 +230,7 @@ CREATE POLICY "entities_delete_policy" ON entities
 
 CREATE POLICY "entities_admin_policy" ON entities
     FOR ALL
-    USING (is_system_agent(current_setting('client.ip', TRUE)));
+    USING (is_admin_agent());
 
 --
 -- ENTITIES METADATA
@@ -284,7 +284,7 @@ CREATE POLICY "entities_metadata_view_policy" ON entities_metadata
 CREATE POLICY "entities_metadata_update_policy" ON entities_metadata
     FOR UPDATE
     USING (
-        is_system_agent(current_setting('client.ip', TRUE))
+        is_admin_agent()
         AND EXISTS (
             SELECT 1 
             FROM entities e
@@ -304,14 +304,12 @@ CREATE POLICY "entities_metadata_update_policy" ON entities_metadata
 
 CREATE POLICY "entities_metadata_insert_policy" ON entities_metadata
     FOR INSERT
-    WITH CHECK (
-        is_system_agent(current_setting('client.ip', TRUE))
-    );
+    WITH CHECK (is_admin_agent());
 
 CREATE POLICY "entities_metadata_delete_policy" ON entities_metadata
     FOR DELETE
     USING (
-        is_system_agent(current_setting('client.ip', TRUE))
+        is_admin_agent()
         AND EXISTS (
             SELECT 1 
             FROM entities e
@@ -399,7 +397,7 @@ ALTER TABLE entity_actions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY entity_actions_read_creator_and_system ON entity_actions
     FOR SELECT TO PUBLIC
     USING (
-        is_system_agent(current_setting('client.ip', TRUE))
+        is_admin_agent()
         OR auth_uid() = general__created_by
         OR EXISTS (
             SELECT 1 FROM agent_roles ar

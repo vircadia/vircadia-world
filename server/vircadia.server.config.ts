@@ -17,7 +17,6 @@ const { positionals, values: args } = parseArgs({
         "postgres-password": { type: "string" },
         "postgres-container": { type: "string" },
         "postgres-extensions": { type: "string" },
-        "admin-ips": { type: "string" },
     },
     allowPositionals: true,
 });
@@ -34,10 +33,6 @@ const envSchema = z.object({
     VRCA_SERVER_POSTGRES_PASSWORD: z.string().default("CHANGE_ME!"),
     VRCA_SERVER_POSTGRES_CONTAINER: z.string().default("vircadia_world_db"),
     VRCA_SERVER_POSTGRES_EXTENSIONS: z.string().default("uuid-ossp"),
-    VRCA_SERVER_ADMIN_IPS: z
-        .string()
-        .default("127.0.0.1,::1")
-        .transform((ips) => ips.split(",")),
 });
 
 const env = envSchema.parse(import.meta.env);
@@ -65,8 +60,5 @@ export const VircadiaConfig_Server = {
             .split(",")
             .map((ext) => ext.trim())
             .filter((ext) => ext.length > 0),
-    },
-    admin: {
-        ips: args["admin-ips"]?.split(",") ?? env.VRCA_SERVER_ADMIN_IPS,
     },
 };

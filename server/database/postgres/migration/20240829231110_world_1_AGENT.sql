@@ -119,16 +119,55 @@ CREATE TRIGGER set_agent_profile_timestamps
     FOR EACH ROW
     EXECUTE FUNCTION set_agent_timestamps();
 
--- Function to check if an IP is in the admin whitelist
-CREATE OR REPLACE FUNCTION is_system_agent(check_ip text)
+-- Modify the is_admin_agent function to only check for admin role
+CREATE OR REPLACE FUNCTION is_admin_agent()
 RETURNS boolean AS $$
 BEGIN
     RETURN EXISTS (
         SELECT 1 
-        FROM world_config 
-        WHERE key = 'admin_ips' 
-        AND check_ip = ANY (SELECT jsonb_array_elements_text(value))
+        FROM agent_roles ar
+        JOIN roles r ON ar.auth__role_name = r.auth__role_name
+        WHERE ar.auth__agent_id = auth_uid()
+        AND ar.auth__is_active = true
+        AND r.auth__is_system = true
     );
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create a function to seed the initial admin account
+CREATE OR REPLACE FUNCTION seed_initial_admin(
+    admin_email TEXT,
+    admin_username TEXT,
+    admin_password_hash TEXT
+)
+RETURNS UUID AS $$
+DECLARE
+    new_admin_id UUID;
+BEGIN
+    -- Check if any admin already exists
+    IF EXISTS (
+        SELECT 1 
+        FROM agent_roles ar
+        JOIN roles r ON ar.auth__role_name = r.auth__role_name
+        WHERE r.auth__is_system = true
+    ) THEN
+        RAISE EXCEPTION 'An admin account already exists. This function can only be used once.';
+    END IF;
+
+    -- Create the new admin account
+    INSERT INTO agent_profiles 
+        (profile__username, auth__email, auth__password_hash)
+    VALUES 
+        (admin_username, admin_email, admin_password_hash)
+    RETURNING general__uuid INTO new_admin_id;
+
+    -- Assign admin role
+    INSERT INTO agent_roles 
+        (auth__agent_id, auth__role_name, auth__is_active)
+    VALUES 
+        (new_admin_id, 'admin', true);
+
+    RETURN new_admin_id;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -139,18 +178,6 @@ BEGIN
     RETURN '00000000-0000-0000-0000-000000000000'::UUID;
 END;
 $$ LANGUAGE plpgsql;
-
--- Modify policies to use is_system_agent
-CREATE POLICY admin_access ON agent_profiles
-    TO PUBLIC
-    USING (
-        is_system_agent(current_setting('client.ip', TRUE)) 
-        OR EXISTS (
-            SELECT 1 FROM agent_roles 
-            WHERE auth__agent_id = current_agent_id() 
-            AND auth__role_name = 'admin'
-        )
-    );
 
 -- Seed default roles
 INSERT INTO public.roles 
@@ -173,3 +200,56 @@ INSERT INTO public.agent_roles
 VALUES 
     ('00000000-0000-0000-0000-000000000000', 'admin', TRUE)
 ON CONFLICT DO NOTHING;
+
+CREATE OR REPLACE FUNCTION is_admin_agent()
+RETURNS boolean AS $$
+BEGIN
+    RETURN (
+        -- Check if the user is a database superuser
+        (SELECT usesuper FROM pg_user WHERE usename = CURRENT_USER)
+        OR
+        -- Check if the user has the admin role in our application
+        EXISTS (
+            SELECT 1 
+            FROM agent_roles ar
+            JOIN roles r ON ar.auth__role_name = r.auth__role_name
+            WHERE ar.auth__agent_id = auth_uid()
+            AND ar.auth__is_active = true
+            AND r.auth__role_name = 'admin'
+        )
+    );
+END;
+$$ LANGUAGE plpgsql;
+
+-- Modify policies to use is_admin_agent
+CREATE POLICY admin_access ON agent_profiles
+    TO PUBLIC
+    USING (
+        is_admin_agent()
+    );
+
+-- Modify the get_system_permissions_requirements function
+CREATE OR REPLACE FUNCTION debug_admin_agent()
+RETURNS jsonb AS $$
+DECLARE
+    has_role_permission boolean;
+    is_superuser boolean;
+BEGIN
+    has_role_permission := EXISTS (
+        SELECT 1 
+        FROM agent_roles ar
+        JOIN roles r ON ar.auth__role_name = r.auth__role_name
+        WHERE ar.auth__agent_id = auth_uid()
+        AND ar.auth__is_active = true
+        AND r.auth__is_system = true
+    );
+
+    is_superuser := (SELECT usesuper FROM pg_user WHERE usename = CURRENT_USER);
+
+    RETURN jsonb_build_object(
+        'has_role_permission', has_role_permission,
+        'is_superuser', is_superuser,
+        'roles', (SELECT jsonb_agg(auth__role_name) FROM agent_roles WHERE auth__agent_id = auth_uid() AND auth__is_active = true)
+    );
+END;
+$$ LANGUAGE plpgsql;

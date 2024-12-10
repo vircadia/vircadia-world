@@ -29,17 +29,42 @@ async function init() {
         const postgresClient = PostgresClient.getInstance(debugMode);
         await postgresClient.initialize(config.postgres);
 
+        if (!(await postgresClient.hasSystemPermission())) {
+            const requirements =
+                await postgresClient.getSystemPermissionsRequirements();
+            log({
+                message:
+                    "System permissions check on database client failed. Exiting...",
+                type: "error",
+                debug: debugMode,
+            });
+            log({
+                message: `System permissions requirements: ${JSON.stringify(
+                    requirements,
+                )}`,
+                type: "error",
+                debug: debugMode,
+            });
+            process.exit(1);
+        }
+
         // ===== World Services =====
         log({ message: "Starting world services", type: "info" });
 
         // Initialize world tick manager
-        worldTickManager = new WorldTickManager(postgresClient, debugMode);
+        worldTickManager = new WorldTickManager(
+            postgresClient.getClient(),
+            debugMode,
+        );
         await worldTickManager.initialize();
         worldTickManager.addRoutes(app);
         worldTickManager.start();
 
         // Initialize world action manager
-        worldActionManager = new WorldActionManager(postgresClient, debugMode);
+        worldActionManager = new WorldActionManager(
+            postgresClient.getClient(),
+            debugMode,
+        );
         await worldActionManager.initialize();
         worldActionManager.addRoutes(app);
         worldActionManager.start();

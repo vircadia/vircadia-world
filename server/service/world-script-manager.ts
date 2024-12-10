@@ -1,4 +1,3 @@
-import type { PostgresClient } from "../database/postgres/postgres_client";
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 import type postgres from "postgres";
 import type { Hono } from "hono";
@@ -10,14 +9,20 @@ export class WorldScriptManager {
     private compilationQueue: Set<string> = new Set(); // Track scripts being compiled
 
     constructor(
-        private readonly postgresClient: PostgresClient,
+        sql: postgres.Sql,
         private readonly debugMode: boolean = false,
     ) {
-        this.sql = postgresClient.getClient();
+        this.sql = sql;
     }
 
     async initialize() {
         try {
+            log({
+                message: "Initializing world script manager",
+                debug: this.debugMode,
+                type: "debug",
+            });
+
             // Set any pending compilations to failed state on startup
             await this.sql`
                 UPDATE entity_scripts 

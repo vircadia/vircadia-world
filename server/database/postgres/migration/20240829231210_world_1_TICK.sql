@@ -9,7 +9,7 @@ CREATE TABLE entity_states (
     tick_start_time timestamptz,
     tick_end_time timestamptz,
     tick_duration_ms double precision,
-    
+
     -- Override the primary key
     CONSTRAINT entity_states_pkey PRIMARY KEY (general__uuid)
 );
@@ -54,42 +54,15 @@ CREATE POLICY "entity_states_view_policy" ON entity_states
 -- Update/Insert/Delete policies for entity_states (system users only)
 CREATE POLICY "entity_states_update_policy" ON entity_states
     FOR UPDATE
-    USING (
-        EXISTS (
-            SELECT 1 
-            FROM agent_roles ar
-            JOIN roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth_uid()
-            AND ar.auth__is_active = true
-            AND r.auth__is_system = true
-        )
-    );
+    USING (is_admin_agent());
 
 CREATE POLICY "entity_states_insert_policy" ON entity_states
     FOR INSERT
-    WITH CHECK (
-        EXISTS (
-            SELECT 1 
-            FROM agent_roles ar
-            JOIN roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth_uid()
-            AND ar.auth__is_active = true
-            AND r.auth__is_system = true
-        )
-    );
+    WITH CHECK (is_admin_agent());
 
 CREATE POLICY "entity_states_delete_policy" ON entity_states
     FOR DELETE
-    USING (
-        EXISTS (
-            SELECT 1 
-            FROM agent_roles ar
-            JOIN roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth_uid()
-            AND ar.auth__is_active = true
-            AND r.auth__is_system = true
-        )
-    );
+    USING (is_admin_agent());
 
 -- Add metadata states table
 CREATE TABLE entity_metadata_states (
@@ -132,45 +105,18 @@ CREATE POLICY "entity_metadata_states_view_policy" ON entity_metadata_states
 -- Update/Insert/Delete policies for entity_metadata_states (system users only)
 CREATE POLICY "entity_metadata_states_update_policy" ON entity_metadata_states
     FOR UPDATE
-    USING (
-        EXISTS (
-            SELECT 1 
-            FROM agent_roles ar
-            JOIN roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth_uid()
-            AND ar.auth__is_active = true
-            AND r.auth__is_system = true
-        )
-    );
+    USING (is_admin_agent());
 
 CREATE POLICY "entity_metadata_states_insert_policy" ON entity_metadata_states
     FOR INSERT
-    WITH CHECK (
-        EXISTS (
-            SELECT 1 
-            FROM agent_roles ar
-            JOIN roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth_uid()
-            AND ar.auth__is_active = true
-            AND r.auth__is_system = true
-        )
-    );
+    WITH CHECK (is_admin_agent());
 
 CREATE POLICY "entity_metadata_states_delete_policy" ON entity_metadata_states
     FOR DELETE
-    USING (
-        EXISTS (
-            SELECT 1 
-            FROM agent_roles ar
-            JOIN roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth_uid()
-            AND ar.auth__is_active = true
-            AND r.auth__is_system = true
-        )
-    );
+    USING (is_admin_agent());
 
 -- Function to capture entity state - needs SECURITY DEFINER to bypass RLS
-CREATE OR REPLACE FUNCTION capture_tick_state()
+CREATE OR REPLACE FUNCTION capture_tick_state(sync_group_name text)
 RETURNS void AS $$
 DECLARE
     current_tick bigint;
@@ -182,20 +128,11 @@ DECLARE
     is_delayed boolean;
     headroom double precision;
     sync_groups jsonb;
+    tick_rate_ms int;
 BEGIN
-    -- Check admin IP or system role
-    IF NOT (
-        is_system_agent(current_setting('client.ip', TRUE))
-        OR EXISTS (
-            SELECT 1 
-            FROM agent_roles ar
-            JOIN roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth_uid()
-            AND ar.auth__is_active = true
-            AND r.auth__is_system = true
-        )
-    ) THEN
-        RAISE EXCEPTION 'Permission denied: Admin IP or system role required';
+    -- Replace system permission check with is_admin_agent()
+    IF NOT is_admin_agent() THEN
+        RAISE EXCEPTION 'Permission denied: Admin permission required';
     END IF;
 
     -- Get sync groups configuration
@@ -203,9 +140,20 @@ BEGIN
     FROM world_config 
     WHERE key = 'sync_groups';
     
+    -- Validate sync group exists
+    IF NOT sync_groups ? sync_group_name THEN
+        RAISE EXCEPTION 'Invalid sync group: %', sync_group_name;
+    END IF;
+
+    -- Get tick rate for this sync group
+    tick_rate_ms := (sync_groups #>> ARRAY[sync_group_name, 'server_tick_rate_ms'])::int;
+    
     tick_start := clock_timestamp();
     
-    -- Insert entity states for each sync group that needs an update
+    -- Calculate current tick for this sync group
+    current_tick := FLOOR(EXTRACT(EPOCH FROM tick_start) * 1000 / tick_rate_ms)::bigint;
+    
+    -- Insert entity states for this sync group only
     WITH inserted AS (
         INSERT INTO entity_states (
             general__entity_id,
@@ -219,7 +167,7 @@ BEGIN
             general__created_at,
             general__updated_at,
             permissions__roles__view,
-            type__babylonjs
+            performance__sync_group
         )
         SELECT 
             general__uuid AS general__entity_id,
@@ -233,38 +181,18 @@ BEGIN
             general__created_at,
             general__updated_at,
             permissions__roles__view,
-            type__babylonjs
+            performance__sync_group
         FROM entities e
         WHERE 
-            -- Calculate if this entity needs a tick update based on its sync group
-            CASE 
-                WHEN e.performance__sync_group IS NOT NULL THEN
-                    -- Get tick rate from sync group
-                    NOT EXISTS (
-                        SELECT 1 
-                        FROM entity_states es
-                        WHERE es.general__entity_id = e.general__uuid
-                        AND es.timestamp > (
-                            tick_start - ((sync_groups #>> 
-                                ARRAY[e.performance__sync_group, 'server_tick_rate_ms'])::int 
-                                * interval '1 millisecond'
-                            )
-                        )
-                    )
-                ELSE
-                    -- Default to NORMAL sync group
-                    NOT EXISTS (
-                        SELECT 1 
-                        FROM entity_states es
-                        WHERE es.general__entity_id = e.general__uuid
-                        AND es.timestamp > (
-                            tick_start - ((sync_groups #>> 
-                                ARRAY['NORMAL', 'server_tick_rate_ms'])::int 
-                                * interval '1 millisecond'
-                            )
-                        )
-                    )
-            END
+            -- Only process entities in this sync group
+            COALESCE(e.performance__sync_group, 'NORMAL') = sync_group_name
+            -- And only if they need an update
+            AND NOT EXISTS (
+                SELECT 1 
+                FROM entity_states es
+                WHERE es.general__entity_id = e.general__uuid
+                AND es.timestamp > (tick_start - (tick_rate_ms * interval '1 millisecond'))
+            )
         RETURNING *
     )
     SELECT COUNT(*) INTO inserted_count FROM inserted;
@@ -281,7 +209,7 @@ BEGIN
             values__timestamp,
             general__created_at,
             general__updated_at,
-            
+            performance__sync_group,
             entity_metadata_id,
             tick_number,
             tick_start_time,
@@ -298,7 +226,7 @@ BEGIN
             em.values__timestamp,
             em.general__created_at,
             em.general__updated_at,
-            
+            em.performance__sync_group,
             em.general__metadata_id AS entity_metadata_id,
             current_tick,
             tick_start,
@@ -320,9 +248,9 @@ BEGIN
     
     -- More precise duration calculation using microseconds
     tick_duration := EXTRACT(EPOCH FROM (tick_end - tick_start)) * 1000.0;
-    is_delayed := tick_duration > (sync_groups #>> ARRAY[e.performance__sync_group, 'server_tick_rate_ms'])::int;
+    is_delayed := tick_duration > tick_rate_ms;
     headroom := GREATEST(
-        (sync_groups #>> ARRAY[e.performance__sync_group, 'server_tick_rate_ms'])::int - tick_duration, 
+        tick_rate_ms - tick_duration, 
         0.0
     );
 
@@ -338,7 +266,7 @@ BEGIN
         headroom_ms
     ) VALUES (
         current_tick,
-        e.performance__sync_group,
+        sync_group_name,
         tick_start,
         tick_end,
         tick_duration,
@@ -350,7 +278,7 @@ BEGIN
     -- Raise warning if tick took too long
     IF is_delayed THEN
         RAISE WARNING 'Tick % exceeded target duration: %.3fms (target: %ms)',
-            current_tick, tick_duration, (sync_groups #>> ARRAY[e.performance__sync_group, 'server_tick_rate_ms'])::int;
+            current_tick, tick_duration, tick_rate_ms;
     END IF;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -377,16 +305,9 @@ BEGIN
     -- Get sync_group_name from NEW record or another source
     sync_group_name := NEW.sync_group; -- Assuming the sync_group is passed in the NEW record
     
-    -- Verify caller has system role
-    IF NOT EXISTS (
-        SELECT 1 
-        FROM agent_roles ar
-        JOIN roles r ON ar.auth__role_name = r.auth__role_name
-        WHERE ar.auth__agent_id = auth_uid()
-        AND ar.auth__is_active = true
-        AND r.auth__is_system = true
-    ) THEN
-        RAISE EXCEPTION 'Permission denied: System role required';
+    -- Replace system role check with is_admin_agent()
+    IF NOT is_admin_agent() THEN
+        RAISE EXCEPTION 'Permission denied: Admin permission required';
     END IF;
 
     -- Validate sync_group_name
@@ -455,16 +376,9 @@ DECLARE
     states_cleaned integer;
     metadata_states_cleaned integer;
 BEGIN
-    -- Verify caller has system role
-    IF NOT EXISTS (
-        SELECT 1 
-        FROM agent_roles ar
-        JOIN roles r ON ar.auth__role_name = r.auth__role_name
-        WHERE ar.auth__agent_id = auth_uid()
-        AND ar.auth__is_active = true
-        AND r.auth__is_system = true
-    ) THEN
-        RAISE EXCEPTION 'Permission denied: System role required';
+    -- Replace system role check with is_admin_agent()
+    IF NOT is_admin_agent() THEN
+        RAISE EXCEPTION 'Permission denied: Admin permission required';
     END IF;
 
     -- Clean entity states
@@ -504,16 +418,9 @@ RETURNS void AS $$
 DECLARE
     metrics_cleaned integer;
 BEGIN
-    -- Verify caller has system role
-    IF NOT EXISTS (
-        SELECT 1 
-        FROM agent_roles ar
-        JOIN roles r ON ar.auth__role_name = r.auth__role_name
-        WHERE ar.auth__agent_id = auth_uid()
-        AND ar.auth__is_active = true
-        AND r.auth__is_system = true
-    ) THEN
-        RAISE EXCEPTION 'Permission denied: System role required';
+    -- Replace system role check with is_admin_agent()
+    IF NOT is_admin_agent() THEN
+        RAISE EXCEPTION 'Permission denied: Admin permission required';
     END IF;
 
     WITH deleted_metrics AS (
@@ -540,52 +447,16 @@ ALTER TABLE tick_metrics ENABLE ROW LEVEL SECURITY;
 -- All policies for tick_metrics (system users only)
 CREATE POLICY "tick_metrics_view_policy" ON tick_metrics
     FOR SELECT
-    USING (
-        EXISTS (
-            SELECT 1 
-            FROM agent_roles ar
-            JOIN roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth_uid()
-            AND ar.auth__is_active = true
-            AND r.auth__is_system = true
-        )
-    );
+    USING (is_admin_agent());
 
 CREATE POLICY "tick_metrics_update_policy" ON tick_metrics
     FOR UPDATE
-    USING (
-        EXISTS (
-            SELECT 1 
-            FROM agent_roles ar
-            JOIN roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth_uid()
-            AND ar.auth__is_active = true
-            AND r.auth__is_system = true
-        )
-    );
+    USING (is_admin_agent());
 
 CREATE POLICY "tick_metrics_insert_policy" ON tick_metrics
     FOR INSERT
-    WITH CHECK (
-        EXISTS (
-            SELECT 1 
-            FROM agent_roles ar
-            JOIN roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth_uid()
-            AND ar.auth__is_active = true
-            AND r.auth__is_system = true
-        )
-    );
+    WITH CHECK (is_admin_agent());
 
 CREATE POLICY "tick_metrics_delete_policy" ON tick_metrics
     FOR DELETE
-    USING (
-        EXISTS (
-            SELECT 1 
-            FROM agent_roles ar
-            JOIN roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth_uid()
-            AND ar.auth__is_active = true
-            AND r.auth__is_system = true
-        )
-    );
+    USING (is_admin_agent());

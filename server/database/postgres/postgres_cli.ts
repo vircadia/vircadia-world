@@ -22,7 +22,7 @@ function getDockerEnv() {
     return {
         POSTGRES_CONTAINER_NAME: config.containerName,
         POSTGRES_DB: config.database,
-        POSTGRES_USER: config.user,
+        POSTGRES_USER: config,
         POSTGRES_PASSWORD: config.password,
         POSTGRES_PORT: config.port.toString(),
         POSTGRES_EXTENSIONS: config.extensions.join(","),
@@ -261,11 +261,6 @@ export async function seed(existingClient?: postgres.Sql) {
                 type: "success",
             });
         }
-
-        // Set admin credentials as database session variables
-        await sql`
-            SELECT set_config('app.admin_ips', ${config.admin.ips}, false);
-        `;
 
         log({ message: "Running database migrations...", type: "info" });
 

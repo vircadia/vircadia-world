@@ -70,6 +70,7 @@ export class PostgresClient {
 
         while (attempts < maxAttempts) {
             try {
+                if (!this.sql) throw new Error("SQL client is not initialized");
                 await this.sql`SELECT 1`;
                 log({
                     message: "PostgreSQL connection is healthy",
@@ -106,5 +107,53 @@ export class PostgresClient {
             type: "info",
             debug: PostgresClient.debugMode,
         });
+    }
+
+    public async hasSystemPermission(): Promise<boolean> {
+        try {
+            if (!this.sql) {
+                throw new Error(
+                    "PostgreSQL client not initialized. Call initialize() first.",
+                );
+            }
+
+            const [result] = await this.sql<[{ is_admin_agent: boolean }]>`
+                SELECT is_admin_agent() as is_admin_agent
+            `;
+
+            return result.is_admin_agent;
+        } catch (error) {
+            log({
+                message: `Failed to check system permissions: ${error.message}`,
+                type: "error",
+                debug: PostgresClient.debugMode,
+            });
+            return false;
+        }
+    }
+
+    public async getSystemPermissionsRequirements(): Promise<any> {
+        try {
+            if (!this.sql) {
+                throw new Error(
+                    "PostgreSQL client not initialized. Call initialize() first.",
+                );
+            }
+
+            const [result] = await this.sql<
+                [{ get_system_permissions_requirements: any }]
+            >`
+                SELECT get_system_permissions_requirements() as get_system_permissions_requirements
+            `;
+
+            return result.get_system_permissions_requirements;
+        } catch (error) {
+            log({
+                message: `Failed to get system permissions requirements: ${error.message}`,
+                type: "error",
+                debug: PostgresClient.debugMode,
+            });
+            return null;
+        }
     }
 }

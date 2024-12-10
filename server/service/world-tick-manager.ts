@@ -1,32 +1,47 @@
-import type { PostgresClient } from "../database/postgres/postgres_client";
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 import type postgres from "postgres";
 import type { Hono } from "hono";
 
+interface SyncGroup {
+    server_tick_rate_ms: number;
+    client_needs_update_check_rate_ms: number;
+    client_keyframe_sync_rate_ms: number;
+}
+
+interface SyncGroups {
+    [key: string]: SyncGroup;
+}
+
 export class WorldTickManager {
-    private intervalId: Timer | null = null;
+    private intervalIds: Map<string, Timer> = new Map();
     private entityStatesCleanupId: Timer | null = null;
     private tickMetricsCleanupId: Timer | null = null;
-    private targetIntervalMs = 50;
+    private syncGroups: SyncGroups = {};
     private lastServerTime: Date | null = null;
-    private tickCount = 0;
-    private tickBufferDurationMs = 1000;
-    private tickMetricsHistoryMs = 3600;
+    private tickCounts: Map<string, number> = new Map();
+    private tickBufferDurationMs = 2000; // Default from config
+    private tickMetricsHistoryMs = 3600000; // Default from config
     private sql: postgres.Sql;
 
     constructor(
-        private readonly postgresClient: PostgresClient,
+        sql: postgres.Sql,
         private readonly debugMode: boolean = false,
     ) {
-        this.sql = postgresClient.getClient();
+        this.sql = sql;
     }
 
     async initialize() {
         try {
-            // Fetch initial config values
+            log({
+                message: "Initializing world tick manager",
+                debug: this.debugMode,
+                type: "debug",
+            });
+
+            // Fetch initial config values including sync groups
             const configData = await this.sql`
                 SELECT key, value FROM world_config 
-                WHERE key IN ('tick_rate_ms', 'tick_buffer_duration_ms', 'tick_metrics_history_ms')
+                WHERE key IN ('tick_buffer_duration_ms', 'tick_metrics_history_ms', 'sync_groups')
             `;
 
             // Update config values
@@ -37,7 +52,7 @@ export class WorldTickManager {
             this.lastServerTime = timeData[0].get_server_time;
 
             log({
-                message: `Initialized with tick duration: ${this.targetIntervalMs}ms, server time: ${this.lastServerTime}`,
+                message: `Initialized with sync groups: ${Object.keys(this.syncGroups).join(", ")}`,
                 debug: this.debugMode,
                 type: "debug",
             });
@@ -51,17 +66,17 @@ export class WorldTickManager {
         }
     }
 
-    private updateConfigValues(configData: any[]) {
+    private updateConfigValues(configData: postgres.RowList<postgres.Row[]>) {
         for (const config of configData) {
             switch (config.key) {
-                case "tick_rate_ms":
-                    this.targetIntervalMs = Number.parseFloat(config.value);
+                case "sync_groups":
+                    this.syncGroups = config.value;
                     break;
                 case "tick_buffer_duration_ms":
-                    this.tickBufferDurationMs = Number.parseFloat(config.value);
+                    this.tickBufferDurationMs = config.value;
                     break;
                 case "tick_metrics_history_ms":
-                    this.tickMetricsHistoryMs = Number.parseFloat(config.value);
+                    this.tickMetricsHistoryMs = config.value;
                     break;
             }
         }
@@ -107,50 +122,32 @@ export class WorldTickManager {
         }, this.tickMetricsHistoryMs);
     }
 
-    async captureTick() {
+    private async captureSyncGroupTick(syncGroup: string, config: SyncGroup) {
         try {
             const totalStartTime = performance.now();
+            const tickCount = this.tickCounts.get(syncGroup) || 0;
 
-            // Get current server time
-            const timeRequestStart = performance.now();
-            const timeData = await this.sql`SELECT get_server_time()`;
-            const timeRequestDuration = performance.now() - timeRequestStart;
+            // Pass the sync group to the function
+            await this.sql`
+                SELECT capture_tick_state(${syncGroup})
+            `;
 
-            const currentServerTime = timeData[0].get_server_time;
-
-            // Capture tick state
-            const captureRequestStart = performance.now();
-            await this.sql`SELECT capture_tick_state()`;
-            const captureRequestDuration =
-                performance.now() - captureRequestStart;
-
-            this.lastServerTime = currentServerTime;
-            this.tickCount++;
-
-            // Log performance metrics
             const totalElapsed = performance.now() - totalStartTime;
-            if (totalElapsed > this.targetIntervalMs) {
+
+            // Update tick count for this sync group
+            this.tickCounts.set(syncGroup, tickCount + 1);
+
+            // Log performance metrics if needed
+            if (totalElapsed > config.server_tick_rate_ms) {
                 log({
-                    message:
-                        `Tick capture took ${totalElapsed.toFixed(2)}ms (target: ${this.targetIntervalMs}ms) ` +
-                        `[time_req: ${timeRequestDuration.toFixed(2)}ms, ` +
-                        `capture_req: ${captureRequestDuration.toFixed(2)}ms]`,
+                    message: `${syncGroup} tick capture took ${totalElapsed.toFixed(2)}ms (target: ${config.server_tick_rate_ms}ms)`,
                     debug: this.debugMode,
                     type: "warn",
-                });
-            } else if (this.debugMode) {
-                log({
-                    message:
-                        `Tick ${this.tickCount} completed in ${totalElapsed.toFixed(2)}ms ` +
-                        `[time_req: ${timeRequestDuration.toFixed(2)}ms, ` +
-                        `capture_req: ${captureRequestDuration.toFixed(2)}ms]`,
-                    debug: true,
-                    type: "debug",
                 });
             }
         } catch (error) {
             log({
-                message: `Error during tick capture: ${error}`,
+                message: `Error during ${syncGroup} tick capture: ${error}`,
                 debug: this.debugMode,
                 type: "error",
             });
@@ -158,82 +155,83 @@ export class WorldTickManager {
     }
 
     start() {
-        if (this.intervalId) {
-            log({
-                message: "Tick capture service is already running",
-                debug: this.debugMode,
-                type: "warn",
-            });
-            return;
-        }
-
-        log({
-            message: `Starting tick capture service with ${this.targetIntervalMs}ms interval`,
-            debug: this.debugMode,
-            type: "debug",
-        });
-
-        // Setup cleanup timers
-        this.setupCleanupTimers();
-
-        let lastTickTime = performance.now();
-        let drift = 0;
-
-        // Use a more precise timing mechanism
-        const tick = async () => {
-            const now = performance.now();
-            const delta = now - lastTickTime;
-
-            await this.captureTick();
-
-            // Calculate next tick time accounting for drift
-            lastTickTime = now;
-            drift += delta - this.targetIntervalMs;
-
-            // Adjust next interval to account for drift
-            const nextDelay = Math.max(0, this.targetIntervalMs - drift);
-
-            // Reset drift if it gets too large
-            if (Math.abs(drift) > this.targetIntervalMs * 2) {
-                drift = 0;
-            }
-
-            // Schedule next tick
-            this.intervalId = setTimeout(tick, nextDelay);
-        };
-
-        // Start the first tick
-        tick();
-    }
-
-    stop() {
-        if (this.intervalId) {
-            clearTimeout(this.intervalId);
-            this.intervalId = null;
-
-            // Clear cleanup timers
-            if (this.entityStatesCleanupId) {
-                clearInterval(this.entityStatesCleanupId);
-                this.entityStatesCleanupId = null;
-            }
-            if (this.tickMetricsCleanupId) {
-                clearInterval(this.tickMetricsCleanupId);
-                this.tickMetricsCleanupId = null;
+        // Start a separate interval for each sync group
+        for (const [syncGroup, config] of Object.entries(this.syncGroups)) {
+            if (this.intervalIds.has(syncGroup)) {
+                log({
+                    message: `Tick capture for ${syncGroup} is already running`,
+                    debug: this.debugMode,
+                    type: "warn",
+                });
+                continue;
             }
 
             log({
-                message: "Tick capture service stopped",
+                message: `Starting tick capture for ${syncGroup} with ${config.server_tick_rate_ms}ms interval`,
                 debug: this.debugMode,
                 type: "debug",
             });
+
+            let lastTickTime = performance.now();
+            let drift = 0;
+
+            const tick = async () => {
+                const now = performance.now();
+                const delta = now - lastTickTime;
+
+                await this.captureSyncGroupTick(syncGroup, config);
+
+                lastTickTime = now;
+                drift += delta - config.server_tick_rate_ms;
+
+                const nextDelay = Math.max(
+                    0,
+                    config.server_tick_rate_ms - drift,
+                );
+
+                if (Math.abs(drift) > config.server_tick_rate_ms * 2) {
+                    drift = 0;
+                }
+
+                this.intervalIds.set(syncGroup, setTimeout(tick, nextDelay));
+            };
+
+            tick();
         }
+
+        // Setup cleanup timers
+        this.setupCleanupTimers();
+    }
+
+    stop() {
+        // Stop all sync group intervals
+        for (const [syncGroup, intervalId] of this.intervalIds.entries()) {
+            clearTimeout(intervalId);
+            this.intervalIds.delete(syncGroup);
+        }
+
+        // Clear cleanup timers
+        if (this.entityStatesCleanupId) {
+            clearInterval(this.entityStatesCleanupId);
+            this.entityStatesCleanupId = null;
+        }
+        if (this.tickMetricsCleanupId) {
+            clearInterval(this.tickMetricsCleanupId);
+            this.tickMetricsCleanupId = null;
+        }
+
+        log({
+            message: "Tick capture service stopped",
+            debug: this.debugMode,
+            type: "debug",
+        });
     }
 
     getStats() {
         return {
-            tickCount: this.tickCount,
+            tickCounts: Object.fromEntries(this.tickCounts),
             lastServerTime: this.lastServerTime,
-            targetInterval: this.targetIntervalMs,
+            syncGroups: this.syncGroups,
         };
     }
 
@@ -244,25 +242,5 @@ export class WorldTickManager {
         routes.get("/stats", (c) => {
             return c.json(this.getStats());
         });
-
-        // Add control endpoints
-        routes.post("/stop", (c) => {
-            this.stop();
-            return c.json({ status: "stopped" });
-        });
-
-        routes.post("/start", (c) => {
-            this.start();
-            return c.json({ status: "started" });
-        });
-
-        if (this.debugMode) {
-            // Debug endpoints
-            routes.get("/force-cleanup", async (c) => {
-                await this.sql`SELECT cleanup_old_entity_states()`;
-                await this.sql`SELECT cleanup_old_tick_metrics()`;
-                return c.json({ status: "cleanup completed" });
-            });
-        }
     }
 }

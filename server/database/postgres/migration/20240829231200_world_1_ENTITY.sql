@@ -484,3 +484,72 @@ CREATE TRIGGER cleanup_script_references_trigger
     FOR EACH ROW
     EXECUTE FUNCTION cleanup_deleted_script_references();
 
+-- 
+-- NOTIFICATION FUNCTIONS
+--
+
+-- Entity changes notification
+CREATE OR REPLACE FUNCTION notify_entity_changes() RETURNS TRIGGER AS $$
+BEGIN
+    PERFORM pg_notify(
+        'entity_changes',
+        json_build_object(
+            'type', 'entity',
+            'operation', TG_OP,
+            'entity_id', CASE WHEN TG_OP = 'DELETE' THEN OLD.general__uuid ELSE NEW.general__uuid END,
+            'sync_group', CASE WHEN TG_OP = 'DELETE' THEN OLD.performance__sync_group ELSE NEW.performance__sync_group END,
+            'timestamp', CURRENT_TIMESTAMP
+        )::text
+    );
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Entity metadata changes notification
+CREATE OR REPLACE FUNCTION notify_entity_metadata_changes() RETURNS TRIGGER AS $$
+BEGIN
+    PERFORM pg_notify(
+        'entity_changes',
+        json_build_object(
+            'type', 'metadata',
+            'operation', TG_OP,
+            'entity_id', NEW.general__entity_id,
+            'metadata_id', NEW.general__metadata_id,
+            'timestamp', CURRENT_TIMESTAMP
+        )::text
+    );
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Entity script changes notification
+CREATE OR REPLACE FUNCTION notify_entity_script_changes() RETURNS TRIGGER AS $$
+BEGIN
+    PERFORM pg_notify(
+        'entity_changes',
+        json_build_object(
+            'type', 'script',
+            'operation', TG_OP,
+            'script_id', NEW.general__script_id,
+            'timestamp', CURRENT_TIMESTAMP
+        )::text
+    );
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create triggers for notifications
+CREATE TRIGGER entity_changes_notify
+    AFTER INSERT OR UPDATE OR DELETE ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION notify_entity_changes();
+
+CREATE TRIGGER entity_metadata_changes_notify
+    AFTER INSERT OR UPDATE ON entities_metadata
+    FOR EACH ROW
+    EXECUTE FUNCTION notify_entity_metadata_changes();
+
+CREATE TRIGGER entity_script_changes_notify
+    AFTER INSERT OR UPDATE ON entity_scripts
+    FOR EACH ROW
+    EXECUTE FUNCTION notify_entity_script_changes();

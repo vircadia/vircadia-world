@@ -96,24 +96,41 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Add a function to replace auth.uid() calls
+-- Make the auth_uid() function more secure
 CREATE OR REPLACE FUNCTION auth_uid() 
 RETURNS UUID AS $$
-DECLARE
-    session_agent_id UUID;
 BEGIN
-    -- Get the agent_id from the current active session
-    SELECT auth__agent_id INTO session_agent_id
-    FROM agent_sessions
-    WHERE session__is_active = true
-    AND session__last_seen_at > (NOW() - INTERVAL '24 hours')
-    ORDER BY session__last_seen_at DESC
-    LIMIT 1;
-    
-    -- Return anonymous user UUID if no session exists
-    RETURN COALESCE(session_agent_id, '00000000-0000-0000-0000-000000000001'::UUID);
+    -- Only allow setting auth.uid_internal through verified sessions
+    RETURN NULLIF(current_setting('auth.uid_internal', true), '')::UUID;
+EXCEPTION
+    -- Return anonymous user if no valid session
+    WHEN OTHERS THEN
+        RETURN '00000000-0000-0000-0000-000000000001'::UUID;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Create a secure function to set the auth context
+CREATE OR REPLACE FUNCTION set_auth_uid(agent_id UUID)
+RETURNS void AS $$
+BEGIN
+    -- Only superusers can call this function
+    IF NOT (SELECT usesuper FROM pg_user WHERE usename = CURRENT_USER) THEN
+        RAISE EXCEPTION 'Permission denied: Only superusers can set auth context';
+    END IF;
+    
+    -- Verify the agent exists (except for anonymous and system users)
+    IF agent_id NOT IN ('00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001') THEN
+        IF NOT EXISTS (SELECT 1 FROM agent_profiles WHERE general__uuid = agent_id) THEN
+            RAISE EXCEPTION 'Invalid agent_id';
+        END IF;
+    END IF;
+
+    PERFORM set_config('auth.uid_internal', agent_id::text, false);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Revoke direct set_config privileges
+REVOKE ALL ON FUNCTION set_config(text, text, boolean) FROM PUBLIC;
 
 -- Update function to only modify updated_at timestamp
 CREATE OR REPLACE FUNCTION set_agent_timestamps()
@@ -199,7 +216,7 @@ VALUES
     ('anon', 'Anonymous user with limited access', TRUE, TRUE, FALSE, FALSE)
 ON CONFLICT (auth__role_name) DO NOTHING;
 
--- Create system agent with a known UUID
+-- Create system and anon agents with a known UUID
 INSERT INTO public.agent_profiles 
     (general__uuid, profile__username, auth__email, auth__password_hash) 
 VALUES 
@@ -207,7 +224,7 @@ VALUES
     ('00000000-0000-0000-0000-000000000001', 'anon', 'anon@internal', NULL)
 ON CONFLICT (general__uuid) DO NOTHING;
 
--- Assign system role to the system agent
+-- Assign system role to the system agent and anon role for the anon agent
 INSERT INTO public.agent_roles 
     (auth__agent_id, auth__role_name, auth__is_active) 
 VALUES 
@@ -275,3 +292,28 @@ BEGIN
     RETURN auth_uid() = '00000000-0000-0000-0000-000000000001'::UUID;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Add function to create a new session
+CREATE OR REPLACE FUNCTION create_agent_session(
+    p_agent_id UUID,
+    p_provider_name TEXT DEFAULT NULL
+) RETURNS UUID AS $$
+DECLARE
+    v_session_id UUID;
+BEGIN
+    -- Only admins can create sessions
+    IF NOT is_admin_agent() THEN
+        RAISE EXCEPTION 'Only administrators can create sessions';
+    END IF;
+
+    INSERT INTO agent_sessions (
+        auth__agent_id,
+        auth__provider_name
+    ) VALUES (
+        p_agent_id,
+        p_provider_name
+    ) RETURNING general__session_id INTO v_session_id;
+
+    RETURN v_session_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;

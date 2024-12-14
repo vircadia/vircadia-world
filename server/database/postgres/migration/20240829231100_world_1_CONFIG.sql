@@ -9,6 +9,7 @@ CREATE TABLE world_config (
 
 -- Insert default configuration
 INSERT INTO world_config (key, value, description) VALUES
+('client_poll_new_entities_ms', '500'::jsonb, 'How often a client should poll for all entities to find any potential new ones.'),
 ('tick_buffer_duration_ms', '2000'::jsonb, 'How long to keep tick history in milliseconds'),
 ('tick_metrics_history_ms', '3600000'::jsonb, 'How long to keep tick metrics history in milliseconds (1 hour default)'),
 ('action_cleanup_rate_ms', '5000'::jsonb, 'How often to clean up actions in milliseconds (5 seconds default)'),

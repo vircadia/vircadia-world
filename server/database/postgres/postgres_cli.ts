@@ -22,10 +22,13 @@ function getDockerEnv() {
     return {
         POSTGRES_CONTAINER_NAME: config.containerName,
         POSTGRES_DB: config.database,
-        POSTGRES_USER: config,
+        POSTGRES_USER: config.user,
         POSTGRES_PASSWORD: config.password,
         POSTGRES_PORT: config.port.toString(),
         POSTGRES_EXTENSIONS: config.extensions.join(","),
+        POSTGRES_JWT_SECRET: config.jwtSecret,
+        POSTGRES_API_HOST: config.apiHost,
+        POSTGRES_API_PORT: config.apiPort.toString(),
     };
 }
 

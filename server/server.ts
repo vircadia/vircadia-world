@@ -31,25 +31,6 @@ async function init() {
         const postgresClient = PostgresClient.getInstance(debugMode);
         await postgresClient.initialize(config.postgres);
 
-        if (!(await postgresClient.hasSystemPermission())) {
-            const requirements =
-                await postgresClient.getSystemPermissionsRequirements();
-            log({
-                message:
-                    "System permissions check on database client failed. Exiting...",
-                type: "error",
-                debug: debugMode,
-            });
-            log({
-                message: `System permissions requirements: ${JSON.stringify(
-                    requirements,
-                )}`,
-                type: "error",
-                debug: debugMode,
-            });
-            process.exit(1);
-        }
-
         // ===== World Services =====
         log({ message: "Starting world services", type: "info" });
 
@@ -75,9 +56,16 @@ async function init() {
         worldAuthManager = new WorldAuthManager(
             postgresClient.getClient(),
             {
-                jwtSecret: process.env.JWT_SECRET || "your-secret-key",
+                jwtSecret: config.postgres.jwtSecret,
                 sessionDuration: "24h",
                 bcryptRounds: 10,
+                oauth: {
+                    github: {
+                        clientId: config.oauth.github.clientId,
+                        clientSecret: config.oauth.github.clientSecret,
+                        callbackUrl: config.oauth.github.callbackUrl,
+                    },
+                },
             },
             true,
         );

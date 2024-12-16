@@ -20,6 +20,9 @@ const { positionals, values: args } = parseArgs({
         "postgres-jwt-secret": { type: "string" },
         "postgres-api-host": { type: "string" },
         "postgres-api-port": { type: "string" },
+        "oauth-github-client-id": { type: "string" },
+        "oauth-github-client-secret": { type: "string" },
+        "oauth-github-callback-url": { type: "string" },
     },
     allowPositionals: true,
 });
@@ -39,6 +42,17 @@ const envSchema = z.object({
     VRCA_SERVER_POSTGRES_JWT_SECRET: z.string().default("CHANGE_ME!"),
     VRCA_SERVER_POSTGRES_API_HOST: z.string().default("localhost"),
     VRCA_SERVER_POSTGRES_API_PORT: z.coerce.number().default(3000),
+    VRCA_SERVER_OAUTH_GITHUB_CLIENT_ID: z
+        .string()
+        .default("Ov23liL9aOwOiwCMqVwQ"),
+    VRCA_SERVER_OAUTH_GITHUB_CLIENT_SECRET: z
+        .string()
+        .default("efed36f81b8fd815ed31f20fecaa265bc0aa5136"),
+    VRCA_SERVER_OAUTH_GITHUB_CALLBACK_URL: z
+        .string()
+        .default(
+            "http://localhost:3000/services/world-auth/auth/github/callback",
+        ),
 });
 
 const env = envSchema.parse(import.meta.env);
@@ -72,5 +86,18 @@ export const VircadiaConfig_Server = {
         apiPort: Number(
             args["postgres-api-port"] ?? env.VRCA_SERVER_POSTGRES_API_PORT,
         ),
+    },
+    oauth: {
+        github: {
+            clientId:
+                args["oauth-github-client-id"] ??
+                env.VRCA_SERVER_OAUTH_GITHUB_CLIENT_ID,
+            clientSecret:
+                args["oauth-github-client-secret"] ??
+                env.VRCA_SERVER_OAUTH_GITHUB_CLIENT_SECRET,
+            callbackUrl:
+                args["oauth-github-callback-url"] ??
+                env.VRCA_SERVER_OAUTH_GITHUB_CALLBACK_URL,
+        },
     },
 };

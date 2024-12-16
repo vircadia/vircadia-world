@@ -8,6 +8,7 @@ interface AuthConfig {
     jwtSecret: string;
     sessionDuration: string; // e.g., '24h'
     bcryptRounds: number;
+    oauth: OAuthConfig;
 }
 
 interface LoginCredentials {
@@ -19,6 +20,14 @@ interface RegisterData {
     email: string;
     username: string;
     password: string;
+}
+
+interface OAuthConfig {
+    github?: {
+        clientId: string;
+        clientSecret: string;
+        callbackUrl: string;
+    };
 }
 
 export class WorldAuthManager {
@@ -196,6 +205,96 @@ export class WorldAuthManager {
         `;
     }
 
+    async initiateGitHubAuth() {
+        const githubAuthUrl =
+            `https://github.com/login/oauth/authorize?` +
+            `client_id=${this.config.oauth.github?.clientId}&` +
+            `redirect_uri=${encodeURIComponent(this.config.oauth.github?.callbackUrl)}&` +
+            `scope=user:email`;
+
+        return githubAuthUrl;
+    }
+
+    async handleGitHubCallback(code: string) {
+        // Exchange code for access token
+        const tokenResponse = await fetch(
+            "https://github.com/login/oauth/access_token",
+            {
+                method: "POST",
+                headers: {
+                    Accept: "application/json",
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    client_id: this.config.oauth.github?.clientId,
+                    client_secret: this.config.oauth.github?.clientSecret,
+                    code,
+                }),
+            },
+        );
+
+        const tokenData = await tokenResponse.json();
+        const accessToken = tokenData.access_token;
+
+        // Get user data from GitHub
+        const userResponse = await fetch("https://api.github.com/user", {
+            headers: {
+                Authorization: `Bearer ${accessToken}`,
+                Accept: "application/json",
+            },
+        });
+
+        const userData = await userResponse.json();
+
+        // Get user's email
+        const emailResponse = await fetch(
+            "https://api.github.com/user/emails",
+            {
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    Accept: "application/json",
+                },
+            },
+        );
+
+        const emails = await emailResponse.json();
+        const primaryEmail = emails.find((e: any) => e.primary)?.email;
+
+        // Create or update user in your database
+        const [agent] = await this.sql`
+            INSERT INTO agent_profiles (
+                profile__username,
+                auth__email
+            ) VALUES (
+                ${userData.login},
+                ${primaryEmail}
+            )
+            ON CONFLICT (auth__email) DO UPDATE
+            SET profile__username = EXCLUDED.profile__username
+            RETURNING general__uuid
+        `;
+
+        // Create auth provider entry
+        await this.sql`
+            INSERT INTO agent_auth_providers (
+                auth__agent_id,
+                auth__provider_name,
+                auth__provider_uid,
+                auth__is_primary
+            ) VALUES (
+                ${agent.general__uuid},
+                'github',
+                ${userData.id.toString()},
+                true
+            )
+            ON CONFLICT (auth__agent_id, auth__provider_name) 
+            DO UPDATE SET auth__provider_uid = EXCLUDED.auth__provider_uid
+        `;
+
+        // Create session
+        return this.createSession(agent.general__uuid, "github");
+    }
+
     addRoutes(app: Hono) {
         const routes = app.basePath("/services/world-auth");
 
@@ -285,5 +384,25 @@ export class WorldAuthManager {
                 return c.json(sessions);
             });
         }
+
+        // GitHub OAuth routes
+        routes.get("/auth/github", async (c) => {
+            const authUrl = await this.initiateGitHubAuth();
+            return c.redirect(authUrl);
+        });
+
+        routes.get("/auth/github/callback", async (c) => {
+            const code = c.req.query("code");
+            if (!code) {
+                return c.json({ error: "No code provided" }, 400);
+            }
+
+            try {
+                const session = await this.handleGitHubCallback(code);
+                return c.json(session);
+            } catch (error) {
+                return c.json({ error: "Authentication failed" }, 401);
+            }
+        });
     }
 }

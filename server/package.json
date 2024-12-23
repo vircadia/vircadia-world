@@ -8,13 +8,13 @@
     "test": "bun test",
     "start": "bun run server.ts",
     "build": "bun build server.ts --outfile=server",
-    "db:up": "bun run database/postgres/postgres_cli.ts up",
-    "db:down": "bun run database/postgres/postgres_cli.ts down",
-    "db:soft-reset": "bun run database/postgres/postgres_cli.ts soft-reset",
-    "db:hard-reset": "bun run database/postgres/postgres_cli.ts hard-reset",
-    "db:health": "bun run database/postgres/postgres_cli.ts health",
-    "db:connection-string": "bun run database/postgres/postgres_cli.ts connection-string",
-    "db:restart": "bun run database/postgres/postgres_cli.ts restart"
+    "services:up": "bun run container/docker/docker_cli.ts up",
+    "services:down": "bun run container/docker/docker_cli.ts down",
+    "services:soft-reset": "bun run container/docker/docker_cli.ts soft-reset",
+    "services:hard-reset": "bun run container/docker/docker_cli.ts hard-reset",
+    "services:health": "bun run container/docker/docker_cli.ts health",
+    "services:db:connection-string": "bun run container/docker/docker_cli.ts connection-string",
+    "services:restart": "bun run container/docker/docker_cli.ts restart"
   },
   "dependencies": {
     "@babylonjs/core": "^7.37.0",

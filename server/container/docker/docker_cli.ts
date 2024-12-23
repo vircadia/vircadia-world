@@ -9,26 +9,26 @@ import { readdir, readFile } from "node:fs/promises";
 
 const DOCKER_COMPOSE_PATH = path.join(
     dirname(fileURLToPath(import.meta.url)),
-    "docker/docker-compose.yml",
+    "/docker-compose.yml",
 );
 
-const MIGRATIONS_DIR = path.join(
+const POSTGRES_MIGRATIONS_DIR = path.join(
     dirname(fileURLToPath(import.meta.url)),
-    "migration",
+    "../../database/postgres/migration",
 );
 
 function getDockerEnv() {
-    const config = VircadiaConfig_Server.postgres;
+    const config = VircadiaConfig_Server;
     return {
-        POSTGRES_CONTAINER_NAME: config.containerName,
-        POSTGRES_DB: config.database,
-        POSTGRES_USER: config.user,
-        POSTGRES_PASSWORD: config.password,
-        POSTGRES_PORT: config.port.toString(),
-        POSTGRES_EXTENSIONS: config.extensions.join(","),
-        POSTGRES_JWT_SECRET: config.jwtSecret,
-        POSTGRES_API_HOST: config.apiHost,
-        POSTGRES_API_PORT: config.apiPort.toString(),
+        CONTAINER_NAME: config.containerName,
+        POSTGRES_DB: config.postgres.database,
+        POSTGRES_USER: config.postgres.user,
+        POSTGRES_PASSWORD: config.postgres.password,
+        POSTGRES_PORT: config.postgres.port.toString(),
+        POSTGRES_EXTENSIONS: config.postgres.extensions.join(","),
+        POSTGRES_JWT_SECRET: config.postgres.jwtSecret,
+        POSTGRES_API_HOST: config.postgres.apiHost,
+        POSTGRES_API_PORT: config.postgres.apiPort.toString(),
     };
 }
 
@@ -76,28 +76,62 @@ async function runDockerCommand(args: string[], env = getDockerEnv()) {
     }
 }
 
-export async function isHealthy(): Promise<boolean> {
-    const config = VircadiaConfig_Server.postgres;
-    return new Promise((resolve) => {
-        const socket = createConnection({
-            host: config.host,
-            port: config.port,
-        })
-            .on("connect", () => {
-                socket.end();
-                resolve(true);
+export async function isHealthy(): Promise<{
+    postgres: boolean;
+    caddy: boolean;
+}> {
+    const config = VircadiaConfig_Server;
+
+    const checkPostgres = async (): Promise<boolean> => {
+        return new Promise((resolve) => {
+            const socket = createConnection({
+                host: config.postgres.host,
+                port: config.postgres.port,
             })
-            .on("error", () => {
+                .on("connect", () => {
+                    socket.end();
+                    resolve(true);
+                })
+                .on("error", () => {
+                    resolve(false);
+                });
+
+            socket.setTimeout(1000);
+            socket.on("timeout", () => {
+                socket.destroy();
                 resolve(false);
             });
-
-        // Set timeout for connection attempt
-        socket.setTimeout(1000);
-        socket.on("timeout", () => {
-            socket.destroy();
-            resolve(false);
         });
-    });
+    };
+
+    const checkCaddy = async (): Promise<boolean> => {
+        return new Promise((resolve) => {
+            const socket = createConnection({
+                host: config.postgres.apiHost,
+                port: config.postgres.apiPort,
+            })
+                .on("connect", () => {
+                    socket.end();
+                    resolve(true);
+                })
+                .on("error", () => {
+                    resolve(false);
+                });
+
+            socket.setTimeout(1000);
+            socket.on("timeout", () => {
+                socket.destroy();
+                resolve(false);
+            });
+        });
+    };
+
+    const [postgresHealth, caddyHealth] = await Promise.all([
+        checkPostgres(),
+        checkCaddy(),
+    ]);
+
+    return { postgres: postgresHealth, caddy: caddyHealth };
 }
 
 async function waitForHealthy(
@@ -106,7 +140,8 @@ async function waitForHealthy(
 ): Promise<boolean> {
     const startTime = Date.now();
     while (Date.now() - startTime < timeoutSeconds * 1000) {
-        if (await isHealthy()) {
+        const health = await isHealthy();
+        if (health.postgres && health.caddy) {
             return true;
         }
         await new Promise((resolve) => setTimeout(resolve, intervalMs));
@@ -114,16 +149,26 @@ async function waitForHealthy(
     return false;
 }
 
-export async function up() {
-    log({ message: "Starting PostgreSQL container...", type: "info" });
+export async function up(env = getDockerEnv()) {
+    log({
+        message: `Starting ${env.CONTAINER_NAME} services...`,
+        type: "info",
+    });
     await runDockerCommand(["up", "-d", "--build"]);
 
-    // Wait for PostgreSQL to be healthy before continuing
-    log({ message: "Waiting for PostgreSQL to be ready...", type: "info" });
+    log({
+        message: `Waiting for ${env.CONTAINER_NAME} services to be ready...`,
+        type: "info",
+    });
     if (!(await waitForHealthy())) {
-        throw new Error("PostgreSQL failed to start properly after 30 seconds");
+        throw new Error(
+            `${env.CONTAINER_NAME} services failed to start properly after 30 seconds`,
+        );
     }
-    log({ message: "PostgreSQL is ready", type: "success" });
+    log({
+        message: `${env.CONTAINER_NAME} services are ready`,
+        type: "success",
+    });
 
     const config = VircadiaConfig_Server.postgres;
 
@@ -141,7 +186,10 @@ export async function up() {
 
     try {
         // Add migration execution here
-        log({ message: "Running initial migrations...", type: "info" });
+        log({
+            message: `Running initial migrations for ${env.CONTAINER_NAME}...`,
+            type: "info",
+        });
         await seed(sql); // Pass the existing SQL connection
     } catch (error) {
         log({
@@ -154,38 +202,41 @@ export async function up() {
     }
 
     log({
-        message:
-            "PostgreSQL container started with extensions installed and migrations applied",
+        message: `${env.CONTAINER_NAME} container started with extensions installed and migrations applied`,
         type: "success",
     });
 }
 
-export async function down() {
-    log({ message: "Stopping PostgreSQL container...", type: "info" });
+export async function down(env = getDockerEnv()) {
+    log({
+        message: `Stopping ${env.CONTAINER_NAME} container...`,
+        type: "info",
+    });
     await runDockerCommand(["down"]);
-    log({ message: "PostgreSQL container stopped", type: "success" });
+    log({
+        message: `${env.CONTAINER_NAME} container stopped`,
+        type: "success",
+    });
 }
 
-export async function hardReset() {
+export async function hardReset(env = getDockerEnv()) {
     log({
-        message: "Performing hard reset of PostgreSQL container...",
+        message: `Performing hard reset of ${env.CONTAINER_NAME} container...`,
         type: "info",
     });
     await runDockerCommand(["down", "-v"]);
     await runDockerCommand(["up", "-d", "--build"]);
-    log({ message: "PostgreSQL container reset complete", type: "success" });
-}
-
-export function connectionString(): void {
-    const config = VircadiaConfig_Server.postgres;
     log({
-        message: `PostgreSQL Connection String:\n\npostgres://${config.user}:${config.password}@${config.host}:${config.port}/${config.database}\n`,
-        type: "info",
+        message: `${env.CONTAINER_NAME} container reset complete`,
+        type: "success",
     });
 }
 
-export async function softResetDatabase() {
-    log({ message: "Performing soft reset of database...", type: "info" });
+export async function softResetDatabase(env = getDockerEnv()) {
+    log({
+        message: `Performing soft reset of ${env.CONTAINER_NAME} database...`,
+        type: "info",
+    });
 
     const config = VircadiaConfig_Server.postgres;
     const sql = postgres({
@@ -231,7 +282,7 @@ export async function softResetDatabase() {
         `);
 
         log({
-            message: "Database reset complete. Running migrations...",
+            message: `${env.CONTAINER_NAME} database reset complete. Running migrations...`,
             type: "info",
         });
         await seed(sql);
@@ -240,7 +291,10 @@ export async function softResetDatabase() {
     }
 }
 
-export async function seed(existingClient?: postgres.Sql) {
+export async function seed(
+    existingClient?: postgres.Sql,
+    env = getDockerEnv(),
+) {
     const config = VircadiaConfig_Server;
     const sql =
         existingClient ||
@@ -265,7 +319,10 @@ export async function seed(existingClient?: postgres.Sql) {
             });
         }
 
-        log({ message: "Running database migrations...", type: "info" });
+        log({
+            message: `Running ${env.CONTAINER_NAME} database migrations...`,
+            type: "info",
+        });
 
         // Create migrations table if it doesn't exist
         await sql`
@@ -277,7 +334,7 @@ export async function seed(existingClient?: postgres.Sql) {
         `;
 
         // Get list of migration files
-        const files = await readdir(MIGRATIONS_DIR);
+        const files = await readdir(POSTGRES_MIGRATIONS_DIR);
         const sqlFiles = files.filter((f) => f.endsWith(".sql")).sort();
 
         // Get already executed migrations
@@ -288,7 +345,7 @@ export async function seed(existingClient?: postgres.Sql) {
         for (const file of sqlFiles) {
             if (!executedMigrations.includes(file)) {
                 try {
-                    const filePath = path.join(MIGRATIONS_DIR, file);
+                    const filePath = path.join(POSTGRES_MIGRATIONS_DIR, file);
                     const sqlContent = await readFile(filePath, "utf-8");
 
                     // Run the migration in a transaction
@@ -341,24 +398,34 @@ if (import.meta.main) {
         case "hard-reset":
             await hardReset();
             break;
-        case "health":
-            console.log(await isHealthy());
+        case "health": {
+            const health = await isHealthy();
+            console.log({
+                postgres: health.postgres ? "healthy" : "unhealthy",
+                caddy: health.caddy ? "healthy" : "unhealthy",
+            });
             break;
+        }
         case "soft-reset":
             await softResetDatabase();
             break;
         case "migrate":
             await seed();
             break;
-        case "connection-string":
-            connectionString();
+        case "db:connection-string": {
+            const config = VircadiaConfig_Server.postgres;
+            log({
+                message: `PostgreSQL Connection String:\n\npostgres://${config.user}:${config.password}@${config.host}:${config.port}/${config.database}\n`,
+                type: "info",
+            });
             break;
+        }
         case "restart":
             await restart();
             break;
         default:
             console.error(
-                "Valid commands: up, down, hard-reset, health, soft-reset, migrate, connection-string, restart",
+                "Valid commands: up, down, hard-reset, health, soft-reset, migrate, db:connection-string, restart",
             );
             process.exit(1);
     }

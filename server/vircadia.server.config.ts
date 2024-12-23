@@ -10,12 +10,12 @@ const { positionals, values: args } = parseArgs({
         host: { type: "string" },
         "force-restart": { type: "boolean" },
         "dev-mode": { type: "boolean" },
+        "container-name": { type: "string" },
         "postgres-host": { type: "string" },
         "postgres-port": { type: "string" },
         "postgres-db": { type: "string" },
         "postgres-user": { type: "string" },
         "postgres-password": { type: "string" },
-        "postgres-container": { type: "string" },
         "postgres-extensions": { type: "string" },
         "postgres-jwt-secret": { type: "string" },
         "postgres-api-host": { type: "string" },
@@ -32,12 +32,12 @@ const envSchema = z.object({
     VRCA_SERVER_INTERNAL_SERVER_PORT: z.string().default("3020"),
     VRCA_SERVER_INTERNAL_SERVER_HOST: z.string().default("0.0.0.0"),
     VRCA_SERVER_DEV_MODE: z.boolean().default(false),
+    VRCA_SERVER_CONTAINER_NAME: z.string().default("vircadia_world"),
     VRCA_SERVER_POSTGRES_HOST: z.string().default("localhost"),
     VRCA_SERVER_POSTGRES_PORT: z.coerce.number().default(5432),
     VRCA_SERVER_POSTGRES_DB: z.string().default("vircadia_world_db"),
     VRCA_SERVER_POSTGRES_USER: z.string().default("vircadia"),
     VRCA_SERVER_POSTGRES_PASSWORD: z.string().default("CHANGE_ME!"),
-    VRCA_SERVER_POSTGRES_CONTAINER: z.string().default("vircadia_world_db"),
     VRCA_SERVER_POSTGRES_EXTENSIONS: z.string().default("uuid-ossp"),
     VRCA_SERVER_POSTGRES_JWT_SECRET: z.string().default("CHANGE_ME!"),
     VRCA_SERVER_POSTGRES_API_HOST: z.string().default("localhost"),
@@ -59,12 +59,13 @@ const env = envSchema.parse(import.meta.env);
 
 // Merge ENV and CLI args, with CLI args taking precedence
 export const VircadiaConfig_Server = {
-    debug: args["debug"] ?? env.VRCA_SERVER_DEBUG,
+    debug: args.debug ?? env.VRCA_SERVER_DEBUG,
     serverPort: Number.parseInt(
-        args["port"] ?? env.VRCA_SERVER_INTERNAL_SERVER_PORT,
+        args.port ?? env.VRCA_SERVER_INTERNAL_SERVER_PORT,
     ),
-    serverHost: args["host"] ?? env.VRCA_SERVER_INTERNAL_SERVER_HOST,
+    serverHost: args.host ?? env.VRCA_SERVER_INTERNAL_SERVER_HOST,
     devMode: args["dev-mode"] ?? env.VRCA_SERVER_DEV_MODE,
+    containerName: args["container-name"] ?? env.VRCA_SERVER_CONTAINER_NAME,
     postgres: {
         host: args["postgres-host"] ?? env.VRCA_SERVER_POSTGRES_HOST,
         port: Number(args["postgres-port"] ?? env.VRCA_SERVER_POSTGRES_PORT),
@@ -72,8 +73,6 @@ export const VircadiaConfig_Server = {
         user: args["postgres-user"] ?? env.VRCA_SERVER_POSTGRES_USER,
         password:
             args["postgres-password"] ?? env.VRCA_SERVER_POSTGRES_PASSWORD,
-        containerName:
-            args["postgres-container"] ?? env.VRCA_SERVER_POSTGRES_CONTAINER,
         extensions: (
             args["postgres-extensions"] ?? env.VRCA_SERVER_POSTGRES_EXTENSIONS
         )

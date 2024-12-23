@@ -1,8 +1,0 @@
-CHANGELOG.md
-LICENSE.md
-
-pocketbase
-
-*.db
-*.db-shm
-*.db-wal

@@ -1,26 +1,24 @@
 {
     # Global options block
-    # Use staging CA during testing
-    # acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+    acme_ca https://acme-staging-v02.api.letsencrypt.org/directory {$STAGING_CA:true}
 }
 
-api-antares.vircadia.com {
+{$POSTGRES_DOMAIN} {
     tls {
         on_demand
     }
-    
-    reverse_proxy localhost:8000 {
+
+    reverse_proxy vircadia_world_postgres:{$POSTGRES_PORT} {
         header_up Host {http.request.host}
     }
 }
 
-studio-antares.vircadia.com {
+{$BUN_DOMAIN} {
     tls {
         on_demand
     }
-    
-    reverse_proxy localhost:8000 {
+
+    reverse_proxy localhost:{$BUN_PORT} {
         header_up Host {http.request.host}
-        header_up X-Real-IP {http.request.remote}
     }
 }

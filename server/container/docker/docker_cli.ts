@@ -27,8 +27,7 @@ function getDockerEnv() {
         POSTGRES_PORT: config.postgres.port.toString(),
         POSTGRES_EXTENSIONS: config.postgres.extensions.join(","),
         POSTGRES_JWT_SECRET: config.postgres.jwtSecret,
-        POSTGRES_API_HOST: config.postgres.apiHost,
-        POSTGRES_API_PORT: config.postgres.apiPort.toString(),
+        CADDY_STAGING_CA: config.caddy.stagingCa.toString(),
     };
 }
 

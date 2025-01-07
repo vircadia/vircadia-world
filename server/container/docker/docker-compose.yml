@@ -21,19 +21,23 @@ services:
   caddy:
     image: caddy:latest
     container_name: ${CONTAINER_NAME}_caddy
+    network_mode: "host"
     depends_on:
       postgres:
         condition: service_healthy
     ports:
       - "80:80"
       - "443:443"
-      - "${POSTGRES_API_PORT}:${POSTGRES_API_PORT}"
     volumes:
       - ../../proxy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - vircadia_world_caddy_data:/data
       - vircadia_world_caddy_config:/config
     environment:
-      - POSTGRES_API_PORT=${POSTGRES_API_PORT}
+      - POSTGRES_DOMAIN=${POSTGRES_DOMAIN}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - BUN_DOMAIN=${BUN_DOMAIN}
+      - BUN_PORT=${BUN_PORT}
+      - STAGING_CA=${STAGING_CA}
     restart: unless-stopped
 
 volumes:

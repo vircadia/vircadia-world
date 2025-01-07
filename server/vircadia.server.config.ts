@@ -18,11 +18,10 @@ const { positionals, values: args } = parseArgs({
         "postgres-password": { type: "string" },
         "postgres-extensions": { type: "string" },
         "postgres-jwt-secret": { type: "string" },
-        "postgres-api-host": { type: "string" },
-        "postgres-api-port": { type: "string" },
         "oauth-github-client-id": { type: "string" },
         "oauth-github-client-secret": { type: "string" },
         "oauth-github-callback-url": { type: "string" },
+        "caddy-staging-ca": { type: "boolean" },
     },
     allowPositionals: true,
 });
@@ -40,8 +39,6 @@ const envSchema = z.object({
     VRCA_SERVER_POSTGRES_PASSWORD: z.string().default("CHANGE_ME!"),
     VRCA_SERVER_POSTGRES_EXTENSIONS: z.string().default("uuid-ossp"),
     VRCA_SERVER_POSTGRES_JWT_SECRET: z.string().default("CHANGE_ME!"),
-    VRCA_SERVER_POSTGRES_API_HOST: z.string().default("localhost"),
-    VRCA_SERVER_POSTGRES_API_PORT: z.coerce.number().default(3000),
     VRCA_SERVER_OAUTH_GITHUB_CLIENT_ID: z
         .string()
         .default("Ov23liL9aOwOiwCMqVwQ"),
@@ -53,6 +50,7 @@ const envSchema = z.object({
         .default(
             "http://localhost:3000/services/world-auth/auth/github/callback",
         ),
+    VRCA_SERVER_CADDY_STAGING_CA: z.boolean().default(false),
 });
 
 const env = envSchema.parse(import.meta.env);
@@ -81,10 +79,6 @@ export const VircadiaConfig_Server = {
             .filter((ext) => ext.length > 0),
         jwtSecret:
             args["postgres-jwt-secret"] ?? env.VRCA_SERVER_POSTGRES_JWT_SECRET,
-        apiHost: args["postgres-api-host"] ?? env.VRCA_SERVER_POSTGRES_API_HOST,
-        apiPort: Number(
-            args["postgres-api-port"] ?? env.VRCA_SERVER_POSTGRES_API_PORT,
-        ),
     },
     oauth: {
         github: {
@@ -98,5 +92,8 @@ export const VircadiaConfig_Server = {
                 args["oauth-github-callback-url"] ??
                 env.VRCA_SERVER_OAUTH_GITHUB_CALLBACK_URL,
         },
+    },
+    caddy: {
+        stagingCa: args["caddy-staging-ca"] ?? env.VRCA_SERVER_CADDY_STAGING_CA,
     },
 };

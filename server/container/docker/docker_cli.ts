@@ -372,8 +372,9 @@ if (import.meta.main) {
             break;
         case "health": {
             const health = await isHealthy();
-            console.log({
-                postgres: health.postgres ? "healthy" : "unhealthy",
+            log({
+                message: `PostgreSQL: ${health.postgres ? "healthy" : "unhealthy"}`,
+                type: "info",
             });
             break;
         }
@@ -383,7 +384,7 @@ if (import.meta.main) {
         case "migrate":
             await seed();
             break;
-        case "db:connection-string": {
+        case "connection-string": {
             const config = VircadiaConfig_Server.postgres;
             log({
                 message: `PostgreSQL Connection String:\n\npostgres://${config.user}:${config.password}@${config.host}:${config.port}/${config.database}\n`,

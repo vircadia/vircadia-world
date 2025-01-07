@@ -21,7 +21,6 @@ const { positionals, values: args } = parseArgs({
         "oauth-github-client-id": { type: "string" },
         "oauth-github-client-secret": { type: "string" },
         "oauth-github-callback-url": { type: "string" },
-        "caddy-staging-ca": { type: "boolean" },
     },
     allowPositionals: true,
 });
@@ -50,7 +49,6 @@ const envSchema = z.object({
         .default(
             "http://localhost:3000/services/world-auth/auth/github/callback",
         ),
-    VRCA_SERVER_CADDY_STAGING_CA: z.boolean().default(false),
 });
 
 const env = envSchema.parse(import.meta.env);
@@ -92,8 +90,5 @@ export const VircadiaConfig_Server = {
                 args["oauth-github-callback-url"] ??
                 env.VRCA_SERVER_OAUTH_GITHUB_CALLBACK_URL,
         },
-    },
-    caddy: {
-        stagingCa: args["caddy-staging-ca"] ?? env.VRCA_SERVER_CADDY_STAGING_CA,
     },
 };

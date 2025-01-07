@@ -27,7 +27,6 @@ function getDockerEnv() {
         POSTGRES_PORT: config.postgres.port.toString(),
         POSTGRES_EXTENSIONS: config.postgres.extensions.join(","),
         POSTGRES_JWT_SECRET: config.postgres.jwtSecret,
-        CADDY_STAGING_CA: config.caddy.stagingCa.toString(),
     };
 }
 
@@ -77,7 +76,6 @@ async function runDockerCommand(args: string[], env = getDockerEnv()) {
 
 export async function isHealthy(): Promise<{
     postgres: boolean;
-    caddy: boolean;
 }> {
     const config = VircadiaConfig_Server;
 
@@ -103,34 +101,9 @@ export async function isHealthy(): Promise<{
         });
     };
 
-    const checkCaddy = async (): Promise<boolean> => {
-        return new Promise((resolve) => {
-            const socket = createConnection({
-                host: config.postgres.apiHost,
-                port: config.postgres.apiPort,
-            })
-                .on("connect", () => {
-                    socket.end();
-                    resolve(true);
-                })
-                .on("error", () => {
-                    resolve(false);
-                });
+    const [postgresHealth] = await Promise.all([checkPostgres()]);
 
-            socket.setTimeout(1000);
-            socket.on("timeout", () => {
-                socket.destroy();
-                resolve(false);
-            });
-        });
-    };
-
-    const [postgresHealth, caddyHealth] = await Promise.all([
-        checkPostgres(),
-        checkCaddy(),
-    ]);
-
-    return { postgres: postgresHealth, caddy: caddyHealth };
+    return { postgres: postgresHealth };
 }
 
 async function waitForHealthy(
@@ -140,7 +113,7 @@ async function waitForHealthy(
     const startTime = Date.now();
     while (Date.now() - startTime < timeoutSeconds * 1000) {
         const health = await isHealthy();
-        if (health.postgres && health.caddy) {
+        if (health.postgres) {
             return true;
         }
         await new Promise((resolve) => setTimeout(resolve, intervalMs));
@@ -401,7 +374,6 @@ if (import.meta.main) {
             const health = await isHealthy();
             console.log({
                 postgres: health.postgres ? "healthy" : "unhealthy",
-                caddy: health.caddy ? "healthy" : "unhealthy",
             });
             break;
         }

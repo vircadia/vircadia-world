@@ -26,7 +26,16 @@ const { positionals, values: args } = parseArgs({
 });
 
 const envSchema = z.object({
-    VRCA_SERVER_DEBUG: z.boolean().default(false),
+    VRCA_SERVER_DEBUG: z
+        .union([
+            z.boolean(),
+            z
+                .string()
+                .transform(
+                    (val) => val === "1" || val.toLowerCase() === "true",
+                ),
+        ])
+        .default(false),
     VRCA_SERVER_INTERNAL_SERVER_PORT: z.string().default("3020"),
     VRCA_SERVER_INTERNAL_SERVER_HOST: z.string().default("0.0.0.0"),
     VRCA_SERVER_DEV_MODE: z.boolean().default(false),

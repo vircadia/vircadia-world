@@ -32,17 +32,24 @@ function getDockerEnv() {
 
 async function runDockerCommand(args: string[], env = getDockerEnv()) {
     const config = VircadiaConfig_Server;
-    const process = Bun.spawn(
-        ["docker-compose", "-f", DOCKER_COMPOSE_PATH, ...args],
+
+    const processEnv = {
+        ...process.env, // Inherit all system env vars including PATH
+        ...env, // Add our custom env vars
+        PATH: process.env.PATH, // Explicitly ensure PATH is included
+    };
+
+    const spawnedProcess = Bun.spawn(
+        ["docker", "compose", "-f", DOCKER_COMPOSE_PATH, ...args],
         {
-            env,
+            env: processEnv,
             stdout: "pipe",
             stderr: "pipe",
         },
     );
 
-    const stdout = await new Response(process.stdout).text();
-    const stderr = await new Response(process.stderr).text();
+    const stdout = await new Response(spawnedProcess.stdout).text();
+    const stderr = await new Response(spawnedProcess.stderr).text();
 
     if (config.debug) {
         log({
@@ -51,23 +58,27 @@ async function runDockerCommand(args: string[], env = getDockerEnv()) {
         });
     }
 
-    const exitCode = await process.exited;
-    if (exitCode !== 0 || config.debug) {
+    const exitCode = await spawnedProcess.exitCode;
+
+    // Log output regardless of exit code if in debug mode
+    if (config.debug) {
         if (stdout) {
             log({
                 message: `[Docker Command Output]\n${stdout}`,
-                type: exitCode === 0 ? "debug" : "info",
+                type: "debug",
             });
         }
         if (stderr) {
             log({
                 message: `[Docker Command Error]\n${stderr}`,
-                type: "error",
+                type: "debug",
             });
         }
     }
 
-    if (exitCode !== 0) {
+    // For 'down' commands, stderr output is expected and not an error
+    const isDownCommand = args.includes("down");
+    if (exitCode !== 0 && !isDownCommand) {
         throw new Error(
             `Docker command failed with exit code ${exitCode}. Check logs above for details.`,
         );

@@ -31,13 +31,17 @@ function getDockerEnv() {
 }
 
 async function runDockerCommand(args: string[], env = getDockerEnv()) {
-    const config = VircadiaConfig_Server;
-
     const processEnv = {
-        ...process.env, // Inherit all system env vars including PATH
-        ...env, // Add our custom env vars
-        PATH: process.env.PATH, // Explicitly ensure PATH is included
+        ...process.env,
+        ...env,
+        PATH: process.env.PATH,
     };
+
+    // Log the command being executed
+    log({
+        message: `[Docker Command] docker-compose -f ${DOCKER_COMPOSE_PATH} ${args.join(" ")}`,
+        type: "debug",
+    });
 
     const spawnedProcess = Bun.spawn(
         ["docker", "compose", "-f", DOCKER_COMPOSE_PATH, ...args],
@@ -51,36 +55,27 @@ async function runDockerCommand(args: string[], env = getDockerEnv()) {
     const stdout = await new Response(spawnedProcess.stdout).text();
     const stderr = await new Response(spawnedProcess.stderr).text();
 
-    if (config.debug) {
+    // Always log output for better debugging
+    if (stdout) {
         log({
-            message: `[Docker Command]\ndocker-compose -f ${DOCKER_COMPOSE_PATH} ${args.join(" ")}`,
-            type: "debug",
+            message: `[Docker Command Output]\n${stdout}`,
+            type: "info",
+        });
+    }
+    if (stderr) {
+        log({
+            message: `[Docker Command Output]\n${stderr}`,
+            type: "info",
         });
     }
 
     const exitCode = await spawnedProcess.exitCode;
 
-    // Log output regardless of exit code if in debug mode
-    if (config.debug) {
-        if (stdout) {
-            log({
-                message: `[Docker Command Output]\n${stdout}`,
-                type: "debug",
-            });
-        }
-        if (stderr) {
-            log({
-                message: `[Docker Command Error]\n${stderr}`,
-                type: "debug",
-            });
-        }
-    }
-
-    // For 'down' commands, stderr output is expected and not an error
-    const isDownCommand = args.includes("down");
-    if (exitCode !== 0 && !isDownCommand) {
+    // For 'down' commands and 'up' commands, stderr output is expected and not an error
+    const isExpectedOutput = args.includes("down") || args.includes("up");
+    if (exitCode !== 0 && !isExpectedOutput) {
         throw new Error(
-            `Docker command failed with exit code ${exitCode}. Check logs above for details.`,
+            `Docker command failed with exit code ${exitCode}.\nStdout: ${stdout}\nStderr: ${stderr}`,
         );
     }
 }

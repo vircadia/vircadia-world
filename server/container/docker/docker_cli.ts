@@ -27,6 +27,7 @@ function getDockerEnv() {
         POSTGRES_PORT: config.postgres.port.toString(),
         POSTGRES_EXTENSIONS: config.postgres.extensions.join(","),
         POSTGRES_JWT_SECRET: config.postgres.jwtSecret,
+        PGWEB_PORT: config.pgweb.port.toString(),
     };
 }
 
@@ -197,15 +198,24 @@ export async function down(env = getDockerEnv()) {
     });
 }
 
-export async function hardReset(env = getDockerEnv()) {
+export async function rebuildContainer(env = getDockerEnv()) {
     log({
         message: `Performing hard reset of ${env.CONTAINER_NAME} container...`,
         type: "info",
     });
     await runDockerCommand(["down", "-v"]);
+    log({
+        message: `Container ${env.CONTAINER_NAME} removed, rebuilding...`,
+        type: "info",
+    });
     await runDockerCommand(["up", "-d", "--build"]);
     log({
-        message: `${env.CONTAINER_NAME} container reset complete`,
+        message: `${env.CONTAINER_NAME} container reset complete, running migrations...`,
+        type: "info",
+    });
+    await seed();
+    log({
+        message: `${env.CONTAINER_NAME} database migrations applied`,
         type: "success",
     });
 }
@@ -373,8 +383,8 @@ if (import.meta.main) {
         case "down":
             await down();
             break;
-        case "hard-reset":
-            await hardReset();
+        case "rebuild-container":
+            await rebuildContainer();
             break;
         case "health": {
             const health = await isHealthy();
@@ -384,13 +394,13 @@ if (import.meta.main) {
             });
             break;
         }
-        case "soft-reset":
+        case "db:soft-reset":
             await softResetDatabase();
             break;
-        case "migrate":
+        case "db:migrate":
             await seed();
             break;
-        case "connection-string": {
+        case "db:connection-string": {
             const config = VircadiaConfig_Server.postgres;
             log({
                 message: `PostgreSQL Connection String:\n\npostgres://${config.user}:${config.password}@${config.host}:${config.port}/${config.database}\n`,
@@ -401,9 +411,25 @@ if (import.meta.main) {
         case "restart":
             await restart();
             break;
+        case "pgweb:access-command": {
+            const config = VircadiaConfig_Server;
+            const isRemoteHost = !["localhost", "127.0.0.1"].includes(
+                config.postgres.host,
+            );
+
+            const accessMessage = isRemoteHost
+                ? `1. First create SSH tunnel:\nssh -L ${config.pgweb.port}:localhost:${config.pgweb.port} username@${config.postgres.host}\n\n2. Then access pgweb at:`
+                : "Access pgweb at:";
+
+            log({
+                message: `${accessMessage}\nhttp://localhost:${config.pgweb.port}\n`,
+                type: "info",
+            });
+            break;
+        }
         default:
             console.error(
-                "Valid commands: up, down, hard-reset, health, soft-reset, migrate, db:connection-string, restart",
+                "Valid commands: up, down, rebuild-container, health, db:soft-reset, db:migrate, db:connection-string, pgweb:access-command, restart",
             );
             process.exit(1);
     }

@@ -10,11 +10,12 @@
     "build": "bun build server.ts --outfile=server",
     "services:up": "bun run container/docker/docker_cli.ts up",
     "services:down": "bun run container/docker/docker_cli.ts down",
-    "services:soft-reset": "bun run container/docker/docker_cli.ts soft-reset",
-    "services:hard-reset": "bun run container/docker/docker_cli.ts hard-reset",
-    "services:health": "bun run container/docker/docker_cli.ts health",
-    "services:db:connection-string": "bun run container/docker/docker_cli.ts connection-string",
-    "services:restart": "bun run container/docker/docker_cli.ts restart"
+    "services:db:soft-reset": "bun run container/docker/docker_cli.ts db:soft-reset",
+    "services:db:migrate": "bun run container/docker/docker_cli.ts db:migrate",
+    "services:db:connection-string": "bun run container/docker/docker_cli.ts db:connection-string",
+    "services:restart": "bun run container/docker/docker_cli.ts restart",
+    "services:rebuild-container": "bun run container/docker/docker_cli.ts rebuild-container",
+    "services:pgweb:access-command": "bun run container/docker/docker_cli.ts pgweb:access-command"
   },
   "dependencies": {
     "@babylonjs/core": "^7.37.0",

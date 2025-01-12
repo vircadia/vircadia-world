@@ -21,6 +21,7 @@ const { positionals, values: args } = parseArgs({
         "oauth-github-client-id": { type: "string" },
         "oauth-github-client-secret": { type: "string" },
         "oauth-github-callback-url": { type: "string" },
+        "pgweb-port": { type: "string" },
     },
     allowPositionals: true,
 });
@@ -58,6 +59,7 @@ const envSchema = z.object({
         .default(
             "http://localhost:3000/services/world-auth/auth/github/callback",
         ),
+    VRCA_SERVER_PGWEB_PORT: z.string().default("5437"),
 });
 
 const env = envSchema.parse(import.meta.env);
@@ -86,6 +88,9 @@ export const VircadiaConfig_Server = {
             .filter((ext) => ext.length > 0),
         jwtSecret:
             args["postgres-jwt-secret"] ?? env.VRCA_SERVER_POSTGRES_JWT_SECRET,
+    },
+    pgweb: {
+        port: Number(args["pgweb-port"] ?? env.VRCA_SERVER_PGWEB_PORT),
     },
     oauth: {
         github: {

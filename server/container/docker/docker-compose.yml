@@ -17,6 +17,26 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - vircadia_network
+
+  pgweb:
+    image: sosedoff/pgweb
+    container_name: ${CONTAINER_NAME}_pgweb
+    restart: always
+    ports:
+      - "${PGWEB_PORT}:8081"
+    environment:
+      - PGWEB_DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${CONTAINER_NAME}_postgres:5432/${POSTGRES_DB}?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - vircadia_network
+
+networks:
+  vircadia_network:
+    driver: bridge
 
 volumes:
   vircadia_world_postgres_data:

@@ -104,7 +104,9 @@ CREATE TABLE entities (
     general__load_priority INTEGER,
     general__initialized_at TIMESTAMPTZ DEFAULT NULL,
     general__initialized_by UUID DEFAULT NULL,
-    scripts__ids UUID[] DEFAULT '{}'
+    meta__data HSTORE DEFAULT ''::hstore,
+    scripts__ids UUID[] DEFAULT '{}',
+    validation__log JSONB DEFAULT '[]'::jsonb
 ) INHERITS (performance, permissions);
 
 CREATE UNIQUE INDEX unique_seed_order_idx ON entities(general__load_priority) WHERE general__load_priority IS NOT NULL;
@@ -116,6 +118,7 @@ CREATE INDEX idx_entities_created_at ON entities(general__created_at);
 CREATE INDEX idx_entities_updated_at ON entities(general__updated_at);
 CREATE INDEX idx_entities_semantic_version ON entities(general__semantic_version);
 CREATE INDEX idx_entities_scripts_ids ON entities USING GIN (scripts__ids);
+CREATE INDEX idx_entities_validation_log ON entities USING GIN (validation__log);
 
 -- Enable RLS on entities table
 ALTER TABLE entities ENABLE ROW LEVEL SECURITY;
@@ -184,306 +187,6 @@ CREATE POLICY "entities_admin_policy" ON entities
     FOR ALL
     USING (is_admin_agent());
 
---
--- ENTITIES METADATA
---
-
-CREATE TABLE entities_metadata (
-    general__metadata_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    general__entity_id UUID NOT NULL REFERENCES entities(general__uuid) ON DELETE CASCADE,
-    general__name TEXT NOT NULL,
-    general__created_at TIMESTAMPTZ DEFAULT NOW(),
-    general__created_by UUID DEFAULT auth_uid(),
-    general__updated_at TIMESTAMPTZ DEFAULT NOW(),
-    values__text TEXT[],
-    values__numeric NUMERIC[],
-    values__boolean BOOLEAN[],
-    values__timestamp TIMESTAMPTZ[],
-
-    UNIQUE (general__entity_id, general__name)
-) INHERITS (performance);
-
--- Enable RLS on entities_metadata table
-ALTER TABLE entities_metadata ENABLE ROW LEVEL SECURITY;
-
--- Add index for faster metadata lookups
-CREATE INDEX idx_entities_general__name_entity ON entities_metadata(general__name, general__entity_id);
-
--- Entities metadata policies
-CREATE POLICY "entities_metadata_view_policy" ON entities_metadata
-    FOR SELECT
-    USING (
-        EXISTS (
-            SELECT 1 
-            FROM entities e
-            WHERE e.general__uuid = entities_metadata.general__entity_id
-            AND (
-                e.general__created_by = auth_uid()
-                OR EXISTS (
-                    SELECT 1
-                    FROM agent_roles ar
-                    WHERE ar.auth__agent_id = auth_uid()
-                    AND ar.auth__is_active = true
-                    AND (
-                        ar.auth__role_name = ANY(e.permissions__roles__view)
-                        OR ar.auth__role_name = ANY(e.permissions__roles__full)
-                    )
-                )
-            )
-        )
-    );
-
-CREATE POLICY "entities_metadata_update_policy" ON entities_metadata
-    FOR UPDATE
-    USING (
-        is_admin_agent()
-        AND EXISTS (
-            SELECT 1 
-            FROM entities e
-            WHERE e.general__uuid = entities_metadata.general__entity_id
-            AND (
-                e.general__created_by = auth_uid()
-                OR EXISTS (
-                    SELECT 1
-                    FROM agent_roles ar
-                    WHERE ar.auth__agent_id = auth_uid()
-                    AND ar.auth__is_active = true
-                    AND ar.auth__role_name = ANY(e.permissions__roles__full)
-                )
-            )
-        )
-    );
-
-CREATE POLICY "entities_metadata_insert_policy" ON entities_metadata
-    FOR INSERT
-    WITH CHECK (is_admin_agent());
-
-CREATE POLICY "entities_metadata_delete_policy" ON entities_metadata
-    FOR DELETE
-    USING (
-        is_admin_agent()
-        AND EXISTS (
-            SELECT 1 
-            FROM entities e
-            WHERE e.general__uuid = entities_metadata.general__entity_id
-            AND (
-                e.general__created_by = auth_uid()
-                OR EXISTS (
-                    SELECT 1
-                    FROM agent_roles ar
-                    WHERE ar.auth__agent_id = auth_uid()
-                    AND ar.auth__is_active = true
-                    AND ar.auth__role_name = ANY(e.permissions__roles__full)
-                )
-            )
-        )
-    );
-
---
--- ENTITY ACTIONS
---
-
-CREATE TYPE entity_action_status AS ENUM (
-    'PENDING',
-    'IN_PROGRESS',
-    'COMPLETED',
-    'FAILED',
-    'REJECTED',
-    'EXPIRED',
-    'CANCELLED'
-);
-
-CREATE TABLE entity_actions (
-    general__action_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    general__entity_script_id UUID REFERENCES entity_scripts(general__script_id) NOT NULL,
-    general__action_status entity_action_status NOT NULL DEFAULT 'PENDING',
-    general__claimed_by UUID REFERENCES agent_profiles(general__uuid),
-    general__action_query JSONB NOT NULL,
-    general__last_heartbeat TIMESTAMPTZ,
-    general__created_at TIMESTAMPTZ DEFAULT NOW(),
-    general__created_by UUID DEFAULT auth_uid()
-);
-
--- Entity Action Functions
-CREATE OR REPLACE FUNCTION execute_entity_action(
-    p_entity_script_id UUID,
-    p_sql_query TEXT,
-    p_action_input JSONB
-) RETURNS VOID AS $$
-BEGIN
-    -- Validate script exists and user has permission (using RLS)
-    IF NOT EXISTS (
-        SELECT 1 
-        FROM entity_scripts 
-        WHERE general__script_id = p_entity_script_id
-    ) THEN
-        RAISE EXCEPTION 'Invalid general__script_id or insufficient permissions';
-    END IF;
-
-    EXECUTE p_sql_query;
-
-    INSERT INTO entity_actions (
-        general__entity_script_id,
-        general__action_status,
-        general__action_query,
-        general__created_by
-    ) VALUES (
-        p_entity_script_id,
-        'COMPLETED',
-        p_action_input,
-        auth_uid()
-    );
-END;
-$$ LANGUAGE plpgsql;
-
--- Action Indexes
-CREATE INDEX idx_entity_actions_status ON entity_actions(general__action_status);
-CREATE INDEX idx_entity_actions_claimed_by ON entity_actions(general__claimed_by);
-CREATE INDEX idx_entity_actions_heartbeat ON entity_actions(general__last_heartbeat) 
-    WHERE general__action_status = 'IN_PROGRESS';
-
--- Enable RLS
-ALTER TABLE entity_actions ENABLE ROW LEVEL SECURITY;
-
--- RLS Policies
-CREATE POLICY entity_actions_read_creator_and_system ON entity_actions
-    FOR SELECT TO PUBLIC
-    USING (
-        is_admin_agent()
-        OR auth_uid() = general__created_by
-        OR EXISTS (
-            SELECT 1 FROM agent_roles ar
-            WHERE ar.auth__agent_id = auth_uid()
-            AND ar.auth__role_name IN (
-                SELECT auth__role_name FROM roles 
-                WHERE auth__is_system = true AND auth__is_active = true
-            )
-            AND ar.auth__is_active = true
-        )
-    );
-
-CREATE POLICY entity_actions_create_system ON entity_actions
-    FOR INSERT TO PUBLIC
-    WITH CHECK (
-        EXISTS (
-            SELECT 1 FROM agent_roles ar
-            WHERE ar.auth__agent_id = auth_uid()
-            AND ar.auth__role_name IN (
-                SELECT auth__role_name FROM roles 
-                WHERE auth__is_system = true AND auth__is_active = true
-                OR auth__entity__object__can_insert = true AND auth__is_active = true
-            )
-            AND ar.auth__is_active = true
-        )
-    );
-
-CREATE POLICY entity_actions_update_status_claimed ON entity_actions
-    FOR UPDATE TO PUBLIC
-    USING (
-        EXISTS (
-            SELECT 1 FROM agent_roles ar
-            WHERE ar.auth__agent_id = auth_uid()
-            AND ar.auth__role_name IN (
-                SELECT auth__role_name FROM roles 
-                WHERE auth__is_system = true AND auth__is_active = true
-            )
-            AND ar.auth__is_active = true
-        )
-    )
-    WITH CHECK (
-        (general__action_status IS DISTINCT FROM entity_actions.general__action_status 
-         OR 
-         general__claimed_by IS DISTINCT FROM entity_actions.general__claimed_by)
-        AND
-        EXISTS (
-            SELECT 1 FROM agent_roles ar
-            WHERE ar.auth__agent_id = auth_uid()
-            AND ar.auth__role_name IN (
-                SELECT auth__role_name FROM roles 
-                WHERE auth__is_system = true AND auth__is_active = true
-            )
-            AND ar.auth__is_active = true
-        )
-    );
-
--- Utility Functions
-CREATE OR REPLACE FUNCTION expire_abandoned_entity_actions(threshold_ms INTEGER)
-RETURNS void AS $$
-BEGIN
-    UPDATE entity_actions
-    SET general__action_status = 'EXPIRED'
-    WHERE general__action_status = 'IN_PROGRESS'
-    AND general__last_heartbeat < NOW() - (threshold_ms * interval '1 millisecond');
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-CREATE OR REPLACE FUNCTION cleanup_inactive_entity_actions(retain_count INTEGER)
-RETURNS void AS $$
-BEGIN
-    DELETE FROM entity_actions
-    WHERE general__action_id IN (
-        SELECT general__action_id
-        FROM (
-            SELECT general__action_id,
-                   ROW_NUMBER() OVER (
-                       PARTITION BY (general__action_status IN ('COMPLETED', 'FAILED', 'REJECTED', 'EXPIRED', 'CANCELLED'))
-                       ORDER BY general__created_at DESC
-                   ) as rn
-            FROM entity_actions
-            WHERE general__action_status IN ('COMPLETED', 'FAILED', 'REJECTED', 'EXPIRED', 'CANCELLED')
-        ) ranked
-        WHERE rn > retain_count
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Grant execute permissions on functions
-GRANT EXECUTE ON FUNCTION execute_entity_action TO PUBLIC;
-GRANT EXECUTE ON FUNCTION expire_abandoned_entity_actions TO PUBLIC;
-GRANT EXECUTE ON FUNCTION cleanup_inactive_entity_actions TO PUBLIC;
-
--- Now create the trigger functions that reference the entities table
-CREATE OR REPLACE FUNCTION validate_entity_scripts()
-RETURNS TRIGGER AS $$
-BEGIN
-    -- Validate that all script IDs exist
-    IF EXISTS (
-        SELECT 1
-        FROM unnest(NEW.scripts__ids) script_id
-        WHERE NOT EXISTS (
-            SELECT 1 FROM entity_scripts WHERE general__script_id = script_id
-        )
-    ) THEN
-        RAISE EXCEPTION 'One or more script IDs do not exist in entity_scripts table';
-    END IF;
-    
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION cleanup_deleted_script_references()
-RETURNS TRIGGER AS $$
-BEGIN
-    -- Remove the deleted script ID from all entities
-    UPDATE entities
-    SET scripts__ids = array_remove(scripts__ids, OLD.general__script_id)
-    WHERE OLD.general__script_id = ANY(scripts__ids);
-    
-    RETURN OLD;
-END;
-$$ LANGUAGE plpgsql;
-
--- Create triggers after both the table and functions exist
-CREATE TRIGGER validate_entity_scripts_trigger
-    BEFORE INSERT OR UPDATE OF scripts__ids ON entities
-    FOR EACH ROW
-    EXECUTE FUNCTION validate_entity_scripts();
-
-CREATE TRIGGER cleanup_script_references_trigger
-    BEFORE DELETE ON entity_scripts
-    FOR EACH ROW
-    EXECUTE FUNCTION cleanup_deleted_script_references();
-
 -- 
 -- NOTIFICATION FUNCTIONS
 --
@@ -544,12 +247,49 @@ CREATE TRIGGER entity_changes_notify
     FOR EACH ROW
     EXECUTE FUNCTION notify_entity_changes();
 
-CREATE TRIGGER entity_metadata_changes_notify
-    AFTER INSERT OR UPDATE ON entities_metadata
-    FOR EACH ROW
-    EXECUTE FUNCTION notify_entity_metadata_changes();
-
 CREATE TRIGGER entity_script_changes_notify
     AFTER INSERT OR UPDATE ON entity_scripts
     FOR EACH ROW
     EXECUTE FUNCTION notify_entity_script_changes();
+
+-- Function to validate the validation log format
+CREATE OR REPLACE FUNCTION validate_validation_log() RETURNS TRIGGER AS $$
+BEGIN
+    -- Check if validation_log is an array
+    IF NOT jsonb_typeof(NEW.validation__log) = 'array' THEN
+        RAISE EXCEPTION 'validation__log must be a JSONB array';
+    END IF;
+
+    -- Validate each entry in the array
+    IF EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements(NEW.validation__log) AS entry
+        WHERE NOT (
+            -- Check required fields exist and have correct types
+            (entry->>'timestamp') IS NOT NULL 
+            AND (entry->>'timestamp')::timestamptz IS NOT NULL
+            AND (entry->>'agent_id') IS NOT NULL 
+            AND (entry->>'agent_id')::uuid IS NOT NULL
+            AND (entry->>'entity_script_id') IS NOT NULL 
+            AND (entry->>'entity_script_id')::uuid IS NOT NULL
+            AND (entry->>'query') IS NOT NULL 
+            AND jsonb_typeof(entry->>'query') = 'string'
+            -- Ensure no extra fields
+            AND (
+                SELECT count(*)
+                FROM jsonb_object_keys(entry) AS k
+            ) = 4
+        )
+    ) THEN
+        RAISE EXCEPTION 'Invalid validation log entry format. Required format: {"timestamp": "<timestamptz>", "agent_id": "<uuid>", "entity_script_id": "<uuid>", "query": "<string>"}';
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create trigger for validation log format enforcement
+CREATE TRIGGER enforce_validation_log_format
+    BEFORE UPDATE OF validation__log ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION validate_validation_log();

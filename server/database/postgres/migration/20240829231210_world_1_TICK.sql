@@ -64,57 +64,6 @@ CREATE POLICY "entity_states_delete_policy" ON entity_states
     FOR DELETE
     USING (is_admin_agent());
 
--- Add metadata states table
-CREATE TABLE entity_metadata_states (
-    LIKE entities_metadata INCLUDING DEFAULTS INCLUDING CONSTRAINTS,
-    
-    -- Additional metadata for state tracking
-    entity_metadata_id uuid NOT NULL REFERENCES entities_metadata(general__metadata_id) ON DELETE CASCADE,
-    timestamp timestamptz DEFAULT now(),
-    tick_number bigint NOT NULL,
-    tick_start_time timestamptz,
-    tick_end_time timestamptz,
-    tick_duration_ms double precision,
-    
-    -- Override the primary key
-    CONSTRAINT entity_metadata_states_pkey PRIMARY KEY (general__metadata_id)
-);
-
--- Indexes for fast metadata state lookups
-CREATE INDEX entity_metadata_states_lookup_idx ON entity_metadata_states (entity_metadata_id, tick_number);
-CREATE INDEX entity_metadata_states_timestamp_idx ON entity_metadata_states (timestamp);
-
--- Enable RLS on entity_metadata_states table
-ALTER TABLE entity_metadata_states ENABLE ROW LEVEL SECURITY;
-
--- View policy for entity_metadata_states (matching the entity metadata read permissions)
-CREATE POLICY "entity_metadata_states_view_policy" ON entity_metadata_states
-    FOR SELECT
-    USING (
-        EXISTS (
-            SELECT 1 
-            FROM entities_metadata em
-            JOIN entities e ON e.general__uuid = em.general__entity_id
-            JOIN agent_roles ar ON ar.auth__role_name = ANY(e.permissions__roles__view)
-            WHERE em.general__metadata_id = entity_metadata_states.entity_metadata_id
-            AND ar.auth__agent_id = auth_uid()
-            AND ar.auth__is_active = true
-        )
-    );
-
--- Update/Insert/Delete policies for entity_metadata_states (system users only)
-CREATE POLICY "entity_metadata_states_update_policy" ON entity_metadata_states
-    FOR UPDATE
-    USING (is_admin_agent());
-
-CREATE POLICY "entity_metadata_states_insert_policy" ON entity_metadata_states
-    FOR INSERT
-    WITH CHECK (is_admin_agent());
-
-CREATE POLICY "entity_metadata_states_delete_policy" ON entity_metadata_states
-    FOR DELETE
-    USING (is_admin_agent());
-
 -- Function to capture entity state - needs SECURITY DEFINER to bypass RLS
 CREATE OR REPLACE FUNCTION capture_tick_state(sync_group_name text)
 RETURNS void AS $$
@@ -156,32 +105,58 @@ BEGIN
     -- Insert entity states for this sync group only
     WITH inserted AS (
         INSERT INTO entity_states (
+            -- Base entity fields
             general__entity_id,
+            general__uuid,
+            general__name,
+            general__semantic_version,
+            general__created_at,
+            general__created_by,
+            general__updated_at,
+            general__updated_by,
+            general__load_priority,
+            general__initialized_at,
+            general__initialized_by,
+            meta__data,
+            scripts__ids,
+            validation__log,
+            -- Performance fields
+            performance__sync_group,
+            -- Permission fields
+            permissions__roles__view,
+            permissions__roles__full,
+            -- Tick-specific fields
             tick_number,
             tick_start_time,
             tick_end_time,
-            tick_duration_ms,
+            tick_duration_ms
+        )
+        SELECT 
+            -- Base entity fields
+            general__uuid AS general__entity_id,
             general__uuid,
             general__name,
             general__semantic_version,
             general__created_at,
+            general__created_by,
             general__updated_at,
+            general__updated_by,
+            general__load_priority,
+            general__initialized_at,
+            general__initialized_by,
+            meta__data,
+            scripts__ids,
+            validation__log,
+            -- Performance fields
+            performance__sync_group,
+            -- Permission fields
             permissions__roles__view,
-            performance__sync_group
-        )
-        SELECT 
-            general__uuid AS general__entity_id,
+            permissions__roles__full,
+            -- Tick-specific fields
             current_tick,
             tick_start,
             clock_timestamp(),
-            EXTRACT(EPOCH FROM (clock_timestamp() - tick_start))::double precision * 1000,
-            general__uuid,
-            general__name,
-            general__semantic_version,
-            general__created_at,
-            general__updated_at,
-            permissions__roles__view,
-            performance__sync_group
+            EXTRACT(EPOCH FROM (clock_timestamp() - tick_start))::double precision * 1000
         FROM entities e
         WHERE 
             -- Only process entities in this sync group
@@ -196,53 +171,6 @@ BEGIN
         RETURNING *
     )
     SELECT COUNT(*) INTO inserted_count FROM inserted;
-
-    -- Insert metadata states only for entities that were just updated
-    WITH inserted_metadata AS (
-        INSERT INTO entity_metadata_states (
-            general__metadata_id,
-            general__entity_id,
-            general__name,
-            values__text,
-            values__numeric,
-            values__boolean,
-            values__timestamp,
-            general__created_at,
-            general__updated_at,
-            performance__sync_group,
-            entity_metadata_id,
-            tick_number,
-            tick_start_time,
-            tick_end_time,
-            tick_duration_ms
-        )
-        SELECT 
-            em.general__metadata_id,
-            em.general__entity_id,
-            em.general__name,
-            em.values__text,
-            em.values__numeric,
-            em.values__boolean,
-            em.values__timestamp,
-            em.general__created_at,
-            em.general__updated_at,
-            em.performance__sync_group,
-            em.general__metadata_id AS entity_metadata_id,
-            current_tick,
-            tick_start,
-            clock_timestamp(),
-            EXTRACT(EPOCH FROM (clock_timestamp() - tick_start))::double precision * 1000
-        FROM entities_metadata em
-        -- Only capture metadata for entities that were just updated
-        WHERE EXISTS (
-            SELECT 1 
-            FROM entity_states es 
-            WHERE es.tick_number = current_tick
-            AND es.general__entity_id = em.general__entity_id
-        )
-        RETURNING *
-    )
-    SELECT COUNT(*) INTO metadata_inserted_count FROM inserted_metadata;
 
     tick_end := clock_timestamp();
     
@@ -374,7 +302,6 @@ CREATE OR REPLACE FUNCTION cleanup_old_entity_states()
 RETURNS void AS $$
 DECLARE
     states_cleaned integer;
-    metadata_states_cleaned integer;
 BEGIN
     -- Replace system role check with is_admin_agent()
     IF NOT is_admin_agent() THEN
@@ -393,22 +320,9 @@ BEGIN
     )
     SELECT COUNT(*) INTO states_cleaned FROM deleted_states;
     
-    -- Clean metadata states
-    WITH deleted_metadata_states AS (
-        DELETE FROM entity_metadata_states 
-        WHERE timestamp < (now() - (
-            SELECT (value#>>'{}'::text[])::int * interval '1 millisecond' 
-            FROM world_config 
-            WHERE key = 'tick_buffer_duration_ms'
-        ))
-        RETURNING *
-    )
-    SELECT COUNT(*) INTO metadata_states_cleaned FROM deleted_metadata_states;
-    
     -- Log cleanup results if anything was cleaned
-    IF states_cleaned > 0 OR metadata_states_cleaned > 0 THEN
-        RAISE NOTICE 'Cleanup completed: % entity states and % metadata states removed', 
-            states_cleaned, metadata_states_cleaned;
+    IF states_cleaned > 0 THEN
+        RAISE NOTICE 'Cleanup completed: % entity states removed', states_cleaned;
     END IF;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

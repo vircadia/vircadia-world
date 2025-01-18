@@ -46,7 +46,7 @@ const envSchema = z.object({
     VRCA_SERVER_POSTGRES_DB: z.string().default("vircadia_world_db"),
     VRCA_SERVER_POSTGRES_USER: z.string().default("vircadia"),
     VRCA_SERVER_POSTGRES_PASSWORD: z.string().default("CHANGE_ME!"),
-    VRCA_SERVER_POSTGRES_EXTENSIONS: z.string().default("uuid-ossp"),
+    VRCA_SERVER_POSTGRES_EXTENSIONS: z.string().default("uuid-ossp,hstore"),
     VRCA_SERVER_POSTGRES_JWT_SECRET: z.string().default("CHANGE_ME!"),
     VRCA_SERVER_OAUTH_GITHUB_CLIENT_ID: z
         .string()

@@ -2,14 +2,12 @@ import { VircadiaConfig_Server } from "./vircadia.server.config.ts";
 import { log } from "../sdk/vircadia-world-sdk-ts/module/general/log.ts";
 import { PostgresClient } from "./database/postgres/postgres_client.ts";
 import { WorldTickManager } from "./service/world-tick-manager.ts";
-import { WorldActionManager } from "./service/world-action-manager.ts";
 import { Hono } from "hono";
 import { logger } from "hono/logger";
 import { WorldAuthManager } from "./service/world-auth-manager";
 
 const config = VircadiaConfig_Server;
 let worldTickManager: WorldTickManager | null = null;
-let worldActionManager: WorldActionManager | null = null;
 let worldAuthManager: WorldAuthManager | null = null;
 
 async function init() {
@@ -42,15 +40,6 @@ async function init() {
         await worldTickManager.initialize();
         worldTickManager.addRoutes(app);
         worldTickManager.start();
-
-        // Initialize world action manager
-        worldActionManager = new WorldActionManager(
-            postgresClient.getClient(),
-            debugMode,
-        );
-        await worldActionManager.initialize();
-        worldActionManager.addRoutes(app);
-        worldActionManager.start();
 
         // Initialize world auth manager
         worldAuthManager = new WorldAuthManager(

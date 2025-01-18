@@ -10,6 +10,13 @@ CREATE TABLE entity_states (
     tick_end_time timestamptz,
     tick_duration_ms double precision,
 
+    -- Field hashes
+    hash__general text,
+    hash__meta text,
+    hash__scripts text,
+    hash__permissions text,
+    hash__performance text,
+
     -- Override the primary key
     CONSTRAINT entity_states_pkey PRIMARY KEY (general__uuid)
 );
@@ -64,6 +71,30 @@ CREATE POLICY "entity_states_delete_policy" ON entity_states
     FOR DELETE
     USING (is_admin_agent());
 
+-- Function to generate consistent field group hashes
+CREATE OR REPLACE FUNCTION generate_entity_field_hashes(
+    general_fields jsonb,
+    meta_fields jsonb,
+    scripts_fields jsonb,
+    permissions_fields jsonb,
+    performance_fields jsonb
+) RETURNS table (
+    hash_general text,
+    hash_meta text,
+    hash_scripts text,
+    hash_permissions text,
+    hash_performance text
+) AS $$
+BEGIN
+    RETURN QUERY SELECT 
+        md5(general_fields::text) as hash_general,
+        md5(meta_fields::text) as hash_meta,
+        md5(scripts_fields::text) as hash_scripts,
+        md5(permissions_fields::text) as hash_permissions,
+        md5(performance_fields::text) as hash_performance;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
 -- Function to capture entity state - needs SECURITY DEFINER to bypass RLS
 CREATE OR REPLACE FUNCTION capture_tick_state(sync_group_name text)
 RETURNS void AS $$
@@ -102,7 +133,7 @@ BEGIN
     -- Calculate current tick for this sync group
     current_tick := FLOOR(EXTRACT(EPOCH FROM tick_start) * 1000 / tick_rate_ms)::bigint;
     
-    -- Insert entity states for this sync group only
+    -- Modified insert statement to include hashes
     WITH inserted AS (
         INSERT INTO entity_states (
             -- Base entity fields
@@ -129,7 +160,12 @@ BEGIN
             tick_number,
             tick_start_time,
             tick_end_time,
-            tick_duration_ms
+            tick_duration_ms,
+            hash__general,
+            hash__meta,
+            hash__scripts,
+            hash__permissions,
+            hash__performance
         )
         SELECT 
             -- Base entity fields
@@ -156,8 +192,46 @@ BEGIN
             current_tick,
             tick_start,
             clock_timestamp(),
-            EXTRACT(EPOCH FROM (clock_timestamp() - tick_start))::double precision * 1000
+            EXTRACT(EPOCH FROM (clock_timestamp() - tick_start))::double precision * 1000,
+            h.hash_general,
+            h.hash_meta,
+            h.hash_scripts,
+            h.hash_permissions,
+            h.hash_performance
         FROM entities e
+        CROSS JOIN LATERAL generate_entity_field_hashes(
+            -- General fields
+            jsonb_build_object(
+                'uuid', e.general__uuid,
+                'name', e.general__name,
+                'semantic_version', e.general__semantic_version,
+                'created_at', e.general__created_at,
+                'created_by', e.general__created_by,
+                'updated_at', e.general__updated_at,
+                'updated_by', e.general__updated_by,
+                'load_priority', e.general__load_priority,
+                'initialized_at', e.general__initialized_at,
+                'initialized_by', e.general__initialized_by
+            ),
+            -- Meta fields
+            jsonb_build_object(
+                'data', e.meta__data
+            ),
+            -- Scripts fields
+            jsonb_build_object(
+                'ids', e.scripts__ids,
+                'validation_log', e.validation__log
+            ),
+            -- Permissions fields
+            jsonb_build_object(
+                'roles_view', e.permissions__roles__view,
+                'roles_full', e.permissions__roles__full
+            ),
+            -- Performance fields
+            jsonb_build_object(
+                'sync_group', e.performance__sync_group
+            )
+        ) h
         WHERE 
             -- Only process entities in this sync group
             COALESCE(e.performance__sync_group, 'NORMAL') = sync_group_name

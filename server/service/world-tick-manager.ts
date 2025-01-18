@@ -4,8 +4,7 @@ import type { Hono } from "hono";
 
 interface SyncGroup {
     server_tick_rate_ms: number;
-    client_needs_update_check_rate_ms: number;
-    client_keyframe_sync_rate_ms: number;
+    client_keyframe_check_rate_ms: number;
 }
 
 interface SyncGroups {
@@ -124,23 +123,30 @@ export class WorldTickManager {
 
     private async captureSyncGroupTick(syncGroup: string, config: SyncGroup) {
         try {
-            const totalStartTime = performance.now();
             const tickCount = this.tickCounts.get(syncGroup) || 0;
 
-            // Pass the sync group to the function
-            await this.sql`
-                SELECT capture_tick_state(${syncGroup})
+            // Capture tick state and get metrics
+            const result = await this.sql`
+                WITH tick_capture AS (
+                    SELECT capture_tick_state(${syncGroup})
+                )
+                SELECT 
+                    duration_ms, 
+                    is_delayed,
+                    headroom_ms
+                FROM tick_metrics
+                WHERE sync_group = ${syncGroup}
+                ORDER BY end_time DESC
+                LIMIT 1
             `;
-
-            const totalElapsed = performance.now() - totalStartTime;
 
             // Update tick count for this sync group
             this.tickCounts.set(syncGroup, tickCount + 1);
 
-            // Log performance metrics if needed
-            if (totalElapsed > config.server_tick_rate_ms) {
+            // Log performance metrics if there was a delay
+            if (result[0]?.is_delayed) {
                 log({
-                    message: `${syncGroup} tick capture took ${totalElapsed.toFixed(2)}ms (target: ${config.server_tick_rate_ms}ms)`,
+                    message: `${syncGroup} tick capture took ${result[0].duration_ms.toFixed(2)}ms (target: ${config.server_tick_rate_ms}ms, headroom: ${result[0].headroom_ms.toFixed(2)}ms)`,
                     debug: this.debugMode,
                     type: "warn",
                 });
@@ -172,28 +178,12 @@ export class WorldTickManager {
                 type: "debug",
             });
 
-            let lastTickTime = performance.now();
-            let drift = 0;
-
             const tick = async () => {
-                const now = performance.now();
-                const delta = now - lastTickTime;
-
                 await this.captureSyncGroupTick(syncGroup, config);
-
-                lastTickTime = now;
-                drift += delta - config.server_tick_rate_ms;
-
-                const nextDelay = Math.max(
-                    0,
-                    config.server_tick_rate_ms - drift,
+                this.intervalIds.set(
+                    syncGroup,
+                    setTimeout(tick, config.server_tick_rate_ms),
                 );
-
-                if (Math.abs(drift) > config.server_tick_rate_ms * 2) {
-                    drift = 0;
-                }
-
-                this.intervalIds.set(syncGroup, setTimeout(tick, nextDelay));
             };
 
             tick();

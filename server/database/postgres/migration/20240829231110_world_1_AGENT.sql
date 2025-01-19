@@ -15,16 +15,9 @@ CREATE TABLE auth.agent_profiles (
     auth__password_last_changed TIMESTAMPTZ
 );
 
-CREATE TABLE auth.auth_providers (
-    auth__provider_name TEXT PRIMARY KEY,
-    meta__description TEXT,
-    auth__is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    general__created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
 CREATE TABLE auth.agent_auth_providers (
     auth__agent_id UUID REFERENCES auth.agent_profiles(general__uuid) ON DELETE CASCADE,
-    auth__provider_name TEXT REFERENCES auth.auth_providers(auth__provider_name) ON DELETE CASCADE,
+    auth__provider_name TEXT NOT NULL,
     auth__provider_uid TEXT,
     auth__is_primary BOOLEAN NOT NULL DEFAULT FALSE,
     general__created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -35,8 +28,7 @@ CREATE TABLE auth.roles (
     auth__role_name TEXT PRIMARY KEY,
     meta__description TEXT,
     auth__is_system BOOLEAN NOT NULL DEFAULT FALSE,
-    auth__is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    auth__entity__object__can_insert BOOLEAN NOT NULL DEFAULT FALSE,
+    auth__entity__insert BOOLEAN NOT NULL DEFAULT FALSE,
     auth__entity__script__full BOOLEAN NOT NULL DEFAULT FALSE,
     general__created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -53,19 +45,11 @@ CREATE TABLE auth.agent_roles (
 CREATE TABLE auth.agent_sessions (
     general__session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     auth__agent_id UUID REFERENCES auth.agent_profiles(general__uuid) ON DELETE CASCADE,
-    auth__provider_name TEXT REFERENCES auth.auth_providers(auth__provider_name),
+    auth__provider_name TEXT NOT NULL,
     session__started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     session__last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     meta__metadata JSONB,
     session__is_active BOOLEAN NOT NULL DEFAULT TRUE
-);
-
-CREATE TABLE auth.auth_provider_roles (
-    auth__provider_name TEXT REFERENCES auth.auth_providers(auth__provider_name) ON DELETE CASCADE,
-    auth__provider_role_name TEXT NOT NULL,
-    auth__local_role_name TEXT REFERENCES auth.roles(auth__role_name) ON DELETE CASCADE,
-    general__created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (auth__provider_name, auth__provider_role_name)
 );
 
 -- Enable RLS
@@ -79,61 +63,44 @@ CREATE INDEX idx_agent_roles_auth__agent_id ON auth.agent_roles(auth__agent_id);
 CREATE INDEX idx_agent_sessions_auth__agent_id ON auth.agent_sessions(auth__agent_id);
 CREATE INDEX idx_agent_sessions_auth__provider_name ON auth.agent_sessions(auth__provider_name);
 CREATE INDEX idx_agent_profiles_email ON auth.agent_profiles(auth__email);
-CREATE INDEX idx_auth_provider_roles_local_role ON auth.auth_provider_roles(auth__local_role_name);
 
--- Replace current_agent_id function that was using Supabase's auth.uid()
 CREATE OR REPLACE FUNCTION current_agent_id() 
 RETURNS UUID AS $$
-DECLARE
-    session_agent_id UUID;
 BEGIN
-    -- Get the agent_id from the current active session
-    SELECT auth__agent_id INTO session_agent_id
-    FROM auth.agent_sessions
-    WHERE session__is_active = true
-    AND session__last_seen_at > (NOW() - INTERVAL '24 hours')
-    ORDER BY session__last_seen_at DESC
-    LIMIT 1;
-    
-    RETURN session_agent_id;
+    -- Try to get from session first
+    RETURN COALESCE(
+        (SELECT auth__agent_id
+         FROM auth.agent_sessions
+         WHERE session__is_active = true
+         AND session__last_seen_at > (NOW() - INTERVAL '24 hours')
+         ORDER BY session__last_seen_at DESC
+         LIMIT 1),
+        '00000000-0000-0000-0000-000000000001'::UUID  -- Anonymous user
+    );
 END;
 $$ LANGUAGE plpgsql;
 
--- Make the auth_uid() function more secure
-CREATE OR REPLACE FUNCTION auth_uid() 
-RETURNS UUID AS $$
+-- Simplify admin check
+CREATE OR REPLACE FUNCTION is_admin_agent()
+RETURNS boolean AS $$
 BEGIN
-    -- Only allow setting auth.uid_internal through verified sessions
-    RETURN NULLIF(current_setting('auth.uid_internal', true), '')::UUID;
-EXCEPTION
-    -- Return anonymous user if no valid session
-    WHEN OTHERS THEN
-        RETURN '00000000-0000-0000-0000-000000000001'::UUID;
+    RETURN (SELECT usesuper FROM pg_user WHERE usename = CURRENT_USER)
+           OR EXISTS (
+               SELECT 1 
+               FROM auth.agent_roles ar
+               WHERE ar.auth__agent_id = current_agent_id()
+               AND ar.auth__role_name = 'admin'
+               AND ar.auth__is_active = true
+           );
 END;
 $$ LANGUAGE plpgsql;
 
--- Create a secure function to set the auth context
-CREATE OR REPLACE FUNCTION set_auth_uid(agent_id UUID)
-RETURNS void AS $$
-BEGIN
-    -- Only superusers can call this function
-    IF NOT (SELECT usesuper FROM pg_user WHERE usename = CURRENT_USER) THEN
-        RAISE EXCEPTION 'Permission denied: Only superusers can set auth context';
-    END IF;
-    
-    -- Verify the agent exists (except for anonymous and system users)
-    IF agent_id NOT IN ('00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001') THEN
-        IF NOT EXISTS (SELECT 1 FROM auth.agent_profiles WHERE general__uuid = agent_id) THEN
-            RAISE EXCEPTION 'Invalid agent_id';
-        END IF;
-    END IF;
-
-    PERFORM set_config('auth.uid_internal', agent_id::text, false);
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Revoke direct set_config privileges
-REVOKE ALL ON FUNCTION set_config(text, text, boolean) FROM PUBLIC;
+-- Modify policies to use is_admin_agent
+CREATE POLICY admin_access ON auth.agent_profiles
+    TO PUBLIC
+    USING (
+        is_admin_agent()
+    );
 
 -- Update function to only modify updated_at timestamp
 CREATE OR REPLACE FUNCTION set_agent_timestamps()
@@ -160,11 +127,14 @@ $$ LANGUAGE plpgsql;
 
 -- Seed default roles
 INSERT INTO auth.roles 
-    (auth__role_name, meta__description, auth__is_system, auth__is_active, auth__entity__object__can_insert, auth__entity__script__full) 
+    (auth__role_name, meta__description, auth__is_system, auth__entity__insert, auth__entity__script__full) 
 VALUES 
-    ('admin', 'System administrator with full access', TRUE, TRUE, TRUE, TRUE),
-    ('agent', 'Regular agent with basic access', TRUE, TRUE, FALSE, FALSE),
-    ('anon', 'Anonymous user with limited access', TRUE, TRUE, FALSE, FALSE)
+    ('admin', 'System administrator with full access', 
+     TRUE, TRUE, TRUE),
+    ('agent', 'Regular agent with basic access',
+     TRUE, FALSE, FALSE),
+    ('anon', 'Anonymous user with limited access',
+     TRUE, FALSE, FALSE)
 ON CONFLICT (auth__role_name) DO NOTHING;
 
 -- Create system and anon agents with a known UUID
@@ -183,33 +153,6 @@ VALUES
     ('00000000-0000-0000-0000-000000000001', 'anon', TRUE)
 ON CONFLICT DO NOTHING;
 
-CREATE OR REPLACE FUNCTION is_admin_agent()
-RETURNS boolean AS $$
-BEGIN
-    RETURN (
-        -- Check if the user is a database superuser
-        (SELECT usesuper FROM pg_user WHERE usename = CURRENT_USER)
-        OR
-        -- Check if the user has the admin role in our application
-        EXISTS (
-            SELECT 1 
-            FROM auth.agent_roles ar
-            JOIN auth.roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth_uid()
-            AND ar.auth__is_active = true
-            AND r.auth__role_name = 'admin'
-        )
-    );
-END;
-$$ LANGUAGE plpgsql;
-
--- Modify policies to use is_admin_agent
-CREATE POLICY admin_access ON auth.agent_profiles
-    TO PUBLIC
-    USING (
-        is_admin_agent()
-    );
-
 -- Modify the get_system_permissions_requirements function
 CREATE OR REPLACE FUNCTION debug_admin_agent()
 RETURNS jsonb AS $$
@@ -221,7 +164,7 @@ BEGIN
         SELECT 1 
         FROM auth.agent_roles ar
         JOIN auth.roles r ON ar.auth__role_name = r.auth__role_name
-        WHERE ar.auth__agent_id = auth_uid()
+        WHERE ar.auth__agent_id = current_agent_id()
         AND ar.auth__is_active = true
         AND r.auth__is_system = true
     );
@@ -231,7 +174,7 @@ BEGIN
     RETURN jsonb_build_object(
         'has_role_permission', has_role_permission,
         'is_superuser', is_superuser,
-        'roles', (SELECT jsonb_agg(auth__role_name) FROM auth.agent_roles WHERE auth__agent_id = auth_uid() AND auth__is_active = true)
+        'roles', (SELECT jsonb_agg(auth__role_name) FROM auth.agent_roles WHERE auth__agent_id = current_agent_id() AND auth__is_active = true)
     );
 END;
 $$ LANGUAGE plpgsql;
@@ -240,7 +183,7 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION is_anon_agent()
 RETURNS boolean AS $$
 BEGIN
-    RETURN auth_uid() = '00000000-0000-0000-0000-000000000001'::UUID;
+    RETURN current_agent_id() = '00000000-0000-0000-0000-000000000001'::UUID;
 END;
 $$ LANGUAGE plpgsql;
 

@@ -39,7 +39,7 @@ export class WorldTickManager {
 
             // Fetch initial config values including sync groups
             const configData = await this.sql`
-                SELECT key, value FROM world_config 
+                SELECT key, value FROM config.config 
                 WHERE key IN ('tick_buffer_duration_ms', 'tick_metrics_history_ms', 'sync_groups')
             `;
 
@@ -134,7 +134,7 @@ export class WorldTickManager {
                     duration_ms, 
                     is_delayed,
                     headroom_ms
-                FROM tick_metrics
+                FROM tick.tick_metrics
                 WHERE sync_group = ${syncGroup}
                 ORDER BY end_time DESC
                 LIMIT 1

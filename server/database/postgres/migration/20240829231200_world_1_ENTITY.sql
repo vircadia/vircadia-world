@@ -24,9 +24,9 @@ CREATE TYPE script_compilation_status AS ENUM ('PENDING', 'COMPILED', 'FAILED');
 CREATE TABLE entity.entity_scripts (
     general__script_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    general__created_by UUID DEFAULT auth_uid(),
+    general__created_by UUID DEFAULT current_agent_id(),
     general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    general__updated_by UUID DEFAULT auth_uid(),
+    general__updated_by UUID DEFAULT current_agent_id(),
 
     compiled__web__node__script TEXT,
     compiled__web__node__script_sha256 TEXT,
@@ -58,7 +58,7 @@ CREATE POLICY "Allow inserting scripts with proper role" ON entity.entity_script
         OR EXISTS (
             SELECT 1 FROM auth.agent_roles ar
             JOIN auth.roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth_uid()
+            WHERE ar.auth__agent_id = current_agent_id()
             AND ar.auth__is_active = true
             AND r.auth__entity__script__full = true
         )
@@ -72,7 +72,7 @@ CREATE POLICY "Allow updating scripts with proper role" ON entity.entity_scripts
         OR EXISTS (
             SELECT 1 FROM auth.agent_roles ar
             JOIN auth.roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth_uid()
+            WHERE ar.auth__agent_id = current_agent_id()
             AND ar.auth__is_active = true
             AND r.auth__entity__script__full = true
         )
@@ -86,7 +86,7 @@ CREATE POLICY "Allow deleting scripts with proper role" ON entity.entity_scripts
         OR EXISTS (
             SELECT 1 FROM auth.agent_roles ar
             JOIN auth.roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth_uid()
+            WHERE ar.auth__agent_id = current_agent_id()
             AND ar.auth__is_active = true
             AND r.auth__entity__script__full = true
         )
@@ -101,9 +101,9 @@ CREATE TABLE entity.entities (
     general__name VARCHAR(255) NOT NULL,
     general__semantic_version TEXT NOT NULL DEFAULT '1.0.0',
     general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    general__created_by UUID DEFAULT auth_uid(),
+    general__created_by UUID DEFAULT current_agent_id(),
     general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    general__updated_by UUID DEFAULT auth_uid(),
+    general__updated_by UUID DEFAULT current_agent_id(),
     general__load_priority INTEGER,
     general__initialized_at TIMESTAMPTZ DEFAULT NULL,
     general__initialized_by UUID DEFAULT NULL,
@@ -131,11 +131,11 @@ CREATE POLICY "entities_view_policy" ON entity.entities
     FOR SELECT
     USING (
         is_admin_agent()
-        OR general__created_by = auth_uid()
+        OR general__created_by = current_agent_id()
         OR EXISTS (
             SELECT 1 
             FROM auth.agent_roles ar
-            WHERE ar.auth__agent_id = auth_uid()
+            WHERE ar.auth__agent_id = current_agent_id()
             AND ar.auth__is_active = true
             AND (
                 ar.auth__role_name = ANY(entity.entities.permissions__roles__view)
@@ -148,11 +148,11 @@ CREATE POLICY "entities_update_policy" ON entity.entities
     FOR UPDATE
     USING (
         is_admin_agent()
-        OR general__created_by = auth_uid()
+        OR general__created_by = current_agent_id()
         OR EXISTS (
             SELECT 1 
             FROM auth.agent_roles ar
-            WHERE ar.auth__agent_id = auth_uid()
+            WHERE ar.auth__agent_id = current_agent_id()
             AND ar.auth__is_active = true
             AND ar.auth__role_name = ANY(entity.entities.permissions__roles__full)
         )
@@ -165,10 +165,9 @@ CREATE POLICY "entities_insert_policy" ON entity.entities
             SELECT 1 
             FROM auth.agent_roles ar
             JOIN auth.roles r ON r.auth__role_name = ar.auth__role_name
-            WHERE ar.auth__agent_id = auth_uid()
+            WHERE ar.auth__agent_id = current_agent_id()
             AND ar.auth__is_active = true
-            AND r.auth__is_active = true
-            AND r.auth__entity__object__can_insert = true
+            AND r.auth__entity__insert = true
         )
     );
 
@@ -176,11 +175,11 @@ CREATE POLICY "entities_delete_policy" ON entity.entities
     FOR DELETE
     USING (
         is_admin_agent()
-        OR general__created_by = auth_uid()
+        OR general__created_by = current_agent_id()
         OR EXISTS (
             SELECT 1 
             FROM auth.agent_roles ar
-            WHERE ar.auth__agent_id = auth_uid()
+            WHERE ar.auth__agent_id = current_agent_id()
             AND ar.auth__is_active = true
             AND ar.auth__role_name = ANY(entity.entities.permissions__roles__full)
         )

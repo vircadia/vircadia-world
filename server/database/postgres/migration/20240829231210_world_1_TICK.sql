@@ -56,7 +56,7 @@ CREATE POLICY "entity_states_view_policy" ON tick.entity_states
             FROM entity.entities e
             JOIN auth.agent_roles ar ON ar.auth__role_name = ANY(e.permissions__roles__view)
             WHERE e.general__uuid = tick.entity_states.general__entity_id
-            AND ar.auth__agent_id = auth_uid()
+            AND ar.auth__agent_id = current_agent_id()
             AND ar.auth__is_active = true
         )
     );
@@ -120,7 +120,7 @@ BEGIN
 
     -- Get sync groups configuration
     SELECT value INTO sync_groups 
-    FROM world_config 
+    FROM config.config 
     WHERE key = 'sync_groups';
     
     -- Validate sync group exists
@@ -317,7 +317,7 @@ BEGIN
 
     -- Validate sync_group_name
     SELECT value INTO sync_groups 
-    FROM world_config 
+    FROM config.config 
     WHERE key = 'sync_groups';
     
     IF NOT sync_groups ? sync_group_name THEN
@@ -390,7 +390,7 @@ BEGIN
         DELETE FROM tick.entity_states 
         WHERE timestamp < (now() - (
             SELECT (value#>>'{}'::text[])::int * interval '1 millisecond' 
-            FROM world_config 
+            FROM config.config 
             WHERE key = 'tick_buffer_duration_ms'
         ))
         RETURNING *
@@ -418,7 +418,7 @@ BEGIN
         DELETE FROM tick.tick_metrics 
         WHERE general__created_at < (now() - (
             SELECT (value#>>'{}'::text[])::int * interval '1 millisecond' 
-            FROM world_config 
+            FROM config.config 
             WHERE key = 'tick_metrics_history_ms'
         ))
         RETURNING *

@@ -4,11 +4,26 @@ import type { Hono } from "hono";
 import { compare, hash } from "bcrypt";
 import { sign, verify } from "jsonwebtoken";
 
+export enum AuthProvider {
+    PASSWORD = "password",
+    GITHUB = "github",
+    GOOGLE = "google",
+}
+
 interface AuthConfig {
     jwtSecret: string;
-    sessionDuration: string; // e.g., '24h'
+    sessionDuration: string;
     bcryptRounds: number;
-    oauth: OAuthConfig;
+    providers: {
+        [key in AuthProvider]?: {
+            enabled: boolean;
+            displayName: string;
+            description?: string;
+            clientId?: string;
+            clientSecret?: string;
+            callbackUrl?: string;
+        };
+    };
 }
 
 interface LoginCredentials {
@@ -22,17 +37,18 @@ interface RegisterData {
     password: string;
 }
 
-interface OAuthConfig {
-    github?: {
-        clientId: string;
-        clientSecret: string;
-        callbackUrl: string;
-    };
+interface AuthProviderHandler {
+    authenticate: (data: any) => Promise<{
+        providerId: string;
+        email: string;
+        username: string;
+    }>;
 }
 
 export class WorldAuthManager {
     private sql: postgres.Sql;
     private config: AuthConfig;
+    private authProviders: Map<AuthProvider, AuthProviderHandler> = new Map();
 
     constructor(
         sql: postgres.Sql,
@@ -41,6 +57,141 @@ export class WorldAuthManager {
     ) {
         this.sql = sql;
         this.config = config;
+
+        // Register built-in providers
+        this.registerAuthProvider(AuthProvider.PASSWORD, {
+            authenticate: async (credentials: LoginCredentials) => {
+                const [agent] = await this.sql`
+                    SELECT general__uuid, auth__password_hash
+                    FROM agent_profiles
+                    WHERE auth__email = ${credentials.email}
+                `;
+
+                if (!agent || !agent.auth__password_hash) {
+                    throw new Error("Invalid credentials");
+                }
+
+                const validPassword = await compare(
+                    credentials.password,
+                    agent.auth__password_hash,
+                );
+
+                if (!validPassword) {
+                    throw new Error("Invalid credentials");
+                }
+
+                return {
+                    providerId: agent.general__uuid,
+                    email: credentials.email,
+                    username: agent.profile__username,
+                };
+            },
+        });
+
+        this.registerAuthProvider(AuthProvider.GITHUB, {
+            authenticate: async (code: string) => {
+                // Exchange code for access token
+                const tokenResponse = await fetch(
+                    "https://github.com/login/oauth/access_token",
+                    {
+                        method: "POST",
+                        headers: {
+                            Accept: "application/json",
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({
+                            client_id:
+                                this.config.providers[AuthProvider.GITHUB]
+                                    ?.clientId,
+                            client_secret:
+                                this.config.providers[AuthProvider.GITHUB]
+                                    ?.clientSecret,
+                            code,
+                        }),
+                    },
+                );
+
+                const tokenData = await tokenResponse.json();
+                const accessToken = tokenData.access_token;
+
+                // Get user data from GitHub
+                const userResponse = await fetch(
+                    "https://api.github.com/user",
+                    {
+                        headers: {
+                            Authorization: `Bearer ${accessToken}`,
+                            Accept: "application/json",
+                        },
+                    },
+                );
+
+                const userData = await userResponse.json();
+
+                // Get user's email
+                const emailResponse = await fetch(
+                    "https://api.github.com/user/emails",
+                    {
+                        headers: {
+                            Authorization: `Bearer ${accessToken}`,
+                            Accept: "application/json",
+                        },
+                    },
+                );
+
+                const emails = await emailResponse.json();
+                const primaryEmail = emails.find((e: any) => e.primary)?.email;
+
+                return {
+                    providerId: userData.id.toString(),
+                    email: primaryEmail,
+                    username: userData.login,
+                };
+            },
+        });
+    }
+
+    registerAuthProvider(provider: AuthProvider, handler: AuthProviderHandler) {
+        this.authProviders.set(provider, handler);
+    }
+
+    async authenticateWithProvider(provider: AuthProvider, data: any) {
+        const handler = this.authProviders.get(provider);
+        if (!handler) {
+            throw new Error(`Auth provider ${provider} not supported`);
+        }
+
+        const userData = await handler.authenticate(data);
+
+        // Create or update agent profile
+        const [agent] = await this.sql`
+            INSERT INTO auth.agent_profiles (
+                profile__username,
+                auth__email
+            ) VALUES (
+                ${userData.username},
+                ${userData.email}
+            )
+            ON CONFLICT (auth__email) DO UPDATE
+            SET profile__username = EXCLUDED.profile__username
+            RETURNING general__uuid
+        `;
+
+        // Link provider
+        await this.sql`
+            INSERT INTO auth.agent_sessions (
+                auth__agent_id,
+                auth__provider_name,
+                session__is_active
+            ) VALUES (
+                ${agent.general__uuid},
+                ${provider},
+                true
+            )
+            ON CONFLICT (auth__agent_id, auth__provider_name) 
+            DO UPDATE SET session__is_active = EXCLUDED.session__is_active
+        `;
+
+        return this.createSession(agent.general__uuid, provider);
     }
 
     async initialize() {
@@ -53,7 +204,7 @@ export class WorldAuthManager {
 
             // Clean up expired sessions
             await this.sql`
-                UPDATE agent_sessions 
+                UPDATE auth.agent_sessions 
                 SET session__is_active = false
                 WHERE session__last_seen_at < NOW() - INTERVAL '24 hours'
             `;
@@ -75,7 +226,7 @@ export class WorldAuthManager {
 
     private async createSession(agentId: string, providerName?: string) {
         const [session] = await this.sql`
-            INSERT INTO agent_sessions (
+            INSERT INTO auth.agent_sessions (
                 auth__agent_id,
                 auth__provider_name,
                 session__is_active
@@ -107,7 +258,7 @@ export class WorldAuthManager {
             };
 
             const [session] = await this.sql`
-                SELECT * FROM agent_sessions
+                SELECT * FROM auth.agent_sessions
                 WHERE general__session_id = ${decoded.sessionId}
                 AND session__is_active = true
                 AND session__last_seen_at > NOW() - INTERVAL '24 hours'
@@ -119,7 +270,7 @@ export class WorldAuthManager {
 
             // Update last seen
             await this.sql`
-                UPDATE agent_sessions
+                UPDATE auth.agent_sessions
                 SET session__last_seen_at = NOW()
                 WHERE general__session_id = ${decoded.sessionId}
             `;
@@ -175,31 +326,15 @@ export class WorldAuthManager {
     }
 
     async login(credentials: LoginCredentials) {
-        const [agent] = await this.sql`
-            SELECT general__uuid, auth__password_hash
-            FROM agent_profiles
-            WHERE auth__email = ${credentials.email}
-        `;
-
-        if (!agent || !agent.auth__password_hash) {
-            throw new Error("Invalid credentials");
-        }
-
-        const validPassword = await compare(
-            credentials.password,
-            agent.auth__password_hash,
+        return this.authenticateWithProvider(
+            AuthProvider.PASSWORD,
+            credentials,
         );
-
-        if (!validPassword) {
-            throw new Error("Invalid credentials");
-        }
-
-        return this.createSession(agent.general__uuid);
     }
 
     async logout(sessionId: string) {
         await this.sql`
-            UPDATE agent_sessions
+            UPDATE auth.agent_sessions
             SET session__is_active = false
             WHERE general__session_id = ${sessionId}
         `;
@@ -208,91 +343,15 @@ export class WorldAuthManager {
     async initiateGitHubAuth() {
         const githubAuthUrl =
             `https://github.com/login/oauth/authorize?` +
-            `client_id=${this.config.oauth.github?.clientId}&` +
-            `redirect_uri=${encodeURIComponent(this.config.oauth.github?.callbackUrl)}&` +
+            `client_id=${this.config.providers[AuthProvider.GITHUB]?.clientId}&` +
+            `redirect_uri=${encodeURIComponent(this.config.providers[AuthProvider.GITHUB]?.callbackUrl)}&` +
             `scope=user:email`;
 
         return githubAuthUrl;
     }
 
     async handleGitHubCallback(code: string) {
-        // Exchange code for access token
-        const tokenResponse = await fetch(
-            "https://github.com/login/oauth/access_token",
-            {
-                method: "POST",
-                headers: {
-                    Accept: "application/json",
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                    client_id: this.config.oauth.github?.clientId,
-                    client_secret: this.config.oauth.github?.clientSecret,
-                    code,
-                }),
-            },
-        );
-
-        const tokenData = await tokenResponse.json();
-        const accessToken = tokenData.access_token;
-
-        // Get user data from GitHub
-        const userResponse = await fetch("https://api.github.com/user", {
-            headers: {
-                Authorization: `Bearer ${accessToken}`,
-                Accept: "application/json",
-            },
-        });
-
-        const userData = await userResponse.json();
-
-        // Get user's email
-        const emailResponse = await fetch(
-            "https://api.github.com/user/emails",
-            {
-                headers: {
-                    Authorization: `Bearer ${accessToken}`,
-                    Accept: "application/json",
-                },
-            },
-        );
-
-        const emails = await emailResponse.json();
-        const primaryEmail = emails.find((e: any) => e.primary)?.email;
-
-        // Create or update user in your database
-        const [agent] = await this.sql`
-            INSERT INTO agent_profiles (
-                profile__username,
-                auth__email
-            ) VALUES (
-                ${userData.login},
-                ${primaryEmail}
-            )
-            ON CONFLICT (auth__email) DO UPDATE
-            SET profile__username = EXCLUDED.profile__username
-            RETURNING general__uuid
-        `;
-
-        // Create auth provider entry
-        await this.sql`
-            INSERT INTO agent_auth_providers (
-                auth__agent_id,
-                auth__provider_name,
-                auth__provider_uid,
-                auth__is_primary
-            ) VALUES (
-                ${agent.general__uuid},
-                'github',
-                ${userData.id.toString()},
-                true
-            )
-            ON CONFLICT (auth__agent_id, auth__provider_name) 
-            DO UPDATE SET auth__provider_uid = EXCLUDED.auth__provider_uid
-        `;
-
-        // Create session
-        return this.createSession(agent.general__uuid, "github");
+        return this.authenticateWithProvider(AuthProvider.GITHUB, code);
     }
 
     addRoutes(app: Hono) {
@@ -377,7 +436,7 @@ export class WorldAuthManager {
             // Debug endpoints
             routes.get("/sessions", async (c) => {
                 const sessions = await this.sql`
-                    SELECT * FROM agent_sessions
+                    SELECT * FROM auth.agent_sessions
                     WHERE session__is_active = true
                     ORDER BY session__last_seen_at DESC
                 `;

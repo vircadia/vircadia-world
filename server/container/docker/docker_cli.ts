@@ -342,9 +342,6 @@ export async function seed(
                 }
             }
         }
-
-        // Seed OAuth providers after migrations
-        await seedOAuthProviders(sql);
     } finally {
         if (!existingClient) {
             await sql.end();
@@ -416,47 +413,5 @@ if (import.meta.main) {
                 "Valid commands: up, down, rebuild-container, health, db:soft-reset, db:migrate, db:connection-string, pgweb:access-command, restart",
             );
             process.exit(1);
-    }
-}
-
-async function seedOAuthProviders(sql: postgres.Sql) {
-    log({ message: "Seeding OAuth providers...", type: "info" });
-
-    try {
-        // Seed auth providers
-        await sql`
-            INSERT INTO auth.auth_providers 
-                (auth__provider_name, meta__description, auth__is_active) 
-            VALUES 
-                ('password', 'Standard username/password authentication', TRUE),
-                ('github', 'GitHub OAuth authentication', TRUE),
-                ('azure_ad', 'Microsoft Azure AD authentication', FALSE)
-            ON CONFLICT (auth__provider_name) 
-            DO UPDATE SET 
-                meta__description = EXCLUDED.meta__description,
-                auth__is_active = EXCLUDED.auth__is_active
-        `;
-
-        // Seed provider role mappings
-        await sql`
-            INSERT INTO auth.auth_provider_roles
-                (auth__provider_name, auth__provider_role_name, auth__local_role_name)
-            VALUES
-                ('github', 'user', 'agent')
-            ON CONFLICT (auth__provider_name, auth__provider_role_name) 
-            DO UPDATE SET 
-                auth__local_role_name = EXCLUDED.auth__local_role_name
-        `;
-
-        log({
-            message: "OAuth providers seeded successfully",
-            type: "success",
-        });
-    } catch (error) {
-        log({
-            message: `Failed to seed OAuth providers: ${error.message}`,
-            type: "error",
-        });
-        throw error;
     }
 }

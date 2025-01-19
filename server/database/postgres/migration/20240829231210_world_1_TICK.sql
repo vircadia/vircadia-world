@@ -1,9 +1,12 @@
+-- Create tick schema
+CREATE SCHEMA IF NOT EXISTS tick;
+
 -- Lag compensation state history table
-CREATE TABLE entity_states (
-    LIKE entities INCLUDING DEFAULTS INCLUDING CONSTRAINTS,
+CREATE TABLE tick.entity_states (
+    LIKE entity.entities INCLUDING DEFAULTS INCLUDING CONSTRAINTS,
     
     -- Additional metadata for state tracking
-    general__entity_id uuid NOT NULL REFERENCES entities(general__uuid) ON DELETE CASCADE,
+    general__entity_id uuid NOT NULL REFERENCES entity.entities(general__uuid) ON DELETE CASCADE,
     timestamp timestamptz DEFAULT now(),
     tick_number bigint NOT NULL,
     tick_start_time timestamptz,
@@ -22,7 +25,7 @@ CREATE TABLE entity_states (
 );
 
 -- Performance metrics table
-CREATE TABLE tick_metrics (
+CREATE TABLE tick.tick_metrics (
     id uuid DEFAULT uuid_generate_v4() PRIMARY KEY,
     tick_number bigint NOT NULL,
     sync_group TEXT NOT NULL,
@@ -38,36 +41,36 @@ CREATE TABLE tick_metrics (
 );
 
 -- Indexes for fast state lookups
-CREATE INDEX entity_states_lookup_idx ON entity_states (general__entity_id, tick_number);
-CREATE INDEX entity_states_timestamp_idx ON entity_states (timestamp);
+CREATE INDEX entity_states_lookup_idx ON tick.entity_states (general__entity_id, tick_number);
+CREATE INDEX entity_states_timestamp_idx ON tick.entity_states (timestamp);
 
 -- Enable RLS on entity_states table
-ALTER TABLE entity_states ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tick.entity_states ENABLE ROW LEVEL SECURITY;
 
 -- View policy for entity_states (matching the entity read permissions)
-CREATE POLICY "entity_states_view_policy" ON entity_states
+CREATE POLICY "entity_states_view_policy" ON tick.entity_states
     FOR SELECT
     USING (
         EXISTS (
             SELECT 1 
-            FROM entities e
-            JOIN agent_roles ar ON ar.auth__role_name = ANY(e.permissions__roles__view)
-            WHERE e.general__uuid = entity_states.general__entity_id
+            FROM entity.entities e
+            JOIN auth.agent_roles ar ON ar.auth__role_name = ANY(e.permissions__roles__view)
+            WHERE e.general__uuid = tick.entity_states.general__entity_id
             AND ar.auth__agent_id = auth_uid()
             AND ar.auth__is_active = true
         )
     );
 
 -- Update/Insert/Delete policies for entity_states (system users only)
-CREATE POLICY "entity_states_update_policy" ON entity_states
+CREATE POLICY "entity_states_update_policy" ON tick.entity_states
     FOR UPDATE
     USING (is_admin_agent());
 
-CREATE POLICY "entity_states_insert_policy" ON entity_states
+CREATE POLICY "entity_states_insert_policy" ON tick.entity_states
     FOR INSERT
     WITH CHECK (is_admin_agent());
 
-CREATE POLICY "entity_states_delete_policy" ON entity_states
+CREATE POLICY "entity_states_delete_policy" ON tick.entity_states
     FOR DELETE
     USING (is_admin_agent());
 
@@ -135,7 +138,7 @@ BEGIN
     
     -- Modified insert statement to include hashes
     WITH inserted AS (
-        INSERT INTO entity_states (
+        INSERT INTO tick.entity_states (
             -- Base entity fields
             general__entity_id,
             general__uuid,
@@ -198,7 +201,7 @@ BEGIN
             h.hash_scripts,
             h.hash_permissions,
             h.hash_performance
-        FROM entities e
+        FROM entity.entities e
         CROSS JOIN LATERAL generate_entity_field_hashes(
             -- General fields
             jsonb_build_object(
@@ -238,7 +241,7 @@ BEGIN
             -- And only if they need an update
             AND NOT EXISTS (
                 SELECT 1 
-                FROM entity_states es
+                FROM tick.entity_states es
                 WHERE es.general__entity_id = e.general__uuid
                 AND es.timestamp > (tick_start - (tick_rate_ms * interval '1 millisecond'))
             )
@@ -257,7 +260,7 @@ BEGIN
     );
 
     -- Always record frame metrics for each tick
-    INSERT INTO tick_metrics (
+    INSERT INTO tick.tick_metrics (
         tick_number,
         sync_group,
         start_time,
@@ -325,7 +328,7 @@ BEGIN
     
     -- Get last frame time for this sync group
     SELECT end_time INTO last_time 
-    FROM tick_metrics 
+    FROM tick.tick_metrics 
     WHERE sync_group = sync_group_name
     ORDER BY end_time DESC 
     LIMIT 1;
@@ -342,7 +345,7 @@ BEGIN
         (sync_groups #>> ARRAY[sync_group_name, 'server_tick_rate_ms'])::int)::bigint;
     
     -- Insert new frame metrics entry for this sync group
-    INSERT INTO tick_metrics (
+    INSERT INTO tick.tick_metrics (
         tick_number,
         sync_group,
         start_time,
@@ -384,7 +387,7 @@ BEGIN
 
     -- Clean entity states
     WITH deleted_states AS (
-        DELETE FROM entity_states 
+        DELETE FROM tick.entity_states 
         WHERE timestamp < (now() - (
             SELECT (value#>>'{}'::text[])::int * interval '1 millisecond' 
             FROM world_config 
@@ -412,7 +415,7 @@ BEGIN
     END IF;
 
     WITH deleted_metrics AS (
-        DELETE FROM tick_metrics 
+        DELETE FROM tick.tick_metrics 
         WHERE general__created_at < (now() - (
             SELECT (value#>>'{}'::text[])::int * interval '1 millisecond' 
             FROM world_config 
@@ -430,21 +433,21 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Enable RLS on tick_metrics table
-ALTER TABLE tick_metrics ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tick.tick_metrics ENABLE ROW LEVEL SECURITY;
 
 -- All policies for tick_metrics (system users only)
-CREATE POLICY "tick_metrics_view_policy" ON tick_metrics
+CREATE POLICY "tick_metrics_view_policy" ON tick.tick_metrics
     FOR SELECT
     USING (is_admin_agent());
 
-CREATE POLICY "tick_metrics_update_policy" ON tick_metrics
+CREATE POLICY "tick_metrics_update_policy" ON tick.tick_metrics
     FOR UPDATE
     USING (is_admin_agent());
 
-CREATE POLICY "tick_metrics_insert_policy" ON tick_metrics
+CREATE POLICY "tick_metrics_insert_policy" ON tick.tick_metrics
     FOR INSERT
     WITH CHECK (is_admin_agent());
 
-CREATE POLICY "tick_metrics_delete_policy" ON tick_metrics
+CREATE POLICY "tick_metrics_delete_policy" ON tick.tick_metrics
     FOR DELETE
     USING (is_admin_agent());

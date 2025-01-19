@@ -1,5 +1,7 @@
+CREATE SCHEMA IF NOT EXISTS config;
+
 -- Configuration table
-CREATE TABLE world_config (
+CREATE TABLE config.config (
     key text PRIMARY KEY,
     value jsonb NOT NULL,
     description text,
@@ -8,13 +10,13 @@ CREATE TABLE world_config (
 );
 
 -- Insert default configuration
-INSERT INTO world_config (key, value, description) VALUES
+INSERT INTO config.config (key, value, description) VALUES
 ('client_poll_new_entities_ms', '500'::jsonb, 'How often a client should poll for all entities to find any potential new ones.'),
 ('tick_buffer_duration_ms', '2000'::jsonb, 'How long to keep tick history in milliseconds'),
 ('tick_metrics_history_ms', '3600000'::jsonb, 'How long to keep tick metrics history in milliseconds (1 hour default)');
 
 -- Add sync group configurations
-INSERT INTO world_config (key, value, description) VALUES
+INSERT INTO config.config (key, value, description) VALUES
 ('sync_groups', jsonb_build_object(
     'REALTIME', jsonb_build_object(
         'server_tick_rate_ms', 16,

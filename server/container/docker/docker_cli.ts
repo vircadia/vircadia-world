@@ -236,36 +236,20 @@ export async function softResetDatabase(env = getDockerEnv()) {
     });
 
     try {
-        // Drop all database objects including enums
+        // Drop specific schemas and their contents
         await sql.unsafe(`
             DO $$ DECLARE
                 r RECORD;
             BEGIN
-                -- Disable all triggers
-                FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = current_schema()) LOOP
-                    EXECUTE 'ALTER TABLE IF EXISTS ' || quote_ident(r.tablename) || ' DISABLE TRIGGER ALL';
-                END LOOP;
-
-                -- Drop all tables
-                FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = current_schema()) LOOP
-                    EXECUTE 'DROP TABLE IF EXISTS ' || quote_ident(r.tablename) || ' CASCADE';
-                END LOOP;
-
-                -- Drop all views
-                FOR r IN (SELECT viewname FROM pg_views WHERE schemaname = current_schema()) LOOP
-                    EXECUTE 'DROP VIEW IF EXISTS ' || quote_ident(r.viewname) || ' CASCADE';
-                END LOOP;
-
-                -- Drop all enums
-                FOR r IN (
-                    SELECT t.typname
-                    FROM pg_type t
-                    JOIN pg_namespace n ON t.typnamespace = n.oid
-                    WHERE n.nspname = current_schema()
-                    AND t.typtype = 'e'
-                ) LOOP
-                    EXECUTE 'DROP TYPE IF EXISTS ' || quote_ident(r.typname) || ' CASCADE';
-                END LOOP;
+                -- Drop specific schemas and all their contents
+                DROP SCHEMA IF EXISTS public CASCADE;
+                DROP SCHEMA IF EXISTS auth CASCADE;
+                DROP SCHEMA IF EXISTS entity CASCADE;
+                DROP SCHEMA IF EXISTS tick CASCADE;
+                DROP SCHEMA IF EXISTS config CASCADE;
+                -- Recreate the public schema (this is required for PostgreSQL)
+                CREATE SCHEMA public;
+                GRANT ALL ON SCHEMA public TO PUBLIC;
             END $$;
         `);
 
@@ -441,7 +425,7 @@ async function seedOAuthProviders(sql: postgres.Sql) {
     try {
         // Seed auth providers
         await sql`
-            INSERT INTO public.auth_providers 
+            INSERT INTO auth.auth_providers 
                 (auth__provider_name, meta__description, auth__is_active) 
             VALUES 
                 ('password', 'Standard username/password authentication', TRUE),
@@ -455,7 +439,7 @@ async function seedOAuthProviders(sql: postgres.Sql) {
 
         // Seed provider role mappings
         await sql`
-            INSERT INTO public.auth_provider_roles
+            INSERT INTO auth.auth_provider_roles
                 (auth__provider_name, auth__provider_role_name, auth__local_role_name)
             VALUES
                 ('github', 'user', 'agent')

@@ -20,10 +20,9 @@ export class WorldTickManager {
     private tickCounts: Map<string, number> = new Map();
     private tickBufferDurationMs = 2000; // Default from config
     private tickMetricsHistoryMs = 3600000; // Default from config
-    private sql: postgres.Sql;
 
     constructor(
-        sql: postgres.Sql,
+        private readonly sql: postgres.Sql,
         private readonly debugMode: boolean = false,
     ) {
         this.sql = sql;

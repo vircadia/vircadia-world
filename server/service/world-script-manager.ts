@@ -5,12 +5,12 @@ import { temporaryDirectory } from "tempy";
 import { build } from "bun";
 
 export class WorldScriptManager {
-    private sql: postgres.Sql;
-    private compilationQueue: Set<string> = new Set(); // Track scripts being compiled
+    private compilationQueue: Set<string> = new Set();
+    private subscription?: postgres.SubscriptionHandle;
 
     constructor(
-        sql: postgres.Sql,
-        private readonly debugMode: boolean = false,
+        private readonly sql: postgres.Sql,
+        private readonly debugMode: boolean = true,
     ) {
         this.sql = sql;
     }
@@ -25,7 +25,7 @@ export class WorldScriptManager {
 
             // Set any pending compilations to failed state on startup
             await this.sql`
-                UPDATE entity_scripts 
+                UPDATE entity.entity_scripts 
                 SET 
                     compiled__web__node__script_status = 'FAILED',
                     compiled__web__bun__script_status = 'FAILED',
@@ -35,6 +35,47 @@ export class WorldScriptManager {
                     compiled__web__bun__script_status = 'PENDING' OR
                     compiled__web__browser__script_status = 'PENDING'
             `;
+
+            // Subscribe to script changes using logical replication
+            this.subscription = await this.sql.subscribe(
+                "*:entity.entity_scripts",
+                async (row, { command }) => {
+                    try {
+                        // Handle script updates
+                        if (command === "insert" || command === "update") {
+                            const script = row as {
+                                general__script_id: string;
+                                source__git__repo_url: string;
+                                source__git__repo_entry_path: string;
+                                compiled__web__node__script_status: string;
+                            };
+
+                            // Trigger recompilation if script source was updated or status is PENDING
+                            if (
+                                script.compiled__web__node__script_status ===
+                                "PENDING"
+                            ) {
+                                await this.compileScript(
+                                    script.general__script_id,
+                                );
+                            }
+                        }
+                    } catch (error) {
+                        log({
+                            message: `Error processing script change: ${error}`,
+                            debug: this.debugMode,
+                            type: "error",
+                        });
+                    }
+                },
+                () => {
+                    log({
+                        message: "Connected to script changes subscription",
+                        debug: this.debugMode,
+                        type: "debug",
+                    });
+                },
+            );
 
             log({
                 message: "Initialized WorldScriptManager",
@@ -48,6 +89,12 @@ export class WorldScriptManager {
                 type: "error",
             });
             throw error;
+        }
+    }
+
+    async destroy() {
+        if (this.subscription) {
+            this.subscription.unsubscribe();
         }
     }
 
@@ -69,7 +116,7 @@ export class WorldScriptManager {
         };
 
         await this.sql`
-            UPDATE entity_scripts 
+            UPDATE entity.entity_scripts 
             SET ${this.sql(updates)}
             WHERE general__script_id = ${scriptId}
         `;
@@ -179,7 +226,7 @@ export class WorldScriptManager {
             this.compilationQueue.add(queueKey);
 
             const [script] = await this.sql`
-                SELECT * FROM entity_scripts 
+                SELECT * FROM entity.entity_scripts 
                 WHERE general__script_id = ${scriptId}
             `;
 
@@ -189,7 +236,7 @@ export class WorldScriptManager {
 
             // Set all compilation statuses to PENDING
             await this.sql`
-                UPDATE entity_scripts 
+                UPDATE entity.entity_scripts 
                 SET 
                     compiled__web__node__script_status = 'PENDING',
                     compiled__web__browser__script_status = 'PENDING',
@@ -210,7 +257,7 @@ export class WorldScriptManager {
                 compilationResult.hashes
             ) {
                 await this.sql`
-                    UPDATE entity_scripts 
+                    UPDATE entity.entity_scripts 
                     SET 
                         compiled__web__node__script = ${compilationResult.compiledCode.node},
                         compiled__web__node__script_sha256 = ${compilationResult.hashes.node},
@@ -226,7 +273,7 @@ export class WorldScriptManager {
                 `;
             } else {
                 await this.sql`
-                    UPDATE entity_scripts 
+                    UPDATE entity.entity_scripts 
                     SET 
                         compiled__web__node__script_status = 'FAILED',
                         compiled__web__browser__script_status = 'FAILED',
@@ -260,7 +307,7 @@ export class WorldScriptManager {
         try {
             const scripts = await this.sql`
                 SELECT general__script_id 
-                FROM entity_scripts 
+                FROM entity.entity_scripts 
                 WHERE 
                     source__git__repo_url = ${repoUrl} 
                     AND source__git__repo_entry_path = ${entryPath}
@@ -311,7 +358,7 @@ export class WorldScriptManager {
                     compiled__web__node__script_status as node_status,
                     compiled__web__bun__script_status as bun_status,
                     compiled__web__browser__script_status as browser_status
-                FROM entity_scripts 
+                FROM entity.entity_scripts 
                 WHERE general__script_id = ${scriptId}
             `;
 

@@ -5,9 +5,11 @@ import { WorldTickManager } from "./service/world-tick-manager.ts";
 import { Hono } from "hono";
 import { logger } from "hono/logger";
 import { WorldApiManager } from "./service/world-api-manager.ts";
+import { WorldScriptManager } from "./service/world-script-manager.ts";
 
 const config = VircadiaConfig_Server;
 let worldTickManager: WorldTickManager | null = null;
+let worldScriptManager: WorldScriptManager | null = null;
 let worldApiManager: WorldApiManager | null = null;
 
 async function init() {
@@ -40,6 +42,14 @@ async function init() {
         await worldTickManager.initialize();
         worldTickManager.addRoutes(app);
         worldTickManager.start();
+
+        // Initialize world script manager
+        worldScriptManager = new WorldScriptManager(
+            postgresClient.getClient(),
+            debugMode,
+        );
+        await worldScriptManager.initialize();
+        worldScriptManager.addRoutes(app);
 
         // Initialize world api manager
         worldApiManager = new WorldApiManager(

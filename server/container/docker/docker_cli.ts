@@ -1,4 +1,4 @@
-import { VircadiaConfig_Server } from "../../vircadia.server.config.ts";
+import { VircadiaConfig_Server } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.config.ts";
 import { log } from "../../../sdk/vircadia-world-sdk-ts/module/general/log.ts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

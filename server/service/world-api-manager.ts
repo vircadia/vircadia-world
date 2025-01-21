@@ -4,7 +4,7 @@ import type { Hono } from "hono";
 import { compare, hash } from "bcrypt";
 import { sign, verify } from "jsonwebtoken";
 import type { MiddlewareHandler } from "hono";
-import { VircadiaConfig_Server } from "../vircadia.server.config";
+import { VircadiaConfig_Server } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config.ts";
 import { temporaryDirectory } from "tempy";
 import { build } from "bun";
 

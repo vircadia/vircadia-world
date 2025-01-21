@@ -26,7 +26,6 @@ function getDockerEnv() {
         POSTGRES_PASSWORD: config.postgres.password,
         POSTGRES_PORT: config.postgres.port.toString(),
         POSTGRES_EXTENSIONS: config.postgres.extensions.join(","),
-        POSTGRES_JWT_SECRET: config.postgres.jwtSecret,
         PGWEB_PORT: config.pgweb.port.toString(),
     };
 }

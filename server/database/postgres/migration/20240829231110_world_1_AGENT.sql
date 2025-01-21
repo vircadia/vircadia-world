@@ -29,7 +29,6 @@ CREATE TABLE auth.roles (
     meta__description TEXT,
     auth__is_system BOOLEAN NOT NULL DEFAULT FALSE,
     auth__entity__insert BOOLEAN NOT NULL DEFAULT FALSE,
-    auth__entity__script__full BOOLEAN NOT NULL DEFAULT FALSE,
     general__created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -67,15 +66,9 @@ CREATE INDEX idx_agent_profiles_email ON auth.agent_profiles(auth__email);
 CREATE OR REPLACE FUNCTION current_agent_id() 
 RETURNS UUID AS $$
 BEGIN
-    -- Try to get from session first
     RETURN COALESCE(
-        (SELECT auth__agent_id
-         FROM auth.agent_sessions
-         WHERE session__is_active = true
-         AND session__last_seen_at > (NOW() - INTERVAL '24 hours')
-         ORDER BY session__last_seen_at DESC
-         LIMIT 1),
-        '00000000-0000-0000-0000-000000000001'::UUID  -- Anonymous user
+        current_setting('app.current_agent_id', true)::UUID,
+        '00000000-0000-0000-0000-000000000001'::UUID
     );
 END;
 $$ LANGUAGE plpgsql;
@@ -100,6 +93,23 @@ CREATE POLICY admin_access ON auth.agent_profiles
     TO PUBLIC
     USING (
         is_admin_agent()
+    );
+
+-- First, let's create better RLS policies
+CREATE POLICY agent_view_own_profile ON auth.agent_profiles
+    FOR SELECT
+    TO PUBLIC
+    USING (
+        general__uuid = current_agent_id()  -- Agents can view their own profile
+        OR is_admin_agent()                 -- Admins can view all profiles
+    );
+
+CREATE POLICY agent_update_own_profile ON auth.agent_profiles
+    FOR UPDATE
+    TO PUBLIC
+    USING (
+        general__uuid = current_agent_id()  -- Agents can update their own profile
+        OR is_admin_agent()                 -- Admins can update all profiles
     );
 
 -- Update function to only modify updated_at timestamp
@@ -127,14 +137,14 @@ $$ LANGUAGE plpgsql;
 
 -- Seed default roles
 INSERT INTO auth.roles 
-    (auth__role_name, meta__description, auth__is_system, auth__entity__insert, auth__entity__script__full) 
+    (auth__role_name, meta__description, auth__is_system, auth__entity__insert) 
 VALUES 
     ('admin', 'System administrator with full access', 
-     TRUE, TRUE, TRUE),
+     TRUE, TRUE),
     ('agent', 'Regular agent with basic access',
-     TRUE, FALSE, FALSE),
+     TRUE, FALSE),
     ('anon', 'Anonymous user with limited access',
-     TRUE, FALSE, FALSE)
+     TRUE, FALSE)
 ON CONFLICT (auth__role_name) DO NOTHING;
 
 -- Create system and anon agents with a known UUID
@@ -211,3 +221,54 @@ BEGIN
     RETURN v_session_id;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to set the current session context
+CREATE OR REPLACE FUNCTION set_session_context(p_session_id UUID)
+RETURNS VOID AS $$
+DECLARE
+    v_agent_id UUID;
+BEGIN
+    -- Get the agent_id from the session
+    SELECT auth__agent_id INTO v_agent_id
+    FROM auth.agent_sessions 
+    WHERE general__session_id = p_session_id
+    AND session__is_active = true
+    AND session__last_seen_at > (NOW() - INTERVAL '24 hours');
+
+    IF v_agent_id IS NULL THEN
+        v_agent_id := '00000000-0000-0000-0000-000000000001'::UUID; -- Anonymous
+    END IF;
+
+    -- Set the session context
+    PERFORM set_config('app.current_agent_id', v_agent_id::text, false);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to invalidate a session
+CREATE OR REPLACE FUNCTION invalidate_session(p_session_id UUID)
+RETURNS VOID AS $$
+BEGIN
+    UPDATE auth.agent_sessions 
+    SET session__is_active = false
+    WHERE general__session_id = p_session_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to cleanup old sessions
+CREATE OR REPLACE FUNCTION cleanup_old_sessions()
+RETURNS INTEGER AS $$
+DECLARE
+    v_count INTEGER;
+BEGIN
+    WITH updated_sessions AS (
+        UPDATE auth.agent_sessions 
+        SET session__is_active = false
+        WHERE session__last_seen_at < (NOW() - INTERVAL '24 hours')
+        AND session__is_active = true
+        RETURNING 1
+    )
+    SELECT COUNT(*) INTO v_count FROM updated_sessions;
+    
+    RETURN v_count;
+END;
+$$ LANGUAGE plpgsql;

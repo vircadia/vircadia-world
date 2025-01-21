@@ -60,7 +60,6 @@ CREATE POLICY "Allow inserting scripts with proper role" ON entity.entity_script
             JOIN auth.roles r ON ar.auth__role_name = r.auth__role_name
             WHERE ar.auth__agent_id = current_agent_id()
             AND ar.auth__is_active = true
-            AND r.auth__entity__script__full = true
         )
     );
 
@@ -74,7 +73,6 @@ CREATE POLICY "Allow updating scripts with proper role" ON entity.entity_scripts
             JOIN auth.roles r ON ar.auth__role_name = r.auth__role_name
             WHERE ar.auth__agent_id = current_agent_id()
             AND ar.auth__is_active = true
-            AND r.auth__entity__script__full = true
         )
     );
 
@@ -88,7 +86,6 @@ CREATE POLICY "Allow deleting scripts with proper role" ON entity.entity_scripts
             JOIN auth.roles r ON ar.auth__role_name = r.auth__role_name
             WHERE ar.auth__agent_id = current_agent_id()
             AND ar.auth__is_active = true
-            AND r.auth__entity__script__full = true
         )
     );
 
@@ -161,7 +158,8 @@ CREATE POLICY "entities_update_policy" ON entity.entities
 CREATE POLICY "entities_insert_policy" ON entity.entities
     FOR INSERT
     WITH CHECK (
-        EXISTS (
+        is_admin_agent()
+        OR EXISTS (
             SELECT 1 
             FROM auth.agent_roles ar
             JOIN auth.roles r ON r.auth__role_name = ar.auth__role_name
@@ -184,10 +182,6 @@ CREATE POLICY "entities_delete_policy" ON entity.entities
             AND ar.auth__role_name = ANY(entity.entities.permissions__roles__full)
         )
     );
-
-CREATE POLICY "entities_admin_policy" ON entity.entities
-    FOR ALL
-    USING (is_admin_agent());
 
 -- 
 -- NOTIFICATION FUNCTIONS

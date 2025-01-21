@@ -4,11 +4,11 @@ import { PostgresClient } from "./database/postgres/postgres_client.ts";
 import { WorldTickManager } from "./service/world-tick-manager.ts";
 import { Hono } from "hono";
 import { logger } from "hono/logger";
-import { WorldAuthManager } from "./service/world-auth-manager";
+import { WorldApiManager } from "./service/world-api-manager.ts";
 
 const config = VircadiaConfig_Server;
 let worldTickManager: WorldTickManager | null = null;
-let worldAuthManager: WorldAuthManager | null = null;
+let worldApiManager: WorldApiManager | null = null;
 
 async function init() {
     const debugMode = config.debug;
@@ -41,25 +41,13 @@ async function init() {
         worldTickManager.addRoutes(app);
         worldTickManager.start();
 
-        // Initialize world auth manager
-        worldAuthManager = new WorldAuthManager(
+        // Initialize world api manager
+        worldApiManager = new WorldApiManager(
             postgresClient.getClient(),
-            {
-                jwtSecret: config.postgres.jwtSecret,
-                sessionDuration: "24h",
-                bcryptRounds: 10,
-                oauth: {
-                    github: {
-                        clientId: config.oauth.github.clientId,
-                        clientSecret: config.oauth.github.clientSecret,
-                        callbackUrl: config.oauth.github.callbackUrl,
-                    },
-                },
-            },
-            true,
+            debugMode,
         );
-        await worldAuthManager.initialize();
-        worldAuthManager.addRoutes(app);
+        await worldApiManager.initialize();
+        worldApiManager.addRoutes(app);
 
         // ===== HTTP Server =====
         log({ message: "Starting Bun HTTP server", type: "info" });

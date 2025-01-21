@@ -17,10 +17,10 @@ const { positionals, values: args } = parseArgs({
         "postgres-user": { type: "string" },
         "postgres-password": { type: "string" },
         "postgres-extensions": { type: "string" },
-        "postgres-jwt-secret": { type: "string" },
-        "oauth-github-client-id": { type: "string" },
-        "oauth-github-client-secret": { type: "string" },
-        "oauth-github-callback-url": { type: "string" },
+        "auth-jwt-session-duration": { type: "string" },
+        "auth-jwt-bcrypt-rounds": { type: "string" },
+        "auth-jwt-secret": { type: "string" },
+        "auth-providers": { type: "string" },
         "pgweb-port": { type: "string" },
     },
     allowPositionals: true,
@@ -47,19 +47,53 @@ const envSchema = z.object({
     VRCA_SERVER_POSTGRES_USER: z.string().default("vircadia"),
     VRCA_SERVER_POSTGRES_PASSWORD: z.string().default("CHANGE_ME!"),
     VRCA_SERVER_POSTGRES_EXTENSIONS: z.string().default("uuid-ossp,hstore"),
-    VRCA_SERVER_POSTGRES_JWT_SECRET: z.string().default("CHANGE_ME!"),
-    VRCA_SERVER_OAUTH_GITHUB_CLIENT_ID: z
-        .string()
-        .default("Ov23liL9aOwOiwCMqVwQ"),
-    VRCA_SERVER_OAUTH_GITHUB_CLIENT_SECRET: z
-        .string()
-        .default("efed36f81b8fd815ed31f20fecaa265bc0aa5136"),
-    VRCA_SERVER_OAUTH_GITHUB_CALLBACK_URL: z
-        .string()
-        .default(
-            "http://localhost:3000/services/world-auth/auth/github/callback",
-        ),
     VRCA_SERVER_PGWEB_PORT: z.string().default("5437"),
+    VRCA_SERVER_AUTH_JWT_SESSION_DURATION: z.string().default("24h"),
+    VRCA_SERVER_AUTH_JWT_BCRYPT_ROUNDS: z.coerce.number().default(10),
+    VRCA_SERVER_AUTH_JWT_SECRET: z.string().default("CHANGE_ME!"),
+    VRCA_SERVER_AUTH_PROVIDERS: z.string().default(
+        JSON.stringify({
+            github: {
+                enabled: true,
+                displayName: "GitHub",
+                authorizeUrl: "https://github.com/login/oauth/authorize",
+                tokenUrl: "https://github.com/login/oauth/access_token",
+                userInfoUrl: "https://api.github.com/user",
+                clientId: "Ov23liL9aOwOiwCMqVwQ",
+                clientSecret: "efed36f81b8fd815ed31f20fecaa265bc0aa5136",
+                callbackUrl:
+                    "http://localhost:3000/services/world-auth/auth/github/callback",
+                scope: ["user:email"],
+                userDataMapping: {
+                    endpoint: "https://api.github.com/user",
+                    additionalEndpoints: {
+                        emails: "https://api.github.com/user/emails",
+                    },
+                    fields: {
+                        providerId: '"id":\\s*(\\d+)',
+                        email: '"email":\\s*"([^"]+)"',
+                        username: '"login":\\s*"([^"]+)"',
+                    },
+                },
+            },
+            google: {
+                enabled: false,
+                displayName: "Google",
+                authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+                tokenUrl: "https://oauth2.googleapis.com/token",
+                userInfoUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
+                scope: ["email", "profile"],
+                userDataMapping: {
+                    endpoint: "https://www.googleapis.com/oauth2/v2/userinfo",
+                    fields: {
+                        providerId: '"id":\\s*"([^"]+)"',
+                        email: '"email":\\s*"([^"]+)"',
+                        username: '"name":\\s*"([^"]+)"',
+                    },
+                },
+            },
+        }),
+    ),
 });
 
 const env = envSchema.parse(import.meta.env);
@@ -86,23 +120,21 @@ export const VircadiaConfig_Server = {
             .split(",")
             .map((ext) => ext.trim())
             .filter((ext) => ext.length > 0),
-        jwtSecret:
-            args["postgres-jwt-secret"] ?? env.VRCA_SERVER_POSTGRES_JWT_SECRET,
     },
     pgweb: {
         port: Number(args["pgweb-port"] ?? env.VRCA_SERVER_PGWEB_PORT),
     },
-    oauth: {
-        github: {
-            clientId:
-                args["oauth-github-client-id"] ??
-                env.VRCA_SERVER_OAUTH_GITHUB_CLIENT_ID,
-            clientSecret:
-                args["oauth-github-client-secret"] ??
-                env.VRCA_SERVER_OAUTH_GITHUB_CLIENT_SECRET,
-            callbackUrl:
-                args["oauth-github-callback-url"] ??
-                env.VRCA_SERVER_OAUTH_GITHUB_CALLBACK_URL,
+    auth: {
+        providers: JSON.parse(env.VRCA_SERVER_AUTH_PROVIDERS),
+        jwt: {
+            secret: args["auth-jwt-secret"] ?? env.VRCA_SERVER_AUTH_JWT_SECRET,
+            sessionDuration:
+                args["auth-jwt-session-duration"] ??
+                env.VRCA_SERVER_AUTH_JWT_SESSION_DURATION,
+            bcryptRounds: Number(
+                args["auth-jwt-bcrypt-rounds"] ??
+                    env.VRCA_SERVER_AUTH_JWT_BCRYPT_ROUNDS,
+            ),
         },
     },
 };

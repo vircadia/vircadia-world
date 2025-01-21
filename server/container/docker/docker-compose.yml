@@ -3,9 +3,10 @@ services:
   postgres:
     image: postgres:latest
     container_name: ${CONTAINER_NAME}_postgres
+    # Note: POSTGRES_USER is automatically created as a superuser
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_USER: ${POSTGRES_USER}  # This user gets superuser privileges by default
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_EXTENSIONS: ${POSTGRES_EXTENSIONS}
     ports:

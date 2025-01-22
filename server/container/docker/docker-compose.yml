@@ -1,7 +1,7 @@
 name: ${CONTAINER_NAME}
 services:
   postgres:
-    image: postgres:latest
+    image: postgres:12.22-bookworm
     container_name: ${CONTAINER_NAME}_postgres
     # Note: POSTGRES_USER is automatically created as a superuser
     environment:

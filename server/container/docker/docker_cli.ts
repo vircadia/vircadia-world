@@ -408,7 +408,7 @@ if (import.meta.main) {
             });
             break;
         }
-        case "admin:token": {
+        case "test:system-token": {
             const config = VircadiaConfig_Server.postgres;
             const sql = postgres({
                 host: config.host,
@@ -419,31 +419,51 @@ if (import.meta.main) {
             });
 
             try {
-                const [result] =
-                    await sql`SELECT generate_admin_token() as token`;
-                const tokenData = JSON.parse(result.token);
+                // Get auth settings from config
+                const [authConfig] = await sql`
+                    SELECT value FROM config.config 
+                    WHERE key = 'auth_settings'
+                `;
 
-                // Generate JWT token
+                if (!authConfig?.value) {
+                    throw new Error("Auth settings not found in database");
+                }
+
+                // Get system agent ID
+                const [systemId] = await sql`SELECT get_system_agent_id()`;
+
+                // Create a new session for the system agent
+                const [sessionResult] = await sql`
+                    SELECT * FROM create_agent_session(${systemId.get_system_agent_id}, 'test')
+                `;
+
+                // Generate JWT token using the config from database
                 const token = sign(
                     {
-                        sessionId: tokenData.session_id,
-                        agentId: tokenData.agent_id,
+                        sessionId: sessionResult.general__session_id,
+                        agentId: systemId.get_system_agent_id,
                     },
-                    VircadiaConfig_Server.auth.jwt.secret,
+                    authConfig.value.jwt_secret,
                     {
                         expiresIn:
-                            VircadiaConfig_Server.auth.adminToken
-                                .sessionDuration,
+                            authConfig.value.admin_token_session_duration,
                     },
                 );
 
+                // Update the session with the JWT
+                await sql`
+                    UPDATE auth.agent_sessions 
+                    SET session__jwt = ${token}
+                    WHERE general__session_id = ${sessionResult.general__session_id}
+                `;
+
                 log({
-                    message: `Generated admin token:\n${token}\n\nExpires in ${VircadiaConfig_Server.auth.adminToken.sessionDuration}`,
+                    message: `Generated test system token:\n${token}\n\nSession ID: ${sessionResult.general__session_id}\nAgent ID: ${systemId.get_system_agent_id}\n\nThis token has system privileges - use with caution!`,
                     type: "success",
                 });
             } catch (error) {
                 log({
-                    message: `Failed to generate admin token: ${error.message}`,
+                    message: `Failed to generate test system token: ${error.message}`,
                     type: "error",
                 });
             } finally {
@@ -453,7 +473,7 @@ if (import.meta.main) {
         }
         default:
             console.error(
-                "Valid commands: up, down, rebuild-container, health, db:soft-reset, db:migrate, db:connection-string, pgweb:access-command, restart",
+                "Valid commands: up, down, rebuild-container, health, db:soft-reset, db:migrate, db:connection-string, pgweb:access-command, restart, test:system-token",
             );
             process.exit(1);
     }

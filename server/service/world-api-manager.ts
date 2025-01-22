@@ -4,58 +4,24 @@ import type { Hono } from "hono";
 import { sign, verify } from "jsonwebtoken";
 import type { MiddlewareHandler } from "hono";
 import { VircadiaConfig_Server } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config.ts";
+import { createBunWebSocket } from "hono/bun";
+import type { ServerWebSocket } from "bun";
 
-type AuthProviderName = string;
-
-interface OAuthProviderConfig {
-    enabled: boolean;
-    displayName: string;
-    clientId: string;
-    clientSecret: string;
-    callbackUrl: string;
-    authorizeUrl: string;
-    tokenUrl: string;
-    userInfoUrl: string;
-    scope: string[];
-    userDataMapping: {
-        endpoint: string;
-        additionalEndpoints?: {
-            [key: string]: string;
-        };
-        fields: {
-            providerId: string;
-            email: string;
-            username: string;
-        };
-    };
-}
-
-interface AuthProviderHandler {
-    authenticate: (data: any) => Promise<{
-        providerId: string;
-        email: string;
-        username: string;
-    }>;
-}
-
-interface SessionData {
-    sessionId: string;
+interface WorldSession {
+    ws: WebSocket;
     agentId: string;
+    sessionId: string;
+    lastHeartbeat: number;
 }
 
-interface AuthConfig {
-    providers: {
-        [key: string]: OAuthProviderConfig;
-    };
-    jwt: {
-        secret: string;
-        sessionDuration: string;
-    };
+interface SessionValidationResult {
+    agentId: string;
+    sessionId: string;
+    isValid: boolean;
 }
 
-class AuthManager {
-    private authProviders: Map<AuthProviderName, AuthProviderHandler> =
-        new Map();
+class SessionValidator {
+    private authConfig: any;
 
     constructor(
         private readonly sql: postgres.Sql,
@@ -63,6 +29,153 @@ class AuthManager {
     ) {}
 
     async initialize() {
+        const [config] = await this.sql`
+            SELECT value FROM config.config WHERE key = 'auth_settings'
+        `;
+        this.authConfig = config.value;
+    }
+
+    async validateSession(token: string): Promise<SessionValidationResult> {
+        try {
+            const decoded = verify(token, this.authConfig.jwt_secret) as {
+                sessionId: string;
+                agentId: string;
+            };
+
+            const [validation] = await this.sql`
+                SELECT * FROM validate_session(${decoded.sessionId}::UUID)
+            `;
+
+            return {
+                agentId: validation.auth__agent_id || "",
+                sessionId: decoded.sessionId,
+                isValid: validation.is_valid,
+            };
+        } catch (error) {
+            log({
+                message: `Session validation failed: ${error}`,
+                debug: this.debugMode,
+                type: "debug",
+            });
+            return {
+                agentId: "",
+                sessionId: "",
+                isValid: false,
+            };
+        }
+    }
+}
+
+class WorldOAuthManager {
+    private authConfig: any;
+    private authRoutes: Hono;
+
+    constructor(
+        private readonly sql: postgres.Sql,
+        private readonly app: Hono,
+        private readonly debugMode: boolean,
+        private readonly sessionValidator: SessionValidator,
+    ) {
+        // Create a single router instance for auth routes
+        this.authRoutes = this.app.basePath("/services/world-auth");
+
+        // Apply session middleware to protected routes
+        this.authRoutes.use("/session/*", this.sessionMiddleware());
+    }
+
+    async initialize() {
+        const [config] = await this.sql`
+            SELECT value FROM config.config WHERE key = 'auth_settings'
+        `;
+        this.authConfig = config.value;
+
+        // Use the existing authRoutes instance
+        this.authRoutes.post("/system/session", async (c) => {
+            try {
+                const [systemAgentId] = await this
+                    .sql`SELECT get_system_agent_id()`;
+                const token = sign(
+                    { agentId: systemAgentId.get_system_agent_id },
+                    this.authConfig.jwt_secret,
+                );
+
+                const [session] = await this.sql`
+                    SELECT * FROM create_agent_session(
+                        ${systemAgentId.get_system_agent_id}, 
+                        'system',
+                        ${token}
+                    );
+                `;
+
+                return c.json({
+                    success: true,
+                    data: {
+                        sessionId: session.general__session_id,
+                        token: session.session__jwt,
+                        expiresAt: session.session__expires_at,
+                    },
+                });
+            } catch (error) {
+                return c.json(
+                    {
+                        success: false,
+                        error: "Failed to create system session",
+                    },
+                    500,
+                );
+            }
+        });
+
+        // Session validation route
+        this.authRoutes.get("/session/validate", async (c) => {
+            const token = c.req.header("Authorization")?.replace("Bearer ", "");
+            if (!token) {
+                return c.json(
+                    {
+                        success: false,
+                        error: "No token provided",
+                    },
+                    401,
+                );
+            }
+
+            const validation =
+                await this.sessionValidator.validateSession(token);
+            return c.json({
+                success: true,
+                data: {
+                    isValid: validation.isValid,
+                    agentId: validation.agentId,
+                },
+            });
+        });
+
+        // Logout route
+        this.authRoutes.post("/session/logout", async (c) => {
+            const token = c.req.header("Authorization")?.replace("Bearer ", "");
+            if (!token) {
+                return c.json(
+                    {
+                        success: false,
+                        error: "No token provided",
+                    },
+                    401,
+                );
+            }
+
+            const validation =
+                await this.sessionValidator.validateSession(token);
+            if (validation.isValid) {
+                await this.sql`
+                    SELECT invalidate_session(${validation.sessionId});
+                `;
+            }
+
+            return c.json({
+                success: true,
+            });
+        });
+
         try {
             log({
                 message: "Initializing auth manager",
@@ -95,63 +208,25 @@ class AuthManager {
         }
     }
 
-    registerAuthProvider(
-        provider: AuthProviderName,
-        handler: AuthProviderHandler,
-    ) {
-        this.authProviders.set(provider, handler);
-    }
-
-    async logout(sessionId: string) {
-        await this.sql`
-            SELECT invalidate_session(${sessionId});
-        `;
-    }
-
-    async authenticateWithProvider(provider: AuthProviderName, data: any) {
-        const handler = this.authProviders.get(provider);
-        if (!handler) {
-            throw new Error(`Auth provider ${provider} not supported`);
-        }
-        const userData = await handler.authenticate(data);
-        return this.storeAgentAndCreateSession(userData, provider);
-    }
-
     sessionMiddleware(): MiddlewareHandler {
         return async (c, next) => {
             const token = c.req.header("Authorization")?.replace("Bearer ", "");
 
             if (token) {
-                try {
-                    const decoded = verify(
-                        token,
-                        VircadiaConfig_Server.auth.jwt.secret,
-                    ) as {
-                        sessionId: string;
-                        agentId: string;
-                    };
-
-                    // Set the database session context
+                const validation =
+                    await this.sessionValidator.validateSession(token);
+                if (validation.isValid) {
                     await this
-                        .sql`SELECT set_session_context(${decoded.sessionId}::UUID)`;
-
+                        .sql`SELECT set_session_context(${validation.sessionId}::UUID)`;
                     c.set("session", {
-                        agentId: decoded.agentId,
+                        agentId: validation.agentId,
                         isAuthenticated: true,
-                    });
-                } catch (error) {
-                    log({
-                        message: `Session validation failed: ${error}`,
-                        debug: this.debugMode,
-                        type: "debug",
                     });
                 }
             }
 
             if (!c.get("session")) {
-                // Set anonymous context
                 await this.sql`SELECT set_session_context(NULL)`;
-
                 c.set("session", {
                     agentId: "00000000-0000-0000-0000-000000000001",
                     isAuthenticated: false,
@@ -161,216 +236,267 @@ class AuthManager {
             await next();
         };
     }
-
-    private async handleOAuthFlow(provider: AuthProviderName, code: string) {
-        const config = VircadiaConfig_Server.auth.providers[provider];
-        if (!config?.enabled) {
-            throw new Error(`Provider ${provider} not enabled`);
-        }
-
-        // Exchange code for token
-        const tokenResponse = await fetch(config.tokenUrl, {
-            method: "POST",
-            headers: {
-                Accept: "application/json",
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-                client_id: config.clientId,
-                client_secret: config.clientSecret,
-                code,
-                redirect_uri: config.callbackUrl,
-            }),
-        });
-
-        const tokenData = await tokenResponse.json();
-        if (!tokenData.access_token) {
-            throw new Error("Failed to obtain access token");
-        }
-
-        // Fetch user data from main endpoint
-        const userResponse = await fetch(config.userDataMapping.endpoint, {
-            headers: {
-                Authorization: `Bearer ${tokenData.access_token}`,
-                Accept: "application/json",
-            },
-        });
-        const userData = await userResponse.json();
-
-        // Fetch data from additional endpoints if specified
-        const additionalData: Record<string, any> = {};
-        if (config.userDataMapping.additionalEndpoints) {
-            for (const [key, url] of Object.entries(
-                config.userDataMapping.additionalEndpoints,
-            )) {
-                const response = await fetch(url as string, {
-                    headers: {
-                        Authorization: `Bearer ${tokenData.access_token}`,
-                        Accept: "application/json",
-                    },
-                });
-                additionalData[key] = await response.json();
-            }
-        }
-
-        // Extract fields using regex patterns
-        const extractField = (pattern: string, data: any) => {
-            const jsonString = JSON.stringify(data);
-            const match = jsonString.match(new RegExp(pattern));
-            if (!match || !match[1]) {
-                throw new Error(
-                    `Could not extract field using pattern: ${pattern}`,
-                );
-            }
-            return match[1];
-        };
-
-        const extractedData = {
-            providerId: extractField(
-                config.userDataMapping.fields.providerId,
-                userData,
-            ).toString(),
-            email: extractField(config.userDataMapping.fields.email, userData),
-            username: extractField(
-                config.userDataMapping.fields.username,
-                userData,
-            ),
-        };
-
-        // Store or update provider authentication
-        await this.sql`
-            INSERT INTO auth.agent_auth_providers (
-                auth__agent_id,
-                auth__provider_name,
-                auth__provider_uid
-            ) VALUES (
-                ${extractedData.providerId},
-                ${provider},
-                ${extractedData.providerId}
-            )
-            ON CONFLICT (auth__agent_id, auth__provider_name) 
-            DO UPDATE SET auth__provider_uid = EXCLUDED.auth__provider_uid
-        `;
-
-        return this.storeAgentAndCreateSession(extractedData, provider);
-    }
-
-    private async storeAgentAndCreateSession(
-        userData: { providerId: string; email: string; username: string },
-        provider: AuthProviderName,
-    ) {
-        const [agent] = await this.sql`
-            INSERT INTO auth.agent_profiles (
-                profile__username,
-                auth__email
-            ) VALUES (
-                ${userData.username},
-                ${userData.email}
-            )
-            ON CONFLICT (auth__email) DO UPDATE
-            SET profile__username = EXCLUDED.profile__username
-            RETURNING general__uuid
-        `;
-
-        await this.sql`
-            INSERT INTO auth.agent_sessions (
-                auth__agent_id,
-                auth__provider_name,
-                session__is_active
-            ) VALUES (
-                ${agent.general__uuid},
-                ${provider},
-                true
-            )
-            ON CONFLICT (auth__agent_id, auth__provider_name) 
-            DO UPDATE SET session__is_active = EXCLUDED.session__is_active
-        `;
-
-        return this.createSession(agent.general__uuid, provider);
-    }
-
-    private async createSession(agentId: string, providerName?: string) {
-        const [session] = await this.sql`
-            SELECT create_agent_session(${agentId}, ${providerName}) as general__session_id;
-        `;
-
-        const token = sign(
-            {
-                sessionId: session.general__session_id,
-                agentId,
-            },
-            VircadiaConfig_Server.auth.jwt.secret,
-            { expiresIn: VircadiaConfig_Server.auth.jwt.sessionDuration },
-        );
-
-        return { sessionId: session.general__session_id, token };
-    }
-
-    private async validateSession(token: string): Promise<string | null> {
-        try {
-            const decoded = verify(
-                token,
-                VircadiaConfig_Server.auth.jwt.secret,
-            ) as {
-                sessionId: string;
-                agentId: string;
-            };
-
-            const [session] = await this.sql`
-                SELECT set_current_session(${decoded.sessionId});
-                
-                SELECT * FROM auth.agent_sessions
-                WHERE general__session_id = ${decoded.sessionId}
-                AND session__is_active = true
-                AND session__last_seen_at > NOW() - INTERVAL '24 hours'
-            `;
-
-            if (!session) {
-                return null;
-            }
-
-            return decoded.agentId;
-        } catch (error) {
-            return null;
-        }
-    }
 }
 
-class ApiRouteManager {
+class WorldWebSocketManager {
+    private activeSessions: Map<string, WorldSession> = new Map();
+    private heartbeatInterval: Timer | null = null;
+    private tokenMap = new WeakMap<WebSocket | ServerWebSocket, string>();
+    private authConfig: any;
+
     constructor(
-        private auth: AuthManager,
-        private sql: postgres.Sql,
-        private debugMode: boolean,
+        private readonly sql: postgres.Sql,
+        private readonly app: Hono,
+        private readonly debugMode: boolean,
+        private readonly sessionValidator: SessionValidator,
     ) {}
 
-    addRoutes(app: Hono) {
-        this.addAuthRoutes(app);
+    async initialize() {
+        const [config] = await this.sql`
+            SELECT value FROM config.config WHERE key = 'auth_settings'
+        `;
+        this.authConfig = config.value;
+
+        const routes = this.app.basePath("/services/world");
+        const { upgradeWebSocket, websocket } =
+            createBunWebSocket<ServerWebSocket>();
+
+        routes.get(
+            "/ws",
+            upgradeWebSocket(async (c) => {
+                const token = c.req
+                    .header("Authorization")
+                    ?.replace("Bearer ", "");
+                if (!token) {
+                    throw new Error("Authentication required");
+                }
+
+                const validation =
+                    await this.sessionValidator.validateSession(token);
+                if (!validation.isValid) {
+                    throw new Error("Invalid token");
+                }
+
+                this.tokenMap.set(c.req.socket, token);
+                return {
+                    message: async (ws, message) => {
+                        await this.handleMessage(ws, message);
+                    },
+                    onOpen: (_event, ws) => {
+                        this.handleConnection(ws, {
+                            agentId: validation.agentId,
+                            sessionId: validation.sessionId,
+                        });
+                    },
+                    onClose: () => {
+                        this.handleDisconnect(validation.sessionId);
+                    },
+                };
+            }),
+        );
+
+        // Initialize heartbeat checker
+        this.heartbeatInterval = setInterval(
+            () => this.checkHeartbeats(),
+            this.authConfig.ws_check_interval,
+        );
     }
 
-    private addAuthRoutes(app: Hono) {
-        const routes = app.basePath("/services/world-auth");
+    handleConnection(
+        ws: WebSocket,
+        sessionData: { agentId: string; sessionId: string },
+    ) {
+        const session: WorldSession = {
+            ws,
+            agentId: sessionData.agentId,
+            sessionId: sessionData.sessionId,
+            lastHeartbeat: Date.now(),
+        };
 
-        routes.use("/*", this.auth.sessionMiddleware());
+        this.activeSessions.set(sessionData.sessionId, session);
+
+        ws.on("message", async (message: string) => {
+            try {
+                const data = JSON.parse(message);
+                await this.handleMessage(ws, data);
+            } catch (error) {
+                ws.send(
+                    JSON.stringify({
+                        type: "error",
+                        message: "Invalid message format",
+                    }),
+                );
+            }
+        });
+
+        ws.on("close", () => {
+            this.handleDisconnect(sessionData.sessionId);
+        });
+
+        // Send initial connection success
+        ws.send(
+            JSON.stringify({
+                type: "connection_established",
+                agentId: sessionData.agentId,
+            }),
+        );
+    }
+
+    async handleMessage(ws: WebSocket | ServerWebSocket, message: any) {
+        try {
+            const data = JSON.parse(
+                typeof message === "string" ? message : message.toString(),
+            );
+            const sessionId = this.getSessionIdFromWebSocket(ws);
+            if (!sessionId) {
+                ws.send(
+                    JSON.stringify({
+                        type: "error",
+                        message: "Session not found",
+                    }),
+                );
+                return;
+            }
+
+            const session = this.activeSessions.get(sessionId);
+            if (!session) {
+                ws.send(
+                    JSON.stringify({
+                        type: "error",
+                        message: "Session not found",
+                    }),
+                );
+                return;
+            }
+
+            session.lastHeartbeat = Date.now();
+
+            switch (data.type) {
+                case "heartbeat":
+                    ws.send(JSON.stringify({ type: "heartbeat_ack" }));
+                    break;
+                // Add other message type handlers here
+                default:
+                    ws.send(
+                        JSON.stringify({
+                            type: "error",
+                            message: "Unknown message type",
+                        }),
+                    );
+            }
+        } catch (error) {
+            ws.send(
+                JSON.stringify({
+                    type: "error",
+                    message: "Invalid message format",
+                }),
+            );
+        }
+    }
+
+    private getSessionIdFromWebSocket(
+        ws: WebSocket | ServerWebSocket,
+    ): string | null {
+        for (const [sessionId, session] of this.activeSessions.entries()) {
+            if (session.ws === ws) {
+                return sessionId;
+            }
+        }
+        return null;
+    }
+
+    handleDisconnect(sessionId: string) {
+        const session = this.activeSessions.get(sessionId);
+        if (session) {
+            // Cleanup logic here
+            this.activeSessions.delete(sessionId);
+        }
+    }
+
+    private async checkHeartbeats() {
+        const now = Date.now();
+        const sessionsToCheck = Array.from(this.activeSessions.entries());
+
+        // Process sessions in parallel
+        await Promise.all(
+            sessionsToCheck.map(async ([sessionId, session]) => {
+                // Check both heartbeat timeout and session validity
+                if (
+                    now - session.lastHeartbeat >
+                    this.authConfig.ws_check_interval
+                ) {
+                    const token = this.getTokenFromWebSocket(session.ws);
+                    if (
+                        !token ||
+                        !(await this.sessionValidator.validateSession(token))
+                            .isValid
+                    ) {
+                        session.ws.close(1000, "Session expired");
+                        this.handleDisconnect(sessionId);
+                    }
+                }
+            }),
+        );
+    }
+
+    private getTokenFromWebSocket(
+        ws: WebSocket | ServerWebSocket,
+    ): string | undefined {
+        return this.tokenMap.get(ws);
+    }
+
+    cleanup() {
+        if (this.heartbeatInterval) {
+            clearInterval(this.heartbeatInterval);
+        }
+        for (const session of this.activeSessions.values()) {
+            session.ws.close(1000, "Server shutting down");
+        }
+        this.activeSessions.clear();
     }
 }
 
 export class WorldApiManager {
-    private auth: AuthManager;
-    private routes: ApiRouteManager;
+    private oauthManager: WorldOAuthManager;
+    private wsManager: WorldWebSocketManager;
+    private sessionValidator: SessionValidator;
 
     constructor(
         private sql: postgres.Sql,
+        private readonly hono: Hono,
         private readonly debugMode: boolean,
     ) {
-        this.auth = new AuthManager(sql, debugMode);
-        this.routes = new ApiRouteManager(this.auth, sql, debugMode);
+        this.sessionValidator = new SessionValidator(sql, debugMode);
+        this.oauthManager = new WorldOAuthManager(
+            sql,
+            hono,
+            debugMode,
+            this.sessionValidator,
+        );
+        this.wsManager = new WorldWebSocketManager(
+            sql,
+            hono,
+            debugMode,
+            this.sessionValidator,
+        );
     }
 
     async initialize() {
-        await this.auth.initialize();
+        log({
+            message: "Initializing world api manager",
+            debug: this.debugMode,
+            type: "debug",
+        });
+
+        // Initialize session validator first
+        await this.sessionValidator.initialize();
+
+        // Then initialize managers that depend on it
+        await this.oauthManager.initialize();
+        await this.wsManager.initialize();
     }
 
-    addRoutes(app: Hono) {
-        this.routes.addRoutes(app);
+    cleanup() {
+        this.wsManager.cleanup();
     }
 }

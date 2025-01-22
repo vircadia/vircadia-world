@@ -1,9 +1,9 @@
 import { VircadiaConfig_Server } from "../sdk/vircadia-world-sdk-ts/config/vircadia.config.ts";
 import { log } from "../sdk/vircadia-world-sdk-ts/module/general/log.ts";
 import { PostgresClient } from "./database/postgres/postgres_client.ts";
-import { WorldTickManager } from "./service/world-tick-manager.ts";
 import { Hono } from "hono";
 import { logger } from "hono/logger";
+import { WorldTickManager } from "./service/world-tick-manager.ts";
 import { WorldApiManager } from "./service/world-api-manager.ts";
 import { WorldScriptManager } from "./service/world-script-manager.ts";
 
@@ -40,7 +40,6 @@ async function init() {
             debugMode,
         );
         await worldTickManager.initialize();
-        worldTickManager.addRoutes(app);
         worldTickManager.start();
 
         // Initialize world script manager
@@ -49,15 +48,14 @@ async function init() {
             debugMode,
         );
         await worldScriptManager.initialize();
-        worldScriptManager.addRoutes(app);
 
         // Initialize world api manager
         worldApiManager = new WorldApiManager(
             postgresClient.getClient(),
+            app,
             debugMode,
         );
         await worldApiManager.initialize();
-        worldApiManager.addRoutes(app);
 
         // ===== HTTP Server =====
         log({ message: "Starting Bun HTTP server", type: "info" });

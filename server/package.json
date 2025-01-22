@@ -16,7 +16,7 @@
     "services:restart": "bun run container/docker/docker_cli.ts restart",
     "services:rebuild-container": "bun run container/docker/docker_cli.ts rebuild-container",
     "services:pgweb:access-command": "bun run container/docker/docker_cli.ts pgweb:access-command",
-    "services:admin:token": "bun run container/docker/docker_cli.ts admin:token"
+    "services:test:system-token": "bun run container/docker/docker_cli.ts test:system-token"
   },
   "dependencies": {
     "@babylonjs/core": "^7.44.0",

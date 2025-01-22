@@ -1,6 +1,5 @@
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 import type postgres from "postgres";
-import type { Hono } from "hono";
 
 interface SyncGroup {
     server_tick_rate_ms: number;
@@ -222,14 +221,5 @@ export class WorldTickManager {
             lastServerTime: this.lastServerTime,
             syncGroups: this.syncGroups,
         };
-    }
-
-    addRoutes(app: Hono) {
-        const routes = app.basePath("/services/world-tick");
-
-        // Add stats endpoint
-        routes.get("/stats", (c) => {
-            return c.json(this.getStats());
-        });
     }
 }

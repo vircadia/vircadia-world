@@ -47,6 +47,8 @@ CREATE TABLE auth.agent_sessions (
     auth__provider_name TEXT NOT NULL,
     session__started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     session__last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    session__expires_at TIMESTAMPTZ NOT NULL,
+    session__jwt TEXT,
     meta__metadata JSONB,
     session__is_active BOOLEAN NOT NULL DEFAULT TRUE
 );
@@ -205,73 +207,96 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Add function to create a new session
+-- Update create_agent_session to handle expiry and JWT
 CREATE OR REPLACE FUNCTION create_agent_session(
     p_agent_id UUID,
-    p_provider_name TEXT DEFAULT NULL
-) RETURNS UUID AS $$
+    p_provider_name TEXT DEFAULT NULL,
+    p_jwt TEXT DEFAULT NULL
+) RETURNS TABLE (
+    general__session_id UUID,
+    session__expires_at TIMESTAMPTZ,
+    session__jwt TEXT
+) AS $$
 DECLARE
     v_session_id UUID;
+    v_expires_at TIMESTAMPTZ;
+    v_duration INTERVAL;
 BEGIN
     -- Only admins can create sessions
     IF NOT is_admin_agent() THEN
         RAISE EXCEPTION 'Only administrators can create sessions';
     END IF;
 
+    -- Get duration from config
+    SELECT (value->>'jwt_session_duration')::INTERVAL 
+    INTO v_duration 
+    FROM config.config 
+    WHERE key = 'auth_settings';
+    
+    v_expires_at := NOW() + v_duration;
+
     INSERT INTO auth.agent_sessions (
         auth__agent_id,
-        auth__provider_name
+        auth__provider_name,
+        session__expires_at,
+        session__jwt
     ) VALUES (
         p_agent_id,
-        p_provider_name
-    ) RETURNING general__session_id INTO v_session_id;
+        p_provider_name,
+        v_expires_at,
+        p_jwt
+    ) RETURNING 
+        auth.agent_sessions.general__session_id,
+        auth.agent_sessions.session__expires_at,
+        auth.agent_sessions.session__jwt
+    INTO v_session_id, v_expires_at, p_jwt;
 
-    RETURN v_session_id;
+    RETURN QUERY SELECT v_session_id, v_expires_at, p_jwt;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Function to set the current session context
-CREATE OR REPLACE FUNCTION set_session_context(p_session_id UUID)
-RETURNS VOID AS $$
-DECLARE
-    v_agent_id UUID;
+-- Update validate_session to use expires_at
+CREATE OR REPLACE FUNCTION validate_session(p_session_id UUID)
+RETURNS TABLE (
+    auth__agent_id UUID,
+    is_valid BOOLEAN
+) AS $$
 BEGIN
-    -- Get the agent_id from the session
-    SELECT auth__agent_id INTO v_agent_id
-    FROM auth.agent_sessions 
-    WHERE general__session_id = p_session_id
-    AND session__is_active = true
-    AND session__last_seen_at > (NOW() - INTERVAL '24 hours');
+    RETURN QUERY
+    SELECT 
+        s.auth__agent_id,
+        TRUE as is_valid
+    FROM auth.agent_sessions s
+    WHERE s.general__session_id = p_session_id
+        AND s.session__is_active = true
+        AND s.session__expires_at > NOW()
+    LIMIT 1;
 
-    IF v_agent_id IS NULL THEN
-        v_agent_id := get_anon_agent_id(); -- Anonymous
+    -- If no row was returned, return invalid result
+    IF NOT FOUND THEN
+        RETURN QUERY SELECT 
+            NULL::UUID as auth__agent_id,
+            FALSE as is_valid;
     END IF;
-
-    -- Set the session context
-    PERFORM set_config('app.current_agent_id', v_agent_id::text, false);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Function to invalidate a session
-CREATE OR REPLACE FUNCTION invalidate_session(p_session_id UUID)
-RETURNS VOID AS $$
-BEGIN
-    UPDATE auth.agent_sessions 
-    SET session__is_active = false
-    WHERE general__session_id = p_session_id;
-END;
-$$ LANGUAGE plpgsql;
 
 -- Function to cleanup old sessions
 CREATE OR REPLACE FUNCTION cleanup_old_sessions()
 RETURNS INTEGER AS $$
 DECLARE
+    v_max_age_ms INTEGER;
     v_count INTEGER;
 BEGIN
+    SELECT (value->>'max_session_age_ms')::INTEGER 
+    INTO v_max_age_ms 
+    FROM config.config 
+    WHERE key = 'session_settings';
+
     WITH updated_sessions AS (
         UPDATE auth.agent_sessions 
         SET session__is_active = false
-        WHERE session__last_seen_at < (NOW() - INTERVAL '24 hours')
+        WHERE session__last_seen_at < (NOW() - (v_max_age_ms || ' milliseconds')::INTERVAL)
         AND session__is_active = true
         RETURNING 1
     )
@@ -281,32 +306,30 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Function to generate a temporary admin token
-CREATE OR REPLACE FUNCTION generate_admin_token()
-RETURNS TEXT AS $$
+-- Update set_session_context to use configuration
+CREATE OR REPLACE FUNCTION set_session_context(p_session_id UUID)
+RETURNS VOID AS $$
 DECLARE
-    v_session_id UUID;
-    v_system_agent_id UUID := get_system_agent_id();
+    v_agent_id UUID;
+    v_max_age_ms INTEGER;
 BEGIN
-    -- Create a new session for the system user
-    INSERT INTO auth.agent_sessions (
-        auth__agent_id,
-        auth__provider_name,
-        session__is_active,
-        meta__metadata
-    ) VALUES (
-        v_system_agent_id,
-        'system',
-        true,
-        jsonb_build_object('type', 'admin_token', 'created_at', NOW())
-    ) RETURNING general__session_id INTO v_session_id;
+    SELECT (value->>'max_session_age_ms')::INTEGER 
+    INTO v_max_age_ms 
+    FROM config.config 
+    WHERE key = 'session_settings';
 
-    -- Return the session info as JSON
-    RETURN jsonb_build_object(
-        'session_id', v_session_id,
-        'agent_id', v_system_agent_id,
-        'created_at', NOW(),
-        'type', 'admin_token'
-    )::TEXT;
+    -- Get the agent_id from the session
+    SELECT auth__agent_id INTO v_agent_id
+    FROM auth.agent_sessions 
+    WHERE general__session_id = p_session_id
+    AND session__is_active = true
+    AND session__last_seen_at > (NOW() - (v_max_age_ms || ' milliseconds')::INTERVAL);
+
+    IF v_agent_id IS NULL THEN
+        v_agent_id := get_anon_agent_id(); -- Anonymous
+    END IF;
+
+    -- Set the session context
+    PERFORM set_config('app.current_agent_id', v_agent_id::text, false);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

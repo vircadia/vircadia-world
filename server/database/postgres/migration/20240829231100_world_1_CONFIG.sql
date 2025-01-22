@@ -31,3 +31,20 @@ INSERT INTO config.config (key, value, description) VALUES
         'client_keyframe_check_rate_ms', 2000
     )
 ), 'Defines sync groups with their server tick rates and client check frequencies');
+
+-- Add session configurations
+INSERT INTO config.config (key, value, description) VALUES
+('session_settings', jsonb_build_object(
+    'max_session_age_ms', 86400000,  -- 24 hours in milliseconds
+    'cleanup_interval_ms', 3600000,  -- 1 hour in milliseconds
+    'inactive_timeout_ms', 3600000   -- 1 hour in milliseconds
+), 'Session management configuration including timeouts and cleanup intervals');
+
+-- Add authentication configurations
+INSERT INTO config.config (key, value, description) VALUES
+('auth_settings', jsonb_build_object(
+    'jwt_session_duration', '24h',
+    'jwt_secret', 'CHANGE_ME!',
+    'admin_token_session_duration', '24h',
+    'ws_check_interval', 10000
+), 'Authentication configuration including JWT settings and websocket check intervals');

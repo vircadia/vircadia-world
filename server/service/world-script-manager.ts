@@ -1,6 +1,5 @@
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 import type postgres from "postgres";
-import type { Hono } from "hono";
 import { temporaryDirectory } from "tempy";
 import { build } from "bun";
 
@@ -235,14 +234,11 @@ export class WorldScriptManager {
             }
 
             // Set all compilation statuses to PENDING
-            await this.sql`
-                UPDATE entity.entity_scripts 
-                SET 
-                    compiled__web__node__script_status = 'PENDING',
-                    compiled__web__browser__script_status = 'PENDING',
-                    compiled__web__bun__script_status = 'PENDING'
-                WHERE general__script_id = ${scriptId}
-            `;
+            await Promise.all([
+                this.updateScriptStatus(scriptId, "node", "PENDING"),
+                this.updateScriptStatus(scriptId, "browser", "PENDING"),
+                this.updateScriptStatus(scriptId, "bun", "PENDING"),
+            ]);
 
             const scriptPath = await this.prepareGitRepo(
                 script.source__git__repo_url,
@@ -256,31 +252,35 @@ export class WorldScriptManager {
                 compilationResult.compiledCode &&
                 compilationResult.hashes
             ) {
-                await this.sql`
-                    UPDATE entity.entity_scripts 
-                    SET 
-                        compiled__web__node__script = ${compilationResult.compiledCode.node},
-                        compiled__web__node__script_sha256 = ${compilationResult.hashes.node},
-                        compiled__web__node__script_status = 'COMPILED',
-                        compiled__web__browser__script = ${compilationResult.compiledCode.browser},
-                        compiled__web__browser__script_sha256 = ${compilationResult.hashes.browser},
-                        compiled__web__browser__script_status = 'COMPILED',
-                        compiled__web__bun__script = ${compilationResult.compiledCode.bun},
-                        compiled__web__bun__script_sha256 = ${compilationResult.hashes.bun},
-                        compiled__web__bun__script_status = 'COMPILED',
-                        general__updated_at = NOW()
-                    WHERE general__script_id = ${scriptId}
-                `;
+                await Promise.all([
+                    this.updateScriptStatus(
+                        scriptId,
+                        "node",
+                        "COMPILED",
+                        compilationResult.compiledCode.node,
+                        compilationResult.hashes.node,
+                    ),
+                    this.updateScriptStatus(
+                        scriptId,
+                        "browser",
+                        "COMPILED",
+                        compilationResult.compiledCode.browser,
+                        compilationResult.hashes.browser,
+                    ),
+                    this.updateScriptStatus(
+                        scriptId,
+                        "bun",
+                        "COMPILED",
+                        compilationResult.compiledCode.bun,
+                        compilationResult.hashes.bun,
+                    ),
+                ]);
             } else {
-                await this.sql`
-                    UPDATE entity.entity_scripts 
-                    SET 
-                        compiled__web__node__script_status = 'FAILED',
-                        compiled__web__browser__script_status = 'FAILED',
-                        compiled__web__bun__script_status = 'FAILED',
-                        general__updated_at = NOW()
-                    WHERE general__script_id = ${scriptId}
-                `;
+                await Promise.all([
+                    this.updateScriptStatus(scriptId, "node", "FAILED"),
+                    this.updateScriptStatus(scriptId, "browser", "FAILED"),
+                    this.updateScriptStatus(scriptId, "bun", "FAILED"),
+                ]);
 
                 log({
                     message: `Compilation failed for script ${scriptId}: ${compilationResult.error}`,
@@ -321,60 +321,6 @@ export class WorldScriptManager {
                 message: `Error during repo scripts compilation: ${error}`,
                 debug: this.debugMode,
                 type: "error",
-            });
-        }
-    }
-
-    addRoutes(app: Hono) {
-        const routes = app.basePath("/services/world-script");
-
-        // Webhook endpoint for triggering compilation
-        routes.post("/compile", async (c) => {
-            const body = await c.req.json();
-            const { scriptId, repoUrl, entryPath, gitRef } = body;
-
-            if (scriptId) {
-                await this.compileScript(scriptId, gitRef);
-                return c.json({ status: "compilation queued", scriptId });
-            }
-
-            if (repoUrl && entryPath) {
-                await this.compileScriptsByRepo(repoUrl, entryPath, gitRef);
-                return c.json({
-                    status: "compilation queued",
-                    repoUrl,
-                    entryPath,
-                });
-            }
-
-            return c.json({ error: "Invalid request parameters" }, 400);
-        });
-
-        // Get compilation status
-        routes.get("/status/:scriptId", async (c) => {
-            const scriptId = c.req.param("scriptId");
-            const script = await this.sql`
-                SELECT 
-                    compiled__web__node__script_status as node_status,
-                    compiled__web__bun__script_status as bun_status,
-                    compiled__web__browser__script_status as browser_status
-                FROM entity.entity_scripts 
-                WHERE general__script_id = ${scriptId}
-            `;
-
-            if (!script.length) {
-                return c.json({ error: "Script not found" }, 404);
-            }
-
-            return c.json(script[0]);
-        });
-
-        if (this.debugMode) {
-            // Debug endpoints
-            routes.get("/queue", (c) => {
-                return c.json({
-                    activeCompilations: Array.from(this.compilationQueue),
-                });
             });
         }
     }

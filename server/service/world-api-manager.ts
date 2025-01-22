@@ -1,16 +1,11 @@
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 import type postgres from "postgres";
 import type { Hono } from "hono";
-import { compare, hash } from "bcrypt";
 import { sign, verify } from "jsonwebtoken";
 import type { MiddlewareHandler } from "hono";
 import { VircadiaConfig_Server } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config.ts";
 
-export enum AuthProvider {
-    PASSWORD = "password",
-    GITHUB = "github",
-    GOOGLE = "google",
-}
+type AuthProviderName = string;
 
 interface OAuthProviderConfig {
     enabled: boolean;
@@ -35,17 +30,6 @@ interface OAuthProviderConfig {
     };
 }
 
-interface LoginCredentials {
-    email: string;
-    password: string;
-}
-
-interface RegisterData {
-    email: string;
-    username: string;
-    password: string;
-}
-
 interface AuthProviderHandler {
     authenticate: (data: any) => Promise<{
         providerId: string;
@@ -66,47 +50,17 @@ interface AuthConfig {
     jwt: {
         secret: string;
         sessionDuration: string;
-        bcryptRounds: number;
     };
 }
 
 class AuthManager {
-    private authProviders: Map<AuthProvider, AuthProviderHandler> = new Map();
+    private authProviders: Map<AuthProviderName, AuthProviderHandler> =
+        new Map();
 
     constructor(
         private readonly sql: postgres.Sql,
         private readonly debugMode: boolean,
-    ) {
-        // Register built-in providers
-        this.registerAuthProvider(AuthProvider.PASSWORD, {
-            authenticate: async (credentials: LoginCredentials) => {
-                const [agent] = await this.sql`
-                    SELECT general__uuid, auth__password_hash, profile__username
-                    FROM agent_profiles
-                    WHERE auth__email = ${credentials.email}
-                `;
-
-                if (!agent || !agent.auth__password_hash) {
-                    throw new Error("Invalid credentials");
-                }
-
-                const validPassword = await compare(
-                    credentials.password,
-                    agent.auth__password_hash,
-                );
-
-                if (!validPassword) {
-                    throw new Error("Invalid credentials");
-                }
-
-                return {
-                    providerId: agent.general__uuid,
-                    email: credentials.email,
-                    username: agent.profile__username,
-                };
-            },
-        });
-    }
+    ) {}
 
     async initialize() {
         try {
@@ -141,58 +95,11 @@ class AuthManager {
         }
     }
 
-    registerAuthProvider(provider: AuthProvider, handler: AuthProviderHandler) {
+    registerAuthProvider(
+        provider: AuthProviderName,
+        handler: AuthProviderHandler,
+    ) {
         this.authProviders.set(provider, handler);
-    }
-
-    async register(data: RegisterData) {
-        try {
-            const passwordHash = await hash(
-                data.password,
-                VircadiaConfig_Server.auth.jwt.bcryptRounds,
-            );
-
-            const [agent] = await this.sql`
-                INSERT INTO agent_profiles (
-                    profile__username,
-                    auth__email,
-                    auth__password_hash
-                ) VALUES (
-                    ${data.username},
-                    ${data.email},
-                    ${passwordHash}
-                )
-                RETURNING general__uuid
-            `;
-
-            await this.sql`
-                INSERT INTO agent_roles (
-                    auth__agent_id,
-                    auth__role_name,
-                    auth__is_active
-                ) VALUES (
-                    ${agent.general__uuid},
-                    'agent',
-                    true
-                )
-            `;
-
-            return this.createSession(agent.general__uuid);
-        } catch (error) {
-            log({
-                message: `Registration failed: ${error}`,
-                debug: this.debugMode,
-                type: "error",
-            });
-            throw error;
-        }
-    }
-
-    async login(credentials: LoginCredentials) {
-        return this.authenticateWithProvider(
-            AuthProvider.PASSWORD,
-            credentials,
-        );
     }
 
     async logout(sessionId: string) {
@@ -201,17 +108,12 @@ class AuthManager {
         `;
     }
 
-    async authenticateWithProvider(provider: AuthProvider, data: any) {
-        if (provider === AuthProvider.PASSWORD) {
-            const handler = this.authProviders.get(provider);
-            if (!handler) {
-                throw new Error(`Auth provider ${provider} not supported`);
-            }
-            const userData = await handler.authenticate(data);
-            return this.storeAgentAndCreateSession(userData, provider);
+    async authenticateWithProvider(provider: AuthProviderName, data: any) {
+        const handler = this.authProviders.get(provider);
+        if (!handler) {
+            throw new Error(`Auth provider ${provider} not supported`);
         }
-
-        const userData = await this.handleOAuthFlow(provider, data);
+        const userData = await handler.authenticate(data);
         return this.storeAgentAndCreateSession(userData, provider);
     }
 
@@ -260,7 +162,7 @@ class AuthManager {
         };
     }
 
-    private async handleOAuthFlow(provider: AuthProvider, code: string) {
+    private async handleOAuthFlow(provider: AuthProviderName, code: string) {
         const config = VircadiaConfig_Server.auth.providers[provider];
         if (!config?.enabled) {
             throw new Error(`Provider ${provider} not enabled`);
@@ -355,7 +257,7 @@ class AuthManager {
 
     private async storeAgentAndCreateSession(
         userData: { providerId: string; email: string; username: string },
-        provider: AuthProvider,
+        provider: AuthProviderName,
     ) {
         const [agent] = await this.sql`
             INSERT INTO auth.agent_profiles (
@@ -449,28 +351,6 @@ class ApiRouteManager {
         const routes = app.basePath("/services/world-auth");
 
         routes.use("/*", this.auth.sessionMiddleware());
-
-        routes.post("/register", async (c) => {
-            try {
-                const data = (await c.req.json()) as RegisterData;
-                const session = await this.auth.register(data);
-                return c.json(session);
-            } catch (error) {
-                return c.json({ error: "Registration failed" }, 400);
-            }
-        });
-
-        routes.post("/login", async (c) => {
-            try {
-                const credentials = (await c.req.json()) as LoginCredentials;
-                const session = await this.auth.login(credentials);
-                return c.json(session);
-            } catch (error) {
-                return c.json({ error: "Login failed" }, 401);
-            }
-        });
-
-        // ... (rest of auth routes)
     }
 }
 

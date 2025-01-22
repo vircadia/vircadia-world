@@ -6,6 +6,7 @@ import { dirname } from "node:path";
 import { createConnection } from "node:net";
 import postgres from "postgres";
 import { readdir, readFile } from "node:fs/promises";
+import { sign } from "jsonwebtoken";
 
 const DOCKER_COMPOSE_PATH = path.join(
     dirname(fileURLToPath(import.meta.url)),
@@ -405,6 +406,49 @@ if (import.meta.main) {
                 message: `${accessMessage}\nhttp://localhost:${config.pgweb.port}\n`,
                 type: "info",
             });
+            break;
+        }
+        case "admin:token": {
+            const config = VircadiaConfig_Server.postgres;
+            const sql = postgres({
+                host: config.host,
+                port: config.port,
+                database: config.database,
+                username: config.user,
+                password: config.password,
+            });
+
+            try {
+                const [result] =
+                    await sql`SELECT generate_admin_token() as token`;
+                const tokenData = JSON.parse(result.token);
+
+                // Generate JWT token
+                const token = sign(
+                    {
+                        sessionId: tokenData.session_id,
+                        agentId: tokenData.agent_id,
+                    },
+                    VircadiaConfig_Server.auth.jwt.secret,
+                    {
+                        expiresIn:
+                            VircadiaConfig_Server.auth.adminToken
+                                .sessionDuration,
+                    },
+                );
+
+                log({
+                    message: `Generated admin token:\n${token}\n\nExpires in ${VircadiaConfig_Server.auth.adminToken.sessionDuration}`,
+                    type: "success",
+                });
+            } catch (error) {
+                log({
+                    message: `Failed to generate admin token: ${error.message}`,
+                    type: "error",
+                });
+            } finally {
+                await sql.end();
+            }
             break;
         }
         default:

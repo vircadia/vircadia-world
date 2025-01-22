@@ -135,6 +135,14 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Function to get anon agent id
+CREATE OR REPLACE FUNCTION get_anon_agent_id() 
+RETURNS UUID AS $$
+BEGIN
+    RETURN '00000000-0000-0000-0000-000000000001'::UUID;
+END;
+$$ LANGUAGE plpgsql;
+
 -- Seed default roles
 INSERT INTO auth.roles 
     (auth__role_name, meta__description, auth__is_system, auth__entity__insert) 
@@ -151,16 +159,16 @@ ON CONFLICT (auth__role_name) DO NOTHING;
 INSERT INTO auth.agent_profiles 
     (general__uuid, profile__username, auth__email, auth__password_hash) 
 VALUES 
-    ('00000000-0000-0000-0000-000000000000', 'admin', 'system@internal', NULL),
-    ('00000000-0000-0000-0000-000000000001', 'anon', 'anon@internal', NULL)
+    (get_system_agent_id(), 'admin', 'system@internal', NULL),
+    (get_anon_agent_id(), 'anon', 'anon@internal', NULL)
 ON CONFLICT (general__uuid) DO NOTHING;
 
 -- Assign system role to the system agent and anon role for the anon agent
 INSERT INTO auth.agent_roles 
     (auth__agent_id, auth__role_name, auth__is_active) 
 VALUES 
-    ('00000000-0000-0000-0000-000000000000', 'admin', TRUE),
-    ('00000000-0000-0000-0000-000000000001', 'anon', TRUE)
+    (get_system_agent_id(), 'admin', TRUE),
+    (get_anon_agent_id(), 'anon', TRUE)
 ON CONFLICT DO NOTHING;
 
 -- Modify the get_system_permissions_requirements function
@@ -193,7 +201,7 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION is_anon_agent()
 RETURNS boolean AS $$
 BEGIN
-    RETURN current_agent_id() = '00000000-0000-0000-0000-000000000001'::UUID;
+    RETURN current_agent_id() = get_anon_agent_id();
 END;
 $$ LANGUAGE plpgsql;
 
@@ -236,7 +244,7 @@ BEGIN
     AND session__last_seen_at > (NOW() - INTERVAL '24 hours');
 
     IF v_agent_id IS NULL THEN
-        v_agent_id := '00000000-0000-0000-0000-000000000001'::UUID; -- Anonymous
+        v_agent_id := get_anon_agent_id(); -- Anonymous
     END IF;
 
     -- Set the session context
@@ -272,3 +280,33 @@ BEGIN
     RETURN v_count;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Function to generate a temporary admin token
+CREATE OR REPLACE FUNCTION generate_admin_token()
+RETURNS TEXT AS $$
+DECLARE
+    v_session_id UUID;
+    v_system_agent_id UUID := get_system_agent_id();
+BEGIN
+    -- Create a new session for the system user
+    INSERT INTO auth.agent_sessions (
+        auth__agent_id,
+        auth__provider_name,
+        session__is_active,
+        meta__metadata
+    ) VALUES (
+        v_system_agent_id,
+        'system',
+        true,
+        jsonb_build_object('type', 'admin_token', 'created_at', NOW())
+    ) RETURNING general__session_id INTO v_session_id;
+
+    -- Return the session info as JSON
+    RETURN jsonb_build_object(
+        'session_id', v_session_id,
+        'agent_id', v_system_agent_id,
+        'created_at', NOW(),
+        'type', 'admin_token'
+    )::TEXT;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;

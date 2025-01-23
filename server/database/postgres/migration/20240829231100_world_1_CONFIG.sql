@@ -11,7 +11,6 @@ CREATE TABLE config.config (
 
 -- Insert default configuration
 INSERT INTO config.config (key, value, description) VALUES
-('client_poll_new_entities_ms', '500'::jsonb, 'How often a client should poll for all entities to find any potential new ones.'),
 ('tick_buffer_duration_ms', '2000'::jsonb, 'How long to keep tick history in milliseconds'),
 ('tick_metrics_history_ms', '3600000'::jsonb, 'How long to keep tick metrics history in milliseconds (1 hour default)');
 
@@ -34,11 +33,16 @@ INSERT INTO config.config (key, value, description) VALUES
 
 -- Add session configurations
 INSERT INTO config.config (key, value, description) VALUES
-('session_settings', jsonb_build_object(
+('client__session', jsonb_build_object(
     'max_session_age_ms', 86400000,  -- 24 hours in milliseconds
     'cleanup_interval_ms', 3600000,  -- 1 hour in milliseconds
     'inactive_timeout_ms', 3600000   -- 1 hour in milliseconds
 ), 'Session management configuration including timeouts and cleanup intervals');
+
+-- Add client configurations
+INSERT INTO config.config (key, value, description) VALUES
+('client__heartbeat_interval_ms', to_jsonb(3000), 'How often a client should send a heartbeat to the server in milliseconds'),
+('client__heartbeat_timeout_ms', to_jsonb(12000), 'How long a client should wait for a heartbeat response before considering the connection lost in milliseconds');
 
 -- Add authentication configurations
 INSERT INTO config.config (key, value, description) VALUES

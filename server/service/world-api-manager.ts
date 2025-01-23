@@ -1,14 +1,12 @@
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 import type postgres from "postgres";
-import type { Hono } from "hono";
 import { sign, verify } from "jsonwebtoken";
-import type { MiddlewareHandler } from "hono";
-import { VircadiaConfig_Server } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config.ts";
-import { createBunWebSocket } from "hono/bun";
-import type { ServerWebSocket } from "bun";
+import type { VircadiaConfig_Server } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config.ts";
+import { Communication } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+import type { Server, ServerWebSocket } from "bun";
 
-interface WorldSession {
-    ws: WebSocket;
+interface WorldSession<T = unknown> {
+    ws: WebSocket | ServerWebSocket<T>;
     agentId: string;
     sessionId: string;
     lastHeartbeat: number;
@@ -20,20 +18,25 @@ interface SessionValidationResult {
     isValid: boolean;
 }
 
-class SessionValidator {
-    private authConfig: any;
+interface AuthConfig {
+    jwt_session_duration: string;
+    jwt_secret: string;
+    admin_token_session_duration: string;
+    ws_check_interval: number;
+}
 
+interface WebSocketData {
+    token: string;
+    agentId: string;
+    sessionId: string;
+}
+
+class SessionValidator {
     constructor(
         private readonly sql: postgres.Sql,
         private readonly debugMode: boolean,
+        private readonly authConfig: AuthConfig,
     ) {}
-
-    async initialize() {
-        const [config] = await this.sql`
-            SELECT value FROM config.config WHERE key = 'auth_settings'
-        `;
-        this.authConfig = config.value;
-    }
 
     async validateSession(token: string): Promise<SessionValidationResult> {
         try {
@@ -67,246 +70,205 @@ class SessionValidator {
 }
 
 class WorldOAuthManager {
-    private authConfig: any;
-    private authRoutes: Hono;
-
     constructor(
         private readonly sql: postgres.Sql,
-        private readonly app: Hono,
         private readonly debugMode: boolean,
         private readonly sessionValidator: SessionValidator,
-    ) {
-        // Create a single router instance for auth routes
-        this.authRoutes = this.app.basePath("/services/world-auth");
+        private readonly authConfig: AuthConfig,
+    ) {}
 
-        // Apply session middleware to protected routes
-        this.authRoutes.use("/session/*", this.sessionMiddleware());
-    }
+    async handleRequest(req: Request): Promise<Response> {
+        const url = new URL(req.url);
+        const path = url.pathname;
 
-    async initialize() {
-        const [config] = await this.sql`
-            SELECT value FROM config.config WHERE key = 'auth_settings'
-        `;
-        this.authConfig = config.value;
+        // Handle authentication routes
+        switch (true) {
+            case path === "/services/world-auth/system/session" &&
+                req.method === "POST":
+                return await this.handleSystemSession();
 
-        // Use the existing authRoutes instance
-        this.authRoutes.post("/system/session", async (c) => {
-            try {
-                const [systemAgentId] = await this
-                    .sql`SELECT get_system_agent_id()`;
-                const token = sign(
-                    { agentId: systemAgentId.get_system_agent_id },
-                    this.authConfig.jwt_secret,
-                );
+            case path === "/services/world-auth/session/validate" &&
+                req.method === "GET":
+                return await this.handleSessionValidate(req);
 
-                const [session] = await this.sql`
-                    SELECT * FROM create_agent_session(
-                        ${systemAgentId.get_system_agent_id}, 
-                        'system',
-                        ${token}
-                    );
-                `;
+            case path === "/services/world-auth/session/logout" &&
+                req.method === "POST":
+                return await this.handleLogout(req);
 
-                return c.json({
-                    success: true,
-                    data: {
-                        sessionId: session.general__session_id,
-                        token: session.session__jwt,
-                        expiresAt: session.session__expires_at,
-                    },
-                });
-            } catch (error) {
-                return c.json(
-                    {
-                        success: false,
-                        error: "Failed to create system session",
-                    },
-                    500,
-                );
-            }
-        });
-
-        // Session validation route
-        this.authRoutes.get("/session/validate", async (c) => {
-            const token = c.req.header("Authorization")?.replace("Bearer ", "");
-            if (!token) {
-                return c.json(
-                    {
-                        success: false,
-                        error: "No token provided",
-                    },
-                    401,
-                );
-            }
-
-            const validation =
-                await this.sessionValidator.validateSession(token);
-            return c.json({
-                success: true,
-                data: {
-                    isValid: validation.isValid,
-                    agentId: validation.agentId,
-                },
-            });
-        });
-
-        // Logout route
-        this.authRoutes.post("/session/logout", async (c) => {
-            const token = c.req.header("Authorization")?.replace("Bearer ", "");
-            if (!token) {
-                return c.json(
-                    {
-                        success: false,
-                        error: "No token provided",
-                    },
-                    401,
-                );
-            }
-
-            const validation =
-                await this.sessionValidator.validateSession(token);
-            if (validation.isValid) {
-                await this.sql`
-                    SELECT invalidate_session(${validation.sessionId});
-                `;
-            }
-
-            return c.json({
-                success: true,
-            });
-        });
-
-        try {
-            log({
-                message: "Initializing auth manager",
-                debug: this.debugMode,
-                type: "debug",
-            });
-
-            const [result] = await this.sql`
-                SELECT cleanup_old_sessions() as cleaned_count;
-            `;
-
-            log({
-                message: `Cleaned up ${result.cleaned_count} old sessions`,
-                debug: this.debugMode,
-                type: "debug",
-            });
-
-            log({
-                message: "Initialized AuthManager",
-                debug: this.debugMode,
-                type: "debug",
-            });
-        } catch (error) {
-            log({
-                message: `Failed to initialize AuthManager: ${error}`,
-                debug: this.debugMode,
-                type: "error",
-            });
-            throw error;
+            default:
+                return new Response("Not Found", { status: 404 });
         }
     }
 
-    sessionMiddleware(): MiddlewareHandler {
-        return async (c, next) => {
-            const token = c.req.header("Authorization")?.replace("Bearer ", "");
+    private async handleSystemSession(): Promise<Response> {
+        try {
+            const [systemAgentId] = await this
+                .sql`SELECT get_system_agent_id()`;
+            const token = sign(
+                { agentId: systemAgentId.get_system_agent_id },
+                this.authConfig.jwt_secret,
+            );
 
-            if (token) {
-                const validation =
-                    await this.sessionValidator.validateSession(token);
-                if (validation.isValid) {
-                    await this
-                        .sql`SELECT set_session_context(${validation.sessionId}::UUID)`;
-                    c.set("session", {
-                        agentId: validation.agentId,
-                        isAuthenticated: true,
-                    });
-                }
-            }
+            const [session] = await this.sql`
+                SELECT * FROM create_agent_session(
+                    ${systemAgentId.get_system_agent_id}, 
+                    'system',
+                    ${token}
+                );
+            `;
 
-            if (!c.get("session")) {
-                await this.sql`SELECT set_session_context(NULL)`;
-                c.set("session", {
-                    agentId: "00000000-0000-0000-0000-000000000001",
-                    isAuthenticated: false,
-                });
-            }
+            return Response.json({
+                success: true,
+                data: {
+                    sessionId: session.general__session_id,
+                    token: session.session__jwt,
+                    expiresAt: session.session__expires_at,
+                },
+            });
+        } catch (error) {
+            return Response.json(
+                { success: false, error: "Failed to create system session" },
+                { status: 500 },
+            );
+        }
+    }
 
-            await next();
-        };
+    private async handleSessionValidate(req: Request): Promise<Response> {
+        const token = req.headers.get("Authorization")?.replace("Bearer ", "");
+        if (!token) {
+            return Response.json(
+                { success: false, error: "No token provided" },
+                { status: 401 },
+            );
+        }
+
+        const validation = await this.sessionValidator.validateSession(token);
+        return Response.json({
+            success: true,
+            data: {
+                isValid: validation.isValid,
+                agentId: validation.agentId,
+            },
+        });
+    }
+
+    private async handleLogout(req: Request): Promise<Response> {
+        const token = req.headers.get("Authorization")?.replace("Bearer ", "");
+        if (!token) {
+            return Response.json(
+                { success: false, error: "No token provided" },
+                { status: 401 },
+            );
+        }
+
+        const validation = await this.sessionValidator.validateSession(token);
+        if (validation.isValid) {
+            await this.sql`SELECT invalidate_session(${validation.sessionId});`;
+        }
+
+        return Response.json({ success: true });
     }
 }
 
 class WorldWebSocketManager {
-    private activeSessions: Map<string, WorldSession> = new Map();
+    private activeSessions: Map<string, WorldSession<unknown>> = new Map();
     private heartbeatInterval: Timer | null = null;
-    private tokenMap = new WeakMap<WebSocket | ServerWebSocket, string>();
-    private authConfig: any;
+    private tokenMap = new WeakMap<
+        WebSocket | ServerWebSocket<unknown>,
+        string
+    >();
+    private wsToSessionMap = new WeakMap<
+        WebSocket | ServerWebSocket<unknown>,
+        string
+    >();
+    private clientConfig:
+        | {
+              heartbeat: {
+                  interval: number;
+                  timeout: number;
+              };
+              session: {
+                  max_session_age_ms: number;
+                  cleanup_interval_ms: number;
+                  inactive_timeout_ms: number;
+              };
+          }
+        | undefined;
 
     constructor(
         private readonly sql: postgres.Sql,
-        private readonly app: Hono,
         private readonly debugMode: boolean,
         private readonly sessionValidator: SessionValidator,
+        private readonly authConfig: AuthConfig,
     ) {}
 
     async initialize() {
-        const [config] = await this.sql`
-            SELECT value FROM config.config WHERE key = 'auth_settings'
+        // Load client configuration
+        const [heartbeatInterval] = await this.sql`
+            SELECT value FROM config.config WHERE key = 'client__heartbeat_interval_ms'
         `;
-        this.authConfig = config.value;
+        const [heartbeatTimeout] = await this.sql`
+            SELECT value FROM config.config WHERE key = 'client__heartbeat_timeout_ms'
+        `;
+        const [sessionConfig] = await this.sql`
+            SELECT value FROM config.config WHERE key = 'client__session'
+        `;
 
-        const routes = this.app.basePath("/services/world");
-        const { upgradeWebSocket, websocket } =
-            createBunWebSocket<ServerWebSocket>();
+        this.clientConfig = {
+            heartbeat: {
+                interval: heartbeatInterval.value,
+                timeout: heartbeatTimeout.value,
+            },
+            session: sessionConfig.value,
+        };
 
-        routes.get(
-            "/ws",
-            upgradeWebSocket(async (c) => {
-                const token = c.req
-                    .header("Authorization")
-                    ?.replace("Bearer ", "");
-                if (!token) {
-                    throw new Error("Authentication required");
-                }
-
-                const validation =
-                    await this.sessionValidator.validateSession(token);
-                if (!validation.isValid) {
-                    throw new Error("Invalid token");
-                }
-
-                this.tokenMap.set(c.req.socket, token);
-                return {
-                    message: async (ws, message) => {
-                        await this.handleMessage(ws, message);
-                    },
-                    onOpen: (_event, ws) => {
-                        this.handleConnection(ws, {
-                            agentId: validation.agentId,
-                            sessionId: validation.sessionId,
-                        });
-                    },
-                    onClose: () => {
-                        this.handleDisconnect(validation.sessionId);
-                    },
-                };
-            }),
-        );
-
-        // Initialize heartbeat checker
         this.heartbeatInterval = setInterval(
             () => this.checkHeartbeats(),
             this.authConfig.ws_check_interval,
         );
     }
 
+    async handleUpgrade(
+        req: Request,
+        server: Server,
+    ): Promise<Response | undefined> {
+        const protocols = req.headers.get("Sec-WebSocket-Protocol")?.split(",");
+        const bearerProtocol = protocols?.find((p) =>
+            p.trim().startsWith("bearer."),
+        );
+
+        if (!bearerProtocol) {
+            return new Response("Authentication required", { status: 401 });
+        }
+
+        const token = bearerProtocol.trim().substring(7);
+        const validation = await this.sessionValidator.validateSession(token);
+
+        if (!validation.isValid) {
+            return new Response("Invalid token", { status: 401 });
+        }
+
+        const upgraded = server.upgrade(req, {
+            data: {
+                token,
+                agentId: validation.agentId,
+                sessionId: validation.sessionId,
+            },
+            headers: {
+                "Sec-WebSocket-Protocol": "bearer",
+            },
+        });
+
+        if (!upgraded) {
+            return new Response("WebSocket upgrade failed", { status: 500 });
+        }
+    }
+
     handleConnection(
-        ws: WebSocket,
+        ws: WebSocket | ServerWebSocket<WebSocketData>,
         sessionData: { agentId: string; sessionId: string },
     ) {
-        const session: WorldSession = {
+        const session: WorldSession<unknown> = {
             ws,
             agentId: sessionData.agentId,
             sessionId: sessionData.sessionId,
@@ -314,101 +276,87 @@ class WorldWebSocketManager {
         };
 
         this.activeSessions.set(sessionData.sessionId, session);
+        this.wsToSessionMap.set(ws, sessionData.sessionId);
 
-        ws.on("message", async (message: string) => {
-            try {
-                const data = JSON.parse(message);
-                await this.handleMessage(ws, data);
-            } catch (error) {
-                ws.send(
-                    JSON.stringify({
-                        type: "error",
-                        message: "Invalid message format",
-                    }),
-                );
-            }
+        const connectionMsg = Communication.createMessage({
+            type: Communication.MessageType.CONNECTION_ESTABLISHED,
+            agentId: sessionData.agentId,
         });
-
-        ws.on("close", () => {
-            this.handleDisconnect(sessionData.sessionId);
-        });
-
-        // Send initial connection success
-        ws.send(
-            JSON.stringify({
-                type: "connection_established",
-                agentId: sessionData.agentId,
-            }),
-        );
+        ws.send(JSON.stringify(connectionMsg));
     }
 
-    async handleMessage(ws: WebSocket | ServerWebSocket, message: any) {
+    async handleMessage(
+        ws: WebSocket | ServerWebSocket<unknown>,
+        message: any,
+    ) {
         try {
             const data = JSON.parse(
                 typeof message === "string" ? message : message.toString(),
-            );
-            const sessionId = this.getSessionIdFromWebSocket(ws);
+            ) as Communication.Message;
+
+            const sessionId = this.wsToSessionMap.get(ws);
             if (!sessionId) {
-                ws.send(
-                    JSON.stringify({
-                        type: "error",
-                        message: "Session not found",
-                    }),
-                );
+                const errorMsg = Communication.createMessage({
+                    type: Communication.MessageType.ERROR,
+                    message: "Session not found",
+                });
+                ws.send(JSON.stringify(errorMsg));
                 return;
             }
 
             const session = this.activeSessions.get(sessionId);
             if (!session) {
-                ws.send(
-                    JSON.stringify({
-                        type: "error",
-                        message: "Session not found",
-                    }),
-                );
+                const errorMsg = Communication.createMessage({
+                    type: Communication.MessageType.ERROR,
+                    message: "Session not found",
+                });
+                ws.send(JSON.stringify(errorMsg));
                 return;
             }
 
             session.lastHeartbeat = Date.now();
 
             switch (data.type) {
-                case "heartbeat":
-                    ws.send(JSON.stringify({ type: "heartbeat_ack" }));
+                case Communication.MessageType.HEARTBEAT: {
+                    const heartbeatAck = Communication.createMessage({
+                        type: Communication.MessageType.HEARTBEAT_ACK,
+                    });
+                    ws.send(JSON.stringify(heartbeatAck));
                     break;
-                // Add other message type handlers here
-                default:
-                    ws.send(
-                        JSON.stringify({
-                            type: "error",
-                            message: "Unknown message type",
-                        }),
-                    );
+                }
+                case Communication.MessageType.CONFIG_REQUEST: {
+                    if (!this.clientConfig) {
+                        throw new Error("Client config not initialized");
+                    }
+                    const configMsg = Communication.createMessage({
+                        type: Communication.MessageType.CONFIG_RESPONSE,
+                        config: this.clientConfig,
+                    });
+                    ws.send(JSON.stringify(configMsg));
+                    break;
+                }
+                default: {
+                    const errorMsg = Communication.createMessage({
+                        type: Communication.MessageType.ERROR,
+                        message: "Unknown message type",
+                    });
+                    ws.send(JSON.stringify(errorMsg));
+                }
             }
         } catch (error) {
-            ws.send(
-                JSON.stringify({
-                    type: "error",
-                    message: "Invalid message format",
-                }),
-            );
+            const errorMsg = Communication.createMessage({
+                type: Communication.MessageType.ERROR,
+                message: "Invalid message format",
+            });
+            ws.send(JSON.stringify(errorMsg));
         }
-    }
-
-    private getSessionIdFromWebSocket(
-        ws: WebSocket | ServerWebSocket,
-    ): string | null {
-        for (const [sessionId, session] of this.activeSessions.entries()) {
-            if (session.ws === ws) {
-                return sessionId;
-            }
-        }
-        return null;
     }
 
     handleDisconnect(sessionId: string) {
         const session = this.activeSessions.get(sessionId);
         if (session) {
-            // Cleanup logic here
+            // Clean up both maps
+            this.wsToSessionMap.delete(session.ws);
             this.activeSessions.delete(sessionId);
         }
     }
@@ -425,7 +373,7 @@ class WorldWebSocketManager {
                     now - session.lastHeartbeat >
                     this.authConfig.ws_check_interval
                 ) {
-                    const token = this.getTokenFromWebSocket(session.ws);
+                    const token = this.tokenMap.get(session.ws);
                     if (
                         !token ||
                         !(await this.sessionValidator.validateSession(token))
@@ -437,12 +385,6 @@ class WorldWebSocketManager {
                 }
             }),
         );
-    }
-
-    private getTokenFromWebSocket(
-        ws: WebSocket | ServerWebSocket,
-    ): string | undefined {
-        return this.tokenMap.get(ws);
     }
 
     cleanup() {
@@ -457,29 +399,17 @@ class WorldWebSocketManager {
 }
 
 export class WorldApiManager {
-    private oauthManager: WorldOAuthManager;
-    private wsManager: WorldWebSocketManager;
-    private sessionValidator: SessionValidator;
+    private authConfig: AuthConfig | undefined;
+    private oauthManager: WorldOAuthManager | undefined;
+    public wsManager: WorldWebSocketManager | undefined;
+    private sessionValidator: SessionValidator | undefined;
+    private server: Server | undefined;
 
     constructor(
         private sql: postgres.Sql,
-        private readonly hono: Hono,
         private readonly debugMode: boolean,
-    ) {
-        this.sessionValidator = new SessionValidator(sql, debugMode);
-        this.oauthManager = new WorldOAuthManager(
-            sql,
-            hono,
-            debugMode,
-            this.sessionValidator,
-        );
-        this.wsManager = new WorldWebSocketManager(
-            sql,
-            hono,
-            debugMode,
-            this.sessionValidator,
-        );
-    }
+        private readonly config: typeof VircadiaConfig_Server,
+    ) {}
 
     async initialize() {
         log({
@@ -488,15 +418,84 @@ export class WorldApiManager {
             type: "debug",
         });
 
-        // Initialize session validator first
-        await this.sessionValidator.initialize();
+        // Load auth config
+        const [config] = await this.sql`
+            SELECT value FROM config.config WHERE key = 'auth_settings'
+        `;
+        this.authConfig = config.value as AuthConfig;
 
-        // Then initialize managers that depend on it
-        await this.oauthManager.initialize();
+        // Initialize components
+        this.sessionValidator = new SessionValidator(
+            this.sql,
+            this.debugMode,
+            this.authConfig,
+        );
+
+        this.oauthManager = new WorldOAuthManager(
+            this.sql,
+            this.debugMode,
+            this.sessionValidator,
+            this.authConfig,
+        );
+
+        this.wsManager = new WorldWebSocketManager(
+            this.sql,
+            this.debugMode,
+            this.sessionValidator,
+            this.authConfig,
+        );
+
         await this.wsManager.initialize();
+
+        // Start server
+        this.server = Bun.serve({
+            port: this.config.serverPort,
+            hostname: this.config.serverHost,
+            development: this.debugMode,
+
+            fetch: async (req: Request, server: Server) => {
+                const url = new URL(req.url);
+
+                // Handle WebSocket upgrade
+                if (url.pathname === "/services/world/ws") {
+                    return await this.wsManager?.handleUpgrade(req, server);
+                }
+
+                // Handle HTTP routes
+                if (url.pathname.startsWith("/services/world-auth/")) {
+                    return await this.oauthManager?.handleRequest(req);
+                }
+
+                return new Response("Not Found", { status: 404 });
+            },
+
+            websocket: {
+                message: (
+                    ws: ServerWebSocket<WebSocketData>,
+                    message: string,
+                ) => {
+                    this.wsManager?.handleMessage(ws, message);
+                },
+                open: (ws: ServerWebSocket<WebSocketData>) => {
+                    this.wsManager?.handleConnection(ws, {
+                        agentId: ws.data.agentId,
+                        sessionId: ws.data.sessionId,
+                    });
+                },
+                close: (ws: ServerWebSocket<WebSocketData>) => {
+                    this.wsManager?.handleDisconnect(ws.data.sessionId);
+                },
+            },
+        });
+
+        log({
+            message: `Bun HTTP+WS World API Server running at http://${this.config.serverHost}:${this.config.serverPort}`,
+            type: "success",
+        });
     }
 
     cleanup() {
-        this.wsManager.cleanup();
+        this.wsManager?.cleanup();
+        this.server?.stop();
     }
 }

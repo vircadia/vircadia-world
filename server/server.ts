@@ -1,8 +1,6 @@
 import { VircadiaConfig_Server } from "../sdk/vircadia-world-sdk-ts/config/vircadia.config.ts";
 import { log } from "../sdk/vircadia-world-sdk-ts/module/general/log.ts";
 import { PostgresClient } from "./database/postgres/postgres_client.ts";
-import { Hono } from "hono";
-import { logger } from "hono/logger";
 import { WorldTickManager } from "./service/world-tick-manager.ts";
 import { WorldApiManager } from "./service/world-api-manager.ts";
 import { WorldScriptManager } from "./service/world-script-manager.ts";
@@ -14,10 +12,6 @@ let worldApiManager: WorldApiManager | null = null;
 
 async function init() {
     const debugMode = config.debug;
-    const app = new Hono();
-
-    // Add middleware
-    app.use("*", logger());
 
     if (debugMode) {
         log({ message: "Server debug mode enabled", type: "info" });
@@ -52,32 +46,36 @@ async function init() {
         // Initialize world api manager
         worldApiManager = new WorldApiManager(
             postgresClient.getClient(),
-            app,
             debugMode,
+            config,
         );
         await worldApiManager.initialize();
-
-        // ===== HTTP Server =====
-        log({ message: "Starting Bun HTTP server", type: "info" });
-        // Start HTTP server with Hono
-        const bunServer = Bun.serve({
-            port: config.serverPort,
-            hostname: config.serverHost,
-            development: debugMode,
-            fetch: app.fetch,
-        });
-
-        log({
-            message: `Bun HTTP server running at http://${config.serverHost}:${config.serverPort}`,
-            type: "success",
-        });
     } catch (error) {
         log({
-            message: `Server initialization failed: ${JSON.stringify(error)}`,
+            message: "Server initialization failed",
             type: "error",
+            error: error,
         });
         process.exit(1);
     }
 }
+
+// Add global error handlers
+process.on("unhandledRejection", (reason, promise) => {
+    log({
+        message: "Unhandled Promise Rejection",
+        type: "error",
+        error: reason,
+    });
+});
+
+process.on("uncaughtException", (error) => {
+    log({
+        message: "Uncaught Exception",
+        type: "error",
+        error: error,
+    });
+    process.exit(1);
+});
 
 await init();

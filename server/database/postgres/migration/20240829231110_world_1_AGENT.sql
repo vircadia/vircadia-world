@@ -291,7 +291,7 @@ BEGIN
     SELECT (value->>'max_session_age_ms')::INTEGER 
     INTO v_max_age_ms 
     FROM config.config 
-    WHERE key = 'session_settings';
+    WHERE key = 'client__session';
 
     WITH updated_sessions AS (
         UPDATE auth.agent_sessions 
@@ -316,7 +316,7 @@ BEGIN
     SELECT (value->>'max_session_age_ms')::INTEGER 
     INTO v_max_age_ms 
     FROM config.config 
-    WHERE key = 'session_settings';
+    WHERE key = 'client__session';
 
     -- Get the agent_id from the session
     SELECT auth__agent_id INTO v_agent_id

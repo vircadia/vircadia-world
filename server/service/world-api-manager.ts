@@ -40,6 +40,15 @@ class SessionValidator {
 
     async validateSession(token: string): Promise<SessionValidationResult> {
         try {
+            // Check for empty or malformed token first
+            if (!token || token.split(".").length !== 3) {
+                return {
+                    agentId: "",
+                    sessionId: "",
+                    isValid: false,
+                };
+            }
+
             const decoded = verify(token, this.authConfig.jwt_secret) as {
                 sessionId: string;
                 agentId: string;
@@ -49,16 +58,29 @@ class SessionValidator {
                 SELECT * FROM validate_session(${decoded.sessionId}::UUID)
             `;
 
+            log({
+                message: "Session validation result",
+                debug: this.debugMode,
+                type: "debug",
+                data: {
+                    validation,
+                },
+            });
+
             return {
                 agentId: validation.auth__agent_id || "",
                 sessionId: decoded.sessionId,
-                isValid: validation.is_valid,
+                isValid: validation.is_valid && !!validation.auth__agent_id,
             };
         } catch (error) {
             log({
                 message: `Session validation failed: ${error}`,
                 debug: this.debugMode,
                 type: "debug",
+                data: {
+                    error:
+                        error instanceof Error ? error.message : String(error),
+                },
             });
             return {
                 agentId: "",
@@ -69,7 +91,7 @@ class SessionValidator {
     }
 }
 
-class WorldOAuthManager {
+class WorldRestManager {
     constructor(
         private readonly sql: postgres.Sql,
         private readonly debugMode: boolean,
@@ -102,7 +124,9 @@ class WorldOAuthManager {
         const token = req.headers.get("Authorization")?.replace("Bearer ", "");
         if (!token) {
             return Response.json(
-                { success: false, error: "No token provided" },
+                Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
+                    "No token provided",
+                ),
                 { status: 401 },
             );
         }
@@ -116,40 +140,80 @@ class WorldOAuthManager {
                 validation,
             },
         });
-        return Response.json({
-            success: true,
-            data: {
-                isValid: validation.isValid,
-                agentId: validation.agentId,
-            },
-        });
+
+        if (!validation.isValid) {
+            return Response.json(
+                Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
+                    "Invalid token",
+                ),
+            );
+        }
+
+        return Response.json(
+            Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createSuccess(
+                validation.isValid,
+                validation.agentId,
+            ),
+        );
     }
 
     private async handleLogout(req: Request): Promise<Response> {
         const token = req.headers.get("Authorization")?.replace("Bearer ", "");
         if (!token) {
             return Response.json(
-                { success: false, error: "No token provided" },
+                Communication.REST.Endpoint.AUTH_SESSION_LOGOUT.createError(
+                    "No token provided",
+                ),
                 { status: 401 },
             );
         }
 
         const validation = await this.sessionValidator.validateSession(token);
 
-        if (validation.isValid) {
-            await this.sql`SELECT invalidate_session(${validation.sessionId});`;
+        try {
+            // Even if the token is invalid, we should return success since the session is effectively "logged out"
+            if (!validation.isValid) {
+                return Response.json(
+                    Communication.REST.Endpoint.AUTH_SESSION_LOGOUT.createSuccess(),
+                );
+            }
+
+            // Call invalidate_session and check its boolean return value
+            const [result] = await this.sql<[{ invalidate_session: boolean }]>`
+                SELECT invalidate_session(${validation.sessionId}::UUID) as invalidate_session;
+            `;
+
+            if (!result.invalidate_session) {
+                throw new Error("Failed to invalidate session");
+            }
+
+            log({
+                message: "Auth endpoint - Successfully logged out",
+                debug: this.debugMode,
+                type: "debug",
+                data: {
+                    validation,
+                },
+            });
+
+            return Response.json(
+                Communication.REST.Endpoint.AUTH_SESSION_LOGOUT.createSuccess(),
+            );
+        } catch (error) {
+            log({
+                message: "Failed to invalidate session",
+                debug: this.debugMode,
+                type: "error",
+                data: {
+                    error:
+                        error instanceof Error ? error.message : String(error),
+                },
+            });
+
+            return Response.json(
+                Communication.REST.Endpoint.AUTH_SESSION_LOGOUT.createSuccess(),
+            );
         }
-
-        log({
-            message: "Auth endpoint - Session logout",
-            debug: this.debugMode,
-            type: "debug",
-            data: {
-                validation,
-            },
-        });
-
-        return Response.json({ success: true });
     }
 }
 
@@ -510,8 +574,8 @@ class WorldWebSocketManager {
 
 export class WorldApiManager {
     private authConfig: AuthConfig | undefined;
-    private oauthManager: WorldOAuthManager | undefined;
-    public wsManager: WorldWebSocketManager | undefined;
+    private oauthManager: WorldRestManager | undefined;
+    private wsManager: WorldWebSocketManager | undefined;
     private sessionValidator: SessionValidator | undefined;
     private server: Server | undefined;
 
@@ -541,7 +605,7 @@ export class WorldApiManager {
             this.authConfig,
         );
 
-        this.oauthManager = new WorldOAuthManager(
+        this.oauthManager = new WorldRestManager(
             this.sql,
             this.debugMode,
             this.sessionValidator,

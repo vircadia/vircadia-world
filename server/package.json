@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "app:dev": "bun run --watch server.ts",
-    "app:dev-debug": "VIRCADIA_WORLD_SERVER_DEBUG=1 bun run --watch server.ts",
+    "app:dev-debug": "VRCA_SERVER_DEBUG=1 bun run --watch server.ts",
     "app:test": "bun test",
     "app:start": "bun run server.ts",
     "app:build": "bun build server.ts --outfile=server",

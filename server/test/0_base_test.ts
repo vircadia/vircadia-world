@@ -7,8 +7,13 @@ import {
 
 describe("System Startup Test", () => {
     beforeAll(async () => {
-        // Start required services
-        await up();
+        try {
+            // Start required services silently
+            await up({ silent: true });
+        } catch (error) {
+            console.error("Failed to start services:", error);
+            throw error;
+        }
     });
 
     test("Docker containers are healthy", async () => {

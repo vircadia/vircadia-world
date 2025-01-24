@@ -30,18 +30,33 @@ function getDockerEnv() {
     };
 }
 
-async function runDockerCommand(args: string[], env = getDockerEnv()) {
+function createSqlClient(silent: boolean) {
+    const config = VircadiaConfig_Server.postgres;
+    return postgres({
+        host: config.host,
+        port: config.port,
+        database: config.database,
+        username: config.user,
+        password: config.password,
+        debug: !silent,
+        onnotice: silent ? () => {} : undefined, // Ignore notice callbacks when silent
+    });
+}
+
+async function runDockerCommand(args: string[], silent = false) {
     const processEnv = {
         ...process.env,
-        ...env,
+        ...getDockerEnv(),
         PATH: process.env.PATH,
     };
 
     // Log the command being executed
-    log({
-        message: `[Docker Command] docker-compose -f ${DOCKER_COMPOSE_PATH} ${args.join(" ")}`,
-        type: "debug",
-    });
+    if (!silent) {
+        log({
+            message: `[Docker Command] docker-compose -f ${DOCKER_COMPOSE_PATH} ${args.join(" ")}`,
+            type: "debug",
+        });
+    }
 
     const spawnedProcess = Bun.spawn(
         ["docker", "compose", "-f", DOCKER_COMPOSE_PATH, ...args],
@@ -57,16 +72,20 @@ async function runDockerCommand(args: string[], env = getDockerEnv()) {
 
     // Always log output for better debugging
     if (stdout) {
-        log({
-            message: `[Docker Command Output]\n${stdout}`,
-            type: "info",
-        });
+        if (!silent) {
+            log({
+                message: `[Docker Command Output]\n${stdout}`,
+                type: "info",
+            });
+        }
     }
     if (stderr) {
-        log({
-            message: `[Docker Command Output]\n${stderr}`,
-            type: "info",
-        });
+        if (!silent) {
+            log({
+                message: `[Docker Command Output]\n${stderr}`,
+                type: "info",
+            });
+        }
     }
 
     const exitCode = await spawnedProcess.exitCode;
@@ -97,13 +116,7 @@ export async function isHealthy(): Promise<{
         error?: Error;
     }> => {
         try {
-            const sql = postgres({
-                host: config.postgres.host,
-                port: config.postgres.port,
-                database: config.postgres.database,
-                username: config.postgres.user,
-                password: config.postgres.password,
-            });
+            const sql = createSqlClient(false);
 
             // Try a simple query to verify the connection
             const result = await sql`SELECT 1`;
@@ -160,113 +173,137 @@ async function waitForHealthy(
     return false;
 }
 
-export async function up(env = getDockerEnv()) {
-    log({
-        message: `Starting ${env.CONTAINER_NAME} services...`,
-        type: "info",
-    });
-    await runDockerCommand(["up", "-d", "--build"]);
+export async function up(silent = false) {
+    const env = getDockerEnv();
 
-    log({
-        message: `Waiting for ${env.CONTAINER_NAME} services to be ready...`,
-        type: "info",
-    });
+    if (!silent) {
+        log({
+            message: `Starting ${env.CONTAINER_NAME} services...`,
+            type: "info",
+        });
+    }
+    await runDockerCommand(["up", "-d", "--build"], silent);
+
+    if (!silent) {
+        log({
+            message: `Waiting for ${env.CONTAINER_NAME} services to be ready...`,
+            type: "info",
+        });
+    }
     if (!(await waitForHealthy())) {
         throw new Error(
             `${env.CONTAINER_NAME} services failed to start properly after 30 seconds`,
         );
     }
-    log({
-        message: `${env.CONTAINER_NAME} services are ready`,
-        type: "success",
-    });
-
-    const config = VircadiaConfig_Server.postgres;
+    if (!silent) {
+        log({
+            message: `${env.CONTAINER_NAME} services are ready`,
+            type: "success",
+        });
+    }
 
     // Add a small delay to ensure container is fully initialized
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
     // Create and activate extensions
-    const sql = postgres({
-        host: config.host,
-        port: config.port,
-        database: config.database,
-        username: config.user,
-        password: config.password,
-    });
+    const sql = createSqlClient(silent);
 
     try {
         // Add migration execution here
-        log({
-            message: `Running initial migrations for ${env.CONTAINER_NAME}...`,
-            type: "info",
+        if (!silent) {
+            log({
+                message: `Running initial migrations for ${env.CONTAINER_NAME}...`,
+                type: "info",
+            });
+        }
+        await seed({
+            existingClient: sql,
+            silent,
         });
-        await seed(sql); // Pass the existing SQL connection
     } catch (error) {
-        log({
-            message: "Failed to initialize database.",
-            type: "error",
-            error: error,
-        });
+        if (!silent) {
+            log({
+                message: "Failed to initialize database.",
+                type: "error",
+                error: error,
+            });
+        }
         throw error;
     } finally {
         await sql.end();
     }
 
-    log({
-        message: `${env.CONTAINER_NAME} container started with extensions installed and migrations applied`,
-        type: "success",
-    });
+    if (!silent) {
+        log({
+            message: `${env.CONTAINER_NAME} container started with extensions installed and migrations applied`,
+            type: "success",
+        });
+    }
 }
 
-export async function down(env = getDockerEnv()) {
-    log({
-        message: `Stopping ${env.CONTAINER_NAME} container...`,
-        type: "info",
-    });
-    await runDockerCommand(["down"]);
-    log({
-        message: `${env.CONTAINER_NAME} container stopped`,
-        type: "success",
-    });
+export async function down(silent = false) {
+    const env = getDockerEnv();
+
+    if (!silent) {
+        log({
+            message: `Stopping ${env.CONTAINER_NAME} container...`,
+            type: "info",
+        });
+    }
+    await runDockerCommand(["down"], silent);
+    if (!silent) {
+        log({
+            message: `${env.CONTAINER_NAME} container stopped`,
+            type: "success",
+        });
+    }
 }
 
-export async function rebuildContainer(env = getDockerEnv()) {
-    log({
-        message: `Performing hard reset of ${env.CONTAINER_NAME} container...`,
-        type: "info",
+export async function rebuildContainer(silent = false) {
+    const env = getDockerEnv();
+
+    if (!silent) {
+        log({
+            message: `Performing hard reset of ${env.CONTAINER_NAME} container...`,
+            type: "info",
+        });
+    }
+    await runDockerCommand(["down", "-v"], silent);
+    if (!silent) {
+        log({
+            message: `Container ${env.CONTAINER_NAME} removed, rebuilding...`,
+            type: "info",
+        });
+    }
+    await runDockerCommand(["up", "-d", "--build"], silent);
+    if (!silent) {
+        log({
+            message: `${env.CONTAINER_NAME} container reset complete, running migrations...`,
+            type: "info",
+        });
+    }
+    await seed({
+        silent,
     });
-    await runDockerCommand(["down", "-v"]);
-    log({
-        message: `Container ${env.CONTAINER_NAME} removed, rebuilding...`,
-        type: "info",
-    });
-    await runDockerCommand(["up", "-d", "--build"]);
-    log({
-        message: `${env.CONTAINER_NAME} container reset complete, running migrations...`,
-        type: "info",
-    });
-    await seed();
-    log({
-        message: `${env.CONTAINER_NAME} database migrations applied`,
-        type: "success",
-    });
+    if (!silent) {
+        log({
+            message: `${env.CONTAINER_NAME} database migrations applied`,
+            type: "success",
+        });
+    }
 }
 
-export async function softResetDatabase(env = getDockerEnv()) {
-    log({
-        message: `Performing soft reset of ${env.CONTAINER_NAME} database...`,
-        type: "info",
-    });
+export async function softResetDatabase(silent = false) {
+    const env = getDockerEnv();
 
-    const config = VircadiaConfig_Server.postgres;
-    const sql = postgres({
-        host: config.host,
-        port: config.port,
-        database: config.database,
-        username: config.user,
-        password: config.password,
-    });
+    if (!silent) {
+        log({
+            message: `Performing soft reset of ${env.CONTAINER_NAME} database...`,
+            type: "info",
+        });
+    }
+
+    const sql = createSqlClient(silent);
 
     try {
         // Drop specific schemas and their contents
@@ -286,48 +323,52 @@ export async function softResetDatabase(env = getDockerEnv()) {
             END $$;
         `);
 
-        log({
-            message: `${env.CONTAINER_NAME} database reset complete. Running migrations...`,
-            type: "info",
+        if (!silent) {
+            log({
+                message: `${env.CONTAINER_NAME} database reset complete. Running migrations...`,
+                type: "info",
+            });
+        }
+        await seed({
+            existingClient: sql,
+            silent,
         });
-        await seed(sql);
     } finally {
         await sql.end();
     }
 }
 
-export async function seed(
-    existingClient?: postgres.Sql,
-    env = getDockerEnv(),
-) {
+export async function seed(data: {
+    existingClient?: postgres.Sql;
+    silent?: boolean;
+}) {
+    const env = getDockerEnv();
     const config = VircadiaConfig_Server;
-    const sql =
-        existingClient ||
-        postgres({
-            host: config.postgres.host,
-            port: config.postgres.port,
-            database: config.postgres.database,
-            username: config.postgres.user,
-            password: config.postgres.password,
-        });
+    const sql = data.existingClient || createSqlClient(data.silent ?? false);
 
     try {
         for (const name of config.postgres.extensions) {
-            log({
-                message: `Installing PostgreSQL extension: ${name}...`,
-                type: "info",
-            });
+            if (!data.silent) {
+                log({
+                    message: `Installing PostgreSQL extension: ${name}...`,
+                    type: "info",
+                });
+            }
             await sql`CREATE EXTENSION IF NOT EXISTS ${sql(name)};`;
-            log({
-                message: `PostgreSQL extension ${name} installed successfully`,
-                type: "success",
-            });
+            if (!data.silent) {
+                log({
+                    message: `PostgreSQL extension ${name} installed successfully`,
+                    type: "success",
+                });
+            }
         }
 
-        log({
-            message: `Running ${env.CONTAINER_NAME} database migrations...`,
-            type: "info",
-        });
+        if (!data.silent) {
+            log({
+                message: `Running ${env.CONTAINER_NAME} database migrations...`,
+                type: "info",
+            });
+        }
 
         // Create migrations table if it doesn't exist
         await sql`
@@ -362,30 +403,42 @@ export async function seed(
                         `;
                     });
 
-                    log({
-                        message: `Migration ${file} executed successfully`,
-                        type: "success",
-                    });
+                    if (!data.silent) {
+                        log({
+                            message: `Migration ${file} executed successfully`,
+                            type: "success",
+                        });
+                    }
                 } catch (error) {
-                    log({
-                        message: `Failed to run migration ${file}.`,
-                        type: "error",
-                        error: error,
-                    });
+                    if (!data.silent) {
+                        log({
+                            message: `Failed to run migration ${file}.`,
+                            type: "error",
+                            error: error,
+                        });
+                    }
                     throw error;
                 }
             }
         }
     } finally {
-        if (!existingClient) {
+        if (!data.existingClient) {
             await sql.end();
         }
     }
 }
 
-export async function restart() {
-    await down();
-    await up();
+export async function restart(silent = false) {
+    const env = getDockerEnv();
+
+    if (!silent) {
+        log({
+            message: `Restarting ${env.CONTAINER_NAME} container...`,
+            type: "info",
+        });
+    }
+    await down(silent);
+    await up(silent);
 }
 
 export async function generateDbSystemToken(): Promise<{
@@ -393,14 +446,7 @@ export async function generateDbSystemToken(): Promise<{
     sessionId: string;
     agentId: string;
 }> {
-    const config = VircadiaConfig_Server;
-    const sql = postgres({
-        host: config.postgres.host,
-        port: config.postgres.port,
-        database: config.postgres.database,
-        username: config.postgres.user,
-        password: config.postgres.password,
-    });
+    const sql = createSqlClient(false);
 
     try {
         // Get auth settings from config
@@ -486,7 +532,7 @@ if (import.meta.main) {
             await softResetDatabase();
             break;
         case "container:db:migrate":
-            await seed();
+            await seed({});
             break;
         case "container:db:connection-string": {
             const connectionString = await generateDbConnectionString();

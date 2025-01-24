@@ -333,3 +333,62 @@ BEGIN
     PERFORM set_config('app.current_agent_id', v_agent_id::text, false);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to invalidate a single session by session ID
+CREATE OR REPLACE FUNCTION invalidate_session(
+    p_session_id UUID
+) RETURNS BOOLEAN AS $$
+DECLARE
+    v_success BOOLEAN;
+BEGIN
+    -- Check if user has permission (must be admin or the owner of the session)
+    IF NOT is_admin_agent() AND 
+       NOT EXISTS (
+           SELECT 1 
+           FROM auth.agent_sessions 
+           WHERE general__session_id = p_session_id
+           AND auth__agent_id = current_agent_id()
+       ) THEN
+        RAISE EXCEPTION 'Insufficient permissions to invalidate session';
+    END IF;
+
+    UPDATE auth.agent_sessions 
+    SET 
+        session__is_active = false,
+        session__expires_at = NOW()
+    WHERE 
+        general__session_id = p_session_id
+        AND session__is_active = true;
+
+    GET DIAGNOSTICS v_success = ROW_COUNT;
+    RETURN v_success > 0;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to invalidate all sessions for an agent
+CREATE OR REPLACE FUNCTION invalidate_agent_sessions(
+    p_agent_id UUID
+) RETURNS INTEGER AS $$
+DECLARE
+    v_count INTEGER;
+BEGIN
+    -- Check if user has permission (must be admin or the agent themselves)
+    IF NOT is_admin_agent() AND current_agent_id() != p_agent_id THEN
+        RAISE EXCEPTION 'Insufficient permissions to invalidate agent sessions';
+    END IF;
+
+    WITH updated_sessions AS (
+        UPDATE auth.agent_sessions 
+        SET 
+            session__is_active = false,
+            session__expires_at = NOW()
+        WHERE 
+            auth__agent_id = p_agent_id
+            AND session__is_active = true
+        RETURNING 1
+    )
+    SELECT COUNT(*) INTO v_count FROM updated_sessions;
+    
+    RETURN v_count;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;

@@ -33,7 +33,8 @@ describe("WorldApiManager Integration Tests", () => {
                 },
             );
 
-            const data = await response.json();
+            const data =
+                (await response.json()) as Communication.REST.SessionValidationSuccessResponse;
             expect(response.status).toBe(200);
             expect(data.success).toBe(true);
             expect(data.data.isValid).toBe(true);
@@ -51,10 +52,11 @@ describe("WorldApiManager Integration Tests", () => {
                 },
             );
 
-            const data = await response.json();
+            const data =
+                (await response.json()) as Communication.REST.SessionValidationErrorResponse;
             expect(response.status).toBe(200);
-            expect(data.success).toBe(true);
-            expect(data.data.isValid).toBe(false);
+            expect(data.success).toBe(false);
+            expect(data.error).toBe("Invalid token");
         });
 
         test("should successfully logout a valid session", async () => {
@@ -68,9 +70,43 @@ describe("WorldApiManager Integration Tests", () => {
                 },
             );
 
-            const data = await response.json();
+            const data =
+                (await response.json()) as Communication.REST.SessionLogoutSuccessResponse;
             expect(response.status).toBe(200);
             expect(data.success).toBe(true);
+            expect(data.timestamp).toBeDefined();
+        });
+
+        test("should handle logout with invalid token", async () => {
+            const response = await fetch(
+                `${baseUrl}${Communication.REST.Endpoint.AUTH_SESSION_LOGOUT.path}`,
+                {
+                    method: "POST",
+                    headers: {
+                        Authorization: "Bearer invalid_token",
+                    },
+                },
+            );
+
+            const data =
+                (await response.json()) as Communication.REST.SessionLogoutSuccessResponse;
+            expect(response.status).toBe(200);
+            expect(data.success).toBe(true); // Even invalid tokens return success since the session is already invalid/gone
+        });
+
+        test("should handle logout without token", async () => {
+            const response = await fetch(
+                `${baseUrl}${Communication.REST.Endpoint.AUTH_SESSION_LOGOUT.path}`,
+                {
+                    method: "POST",
+                },
+            );
+
+            const data =
+                (await response.json()) as Communication.REST.SessionLogoutErrorResponse;
+            expect(response.status).toBe(401);
+            expect(data.success).toBe(false);
+            expect(data.error).toBe("No token provided");
         });
     });
 
@@ -109,16 +145,24 @@ describe("WorldApiManager Integration Tests", () => {
             const connected = await new Promise((resolve) => {
                 ws.onopen = () => resolve(true);
                 ws.onerror = () => resolve(false);
+                setTimeout(() => resolve(false), 1000); // Add 1s timeout
             });
 
             expect(connected).toBe(false);
+            ws.close();
         });
 
         test("should handle heartbeat messages", async () => {
             const ws = new WebSocket(wsUrl, [`bearer.${mockToken}`]);
 
+            // Wait for connection and initial message
+            await new Promise<void>((resolve) => {
+                ws.onopen = () => resolve();
+            });
+
+            // Handle the initial CONNECTION_ESTABLISHED message
             await new Promise((resolve) => {
-                ws.onopen = resolve;
+                ws.onmessage = (event) => resolve(JSON.parse(event.data));
             });
 
             // Send heartbeat message
@@ -147,8 +191,14 @@ describe("WorldApiManager Integration Tests", () => {
         test("should receive client config on request", async () => {
             const ws = new WebSocket(wsUrl, [`bearer.${mockToken}`]);
 
+            // Wait for connection and initial message
+            await new Promise<void>((resolve) => {
+                ws.onopen = () => resolve();
+            });
+
+            // Handle the initial CONNECTION_ESTABLISHED message
             await new Promise((resolve) => {
-                ws.onopen = resolve;
+                ws.onmessage = (event) => resolve(JSON.parse(event.data));
             });
 
             // Send config request

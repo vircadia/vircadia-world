@@ -83,11 +83,13 @@ class WorldOAuthManager {
 
         // Handle authentication routes
         switch (true) {
-            case path === Communication.RESTEndpoint.AUTH_SESSION_VALIDATE &&
+            case path ===
+                Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.path &&
                 req.method === "GET":
                 return await this.handleSessionValidate(req);
 
-            case path === Communication.RESTEndpoint.AUTH_SESSION_LOGOUT &&
+            case path ===
+                Communication.REST.Endpoint.AUTH_SESSION_LOGOUT.path &&
                 req.method === "POST":
                 return await this.handleLogout(req);
 
@@ -321,10 +323,14 @@ class WorldWebSocketManager {
         this.wsToSessionMap.set(ws, sessionData.sessionId);
 
         try {
-            const connectionMsg = Communication.createMessage({
-                type: Communication.MessageType.CONNECTION_ESTABLISHED,
-                agentId: sessionData.agentId,
-            });
+            const connectionMsg =
+                Communication.WebSocket.createMessage<Communication.WebSocket.ConnectionEstablishedMessage>(
+                    {
+                        type: Communication.WebSocket.MessageType
+                            .CONNECTION_ESTABLISHED,
+                        agentId: sessionData.agentId,
+                    },
+                );
             ws.send(JSON.stringify(connectionMsg));
             log({
                 message: `Connection established with agent ${sessionData.agentId}`,
@@ -347,24 +353,30 @@ class WorldWebSocketManager {
         try {
             const data = JSON.parse(
                 typeof message === "string" ? message : message.toString(),
-            ) as Communication.Message;
+            ) as Communication.WebSocket.Message;
 
             const sessionId = this.wsToSessionMap.get(ws);
             if (!sessionId) {
-                const errorMsg = Communication.createMessage({
-                    type: Communication.MessageType.ERROR,
-                    message: "Session not found",
-                });
+                const errorMsg =
+                    Communication.WebSocket.createMessage<Communication.WebSocket.ErrorMessage>(
+                        {
+                            type: Communication.WebSocket.MessageType.ERROR,
+                            message: "Session not found",
+                        },
+                    );
                 ws.send(JSON.stringify(errorMsg));
                 return;
             }
 
             const session = this.activeSessions.get(sessionId);
             if (!session) {
-                const errorMsg = Communication.createMessage({
-                    type: Communication.MessageType.ERROR,
-                    message: "Session not found",
-                });
+                const errorMsg =
+                    Communication.WebSocket.createMessage<Communication.WebSocket.ErrorMessage>(
+                        {
+                            type: Communication.WebSocket.MessageType.ERROR,
+                            message: "Session not found",
+                        },
+                    );
                 ws.send(JSON.stringify(errorMsg));
                 return;
             }
@@ -372,37 +384,51 @@ class WorldWebSocketManager {
             session.lastHeartbeat = Date.now();
 
             switch (data.type) {
-                case Communication.MessageType.HEARTBEAT: {
-                    const heartbeatAck = Communication.createMessage({
-                        type: Communication.MessageType.HEARTBEAT_ACK,
-                    });
+                case Communication.WebSocket.MessageType.HEARTBEAT: {
+                    const heartbeatAck =
+                        Communication.WebSocket.createMessage<Communication.WebSocket.HeartbeatAckMessage>(
+                            {
+                                type: Communication.WebSocket.MessageType
+                                    .HEARTBEAT_ACK,
+                            },
+                        );
                     ws.send(JSON.stringify(heartbeatAck));
                     break;
                 }
-                case Communication.MessageType.CONFIG_REQUEST: {
+                case Communication.WebSocket.MessageType.CONFIG_REQUEST: {
                     if (!this.clientConfig) {
                         throw new Error("Client config not initialized");
                     }
-                    const configMsg = Communication.createMessage({
-                        type: Communication.MessageType.CONFIG_RESPONSE,
-                        config: this.clientConfig,
-                    });
+                    const configMsg =
+                        Communication.WebSocket.createMessage<Communication.WebSocket.ConfigResponseMessage>(
+                            {
+                                type: Communication.WebSocket.MessageType
+                                    .CONFIG_RESPONSE,
+                                config: this.clientConfig,
+                            },
+                        );
                     ws.send(JSON.stringify(configMsg));
                     break;
                 }
                 default: {
-                    const errorMsg = Communication.createMessage({
-                        type: Communication.MessageType.ERROR,
-                        message: "Unknown message type",
-                    });
+                    const errorMsg =
+                        Communication.WebSocket.createMessage<Communication.WebSocket.ErrorMessage>(
+                            {
+                                type: Communication.WebSocket.MessageType.ERROR,
+                                message: "Unknown message type",
+                            },
+                        );
                     ws.send(JSON.stringify(errorMsg));
                 }
             }
         } catch (error) {
-            const errorMsg = Communication.createMessage({
-                type: Communication.MessageType.ERROR,
-                message: "Invalid message format",
-            });
+            const errorMsg =
+                Communication.WebSocket.createMessage<Communication.WebSocket.ErrorMessage>(
+                    {
+                        type: Communication.WebSocket.MessageType.ERROR,
+                        message: "Invalid message format",
+                    },
+                );
             ws.send(JSON.stringify(errorMsg));
         }
     }

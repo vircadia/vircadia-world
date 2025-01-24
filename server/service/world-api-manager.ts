@@ -83,53 +83,16 @@ class WorldOAuthManager {
 
         // Handle authentication routes
         switch (true) {
-            case path === "/services/world-auth/system/session" &&
-                req.method === "POST":
-                return await this.handleSystemSession();
-
-            case path === "/services/world-auth/session/validate" &&
+            case path === Communication.RESTEndpoint.AUTH_SESSION_VALIDATE &&
                 req.method === "GET":
                 return await this.handleSessionValidate(req);
 
-            case path === "/services/world-auth/session/logout" &&
+            case path === Communication.RESTEndpoint.AUTH_SESSION_LOGOUT &&
                 req.method === "POST":
                 return await this.handleLogout(req);
 
             default:
                 return new Response("Not Found", { status: 404 });
-        }
-    }
-
-    private async handleSystemSession(): Promise<Response> {
-        try {
-            const [systemAgentId] = await this
-                .sql`SELECT get_system_agent_id()`;
-            const token = sign(
-                { agentId: systemAgentId.get_system_agent_id },
-                this.authConfig.jwt_secret,
-            );
-
-            const [session] = await this.sql`
-                SELECT * FROM create_agent_session(
-                    ${systemAgentId.get_system_agent_id}, 
-                    'system',
-                    ${token}
-                );
-            `;
-
-            return Response.json({
-                success: true,
-                data: {
-                    sessionId: session.general__session_id,
-                    token: session.session__jwt,
-                    expiresAt: session.session__expires_at,
-                },
-            });
-        } catch (error) {
-            return Response.json(
-                { success: false, error: "Failed to create system session" },
-                { status: 500 },
-            );
         }
     }
 
@@ -143,6 +106,14 @@ class WorldOAuthManager {
         }
 
         const validation = await this.sessionValidator.validateSession(token);
+        log({
+            message: "Auth endpoint - Session validation result",
+            debug: this.debugMode,
+            type: "debug",
+            data: {
+                validation,
+            },
+        });
         return Response.json({
             success: true,
             data: {
@@ -162,9 +133,19 @@ class WorldOAuthManager {
         }
 
         const validation = await this.sessionValidator.validateSession(token);
+
         if (validation.isValid) {
             await this.sql`SELECT invalidate_session(${validation.sessionId});`;
         }
+
+        log({
+            message: "Auth endpoint - Session logout",
+            debug: this.debugMode,
+            type: "debug",
+            data: {
+                validation,
+            },
+        });
 
         return Response.json({ success: true });
     }
@@ -233,20 +214,48 @@ class WorldWebSocketManager {
         server: Server,
     ): Promise<Response | undefined> {
         const protocols = req.headers.get("Sec-WebSocket-Protocol")?.split(",");
+        log({
+            message: `Received protocols: ${protocols?.join(", ")}`,
+            debug: this.debugMode,
+            type: "debug",
+        });
+
         const bearerProtocol = protocols?.find((p) =>
             p.trim().startsWith("bearer."),
         );
 
         if (!bearerProtocol) {
+            log({
+                message: "No bearer protocol found in request",
+                debug: this.debugMode,
+                type: "debug",
+            });
             return new Response("Authentication required", { status: 401 });
         }
 
         const token = bearerProtocol.trim().substring(7);
+        log({
+            message: "Attempting to validate token",
+            debug: this.debugMode,
+            type: "debug",
+        });
+
         const validation = await this.sessionValidator.validateSession(token);
 
         if (!validation.isValid) {
+            log({
+                message: "Token validation failed",
+                debug: this.debugMode,
+                type: "debug",
+            });
             return new Response("Invalid token", { status: 401 });
         }
+
+        log({
+            message: "Token validated successfully, attempting upgrade",
+            debug: this.debugMode,
+            type: "debug",
+        });
 
         const upgraded = server.upgrade(req, {
             data: {
@@ -255,19 +264,52 @@ class WorldWebSocketManager {
                 sessionId: validation.sessionId,
             },
             headers: {
-                "Sec-WebSocket-Protocol": "bearer",
+                "Sec-WebSocket-Protocol": bearerProtocol.trim(),
             },
         });
 
         if (!upgraded) {
+            log({
+                message: "WebSocket upgrade failed",
+                debug: this.debugMode,
+                type: "error",
+                data: {
+                    agentId: validation.agentId,
+                    sessionId: validation.sessionId,
+                    headers: req.headers.toJSON(),
+                },
+            });
             return new Response("WebSocket upgrade failed", { status: 500 });
         }
+
+        log({
+            message: "WebSocket upgrade successful",
+            debug: this.debugMode,
+            type: "debug",
+            data: {
+                agentId: validation.agentId,
+                sessionId: validation.sessionId,
+            },
+        });
+
+        return undefined;
     }
 
     handleConnection(
         ws: WebSocket | ServerWebSocket<WebSocketData>,
         sessionData: { agentId: string; sessionId: string },
     ) {
+        log({
+            message: "New WebSocket connection attempt",
+            debug: this.debugMode,
+            type: "debug",
+            data: {
+                agentId: sessionData.agentId,
+                sessionId: sessionData.sessionId,
+                readyState: ws.readyState,
+            },
+        });
+
         const session: WorldSession<unknown> = {
             ws,
             agentId: sessionData.agentId,
@@ -278,16 +320,29 @@ class WorldWebSocketManager {
         this.activeSessions.set(sessionData.sessionId, session);
         this.wsToSessionMap.set(ws, sessionData.sessionId);
 
-        const connectionMsg = Communication.createMessage({
-            type: Communication.MessageType.CONNECTION_ESTABLISHED,
-            agentId: sessionData.agentId,
-        });
-        ws.send(JSON.stringify(connectionMsg));
+        try {
+            const connectionMsg = Communication.createMessage({
+                type: Communication.MessageType.CONNECTION_ESTABLISHED,
+                agentId: sessionData.agentId,
+            });
+            ws.send(JSON.stringify(connectionMsg));
+            log({
+                message: `Connection established with agent ${sessionData.agentId}`,
+                debug: this.debugMode,
+                type: "debug",
+            });
+        } catch (error) {
+            log({
+                message: `Failed to send connection message: ${error}`,
+                debug: this.debugMode,
+                type: "error",
+            });
+        }
     }
 
     async handleMessage(
         ws: WebSocket | ServerWebSocket<unknown>,
-        message: any,
+        message: string | ArrayBuffer,
     ) {
         try {
             const data = JSON.parse(
@@ -355,6 +410,20 @@ class WorldWebSocketManager {
     handleDisconnect(sessionId: string) {
         const session = this.activeSessions.get(sessionId);
         if (session) {
+            log({
+                message: "WebSocket disconnection",
+                debug: this.debugMode,
+                type: "debug",
+                data: {
+                    sessionId,
+                    agentId: session.agentId,
+                    lastHeartbeat: new Date(
+                        session.lastHeartbeat,
+                    ).toISOString(),
+                    timeSinceLastHeartbeat: Date.now() - session.lastHeartbeat,
+                },
+            });
+
             // Clean up both maps
             this.wsToSessionMap.delete(session.ws);
             this.activeSessions.delete(sessionId);
@@ -379,6 +448,21 @@ class WorldWebSocketManager {
                         !(await this.sessionValidator.validateSession(token))
                             .isValid
                     ) {
+                        log({
+                            message:
+                                "Session expired / invalid, closing WebSocket",
+                            debug: this.debugMode,
+                            type: "debug",
+                            data: {
+                                sessionId,
+                                agentId: session.agentId,
+                                lastHeartbeat: new Date(
+                                    session.lastHeartbeat,
+                                ).toISOString(),
+                                timeSinceLastHeartbeat:
+                                    Date.now() - session.lastHeartbeat,
+                            },
+                        });
                         session.ws.close(1000, "Session expired");
                         this.handleDisconnect(sessionId);
                     }
@@ -457,12 +541,12 @@ export class WorldApiManager {
                 const url = new URL(req.url);
 
                 // Handle WebSocket upgrade
-                if (url.pathname === "/services/world/ws") {
+                if (url.pathname.startsWith(Communication.WS_BASE_URL)) {
                     return await this.wsManager?.handleUpgrade(req, server);
                 }
 
                 // Handle HTTP routes
-                if (url.pathname.startsWith("/services/world-auth/")) {
+                if (url.pathname.startsWith(Communication.REST_BASE_URL)) {
                     return await this.oauthManager?.handleRequest(req);
                 }
 
@@ -474,15 +558,34 @@ export class WorldApiManager {
                     ws: ServerWebSocket<WebSocketData>,
                     message: string,
                 ) => {
+                    log({
+                        message: "WebSocket message received",
+                        debug: this.debugMode,
+                        type: "debug",
+                    });
                     this.wsManager?.handleMessage(ws, message);
                 },
                 open: (ws: ServerWebSocket<WebSocketData>) => {
+                    log({
+                        message: "WebSocket connection opened",
+                        debug: this.debugMode,
+                        type: "debug",
+                    });
                     this.wsManager?.handleConnection(ws, {
                         agentId: ws.data.agentId,
                         sessionId: ws.data.sessionId,
                     });
                 },
-                close: (ws: ServerWebSocket<WebSocketData>) => {
+                close: (
+                    ws: ServerWebSocket<WebSocketData>,
+                    code: number,
+                    reason: string,
+                ) => {
+                    log({
+                        message: `WebSocket connection closed, code: ${code}, reason: ${reason}`,
+                        debug: this.debugMode,
+                        type: "debug",
+                    });
                     this.wsManager?.handleDisconnect(ws.data.sessionId);
                 },
             },

@@ -3,10 +3,9 @@ import { log } from "../../../sdk/vircadia-world-sdk-ts/module/general/log.ts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
-import { createConnection } from "node:net";
-import postgres from "postgres";
 import { readdir, readFile } from "node:fs/promises";
 import { sign } from "jsonwebtoken";
+import postgres from "postgres";
 
 const DOCKER_COMPOSE_PATH = path.join(
     dirname(fileURLToPath(import.meta.url)),
@@ -82,35 +81,68 @@ async function runDockerCommand(args: string[], env = getDockerEnv()) {
 }
 
 export async function isHealthy(): Promise<{
-    postgres: boolean;
+    postgres: {
+        isHealthy: boolean;
+        error?: Error;
+    };
+    pgweb: {
+        isHealthy: boolean;
+        error?: Error;
+    };
 }> {
     const config = VircadiaConfig_Server;
 
-    const checkPostgres = async (): Promise<boolean> => {
-        return new Promise((resolve) => {
-            const socket = createConnection({
+    const checkPostgres = async (): Promise<{
+        isHealthy: boolean;
+        error?: Error;
+    }> => {
+        try {
+            const sql = postgres({
                 host: config.postgres.host,
                 port: config.postgres.port,
-            })
-                .on("connect", () => {
-                    socket.end();
-                    resolve(true);
-                })
-                .on("error", () => {
-                    resolve(false);
-                });
-
-            socket.setTimeout(1000);
-            socket.on("timeout", () => {
-                socket.destroy();
-                resolve(false);
+                database: config.postgres.database,
+                username: config.postgres.user,
+                password: config.postgres.password,
             });
-        });
+
+            // Try a simple query to verify the connection
+            const result = await sql`SELECT 1`;
+
+            if (result.length === 0) {
+                throw new Error("Failed to connect to database");
+            }
+
+            await sql.end();
+
+            return { isHealthy: true };
+        } catch (error: unknown) {
+            return { isHealthy: false, error: error as Error };
+        }
     };
 
-    const [postgresHealth] = await Promise.all([checkPostgres()]);
+    const checkPgweb = async (): Promise<{
+        isHealthy: boolean;
+        error?: Error;
+    }> => {
+        try {
+            const response = await fetch(
+                `http://localhost:${config.pgweb.port}`,
+            );
+            return { isHealthy: response.ok };
+        } catch (error: unknown) {
+            return { isHealthy: false, error: error as Error };
+        }
+    };
 
-    return { postgres: postgresHealth };
+    const [postgresHealth, pgwebHealth] = await Promise.all([
+        checkPostgres(),
+        checkPgweb(),
+    ]);
+
+    return {
+        postgres: postgresHealth,
+        pgweb: pgwebHealth,
+    };
 }
 
 async function waitForHealthy(
@@ -172,8 +204,9 @@ export async function up(env = getDockerEnv()) {
         await seed(sql); // Pass the existing SQL connection
     } catch (error) {
         log({
-            message: `Failed to initialize database: ${error.message}`,
+            message: "Failed to initialize database.",
             type: "error",
+            error: error,
         });
         throw error;
     } finally {
@@ -335,8 +368,9 @@ export async function seed(
                     });
                 } catch (error) {
                     log({
-                        message: `Failed to run migration ${file}: ${error.message}`,
+                        message: `Failed to run migration ${file}.`,
                         type: "error",
+                        error: error,
                     });
                     throw error;
                 }
@@ -354,45 +388,118 @@ export async function restart() {
     await up();
 }
 
+export async function generateDbSystemToken(): Promise<{
+    token: string;
+    sessionId: string;
+    agentId: string;
+}> {
+    const config = VircadiaConfig_Server;
+    const sql = postgres({
+        host: config.postgres.host,
+        port: config.postgres.port,
+        database: config.postgres.database,
+        username: config.postgres.user,
+        password: config.postgres.password,
+    });
+
+    try {
+        // Get auth settings from config
+        const [authConfig] = await sql`
+            SELECT value FROM config.config 
+            WHERE key = 'auth_settings'
+        `;
+
+        if (!authConfig?.value) {
+            throw new Error("Auth settings not found in database");
+        }
+
+        // Get system agent ID
+        const [systemId] = await sql`SELECT get_system_agent_id()`;
+
+        // Create a new session for the system agent
+        const [sessionResult] = await sql`
+            SELECT * FROM create_agent_session(${systemId.get_system_agent_id}, 'test')
+        `;
+
+        // Generate JWT token using the config from database
+        const token = sign(
+            {
+                sessionId: sessionResult.general__session_id,
+                agentId: systemId.get_system_agent_id,
+            },
+            authConfig.value.jwt_secret,
+            {
+                expiresIn: authConfig.value.admin_token_session_duration,
+            },
+        );
+
+        // Update the session with the JWT
+        await sql`
+            UPDATE auth.agent_sessions 
+            SET session__jwt = ${token}
+            WHERE general__session_id = ${sessionResult.general__session_id}
+        `;
+
+        return {
+            token,
+            sessionId: sessionResult.general__session_id,
+            agentId: systemId.get_system_agent_id,
+        };
+    } finally {
+        await sql.end();
+    }
+}
+
+export async function generateDbConnectionString(): Promise<string> {
+    const config = VircadiaConfig_Server.postgres;
+    return `postgres://${config.user}:${config.password}@${config.host}:${config.port}/${config.database}`;
+}
+
 // If this file is run directly
 if (import.meta.main) {
     const command = Bun.argv[2];
     switch (command) {
-        case "up":
+        case "container:up":
             await up();
             break;
-        case "down":
+        case "container:down":
             await down();
             break;
-        case "rebuild-container":
+        case "container:rebuild":
             await rebuildContainer();
             break;
-        case "health": {
+        case "container:health": {
             const health = await isHealthy();
             log({
-                message: `PostgreSQL: ${health.postgres ? "healthy" : "unhealthy"}`,
-                type: "info",
+                message: `PostgreSQL: ${health.postgres.isHealthy ? "healthy" : "unhealthy"}`,
+                data: health.postgres,
+                type: health.postgres.isHealthy ? "success" : "error",
+            });
+            log({
+                message: `Pgweb: ${health.pgweb.isHealthy ? "healthy" : "unhealthy"}`,
+                data: health.pgweb,
+                type: health.pgweb.isHealthy ? "success" : "error",
             });
             break;
         }
-        case "db:soft-reset":
+        case "container:db:soft-reset":
             await softResetDatabase();
             break;
-        case "db:migrate":
+        case "container:db:migrate":
             await seed();
             break;
-        case "db:connection-string": {
-            const config = VircadiaConfig_Server.postgres;
+        case "container:db:connection-string": {
+            const connectionString = await generateDbConnectionString();
             log({
-                message: `PostgreSQL Connection String:\n\npostgres://${config.user}:${config.password}@${config.host}:${config.port}/${config.database}\n`,
-                type: "info",
+                message: `PostgreSQL Connection String:\n\n${connectionString}\n`,
+                type: "success",
             });
             break;
         }
-        case "restart":
+        case "container:restart":
             await restart();
             break;
-        case "pgweb:access-command": {
+        case "container:pgweb:access-command": {
             const config = VircadiaConfig_Server;
             const isRemoteHost = !["localhost", "127.0.0.1"].includes(
                 config.postgres.host,
@@ -408,72 +515,34 @@ if (import.meta.main) {
             });
             break;
         }
-        case "test:system-token": {
-            const config = VircadiaConfig_Server.postgres;
-            const sql = postgres({
-                host: config.host,
-                port: config.port,
-                database: config.database,
-                username: config.user,
-                password: config.password,
+        case "container:db:system-token": {
+            const token = await generateDbSystemToken();
+            log({
+                message: `System token:\n${token.token}\n\nSession ID: ${token.sessionId}\nAgent ID: ${token.agentId}\n\nThis token has system privileges - use with caution!`,
+                type: "success",
             });
-
-            try {
-                // Get auth settings from config
-                const [authConfig] = await sql`
-                    SELECT value FROM config.config 
-                    WHERE key = 'auth_settings'
-                `;
-
-                if (!authConfig?.value) {
-                    throw new Error("Auth settings not found in database");
-                }
-
-                // Get system agent ID
-                const [systemId] = await sql`SELECT get_system_agent_id()`;
-
-                // Create a new session for the system agent
-                const [sessionResult] = await sql`
-                    SELECT * FROM create_agent_session(${systemId.get_system_agent_id}, 'test')
-                `;
-
-                // Generate JWT token using the config from database
-                const token = sign(
-                    {
-                        sessionId: sessionResult.general__session_id,
-                        agentId: systemId.get_system_agent_id,
-                    },
-                    authConfig.value.jwt_secret,
-                    {
-                        expiresIn:
-                            authConfig.value.admin_token_session_duration,
-                    },
-                );
-
-                // Update the session with the JWT
-                await sql`
-                    UPDATE auth.agent_sessions 
-                    SET session__jwt = ${token}
-                    WHERE general__session_id = ${sessionResult.general__session_id}
-                `;
-
-                log({
-                    message: `Generated test system token:\n${token}\n\nSession ID: ${sessionResult.general__session_id}\nAgent ID: ${systemId.get_system_agent_id}\n\nThis token has system privileges - use with caution!`,
-                    type: "success",
-                });
-            } catch (error) {
-                log({
-                    message: `Failed to generate test system token: ${error.message}`,
-                    type: "error",
-                });
-            } finally {
-                await sql.end();
-            }
             break;
         }
         default:
             console.error(
-                "Valid commands: up, down, rebuild-container, health, db:soft-reset, db:migrate, db:connection-string, pgweb:access-command, restart, test:system-token",
+                `Valid commands: 
+
+                // Container commands
+                container:up, 
+                container:down, 
+                container:rebuild, 
+                container:health,
+                container:restart, 
+
+                // Container -> Database commands
+                container:db:soft-reset, 
+                container:db:migrate, 
+                container:db:connection-string, 
+                container:db:system-token
+
+                // Container -> Pgweb commands
+                container:pgweb:access-command,
+                `,
             );
             process.exit(1);
     }

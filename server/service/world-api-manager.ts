@@ -10,6 +10,7 @@ interface WorldSession<T = unknown> {
     agentId: string;
     sessionId: string;
     lastHeartbeat: number;
+    subscriptions: Set<string>;
 }
 
 interface SessionValidationResult {
@@ -241,13 +242,201 @@ class WorldWebSocketManager {
               };
           }
         | undefined;
+    private channelSubscribers: Map<string, Set<string>> = new Map();
+    private pgListener: postgres.SubscriptionHandle | null = null;
 
     constructor(
         private readonly sql: postgres.Sql,
         private readonly debugMode: boolean,
         private readonly sessionValidator: SessionValidator,
         private readonly authConfig: AuthConfig,
-    ) {}
+    ) {
+        // Initialize PostgreSQL notification listener
+        this.initializePgListener();
+    }
+
+    private async initializePgListener() {
+        this.pgListener = await this.sql.subscribe(
+            "entity_changes",
+            (payload) => {
+                this.handleDatabaseNotification(payload);
+            },
+        );
+    }
+
+    private async handleDatabaseNotification(payload: postgres.Row | null) {
+        if (!payload) {
+            return;
+        }
+
+        const notification = payload.notification_payload;
+        const subscribers =
+            this.channelSubscribers.get("entity_changes") || new Set();
+
+        for (const sessionId of subscribers) {
+            const session = this.activeSessions.get(sessionId);
+            if (session) {
+                const notificationMsg =
+                    Communication.WebSocket.createMessage<Communication.WebSocket.NotificationMessage>(
+                        {
+                            type: Communication.WebSocket.MessageType
+                                .NOTIFICATION,
+                            channel: "entity_changes",
+                            payload: notification,
+                        },
+                    );
+                session.ws.send(JSON.stringify(notificationMsg));
+            }
+        }
+    }
+
+    private async handleQuery(
+        ws: ServerWebSocket<WebSocketData>,
+        message: Communication.WebSocket.QueryMessage,
+    ) {
+        const sessionId = this.wsToSessionMap.get(ws);
+        const session = sessionId
+            ? this.activeSessions.get(sessionId)
+            : undefined;
+
+        if (!session) {
+            return;
+        }
+
+        try {
+            // Execute query as the user
+            const results = await this.sql.begin(async (sql) => {
+                await sql`SELECT set_config('app.current_agent_id', ${session.agentId}, true)`;
+                return await sql.unsafe(
+                    message.query,
+                    message.parameters || [],
+                );
+            });
+
+            const responseMsg =
+                Communication.WebSocket.createMessage<Communication.WebSocket.QueryResponseMessage>(
+                    {
+                        type: Communication.WebSocket.MessageType
+                            .QUERY_RESPONSE,
+                        requestId: message.requestId,
+                        results,
+                    },
+                );
+            ws.send(JSON.stringify(responseMsg));
+        } catch (error) {
+            const errorMsg =
+                Communication.WebSocket.createMessage<Communication.WebSocket.QueryResponseMessage>(
+                    {
+                        type: Communication.WebSocket.MessageType
+                            .QUERY_RESPONSE,
+                        requestId: message.requestId,
+                        error:
+                            error instanceof Error
+                                ? error.message
+                                : String(error),
+                    },
+                );
+            ws.send(JSON.stringify(errorMsg));
+        }
+    }
+
+    private async handleSubscribe(
+        ws: ServerWebSocket<WebSocketData>,
+        message: Communication.WebSocket.SubscribeMessage,
+    ) {
+        const sessionId = this.wsToSessionMap.get(ws);
+        const session = sessionId
+            ? this.activeSessions.get(sessionId)
+            : undefined;
+
+        if (!session || !sessionId) {
+            log({
+                message: "Session not found",
+                debug: this.debugMode,
+                type: "debug",
+            });
+            return;
+        }
+
+        try {
+            // Add to channel subscribers
+            if (!this.channelSubscribers.has(message.channel)) {
+                this.channelSubscribers.set(message.channel, new Set());
+            }
+            this.channelSubscribers.get(message.channel)?.add(sessionId);
+
+            // Add to session subscriptions
+            session.subscriptions.add(message.channel);
+
+            const responseMsg =
+                Communication.WebSocket.createMessage<Communication.WebSocket.SubscribeResponseMessage>(
+                    {
+                        type: Communication.WebSocket.MessageType
+                            .SUBSCRIBE_RESPONSE,
+                        channel: message.channel,
+                        success: true,
+                    },
+                );
+            ws.send(JSON.stringify(responseMsg));
+        } catch (error) {
+            const errorMsg =
+                Communication.WebSocket.createMessage<Communication.WebSocket.SubscribeResponseMessage>(
+                    {
+                        type: Communication.WebSocket.MessageType
+                            .SUBSCRIBE_RESPONSE,
+                        channel: message.channel,
+                        success: false,
+                        error:
+                            error instanceof Error
+                                ? error.message
+                                : String(error),
+                    },
+                );
+            ws.send(JSON.stringify(errorMsg));
+        }
+    }
+
+    private handleUnsubscribe(
+        ws: ServerWebSocket<WebSocketData>,
+        message: Communication.WebSocket.UnsubscribeMessage,
+    ) {
+        const sessionId = this.wsToSessionMap.get(ws);
+        const session = sessionId
+            ? this.activeSessions.get(sessionId)
+            : undefined;
+
+        if (!session || !sessionId) {
+            log({
+                message: "Session not found",
+                debug: this.debugMode,
+                type: "debug",
+            });
+            return;
+        }
+
+        // Remove from channel subscribers
+        const channelSubs = this.channelSubscribers.get(message.channel);
+        if (channelSubs) {
+            channelSubs.delete(sessionId);
+            if (channelSubs.size === 0) {
+                this.channelSubscribers.delete(message.channel);
+            }
+        }
+
+        // Remove from session subscriptions
+        session.subscriptions.delete(message.channel);
+
+        const responseMsg =
+            Communication.WebSocket.createMessage<Communication.WebSocket.UnsubscribeResponseMessage>(
+                {
+                    type: Communication.WebSocket.MessageType
+                        .UNSUBSCRIBE_RESPONSE,
+                    channel: message.channel,
+                    success: true,
+                },
+            );
+        ws.send(JSON.stringify(responseMsg));
+    }
 
     async initialize() {
         // Load client configuration
@@ -369,6 +558,7 @@ class WorldWebSocketManager {
             agentId: sessionData.agentId,
             sessionId: sessionData.sessionId,
             lastHeartbeat: Date.now(),
+            subscriptions: new Set(),
         };
 
         this.activeSessions.set(sessionData.sessionId, session);
@@ -462,6 +652,24 @@ class WorldWebSocketManager {
                     ws.send(JSON.stringify(configMsg));
                     break;
                 }
+                case Communication.WebSocket.MessageType.QUERY:
+                    await this.handleQuery(
+                        ws as ServerWebSocket<WebSocketData>,
+                        data,
+                    );
+                    break;
+                case Communication.WebSocket.MessageType.SUBSCRIBE:
+                    await this.handleSubscribe(
+                        ws as ServerWebSocket<WebSocketData>,
+                        data,
+                    );
+                    break;
+                case Communication.WebSocket.MessageType.UNSUBSCRIBE:
+                    this.handleUnsubscribe(
+                        ws as ServerWebSocket<WebSocketData>,
+                        data,
+                    );
+                    break;
                 default: {
                     const errorMsg =
                         Communication.WebSocket.createMessage<Communication.WebSocket.ErrorMessage>(
@@ -505,6 +713,17 @@ class WorldWebSocketManager {
             // Clean up both maps
             this.wsToSessionMap.delete(session.ws);
             this.activeSessions.delete(sessionId);
+
+            // Clean up subscriptions
+            for (const channel of session.subscriptions) {
+                const channelSubs = this.channelSubscribers.get(channel);
+                if (channelSubs) {
+                    channelSubs.delete(sessionId);
+                    if (channelSubs.size === 0) {
+                        this.channelSubscribers.delete(channel);
+                    }
+                }
+            }
         }
     }
 
@@ -552,6 +771,9 @@ class WorldWebSocketManager {
     cleanup() {
         if (this.heartbeatInterval) {
             clearInterval(this.heartbeatInterval);
+        }
+        if (this.pgListener) {
+            this.pgListener.unsubscribe();
         }
         for (const session of this.activeSessions.values()) {
             session.ws.close(1000, "Server shutting down");

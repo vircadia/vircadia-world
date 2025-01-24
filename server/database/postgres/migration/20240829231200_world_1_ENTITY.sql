@@ -187,52 +187,118 @@ CREATE POLICY "entities_delete_policy" ON entity.entities
 -- NOTIFICATION FUNCTIONS
 --
 
--- Entity changes notification
+-- Entity changes notification with RLS check
 CREATE OR REPLACE FUNCTION notify_entity_changes() RETURNS TRIGGER AS $$
+DECLARE
+    can_view BOOLEAN;
+    notification_payload JSONB;
 BEGIN
-    PERFORM pg_notify(
-        'entity_changes',
-        json_build_object(
+    -- For DELETE operations, we need to check if the user had permission to view the old record
+    IF TG_OP = 'DELETE' THEN
+        SELECT EXISTS (
+            SELECT 1 
+            FROM entity.entities
+            WHERE general__uuid = OLD.general__uuid
+            AND (
+                is_admin_agent()
+                OR general__created_by = current_agent_id()
+                OR EXISTS (
+                    SELECT 1 
+                    FROM auth.agent_roles ar
+                    WHERE ar.auth__agent_id = current_agent_id()
+                    AND ar.auth__is_active = true
+                    AND (
+                        ar.auth__role_name = ANY(OLD.permissions__roles__view)
+                        OR ar.auth__role_name = ANY(OLD.permissions__roles__full)
+                    )
+                )
+            )
+        ) INTO can_view;
+    ELSE
+        -- For INSERT/UPDATE, check if the user has permission to view the new record
+        SELECT EXISTS (
+            SELECT 1 
+            FROM entity.entities
+            WHERE general__uuid = NEW.general__uuid
+            AND (
+                is_admin_agent()
+                OR general__created_by = current_agent_id()
+                OR EXISTS (
+                    SELECT 1 
+                    FROM auth.agent_roles ar
+                    WHERE ar.auth__agent_id = current_agent_id()
+                    AND ar.auth__is_active = true
+                    AND (
+                        ar.auth__role_name = ANY(NEW.permissions__roles__view)
+                        OR ar.auth__role_name = ANY(NEW.permissions__roles__full)
+                    )
+                )
+            )
+        ) INTO can_view;
+    END IF;
+
+    -- Only send notification if user has permission to view the entity
+    IF can_view THEN
+        notification_payload := json_build_object(
             'type', 'entity',
             'operation', TG_OP,
             'entity_id', CASE WHEN TG_OP = 'DELETE' THEN OLD.general__uuid ELSE NEW.general__uuid END,
             'sync_group', CASE WHEN TG_OP = 'DELETE' THEN OLD.performance__sync_group ELSE NEW.performance__sync_group END,
             'timestamp', CURRENT_TIMESTAMP
-        )::text
-    );
+        );
+
+        -- Include the agent_id who made the change in the notification
+        notification_payload := notification_payload || 
+            jsonb_build_object('agent_id', current_agent_id());
+
+        PERFORM pg_notify(
+            'entity_changes',
+            notification_payload::text
+        );
+    END IF;
+
     RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
 END;
 $$ LANGUAGE plpgsql;
 
--- Entity metadata changes notification
-CREATE OR REPLACE FUNCTION notify_entity_metadata_changes() RETURNS TRIGGER AS $$
-BEGIN
-    PERFORM pg_notify(
-        'entity_changes',
-        json_build_object(
-            'type', 'metadata',
-            'operation', TG_OP,
-            'entity_id', NEW.general__entity_id,
-            'metadata_id', NEW.general__metadata_id,
-            'timestamp', CURRENT_TIMESTAMP
-        )::text
-    );
-    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
-END;
-$$ LANGUAGE plpgsql;
-
--- Entity script changes notification
+-- Entity script changes notification with RLS check
 CREATE OR REPLACE FUNCTION notify_entity_script_changes() RETURNS TRIGGER AS $$
+DECLARE
+    can_view BOOLEAN;
+    notification_payload JSONB;
 BEGIN
-    PERFORM pg_notify(
-        'entity_changes',
-        json_build_object(
+    -- Check if the current user has permission to view the script
+    SELECT EXISTS (
+        SELECT 1 
+        FROM entity.entity_scripts
+        WHERE general__script_id = NEW.general__script_id
+        AND (
+            is_admin_agent()
+            OR EXISTS (
+                SELECT 1 FROM auth.agent_roles ar
+                JOIN auth.roles r ON ar.auth__role_name = r.auth__role_name
+                WHERE ar.auth__agent_id = current_agent_id()
+                AND ar.auth__is_active = true
+            )
+        )
+    ) INTO can_view;
+
+    -- Only send notification if user has permission
+    IF can_view THEN
+        notification_payload := json_build_object(
             'type', 'script',
             'operation', TG_OP,
             'script_id', NEW.general__script_id,
-            'timestamp', CURRENT_TIMESTAMP
-        )::text
-    );
+            'timestamp', CURRENT_TIMESTAMP,
+            'agent_id', current_agent_id()
+        );
+
+        PERFORM pg_notify(
+            'entity_changes',
+            notification_payload::text
+        );
+    END IF;
+
     RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
 END;
 $$ LANGUAGE plpgsql;

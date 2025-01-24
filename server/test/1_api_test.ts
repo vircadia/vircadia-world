@@ -6,7 +6,7 @@ import { generateDbSystemToken } from "../container/docker/docker_cli";
 describe("WorldApiManager Integration Tests", () => {
     const config = VircadiaConfig.server;
     const baseUrl = `http://${config.serverHost}:${config.serverPort}`;
-    const wsUrl = `ws://${config.serverHost}:${config.serverPort}${Communication.WS_BASE_URL}`;
+    const wsBaseUrl = `ws://${config.serverHost}:${config.serverPort}${Communication.WS_BASE_URL}`;
 
     let mockToken: string;
     let mockAgentId: string;
@@ -112,7 +112,8 @@ describe("WorldApiManager Integration Tests", () => {
 
     describe("WebSocket Tests", () => {
         test("should establish WebSocket connection with valid token", async () => {
-            const ws = new WebSocket(wsUrl, [`bearer.${mockToken}`]);
+            const wsUrl = `${wsBaseUrl}?token=${mockToken}`;
+            const ws = new WebSocket(wsUrl);
 
             const connected = await new Promise((resolve) => {
                 ws.onopen = () => resolve(true);
@@ -140,7 +141,8 @@ describe("WorldApiManager Integration Tests", () => {
         });
 
         test("should reject WebSocket connection with invalid token", async () => {
-            const ws = new WebSocket(wsUrl, ["bearer.invalid_token"]);
+            const wsUrl = `${wsBaseUrl}?token=invalid_token`;
+            const ws = new WebSocket(wsUrl);
 
             const connected = await new Promise((resolve) => {
                 ws.onopen = () => resolve(true);
@@ -153,7 +155,8 @@ describe("WorldApiManager Integration Tests", () => {
         });
 
         test("should handle heartbeat messages", async () => {
-            const ws = new WebSocket(wsUrl, [`bearer.${mockToken}`]);
+            const wsUrl = `${wsBaseUrl}?token=${mockToken}`;
+            const ws = new WebSocket(wsUrl);
 
             // Wait for connection and initial message
             await new Promise<void>((resolve) => {
@@ -189,7 +192,8 @@ describe("WorldApiManager Integration Tests", () => {
         });
 
         test("should receive client config on request", async () => {
-            const ws = new WebSocket(wsUrl, [`bearer.${mockToken}`]);
+            const wsUrl = `${wsBaseUrl}?token=${mockToken}`;
+            const ws = new WebSocket(wsUrl);
 
             // Wait for connection and initial message
             await new Promise<void>((resolve) => {

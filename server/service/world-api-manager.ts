@@ -279,27 +279,18 @@ class WorldWebSocketManager {
         req: Request,
         server: Server,
     ): Promise<Response | undefined> {
-        const protocols = req.headers.get("Sec-WebSocket-Protocol")?.split(",");
-        log({
-            message: `Received protocols: ${protocols?.join(", ")}`,
-            debug: this.debugMode,
-            type: "debug",
-        });
+        const url = new URL(req.url);
+        const token = url.searchParams.get("token");
 
-        const bearerProtocol = protocols?.find((p) =>
-            p.trim().startsWith("bearer."),
-        );
-
-        if (!bearerProtocol) {
+        if (!token) {
             log({
-                message: "No bearer protocol found in request",
+                message: "No token found in query parameters",
                 debug: this.debugMode,
                 type: "debug",
             });
             return new Response("Authentication required", { status: 401 });
         }
 
-        const token = bearerProtocol.trim().substring(7);
         log({
             message: "Attempting to validate token",
             debug: this.debugMode,
@@ -328,9 +319,6 @@ class WorldWebSocketManager {
                 token,
                 agentId: validation.agentId,
                 sessionId: validation.sessionId,
-            },
-            headers: {
-                "Sec-WebSocket-Protocol": bearerProtocol.trim(),
             },
         });
 

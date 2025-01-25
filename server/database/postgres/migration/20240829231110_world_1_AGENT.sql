@@ -9,10 +9,8 @@ CREATE TABLE auth.agent_profiles (
     general__uuid UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     profile__username TEXT UNIQUE,
     auth__email TEXT UNIQUE,
-    auth__password_hash TEXT,
     general__created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    general__updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    auth__password_last_changed TIMESTAMPTZ
+    general__updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE auth.agent_auth_providers (
@@ -49,7 +47,6 @@ CREATE TABLE auth.agent_sessions (
     session__last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     session__expires_at TIMESTAMPTZ NOT NULL,
     session__jwt TEXT,
-    meta__metadata JSONB,
     session__is_active BOOLEAN NOT NULL DEFAULT TRUE
 );
 
@@ -159,10 +156,10 @@ ON CONFLICT (auth__role_name) DO NOTHING;
 
 -- Create system and anon agents with a known UUID
 INSERT INTO auth.agent_profiles 
-    (general__uuid, profile__username, auth__email, auth__password_hash) 
+    (general__uuid, profile__username, auth__email) 
 VALUES 
-    (get_system_agent_id(), 'admin', 'system@internal', NULL),
-    (get_anon_agent_id(), 'anon', 'anon@internal', NULL)
+    (get_system_agent_id(), 'admin', 'system@internal'),
+    (get_anon_agent_id(), 'anon', 'anon@internal')
 ON CONFLICT (general__uuid) DO NOTHING;
 
 -- Assign system role to the system agent and anon role for the anon agent
@@ -385,6 +382,26 @@ BEGIN
         WHERE 
             auth__agent_id = p_agent_id
             AND session__is_active = true
+        RETURNING 1
+    )
+    SELECT COUNT(*) INTO v_count FROM updated_sessions;
+    
+    RETURN v_count;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to cleanup system tokens
+CREATE OR REPLACE FUNCTION cleanup_system_tokens()
+RETURNS INTEGER AS $$
+DECLARE
+    v_count INTEGER;
+BEGIN
+    WITH updated_sessions AS (
+        UPDATE auth.agent_sessions 
+        SET session__is_active = false
+        WHERE auth__agent_id = get_system_agent_id()
+        AND session__expires_at < NOW()
+        AND session__is_active = true
         RETURNING 1
     )
     SELECT COUNT(*) INTO v_count FROM updated_sessions;

@@ -13,12 +13,6 @@ interface WorldSession<T = unknown> {
     subscriptions: Set<string>;
 }
 
-interface SessionValidationResult {
-    agentId: string;
-    sessionId: string;
-    isValid: boolean;
-}
-
 interface AuthConfig {
     jwt_session_duration: string;
     jwt_secret: string;
@@ -32,63 +26,59 @@ interface WebSocketData {
     sessionId: string;
 }
 
-class SessionValidator {
-    constructor(
-        private readonly sql: postgres.Sql,
-        private readonly debugMode: boolean,
-        private readonly authConfig: AuthConfig,
-    ) {}
-
-    async validateSession(token: string): Promise<SessionValidationResult> {
-        try {
-            // Check for empty or malformed token first
-            if (!token || token.split(".").length !== 3) {
-                return {
-                    agentId: "",
-                    sessionId: "",
-                    isValid: false,
-                };
-            }
-
-            const decoded = verify(token, this.authConfig.jwt_secret) as {
-                sessionId: string;
-                agentId: string;
-            };
-
-            const [validation] = await this.sql`
-                SELECT * FROM validate_session(${decoded.sessionId}::UUID)
-            `;
-
-            log({
-                message: "Session validation result",
-                debug: this.debugMode,
-                type: "debug",
-                data: {
-                    validation,
-                },
-            });
-
-            return {
-                agentId: validation.auth__agent_id || "",
-                sessionId: decoded.sessionId,
-                isValid: validation.is_valid && !!validation.auth__agent_id,
-            };
-        } catch (error) {
-            log({
-                message: `Session validation failed: ${error}`,
-                debug: this.debugMode,
-                type: "debug",
-                data: {
-                    error:
-                        error instanceof Error ? error.message : String(error),
-                },
-            });
+async function validateSession(
+    sql: postgres.Sql,
+    debugMode: boolean,
+    authConfig: AuthConfig,
+    token: string,
+): Promise<{ agentId: string; sessionId: string; isValid: boolean }> {
+    try {
+        // Check for empty or malformed token first
+        if (!token || token.split(".").length !== 3) {
             return {
                 agentId: "",
                 sessionId: "",
                 isValid: false,
             };
         }
+
+        const decoded = verify(token, authConfig.jwt_secret) as {
+            sessionId: string;
+            agentId: string;
+        };
+
+        const [validation] = await sql`
+            SELECT * FROM validate_session(${decoded.sessionId}::UUID)
+        `;
+
+        log({
+            message: "Session validation result",
+            debug: debugMode,
+            type: "debug",
+            data: {
+                validation,
+            },
+        });
+
+        return {
+            agentId: validation.auth__agent_id || "",
+            sessionId: decoded.sessionId,
+            isValid: validation.is_valid && !!validation.auth__agent_id,
+        };
+    } catch (error) {
+        log({
+            message: `Session validation failed: ${error}`,
+            debug: debugMode,
+            type: "debug",
+            data: {
+                error: error instanceof Error ? error.message : String(error),
+            },
+        });
+        return {
+            agentId: "",
+            sessionId: "",
+            isValid: false,
+        };
     }
 }
 
@@ -96,7 +86,6 @@ class WorldRestManager {
     constructor(
         private readonly sql: postgres.Sql,
         private readonly debugMode: boolean,
-        private readonly sessionValidator: SessionValidator,
         private readonly authConfig: AuthConfig,
     ) {}
 
@@ -132,7 +121,12 @@ class WorldRestManager {
             );
         }
 
-        const validation = await this.sessionValidator.validateSession(token);
+        const validation = await validateSession(
+            this.sql,
+            this.debugMode,
+            this.authConfig,
+            token,
+        );
         log({
             message: "Auth endpoint - Session validation result",
             debug: this.debugMode,
@@ -154,6 +148,7 @@ class WorldRestManager {
             Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createSuccess(
                 validation.isValid,
                 validation.agentId,
+                validation.sessionId,
             ),
         );
     }
@@ -169,7 +164,12 @@ class WorldRestManager {
             );
         }
 
-        const validation = await this.sessionValidator.validateSession(token);
+        const validation = await validateSession(
+            this.sql,
+            this.debugMode,
+            this.authConfig,
+            token,
+        );
 
         try {
             // Even if the token is invalid, we should return success since the session is effectively "logged out"
@@ -248,7 +248,6 @@ class WorldWebSocketManager {
     constructor(
         private readonly sql: postgres.Sql,
         private readonly debugMode: boolean,
-        private readonly sessionValidator: SessionValidator,
         private readonly authConfig: AuthConfig,
     ) {
         // Initialize PostgreSQL notification listener
@@ -486,7 +485,12 @@ class WorldWebSocketManager {
             type: "debug",
         });
 
-        const validation = await this.sessionValidator.validateSession(token);
+        const validation = await validateSession(
+            this.sql,
+            this.debugMode,
+            this.authConfig,
+            token,
+        );
 
         if (!validation.isValid) {
             log({
@@ -742,8 +746,14 @@ class WorldWebSocketManager {
                     const token = this.tokenMap.get(session.ws);
                     if (
                         !token ||
-                        !(await this.sessionValidator.validateSession(token))
-                            .isValid
+                        !(
+                            await validateSession(
+                                this.sql,
+                                this.debugMode,
+                                this.authConfig,
+                                token,
+                            )
+                        ).isValid
                     ) {
                         log({
                             message:
@@ -786,7 +796,6 @@ export class WorldApiManager {
     private authConfig: AuthConfig | undefined;
     private oauthManager: WorldRestManager | undefined;
     private wsManager: WorldWebSocketManager | undefined;
-    private sessionValidator: SessionValidator | undefined;
     private server: Server | undefined;
 
     constructor(
@@ -809,23 +818,15 @@ export class WorldApiManager {
         this.authConfig = config.value as AuthConfig;
 
         // Initialize components
-        this.sessionValidator = new SessionValidator(
-            this.sql,
-            this.debugMode,
-            this.authConfig,
-        );
-
         this.oauthManager = new WorldRestManager(
             this.sql,
             this.debugMode,
-            this.sessionValidator,
             this.authConfig,
         );
 
         this.wsManager = new WorldWebSocketManager(
             this.sql,
             this.debugMode,
-            this.sessionValidator,
             this.authConfig,
         );
 

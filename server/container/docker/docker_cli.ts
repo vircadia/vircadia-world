@@ -17,7 +17,7 @@ const POSTGRES_MIGRATIONS_DIR = path.join(
     "../../database/postgres/migration",
 );
 
-function getDockerEnv() {
+export function getDockerEnv() {
     const config = VircadiaConfig_Server;
     return {
         CONTAINER_NAME: config.containerName,
@@ -30,7 +30,7 @@ function getDockerEnv() {
     };
 }
 
-function createSqlClient(silent: boolean) {
+export function createSqlClient(silent: boolean) {
     const config = VircadiaConfig_Server.postgres;
     return postgres({
         host: config.host,
@@ -165,7 +165,7 @@ async function waitForHealthy(
     const startTime = Date.now();
     while (Date.now() - startTime < timeoutSeconds * 1000) {
         const health = await isHealthy();
-        if (health.postgres) {
+        if (health.postgres.isHealthy && health.pgweb.isHealthy) {
             return true;
         }
         await new Promise((resolve) => setTimeout(resolve, intervalMs));
@@ -494,6 +494,13 @@ export async function generateDbSystemToken(): Promise<{
     } finally {
         await sql.end();
     }
+}
+
+export async function cleanupSystemTokens() {
+    const sql = createSqlClient(false);
+    const [result] = await sql`SELECT cleanup_system_tokens()`;
+    await sql.end();
+    return result;
 }
 
 export async function generateDbConnectionString(): Promise<string> {

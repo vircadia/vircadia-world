@@ -245,6 +245,8 @@ class WorldWebSocketManager {
     private channelSubscribers: Map<string, Set<string>> = new Map();
     private pgListener: postgres.SubscriptionHandle | null = null;
 
+    private readonly LOG_PREFIX = "WorldWebSocketManager";
+
     constructor(
         private readonly sql: postgres.Sql,
         private readonly debugMode: boolean,
@@ -259,20 +261,39 @@ class WorldWebSocketManager {
             this.pgListener = await this.sql.subscribe(
                 "entity_changes",
                 (payload) => {
-                    if (!payload) return;
+                    if (!payload) {
+                        log({
+                            prefix: this.LOG_PREFIX,
+                            message: "Received empty payload from pg_notify",
+                            type: "debug",
+                            debug: true,
+                        });
+                        return;
+                    }
 
                     try {
                         log({
+                            prefix: this.LOG_PREFIX,
                             message: "Received entity change notification",
                             type: "debug",
                             data: { payload },
+                            debug: true,
                         });
 
                         const notificationData = JSON.parse(payload.toString());
                         const subscribers =
                             this.channelSubscribers.get("entity_changes");
 
-                        if (!subscribers) return;
+                        if (!subscribers) {
+                            log({
+                                prefix: this.LOG_PREFIX,
+                                message:
+                                    "No subscribers found for entity_changes",
+                                type: "debug",
+                                debug: true,
+                            });
+                            return;
+                        }
 
                         // Match the database notification format
                         const notificationMsg =
@@ -296,29 +317,24 @@ class WorldWebSocketManager {
 
                         for (const sessionId of subscribers) {
                             log({
+                                prefix: this.LOG_PREFIX,
                                 message: "Sending entity change notification",
                                 type: "debug",
                                 data: {
                                     sessionId,
                                     message,
                                 },
+                                debug: true,
                             });
 
                             const session = this.activeSessions.get(sessionId);
                             if (session?.ws.readyState === WebSocket.OPEN) {
                                 session.ws.send(message);
-                                log({
-                                    message: "Entity change notification sent",
-                                    type: "debug",
-                                    data: {
-                                        sessionId,
-                                        message,
-                                    },
-                                });
                             }
                         }
                     } catch (error) {
                         log({
+                            prefix: this.LOG_PREFIX,
                             message:
                                 "Failed to process entity change notification",
                             type: "error",
@@ -330,6 +346,7 @@ class WorldWebSocketManager {
             );
         } catch (error) {
             log({
+                prefix: this.LOG_PREFIX,
                 message:
                     "Failed to initialize PostgreSQL notification listener",
                 type: "error",
@@ -352,6 +369,16 @@ class WorldWebSocketManager {
         }
 
         try {
+            log({
+                prefix: this.LOG_PREFIX,
+                message: "Processing query request",
+                type: "debug",
+                data: {
+                    sessionId,
+                    message,
+                },
+            });
+
             // Execute query as the user
             const results = await this.sql.begin(async (sql) => {
                 await sql`SELECT set_config('app.current_agent_id', ${session.agentId}, true)`;
@@ -359,6 +386,15 @@ class WorldWebSocketManager {
                     message.query,
                     message.parameters || [],
                 );
+            });
+
+            log({
+                prefix: this.LOG_PREFIX,
+                message: "Query execution completed",
+                type: "debug",
+                data: {
+                    results,
+                },
             });
 
             const responseMsg =
@@ -372,6 +408,16 @@ class WorldWebSocketManager {
                 );
             ws.send(JSON.stringify(responseMsg));
         } catch (error) {
+            log({
+                prefix: this.LOG_PREFIX,
+                message: "Query execution failed",
+                type: "error",
+                error,
+                data: {
+                    message,
+                },
+            });
+
             const errorMsg =
                 Communication.WebSocket.createMessage<Communication.WebSocket.QueryResponseMessage>(
                     {
@@ -399,6 +445,7 @@ class WorldWebSocketManager {
 
         if (!session || !sessionId) {
             log({
+                prefix: this.LOG_PREFIX,
                 message: "Session not found during subscribe",
                 debug: this.debugMode,
                 type: "debug",
@@ -409,6 +456,7 @@ class WorldWebSocketManager {
 
         try {
             log({
+                prefix: this.LOG_PREFIX,
                 message: "Processing subscription request",
                 debug: this.debugMode,
                 type: "debug",
@@ -425,6 +473,7 @@ class WorldWebSocketManager {
             session.subscriptions.add(message.channel);
 
             log({
+                prefix: this.LOG_PREFIX,
                 message: "Subscription successful",
                 debug: this.debugMode,
                 type: "debug",
@@ -449,6 +498,7 @@ class WorldWebSocketManager {
             ws.send(JSON.stringify(responseMsg));
         } catch (error) {
             log({
+                prefix: this.LOG_PREFIX,
                 message: "Subscription failed",
                 type: "error",
                 error,
@@ -482,6 +532,7 @@ class WorldWebSocketManager {
 
         if (!session || !sessionId) {
             log({
+                prefix: this.LOG_PREFIX,
                 message: "Session not found",
                 debug: this.debugMode,
                 type: "debug",
@@ -546,20 +597,16 @@ class WorldWebSocketManager {
         const url = new URL(req.url);
         const token = url.searchParams.get("token");
 
+        // Handle missing token first
         if (!token) {
             log({
+                prefix: this.LOG_PREFIX,
                 message: "No token found in query parameters",
                 debug: this.debugMode,
                 type: "debug",
             });
             return new Response("Authentication required", { status: 401 });
         }
-
-        log({
-            message: "Attempting to validate token",
-            debug: this.debugMode,
-            type: "debug",
-        });
 
         const validation = await validateSession(
             this.sql,
@@ -570,6 +617,7 @@ class WorldWebSocketManager {
 
         if (!validation.isValid) {
             log({
+                prefix: this.LOG_PREFIX,
                 message: "Token validation failed",
                 debug: this.debugMode,
                 type: "debug",
@@ -577,12 +625,7 @@ class WorldWebSocketManager {
             return new Response("Invalid token", { status: 401 });
         }
 
-        log({
-            message: "Token validated successfully, attempting upgrade",
-            debug: this.debugMode,
-            type: "debug",
-        });
-
+        // Only attempt upgrade if validation passes
         const upgraded = server.upgrade(req, {
             data: {
                 token,
@@ -593,27 +636,13 @@ class WorldWebSocketManager {
 
         if (!upgraded) {
             log({
+                prefix: this.LOG_PREFIX,
                 message: "WebSocket upgrade failed",
                 debug: this.debugMode,
                 type: "error",
-                data: {
-                    agentId: validation.agentId,
-                    sessionId: validation.sessionId,
-                    headers: req.headers.toJSON(),
-                },
             });
             return new Response("WebSocket upgrade failed", { status: 500 });
         }
-
-        log({
-            message: "WebSocket upgrade successful",
-            debug: this.debugMode,
-            type: "debug",
-            data: {
-                agentId: validation.agentId,
-                sessionId: validation.sessionId,
-            },
-        });
 
         return undefined;
     }
@@ -623,6 +652,7 @@ class WorldWebSocketManager {
         sessionData: { agentId: string; sessionId: string },
     ) {
         log({
+            prefix: this.LOG_PREFIX,
             message: "New WebSocket connection attempt",
             debug: this.debugMode,
             type: "debug",
@@ -659,12 +689,14 @@ class WorldWebSocketManager {
                 );
             ws.send(JSON.stringify(connectionMsg));
             log({
+                prefix: this.LOG_PREFIX,
                 message: `Connection established with agent ${sessionData.agentId}`,
                 debug: this.debugMode,
                 type: "debug",
             });
         } catch (error) {
             log({
+                prefix: this.LOG_PREFIX,
                 message: `Failed to send connection message: ${error}`,
                 debug: this.debugMode,
                 type: "error",
@@ -677,6 +709,14 @@ class WorldWebSocketManager {
         message: string | ArrayBuffer,
     ) {
         try {
+            log({
+                prefix: this.LOG_PREFIX,
+                message: "Handling WebSocket message",
+                debug: this.debugMode,
+                type: "debug",
+                data: { message },
+            });
+
             const data = JSON.parse(
                 typeof message === "string" ? message : message.toString(),
             ) as Communication.WebSocket.Message;
@@ -781,6 +821,7 @@ class WorldWebSocketManager {
         const session = this.activeSessions.get(sessionId);
         if (session) {
             log({
+                prefix: this.LOG_PREFIX,
                 message: "WebSocket disconnection",
                 debug: this.debugMode,
                 type: "debug",
@@ -836,6 +877,7 @@ class WorldWebSocketManager {
                         ).isValid
                     ) {
                         log({
+                            prefix: this.LOG_PREFIX,
                             message:
                                 "Session expired / invalid, closing WebSocket",
                             debug: this.debugMode,
@@ -922,12 +964,12 @@ export class WorldApiManager {
                 const url = new URL(req.url);
 
                 // Handle WebSocket upgrade
-                if (url.pathname.startsWith(Communication.WS_BASE_URL)) {
+                if (url.pathname.startsWith(Communication.WS_PATH)) {
                     return await this.wsManager?.handleUpgrade(req, server);
                 }
 
                 // Handle HTTP routes
-                if (url.pathname.startsWith(Communication.REST_BASE_URL)) {
+                if (url.pathname.startsWith(Communication.REST_BASE_PATH)) {
                     return await this.oauthManager?.handleRequest(req);
                 }
 

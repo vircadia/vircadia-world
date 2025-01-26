@@ -255,37 +255,86 @@ class WorldWebSocketManager {
     }
 
     private async initializePgListener() {
-        this.pgListener = await this.sql.subscribe(
-            "entity_changes",
-            (payload) => {
-                this.handleDatabaseNotification(payload);
-            },
-        );
-    }
+        try {
+            this.pgListener = await this.sql.subscribe(
+                "entity_changes",
+                (payload) => {
+                    if (!payload) return;
 
-    private async handleDatabaseNotification(payload: postgres.Row | null) {
-        if (!payload) {
-            return;
-        }
+                    try {
+                        log({
+                            message: "Received entity change notification",
+                            type: "debug",
+                            data: { payload },
+                        });
 
-        const notification = payload.notification_payload;
-        const subscribers =
-            this.channelSubscribers.get("entity_changes") || new Set();
+                        const notificationData = JSON.parse(payload.toString());
+                        const subscribers =
+                            this.channelSubscribers.get("entity_changes");
 
-        for (const sessionId of subscribers) {
-            const session = this.activeSessions.get(sessionId);
-            if (session) {
-                const notificationMsg =
-                    Communication.WebSocket.createMessage<Communication.WebSocket.NotificationMessage>(
-                        {
-                            type: Communication.WebSocket.MessageType
-                                .NOTIFICATION,
-                            channel: "entity_changes",
-                            payload: notification,
-                        },
-                    );
-                session.ws.send(JSON.stringify(notificationMsg));
-            }
+                        if (!subscribers) return;
+
+                        // Match the database notification format
+                        const notificationMsg =
+                            Communication.WebSocket.createMessage<Communication.WebSocket.NotificationMessage>(
+                                {
+                                    type: Communication.WebSocket.MessageType
+                                        .NOTIFICATION,
+                                    channel: "entity_changes",
+                                    payload: {
+                                        entity_id: notificationData.entity_id,
+                                        operation: notificationData.operation,
+                                        type: notificationData.type,
+                                        sync_group: notificationData.sync_group,
+                                        timestamp: notificationData.timestamp,
+                                        agent_id: notificationData.agent_id,
+                                    },
+                                },
+                            );
+
+                        const message = JSON.stringify(notificationMsg);
+
+                        for (const sessionId of subscribers) {
+                            log({
+                                message: "Sending entity change notification",
+                                type: "debug",
+                                data: {
+                                    sessionId,
+                                    message,
+                                },
+                            });
+
+                            const session = this.activeSessions.get(sessionId);
+                            if (session?.ws.readyState === WebSocket.OPEN) {
+                                session.ws.send(message);
+                                log({
+                                    message: "Entity change notification sent",
+                                    type: "debug",
+                                    data: {
+                                        sessionId,
+                                        message,
+                                    },
+                                });
+                            }
+                        }
+                    } catch (error) {
+                        log({
+                            message:
+                                "Failed to process entity change notification",
+                            type: "error",
+                            error,
+                            data: { payload },
+                        });
+                    }
+                },
+            );
+        } catch (error) {
+            log({
+                message:
+                    "Failed to initialize PostgreSQL notification listener",
+                type: "error",
+                error,
+            });
         }
     }
 
@@ -350,14 +399,22 @@ class WorldWebSocketManager {
 
         if (!session || !sessionId) {
             log({
-                message: "Session not found",
+                message: "Session not found during subscribe",
                 debug: this.debugMode,
                 type: "debug",
+                data: { sessionId },
             });
             return;
         }
 
         try {
+            log({
+                message: "Processing subscription request",
+                debug: this.debugMode,
+                type: "debug",
+                data: { channel: message.channel, sessionId },
+            });
+
             // Add to channel subscribers
             if (!this.channelSubscribers.has(message.channel)) {
                 this.channelSubscribers.set(message.channel, new Set());
@@ -366,6 +423,19 @@ class WorldWebSocketManager {
 
             // Add to session subscriptions
             session.subscriptions.add(message.channel);
+
+            log({
+                message: "Subscription successful",
+                debug: this.debugMode,
+                type: "debug",
+                data: {
+                    channel: message.channel,
+                    sessionId,
+                    subscriberCount: this.channelSubscribers.get(
+                        message.channel,
+                    )?.size,
+                },
+            });
 
             const responseMsg =
                 Communication.WebSocket.createMessage<Communication.WebSocket.SubscribeResponseMessage>(
@@ -378,6 +448,12 @@ class WorldWebSocketManager {
                 );
             ws.send(JSON.stringify(responseMsg));
         } catch (error) {
+            log({
+                message: "Subscription failed",
+                type: "error",
+                error,
+                data: { channel: message.channel, sessionId },
+            });
             const errorMsg =
                 Communication.WebSocket.createMessage<Communication.WebSocket.SubscribeResponseMessage>(
                     {
@@ -567,6 +643,10 @@ class WorldWebSocketManager {
 
         this.activeSessions.set(sessionData.sessionId, session);
         this.wsToSessionMap.set(ws, sessionData.sessionId);
+        this.tokenMap.set(
+            ws,
+            (ws as ServerWebSocket<WebSocketData>).data.token,
+        );
 
         try {
             const connectionMsg =

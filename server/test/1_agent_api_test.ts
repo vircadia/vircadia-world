@@ -352,14 +352,33 @@ describe("WorldApiManager Integration Tests", () => {
             const wsUrl = `${wsBaseUrl}?token=${testAgentToken}`;
             const ws = new WebSocket(wsUrl);
 
+            // Create a helper function to wait for specific message types
+            const waitForMessage = <T>(
+                expectedType: Communication.WebSocket.MessageType,
+            ): Promise<T> => {
+                return new Promise((resolve) => {
+                    ws.onmessage = (event) => {
+                        const message = JSON.parse(event.data);
+                        if (message.type === expectedType) {
+                            resolve(message as T);
+                        }
+                    };
+                });
+            };
+
+            // Wait for connection
             await new Promise<void>((resolve) => {
                 ws.onopen = () => resolve();
             });
 
-            // Handle initial connection message
-            await new Promise((resolve) => {
-                ws.onmessage = () => resolve(true);
-            });
+            // Wait for initial connection established message
+            const connMsg =
+                await waitForMessage<Communication.WebSocket.ConnectionEstablishedMessage>(
+                    Communication.WebSocket.MessageType.CONNECTION_ESTABLISHED,
+                );
+            expect(connMsg.type).toBe(
+                Communication.WebSocket.MessageType.CONNECTION_ESTABLISHED,
+            );
 
             // Subscribe to entity changes
             const subMsg = Communication.WebSocket.createMessage({
@@ -370,36 +389,29 @@ describe("WorldApiManager Integration Tests", () => {
 
             // Wait for subscription confirmation
             const subResponse =
-                await new Promise<Communication.WebSocket.SubscribeResponseMessage>(
-                    (resolve) => {
-                        ws.onmessage = (event) => {
-                            resolve(JSON.parse(event.data));
-                        };
-                    },
+                await waitForMessage<Communication.WebSocket.SubscribeResponseMessage>(
+                    Communication.WebSocket.MessageType.SUBSCRIBE_RESPONSE,
                 );
-
             expect(subResponse.type).toBe(
                 Communication.WebSocket.MessageType.SUBSCRIBE_RESPONSE,
             );
             expect(subResponse.success).toBe(true);
 
-            // Update the entity to trigger a notification
-            const updatePromise =
-                new Promise<Communication.WebSocket.NotificationMessage>(
-                    (resolve) => {
-                        ws.onmessage = (event) => {
-                            resolve(JSON.parse(event.data));
-                        };
-                    },
+            // Set up notification listener before making the change
+            const notificationPromise =
+                waitForMessage<Communication.WebSocket.NotificationMessage>(
+                    Communication.WebSocket.MessageType.NOTIFICATION,
                 );
 
+            // Update the entity
             await sql`
                 UPDATE entity.entities
                 SET general__name = 'Updated Test Entity'
                 WHERE general__uuid = ${testEntityId}
             `;
 
-            const notification = await updatePromise;
+            // Wait for notification
+            const notification = await notificationPromise;
             expect(notification.type).toBe(
                 Communication.WebSocket.MessageType.NOTIFICATION,
             );
@@ -407,7 +419,7 @@ describe("WorldApiManager Integration Tests", () => {
             expect(notification.payload.entity_id).toBe(testEntityId);
             expect(notification.payload.operation).toBe("UPDATE");
 
-            // Unsubscribe from entity changes
+            // Unsubscribe
             const unsubMsg = Communication.WebSocket.createMessage({
                 type: Communication.WebSocket.MessageType.UNSUBSCRIBE,
                 channel: "entity_changes",
@@ -416,20 +428,15 @@ describe("WorldApiManager Integration Tests", () => {
 
             // Wait for unsubscribe confirmation
             const unsubResponse =
-                await new Promise<Communication.WebSocket.UnsubscribeResponseMessage>(
-                    (resolve) => {
-                        ws.onmessage = (event) => {
-                            resolve(JSON.parse(event.data));
-                        };
-                    },
+                await waitForMessage<Communication.WebSocket.UnsubscribeResponseMessage>(
+                    Communication.WebSocket.MessageType.UNSUBSCRIBE_RESPONSE,
                 );
-
             expect(unsubResponse.type).toBe(
                 Communication.WebSocket.MessageType.UNSUBSCRIBE_RESPONSE,
             );
             expect(unsubResponse.success).toBe(true);
 
             ws.close();
-        });
+        }, 10000);
     });
 });

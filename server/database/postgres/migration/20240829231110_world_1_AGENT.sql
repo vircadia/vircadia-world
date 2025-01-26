@@ -47,7 +47,9 @@ CREATE TABLE auth.agent_sessions (
     session__last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     session__expires_at TIMESTAMPTZ NOT NULL,
     session__jwt TEXT,
-    session__is_active BOOLEAN NOT NULL DEFAULT TRUE
+    session__is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    stats__last_subscription_message JSONB DEFAULT NULL,
+    stats__last_subscription_message_at TIMESTAMPTZ DEFAULT NULL
 );
 
 -- Enable RLS
@@ -407,5 +409,68 @@ BEGIN
     SELECT COUNT(*) INTO v_count FROM updated_sessions;
     
     RETURN v_count;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Replace record_session_message function with simpler version
+CREATE OR REPLACE FUNCTION record_session_message(
+    p_session_id UUID,
+    p_message JSONB
+) RETURNS BOOLEAN AS $$
+BEGIN
+    -- Check if session exists and is active
+    IF NOT EXISTS (
+        SELECT 1 FROM auth.agent_sessions 
+        WHERE general__session_id = p_session_id 
+        AND session__is_active = true
+    ) THEN
+        RETURN FALSE;
+    END IF;
+
+    -- Update session with message info
+    UPDATE auth.agent_sessions 
+    SET 
+        stats__last_subscription_message = p_message,
+        stats__last_subscription_message_at = CURRENT_TIMESTAMP,
+        session__last_seen_at = CURRENT_TIMESTAMP
+    WHERE general__session_id = p_session_id;
+
+    RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Update get_session_stats function to match new structure
+CREATE OR REPLACE FUNCTION get_session_stats(
+    p_session_id UUID
+) RETURNS TABLE (
+    session_id UUID,
+    is_active BOOLEAN,
+    last_message JSONB,
+    last_message_at TIMESTAMPTZ,
+    last_seen_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ
+) AS $$
+BEGIN
+    -- Check permissions (must be admin or session owner)
+    IF NOT is_admin_agent() AND 
+       NOT EXISTS (
+           SELECT 1 
+           FROM auth.agent_sessions 
+           WHERE general__session_id = p_session_id
+           AND auth__agent_id = current_agent_id()
+       ) THEN
+        RAISE EXCEPTION 'Insufficient permissions to view session stats';
+    END IF;
+
+    RETURN QUERY
+    SELECT 
+        s.general__session_id,
+        s.session__is_active,
+        s.stats__last_subscription_message,
+        s.stats__last_subscription_message_at,
+        s.session__last_seen_at,
+        s.session__expires_at
+    FROM auth.agent_sessions s
+    WHERE s.general__session_id = p_session_id;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

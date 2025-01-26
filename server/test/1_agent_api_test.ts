@@ -366,14 +366,14 @@ describe("WorldApiManager Integration Tests", () => {
             );
             expect(response.requestId).toBe("test-query");
             expect(response.results).toBeDefined();
-            expect(response.results?.[0].general__uuid).toBe(testEntityId);
+            expect(response.results?.[0]?.general__uuid).toBe(testEntityId); // Access first row of results
         });
 
         test("should handle entity change notifications", async () => {
             // Subscribe to entity changes
             const subMsg = Communication.WebSocket.createMessage({
                 type: Communication.WebSocket.MessageType.SUBSCRIBE,
-                channel: "entity_changes",
+                channel: testAgentSessionId,
             });
             ws.send(JSON.stringify(subMsg));
 

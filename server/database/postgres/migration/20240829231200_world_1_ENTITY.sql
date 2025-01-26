@@ -187,11 +187,13 @@ CREATE POLICY "entities_delete_policy" ON entity.entities
 -- NOTIFICATION FUNCTIONS
 --
 
--- Entity changes notification with RLS check
+-- Update notify_entity_changes to use simplified message tracking
 CREATE OR REPLACE FUNCTION notify_entity_changes() RETURNS TRIGGER AS $$
 DECLARE
     can_view BOOLEAN;
     notification_payload JSONB;
+    payload_text TEXT;
+    session_record RECORD;
 BEGIN
     -- For DELETE operations, we need to check if the user had permission to view the old record
     IF TG_OP = 'DELETE' THEN
@@ -244,59 +246,123 @@ BEGIN
             'operation', TG_OP,
             'entity_id', CASE WHEN TG_OP = 'DELETE' THEN OLD.general__uuid ELSE NEW.general__uuid END,
             'sync_group', CASE WHEN TG_OP = 'DELETE' THEN OLD.performance__sync_group ELSE NEW.performance__sync_group END,
-            'timestamp', CURRENT_TIMESTAMP
+            'timestamp', CURRENT_TIMESTAMP,
+            'agent_id', current_agent_id()
         );
+        
+        payload_text := notification_payload::text;
+        
+        -- Check payload size (8000 bytes limit)
+        IF octet_length(payload_text) >= 8000 THEN
+            RAISE EXCEPTION 'Notification payload exceeds 8000 bytes limit';
+        END IF;
 
-        -- Include the agent_id who made the change in the notification
-        notification_payload := notification_payload || 
-            jsonb_build_object('agent_id', current_agent_id());
+        -- Loop through active sessions and notify each one individually
+        FOR session_record IN 
+            SELECT session__id
+            FROM auth.agent_sessions
+            WHERE session__is_active = true
+        LOOP
+            -- Notify using session_id as channel
+            PERFORM pg_notify(
+                session_record.session__id::text,
+                payload_text
+            );
 
-        PERFORM pg_notify(
-            'entity_changes',
-            notification_payload::text
-        );
+            -- Update session stats
+            UPDATE auth.agent_sessions
+            SET 
+                stats__last_subscription_message = notification_payload,
+                stats__last_subscription_message_at = CURRENT_TIMESTAMP,
+                session__last_seen_at = CURRENT_TIMESTAMP
+            WHERE session__id = session_record.session__id;
+        END LOOP;
     END IF;
 
     RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
 END;
 $$ LANGUAGE plpgsql;
 
--- Entity script changes notification with RLS check
+-- Update notify_entity_script_changes to use simplified message tracking
 CREATE OR REPLACE FUNCTION notify_entity_script_changes() RETURNS TRIGGER AS $$
 DECLARE
     can_view BOOLEAN;
     notification_payload JSONB;
+    payload_text TEXT;
+    session_record RECORD;
 BEGIN
-    -- Check if the current user has permission to view the script
-    SELECT EXISTS (
-        SELECT 1 
-        FROM entity.entity_scripts
-        WHERE general__script_id = NEW.general__script_id
-        AND (
-            is_admin_agent()
-            OR EXISTS (
-                SELECT 1 FROM auth.agent_roles ar
-                JOIN auth.roles r ON ar.auth__role_name = r.auth__role_name
-                WHERE ar.auth__agent_id = current_agent_id()
-                AND ar.auth__is_active = true
+    -- For DELETE operations, we need to check if the user had permission to view the old record
+    IF TG_OP = 'DELETE' THEN
+        SELECT EXISTS (
+            SELECT 1 
+            FROM entity.entity_scripts
+            WHERE general__script_id = OLD.general__script_id
+            AND (
+                is_admin_agent()
+                OR EXISTS (
+                    SELECT 1 FROM auth.agent_roles ar
+                    JOIN auth.roles r ON ar.auth__role_name = r.auth__role_name
+                    WHERE ar.auth__agent_id = current_agent_id()
+                    AND ar.auth__is_active = true
+                )
             )
-        )
-    ) INTO can_view;
+        ) INTO can_view;
+    ELSE
+        -- For INSERT/UPDATE, check if the user has permission to view the new record
+        SELECT EXISTS (
+            SELECT 1 
+            FROM entity.entity_scripts
+            WHERE general__script_id = NEW.general__script_id
+            AND (
+                is_admin_agent()
+                OR EXISTS (
+                    SELECT 1 FROM auth.agent_roles ar
+                    JOIN auth.roles r ON ar.auth__role_name = r.auth__role_name
+                    WHERE ar.auth__agent_id = current_agent_id()
+                    AND ar.auth__is_active = true
+                )
+            )
+        ) INTO can_view;
+    END IF;
 
     -- Only send notification if user has permission
     IF can_view THEN
         notification_payload := json_build_object(
             'type', 'script',
             'operation', TG_OP,
-            'script_id', NEW.general__script_id,
+            'script_id', CASE WHEN TG_OP = 'DELETE' THEN OLD.general__script_id ELSE NEW.general__script_id END,
+            'sync_group', CASE WHEN TG_OP = 'DELETE' THEN OLD.performance__sync_group ELSE NEW.performance__sync_group END,
             'timestamp', CURRENT_TIMESTAMP,
             'agent_id', current_agent_id()
         );
 
-        PERFORM pg_notify(
-            'entity_changes',
-            notification_payload::text
-        );
+        payload_text := notification_payload::text;
+        
+        -- Check payload size (8000 bytes limit)
+        IF octet_length(payload_text) >= 8000 THEN
+            RAISE EXCEPTION 'Notification payload exceeds 8000 bytes limit';
+        END IF;
+
+        -- Loop through active sessions and notify each one individually
+        FOR session_record IN 
+            SELECT session__id
+            FROM auth.agent_sessions
+            WHERE session__is_active = true
+        LOOP
+            -- Notify using session_id as channel
+            PERFORM pg_notify(
+                session_record.session__id::text,
+                payload_text
+            );
+
+            -- Update session stats
+            UPDATE auth.agent_sessions
+            SET 
+                stats__last_subscription_message = notification_payload,
+                stats__last_subscription_message_at = CURRENT_TIMESTAMP,
+                session__last_seen_at = CURRENT_TIMESTAMP
+            WHERE session__id = session_record.session__id;
+        END LOOP;
     END IF;
 
     RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
@@ -309,8 +375,8 @@ CREATE TRIGGER entity_changes_notify
     FOR EACH ROW
     EXECUTE FUNCTION notify_entity_changes();
 
-CREATE TRIGGER entity_script_changes_notify
-    AFTER INSERT OR UPDATE ON entity.entity_scripts
+CREATE OR REPLACE TRIGGER entity_script_changes_notify
+    AFTER INSERT OR UPDATE OR DELETE ON entity.entity_scripts
     FOR EACH ROW
     EXECUTE FUNCTION notify_entity_script_changes();
 

@@ -127,6 +127,13 @@ class WorldRestManager {
             this.authConfig,
             token,
         );
+
+        // Set the current agent ID for RLS
+        if (validation.isValid) {
+            await this
+                .sql`SELECT set_config('app.current_agent_id', ${validation.agentId}::text, true)`;
+        }
+
         log({
             message: "Auth endpoint - Session validation result",
             debug: this.debugMode,
@@ -170,6 +177,12 @@ class WorldRestManager {
             this.authConfig,
             token,
         );
+
+        // Set the current agent ID for RLS
+        if (validation.isValid) {
+            await this
+                .sql`SELECT set_config('app.current_agent_id', ${validation.agentId}::text, true)`;
+        }
 
         try {
             // Even if the token is invalid, we should return success since the session is effectively "logged out"
@@ -231,10 +244,7 @@ class WorldWebSocketManager {
     >();
     private clientConfig:
         | {
-              heartbeat: {
-                  interval: number;
-                  timeout: number;
-              };
+              heartbeat: { interval: number; timeout: number };
               session: {
                   max_session_age_ms: number;
                   cleanup_interval_ms: number;
@@ -242,8 +252,10 @@ class WorldWebSocketManager {
               };
           }
         | undefined;
-    private channelSubscribers: Map<string, Set<string>> = new Map();
-    private pgListener: postgres.SubscriptionHandle | null = null;
+    private channelSubscribers: Map<
+        string,
+        Map<string, postgres.SubscriptionHandle>
+    > = new Map();
 
     private readonly LOG_PREFIX = "WorldWebSocketManager";
 
@@ -251,109 +263,7 @@ class WorldWebSocketManager {
         private readonly sql: postgres.Sql,
         private readonly debugMode: boolean,
         private readonly authConfig: AuthConfig,
-    ) {
-        // Initialize PostgreSQL notification listener
-        this.initializePgListener();
-    }
-
-    private async initializePgListener() {
-        try {
-            this.pgListener = await this.sql.subscribe(
-                "entity_changes",
-                (payload) => {
-                    if (!payload) {
-                        log({
-                            prefix: this.LOG_PREFIX,
-                            message: "Received empty payload from pg_notify",
-                            type: "debug",
-                            debug: true,
-                        });
-                        return;
-                    }
-
-                    try {
-                        log({
-                            prefix: this.LOG_PREFIX,
-                            message: "Received entity change notification",
-                            type: "debug",
-                            data: { payload },
-                            debug: true,
-                        });
-
-                        const notificationData = JSON.parse(payload.toString());
-                        const subscribers =
-                            this.channelSubscribers.get("entity_changes");
-
-                        if (!subscribers) {
-                            log({
-                                prefix: this.LOG_PREFIX,
-                                message:
-                                    "No subscribers found for entity_changes",
-                                type: "debug",
-                                debug: true,
-                            });
-                            return;
-                        }
-
-                        // Match the database notification format
-                        const notificationMsg =
-                            Communication.WebSocket.createMessage<Communication.WebSocket.NotificationMessage>(
-                                {
-                                    type: Communication.WebSocket.MessageType
-                                        .NOTIFICATION,
-                                    channel: "entity_changes",
-                                    payload: {
-                                        entity_id: notificationData.entity_id,
-                                        operation: notificationData.operation,
-                                        type: notificationData.type,
-                                        sync_group: notificationData.sync_group,
-                                        timestamp: notificationData.timestamp,
-                                        agent_id: notificationData.agent_id,
-                                    },
-                                },
-                            );
-
-                        const message = JSON.stringify(notificationMsg);
-
-                        for (const sessionId of subscribers) {
-                            log({
-                                prefix: this.LOG_PREFIX,
-                                message: "Sending entity change notification",
-                                type: "debug",
-                                data: {
-                                    sessionId,
-                                    message,
-                                },
-                                debug: true,
-                            });
-
-                            const session = this.activeSessions.get(sessionId);
-                            if (session?.ws.readyState === WebSocket.OPEN) {
-                                session.ws.send(message);
-                            }
-                        }
-                    } catch (error) {
-                        log({
-                            prefix: this.LOG_PREFIX,
-                            message:
-                                "Failed to process entity change notification",
-                            type: "error",
-                            error,
-                            data: { payload },
-                        });
-                    }
-                },
-            );
-        } catch (error) {
-            log({
-                prefix: this.LOG_PREFIX,
-                message:
-                    "Failed to initialize PostgreSQL notification listener",
-                type: "error",
-                error,
-            });
-        }
-    }
+    ) {}
 
     private async handleQuery(
         ws: ServerWebSocket<WebSocketData>,
@@ -381,7 +291,7 @@ class WorldWebSocketManager {
 
             // Execute query as the user
             const results = await this.sql.begin(async (sql) => {
-                await sql`SELECT set_config('app.current_agent_id', ${session.agentId}, true)`;
+                await sql`SELECT set_config('app.current_agent_id', ${session.agentId}::text, true)`;
                 return await sql.unsafe(
                     message.query,
                     message.parameters || [],
@@ -455,36 +365,106 @@ class WorldWebSocketManager {
         }
 
         try {
+            // Validate that the requested channel exists in config
+            if (
+                message.channel === this.entity_entity_notification_channel &&
+                !this.entity_entity_notification_channel
+            ) {
+                throw new Error(`Invalid channel: ${message.channel}`);
+            }
+
+            if (
+                message.channel === "entity_changes.script" &&
+                !this.entity_script_notification_channel
+            ) {
+                throw new Error(`Invalid channel: ${message.channel}`);
+            }
+
             log({
                 prefix: this.LOG_PREFIX,
                 message: "Processing subscription request",
                 debug: this.debugMode,
                 type: "debug",
-                data: { channel: message.channel, sessionId },
+                data: { channel: sessionId, sessionId },
             });
 
-            // Add to channel subscribers
+            // Create a new SQL connection for this subscription
+            const subscriberSql = this.sql;
+
+            // Set the current agent ID for this connection
+            await subscriberSql`SELECT set_config('app.current_agent_id', ${session.agentId}::text, true)`;
+
+            // Subscribe using the session ID as the channel name
+            const pgListener = await subscriberSql.subscribe(
+                sessionId,
+                async (payload) => {
+                    log({
+                        prefix: this.LOG_PREFIX,
+                        message: "Received entity change notification",
+                        type: "debug",
+                        data: { payload },
+                    });
+
+                    if (!payload) {
+                        log({
+                            prefix: this.LOG_PREFIX,
+                            message: "Received empty payload from pg_notify",
+                            type: "debug",
+                            debug: true,
+                        });
+                        return;
+                    }
+
+                    try {
+                        // Set agent context for each notification processing
+                        await subscriberSql`SELECT set_config('app.current_agent_id', ${session.agentId}::text, true)`;
+
+                        const notificationData = JSON.parse(payload.toString());
+
+                        // Match the database notification format
+                        const notificationMsg =
+                            Communication.WebSocket.createMessage<Communication.WebSocket.NotificationMessage>(
+                                {
+                                    type: Communication.WebSocket.MessageType
+                                        .NOTIFICATION,
+                                    channel: message.channel,
+                                    payload: {
+                                        entity_id: notificationData.entity_id,
+                                        operation: notificationData.operation,
+                                        type: notificationData.type,
+                                        sync_group: notificationData.sync_group,
+                                        timestamp: notificationData.timestamp,
+                                        agent_id: notificationData.agent_id,
+                                    },
+                                },
+                            );
+
+                        if (session.ws.readyState === WebSocket.OPEN) {
+                            session.ws.send(JSON.stringify(notificationMsg));
+                        }
+                    } catch (error) {
+                        log({
+                            prefix: this.LOG_PREFIX,
+                            message:
+                                "Failed to process entity change notification",
+                            type: "error",
+                            error,
+                            data: { payload },
+                        });
+                    }
+                },
+            );
+
+            // Store the subscription handle
             if (!this.channelSubscribers.has(message.channel)) {
-                this.channelSubscribers.set(message.channel, new Set());
+                this.channelSubscribers.set(message.channel, new Map());
             }
-            this.channelSubscribers.get(message.channel)?.add(sessionId);
+            this.channelSubscribers
+                .get(message.channel)
+                ?.set(sessionId, pgListener);
 
             // Add to session subscriptions
             session.subscriptions.add(message.channel);
-
-            log({
-                prefix: this.LOG_PREFIX,
-                message: "Subscription successful",
-                debug: this.debugMode,
-                type: "debug",
-                data: {
-                    channel: message.channel,
-                    sessionId,
-                    subscriberCount: this.channelSubscribers.get(
-                        message.channel,
-                    )?.size,
-                },
-            });
 
             const responseMsg =
                 Communication.WebSocket.createMessage<Communication.WebSocket.SubscribeResponseMessage>(
@@ -540,10 +520,14 @@ class WorldWebSocketManager {
             return;
         }
 
-        // Remove from channel subscribers
+        // Unsubscribe and cleanup the subscription
         const channelSubs = this.channelSubscribers.get(message.channel);
         if (channelSubs) {
-            channelSubs.delete(sessionId);
+            const subscription = channelSubs.get(sessionId);
+            if (subscription) {
+                subscription.unsubscribe();
+                channelSubs.delete(sessionId);
+            }
             if (channelSubs.size === 0) {
                 this.channelSubscribers.delete(message.channel);
             }
@@ -904,9 +888,15 @@ class WorldWebSocketManager {
         if (this.heartbeatInterval) {
             clearInterval(this.heartbeatInterval);
         }
-        if (this.pgListener) {
-            this.pgListener.unsubscribe();
+
+        // Cleanup all subscriptions
+        for (const channelSubs of this.channelSubscribers.values()) {
+            for (const subscription of channelSubs.values()) {
+                subscription.unsubscribe();
+            }
         }
+        this.channelSubscribers.clear();
+
         for (const session of this.activeSessions.values()) {
             session.ws.close(1000, "Server shutting down");
         }

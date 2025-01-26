@@ -31,126 +31,134 @@ describe("WorldApiManager Integration Tests", () => {
 
     // Setup before all tests
     beforeAll(async () => {
-        // Initialize database connection
-        sql = createSqlClient(true);
+        try {
+            // Initialize database connection
+            sql = createSqlClient(true);
 
-        // Clean up any existing test accounts first
-        await cleanupTestAccounts();
+            // Clean up any existing test accounts first
+            await cleanupTestAccounts();
 
-        // Get auth settings from config
-        const [authConfig] = await sql`
-            SELECT value FROM config.config 
-            WHERE key = 'auth_settings'
-        `;
+            // Get auth settings from config
+            const [authConfig] = await sql`
+                SELECT value FROM config.config 
+                WHERE key = 'auth_settings'
+            `;
 
-        if (!authConfig?.value) {
-            throw new Error("Auth settings not found in database");
+            if (!authConfig?.value) {
+                throw new Error("Auth settings not found in database");
+            }
+
+            // Create test admin account
+            const [adminAccount] = await sql`
+                INSERT INTO auth.agent_profiles (profile__username, auth__email)
+                VALUES ('test_admin', 'test_admin@test.com')
+                RETURNING general__uuid
+            `;
+            testAdminId = adminAccount.general__uuid;
+
+            // Assign admin role
+            await sql`
+                INSERT INTO auth.agent_roles (auth__agent_id, auth__role_name, auth__is_active)
+                VALUES (${testAdminId}, 'admin', true)
+            `;
+
+            // Create test regular agent account
+            const [agentAccount] = await sql`
+                INSERT INTO auth.agent_profiles (profile__username, auth__email)
+                VALUES ('test_agent', 'test_agent@test.com')
+                RETURNING general__uuid
+            `;
+            testAgentId = agentAccount.general__uuid;
+
+            // Assign agent role
+            await sql`
+                INSERT INTO auth.agent_roles (auth__agent_id, auth__role_name, auth__is_active)
+                VALUES (${testAgentId}, 'agent', true)
+            `;
+
+            // Create sessions for both accounts
+            const [adminSession] = await sql`
+                SELECT * FROM create_agent_session(${testAdminId}, 'test')
+            `;
+            testAdminSessionId = adminSession.general__session_id;
+
+            const [agentSession] = await sql`
+                SELECT * FROM create_agent_session(${testAgentId}, 'test')
+            `;
+            testAgentSessionId = agentSession.general__session_id;
+
+            // Generate JWT tokens
+            testAdminToken = sign(
+                {
+                    sessionId: testAdminSessionId,
+                    agentId: testAdminId,
+                },
+                authConfig.value.jwt_secret,
+                {
+                    expiresIn: authConfig.value.jwt_session_duration,
+                },
+            );
+
+            testAgentToken = sign(
+                {
+                    sessionId: testAgentSessionId,
+                    agentId: testAgentId,
+                },
+                authConfig.value.jwt_secret,
+                {
+                    expiresIn: authConfig.value.jwt_session_duration,
+                },
+            );
+
+            // Update sessions with JWT tokens
+            await sql`
+                UPDATE auth.agent_sessions 
+                SET session__jwt = ${testAdminToken}
+                WHERE general__session_id = ${testAdminSessionId}
+            `;
+
+            await sql`
+                UPDATE auth.agent_sessions 
+                SET session__jwt = ${testAgentToken}
+                WHERE general__session_id = ${testAgentSessionId}
+            `;
+
+            // Create a test script
+            const [scriptResult] = await sql<[{ general__script_id: string }]>`
+                INSERT INTO entity.entity_scripts (
+                    compiled__web__node__script,
+                    compiled__web__node__script_status,
+                    source__git__repo_entry_path
+                ) VALUES (
+                    'console.log("test script")',
+                    'COMPILED',
+                    'test/script.ts'
+                ) RETURNING general__script_id
+            `;
+            testScriptId = scriptResult.general__script_id;
+
+            // Create a test entity
+            const [entityResult] = await sql<[{ general__uuid: string }]>`
+                INSERT INTO entity.entities (
+                    general__name,
+                    scripts__ids,
+                    permissions__roles__view,
+                    permissions__roles__full
+                ) VALUES (
+                    'Test Entity',
+                    ARRAY[${testScriptId}]::UUID[],
+                    ARRAY['agent']::TEXT[],
+                    ARRAY['admin']::TEXT[]
+                ) RETURNING general__uuid
+            `;
+            testEntityId = entityResult.general__uuid;
+        } catch (error) {
+            log({
+                message: "Failed to setup test environment.",
+                type: "error",
+                error,
+            });
         }
-
-        // Create test admin account
-        const [adminAccount] = await sql`
-            INSERT INTO auth.agent_profiles (profile__username, auth__email)
-            VALUES ('test_admin', 'test_admin@test.com')
-            RETURNING general__uuid
-        `;
-        testAdminId = adminAccount.general__uuid;
-
-        // Assign admin role
-        await sql`
-            INSERT INTO auth.agent_roles (auth__agent_id, auth__role_name, auth__is_active)
-            VALUES (${testAdminId}, 'admin', true)
-        `;
-
-        // Create test regular agent account
-        const [agentAccount] = await sql`
-            INSERT INTO auth.agent_profiles (profile__username, auth__email)
-            VALUES ('test_agent', 'test_agent@test.com')
-            RETURNING general__uuid
-        `;
-        testAgentId = agentAccount.general__uuid;
-
-        // Assign agent role
-        await sql`
-            INSERT INTO auth.agent_roles (auth__agent_id, auth__role_name, auth__is_active)
-            VALUES (${testAgentId}, 'agent', true)
-        `;
-
-        // Create sessions for both accounts
-        const [adminSession] = await sql`
-            SELECT * FROM create_agent_session(${testAdminId}, 'test')
-        `;
-        testAdminSessionId = adminSession.general__session_id;
-
-        const [agentSession] = await sql`
-            SELECT * FROM create_agent_session(${testAgentId}, 'test')
-        `;
-        testAgentSessionId = agentSession.general__session_id;
-
-        // Generate JWT tokens
-        testAdminToken = sign(
-            {
-                sessionId: testAdminSessionId,
-                agentId: testAdminId,
-            },
-            authConfig.value.jwt_secret,
-            {
-                expiresIn: authConfig.value.jwt_session_duration,
-            },
-        );
-
-        testAgentToken = sign(
-            {
-                sessionId: testAgentSessionId,
-                agentId: testAgentId,
-            },
-            authConfig.value.jwt_secret,
-            {
-                expiresIn: authConfig.value.jwt_session_duration,
-            },
-        );
-
-        // Update sessions with JWT tokens
-        await sql`
-            UPDATE auth.agent_sessions 
-            SET session__jwt = ${testAdminToken}
-            WHERE general__session_id = ${testAdminSessionId}
-        `;
-
-        await sql`
-            UPDATE auth.agent_sessions 
-            SET session__jwt = ${testAgentToken}
-            WHERE general__session_id = ${testAgentSessionId}
-        `;
-
-        // Create a test script
-        const [scriptResult] = await sql<[{ general__script_id: string }]>`
-            INSERT INTO entity.entity_scripts (
-                compiled__web__node__script,
-                compiled__web__node__script_status,
-                source__git__repo_entry_path
-            ) VALUES (
-                'console.log("test script")',
-                'COMPILED',
-                'test/script.ts'
-            ) RETURNING general__script_id
-        `;
-        testScriptId = scriptResult.general__script_id;
-
-        // Create a test entity
-        const [entityResult] = await sql<[{ general__uuid: string }]>`
-            INSERT INTO entity.entities (
-                general__name,
-                scripts__ids,
-                permissions__roles__view,
-                permissions__roles__full
-            ) VALUES (
-                'Test Entity',
-                ARRAY[${testScriptId}]::UUID[],
-                ARRAY['agent']::TEXT[],
-                ARRAY['admin']::TEXT[]
-            ) RETURNING general__uuid
-        `;
-        testEntityId = entityResult.general__uuid;
     });
 
     afterAll(async () => {
@@ -162,9 +170,6 @@ describe("WorldApiManager Integration Tests", () => {
         await cleanupTestAccounts();
 
         await sql.end();
-
-        // Add server process termination
-        await serverProcess.kill();
     });
 
     describe("REST API Tests", () => {

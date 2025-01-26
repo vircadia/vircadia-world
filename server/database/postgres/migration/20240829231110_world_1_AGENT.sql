@@ -336,7 +336,7 @@ CREATE OR REPLACE FUNCTION invalidate_session(
     p_session_id UUID
 ) RETURNS BOOLEAN AS $$
 DECLARE
-    v_success BOOLEAN;
+    v_rows_affected INTEGER;
 BEGIN
     -- Check if user has permission (must be admin or the owner of the session)
     IF NOT is_admin_agent() AND 
@@ -357,8 +357,8 @@ BEGIN
         general__session_id = p_session_id
         AND session__is_active = true;
 
-    GET DIAGNOSTICS v_success = ROW_COUNT;
-    RETURN v_success > 0;
+    GET DIAGNOSTICS v_rows_affected = ROW_COUNT;
+    RETURN v_rows_affected > 0;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 

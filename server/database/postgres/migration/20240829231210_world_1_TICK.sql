@@ -75,7 +75,7 @@ CREATE POLICY "entity_states_delete_policy" ON tick.entity_states
     USING (is_admin_agent());
 
 -- Function to generate consistent field group hashes
-CREATE OR REPLACE FUNCTION generate_entity_field_hashes(
+CREATE OR REPLACE FUNCTION tick.generate_entity_field_hashes(
     general_fields jsonb,
     meta_fields jsonb,
     scripts_fields jsonb,
@@ -99,7 +99,7 @@ END;
 $$ LANGUAGE plpgsql IMMUTABLE;
 
 -- Function to capture entity state - needs SECURITY DEFINER to bypass RLS
-CREATE OR REPLACE FUNCTION capture_tick_state(sync_group_name text)
+CREATE OR REPLACE FUNCTION tick.capture_tick_state(sync_group_name text)
 RETURNS void AS $$
 DECLARE
     current_tick bigint;
@@ -202,7 +202,7 @@ BEGIN
             h.hash_permissions,
             h.hash_performance
         FROM entity.entities e
-        CROSS JOIN LATERAL generate_entity_field_hashes(
+        CROSS JOIN LATERAL tick.generate_entity_field_hashes(
             -- General fields
             jsonb_build_object(
                 'uuid', e.general__uuid,
@@ -289,93 +289,15 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Simple utility function - no special privileges needed
-CREATE OR REPLACE FUNCTION get_server_time()
+CREATE OR REPLACE FUNCTION tick.get_server_time()
 RETURNS timestamptz AS $$
 BEGIN
     RETURN CURRENT_TIMESTAMP;
 END;
 $$ LANGUAGE plpgsql SECURITY INVOKER;
 
--- Modified trigger function without arguments
-CREATE OR REPLACE FUNCTION trigger_tick_capture()
-RETURNS trigger AS $$
-DECLARE
-    now_time timestamptz;
-    last_time timestamptz;
-    time_since_last_ms double precision;
-    current_tick bigint;
-    sync_groups jsonb;
-    sync_group_name text;
-BEGIN
-    -- Get sync_group_name from NEW record or another source
-    sync_group_name := NEW.sync_group; -- Assuming the sync_group is passed in the NEW record
-    
-    -- Replace system role check with is_admin_agent()
-    IF NOT is_admin_agent() THEN
-        RAISE EXCEPTION 'Permission denied: Admin permission required';
-    END IF;
-
-    -- Validate sync_group_name
-    SELECT value INTO sync_groups 
-    FROM config.config 
-    WHERE key = 'sync_groups';
-    
-    IF NOT sync_groups ? sync_group_name THEN
-        RAISE EXCEPTION 'Invalid sync group: %', sync_group_name;
-    END IF;
-
-    now_time := clock_timestamp();
-    
-    -- Get last frame time for this sync group
-    SELECT end_time INTO last_time 
-    FROM tick.tick_metrics 
-    WHERE sync_group = sync_group_name
-    ORDER BY end_time DESC 
-    LIMIT 1;
-    
-    -- Calculate time since last frame
-    time_since_last_ms := CASE 
-        WHEN last_time IS NOT NULL THEN 
-            EXTRACT(EPOCH FROM (now_time - last_time)) * 1000
-        ELSE NULL 
-    END;
-
-    -- Calculate current tick based on sync group's tick rate
-    current_tick := FLOOR(EXTRACT(EPOCH FROM now_time) * 1000 / 
-        (sync_groups #>> ARRAY[sync_group_name, 'server_tick_rate_ms'])::int)::bigint;
-    
-    -- Insert new frame metrics entry for this sync group
-    INSERT INTO tick.tick_metrics (
-        tick_number,
-        sync_group,
-        start_time,
-        end_time,
-        duration_ms,
-        states_processed,
-        is_delayed,
-        headroom_ms,
-        time_since_last_tick_ms
-    ) VALUES (
-        current_tick,
-        sync_group_name,
-        now_time,
-        now_time,
-        0,
-        0,
-        false,
-        0,
-        time_since_last_ms
-    );
-    
-    -- Capture the frame states for this sync group
-    PERFORM capture_tick_state(sync_group_name);
-    
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
 -- Cleanup functions need SECURITY DEFINER to bypass RLS
-CREATE OR REPLACE FUNCTION cleanup_old_entity_states()
+CREATE OR REPLACE FUNCTION tick.cleanup_old_entity_states()
 RETURNS void AS $$
 DECLARE
     states_cleaned integer;
@@ -404,7 +326,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE OR REPLACE FUNCTION cleanup_old_tick_metrics()
+CREATE OR REPLACE FUNCTION tick.cleanup_old_tick_metrics()
 RETURNS void AS $$
 DECLARE
     metrics_cleaned integer;

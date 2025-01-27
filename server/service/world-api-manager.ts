@@ -265,16 +265,36 @@ class WorldWebSocketManager {
         private readonly authConfig: AuthConfig,
     ) {}
 
+    private async setAgentContext(
+        sql: postgres.Sql,
+        sessionId: string,
+        sessionToken: string,
+    ): Promise<void> {
+        if (!sessionToken || !sessionId) {
+            throw new Error("Session token or session ID not found");
+        }
+
+        // Check the return value to ensure context was set correctly
+        const [contextResult] = await sql<[{ set_agent_context: boolean }]>`
+            SELECT set_agent_context(${sessionId}::UUID, ${sessionToken}::TEXT) as set_agent_context
+        `;
+
+        if (!contextResult.set_agent_context) {
+            throw new Error("Failed to set agent context");
+        }
+    }
+
     private async handleQuery(
         ws: ServerWebSocket<WebSocketData>,
         message: Communication.WebSocket.QueryMessage,
     ) {
         const sessionId = this.wsToSessionMap.get(ws);
+        const sessionToken = this.tokenMap.get(ws);
         const session = sessionId
             ? this.activeSessions.get(sessionId)
             : undefined;
 
-        if (!session) {
+        if (!session || !sessionToken || !sessionId) {
             return;
         }
 
@@ -289,9 +309,9 @@ class WorldWebSocketManager {
                 },
             });
 
-            // Execute query as the user
+            // Execute query as the user with both session ID and token
             const results = await this.sql.begin(async (sql) => {
-                await sql`SELECT set_config('app.current_agent_id', ${session.agentId}::text, true)`;
+                await this.setAgentContext(sql, sessionId, sessionToken);
                 return await sql.unsafe(
                     message.query,
                     message.parameters || [],
@@ -302,9 +322,7 @@ class WorldWebSocketManager {
                 prefix: this.LOG_PREFIX,
                 message: "Query execution completed",
                 type: "debug",
-                data: {
-                    results,
-                },
+                data: { results },
             });
 
             const responseMsg =
@@ -323,9 +341,7 @@ class WorldWebSocketManager {
                 message: "Query execution failed",
                 type: "error",
                 error,
-                data: {
-                    message,
-                },
+                data: { message },
             });
 
             const errorMsg =
@@ -349,11 +365,12 @@ class WorldWebSocketManager {
         message: Communication.WebSocket.SubscribeMessage,
     ) {
         const sessionId = this.wsToSessionMap.get(ws);
+        const sessionToken = this.tokenMap.get(ws);
         const session = sessionId
             ? this.activeSessions.get(sessionId)
             : undefined;
 
-        if (!session || !sessionId) {
+        if (!session || !sessionToken || !sessionId) {
             log({
                 prefix: this.LOG_PREFIX,
                 message: "Session not found during subscribe",
@@ -365,21 +382,6 @@ class WorldWebSocketManager {
         }
 
         try {
-            // Validate that the requested channel exists in config
-            if (
-                message.channel === this.entity_entity_notification_channel &&
-                !this.entity_entity_notification_channel
-            ) {
-                throw new Error(`Invalid channel: ${message.channel}`);
-            }
-
-            if (
-                message.channel === "entity_changes.script" &&
-                !this.entity_script_notification_channel
-            ) {
-                throw new Error(`Invalid channel: ${message.channel}`);
-            }
-
             log({
                 prefix: this.LOG_PREFIX,
                 message: "Processing subscription request",
@@ -391,10 +393,10 @@ class WorldWebSocketManager {
             // Create a new SQL connection for this subscription
             const subscriberSql = this.sql;
 
-            // Set the current agent ID for this connection
-            await subscriberSql`SELECT set_config('app.current_agent_id', ${session.agentId}::text, true)`;
+            // Set the agent context using both session ID and token
+            await this.setAgentContext(subscriberSql, sessionId, sessionToken);
 
-            // Subscribe using the session ID as the channel name
+            // Subscribe using sessionId as the channel
             const pgListener = await subscriberSql.subscribe(
                 sessionId,
                 async (payload) => {
@@ -417,7 +419,11 @@ class WorldWebSocketManager {
 
                     try {
                         // Set agent context for each notification processing
-                        await subscriberSql`SELECT set_config('app.current_agent_id', ${session.agentId}::text, true)`;
+                        await this.setAgentContext(
+                            subscriberSql,
+                            sessionId,
+                            sessionToken,
+                        );
 
                         const notificationData = JSON.parse(payload.toString());
 
@@ -455,15 +461,13 @@ class WorldWebSocketManager {
                 },
             );
 
-            // Store the subscription handle
-            if (!this.channelSubscribers.has(message.channel)) {
-                this.channelSubscribers.set(message.channel, new Map());
+            // Store using sessionId as the key (not message.channel)
+            if (!this.channelSubscribers.has(sessionId)) {
+                this.channelSubscribers.set(sessionId, new Map());
             }
-            this.channelSubscribers
-                .get(message.channel)
-                ?.set(sessionId, pgListener);
+            this.channelSubscribers.get(sessionId)?.set(sessionId, pgListener);
 
-            // Add to session subscriptions
+            // Add to session subscriptions (can keep message.channel for client-side tracking)
             session.subscriptions.add(message.channel);
 
             const responseMsg =
@@ -521,7 +525,7 @@ class WorldWebSocketManager {
         }
 
         // Unsubscribe and cleanup the subscription
-        const channelSubs = this.channelSubscribers.get(message.channel);
+        const channelSubs = this.channelSubscribers.get(sessionId);
         if (channelSubs) {
             const subscription = channelSubs.get(sessionId);
             if (subscription) {
@@ -529,7 +533,7 @@ class WorldWebSocketManager {
                 channelSubs.delete(sessionId);
             }
             if (channelSubs.size === 0) {
-                this.channelSubscribers.delete(message.channel);
+                this.channelSubscribers.delete(sessionId);
             }
         }
 

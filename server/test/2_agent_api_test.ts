@@ -3,9 +3,16 @@ import { VircadiaConfig } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.
 import { Communication } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import type postgres from "postgres";
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
-import { sign } from "jsonwebtoken";
-import { createSqlClient, up } from "../container/docker/docker_cli";
+import { createSqlClient } from "../container/docker/docker_cli";
 import WebSocket from "ws";
+import {
+    createTestAccounts,
+    cleanupTestAccounts,
+    createTestResources,
+    cleanupTestResources,
+    type TestAccount,
+    type TestResources,
+} from "./test_helpers";
 
 describe("WorldApiManager Integration Tests", () => {
     const config = VircadiaConfig.server;
@@ -13,22 +20,9 @@ describe("WorldApiManager Integration Tests", () => {
     const wsBaseUrl = `ws://${config.serverHost}:${config.serverPort}${Communication.WS_PATH}`;
 
     let sql: postgres.Sql;
-    let testAdminId: string;
-    let testAdminToken: string;
-    let testAdminSessionId: string;
-    let testAgentId: string;
-    let testAgentToken: string;
-    let testAgentSessionId: string;
-    let testEntityId: string;
-    let testScriptId: string;
-
-    async function cleanupTestAccounts() {
-        // Clean up profiles (roles and sessions will cascade)
-        await sql`
-            DELETE FROM auth.agent_profiles 
-            WHERE profile__username IN ('test_admin', 'test_agent')
-        `;
-    }
+    let admin: TestAccount;
+    let agent: TestAccount;
+    let testResources: TestResources;
 
     // Setup before all tests
     beforeAll(async () => {
@@ -36,222 +30,41 @@ describe("WorldApiManager Integration Tests", () => {
             // Initialize database connection
             sql = createSqlClient(true);
 
-            // Clean up any existing test accounts first
-            await cleanupTestAccounts();
+            // Create test accounts
+            const accounts = await createTestAccounts(sql);
+            admin = accounts.admin;
+            agent = accounts.agent;
 
-            // Get auth settings from config
-            const [authConfig] = await sql`
-                SELECT value FROM config.config 
-                WHERE key = 'auth_settings'
-            `;
-
-            if (!authConfig?.value) {
-                throw new Error("Auth settings not found in database");
-            }
-
-            // Create test admin account
-            const [adminAccount] = await sql`
-                INSERT INTO auth.agent_profiles (profile__username, auth__email)
-                VALUES ('test_admin', 'test_admin@test.com')
-                RETURNING general__uuid
-            `;
-            testAdminId = adminAccount.general__uuid;
-
-            // Assign admin role
-            await sql`
-                INSERT INTO auth.agent_roles (auth__agent_id, auth__role_name, auth__is_active)
-                VALUES (${testAdminId}, 'admin', true)
-            `;
-
-            // Create test regular agent account
-            const [agentAccount] = await sql`
-                INSERT INTO auth.agent_profiles (profile__username, auth__email)
-                VALUES ('test_agent', 'test_agent@test.com')
-                RETURNING general__uuid
-            `;
-            testAgentId = agentAccount.general__uuid;
-
-            // Assign agent role
-            await sql`
-                INSERT INTO auth.agent_roles (auth__agent_id, auth__role_name, auth__is_active)
-                VALUES (${testAgentId}, 'agent', true)
-            `;
-
-            // Create sessions for both accounts
-            const [adminSession] = await sql`
-                SELECT * FROM create_agent_session(${testAdminId}, 'test')
-            `;
-            testAdminSessionId = adminSession.general__session_id;
-
-            const [agentSession] = await sql`
-                SELECT * FROM create_agent_session(${testAgentId}, 'test')
-            `;
-            testAgentSessionId = agentSession.general__session_id;
-
-            // Generate JWT tokens
-            testAdminToken = sign(
-                {
-                    sessionId: testAdminSessionId,
-                    agentId: testAdminId,
-                },
-                authConfig.value.jwt_secret,
-                {
-                    expiresIn: authConfig.value.jwt_session_duration,
-                },
-            );
-
-            testAgentToken = sign(
-                {
-                    sessionId: testAgentSessionId,
-                    agentId: testAgentId,
-                },
-                authConfig.value.jwt_secret,
-                {
-                    expiresIn: authConfig.value.jwt_session_duration,
-                },
-            );
-
-            // Update sessions with JWT tokens
-            await sql`
-                UPDATE auth.agent_sessions 
-                SET session__jwt = ${testAdminToken}
-                WHERE general__session_id = ${testAdminSessionId}
-            `;
-
-            await sql`
-                UPDATE auth.agent_sessions 
-                SET session__jwt = ${testAgentToken}
-                WHERE general__session_id = ${testAgentSessionId}
-            `;
-
-            // Create test script and entity through WebSocket API
-            const wsAdmin = new WebSocket(
-                `${wsBaseUrl}?token=${testAdminToken}`,
-            );
-
-            // Wait for connection
-            await new Promise<void>((resolve) => {
-                wsAdmin.onopen = () => resolve();
-            });
-
-            // Handle initial connection message
-            await new Promise((resolve) => {
-                wsAdmin.onmessage = () => resolve(true);
-            });
-
-            // Create script
-            const createScriptMsg = Communication.WebSocket.createMessage({
-                type: Communication.WebSocket.MessageType.QUERY,
-                requestId: "create-script",
-                query: `
-                    INSERT INTO entity.entity_scripts (
-                        compiled__web__node__script,
-                        compiled__web__node__script_status,
-                        source__git__repo_entry_path
-                    ) VALUES (
-                        'console.log("test script")',
-                        'COMPILED',
-                        'test/script.ts'
-                    ) RETURNING general__script_id
-                `,
-            });
-            wsAdmin.send(JSON.stringify(createScriptMsg));
-
-            // Wait for script creation response
-            const scriptResponse =
-                await new Promise<Communication.WebSocket.QueryResponseMessage>(
-                    (resolve) => {
-                        wsAdmin.onmessage = (event) => {
-                            const msg = JSON.parse(event.data.toString());
-                            if (msg.requestId === "create-script") {
-                                resolve(msg);
-                            }
-                        };
-                    },
-                );
-            testScriptId = scriptResponse.results?.[0].general__script_id;
-
-            // Create entity
-            const createEntityMsg = Communication.WebSocket.createMessage({
-                type: Communication.WebSocket.MessageType.QUERY,
-                requestId: "create-entity",
-                query: `
-                    INSERT INTO entity.entities (
-                        general__name,
-                        scripts__ids,
-                        permissions__roles__view,
-                        permissions__roles__full
-                    ) VALUES (
-                        'Test Entity',
-                        ARRAY[$1]::UUID[],
-                        ARRAY['agent']::TEXT[],
-                        ARRAY['admin']::TEXT[]
-                    ) RETURNING general__uuid
-                `,
-                parameters: [testScriptId],
-            });
-            wsAdmin.send(JSON.stringify(createEntityMsg));
-
-            // Wait for entity creation response
-            const entityResponse =
-                await new Promise<Communication.WebSocket.QueryResponseMessage>(
-                    (resolve) => {
-                        wsAdmin.onmessage = (event) => {
-                            const msg = JSON.parse(event.data.toString());
-                            if (msg.requestId === "create-entity") {
-                                resolve(msg);
-                            }
-                        };
-                    },
-                );
-            testEntityId = entityResponse.results?.[0].general__uuid;
-
-            wsAdmin.close();
+            // Create test resources
+            testResources = await createTestResources(sql);
         } catch (error) {
             log({
                 message: "Failed to setup test environment.",
                 type: "error",
                 error,
             });
+            throw error;
         }
     });
 
     afterAll(async () => {
-        // Clean up entities and scripts through WebSocket API
-        const wsAdmin = new WebSocket(`${wsBaseUrl}?token=${testAdminToken}`);
+        try {
+            // Clean up test resources
+            await cleanupTestResources(sql, testResources);
 
-        await new Promise<void>((resolve) => {
-            wsAdmin.onopen = () => resolve();
-        });
+            // Clean up test accounts
+            await cleanupTestAccounts(sql);
 
-        // Handle initial connection message
-        await new Promise((resolve) => {
-            wsAdmin.onmessage = () => resolve(true);
-        });
-
-        // Delete entity
-        const deleteEntityMsg = Communication.WebSocket.createMessage({
-            type: Communication.WebSocket.MessageType.QUERY,
-            requestId: "delete-entity",
-            query: "DELETE FROM entity.entities WHERE general__uuid = $1",
-            parameters: [testEntityId],
-        });
-        wsAdmin.send(JSON.stringify(deleteEntityMsg));
-
-        // Delete script
-        const deleteScriptMsg = Communication.WebSocket.createMessage({
-            type: Communication.WebSocket.MessageType.QUERY,
-            requestId: "delete-script",
-            query: "DELETE FROM entity.entity_scripts WHERE general__script_id = $1",
-            parameters: [testScriptId],
-        });
-        wsAdmin.send(JSON.stringify(deleteScriptMsg));
-
-        // Clean up test accounts (using SQL directly as this is test setup/cleanup)
-        await cleanupTestAccounts();
-
-        wsAdmin.close();
-        await sql.end();
+            // Close database connection
+            await sql.end();
+        } catch (error) {
+            log({
+                message: "Failed to cleanup test environment.",
+                type: "error",
+                error,
+            });
+            throw error;
+        }
     });
 
     describe("WebSocket Tests", () => {
@@ -273,7 +86,7 @@ describe("WorldApiManager Integration Tests", () => {
 
         beforeAll(async () => {
             // Establish WebSocket connection before all tests
-            const wsUrl = `${wsBaseUrl}?token=${testAgentToken}`;
+            const wsUrl = `${wsBaseUrl}?token=${agent.token}`;
             ws = new WebSocket(wsUrl);
 
             // Wait for connection with increased timeout
@@ -351,7 +164,7 @@ describe("WorldApiManager Integration Tests", () => {
                 type: Communication.WebSocket.MessageType.QUERY,
                 requestId: "test-query",
                 query: "SELECT * FROM entity.entities WHERE general__uuid = $1",
-                parameters: [testEntityId],
+                parameters: [testResources.entityId],
             });
             ws.send(JSON.stringify(queryMsg));
 
@@ -366,14 +179,16 @@ describe("WorldApiManager Integration Tests", () => {
             );
             expect(response.requestId).toBe("test-query");
             expect(response.results).toBeDefined();
-            expect(response.results?.[0]?.general__uuid).toBe(testEntityId); // Access first row of results
+            expect(response.results?.[0]?.general__uuid).toBe(
+                testResources.entityId,
+            );
         });
 
         test("should handle entity change notifications", async () => {
             // Subscribe to entity changes
             const subMsg = Communication.WebSocket.createMessage({
                 type: Communication.WebSocket.MessageType.SUBSCRIBE,
-                channel: testAgentSessionId,
+                channel: agent.sessionId,
             });
             ws.send(JSON.stringify(subMsg));
 
@@ -402,7 +217,7 @@ describe("WorldApiManager Integration Tests", () => {
                     SET general__name = $1
                     WHERE general__uuid = $2
                 `,
-                parameters: ["Updated Test Entity", testEntityId],
+                parameters: ["Updated Test Entity", testResources.entityId],
             });
             ws.send(JSON.stringify(updateMsg));
 
@@ -420,7 +235,7 @@ describe("WorldApiManager Integration Tests", () => {
                 Communication.WebSocket.MessageType.NOTIFICATION,
             );
             expect(notification.channel).toBe("entity_changes");
-            expect(notification.payload.entity_id).toBe(testEntityId);
+            expect(notification.payload.entity_id).toBe(testResources.entityId);
             expect(notification.payload.operation).toBe("UPDATE");
 
             // Unsubscribe
@@ -449,7 +264,7 @@ describe("WorldApiManager Integration Tests", () => {
                 {
                     method: "GET",
                     headers: {
-                        Authorization: `Bearer ${testAdminToken}`,
+                        Authorization: `Bearer ${admin.token}`,
                     },
                 },
             );
@@ -460,15 +275,15 @@ describe("WorldApiManager Integration Tests", () => {
                 expect(response.status).toBe(200);
                 expect(data.success).toBe(true);
                 expect(data.data.isValid).toBe(true);
-                expect(data.data.agentId).toBe(testAdminId);
-                expect(data.data.sessionId).toBe(testAdminSessionId);
+                expect(data.data.agentId).toBe(admin.id);
+                expect(data.data.sessionId).toBe(admin.sessionId);
             } catch (error) {
                 log({
                     message: "Session validation failed",
                     data: {
-                        testAdminId,
-                        testAdminSessionId,
-                        testAdminToken,
+                        adminId: admin.id,
+                        adminSessionId: admin.sessionId,
+                        adminToken: admin.token,
                     },
                     type: "error",
                     error,
@@ -501,7 +316,7 @@ describe("WorldApiManager Integration Tests", () => {
                 {
                     method: "POST",
                     headers: {
-                        Authorization: `Bearer ${testAgentToken}`,
+                        Authorization: `Bearer ${agent.token}`,
                     },
                 },
             );

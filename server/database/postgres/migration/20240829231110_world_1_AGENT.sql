@@ -254,17 +254,19 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Update validate_session to use expires_at
+-- Update validate_session to be more secure
 CREATE OR REPLACE FUNCTION validate_session(p_session_id UUID)
 RETURNS TABLE (
     auth__agent_id UUID,
-    is_valid BOOLEAN
+    is_valid BOOLEAN,
+    session_token TEXT
 ) AS $$
 BEGIN
     RETURN QUERY
     SELECT 
         s.auth__agent_id,
-        TRUE as is_valid
+        TRUE as is_valid,
+        s.session__jwt as session_token
     FROM auth.agent_sessions s
     WHERE s.general__session_id = p_session_id
         AND s.session__is_active = true
@@ -275,8 +277,39 @@ BEGIN
     IF NOT FOUND THEN
         RETURN QUERY SELECT 
             NULL::UUID as auth__agent_id,
-            FALSE as is_valid;
+            FALSE as is_valid,
+            NULL::TEXT as session_token;
     END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Create a new function to set agent context that requires both session ID and token
+CREATE OR REPLACE FUNCTION set_agent_context(
+    p_session_id UUID,
+    p_session_token TEXT
+) RETURNS BOOLEAN AS $$
+DECLARE
+    v_agent_id UUID;
+    v_stored_token TEXT;
+BEGIN
+    -- Get the agent_id and stored token from the session
+    SELECT auth__agent_id, session__jwt 
+    INTO v_agent_id, v_stored_token
+    FROM auth.agent_sessions 
+    WHERE general__session_id = p_session_id
+    AND session__is_active = true
+    AND session__expires_at > NOW();
+
+    -- Verify both session exists and token matches
+    IF v_agent_id IS NULL OR v_stored_token IS NULL OR v_stored_token != p_session_token THEN
+        -- Set to anonymous user if validation fails
+        v_agent_id := get_anon_agent_id();
+    END IF;
+
+    -- Set the agent context
+    PERFORM set_config('app.current_agent_id', v_agent_id::text, true);
+    
+    RETURN v_agent_id != get_anon_agent_id();
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -474,3 +507,17 @@ BEGIN
     WHERE s.general__session_id = p_session_id;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Revoke set_config from public
+REVOKE ALL ON FUNCTION pg_catalog.set_config(text, text, boolean) FROM PUBLIC;
+
+-- Only allow superuser to set config
+-- Instead of granting to 'postgres' specifically, we'll grant to the current superuser
+DO $$ 
+BEGIN
+    -- Grant to current user (assuming they're a superuser)
+    EXECUTE format(
+        'GRANT EXECUTE ON FUNCTION pg_catalog.set_config(text, text, boolean) TO %I',
+        CURRENT_USER
+    );
+END $$;

@@ -45,7 +45,7 @@ export class WorldTickManager {
             this.updateConfigValues(configData);
 
             // Get current server time
-            const timeData = await this.sql`SELECT get_server_time()`;
+            const timeData = await this.sql`SELECT tick.get_server_time()`;
             this.lastServerTime = timeData[0].get_server_time;
 
             log({
@@ -86,7 +86,7 @@ export class WorldTickManager {
 
         this.entityStatesCleanupId = setInterval(async () => {
             try {
-                await this.sql`SELECT cleanup_old_entity_states()`;
+                await this.sql`SELECT tick.cleanup_old_entity_states()`;
                 log({
                     message: "Entity states cleanup completed",
                     debug: this.debugMode,
@@ -103,7 +103,7 @@ export class WorldTickManager {
 
         this.tickMetricsCleanupId = setInterval(async () => {
             try {
-                await this.sql`SELECT cleanup_old_tick_metrics()`;
+                await this.sql`SELECT tick.cleanup_old_tick_metrics()`;
                 log({
                     message: "Tick metrics cleanup completed",
                     debug: this.debugMode,
@@ -126,7 +126,7 @@ export class WorldTickManager {
             // Capture tick state and get metrics
             const result = await this.sql`
                 WITH tick_capture AS (
-                    SELECT capture_tick_state(${syncGroup})
+                    SELECT tick.capture_tick_state(${syncGroup})
                 )
                 SELECT 
                     duration_ms, 

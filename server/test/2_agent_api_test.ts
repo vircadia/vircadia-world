@@ -185,10 +185,12 @@ describe("WorldApiManager Integration Tests", () => {
         });
 
         test("should handle entity change notifications", async () => {
-            // Subscribe to entity changes
+            let notificationReceived = false;
+
+            // Subscribe using the session ID as the channel
             const subMsg = Communication.WebSocket.createMessage({
                 type: Communication.WebSocket.MessageType.SUBSCRIBE,
-                channel: agent.sessionId,
+                channel: agent.sessionId, // Use session ID as the channel
             });
             ws.send(JSON.stringify(subMsg));
 
@@ -202,11 +204,27 @@ describe("WorldApiManager Integration Tests", () => {
             );
             expect(subResponse.success).toBe(true);
 
-            // Set up notification listener before making the change
-            const notificationPromise =
-                waitForMessage<Communication.WebSocket.NotificationMessage>(
-                    Communication.WebSocket.MessageType.NOTIFICATION,
-                );
+            // Create notification promise before making changes
+            const notificationPromise = new Promise<void>((resolve) => {
+                ws.onmessage = (event) => {
+                    const message = JSON.parse(event.data.toString());
+                    if (
+                        message.type ===
+                        Communication.WebSocket.MessageType.NOTIFICATION
+                    ) {
+                        expect(message.channel).toBe(agent.sessionId); // Expect session ID as channel
+                        expect(message.payload.entity_id).toBe(
+                            testResources.entityId,
+                        );
+                        expect(message.payload.operation).toBe("UPDATE");
+                        notificationReceived = true;
+                        resolve();
+                    }
+                };
+            });
+
+            // Wait a bit to ensure listener is ready
+            await new Promise((resolve) => setTimeout(resolve, 100));
 
             // Update the entity using WS API
             const updateMsg = Communication.WebSocket.createMessage({
@@ -221,27 +239,41 @@ describe("WorldApiManager Integration Tests", () => {
             });
             ws.send(JSON.stringify(updateMsg));
 
-            // Wait for update confirmation
-            const updateResponse =
+            // Wait for the notification with a timeout
+            await Promise.race([
+                notificationPromise,
+                new Promise((_, reject) =>
+                    setTimeout(
+                        () => reject(new Error("Notification timeout")),
+                        5000,
+                    ),
+                ),
+            ]);
+
+            // Additional check to ensure we actually received the notification
+            expect(notificationReceived).toBe(true);
+
+            // Verify the update happened
+            const verifyMsg = Communication.WebSocket.createMessage({
+                type: Communication.WebSocket.MessageType.QUERY,
+                requestId: "verify-update",
+                query: "SELECT general__name FROM entity.entities WHERE general__uuid = $1",
+                parameters: [testResources.entityId],
+            });
+            ws.send(JSON.stringify(verifyMsg));
+
+            const verifyResponse =
                 await waitForMessage<Communication.WebSocket.QueryResponseMessage>(
                     Communication.WebSocket.MessageType.QUERY_RESPONSE,
                 );
-            expect(updateResponse.requestId).toBe("update-entity");
-            expect(updateResponse.error).toBeUndefined();
-
-            // Wait for notification
-            const notification = await notificationPromise;
-            expect(notification.type).toBe(
-                Communication.WebSocket.MessageType.NOTIFICATION,
+            expect(verifyResponse.results?.[0]?.general__name).toBe(
+                "Updated Test Entity",
             );
-            expect(notification.channel).toBe("entity_changes");
-            expect(notification.payload.entity_id).toBe(testResources.entityId);
-            expect(notification.payload.operation).toBe("UPDATE");
 
-            // Unsubscribe
+            // Unsubscribe using session ID
             const unsubMsg = Communication.WebSocket.createMessage({
                 type: Communication.WebSocket.MessageType.UNSUBSCRIBE,
-                channel: "entity_changes",
+                channel: agent.sessionId, // Use session ID as the channel
             });
             ws.send(JSON.stringify(unsubMsg));
 

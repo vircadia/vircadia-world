@@ -252,10 +252,8 @@ class WorldWebSocketManager {
               };
           }
         | undefined;
-    private channelSubscribers: Map<
-        string,
-        Map<string, postgres.SubscriptionHandle>
-    > = new Map();
+    private channelSubscribers: Map<string, Map<string, postgres.ListenMeta>> =
+        new Map();
 
     private readonly LOG_PREFIX = "WorldWebSocketManager";
 
@@ -387,7 +385,7 @@ class WorldWebSocketManager {
                 message: "Processing subscription request",
                 debug: this.debugMode,
                 type: "debug",
-                data: { channel: sessionId, sessionId },
+                data: { channel: message.channel, sessionId },
             });
 
             // Create a new SQL connection for this subscription
@@ -396,8 +394,8 @@ class WorldWebSocketManager {
             // Set the agent context using both session ID and token
             await this.setAgentContext(subscriberSql, sessionId, sessionToken);
 
-            // Subscribe using sessionId as the channel
-            const pgListener = await subscriberSql.subscribe(
+            // Listen on the session ID channel
+            const pgListener = await subscriberSql.listen(
                 sessionId,
                 async (payload) => {
                     log({
@@ -435,7 +433,7 @@ class WorldWebSocketManager {
                                         .NOTIFICATION,
                                     channel: message.channel,
                                     payload: {
-                                        entity_id: notificationData.entity_id,
+                                        entity_id: notificationData.id,
                                         operation: notificationData.operation,
                                         type: notificationData.type,
                                         sync_group: notificationData.sync_group,
@@ -461,13 +459,13 @@ class WorldWebSocketManager {
                 },
             );
 
-            // Store using sessionId as the key (not message.channel)
+            // Store using sessionId as the key
             if (!this.channelSubscribers.has(sessionId)) {
                 this.channelSubscribers.set(sessionId, new Map());
             }
             this.channelSubscribers.get(sessionId)?.set(sessionId, pgListener);
 
-            // Add to session subscriptions (can keep message.channel for client-side tracking)
+            // Add to session subscriptions
             session.subscriptions.add(message.channel);
 
             const responseMsg =
@@ -529,7 +527,7 @@ class WorldWebSocketManager {
         if (channelSubs) {
             const subscription = channelSubs.get(sessionId);
             if (subscription) {
-                subscription.unsubscribe();
+                subscription.unlisten();
                 channelSubs.delete(sessionId);
             }
             if (channelSubs.size === 0) {
@@ -896,7 +894,7 @@ class WorldWebSocketManager {
         // Cleanup all subscriptions
         for (const channelSubs of this.channelSubscribers.values()) {
             for (const subscription of channelSubs.values()) {
-                subscription.unsubscribe();
+                subscription.unlisten();
             }
         }
         this.channelSubscribers.clear();

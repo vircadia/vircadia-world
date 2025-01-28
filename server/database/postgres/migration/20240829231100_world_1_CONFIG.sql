@@ -43,7 +43,8 @@ INSERT INTO config.config (key, value, description) VALUES
 ('client__session', jsonb_build_object(
     'max_session_age_ms', 86400000,  -- 24 hours in milliseconds
     'cleanup_interval_ms', 3600000,  -- 1 hour in milliseconds
-    'inactive_timeout_ms', 3600000   -- 1 hour in milliseconds
+    'inactive_timeout_ms', 3600000,  -- 1 hour in milliseconds
+    'max_sessions_per_agent', 1      -- Maximum number of active sessions per agent
 ), 'Session management configuration including timeouts and cleanup intervals');
 
 -- Add client configurations

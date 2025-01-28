@@ -220,10 +220,42 @@ DECLARE
     v_session_id UUID;
     v_expires_at TIMESTAMPTZ;
     v_duration INTERVAL;
+    v_max_sessions INTEGER;
+    v_current_sessions INTEGER;
 BEGIN
     -- Only admins can create sessions
     IF NOT is_admin_agent() THEN
         RAISE EXCEPTION 'Only administrators can create sessions';
+    END IF;
+
+    -- Get max sessions per agent from config
+    SELECT (value->>'max_sessions_per_agent')::INTEGER 
+    INTO v_max_sessions 
+    FROM config.config 
+    WHERE key = 'client__session';
+
+    -- Count current active sessions for this agent
+    SELECT COUNT(*) 
+    INTO v_current_sessions 
+    FROM auth.agent_sessions 
+    WHERE auth__agent_id = p_agent_id 
+    AND session__is_active = true 
+    AND session__expires_at > NOW();
+
+    -- Check if max sessions would be exceeded
+    IF v_current_sessions >= v_max_sessions THEN
+        -- Invalidate oldest session if limit reached
+        UPDATE auth.agent_sessions 
+        SET session__is_active = false,
+            session__expires_at = NOW()
+        WHERE general__session_id = (
+            SELECT general__session_id 
+            FROM auth.agent_sessions 
+            WHERE auth__agent_id = p_agent_id 
+            AND session__is_active = true 
+            ORDER BY session__started_at ASC 
+            LIMIT 1
+        );
     END IF;
 
     -- Get duration from config

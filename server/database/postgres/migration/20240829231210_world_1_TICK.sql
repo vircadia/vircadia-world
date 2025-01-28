@@ -5,8 +5,8 @@ CREATE SCHEMA IF NOT EXISTS tick;
 CREATE TABLE tick.entity_states (
     LIKE entity.entities INCLUDING DEFAULTS INCLUDING CONSTRAINTS,
     
-    -- Additional metadata for state tracking
-    general__entity_id uuid NOT NULL REFERENCES entity.entities(general__uuid) ON DELETE CASCADE,
+    -- Additional metadata for state tracking (remove general__entity_id since it's already included)
+    general__entity_state_id uuid DEFAULT uuid_generate_v4(),
     timestamp timestamptz DEFAULT now(),
     tick_number bigint NOT NULL,
     tick_start_time timestamptz,
@@ -20,13 +20,13 @@ CREATE TABLE tick.entity_states (
     hash__permissions text,
     hash__performance text,
 
-    -- Override the primary key
-    CONSTRAINT entity_states_pkey PRIMARY KEY (general__uuid)
+    -- Override the primary key to allow multiple states per entity
+    CONSTRAINT entity_states_pkey PRIMARY KEY (general__entity_state_id)
 );
 
 -- Performance metrics table
 CREATE TABLE tick.tick_metrics (
-    id uuid DEFAULT uuid_generate_v4() PRIMARY KEY,
+    general__tick_metrics_id uuid DEFAULT uuid_generate_v4() PRIMARY KEY,
     tick_number bigint NOT NULL,
     sync_group TEXT NOT NULL,
     start_time timestamptz NOT NULL,
@@ -41,7 +41,7 @@ CREATE TABLE tick.tick_metrics (
 );
 
 -- Indexes for fast state lookups
-CREATE INDEX entity_states_lookup_idx ON tick.entity_states (general__entity_id, tick_number);
+CREATE INDEX entity_states_lookup_idx ON tick.entity_states (general__entity_id, tick_number, timestamp);
 CREATE INDEX entity_states_timestamp_idx ON tick.entity_states (timestamp);
 
 -- Enable RLS on entity_states table
@@ -55,8 +55,8 @@ CREATE POLICY "entity_states_view_policy" ON tick.entity_states
             SELECT 1 
             FROM entity.entities e
             JOIN auth.agent_roles ar ON ar.auth__role_name = ANY(e.permissions__roles__view)
-            WHERE e.general__uuid = tick.entity_states.general__entity_id
-            AND ar.auth__agent_id = current_agent_id()
+            WHERE e.general__entity_id = tick.entity_states.general__entity_id
+            AND ar.auth__agent_id = auth.current_agent_id()
             AND ar.auth__is_active = true
         )
     );
@@ -64,15 +64,15 @@ CREATE POLICY "entity_states_view_policy" ON tick.entity_states
 -- Update/Insert/Delete policies for entity_states (system users only)
 CREATE POLICY "entity_states_update_policy" ON tick.entity_states
     FOR UPDATE
-    USING (is_admin_agent());
+    USING (auth.is_admin_agent());
 
 CREATE POLICY "entity_states_insert_policy" ON tick.entity_states
     FOR INSERT
-    WITH CHECK (is_admin_agent());
+    WITH CHECK (auth.is_admin_agent());
 
 CREATE POLICY "entity_states_delete_policy" ON tick.entity_states
     FOR DELETE
-    USING (is_admin_agent());
+    USING (auth.is_admin_agent());
 
 -- Function to generate consistent field group hashes
 CREATE OR REPLACE FUNCTION tick.generate_entity_field_hashes(
@@ -114,7 +114,7 @@ DECLARE
     tick_rate_ms int;
 BEGIN
     -- Replace system permission check with is_admin_agent()
-    IF NOT is_admin_agent() THEN
+    IF NOT auth.is_admin_agent() THEN
         RAISE EXCEPTION 'Permission denied: Admin permission required';
     END IF;
 
@@ -140,8 +140,8 @@ BEGIN
     WITH inserted AS (
         INSERT INTO tick.entity_states (
             -- Base entity fields
+            general__entity_state_id,
             general__entity_id,
-            general__uuid,
             general__name,
             general__semantic_version,
             general__created_at,
@@ -172,8 +172,8 @@ BEGIN
         )
         SELECT 
             -- Base entity fields
-            general__uuid AS general__entity_id,
-            general__uuid,
+            general__entity_state_id,
+            general__entity_id,
             general__name,
             general__semantic_version,
             general__created_at,
@@ -205,7 +205,7 @@ BEGIN
         CROSS JOIN LATERAL tick.generate_entity_field_hashes(
             -- General fields
             jsonb_build_object(
-                'uuid', e.general__uuid,
+                'uuid', e.general__entity_id,
                 'name', e.general__name,
                 'semantic_version', e.general__semantic_version,
                 'created_at', e.general__created_at,
@@ -242,8 +242,8 @@ BEGIN
             AND NOT EXISTS (
                 SELECT 1 
                 FROM tick.entity_states es
-                WHERE es.general__entity_id = e.general__uuid
-                AND es.timestamp > (tick_start - (tick_rate_ms * interval '1 millisecond'))
+                WHERE es.general__entity_id = e.general__entity_id
+                AND es.tick_number = current_tick
             )
         RETURNING *
     )
@@ -303,7 +303,7 @@ DECLARE
     states_cleaned integer;
 BEGIN
     -- Replace system role check with is_admin_agent()
-    IF NOT is_admin_agent() THEN
+    IF NOT auth.is_admin_agent() THEN
         RAISE EXCEPTION 'Permission denied: Admin permission required';
     END IF;
 
@@ -332,7 +332,7 @@ DECLARE
     metrics_cleaned integer;
 BEGIN
     -- Replace system role check with is_admin_agent()
-    IF NOT is_admin_agent() THEN
+    IF NOT auth.is_admin_agent() THEN
         RAISE EXCEPTION 'Permission denied: Admin permission required';
     END IF;
 
@@ -360,16 +360,16 @@ ALTER TABLE tick.tick_metrics ENABLE ROW LEVEL SECURITY;
 -- All policies for tick_metrics (system users only)
 CREATE POLICY "tick_metrics_view_policy" ON tick.tick_metrics
     FOR SELECT
-    USING (is_admin_agent());
+    USING (auth.is_admin_agent());
 
 CREATE POLICY "tick_metrics_update_policy" ON tick.tick_metrics
     FOR UPDATE
-    USING (is_admin_agent());
+    USING (auth.is_admin_agent());
 
 CREATE POLICY "tick_metrics_insert_policy" ON tick.tick_metrics
     FOR INSERT
-    WITH CHECK (is_admin_agent());
+    WITH CHECK (auth.is_admin_agent());
 
 CREATE POLICY "tick_metrics_delete_policy" ON tick.tick_metrics
     FOR DELETE
-    USING (is_admin_agent());
+    USING (auth.is_admin_agent());

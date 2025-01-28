@@ -25,16 +25,13 @@ INSERT INTO config.config (key, value, description) VALUES
 INSERT INTO config.config (key, value, description) VALUES
 ('sync_groups', jsonb_build_object(
     'REALTIME', jsonb_build_object(
-        'server_tick_rate_ms', 16,
-        'client_keyframe_check_rate_ms', 100
+        'server_tick_rate_ms', 16
     ),
     'NORMAL', jsonb_build_object(
-        'server_tick_rate_ms', 50,
-        'client_keyframe_check_rate_ms', 1000
+        'server_tick_rate_ms', 50
     ),
     'BACKGROUND', jsonb_build_object(
-        'server_tick_rate_ms', 200,
-        'client_keyframe_check_rate_ms', 2000
+        'server_tick_rate_ms', 200
     )
 ), 'Defines sync groups with their server tick rates and client check frequencies');
 

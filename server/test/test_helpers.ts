@@ -43,9 +43,9 @@ export async function createTestAccounts(sql: postgres.Sql): Promise<{
         const [adminAccount] = await sql`
             INSERT INTO auth.agent_profiles (profile__username, auth__email)
             VALUES ('test_admin', 'test_admin@test.com')
-            RETURNING general__uuid
+            RETURNING general__agent_profile_id
         `;
-        const adminId = adminAccount.general__uuid;
+        const adminId = adminAccount.general__agent_profile_id;
 
         // Assign admin role
         await sql`
@@ -57,9 +57,9 @@ export async function createTestAccounts(sql: postgres.Sql): Promise<{
         const [agentAccount] = await sql`
             INSERT INTO auth.agent_profiles (profile__username, auth__email)
             VALUES ('test_agent', 'test_agent@test.com')
-            RETURNING general__uuid
+            RETURNING general__agent_profile_id
         `;
-        const agentId = agentAccount.general__uuid;
+        const agentId = agentAccount.general__agent_profile_id;
 
         // Assign agent role
         await sql`
@@ -69,12 +69,12 @@ export async function createTestAccounts(sql: postgres.Sql): Promise<{
 
         // Create sessions for both accounts
         const [adminSession] = await sql`
-            SELECT * FROM create_agent_session(${adminId}, 'test')
+            SELECT * FROM auth.create_agent_session(${adminId}, 'test')
         `;
         const adminSessionId = adminSession.general__session_id;
 
         const [agentSession] = await sql`
-            SELECT * FROM create_agent_session(${agentId}, 'test')
+            SELECT * FROM auth.create_agent_session(${agentId}, 'test')
         `;
         const agentSessionId = agentSession.general__session_id;
 
@@ -166,9 +166,9 @@ export async function createTestResources(
                 ARRAY[${scriptId}]::UUID[],
                 ARRAY['agent']::TEXT[],
                 ARRAY['admin']::TEXT[]
-            ) RETURNING general__uuid
+            ) RETURNING general__entity_id
         `;
-        const entityId = entityResult.general__uuid;
+        const entityId = entityResult.general__entity_id;
 
         return {
             scriptId,
@@ -190,7 +190,7 @@ export async function cleanupTestResources(
 ) {
     try {
         // Clean up entities and scripts
-        await sql`DELETE FROM entity.entities WHERE general__uuid = ${resources.entityId}`;
+        await sql`DELETE FROM entity.entities WHERE general__entity_id = ${resources.entityId}`;
         await sql`DELETE FROM entity.entity_scripts WHERE general__script_id = ${resources.scriptId}`;
     } catch (error) {
         log({

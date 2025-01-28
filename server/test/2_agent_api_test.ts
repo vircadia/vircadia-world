@@ -163,7 +163,7 @@ describe("WorldApiManager Integration Tests", () => {
             const queryMsg = Communication.WebSocket.createMessage({
                 type: Communication.WebSocket.MessageType.QUERY,
                 requestId: "test-query",
-                query: "SELECT * FROM entity.entities WHERE general__uuid = $1",
+                query: "SELECT * FROM entity.entities WHERE general__entity_id = $1",
                 parameters: [testResources.entityId],
             });
             ws.send(JSON.stringify(queryMsg));
@@ -179,7 +179,7 @@ describe("WorldApiManager Integration Tests", () => {
             );
             expect(response.requestId).toBe("test-query");
             expect(response.results).toBeDefined();
-            expect(response.results?.[0]?.general__uuid).toBe(
+            expect(response.results?.[0]?.general__entity_id).toBe(
                 testResources.entityId,
             );
         });
@@ -233,7 +233,7 @@ describe("WorldApiManager Integration Tests", () => {
                 query: `
                     UPDATE entity.entities 
                     SET general__name = $1
-                    WHERE general__uuid = $2
+                    WHERE general__entity_id = $2
                 `,
                 parameters: ["Updated Test Entity", testResources.entityId],
             });
@@ -257,7 +257,7 @@ describe("WorldApiManager Integration Tests", () => {
             const verifyMsg = Communication.WebSocket.createMessage({
                 type: Communication.WebSocket.MessageType.QUERY,
                 requestId: "verify-update",
-                query: "SELECT general__name FROM entity.entities WHERE general__uuid = $1",
+                query: "SELECT general__name FROM entity.entities WHERE general__entity_id = $1",
                 parameters: [testResources.entityId],
             });
             ws.send(JSON.stringify(verifyMsg));

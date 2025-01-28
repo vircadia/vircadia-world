@@ -3,7 +3,6 @@ import type postgres from "postgres";
 
 interface SyncGroup {
     server_tick_rate_ms: number;
-    client_keyframe_check_rate_ms: number;
 }
 
 interface SyncGroups {

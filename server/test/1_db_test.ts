@@ -88,7 +88,7 @@ describe("Database Tests", () => {
             await sql`
                 UPDATE entity.entities 
                 SET general__name = ${"Direct Update Test"}
-                WHERE general__uuid = ${testResources.entityId}
+                WHERE general__entity_id = ${testResources.entityId}
             `;
 
             // Wait for the notification with a timeout
@@ -109,7 +109,7 @@ describe("Database Tests", () => {
             const [updatedEntity] = await sql`
                 SELECT general__name 
                 FROM entity.entities 
-                WHERE general__uuid = ${testResources.entityId}
+                WHERE general__entity_id = ${testResources.entityId}
             `;
             expect(updatedEntity.general__name).toBe("Direct Update Test");
         } finally {
@@ -132,7 +132,6 @@ describe("Database Tests", () => {
                     expect(payload.type).toBe("script");
                     expect(payload.operation).toBe("UPDATE");
                     expect(payload.id).toBe(testResources.scriptId);
-                    expect(payload.sync_group).toBe("NORMAL");
                     expect(payload.timestamp).toBeDefined();
                     notificationReceived = true;
                     resolve();

@@ -48,7 +48,7 @@ async function validateSession(
         };
 
         const [validation] = await sql`
-            SELECT * FROM validate_session(${decoded.sessionId}::UUID)
+            SELECT * FROM auth.validate_session(${decoded.sessionId}::UUID)
         `;
 
         log({
@@ -194,7 +194,7 @@ class WorldRestManager {
 
             // Call invalidate_session and check its boolean return value
             const [result] = await this.sql<[{ invalidate_session: boolean }]>`
-                SELECT invalidate_session(${validation.sessionId}::UUID) as invalidate_session;
+                SELECT auth.invalidate_session(${validation.sessionId}::UUID) as invalidate_session;
             `;
 
             if (!result.invalidate_session) {
@@ -274,7 +274,7 @@ class WorldWebSocketManager {
 
         // Check the return value to ensure context was set correctly
         const [contextResult] = await sql<[{ set_agent_context: boolean }]>`
-            SELECT set_agent_context(${sessionId}::UUID, ${sessionToken}::TEXT) as set_agent_context
+            SELECT auth.set_agent_context(${sessionId}::UUID, ${sessionToken}::TEXT) as set_agent_context
         `;
 
         if (!contextResult.set_agent_context) {

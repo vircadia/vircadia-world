@@ -106,7 +106,7 @@ CREATE TABLE entity.entities (
     general__load_priority INTEGER,
     general__initialized_at TIMESTAMPTZ DEFAULT NULL,
     general__initialized_by UUID DEFAULT NULL,
-    meta__data HSTORE DEFAULT ''::hstore,
+    meta__data JSONB DEFAULT '{}'::jsonb,
     scripts__ids UUID[] DEFAULT '{}',
     validation__log JSONB DEFAULT '[]'::jsonb
 ) INHERITS (entity.performance, entity.permissions);
@@ -226,6 +226,58 @@ CREATE TRIGGER enforce_validation_log_format
     BEFORE UPDATE OF validation__log ON entity.entities
     FOR EACH ROW
     EXECUTE FUNCTION validate_validation_log();
+
+-- Add validation function for meta__data structure
+CREATE OR REPLACE FUNCTION validate_entity_metadata() RETURNS TRIGGER AS $$
+BEGIN
+    -- Validate required fields and their types
+    IF NOT (
+        jsonb_typeof(NEW.meta__data->'babylon_js') = 'object'
+        AND jsonb_typeof(NEW.meta__data->'babylon_js'->'model_url') = 'string'
+        AND jsonb_typeof(NEW.meta__data->'babylon_js'->'position') = 'object'
+        AND jsonb_typeof(NEW.meta__data->'babylon_js'->'rotation') = 'object'
+        AND jsonb_typeof(NEW.meta__data->'babylon_js'->'scale') = 'object'
+    ) THEN
+        RAISE EXCEPTION 'meta__data must contain babylon_js object with model_url, position, rotation, and scale with correct types';
+    END IF;
+
+    -- Validate position structure
+    IF NOT (
+        jsonb_typeof(NEW.meta__data->'babylon_js'->'position'->'x') = 'number'
+        AND jsonb_typeof(NEW.meta__data->'babylon_js'->'position'->'y') = 'number'
+        AND jsonb_typeof(NEW.meta__data->'babylon_js'->'position'->'z') = 'number'
+    ) THEN
+        RAISE EXCEPTION 'babylon_js.position must contain numeric x, y, z values';
+    END IF;
+
+    -- Validate rotation structure
+    IF NOT (
+        jsonb_typeof(NEW.meta__data->'babylon_js'->'rotation'->'x') = 'number'
+        AND jsonb_typeof(NEW.meta__data->'babylon_js'->'rotation'->'y') = 'number'
+        AND jsonb_typeof(NEW.meta__data->'babylon_js'->'rotation'->'z') = 'number'
+        AND jsonb_typeof(NEW.meta__data->'babylon_js'->'rotation'->'w') = 'number'
+    ) THEN
+        RAISE EXCEPTION 'babylon_js.rotation must contain numeric x, y, z, w values';
+    END IF;
+
+    -- Validate scale structure
+    IF NOT (
+        jsonb_typeof(NEW.meta__data->'babylon_js'->'scale'->'x') = 'number'
+        AND jsonb_typeof(NEW.meta__data->'babylon_js'->'scale'->'y') = 'number'
+        AND jsonb_typeof(NEW.meta__data->'babylon_js'->'scale'->'z') = 'number'
+    ) THEN
+        RAISE EXCEPTION 'babylon_js.scale must contain numeric x, y, z values';
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create trigger for metadata validation
+CREATE TRIGGER enforce_entity_metadata_format
+    BEFORE INSERT OR UPDATE OF meta__data ON entity.entities
+    FOR EACH ROW
+    EXECUTE FUNCTION validate_entity_metadata();
 
 -- 
 -- NOTIFICATION FUNCTIONS

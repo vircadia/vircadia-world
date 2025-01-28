@@ -3,6 +3,7 @@ services:
   postgres:
     image: postgres:17.2
     container_name: ${CONTAINER_NAME}_postgres
+    user: "999:999"  # Default postgres user in the official image
     # Note: POSTGRES_USER is automatically created as a superuser
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
@@ -23,8 +24,9 @@ services:
       - vircadia_network
 
   pgweb:
-    image: sosedoff/pgweb
+    image: sosedoff/pgweb:0.16.2
     container_name: ${CONTAINER_NAME}_pgweb
+    user: "1000:1000"  # Run as non-root user (typical first user UID/GID)
     restart: always
     ports:
       - "${PGWEB_PORT}:8081"

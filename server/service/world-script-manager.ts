@@ -1,15 +1,16 @@
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 import type postgres from "postgres";
-import { temporaryDirectory } from "tempy";
 import { build } from "bun";
 
 export class WorldScriptManager {
     private compilationQueue: Set<string> = new Set();
     private subscription?: postgres.SubscriptionHandle;
+    private heartbeatInterval?: NodeJS.Timeout;
 
     constructor(
         private readonly sql: postgres.Sql,
         private readonly debugMode: boolean = true,
+        private readonly heartbeatMs: number = 1000,
     ) {
         this.sql = sql;
     }
@@ -76,6 +77,9 @@ export class WorldScriptManager {
                 },
             );
 
+            // Start heartbeat check
+            await this.startHeartbeat();
+
             log({
                 message: "Initialized WorldScriptManager",
                 debug: this.debugMode,
@@ -94,6 +98,9 @@ export class WorldScriptManager {
     async destroy() {
         if (this.subscription) {
             this.subscription.unsubscribe();
+        }
+        if (this.heartbeatInterval) {
+            clearInterval(this.heartbeatInterval);
         }
     }
 
@@ -125,7 +132,7 @@ export class WorldScriptManager {
         repoUrl: string,
         entryPath: string,
     ): Promise<string> {
-        const tempDir = temporaryDirectory();
+        const tempDir = `${Bun.env.BUN_TMPDIR || "/tmp"}/${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
         try {
             const clone = Bun.spawn(["git", "clone", repoUrl, tempDir], {
@@ -323,5 +330,46 @@ export class WorldScriptManager {
                 type: "error",
             });
         }
+    }
+
+    private async startHeartbeat() {
+        const checkPendingScripts = async () => {
+            try {
+                // Query for any PENDING scripts that aren't currently being processed
+                const pendingScripts = await this.sql<
+                    { general__script_id: string }[]
+                >`
+                    SELECT general__script_id 
+                    FROM entity.entity_scripts 
+                    WHERE 
+                        compiled__web__node__script_status = 'PENDING' OR
+                        compiled__web__bun__script_status = 'PENDING' OR
+                        compiled__web__browser__script_status = 'PENDING'
+                `;
+
+                // Process each pending script
+                for (const script of pendingScripts) {
+                    // Skip if already being processed
+                    if (this.compilationQueue.has(script.general__script_id)) {
+                        continue;
+                    }
+
+                    await this.compileScript(script.general__script_id);
+                }
+            } catch (error) {
+                log({
+                    message: `Error in heartbeat check: ${error}`,
+                    debug: this.debugMode,
+                    type: "error",
+                });
+            }
+
+            // Use Bun.sleep instead of setTimeout for better performance
+            await Bun.sleep(this.heartbeatMs);
+            checkPendingScripts();
+        };
+
+        // Start the heartbeat loop
+        checkPendingScripts();
     }
 }

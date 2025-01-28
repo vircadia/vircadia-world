@@ -28,13 +28,13 @@ CREATE TABLE entity.entity_scripts (
 
     compiled__web__node__script TEXT,
     compiled__web__node__script_sha256 TEXT,
-    compiled__web__node__script_status script_compilation_status,
+    compiled__web__node__script_status script_compilation_status NOT NULL DEFAULT 'PENDING',
     compiled__web__bun__script TEXT,
     compiled__web__bun__script_sha256 TEXT,
-    compiled__web__bun__script_status script_compilation_status,
+    compiled__web__bun__script_status script_compilation_status NOT NULL DEFAULT 'PENDING',
     compiled__web__browser__script TEXT,
     compiled__web__browser__script_sha256 TEXT,
-    compiled__web__browser__script_status script_compilation_status,
+    compiled__web__browser__script_status script_compilation_status NOT NULL DEFAULT 'PENDING',
 
     source__git__repo_entry_path TEXT,
     source__git__repo_url TEXT

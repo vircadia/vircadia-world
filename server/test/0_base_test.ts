@@ -7,7 +7,7 @@ import {
     generateDbSystemToken,
     createSqlClient,
     generateDbConnectionString,
-    seed,
+    migrate,
 } from "../container/docker/docker_cli";
 
 describe("System Operations Tests", () => {
@@ -81,7 +81,7 @@ describe("System Admin Tests", () => {
     });
 
     test("Database migrations can be reapplied", async () => {
-        await seed({ silent: true });
+        await migrate({ silent: true });
         // If we reach here without errors, migrations worked
         expect(true).toBe(true);
     });

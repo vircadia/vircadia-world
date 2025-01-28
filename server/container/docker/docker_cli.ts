@@ -17,6 +17,12 @@ const POSTGRES_MIGRATIONS_DIR = path.join(
     "../../database/postgres/migration",
 );
 
+// Add new constant for default seeds directory
+const DEFAULT_POSTGRES_SEEDS_DIR = path.join(
+    dirname(fileURLToPath(import.meta.url)),
+    "../../database/postgres/seed",
+);
+
 export function getDockerEnv() {
     const config = VircadiaConfig_Server;
     return {
@@ -216,7 +222,7 @@ export async function up(silent = false) {
                 type: "info",
             });
         }
-        await seed({
+        await migrate({
             existingClient: sql,
             silent,
         });
@@ -282,8 +288,9 @@ export async function rebuildContainer(silent = false) {
             type: "info",
         });
     }
-    await seed({
+    await migrate({
         silent,
+        runSeeds: true,
     });
     if (!silent) {
         log({
@@ -306,11 +313,17 @@ export async function softResetDatabase(silent = false) {
     const sql = createSqlClient(silent);
 
     try {
-        // Drop specific schemas and their contents
+        // Drop all publications first
         await sql.unsafe(`
             DO $$ DECLARE
                 r RECORD;
             BEGIN
+                -- Drop all publications first
+                EXECUTE (
+                    SELECT string_agg('DROP PUBLICATION ' || quote_ident(pubname), '; ')
+                    FROM pg_publication
+                );
+
                 -- Drop specific schemas and all their contents
                 DROP SCHEMA IF EXISTS public CASCADE;
                 DROP SCHEMA IF EXISTS auth CASCADE;
@@ -329,22 +342,25 @@ export async function softResetDatabase(silent = false) {
                 type: "info",
             });
         }
-        await seed({
+        await migrate({
             existingClient: sql,
             silent,
+            runSeeds: true, // Always run seeds after a reset
         });
     } finally {
         await sql.end();
     }
 }
 
-export async function seed(data: {
+export async function migrate(data: {
     existingClient?: postgres.Sql;
     silent?: boolean;
+    runSeeds?: boolean; // New optional parameter
 }) {
     const env = getDockerEnv();
     const config = VircadiaConfig_Server;
     const sql = data.existingClient || createSqlClient(data.silent ?? false);
+    let migrationsRan = false; // Track if any migrations were executed
 
     try {
         for (const name of config.postgres.extensions) {
@@ -390,6 +406,7 @@ export async function seed(data: {
         // Run pending migrations
         for (const file of sqlFiles) {
             if (!executedMigrations.includes(file)) {
+                migrationsRan = true; // Set flag when a migration runs
                 try {
                     const filePath = path.join(POSTGRES_MIGRATIONS_DIR, file);
                     const sqlContent = await readFile(filePath, "utf-8");
@@ -413,6 +430,99 @@ export async function seed(data: {
                     if (!data.silent) {
                         log({
                             message: `Failed to run migration ${file}.`,
+                            type: "error",
+                            error: error,
+                        });
+                    }
+                    throw error;
+                }
+            }
+        }
+
+        // Run seeds if explicitly requested or if migrations were executed
+        if (data.runSeeds || migrationsRan) {
+            if (!data.silent) {
+                log({
+                    message: "Running seeds after migration...",
+                    type: "info",
+                });
+            }
+            await seed({
+                existingClient: sql,
+                silent: data.silent,
+            });
+        }
+    } finally {
+        if (!data.existingClient) {
+            await sql.end();
+        }
+    }
+}
+
+export async function seed(data: {
+    seedPath?: string;
+    existingClient?: postgres.Sql;
+    silent?: boolean;
+}) {
+    const env = getDockerEnv();
+    const sql = data.existingClient || createSqlClient(data.silent ?? false);
+
+    try {
+        const seedDir = data.seedPath || DEFAULT_POSTGRES_SEEDS_DIR;
+
+        if (!data.silent) {
+            log({
+                message: `Running database seeds from ${seedDir}...`,
+                type: "info",
+            });
+        }
+
+        // Get list of seed files
+        let files: string[] = [];
+        try {
+            files = await readdir(seedDir);
+        } catch (error) {
+            if (!data.silent) {
+                log({
+                    message: `No seed directory found at ${seedDir}`,
+                    type: "info",
+                });
+            }
+            return;
+        }
+
+        const sqlFiles = files.filter((f) => f.endsWith(".sql")).sort();
+
+        // Get already executed seeds - updated table reference
+        const result = await sql`SELECT name FROM config.seeds ORDER BY id`;
+        const executedSeeds = result.map((r) => r.name);
+
+        // Run pending seeds
+        for (const file of sqlFiles) {
+            if (!executedSeeds.includes(file)) {
+                try {
+                    const filePath = path.join(seedDir, file);
+                    const sqlContent = await readFile(filePath, "utf-8");
+
+                    // Run the seed in a transaction - updated table reference
+                    await sql.begin(async (sql) => {
+                        await sql.unsafe(sqlContent);
+                        await sql`
+                            INSERT INTO config.seeds (name)
+                            VALUES (${file})
+                        `;
+                    });
+
+                    if (!data.silent) {
+                        log({
+                            message: `Seed ${file} executed successfully`,
+                            type: "success",
+                        });
+                    }
+                } catch (error) {
+                    if (!data.silent) {
+                        log({
+                            message: `Failed to run seed ${file}`,
                             type: "error",
                             error: error,
                         });
@@ -539,7 +649,7 @@ if (import.meta.main) {
             await softResetDatabase();
             break;
         case "container:db:migrate":
-            await seed({});
+            await migrate({});
             break;
         case "container:db:connection-string": {
             const connectionString = await generateDbConnectionString();
@@ -552,6 +662,19 @@ if (import.meta.main) {
         case "container:restart":
             await restart();
             break;
+        case "container:db:system-token": {
+            const token = await generateDbSystemToken();
+            log({
+                message: `System token:\n${token.token}\n\nSession ID: ${token.sessionId}\nAgent ID: ${token.agentId}\n\nThis token has system privileges - use with caution!`,
+                type: "success",
+            });
+            break;
+        }
+        case "container:db:seed": {
+            const customPath = Bun.argv[3]; // Optional custom seed path
+            await seed({ seedPath: customPath });
+            break;
+        }
         case "container:pgweb:access-command": {
             const config = VircadiaConfig_Server;
             const isRemoteHost = !["localhost", "127.0.0.1"].includes(
@@ -565,14 +688,6 @@ if (import.meta.main) {
             log({
                 message: `${accessMessage}\nhttp://localhost:${config.pgweb.port}\n`,
                 type: "info",
-            });
-            break;
-        }
-        case "container:db:system-token": {
-            const token = await generateDbSystemToken();
-            log({
-                message: `System token:\n${token.token}\n\nSession ID: ${token.sessionId}\nAgent ID: ${token.agentId}\n\nThis token has system privileges - use with caution!`,
-                type: "success",
             });
             break;
         }
@@ -591,7 +706,8 @@ if (import.meta.main) {
                 container:db:soft-reset, 
                 container:db:migrate, 
                 container:db:connection-string, 
-                container:db:system-token
+                container:db:system-token,
+                container:db:seed [optional_seed_path],
 
                 // Container -> Pgweb commands
                 container:pgweb:access-command,

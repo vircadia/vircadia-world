@@ -9,6 +9,13 @@ CREATE TABLE config.config (
     general__updated_at timestamptz DEFAULT now()
 );
 
+-- Seeds tracking table
+CREATE TABLE config.seeds (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Insert default configuration
 INSERT INTO config.config (key, value, description) VALUES
 ('tick_buffer_duration_ms', '2000'::jsonb, 'How long to keep tick history in milliseconds'),

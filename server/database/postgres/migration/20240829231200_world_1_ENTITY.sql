@@ -1,14 +1,7 @@
+-- TODO: We need to make it so notifications are tracked by number or ID or date, or SOMETHING so client can track its own reflected notifications and also so we can do appropriate client-server lag compensation in tandem with tick (validate this method with AI)
+
 -- Create entity schema
 CREATE SCHEMA IF NOT EXISTS entity;
-
--- Grant schema permissions for replication
-GRANT USAGE ON SCHEMA entity TO PUBLIC;
-GRANT SELECT ON ALL TABLES IN SCHEMA entity TO PUBLIC;
-ALTER DEFAULT PRIVILEGES IN SCHEMA entity 
-    GRANT SELECT ON TABLES TO PUBLIC;
-
--- Add at the beginning of the file, after CREATE SCHEMA:
-CREATE PUBLICATION alltables FOR ALL TABLES;
 
 -- 
 -- PERMISSIONS
@@ -319,3 +312,14 @@ CREATE OR REPLACE TRIGGER entity_script_changes_notify
     AFTER INSERT OR UPDATE OR DELETE ON entity.entity_scripts
     FOR EACH ROW
     EXECUTE FUNCTION notify_entity_script_changes();
+
+-- Grand replication / listen / notify perms
+
+-- Grant schema permissions for notifications (not replication)
+GRANT USAGE ON SCHEMA entity TO PUBLIC;
+GRANT SELECT ON ALL TABLES IN SCHEMA entity TO PUBLIC;
+ALTER DEFAULT PRIVILEGES IN SCHEMA entity 
+    GRANT SELECT ON TABLES TO PUBLIC;
+
+-- Create publication only for entity_scripts table
+CREATE PUBLICATION entity_scripts_pub FOR TABLE entity.entity_scripts;

@@ -22,6 +22,7 @@ INSERT INTO config.config (key, value, description) VALUES
 ('tick_metrics_history_ms', '3600000'::jsonb, 'How long to keep tick metrics history in milliseconds (1 hour default)');
 
 -- Add sync group configurations
+-- TODO: Maybe add broadcast frequency, so the database will only broadcast notifications to clients every x ticks (depending on the sync group of the entity), settling finally on sending the most recent state if the updates stopped before the next scheduled tick broadcast.
 INSERT INTO config.config (key, value, description) VALUES
 ('sync_groups', jsonb_build_object(
     'REALTIME', jsonb_build_object(
@@ -33,7 +34,7 @@ INSERT INTO config.config (key, value, description) VALUES
     'BACKGROUND', jsonb_build_object(
         'server_tick_rate_ms', 200
     )
-), 'Defines sync groups with their server tick rates and client check frequencies');
+), 'Defines sync groups with their server tick rates');
 
 -- Add session configurations
 INSERT INTO config.config (key, value, description) VALUES

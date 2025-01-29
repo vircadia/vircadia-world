@@ -16,8 +16,8 @@ import {
 
 describe("WorldApiManager Integration Tests", () => {
     const config = VircadiaConfig.server;
-    const baseUrl = `http://${config.serverHost}:${config.serverPort}`;
-    const wsBaseUrl = `ws://${config.serverHost}:${config.serverPort}${Communication.WS_PATH}`;
+    const baseUrl = `http${config.serverUsingSsl ? "s" : ""}://${config.serverHost}:${config.serverPort}`;
+    const wsBaseUrl = `ws${config.serverUsingSsl ? "s" : ""}://${config.serverHost}:${config.serverPort}${Communication.WS_PATH}`;
 
     let sql: postgres.Sql;
     let admin: TestAccount;
@@ -190,7 +190,7 @@ describe("WorldApiManager Integration Tests", () => {
             // Subscribe using the session ID as the channel
             const subMsg = Communication.WebSocket.createMessage({
                 type: Communication.WebSocket.MessageType.SUBSCRIBE,
-                channel: agent.sessionId, // Use session ID as the channel
+                channel: agent.sessionId,
             });
             ws.send(JSON.stringify(subMsg));
 
@@ -210,13 +210,15 @@ describe("WorldApiManager Integration Tests", () => {
                     const message = JSON.parse(event.data.toString());
                     if (
                         message.type ===
-                        Communication.WebSocket.MessageType.NOTIFICATION
+                        Communication.WebSocket.MessageType
+                            .NOTIFICATION_ENTITY_UPDATE
                     ) {
-                        expect(message.channel).toBe(agent.sessionId); // Expect session ID as channel
-                        expect(message.payload.entity_id).toBe(
-                            testResources.entityId,
-                        );
-                        expect(message.payload.operation).toBe("UPDATE");
+                        const notifMsg =
+                            message as Communication.WebSocket.NotificationEntityUpdateMessage;
+                        expect(notifMsg.entityId).toBe(testResources.entityId);
+                        expect(notifMsg.changes).toBeDefined();
+                        expect(notifMsg.changes.operation).toBe("UPDATE");
+                        expect(notifMsg.changes.agentId).toBe(agent.id);
                         notificationReceived = true;
                         resolve();
                     }
@@ -273,7 +275,7 @@ describe("WorldApiManager Integration Tests", () => {
             // Unsubscribe using session ID
             const unsubMsg = Communication.WebSocket.createMessage({
                 type: Communication.WebSocket.MessageType.UNSUBSCRIBE,
-                channel: agent.sessionId, // Use session ID as the channel
+                channel: agent.sessionId,
             });
             ws.send(JSON.stringify(unsubMsg));
 

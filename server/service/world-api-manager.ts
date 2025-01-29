@@ -425,23 +425,53 @@ class WorldWebSocketManager {
 
                         const notificationData = JSON.parse(payload.toString());
 
-                        // Match the database notification format
-                        const notificationMsg =
-                            Communication.WebSocket.createMessage<Communication.WebSocket.NotificationMessage>(
-                                {
-                                    type: Communication.WebSocket.MessageType
-                                        .NOTIFICATION,
-                                    channel: message.channel,
-                                    payload: {
-                                        entity_id: notificationData.id,
-                                        operation: notificationData.operation,
-                                        type: notificationData.type,
-                                        sync_group: notificationData.sync_group,
-                                        timestamp: notificationData.timestamp,
-                                        agent_id: notificationData.agent_id,
+                        let notificationMsg:
+                            | Communication.WebSocket.NotificationEntityUpdateMessage
+                            | Communication.WebSocket.NotificationEntityScriptUpdateMessage;
+
+                        if (notificationData.type === "entity") {
+                            notificationMsg =
+                                Communication.WebSocket.createMessage<Communication.WebSocket.NotificationEntityUpdateMessage>(
+                                    {
+                                        type: Communication.WebSocket
+                                            .MessageType
+                                            .NOTIFICATION_ENTITY_UPDATE,
+                                        entityId: notificationData.id,
+                                        changes: {
+                                            operation:
+                                                notificationData.operation,
+                                            syncGroup:
+                                                notificationData.sync_group,
+                                            timestamp:
+                                                notificationData.timestamp,
+                                            agentId: notificationData.agent_id,
+                                        },
                                     },
-                                },
+                                );
+                        } else if (notificationData.type === "script") {
+                            notificationMsg =
+                                Communication.WebSocket.createMessage<Communication.WebSocket.NotificationEntityScriptUpdateMessage>(
+                                    {
+                                        type: Communication.WebSocket
+                                            .MessageType
+                                            .NOTIFICATION_ENTITY_SCRIPT_UPDATE,
+                                        entityId: notificationData.id,
+                                        scriptChanges: {
+                                            operation:
+                                                notificationData.operation,
+                                            syncGroup:
+                                                notificationData.sync_group,
+                                            timestamp:
+                                                notificationData.timestamp,
+                                            agentId: notificationData.agent_id,
+                                        },
+                                    },
+                                );
+                        } else {
+                            throw new Error(
+                                `Unknown notification type: ${notificationData.type}`,
                             );
+                        }
 
                         if (session.ws.readyState === WebSocket.OPEN) {
                             session.ws.send(JSON.stringify(notificationMsg));

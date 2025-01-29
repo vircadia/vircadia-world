@@ -17,19 +17,15 @@ import {
 import "@babylonjs/loaders";
 import HavokPhysics from "@babylonjs/havok";
 import { HavokPlugin } from "@babylonjs/core/Physics/v2/Plugins/havokPlugin";
-import { PhysicsAggregate } from "@babylonjs/core";
-import { KeyboardEventTypes } from "@babylonjs/core/Events";
-import { Color3 } from "@babylonjs/core";
 import { GridMaterial } from "@babylonjs/materials/grid";
 import { VircadiaConfig_Client } from "../../../../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
 import { log } from "../../../../../sdk/vircadia-world-sdk-ts/module/general/log";
-import * as GUI from "@babylonjs/gui";
 import { Communication } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 
 class WorldConnection {
     private ws: WebSocket | null = null;
     private lastHeartbeatResponse: number = Date.now();
-    private connectionAttempts: number = 0;
+    private connectionAttempts = 0;
     private readonly MAX_RECONNECT_ATTEMPTS = 3;
     private heartbeatInterval: number | null = null;
     private clientConfig:
@@ -48,9 +44,9 @@ class WorldConnection {
     connect() {
         this.connectionAttempts++;
 
-        // Create URL with token as query parameter
+        // Create URL with token as query parameter, using the same path as server
         const wsUrl = new URL(
-            `ws://${this.serverUrl}${Communication.WS_BASE_URL}`,
+            `${VircadiaConfig_Client.defaultWorldServerUriUsingSsl ? "wss" : "ws"}://${this.serverUrl}${Communication.WS_PATH}`,
         );
         wsUrl.searchParams.set("token", this.token);
 
@@ -211,6 +207,32 @@ class WorldConnection {
             this.ws = null;
         }
     }
+
+    // Add new method for entity queries
+    async queryEntity(entityId: string): Promise<any> {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return null;
+
+        const queryMsg = Communication.WebSocket.createMessage({
+            type: Communication.WebSocket.MessageType.QUERY,
+            requestId: `query-${Date.now()}`,
+            query: "SELECT * FROM entity.entities WHERE general__entity_id = $1",
+            parameters: [entityId],
+        });
+
+        this.ws.send(JSON.stringify(queryMsg));
+    }
+
+    // Add subscription method
+    subscribeToChannel(channel: string) {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+
+        const subMsg = Communication.WebSocket.createMessage({
+            type: Communication.WebSocket.MessageType.SUBSCRIBE,
+            channel: channel,
+        });
+
+        this.ws.send(JSON.stringify(subMsg));
+    }
 }
 
 const WorldScene: Component = () => {
@@ -269,25 +291,83 @@ const WorldScene: Component = () => {
         if (!scene) return;
 
         switch (message.type) {
-            case Communication.WebSocket.MessageType.WORLD_STATE_UPDATE:
-                // Handle world state updates
+            case Communication.WebSocket.MessageType.CONNECTION_ESTABLISHED: {
+                const connMsg =
+                    message as Communication.WebSocket.ConnectionEstablishedMessage;
+                // Subscribe to updates using the agent ID
+                worldConnection?.subscribeToChannel(connMsg.agentId);
                 break;
-            case Communication.WebSocket.MessageType.ENTITY_UPDATE:
+            }
+
+            case Communication.WebSocket.MessageType
+                .NOTIFICATION_ENTITY_UPDATE: {
+                const notifMsg =
+                    message as Communication.WebSocket.NotificationEntityUpdateMessage;
                 // Handle entity updates
+                console.log("Entity update:", {
+                    entityId: notifMsg.entityId,
+                    changes: notifMsg.changes,
+                });
                 break;
-            case Communication.WebSocket.MessageType.AGENT_STATE_UPDATE:
-                // Handle agent state updates
+            }
+
+            case Communication.WebSocket.MessageType
+                .NOTIFICATION_ENTITY_SCRIPT_UPDATE: {
+                const scriptMsg =
+                    message as Communication.WebSocket.NotificationEntityScriptUpdateMessage;
+                // Handle entity script updates
+                console.log("Entity script update:", {
+                    entityId: scriptMsg.entityId,
+                    scriptChanges: scriptMsg.scriptChanges,
+                });
                 break;
+            }
         }
     };
 
     const initializeConnection = async () => {
-        const token = window.prompt("Please enter your session token:") || "";
+        // Get token from local storage or prompt
+        const storedToken = localStorage.getItem("sessionToken");
+        const token =
+            storedToken ||
+            window.prompt("Please enter your session token:") ||
+            "";
+
         if (!token) {
             console.error("No token provided");
             return;
         }
 
+        // Store token if it was entered manually
+        if (!storedToken) {
+            localStorage.setItem("sessionToken", token);
+        }
+
+        // Validate token first using REST API
+        const validationResponse = await fetch(
+            `http://${VircadiaConfig_Client.defaultWorldServerUri}${Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.path}`,
+            {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
+            },
+        );
+
+        const validationData =
+            (await validationResponse.json()) as Communication.REST.SessionValidationResponse;
+
+        if (
+            !validationData.success ||
+            !(
+                validationData as Communication.REST.SessionValidationSuccessResponse
+            ).data.isValid
+        ) {
+            console.error("Invalid token");
+            localStorage.removeItem("sessionToken");
+            return;
+        }
+
+        // Initialize WebSocket connection
         worldConnection = new WorldConnection(
             token,
             VircadiaConfig_Client.defaultWorldServerUri,

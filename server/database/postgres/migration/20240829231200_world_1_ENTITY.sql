@@ -281,28 +281,64 @@ CREATE TRIGGER enforce_entity_metadata_format
 --
 
 -- Shared notification function to reduce code duplication
+CREATE OR REPLACE FUNCTION entity.get_changed_columns() RETURNS TEXT[] AS $$
+DECLARE
+    old_rec RECORD;
+    new_rec RECORD;
+    col_name TEXT;
+    changed_cols TEXT[] := '{}';
+    changed BOOLEAN;
+BEGIN
+    old_rec := OLD;
+    new_rec := NEW;
+    
+    FOR col_name IN (SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_schema = TG_TABLE_SCHEMA 
+                    AND table_name = TG_TABLE_NAME) 
+    LOOP
+        IF old_rec IS NULL OR new_rec IS NULL OR 
+           old_rec.* IS DISTINCT FROM new_rec.* THEN
+            -- For INSERT/DELETE, include all columns
+            changed_cols := array_append(changed_cols, col_name);
+        ELSIF old_rec IS NOT NULL AND new_rec IS NOT NULL THEN
+            -- For UPDATE, check each column
+            EXECUTE format('SELECT ($1).%I IS DISTINCT FROM ($2).%I', 
+                         col_name, col_name)
+            INTO STRICT changed
+            USING old_rec, new_rec;
+            
+            IF changed THEN
+                changed_cols := array_append(changed_cols, col_name);
+            END IF;
+        END IF;
+    END LOOP;
+    
+    RETURN changed_cols;
+END;
+$$ LANGUAGE plpgsql;
+
 CREATE OR REPLACE FUNCTION entity.send_change_notification(
     notification_type TEXT,
     record_id UUID,
     operation TEXT,
-    sync_group TEXT DEFAULT NULL
+    sync_group TEXT DEFAULT NULL,
+    changed_columns TEXT[] DEFAULT NULL
 ) RETURNS VOID AS $$
 DECLARE
     notification_payload JSONB;
+
     session_record RECORD;
 BEGIN
-    -- Build notification payload with optional sync_group
+    -- Build notification payload with all possible fields
     notification_payload := jsonb_build_object(
         'type', notification_type,
         'id', record_id,
         'operation', operation,
-        'timestamp', CURRENT_TIMESTAMP
+        'timestamp', CURRENT_TIMESTAMP,
+        'sync_group', sync_group,
+        'changed_columns', changed_columns
     );
-    
-    -- Add sync_group if provided
-    IF sync_group IS NOT NULL THEN
-        notification_payload := notification_payload || jsonb_build_object('sync_group', sync_group);
-    END IF;
 
     -- Notify all active sessions
     FOR session_record IN 
@@ -327,27 +363,42 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Simplified entity changes notification
+-- Update entity changes notification
 CREATE OR REPLACE FUNCTION entity.notify_entity_changes() RETURNS TRIGGER AS $$
+DECLARE
+    changed_cols TEXT[];
 BEGIN
+    IF TG_OP = 'UPDATE' THEN
+        changed_cols := entity.get_changed_columns();
+    END IF;
+
     PERFORM entity.send_change_notification(
         'entity',
         CASE WHEN TG_OP = 'DELETE' THEN OLD.general__entity_id ELSE NEW.general__entity_id END,
         TG_OP,
-        CASE WHEN TG_OP = 'DELETE' THEN OLD.performance__sync_group ELSE NEW.performance__sync_group END
+        CASE WHEN TG_OP = 'DELETE' THEN OLD.performance__sync_group ELSE NEW.performance__sync_group END,
+        changed_cols
     );
     
     RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
 END;
 $$ LANGUAGE plpgsql;
 
--- Simplified script changes notification
+-- Update script changes notification
 CREATE OR REPLACE FUNCTION entity.notify_entity_script_changes() RETURNS TRIGGER AS $$
+DECLARE
+    changed_cols TEXT[];
 BEGIN
+    IF TG_OP = 'UPDATE' THEN
+        changed_cols := entity.get_changed_columns();
+    END IF;
+
     PERFORM entity.send_change_notification(
-        'script',
+        'entity_script',
         CASE WHEN TG_OP = 'DELETE' THEN OLD.general__script_id ELSE NEW.general__script_id END,
-        TG_OP
+        TG_OP,
+        NULL,
+        changed_cols
     );
     
     RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;

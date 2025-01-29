@@ -13,6 +13,11 @@ services:
     command: ["postgres", "-c", "wal_level=logical"]
     ports:
       - "${POSTGRES_PORT}:5432"
+    read_only: true
+    # Postgres needs these directories writable to function
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
     volumes:
       - vircadia_world_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -42,6 +47,16 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+    read_only: true
+    # pgweb needs these directories writable for operation
+    tmpfs:
+      - /tmp
+      - /var/run
+      - /var/cache
+      - /var/log
+      - /home/pgweb/.pgweb/bookmarks
+      - /home/pgweb/.pgweb/sessions
+      - /home/pgweb/.pgweb/queries
     networks:
       - vircadia_network
 

@@ -9,7 +9,7 @@ interface SyncGroups {
     [key: string]: SyncGroup;
 }
 
-export class WorldTickManager {
+export class WorldTickCaptureManager {
     private intervalIds: Map<string, Timer> = new Map();
     private entityStatesCleanupId: Timer | null = null;
     private tickMetricsCleanupId: Timer | null = null;

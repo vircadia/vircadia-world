@@ -21,40 +21,36 @@ INSERT INTO config.config (key, value, description) VALUES
 ('tick_buffer_duration_ms', '2000'::jsonb, 'How long to keep tick history in milliseconds'),
 ('tick_metrics_history_ms', '3600000'::jsonb, 'How long to keep tick metrics history in milliseconds (1 hour default)');
 
--- Add sync group configurations
--- TODO: Maybe add broadcast frequency, so the database will only broadcast notifications to clients every x ticks (depending on the sync group of the entity), settling finally on sending the most recent state if the updates stopped before the next scheduled tick broadcast.
+-- Add separate network quality requirements
 INSERT INTO config.config (key, value, description) VALUES
-('sync_groups', jsonb_build_object(
-    'REALTIME', jsonb_build_object(
-        'server_tick_rate_ms', 16
+('network_requirements', jsonb_build_object(
+    'max_latency_ms', 500,                    -- Maximum allowed latency before disconnect
+    'warning_latency_ms', 200,                -- When to start warning the client
+    'consecutive_warnings_before_kick', 50,    -- How many high-latency ticks before disconnect
+    'measurement_window_ticks', 100,          -- Window for calculating average latency
+    'packet_loss_threshold_percent', 5        -- Maximum acceptable packet loss percentage
+), 'Network quality requirements for all clients regardless of sync group');
+
+-- Remove duplicate/separate entries and create a unified client configuration
+INSERT INTO config.config (key, value, description) VALUES
+('client_settings', jsonb_build_object(
+    -- Session management
+    'session', jsonb_build_object(
+        'max_age_ms', 86400000,           -- 24 hours in milliseconds
+        'cleanup_interval_ms', 3600000,    -- 1 hour in milliseconds
+        'inactive_timeout_ms', 3600000,    -- 1 hour in milliseconds
+        'max_sessions_per_agent', 1        -- Maximum number of active sessions per agent
     ),
-    'NORMAL', jsonb_build_object(
-        'server_tick_rate_ms', 50
+    -- Authentication
+    'auth', jsonb_build_object(
+        'jwt_session_duration', '24h',
+        'jwt_secret', 'CHANGE_ME!',
+        'admin_token_session_duration', '24h',
+        'ws_check_interval', 10000
     ),
-    'BACKGROUND', jsonb_build_object(
-        'server_tick_rate_ms', 200
+    -- Heartbeat settings
+    'heartbeat', jsonb_build_object(
+        'interval_ms', 3000,              -- How often to send heartbeat
+        'timeout_ms', 12000               -- How long to wait for response
     )
-), 'Defines sync groups with their server tick rates');
-
--- Add session configurations
-INSERT INTO config.config (key, value, description) VALUES
-('client__session', jsonb_build_object(
-    'max_session_age_ms', 86400000,  -- 24 hours in milliseconds
-    'cleanup_interval_ms', 3600000,  -- 1 hour in milliseconds
-    'inactive_timeout_ms', 3600000,  -- 1 hour in milliseconds
-    'max_sessions_per_agent', 1      -- Maximum number of active sessions per agent
-), 'Session management configuration including timeouts and cleanup intervals');
-
--- Add client configurations
-INSERT INTO config.config (key, value, description) VALUES
-('client__heartbeat_interval_ms', to_jsonb(3000), 'How often a client should send a heartbeat to the server in milliseconds'),
-('client__heartbeat_timeout_ms', to_jsonb(12000), 'How long a client should wait for a heartbeat response before considering the connection lost in milliseconds');
-
--- Add authentication configurations
-INSERT INTO config.config (key, value, description) VALUES
-('auth_settings', jsonb_build_object(
-    'jwt_session_duration', '24h',
-    'jwt_secret', 'CHANGE_ME!',
-    'admin_token_session_duration', '24h',
-    'ws_check_interval', 10000
-), 'Authentication configuration including JWT settings and websocket check intervals');
+), 'Unified client configuration including session management, authentication, and heartbeat settings');

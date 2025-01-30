@@ -1,11 +1,12 @@
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 import type postgres from "postgres";
 import { build } from "bun";
+import type { Script } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 
-export class WorldScriptManager {
+export class WorldWebScriptManager {
     private compilationQueue: Set<string> = new Set();
     private subscription?: postgres.SubscriptionHandle;
-    private heartbeatInterval?: NodeJS.Timeout;
+    private lastScriptCheckTimestamp: Date;
 
     constructor(
         private readonly sql: postgres.Sql,
@@ -13,6 +14,7 @@ export class WorldScriptManager {
         private readonly heartbeatMs: number = 1000,
     ) {
         this.sql = sql;
+        this.lastScriptCheckTimestamp = new Date();
     }
 
     async initialize() {
@@ -27,13 +29,13 @@ export class WorldScriptManager {
             await this.sql`
                 UPDATE entity.entity_scripts 
                 SET 
-                    compiled__web__node__script_status = 'FAILED',
-                    compiled__web__bun__script_status = 'FAILED',
-                    compiled__web__browser__script_status = 'FAILED'
+                    script__compiled__node__script_status = 'FAILED',
+                    script__compiled__bun__script_status = 'FAILED',
+                    script__compiled__browser__script_status = 'FAILED'
                 WHERE 
-                    compiled__web__node__script_status = 'PENDING' OR
-                    compiled__web__bun__script_status = 'PENDING' OR
-                    compiled__web__browser__script_status = 'PENDING'
+                    script__compiled__node__script_status = 'PENDING' OR
+                    script__compiled__bun__script_status = 'PENDING' OR
+                    script__compiled__browser__script_status = 'PENDING'
             `;
 
             // Subscribe to script changes using logical replication
@@ -45,14 +47,14 @@ export class WorldScriptManager {
                         if (command === "insert" || command === "update") {
                             const script = row as {
                                 general__script_id: string;
-                                source__git__repo_url: string;
-                                source__git__repo_entry_path: string;
-                                compiled__web__node__script_status: string;
+                                script__source__node__repo__url: string;
+                                script__source__node__repo__entry_path: string;
+                                script__compiled__node__script_status: string;
                             };
 
                             // Trigger recompilation if script source was updated or status is PENDING
                             if (
-                                script.compiled__web__node__script_status ===
+                                script.script__compiled__node__script_status ===
                                 "PENDING"
                             ) {
                                 await this.compileScript(
@@ -95,13 +97,12 @@ export class WorldScriptManager {
         }
     }
 
-    async destroy() {
-        if (this.subscription) {
-            this.subscription.unsubscribe();
-        }
-        if (this.heartbeatInterval) {
-            clearInterval(this.heartbeatInterval);
-        }
+    async getChangedScripts(): Promise<Script.ScriptChanges[]> {
+        const result = await this.sql<Script.ScriptChanges[]>`
+            SELECT * FROM tick.get_changed_entity_scripts(${this.lastScriptCheckTimestamp})
+        `;
+        this.lastScriptCheckTimestamp = new Date();
+        return result;
     }
 
     private async updateScriptStatus(
@@ -112,12 +113,15 @@ export class WorldScriptManager {
         scriptSha256?: string,
     ) {
         const updates = {
-            [`compiled__web__${target}__script_status`]: status,
+            [`script__compiled__${target}__script_status`]: status,
             ...(compiledScript && {
-                [`compiled__web__${target}__script`]: compiledScript,
+                [`script__compiled__${target}__script`]: compiledScript,
             }),
             ...(scriptSha256 && {
-                [`compiled__web__${target}__script_sha256`]: scriptSha256,
+                [`script__compiled__${target}__script_sha256`]: scriptSha256,
+            }),
+            ...(status === "COMPILED" && {
+                [`script__compiled__${target}__updated_at`]: new Date(),
             }),
         };
 
@@ -248,8 +252,8 @@ export class WorldScriptManager {
             ]);
 
             const scriptPath = await this.prepareGitRepo(
-                script.source__git__repo_url,
-                script.source__git__repo_entry_path,
+                script.script__source__node__repo__url,
+                script.script__source__node__repo__entry_path,
             );
 
             const compilationResult = await this.compileScriptCode(scriptPath);
@@ -316,8 +320,8 @@ export class WorldScriptManager {
                 SELECT general__script_id 
                 FROM entity.entity_scripts 
                 WHERE 
-                    source__git__repo_url = ${repoUrl} 
-                    AND source__git__repo_entry_path = ${entryPath}
+                    script__source__node__repo__url = ${repoUrl} 
+                    AND script__source__node__repo__entry_path = ${entryPath}
             `;
 
             for (const script of scripts) {
@@ -342,9 +346,9 @@ export class WorldScriptManager {
                     SELECT general__script_id 
                     FROM entity.entity_scripts 
                     WHERE 
-                        compiled__web__node__script_status = 'PENDING' OR
-                        compiled__web__bun__script_status = 'PENDING' OR
-                        compiled__web__browser__script_status = 'PENDING'
+                        script__compiled__node__script_status = 'PENDING' OR
+                        script__compiled__bun__script_status = 'PENDING' OR
+                        script__compiled__browser__script_status = 'PENDING'
                 `;
 
                 // Process each pending script

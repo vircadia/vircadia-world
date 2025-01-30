@@ -1,13 +1,13 @@
 import { VircadiaConfig_Server } from "../sdk/vircadia-world-sdk-ts/config/vircadia.config.ts";
 import { log } from "../sdk/vircadia-world-sdk-ts/module/general/log.ts";
 import { PostgresClient } from "./database/postgres/postgres_client.ts";
-import { WorldTickManager } from "./service/world-tick-manager.ts";
+import { WorldTickCaptureManager } from "./service/world-tick-capture-manager.ts";
 import { WorldApiManager } from "./service/world-api-manager.ts";
-import { WorldScriptManager } from "./service/world-script-manager.ts";
+import { WorldWebScriptManager } from "./service/world-web-script-manager.ts";
 
 const config = VircadiaConfig_Server;
-let worldTickManager: WorldTickManager | null = null;
-let worldScriptManager: WorldScriptManager | null = null;
+let worldTickCaptureManager: WorldTickCaptureManager | null = null;
+let worldWebScriptManager: WorldWebScriptManager | null = null;
 let worldApiManager: WorldApiManager | null = null;
 
 async function init() {
@@ -29,19 +29,19 @@ async function init() {
         log({ message: "Starting world services", type: "info" });
 
         // Initialize world tick manager
-        worldTickManager = new WorldTickManager(
+        worldTickCaptureManager = new WorldTickCaptureManager(
             postgresClient.getClient(),
             debugMode,
         );
-        await worldTickManager.initialize();
-        worldTickManager.start();
+        await worldTickCaptureManager.initialize();
+        worldTickCaptureManager.start();
 
         // Initialize world script manager
-        worldScriptManager = new WorldScriptManager(
+        worldWebScriptManager = new WorldWebScriptManager(
             postgresClient.getClient(),
             debugMode,
         );
-        await worldScriptManager.initialize();
+        await worldWebScriptManager.initialize();
 
         // Initialize world api manager
         worldApiManager = new WorldApiManager(

@@ -161,6 +161,7 @@ class WorldRestManager {
     }
 
     private async handleLogout(req: Request): Promise<Response> {
+        // TODO: On OAUTH, we must also invalidate the token on the OAUTH server as well as wiping it from our own session list.
         const token = req.headers.get("Authorization")?.replace("Bearer ", "");
         if (!token) {
             return Response.json(

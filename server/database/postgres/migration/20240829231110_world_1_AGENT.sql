@@ -64,6 +64,20 @@ CREATE INDEX idx_agent_sessions_auth__agent_id ON auth.agent_sessions(auth__agen
 CREATE INDEX idx_agent_sessions_auth__provider_name ON auth.agent_sessions(auth__provider_name);
 CREATE INDEX idx_agent_profiles_email ON auth.agent_profiles(auth__email);
 
+-- Add optimized indexes for session-based entity change distribution
+CREATE INDEX idx_agent_sessions_active_lookup ON auth.agent_sessions 
+    (session__is_active, session__expires_at) 
+    WHERE session__is_active = true;
+
+CREATE INDEX idx_agent_roles_active_lookup ON auth.agent_roles 
+    (auth__agent_id, auth__role_name) 
+    WHERE auth__is_active = true;
+
+-- Add composite index for session validation
+CREATE INDEX idx_agent_sessions_validation ON auth.agent_sessions 
+    (general__session_id, session__is_active, session__expires_at) 
+    WHERE session__is_active = true;
+
 -- Move functions to auth schema
 CREATE OR REPLACE FUNCTION auth.current_agent_id() 
 RETURNS UUID AS $$
@@ -515,3 +529,24 @@ BEGIN
         CURRENT_USER
     );
 END $$;
+
+-- Create triggers for updating timestamps
+CREATE TRIGGER update_agent_auth_providers_updated_at
+    BEFORE UPDATE ON auth.agent_auth_providers
+    FOR EACH ROW
+    EXECUTE FUNCTION auth.set_agent_timestamps();
+
+CREATE TRIGGER update_agent_roles_updated_at
+    BEFORE UPDATE ON auth.agent_roles
+    FOR EACH ROW
+    EXECUTE FUNCTION auth.set_agent_timestamps();
+
+CREATE TRIGGER update_agent_sessions_updated_at
+    BEFORE UPDATE ON auth.agent_sessions
+    FOR EACH ROW
+    EXECUTE FUNCTION auth.set_agent_timestamps();
+
+CREATE TRIGGER update_roles_updated_at
+    BEFORE UPDATE ON auth.roles
+    FOR EACH ROW
+    EXECUTE FUNCTION auth.set_agent_timestamps();

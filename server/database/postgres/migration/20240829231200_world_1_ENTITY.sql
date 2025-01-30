@@ -3,15 +3,6 @@
 -- Create entity schema
 CREATE SCHEMA IF NOT EXISTS entity;
 
--- 
--- PERMISSIONS
---
-
-CREATE TABLE entity.permissions (
-    permissions__roles__view TEXT[],
-    permissions__roles__full TEXT[]
-);
-
 --
 -- ENTITY SCRIPTS
 --
@@ -26,18 +17,26 @@ CREATE TABLE entity.entity_scripts (
     general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     general__updated_by UUID DEFAULT auth.current_agent_id(),
 
-    compiled__web__node__script TEXT,
-    compiled__web__node__script_sha256 TEXT,
-    compiled__web__node__script_status script_compilation_status NOT NULL DEFAULT 'PENDING',
-    compiled__web__bun__script TEXT,
-    compiled__web__bun__script_sha256 TEXT,
-    compiled__web__bun__script_status script_compilation_status NOT NULL DEFAULT 'PENDING',
-    compiled__web__browser__script TEXT,
-    compiled__web__browser__script_sha256 TEXT,
-    compiled__web__browser__script_status script_compilation_status NOT NULL DEFAULT 'PENDING',
-
-    source__git__repo_entry_path TEXT,
-    source__git__repo_url TEXT
+    script__source__node__repo__entry_path TEXT,
+    script__source__node__repo__url TEXT,
+    script__compiled__node__script TEXT,
+    script__compiled__node__script_sha256 TEXT,
+    script__compiled__node__script_status script_compilation_status NOT NULL DEFAULT 'PENDING',
+    script__compiled__node__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    
+    script__source__bun__repo__entry_path TEXT,
+    script__source__bun__repo__url TEXT,
+    script__compiled__bun__script TEXT,
+    script__compiled__bun__script_sha256 TEXT,
+    script__compiled__bun__script_status script_compilation_status NOT NULL DEFAULT 'PENDING',
+    script__compiled__bun__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    
+    script__source__browser__repo__entry_path TEXT,
+    script__source__browser__repo__url TEXT,
+    script__compiled__browser__script TEXT,
+    script__compiled__browser__script_sha256 TEXT,
+    script__compiled__browser__script_status script_compilation_status NOT NULL DEFAULT 'PENDING',
+    script__compiled__browser__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Enable RLS
@@ -88,8 +87,147 @@ CREATE POLICY "Allow deleting scripts with proper role" ON entity.entity_scripts
     );
 
 --
--- ENTITIES
+-- ENTITY SYNC GROUPS
 --
+
+-- Create a table to track protected sync groups first
+CREATE TABLE entity.protected_sync_groups (
+    sync_group TEXT PRIMARY KEY,
+    description TEXT NOT NULL
+);
+
+-- Enable RLS on protected sync groups
+ALTER TABLE entity.protected_sync_groups ENABLE ROW LEVEL SECURITY;
+
+-- Only allow admins to view/modify protected sync groups list
+CREATE POLICY "Allow admin protected sync groups access" ON entity.protected_sync_groups
+    FOR ALL
+    USING (auth.is_admin_agent());
+
+-- Insert the protected (required) sync groups
+INSERT INTO entity.protected_sync_groups (sync_group, description) VALUES
+    ('REALTIME', 'High-frequency updates for real-time interactions'),
+    ('NORMAL', 'Standard update frequency for most entities'),
+    ('BACKGROUND', 'Low-frequency updates for background processes');
+
+-- Now create entity_sync_groups table and insert default values
+CREATE TABLE entity.entity_sync_groups (
+    sync_group TEXT PRIMARY KEY,
+    server__tick__rate_ms INTEGER NOT NULL,
+    server__tick__buffer INTEGER NOT NULL,
+    network__interpolation_buffer_ms INTEGER NOT NULL,    -- How far behind to render for smoothing
+    network__max_extrapolation_ms INTEGER NOT NULL,       -- Maximum prediction time
+    network__jitter_threshold_ms INTEGER NOT NULL,        -- Maximum acceptable jitter
+    general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    general__created_by UUID DEFAULT auth.current_agent_id(),
+    general__updated_by UUID DEFAULT auth.current_agent_id()
+);
+
+-- Insert default sync groups with their network and performance settings
+INSERT INTO entity.entity_sync_groups (
+    sync_group, 
+    server__tick__rate_ms, 
+    server__tick__buffer,
+    network__interpolation_buffer_ms,
+    network__max_extrapolation_ms,
+    network__jitter_threshold_ms
+) VALUES
+    ('REALTIME', 16, 2, 50, 100, 25),    -- Tighter performance and network requirements for realtime
+    ('NORMAL', 50, 1, 100, 150, 50),     -- Standard performance and network requirements
+    ('BACKGROUND', 200, 1, 200, 300, 100); -- More relaxed performance and network requirements
+
+-- Enable RLS
+ALTER TABLE entity.entity_sync_groups ENABLE ROW LEVEL SECURITY;
+
+-- Allow all users to view sync groups
+CREATE POLICY "Allow viewing sync groups" ON entity.entity_sync_groups
+    FOR SELECT
+    USING (true);
+
+-- Only allow admins to modify sync groups
+CREATE POLICY "Allow admin sync group modifications" ON entity.entity_sync_groups
+    FOR ALL
+    USING (auth.is_admin_agent());
+
+-- Function to prevent deletion of protected sync groups
+CREATE OR REPLACE FUNCTION entity.protect_default_sync_groups()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM entity.protected_sync_groups
+        WHERE sync_group = OLD.sync_group
+    ) THEN
+        RAISE EXCEPTION 'Cannot delete protected sync group: %', OLD.sync_group;
+    END IF;
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to ensure protected sync groups always exist
+CREATE OR REPLACE FUNCTION entity.ensure_protected_sync_groups()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Insert any missing protected sync groups with default values
+    INSERT INTO entity.entity_sync_groups (
+        sync_group, 
+        server__tick__rate_ms, 
+        server__tick__buffer,
+        network__interpolation_buffer_ms,
+        network__max_extrapolation_ms,
+        network__jitter_threshold_ms
+    )
+    SELECT 
+        p.sync_group,
+        CASE p.sync_group
+            WHEN 'REALTIME' THEN 16
+            WHEN 'NORMAL' THEN 50
+            WHEN 'BACKGROUND' THEN 200
+        END as server__tick__rate_ms,
+        CASE p.sync_group
+            WHEN 'REALTIME' THEN 2
+            WHEN 'NORMAL' THEN 1
+            WHEN 'BACKGROUND' THEN 1
+        END as server__tick__buffer,
+        CASE p.sync_group
+            WHEN 'REALTIME' THEN 50
+            WHEN 'NORMAL' THEN 100
+            WHEN 'BACKGROUND' THEN 200
+        END as network__interpolation_buffer_ms,
+        CASE p.sync_group
+            WHEN 'REALTIME' THEN 100
+            WHEN 'NORMAL' THEN 150
+            WHEN 'BACKGROUND' THEN 300
+        END as network__max_extrapolation_ms,
+        CASE p.sync_group
+            WHEN 'REALTIME' THEN 25
+            WHEN 'NORMAL' THEN 50
+            WHEN 'BACKGROUND' THEN 100
+        END as network__jitter_threshold_ms
+    FROM entity.protected_sync_groups p
+    WHERE NOT EXISTS (
+        SELECT 1 FROM entity.entity_sync_groups e
+        WHERE e.sync_group = p.sync_group
+    );
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create trigger to prevent deletion of protected sync groups
+CREATE TRIGGER protect_default_sync_groups
+    BEFORE DELETE ON entity.entity_sync_groups
+    FOR EACH ROW
+    EXECUTE FUNCTION entity.protect_default_sync_groups();
+
+-- Create trigger to ensure protected sync groups exist
+CREATE TRIGGER ensure_protected_sync_groups
+    AFTER INSERT OR UPDATE OR DELETE ON entity.entity_sync_groups
+    FOR STATEMENT
+    EXECUTE FUNCTION entity.ensure_protected_sync_groups();
+
+-- 
+-- ENTITIES
+-- 
 
 CREATE TABLE entity.entities (
     general__entity_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -105,8 +243,10 @@ CREATE TABLE entity.entities (
     meta__data JSONB DEFAULT '{}'::jsonb,
     scripts__ids UUID[] DEFAULT '{}',
     validation__log JSONB DEFAULT '[]'::jsonb,
-    performance__sync_group TEXT DEFAULT 'NORMAL' NOT NULL
-) INHERITS (entity.permissions);
+    performance__sync_group TEXT DEFAULT 'NORMAL' REFERENCES entity.entity_sync_groups(sync_group),
+    permissions__roles__view TEXT[],
+    permissions__roles__full TEXT[]
+);
 
 CREATE UNIQUE INDEX unique_seed_order_idx ON entity.entities(general__load_priority) WHERE general__load_priority IS NOT NULL;
 
@@ -276,153 +416,24 @@ CREATE TRIGGER enforce_entity_metadata_format
     FOR EACH ROW
     EXECUTE FUNCTION entity.validate_entity_metadata();
 
--- 
--- NOTIFICATION FUNCTIONS
---
-
--- Shared notification function to reduce code duplication
-CREATE OR REPLACE FUNCTION entity.get_changed_columns() RETURNS TEXT[] AS $$
-DECLARE
-    old_rec RECORD;
-    new_rec RECORD;
-    col_name TEXT;
-    changed_cols TEXT[] := '{}';
-    changed BOOLEAN;
+-- Create function to update timestamp
+CREATE OR REPLACE FUNCTION entity.update_updated_at()
+RETURNS TRIGGER AS $$
 BEGIN
-    old_rec := OLD;
-    new_rec := NEW;
-    
-    FOR col_name IN (SELECT column_name 
-                    FROM information_schema.columns 
-                    WHERE table_schema = TG_TABLE_SCHEMA 
-                    AND table_name = TG_TABLE_NAME) 
-    LOOP
-        IF old_rec IS NULL OR new_rec IS NULL OR 
-           old_rec.* IS DISTINCT FROM new_rec.* THEN
-            -- For INSERT/DELETE, include all columns
-            changed_cols := array_append(changed_cols, col_name);
-        ELSIF old_rec IS NOT NULL AND new_rec IS NOT NULL THEN
-            -- For UPDATE, check each column
-            EXECUTE format('SELECT ($1).%I IS DISTINCT FROM ($2).%I', 
-                         col_name, col_name)
-            INTO STRICT changed
-            USING old_rec, new_rec;
-            
-            IF changed THEN
-                changed_cols := array_append(changed_cols, col_name);
-            END IF;
-        END IF;
-    END LOOP;
-    
-    RETURN changed_cols;
+    NEW.general__updated_at = CURRENT_TIMESTAMP;
+    NEW.general__updated_by = auth.current_agent_id();
+    RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION entity.send_change_notification(
-    notification_type TEXT,
-    record_id UUID,
-    operation TEXT,
-    sync_group TEXT DEFAULT NULL,
-    changed_columns TEXT[] DEFAULT NULL
-) RETURNS VOID AS $$
-DECLARE
-    notification_payload JSONB;
-
-    session_record RECORD;
-BEGIN
-    -- Build notification payload with all possible fields
-    notification_payload := jsonb_build_object(
-        'type', notification_type,
-        'id', record_id,
-        'operation', operation,
-        'timestamp', CURRENT_TIMESTAMP,
-        'sync_group', sync_group,
-        'changed_columns', changed_columns
-    );
-
-    -- Notify all active sessions
-    FOR session_record IN 
-        SELECT general__session_id
-        FROM auth.agent_sessions 
-        WHERE session__is_active = true
-    LOOP
-        -- Send notification
-        PERFORM pg_notify(
-            session_record.general__session_id::text,
-            notification_payload::text
-        );
-
-        -- Update session metadata
-        UPDATE auth.agent_sessions
-        SET 
-            stats__last_subscription_message = notification_payload,
-            stats__last_subscription_message_at = CURRENT_TIMESTAMP,
-            session__last_seen_at = CURRENT_TIMESTAMP
-        WHERE general__session_id = session_record.general__session_id;
-    END LOOP;
-END;
-$$ LANGUAGE plpgsql;
-
--- Update entity changes notification
-CREATE OR REPLACE FUNCTION entity.notify_entity_changes() RETURNS TRIGGER AS $$
-DECLARE
-    changed_cols TEXT[];
-BEGIN
-    IF TG_OP = 'UPDATE' THEN
-        changed_cols := entity.get_changed_columns();
-    END IF;
-
-    PERFORM entity.send_change_notification(
-        'entity',
-        CASE WHEN TG_OP = 'DELETE' THEN OLD.general__entity_id ELSE NEW.general__entity_id END,
-        TG_OP,
-        CASE WHEN TG_OP = 'DELETE' THEN OLD.performance__sync_group ELSE NEW.performance__sync_group END,
-        changed_cols
-    );
-    
-    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
-END;
-$$ LANGUAGE plpgsql;
-
--- Update script changes notification
-CREATE OR REPLACE FUNCTION entity.notify_entity_script_changes() RETURNS TRIGGER AS $$
-DECLARE
-    changed_cols TEXT[];
-BEGIN
-    IF TG_OP = 'UPDATE' THEN
-        changed_cols := entity.get_changed_columns();
-    END IF;
-
-    PERFORM entity.send_change_notification(
-        'entity_script',
-        CASE WHEN TG_OP = 'DELETE' THEN OLD.general__script_id ELSE NEW.general__script_id END,
-        TG_OP,
-        NULL,
-        changed_cols
-    );
-    
-    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
-END;
-$$ LANGUAGE plpgsql;
-
--- Create triggers for notifications
-CREATE TRIGGER entity_changes_notify
-    AFTER INSERT OR UPDATE OR DELETE ON entity.entities
+-- Create trigger for entity_sync_groups
+CREATE TRIGGER update_entity_sync_groups_updated_at
+    BEFORE UPDATE ON entity.entity_sync_groups
     FOR EACH ROW
-    EXECUTE FUNCTION entity.notify_entity_changes();
+    EXECUTE FUNCTION entity.update_updated_at();
 
-CREATE OR REPLACE TRIGGER entity_script_changes_notify
-    AFTER INSERT OR UPDATE OR DELETE ON entity.entity_scripts
+-- Create trigger for entities
+CREATE TRIGGER update_entities_updated_at
+    BEFORE UPDATE ON entity.entities
     FOR EACH ROW
-    EXECUTE FUNCTION entity.notify_entity_script_changes();
-
--- Grand replication / listen / notify perms
-
--- Grant schema permissions for notifications (not replication)
-GRANT USAGE ON SCHEMA entity TO PUBLIC;
-GRANT SELECT ON ALL TABLES IN SCHEMA entity TO PUBLIC;
-ALTER DEFAULT PRIVILEGES IN SCHEMA entity 
-    GRANT SELECT ON TABLES TO PUBLIC;
-
--- Create publication only for entity_scripts table
-CREATE PUBLICATION entity_scripts_pub FOR TABLE entity.entity_scripts;
+    EXECUTE FUNCTION entity.update_updated_at();

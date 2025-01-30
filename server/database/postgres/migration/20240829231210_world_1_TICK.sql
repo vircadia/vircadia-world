@@ -50,118 +50,145 @@ CREATE OR REPLACE FUNCTION tick.get_entity_changes(
     entity_id uuid,
     operation operation_enum,
     changes jsonb,
-    roles text[]
+    session_ids uuid[]
 ) AS $$
 BEGIN
     RETURN QUERY
-    WITH current_states AS (
-        SELECT * FROM tick.entity_states 
-        WHERE tick_number = (
-            SELECT MAX(tick_number) 
-            FROM tick.entity_states
-            WHERE performance__sync_group = p_sync_group
-        )
-        AND performance__sync_group = p_sync_group
-    ),
-    previous_states AS (
-        SELECT * FROM tick.entity_states 
-        WHERE tick_number = p_last_tick
-        AND performance__sync_group = p_sync_group
-    )
-    -- Handle updates and inserts
-    SELECT 
-        cs.general__entity_id,
-        CASE 
-            WHEN ps.general__entity_id IS NULL THEN 'INSERT'
-            ELSE 'UPDATE'
-        END as operation,
-        jsonb_build_object(
-            'general', CASE 
-                WHEN ps.general__entity_id IS NULL OR (
-                    cs.general__name IS DISTINCT FROM ps.general__name OR
-                    cs.general__semantic_version IS DISTINCT FROM ps.general__semantic_version OR
-                    cs.general__created_at IS DISTINCT FROM ps.general__created_at OR
-                    cs.general__created_by IS DISTINCT FROM ps.general__created_by OR
-                    cs.general__updated_at IS DISTINCT FROM ps.general__updated_at OR
-                    cs.general__updated_by IS DISTINCT FROM ps.general__updated_by OR
-                    cs.general__load_priority IS DISTINCT FROM ps.general__load_priority OR
-                    cs.general__initialized_at IS DISTINCT FROM ps.general__initialized_at OR
-                    cs.general__initialized_by IS DISTINCT FROM ps.general__initialized_by
-                ) THEN 
-                    jsonb_build_object(
-                        'name', cs.general__name,
-                        'semantic_version', cs.general__semantic_version,
-                        'created_at', cs.general__created_at,
-                        'created_by', cs.general__created_by,
-                        'updated_at', cs.general__updated_at,
-                        'updated_by', cs.general__updated_by,
-                        'load_priority', cs.general__load_priority,
-                        'initialized_at', cs.general__initialized_at,
-                        'initialized_by', cs.general__initialized_by
-                    )
-                ELSE NULL 
-            END,
-            'meta', CASE 
-                WHEN ps.general__entity_id IS NULL OR 
-                     cs.meta__data IS DISTINCT FROM ps.meta__data THEN 
-                    cs.meta__data 
-                ELSE NULL 
-            END,
-            'scripts', CASE 
-                WHEN ps.general__entity_id IS NULL OR
-                     cs.scripts__ids IS DISTINCT FROM ps.scripts__ids OR
-                     cs.validation__log IS DISTINCT FROM ps.validation__log THEN 
-                    jsonb_build_object(
-                        'ids', cs.scripts__ids,
-                        'validation_log', cs.validation__log
-                    )
-                ELSE NULL 
-            END,
-            'permissions', CASE 
-                WHEN ps.general__entity_id IS NULL OR
-                     cs.permissions__roles__view IS DISTINCT FROM ps.permissions__roles__view OR
-                     cs.permissions__roles__full IS DISTINCT FROM ps.permissions__roles__full THEN 
-                    jsonb_build_object(
-                        'roles_view', cs.permissions__roles__view,
-                        'roles_full', cs.permissions__roles__full
-                    )
-                ELSE NULL 
-            END,
-            'performance', CASE 
-                WHEN ps.general__entity_id IS NULL OR
-                     cs.performance__sync_group IS DISTINCT FROM ps.performance__sync_group THEN 
-                    jsonb_build_object(
-                        'sync_group', cs.performance__sync_group
-                    )
-                ELSE NULL 
-            END
+    WITH RECURSIVE 
+    changed_entities AS (
+        -- Get changed entities since last tick
+        WITH current_states AS (
+            SELECT * FROM tick.entity_states 
+            WHERE tick_number = (
+                SELECT MAX(tick_number) 
+                FROM tick.entity_states
+                WHERE performance__sync_group = p_sync_group
+            )
+            AND performance__sync_group = p_sync_group
         ),
-        cs.permissions__roles__view
-    FROM current_states cs
-    LEFT JOIN previous_states ps ON cs.general__entity_id = ps.general__entity_id
-    WHERE ps.general__entity_id IS NULL  -- New entities
-       OR cs.general__name IS DISTINCT FROM ps.general__name
-       OR cs.general__semantic_version IS DISTINCT FROM ps.general__semantic_version
-       OR cs.meta__data IS DISTINCT FROM ps.meta__data
-       OR cs.scripts__ids IS DISTINCT FROM ps.scripts__ids
-       OR cs.validation__log IS DISTINCT FROM ps.validation__log
-       OR cs.permissions__roles__view IS DISTINCT FROM ps.permissions__roles__view
-       OR cs.permissions__roles__full IS DISTINCT FROM ps.permissions__roles__full
-       OR cs.performance__sync_group IS DISTINCT FROM ps.performance__sync_group;
+        previous_states AS (
+            SELECT * FROM tick.entity_states 
+            WHERE tick_number = p_last_tick
+            AND performance__sync_group = p_sync_group
+        )
+        -- Handle updates and inserts
+        SELECT 
+            cs.general__entity_id,
+            CASE 
+                WHEN ps.general__entity_id IS NULL THEN 'INSERT'::operation_enum
+                ELSE 'UPDATE'::operation_enum
+            END as operation,
+            jsonb_build_object(
+                'general', CASE 
+                    WHEN ps.general__entity_id IS NULL OR (
+                        cs.general__name IS DISTINCT FROM ps.general__name OR
+                        cs.general__semantic_version IS DISTINCT FROM ps.general__semantic_version OR
+                        cs.general__created_at IS DISTINCT FROM ps.general__created_at OR
+                        cs.general__created_by IS DISTINCT FROM ps.general__created_by OR
+                        cs.general__updated_at IS DISTINCT FROM ps.general__updated_at OR
+                        cs.general__updated_by IS DISTINCT FROM ps.general__updated_by OR
+                        cs.general__load_priority IS DISTINCT FROM ps.general__load_priority OR
+                        cs.general__initialized_at IS DISTINCT FROM ps.general__initialized_at OR
+                        cs.general__initialized_by IS DISTINCT FROM ps.general__initialized_by
+                    ) THEN 
+                        jsonb_build_object(
+                            'name', cs.general__name,
+                            'semantic_version', cs.general__semantic_version,
+                            'created_at', cs.general__created_at,
+                            'created_by', cs.general__created_by,
+                            'updated_at', cs.general__updated_at,
+                            'updated_by', cs.general__updated_by,
+                            'load_priority', cs.general__load_priority,
+                            'initialized_at', cs.general__initialized_at,
+                            'initialized_by', cs.general__initialized_by
+                        )
+                    ELSE NULL 
+                END,
+                'meta', CASE 
+                    WHEN ps.general__entity_id IS NULL OR 
+                         cs.meta__data IS DISTINCT FROM ps.meta__data THEN 
+                        cs.meta__data 
+                    ELSE NULL 
+                END,
+                'scripts', CASE 
+                    WHEN ps.general__entity_id IS NULL OR
+                         cs.scripts__ids IS DISTINCT FROM ps.scripts__ids OR
+                         cs.validation__log IS DISTINCT FROM ps.validation__log THEN 
+                        jsonb_build_object(
+                            'ids', cs.scripts__ids,
+                            'validation_log', cs.validation__log
+                        )
+                    ELSE NULL 
+                END,
+                'permissions', CASE 
+                    WHEN ps.general__entity_id IS NULL OR
+                         cs.permissions__roles__view IS DISTINCT FROM ps.permissions__roles__view OR
+                         cs.permissions__roles__full IS DISTINCT FROM ps.permissions__roles__full THEN 
+                        jsonb_build_object(
+                            'roles_view', cs.permissions__roles__view,
+                            'roles_full', cs.permissions__roles__full
+                        )
+                    ELSE NULL 
+                END,
+                'performance', CASE 
+                    WHEN ps.general__entity_id IS NULL OR
+                         cs.performance__sync_group IS DISTINCT FROM ps.performance__sync_group THEN 
+                        jsonb_build_object(
+                            'sync_group', cs.performance__sync_group
+                        )
+                    ELSE NULL 
+                END
+            ) as changes,
+            cs.permissions__roles__view
+        FROM current_states cs
+        LEFT JOIN previous_states ps ON cs.general__entity_id = ps.general__entity_id
+        WHERE ps.general__entity_id IS NULL  -- New entities
+           OR cs.general__name IS DISTINCT FROM ps.general__name
+           OR cs.general__semantic_version IS DISTINCT FROM ps.general__semantic_version
+           OR cs.meta__data IS DISTINCT FROM ps.meta__data
+           OR cs.scripts__ids IS DISTINCT FROM ps.scripts__ids
+           OR cs.validation__log IS DISTINCT FROM ps.validation__log
+           OR cs.permissions__roles__view IS DISTINCT FROM ps.permissions__roles__view
+           OR cs.permissions__roles__full IS DISTINCT FROM ps.permissions__roles__full
+           OR cs.performance__sync_group IS DISTINCT FROM ps.performance__sync_group
 
-    UNION ALL
+        UNION ALL
 
-    -- Handle deletes (entities that existed in previous tick but not in current)
+        -- Handle deletes
+        SELECT 
+            ps.general__entity_id,
+            'DELETE'::operation_enum as operation,
+            NULL as changes,
+            ps.permissions__roles__view
+        FROM previous_states ps
+        LEFT JOIN current_states cs ON ps.general__entity_id = cs.general__entity_id
+        WHERE cs.general__entity_id IS NULL
+    ),
+    -- Materialize active sessions with their roles for reuse
+    active_sessions AS MATERIALIZED (
+        SELECT 
+            s.general__session_id,
+            array_agg(DISTINCT ar.auth__role_name) as session_roles
+        FROM auth.agent_sessions s
+        JOIN auth.agent_roles ar ON 
+            ar.auth__agent_id = s.auth__agent_id AND 
+            ar.auth__is_active = true
+        WHERE s.session__is_active = true 
+        AND s.session__expires_at > NOW()
+        GROUP BY s.general__session_id
+    )
+    -- Final result combining changed entities with matching sessions
     SELECT 
-        ps.general__entity_id,
-        'DELETE' as operation,
-        NULL as changes,
-        ps.permissions__roles__view
-    FROM previous_states ps
-    LEFT JOIN current_states cs ON ps.general__entity_id = cs.general__entity_id
-    WHERE cs.general__entity_id IS NULL;
+        ce.entity_id,
+        ce.operation,
+        ce.changes,
+        array_agg(DISTINCT as_sess.general__session_id) as session_ids
+    FROM changed_entities ce
+    CROSS JOIN active_sessions as as_sess
+    WHERE as_sess.session_roles && ce.permissions__roles__view  -- Fast array intersection
+    GROUP BY ce.entity_id, ce.operation, ce.changes;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- View policy for entity_states (matching the entity read permissions)
 CREATE POLICY "entity_states_view_policy" ON tick.entity_states
@@ -426,5 +453,108 @@ CREATE POLICY "tick_metrics_delete_policy" ON tick.tick_metrics
 CREATE INDEX entity_states_sync_group_tick_idx 
 ON tick.entity_states (performance__sync_group, tick_number DESC);
 
--- Remove the generate_entity_field_hashes function as it's no longer needed
-DROP FUNCTION IF EXISTS tick.generate_entity_field_hashes;
+-- Function to get changed scripts since last check
+CREATE OR REPLACE FUNCTION tick.get_changed_entity_scripts(last_check_timestamp TIMESTAMPTZ)
+RETURNS TABLE (
+    script_id UUID,
+    changes JSONB
+) AS $$
+BEGIN
+    -- Check if user has admin permissions
+    IF NOT auth.is_admin_agent() THEN
+        RAISE EXCEPTION 'Permission denied: Admin permission required';
+    END IF;
+
+    RETURN QUERY
+    SELECT 
+        es.general__script_id,
+        jsonb_strip_nulls(jsonb_build_object(
+            'node', CASE 
+                WHEN es.script__compiled__node__updated_at > last_check_timestamp THEN
+                    jsonb_build_object(
+                        'script', es.script__compiled__node__script,
+                        'script_sha256', es.script__compiled__node__script_sha256,
+                        'script_status', es.script__compiled__node__script_status
+                    )
+                ELSE NULL 
+            END,
+            'bun', CASE 
+                WHEN es.script__compiled__bun__updated_at > last_check_timestamp THEN
+                    jsonb_build_object(
+                        'script', es.script__compiled__bun__script,
+                        'script_sha256', es.script__compiled__bun__script_sha256,
+                        'script_status', es.script__compiled__bun__script_status
+                    )
+                ELSE NULL 
+            END,
+            'browser', CASE 
+                WHEN es.script__compiled__browser__updated_at > last_check_timestamp THEN
+                    jsonb_build_object(
+                        'script', es.script__compiled__browser__script,
+                        'script_sha256', es.script__compiled__browser__script_sha256,
+                        'script_status', es.script__compiled__browser__script_status
+                    )
+                ELSE NULL 
+            END,
+            'source', jsonb_build_object(
+                'node', CASE 
+                    WHEN es.script__compiled__node__updated_at > last_check_timestamp THEN
+                        jsonb_build_object(
+                            'repo_entry_path', es.script__source__node__repo__entry_path,
+                            'repo_url', es.script__source__node__repo__url
+                        )
+                    ELSE NULL 
+                END,
+                'bun', CASE 
+                    WHEN es.script__compiled__bun__updated_at > last_check_timestamp THEN
+                        jsonb_build_object(
+                            'repo_entry_path', es.script__source__bun__repo__entry_path,
+                            'repo_url', es.script__source__bun__repo__url
+                        )
+                    ELSE NULL 
+                END,
+                'browser', CASE 
+                    WHEN es.script__compiled__browser__updated_at > last_check_timestamp THEN
+                        jsonb_build_object(
+                            'repo_entry_path', es.script__source__browser__repo__entry_path,
+                            'repo_url', es.script__source__browser__repo__url
+                        )
+                    ELSE NULL 
+                END
+            )
+        ))
+    FROM entity.entity_scripts es
+    WHERE 
+        es.script__compiled__node__updated_at > last_check_timestamp OR
+        es.script__compiled__bun__updated_at > last_check_timestamp OR
+        es.script__compiled__browser__updated_at > last_check_timestamp;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Add optimized indexes for the tick system
+CREATE INDEX idx_entity_states_sync_tick_lookup 
+ON tick.entity_states (performance__sync_group, tick_number, general__entity_id);
+
+CREATE INDEX idx_entity_states_roles 
+ON tick.entity_states USING GIN (permissions__roles__view);
+
+-- Create function to update timestamp
+CREATE OR REPLACE FUNCTION tick.update_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.general__updated_at = CURRENT_TIMESTAMP;
+    NEW.general__updated_by = auth.current_agent_id();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create trigger for entity_sync_groups
+CREATE TRIGGER update_entity_states_updated_at
+    BEFORE UPDATE ON tick.entity_states
+    FOR EACH ROW
+    EXECUTE FUNCTION tick.update_updated_at();
+
+CREATE TRIGGER update_tick_metrics_updated_at
+    BEFORE UPDATE ON tick.tick_metrics
+    FOR EACH ROW
+    EXECUTE FUNCTION tick.update_updated_at();

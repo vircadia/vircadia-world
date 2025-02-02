@@ -32,7 +32,7 @@
     "@types/jsonwebtoken": "9.0.8"
   },
   "engines": {
-    "bun": ">=1.2.1"
+    "bun": ">=1.2.2"
   },
   "module": "index.ts",
   "peerDependencies": {

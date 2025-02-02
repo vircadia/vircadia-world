@@ -2,7 +2,10 @@ import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 import type postgres from "postgres";
 import { sign, verify } from "jsonwebtoken";
 import type { VircadiaConfig_Server } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config.ts";
-import { Communication } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+import {
+    Communication,
+    type Tick,
+} from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import type { Server, ServerWebSocket } from "bun";
 
 interface WorldSession<T = unknown> {
@@ -228,6 +231,248 @@ class WorldRestManager {
             return Response.json(
                 Communication.REST.Endpoint.AUTH_SESSION_LOGOUT.createSuccess(),
             );
+        }
+    }
+}
+
+class TickManager {
+    private intervalIds: Map<string, Timer> = new Map();
+    private entityStatesCleanupId: Timer | null = null;
+    private tickMetricsCleanupId: Timer | null = null;
+    private syncGroups: Map<string, Tick.SyncGroup> = new Map();
+    private tickCounts: Map<string, number> = new Map();
+    private tickBufferDurationMs = 2000;
+    private tickMetricsHistoryMs = 3600000;
+
+    private readonly LOG_PREFIX = "TickManager";
+
+    constructor(
+        private readonly sql: postgres.Sql,
+        private readonly debugMode: boolean,
+        private readonly wsManager: WorldWebSocketManager,
+    ) {}
+
+    async initialize() {
+        try {
+            // Load sync groups from the database
+            const syncGroupsData = await this.sql<
+                [
+                    {
+                        sync_group: string;
+                        server__tick__rate_ms: number;
+                        server__tick__buffer: number;
+                        client__render_delay_ms: number;
+                        client__max_prediction_time_ms: number;
+                        network__packet_timing_variance_ms: number;
+                    },
+                ]
+            >`
+                SELECT 
+                    sync_group,
+                    server__tick__rate_ms,
+                    server__tick__buffer,
+                    client__render_delay_ms,
+                    client__max_prediction_time_ms,
+                    network__packet_timing_variance_ms
+                FROM entity.entity_sync_groups
+            `;
+
+            // Convert to Map for easier access
+            for (const group of syncGroupsData) {
+                this.syncGroups.set(group.sync_group, {
+                    server_tick_rate_ms: group.server__tick__rate_ms,
+                    server_tick_buffer: group.server__tick__buffer,
+                    client_render_delay_ms: group.client__render_delay_ms,
+                    client_max_prediction_time_ms:
+                        group.client__max_prediction_time_ms,
+                    network_packet_timing_variance_ms:
+                        group.network__packet_timing_variance_ms,
+                });
+            }
+
+            // Load other config values
+            const [bufferConfig] = await this.sql`
+                SELECT value FROM config.config WHERE key = 'tick_buffer_duration_ms'
+            `;
+            const [metricsConfig] = await this.sql`
+                SELECT value FROM config.config WHERE key = 'tick_metrics_history_ms'
+            `;
+
+            if (bufferConfig) {
+                this.tickBufferDurationMs = bufferConfig.value;
+            }
+            if (metricsConfig) {
+                this.tickMetricsHistoryMs = metricsConfig.value;
+            }
+
+            this.setupCleanupTimers();
+        } catch (error) {
+            log({
+                message: `Failed to initialize tick manager: ${error}`,
+                debug: this.debugMode,
+                type: "error",
+            });
+            throw error;
+        }
+    }
+
+    private setupCleanupTimers() {
+        if (this.entityStatesCleanupId)
+            clearInterval(this.entityStatesCleanupId);
+        if (this.tickMetricsCleanupId) clearInterval(this.tickMetricsCleanupId);
+
+        this.entityStatesCleanupId = setInterval(async () => {
+            try {
+                await this.sql`SELECT tick.cleanup_old_entity_states()`;
+                log({
+                    prefix: this.LOG_PREFIX,
+                    message: "Entity states cleanup completed",
+                    debug: this.debugMode,
+                    type: "debug",
+                });
+            } catch (error) {
+                log({
+                    prefix: this.LOG_PREFIX,
+                    message: `Error during entity states cleanup: ${error}`,
+                    debug: this.debugMode,
+                    type: "error",
+                });
+            }
+        }, this.tickBufferDurationMs);
+
+        this.tickMetricsCleanupId = setInterval(async () => {
+            try {
+                await this.sql`SELECT tick.cleanup_old_tick_metrics()`;
+                log({
+                    prefix: this.LOG_PREFIX,
+                    message: "Tick metrics cleanup completed",
+                    debug: this.debugMode,
+                    type: "debug",
+                });
+            } catch (error) {
+                log({
+                    prefix: this.LOG_PREFIX,
+                    message: `Error during tick metrics cleanup: ${error}`,
+                    debug: this.debugMode,
+                    type: "error",
+                });
+            }
+        }, this.tickMetricsHistoryMs);
+    }
+
+    async start() {
+        for (const [syncGroup, config] of this.syncGroups.entries()) {
+            if (this.intervalIds.has(syncGroup)) {
+                continue;
+            }
+
+            const tickLoop = async () => {
+                const startTime = performance.now();
+
+                try {
+                    const tickState = await this.captureTick(syncGroup);
+
+                    if (tickState) {
+                        await this.wsManager.broadcastEntityUpdate(
+                            tickState.entityId,
+                            tickState.changes,
+                            tickState.sessionIds,
+                            tickState.tickNumber,
+                            tickState.tickStartTime,
+                        );
+                    }
+
+                    const endTime = performance.now();
+                    const elapsedMs = endTime - startTime;
+                    const sleepMs = Math.max(
+                        0,
+                        config.server_tick_rate_ms - elapsedMs,
+                    );
+
+                    await Bun.sleep(sleepMs);
+                    this.intervalIds.set(syncGroup, setTimeout(tickLoop, 0));
+                } catch (error) {
+                    log({
+                        message: `Error in tick loop for ${syncGroup}: ${error}`,
+                        debug: this.debugMode,
+                        type: "error",
+                    });
+                    this.intervalIds.set(
+                        syncGroup,
+                        setTimeout(tickLoop, config.server_tick_rate_ms),
+                    );
+                }
+            };
+
+            tickLoop();
+        }
+    }
+
+    private async captureTick(
+        syncGroup: string,
+    ): Promise<Tick.TickState | null> {
+        try {
+            const result = await this.sql`
+                WITH tick_capture AS (
+                    SELECT * FROM tick.capture_tick_state(${syncGroup})
+                )
+                SELECT 
+                    entity_id,
+                    operation,
+                    changes,
+                    session_ids,
+                    tick_number,
+                    tick_start_time,
+                    tick_end_time,
+                    tick_duration_ms,
+                    is_delayed,
+                    headroom_ms
+                FROM tick_capture
+            `;
+
+            if (!result.length) {
+                return null;
+            }
+
+            // Update tick count
+            const currentCount = this.tickCounts.get(syncGroup) || 0;
+            this.tickCounts.set(syncGroup, currentCount + 1);
+
+            return {
+                entityId: result[0].entity_id,
+                operation: result[0].operation,
+                changes: result[0].changes,
+                sessionIds: result[0].session_ids,
+                tickNumber: result[0].tick_number,
+                tickStartTime: result[0].tick_start_time,
+                tickEndTime: result[0].tick_end_time,
+                tickDurationMs: result[0].tick_duration_ms,
+                isDelayed: result[0].is_delayed,
+                headroomMs: result[0].headroom_ms,
+            };
+        } catch (error) {
+            log({
+                message: `Error capturing tick for ${syncGroup}: ${error}`,
+                debug: this.debugMode,
+                type: "error",
+            });
+            return null;
+        }
+    }
+
+    stop() {
+        for (const [syncGroup, intervalId] of this.intervalIds.entries()) {
+            clearTimeout(intervalId);
+            this.intervalIds.delete(syncGroup);
+        }
+
+        if (this.entityStatesCleanupId) {
+            clearInterval(this.entityStatesCleanupId);
+            this.entityStatesCleanupId = null;
+        }
+        if (this.tickMetricsCleanupId) {
+            clearInterval(this.tickMetricsCleanupId);
+            this.tickMetricsCleanupId = null;
         }
     }
 }
@@ -934,6 +1179,85 @@ class WorldWebSocketManager {
             session.ws.close(1000, "Server shutting down");
         }
         this.activeSessions.clear();
+    }
+
+    async broadcastEntityUpdates(
+        sessionId: string,
+        changes: Tick.I_TickState["entityUpdates"],
+        tickData: Tick.I_TickState["tickData"],
+    ) {
+        // Get the session
+        const session = this.activeSessions.get(sessionId);
+        if (!session || session.ws.readyState !== WebSocket.OPEN) {
+            return;
+        }
+
+        // Filter entities that include this session ID
+        const relevantEntities = changes
+            .filter((change) => change.sessionIds.includes(sessionId))
+            .map((change) => ({
+                id: change.entityId,
+                operation: change.operation,
+                entityChanges: change.entityChanges,
+                entityStatus: change.entityStatus,
+            }));
+
+        // If no relevant entities, don't send a message
+        if (relevantEntities.length === 0) {
+            return;
+        }
+
+        const notificationMsg =
+            Communication.WebSocket.createMessage<Communication.WebSocket.NotificationEntityUpdatesMessage>(
+                {
+                    type: Communication.WebSocket.MessageType
+                        .NOTIFICATION_ENTITY_UPDATE,
+                    timestamp: new Date().toISOString(),
+                    tick: tickData,
+                    entities: relevantEntities,
+                },
+            );
+
+        session.ws.send(JSON.stringify(notificationMsg));
+    }
+
+    async broadcastEntityScriptUpdates(
+        sessionId: string,
+        scriptChanges: Tick.I_TickState["scriptUpdates"],
+        tickData: Tick.I_TickData,
+    ) {
+        // Get the session
+        const session = this.activeSessions.get(sessionId);
+        if (!session || session.ws.readyState !== WebSocket.OPEN) {
+            return;
+        }
+
+        // Filter scripts that include this session ID
+        const relevantScripts = scriptChanges
+            .filter((change) => change.sessionIds.includes(sessionId))
+            .map((change) => ({
+                id: change.scriptId,
+                operation: change.operation,
+                scriptChanges: change.changes,
+            }));
+
+        // If no relevant scripts, don't send a message
+        if (relevantScripts.length === 0) {
+            return;
+        }
+
+        const notificationMsg =
+            Communication.WebSocket.createMessage<Communication.WebSocket.NotificationEntityScriptUpdatesMessage>(
+                {
+                    type: Communication.WebSocket.MessageType
+                        .NOTIFICATION_ENTITY_SCRIPT_UPDATE,
+                    timestamp: new Date().toISOString(),
+                    tick: tickData,
+                    scripts: relevantScripts,
+                },
+            );
+
+        session.ws.send(JSON.stringify(notificationMsg));
     }
 }
 

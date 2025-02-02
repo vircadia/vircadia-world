@@ -113,11 +113,22 @@ INSERT INTO entity.protected_sync_groups (sync_group, description) VALUES
 -- Now create entity_sync_groups table and insert default values
 CREATE TABLE entity.entity_sync_groups (
     sync_group TEXT PRIMARY KEY,
-    server__tick__rate_ms INTEGER NOT NULL,
-    server__tick__buffer INTEGER NOT NULL,
-    network__interpolation_buffer_ms INTEGER NOT NULL,    -- How far behind to render for smoothing
-    network__max_extrapolation_ms INTEGER NOT NULL,       -- Maximum prediction time
-    network__jitter_threshold_ms INTEGER NOT NULL,        -- Maximum acceptable jitter
+    server__tick__rate_ms INTEGER NOT NULL,                      -- How often server processes entity updates
+    server__tick__buffer INTEGER NOT NULL,                       -- Number of ticks to buffer for processing spikes
+    
+    -- Client-side smoothing: How far behind real-time to render
+    -- Higher = smoother but more latency, Lower = more responsive but potentially choppy
+    client__render_delay_ms INTEGER NOT NULL,                    
+    
+    -- Maximum time client will continue simulating without server data
+    -- Higher = more forgiving of network issues but potential for desyncs
+    -- Lower = more accurate but may stutter during network issues
+    client__max_prediction_time_ms INTEGER NOT NULL,             
+    
+    -- Maximum acceptable variance in network packet arrival times
+    -- If packet timing variance exceeds this, client adjusts its simulation
+    network__packet_timing_variance_ms INTEGER NOT NULL,         
+    
     general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     general__created_by UUID DEFAULT auth.current_agent_id(),
@@ -129,13 +140,18 @@ INSERT INTO entity.entity_sync_groups (
     sync_group, 
     server__tick__rate_ms, 
     server__tick__buffer,
-    network__interpolation_buffer_ms,
-    network__max_extrapolation_ms,
-    network__jitter_threshold_ms
+    client__render_delay_ms,
+    client__max_prediction_time_ms,
+    network__packet_timing_variance_ms
 ) VALUES
-    ('REALTIME', 16, 2, 50, 100, 25),    -- Tighter performance and network requirements for realtime
-    ('NORMAL', 50, 1, 100, 150, 50),     -- Standard performance and network requirements
-    ('BACKGROUND', 200, 1, 200, 300, 100); -- More relaxed performance and network requirements
+    -- Fast-paced gameplay: Minimal delay, tight prediction window
+    ('REALTIME', 16, 2, 50, 100, 25),          
+    
+    -- Standard entities: Balance between smoothness and responsiveness
+    ('NORMAL', 50, 1, 100, 150, 50),           
+    
+    -- Background updates: Prioritize smoothness over immediacy
+    ('BACKGROUND', 200, 1, 200, 300, 100);     
 
 -- Enable RLS
 ALTER TABLE entity.entity_sync_groups ENABLE ROW LEVEL SECURITY;
@@ -173,9 +189,9 @@ BEGIN
         sync_group, 
         server__tick__rate_ms, 
         server__tick__buffer,
-        network__interpolation_buffer_ms,
-        network__max_extrapolation_ms,
-        network__jitter_threshold_ms
+        client__render_delay_ms,
+        client__max_prediction_time_ms,
+        network__packet_timing_variance_ms
     )
     SELECT 
         p.sync_group,
@@ -193,17 +209,17 @@ BEGIN
             WHEN 'REALTIME' THEN 50
             WHEN 'NORMAL' THEN 100
             WHEN 'BACKGROUND' THEN 200
-        END as network__interpolation_buffer_ms,
+        END as client__render_delay_ms,
         CASE p.sync_group
             WHEN 'REALTIME' THEN 100
             WHEN 'NORMAL' THEN 150
             WHEN 'BACKGROUND' THEN 300
-        END as network__max_extrapolation_ms,
+        END as client__max_prediction_time_ms,
         CASE p.sync_group
             WHEN 'REALTIME' THEN 25
             WHEN 'NORMAL' THEN 50
             WHEN 'BACKGROUND' THEN 100
-        END as network__jitter_threshold_ms
+        END as network__packet_timing_variance_ms
     FROM entity.protected_sync_groups p
     WHERE NOT EXISTS (
         SELECT 1 FROM entity.entity_sync_groups e
@@ -268,6 +284,10 @@ CREATE POLICY "entities_view_policy" ON entity.entities
     USING (
         auth.is_admin_agent()
         OR general__created_by = auth.current_agent_id()
+        OR permissions__roles__view IS NULL 
+        OR permissions__roles__view = '{}'
+        OR permissions__roles__full IS NULL 
+        OR permissions__roles__full = '{}'
         OR EXISTS (
             SELECT 1 
             FROM auth.agent_roles ar
@@ -285,6 +305,8 @@ CREATE POLICY "entities_update_policy" ON entity.entities
     USING (
         auth.is_admin_agent()
         OR general__created_by = auth.current_agent_id()
+        OR permissions__roles__full IS NULL 
+        OR permissions__roles__full = '{}'
         OR EXISTS (
             SELECT 1 
             FROM auth.agent_roles ar
@@ -313,6 +335,8 @@ CREATE POLICY "entities_delete_policy" ON entity.entities
     USING (
         auth.is_admin_agent()
         OR general__created_by = auth.current_agent_id()
+        OR permissions__roles__full IS NULL 
+        OR permissions__roles__full = '{}'
         OR EXISTS (
             SELECT 1 
             FROM auth.agent_roles ar

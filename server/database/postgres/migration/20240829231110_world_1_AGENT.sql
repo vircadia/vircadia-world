@@ -90,14 +90,16 @@ RETURNS UUID AS $$
 BEGIN
     -- First try to get the setting
     IF current_setting('app.current_agent_id', true) IS NULL OR 
-       current_setting('app.current_agent_id', true) = '' THEN
-        -- Return anonymous user if no context is set
+       TRIM(current_setting('app.current_agent_id', true)) = '' OR
+       TRIM(current_setting('app.current_agent_id', true)) = 'NULL' OR
+       LENGTH(TRIM(current_setting('app.current_agent_id', true))) != 36 THEN  -- UUID length check
+        -- Return anonymous user if no context is set or invalid format
         RETURN auth.get_anon_agent_id();
     END IF;
 
     -- Try to cast to UUID, return anon if invalid
     BEGIN
-        RETURN current_setting('app.current_agent_id', true)::UUID;
+        RETURN TRIM(current_setting('app.current_agent_id', true))::UUID;
     EXCEPTION WHEN OTHERS THEN
         RAISE WARNING 'Invalid UUID in app.current_agent_id setting: %', current_setting('app.current_agent_id', true);
         RETURN auth.get_anon_agent_id();
@@ -315,6 +317,16 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- Add new function to explicitly clear agent context
+CREATE OR REPLACE FUNCTION auth.clear_agent_context()
+RETURNS VOID AS $$
+BEGIN
+    -- Explicitly set to anon agent ID instead of NULL or empty string
+    PERFORM set_config('app.current_agent_id', auth.get_anon_agent_id()::text, false);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Update set_agent_context to be more strict
 CREATE OR REPLACE FUNCTION auth.set_agent_context(
     p_session_id UUID,
     p_session_token TEXT
@@ -324,6 +336,7 @@ DECLARE
     v_stored_token TEXT;
     v_is_active BOOLEAN;
     v_expires_at TIMESTAMPTZ;
+    v_result TEXT;
 BEGIN
     -- Get the agent_id and stored token from the session
     SELECT 
@@ -339,27 +352,42 @@ BEGIN
     FROM auth.agent_sessions 
     WHERE general__session_id = p_session_id;
 
+    -- Add debug logging
+    RAISE NOTICE 'Session check: agent_id %, stored_token %, active %, expires %', 
+        v_agent_id, SUBSTRING(v_stored_token, 1, 10), v_is_active, v_expires_at;
+    RAISE NOTICE 'Provided token: %', SUBSTRING(p_session_token, 1, 10);
+
     -- Verify session exists, is active, not expired, and token matches
     IF v_agent_id IS NULL OR 
        v_stored_token IS NULL OR 
-       v_stored_token != p_session_token OR
+       TRIM(v_stored_token) != TRIM(p_session_token) OR
        NOT v_is_active OR
        v_expires_at <= NOW() THEN
         -- Set to anonymous user if validation fails
-        v_agent_id := auth.get_anon_agent_id();
+        RAISE NOTICE 'Validation failed: exists=%, token_match=%, active=%, not_expired=%',
+            v_agent_id IS NOT NULL,
+            CASE WHEN v_stored_token IS NOT NULL THEN TRIM(v_stored_token) = TRIM(p_session_token) ELSE FALSE END,
+            v_is_active,
+            v_expires_at > NOW();
+        
+        -- Call clear_agent_context instead of direct assignment
+        PERFORM auth.clear_agent_context();
+        RETURN FALSE;
     END IF;
 
-    -- Set the agent context
-    PERFORM set_config('app.current_agent_id', v_agent_id::text, true);
+    -- Set the agent context with local = false to make it persist
+    SELECT set_config('app.current_agent_id', v_agent_id::text, false) INTO v_result;
+    RAISE NOTICE 'Set config result: %', v_result;
     
     -- Update last seen timestamp for valid sessions
-    IF v_agent_id != auth.get_anon_agent_id() THEN
-        UPDATE auth.agent_sessions 
-        SET session__last_seen_at = NOW()
-        WHERE general__session_id = p_session_id;
-    END IF;
+    UPDATE auth.agent_sessions 
+    SET session__last_seen_at = NOW()
+    WHERE general__session_id = p_session_id;
 
-    RETURN v_agent_id != auth.get_anon_agent_id();
+    -- Verify the setting was applied
+    RAISE NOTICE 'Current agent ID after set: %', current_setting('app.current_agent_id', true);
+
+    RETURN TRUE;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 

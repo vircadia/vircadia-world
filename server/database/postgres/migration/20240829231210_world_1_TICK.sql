@@ -76,43 +76,59 @@ BEGIN
             AND performance__sync_group = p_sync_group
         )
         SELECT 
-            cs.general__entity_id,
+            cs.general__entity_id as entity_id,
             CASE 
                 WHEN ps.general__entity_id IS NULL THEN 'INSERT'::operation_enum
                 ELSE 'UPDATE'::operation_enum
             END as operation,
             CASE
                 WHEN ps.general__entity_id IS NULL THEN
-                    -- For INSERTs, return all fields including NULLs
-                    to_jsonb(cs.*)
-                ELSE
-                    -- For UPDATEs, only include fields that have changed (including NULLs)
+                    -- For INSERTs, return all fields as a JSONB object
                     jsonb_build_object(
+                        'general__name', cs.general__name,
+                        'general__semantic_version', cs.general__semantic_version,
+                        'general__created_at', cs.general__created_at,
+                        'general__created_by', cs.general__created_by,
+                        'general__updated_at', cs.general__updated_at,
+                        'general__updated_by', cs.general__updated_by,
+                        'general__load_priority', cs.general__load_priority,
+                        'general__initialized_at', cs.general__initialized_at,
+                        'general__initialized_by', cs.general__initialized_by,
+                        'meta__data', cs.meta__data,
+                        'scripts__ids', cs.scripts__ids,
+                        'validation__log', cs.validation__log,
+                        'performance__sync_group', cs.performance__sync_group,
+                        'permissions__roles__view', cs.permissions__roles__view,
+                        'permissions__roles__full', cs.permissions__roles__full
+                    )
+                ELSE
+                    -- For UPDATEs, only include fields that have changed
+                    jsonb_strip_nulls(jsonb_build_object(
                         'general__name', 
                             CASE WHEN cs.general__name IS DISTINCT FROM ps.general__name 
                             THEN cs.general__name ELSE NULL END,
                         'general__semantic_version', 
                             CASE WHEN cs.general__semantic_version IS DISTINCT FROM ps.general__semantic_version 
                             THEN cs.general__semantic_version ELSE NULL END,
-                        'general__created_at', 
+                        'general__created_at',
                             CASE WHEN cs.general__created_at IS DISTINCT FROM ps.general__created_at 
                             THEN cs.general__created_at ELSE NULL END,
-                        'general__created_by', 
+                        'general__created_by',
                             CASE WHEN cs.general__created_by IS DISTINCT FROM ps.general__created_by 
                             THEN cs.general__created_by ELSE NULL END,
-                        'general__updated_at', 
+                        'general__updated_at',
                             CASE WHEN cs.general__updated_at IS DISTINCT FROM ps.general__updated_at 
                             THEN cs.general__updated_at ELSE NULL END,
-                        'general__updated_by', 
+                        'general__updated_by',
                             CASE WHEN cs.general__updated_by IS DISTINCT FROM ps.general__updated_by 
                             THEN cs.general__updated_by ELSE NULL END,
-                        'general__load_priority', 
+                        'general__load_priority',
                             CASE WHEN cs.general__load_priority IS DISTINCT FROM ps.general__load_priority 
                             THEN cs.general__load_priority ELSE NULL END,
-                        'general__initialized_at', 
+                        'general__initialized_at',
                             CASE WHEN cs.general__initialized_at IS DISTINCT FROM ps.general__initialized_at 
                             THEN cs.general__initialized_at ELSE NULL END,
-                        'general__initialized_by', 
+                        'general__initialized_by',
                             CASE WHEN cs.general__initialized_by IS DISTINCT FROM ps.general__initialized_by 
                             THEN cs.general__initialized_by ELSE NULL END,
                         'meta__data', 
@@ -133,14 +149,21 @@ BEGIN
                         'performance__sync_group', 
                             CASE WHEN cs.performance__sync_group IS DISTINCT FROM ps.performance__sync_group 
                             THEN cs.performance__sync_group ELSE NULL END
-                    )
-            END as changes,
+                    ))
+            END as entity_changes,
             cs.permissions__roles__view
         FROM current_states cs
         LEFT JOIN previous_states ps ON cs.general__entity_id = ps.general__entity_id
         WHERE ps.general__entity_id IS NULL  -- New entities
            OR cs.general__name IS DISTINCT FROM ps.general__name
            OR cs.general__semantic_version IS DISTINCT FROM ps.general__semantic_version
+           OR cs.general__created_at IS DISTINCT FROM ps.general__created_at
+           OR cs.general__created_by IS DISTINCT FROM ps.general__created_by
+           OR cs.general__updated_at IS DISTINCT FROM ps.general__updated_at
+           OR cs.general__updated_by IS DISTINCT FROM ps.general__updated_by
+           OR cs.general__load_priority IS DISTINCT FROM ps.general__load_priority
+           OR cs.general__initialized_at IS DISTINCT FROM ps.general__initialized_at
+           OR cs.general__initialized_by IS DISTINCT FROM ps.general__initialized_by
            OR cs.meta__data IS DISTINCT FROM ps.meta__data
            OR cs.scripts__ids IS DISTINCT FROM ps.scripts__ids
            OR cs.validation__log IS DISTINCT FROM ps.validation__log
@@ -150,11 +173,11 @@ BEGIN
 
         UNION ALL
 
-        -- Handle deletes (unchanged)
+        -- Handle deletes
         SELECT 
             ps.general__entity_id,
-            'DELETE'::operation_enum as operation,
-            NULL as changes,
+            'DELETE'::operation_enum,
+            NULL,
             ps.permissions__roles__view
         FROM previous_states ps
         LEFT JOIN current_states cs ON ps.general__entity_id = cs.general__entity_id
@@ -178,11 +201,17 @@ BEGIN
         SELECT 
             ce.entity_id,
             CASE
-                WHEN array_length(ce.scripts__ids, 1) IS NULL THEN 'ACTIVE'::entity_status_enum
+                WHEN jsonb_array_length(ce.entity_changes->'scripts__ids') IS NULL THEN 'ACTIVE'::entity_status_enum
                 WHEN EXISTS (
                     SELECT 1 
                     FROM entity.entity_scripts es 
-                    WHERE es.general__script_id = ANY(ce.scripts__ids)
+                    WHERE es.general__script_id = ANY(
+                        ARRAY(
+                            SELECT jsonb_array_elements_text(
+                                COALESCE(ce.entity_changes->'scripts__ids', '[]'::jsonb)
+                            )::uuid
+                        )
+                    )
                     AND (
                         es.script__compiled__node__script_status = 'PENDING' OR
                         es.script__compiled__bun__script_status = 'PENDING' OR
@@ -197,7 +226,7 @@ BEGIN
     SELECT 
         ce.entity_id,
         ce.operation,
-        ce.changes as entity_changes,
+        ce.entity_changes,
         CASE 
             -- When permissions are empty/null, include all active session IDs
             WHEN ce.permissions__roles__view IS NULL OR ce.permissions__roles__view = '{}' THEN
@@ -212,7 +241,7 @@ BEGIN
     FROM changed_entities ce
     CROSS JOIN active_sessions as_sess
     JOIN entity_script_status ess ON ce.entity_id = ess.entity_id
-    GROUP BY ce.entity_id, ce.operation, ce.changes, ess.status, ce.permissions__roles__view;
+    GROUP BY ce.entity_id, ce.operation, ce.entity_changes, ess.status, ce.permissions__roles__view;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -256,7 +285,30 @@ CREATE OR REPLACE FUNCTION tick.get_script_changes(
 BEGIN
     RETURN QUERY
     WITH current_scripts AS (
-        SELECT es.* 
+        SELECT 
+            general__script_id,
+            general__created_at,
+            general__created_by,
+            general__updated_at,
+            general__updated_by,
+            script__source__node__repo__entry_path,
+            script__source__node__repo__url,
+            script__compiled__node__script,
+            script__compiled__node__script_sha256,
+            script__compiled__node__script_status,
+            script__compiled__node__updated_at,
+            script__source__bun__repo__entry_path,
+            script__source__bun__repo__url,
+            script__compiled__bun__script,
+            script__compiled__bun__script_sha256,
+            script__compiled__bun__script_status,
+            script__compiled__bun__updated_at,
+            script__source__browser__repo__entry_path,
+            script__source__browser__repo__url,
+            script__compiled__browser__script,
+            script__compiled__browser__script_sha256,
+            script__compiled__browser__script_status,
+            script__compiled__browser__updated_at
         FROM entity.entity_scripts es
         WHERE es.general__updated_at >= (
             SELECT tick__start_time 
@@ -266,7 +318,30 @@ BEGIN
         )
     ),
     previous_scripts AS (
-        SELECT es.*
+        SELECT 
+            general__script_id,
+            general__created_at,
+            general__created_by,
+            general__updated_at,
+            general__updated_by,
+            script__source__node__repo__entry_path,
+            script__source__node__repo__url,
+            script__compiled__node__script,
+            script__compiled__node__script_sha256,
+            script__compiled__node__script_status,
+            script__compiled__node__updated_at,
+            script__source__bun__repo__entry_path,
+            script__source__bun__repo__url,
+            script__compiled__bun__script,
+            script__compiled__bun__script_sha256,
+            script__compiled__bun__script_status,
+            script__compiled__bun__updated_at,
+            script__source__browser__repo__entry_path,
+            script__source__browser__repo__url,
+            script__compiled__browser__script,
+            script__compiled__browser__script_sha256,
+            script__compiled__browser__script_status,
+            script__compiled__browser__updated_at
         FROM entity.entity_scripts es
         WHERE es.general__updated_at < (
             SELECT tick__start_time 
@@ -277,7 +352,7 @@ BEGIN
     ),
     -- Get all active sessions
     active_sessions AS (
-        SELECT array_agg(general__session_id) as session_ids
+        SELECT array_agg(general__session_id) as active_session_ids
         FROM auth.agent_sessions
         WHERE session__is_active = true 
         AND session__expires_at > NOW()
@@ -291,10 +366,34 @@ BEGIN
         CASE 
             WHEN ps.general__script_id IS NULL THEN
                 -- For INSERTs, return all fields including NULLs
-                to_jsonb(cs.*)
+                jsonb_build_object(
+                    'general__script_id', cs.general__script_id,
+                    'general__created_at', cs.general__created_at,
+                    'general__created_by', cs.general__created_by,
+                    'general__updated_at', cs.general__updated_at,
+                    'general__updated_by', cs.general__updated_by,
+                    'script__source__node__repo__entry_path', cs.script__source__node__repo__entry_path,
+                    'script__source__node__repo__url', cs.script__source__node__repo__url,
+                    'script__compiled__node__script', cs.script__compiled__node__script,
+                    'script__compiled__node__script_sha256', cs.script__compiled__node__script_sha256,
+                    'script__compiled__node__script_status', cs.script__compiled__node__script_status,
+                    'script__compiled__node__updated_at', cs.script__compiled__node__updated_at,
+                    'script__source__bun__repo__entry_path', cs.script__source__bun__repo__entry_path,
+                    'script__source__bun__repo__url', cs.script__source__bun__repo__url,
+                    'script__compiled__bun__script', cs.script__compiled__bun__script,
+                    'script__compiled__bun__script_sha256', cs.script__compiled__bun__script_sha256,
+                    'script__compiled__bun__script_status', cs.script__compiled__bun__script_status,
+                    'script__compiled__bun__updated_at', cs.script__compiled__bun__updated_at,
+                    'script__source__browser__repo__entry_path', cs.script__source__browser__repo__entry_path,
+                    'script__source__browser__repo__url', cs.script__source__browser__repo__url,
+                    'script__compiled__browser__script', cs.script__compiled__browser__script,
+                    'script__compiled__browser__script_sha256', cs.script__compiled__browser__script_sha256,
+                    'script__compiled__browser__script_status', cs.script__compiled__browser__script_status,
+                    'script__compiled__browser__updated_at', cs.script__compiled__browser__updated_at
+                )
             ELSE
                 -- For UPDATEs, only return changed fields (including NULLs)
-                jsonb_build_object(
+                jsonb_strip_nulls(jsonb_build_object(
                     'general__script_id',
                         CASE WHEN cs.general__script_id IS DISTINCT FROM ps.general__script_id 
                         THEN cs.general__script_id ELSE NULL END,
@@ -364,9 +463,9 @@ BEGIN
                     'script__compiled__browser__updated_at',
                         CASE WHEN cs.script__compiled__browser__updated_at IS DISTINCT FROM ps.script__compiled__browser__updated_at 
                         THEN cs.script__compiled__browser__updated_at ELSE NULL END
-                )
+                ))
         END as script_changes,
-        (SELECT session_ids FROM active_sessions)
+        (SELECT active_session_ids FROM active_sessions)
     FROM current_scripts cs
     LEFT JOIN previous_scripts ps ON cs.general__script_id = ps.general__script_id
     WHERE ps.general__script_id IS NULL  -- New scripts
@@ -384,7 +483,7 @@ BEGIN
         ps.general__script_id,
         'DELETE'::operation_enum as operation,
         NULL as script_changes,
-        (SELECT session_ids FROM active_sessions)
+        (SELECT active_session_ids FROM active_sessions)
     FROM previous_scripts ps
     LEFT JOIN current_scripts cs ON ps.general__script_id = cs.general__script_id
     WHERE cs.general__script_id IS NULL;
@@ -446,9 +545,6 @@ DECLARE
     v_entity_updates tick.entity_update[];
     v_script_updates tick.script_update[];
 BEGIN
-    -- Ensure atomic operation
-    SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
-    
     -- Initialize tick data
     tick_start := clock_timestamp();
     
@@ -466,17 +562,15 @@ BEGIN
     current_tick := FLOOR(EXTRACT(EPOCH FROM tick_start) * 1000 / tick_rate_ms)::bigint;
     
     -- Get the last tick number for this sync group
-    SELECT MAX(tick__number) INTO last_tick
+    SELECT COALESCE(MAX(tick__number), current_tick - 1) INTO last_tick
     FROM tick.entity_states
-    WHERE performance__sync_group = sync_group_name
-    AND tick__number < current_tick;
+    WHERE performance__sync_group = sync_group_name;
 
     -- Get the last tick's timestamp
     SELECT tick__end_time INTO last_tick_time
     FROM tick.tick_metrics
     WHERE performance__sync_group = sync_group_name
-    ORDER BY tick__number DESC
-    LIMIT 1;
+    AND tick__number = last_tick;
 
     -- Calculate time since last tick
     time_since_last_tick := CASE 
@@ -485,21 +579,54 @@ BEGIN
         ELSE tick_rate_ms 
     END;
 
-    -- Modified insert statement to match flattened column structure
+    -- Modified insert statement to match inherited column structure
     WITH inserted AS (
         INSERT INTO tick.entity_states (
-            general__entity_state_id,
-            entity.entities.*,  -- This will include all columns from entities table
+            -- Use the inherited columns directly
+            general__entity_id,
+            general__name,
+            general__semantic_version,
+            general__created_at,
+            general__created_by,
+            general__updated_at,
+            general__updated_by,
+            general__load_priority,
+            general__initialized_at,
+            general__initialized_by,
+            meta__data,
+            scripts__ids,
+            validation__log,
+            performance__sync_group,
+            permissions__roles__view,
+            permissions__roles__full,
+            
             -- Tick-specific fields
+            general__entity_state_id,
             tick__number,
             tick__start_time,
             tick__end_time,
             tick__duration_ms
         )
         SELECT 
-            uuid_generate_v4(),  -- new state ID
-            e.*,
+            e.general__entity_id,
+            e.general__name,
+            e.general__semantic_version,
+            e.general__created_at,
+            e.general__created_by,
+            e.general__updated_at,
+            e.general__updated_by,
+            e.general__load_priority,
+            e.general__initialized_at,
+            e.general__initialized_by,
+            e.meta__data,
+            e.scripts__ids,
+            e.validation__log,
+            e.performance__sync_group,
+            e.permissions__roles__view,
+            e.permissions__roles__full,
+            
             -- Tick-specific fields
+            uuid_generate_v4(),  -- new state ID
             current_tick,
             tick_start,
             clock_timestamp(),
@@ -520,16 +647,38 @@ BEGIN
     SELECT COUNT(*) INTO inserted_count FROM inserted;
 
     tick_end := clock_timestamp();
-    
-    -- More precise duration calculation using microseconds
     tick_duration := EXTRACT(EPOCH FROM (tick_end - tick_start)) * 1000.0;
     is_delayed := tick_duration > tick_rate_ms;
-    headroom := GREATEST(
-        tick_rate_ms - tick_duration, 
-        0.0
-    );
+    headroom := GREATEST(tick_rate_ms - tick_duration, 0.0);
 
-    -- Capture the tick state first
+    -- Build tick metadata
+    SELECT ROW(
+        current_tick,
+        tick_start,
+        tick_end,
+        tick_duration,
+        is_delayed,
+        headroom,
+        time_since_last_tick,
+        GREATEST(tick_rate_ms - tick_duration, 0.0),
+        (current_tick - last_tick)::int
+    )::tick.tick_metadata INTO v_tick_data;
+
+    -- Get entity updates with explicit casting
+    SELECT COALESCE(array_agg(
+        (entity_id, operation, entity_changes, session_ids, entity_status)::tick.entity_update
+    ), ARRAY[]::tick.entity_update[])
+    FROM tick.get_entity_changes(sync_group_name, last_tick, current_tick)
+    INTO v_entity_updates;
+
+    -- Get script updates with explicit casting
+    SELECT COALESCE(array_agg(
+        (script_id, operation, script_changes, session_ids)::tick.script_update
+    ), ARRAY[]::tick.script_update[])
+    FROM tick.get_script_changes(last_tick, current_tick)
+    INTO v_script_updates;
+
+    -- Insert tick metrics
     INSERT INTO tick.tick_metrics (
         tick__number,
         performance__sync_group,
@@ -550,47 +699,13 @@ BEGIN
         headroom
     );
 
-    -- Build tick metadata
-    SELECT ROW(
-        current_tick,
-        tick_start,
-        tick_end,
-        tick_duration,
-        is_delayed,
-        headroom,
-        time_since_last_tick,
-        GREATEST(tick_rate_ms - tick_duration, 0.0),
-        (current_tick - COALESCE(last_tick, current_tick - 1))::int
-    )::tick.tick_metadata INTO v_tick_data;
-
-    -- Get entity updates
-    SELECT array_agg(
-        ROW(
-            entity_id,
-            operation,
-            entity_changes,
-            session_ids,
-            entity_status
-        )::tick.entity_update
-    )
-    FROM tick.get_entity_changes(sync_group_name, last_tick, current_tick)
-    INTO v_entity_updates;
-
-    -- Get script updates (modified to match new return type)
-    SELECT array_agg(
-        ROW(
-            script_id,
-            operation,
-            script_changes,
-            session_ids
-        )::tick.script_update
-    )
-    FROM tick.get_script_changes(last_tick, current_tick)
-    INTO v_script_updates;
-
-    -- Return all three sets of data
+    -- Return all data
     RETURN QUERY 
     SELECT v_tick_data, v_entity_updates, v_script_updates;
+
+    EXCEPTION
+        WHEN OTHERS THEN
+            RAISE;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 

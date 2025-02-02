@@ -588,11 +588,11 @@ export async function generateDbSystemToken(): Promise<{
         }
 
         // Get system agent ID
-        const [systemId] = await sql`SELECT get_system_agent_id()`;
+        const [systemId] = await sql`SELECT auth.get_system_agent_id()`;
 
         // Create a new session for the system agent
         const [sessionResult] = await sql`
-            SELECT * FROM create_agent_session(${systemId.get_system_agent_id}, 'test')
+            SELECT * FROM auth.create_agent_session(${systemId.get_system_agent_id}, 'test')
         `;
 
         // Generate JWT token using the config from database
@@ -601,10 +601,10 @@ export async function generateDbSystemToken(): Promise<{
                 sessionId: sessionResult.general__session_id,
                 agentId: systemId.get_system_agent_id,
             },
-            authConfig.general__value.auth.jwt_secret,
+            authConfig.general__value.auth.secret_jwt,
             {
                 expiresIn:
-                    authConfig.general__value.auth.admin_token_session_duration,
+                    authConfig.general__value.auth.session_duration_admin_jwt,
             },
         );
 

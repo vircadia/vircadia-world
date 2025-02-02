@@ -453,18 +453,15 @@ BEGIN
     tick_start := clock_timestamp();
     
     -- Get sync groups configuration
-    SELECT value INTO sync_groups 
-    FROM config.config 
-    WHERE key = 'sync_groups';
+    SELECT server__tick__rate_ms INTO tick_rate_ms 
+    FROM entity.entity_sync_groups 
+    WHERE sync_group = sync_group_name;
     
     -- Validate sync group exists
-    IF NOT sync_groups ? sync_group_name THEN
+    IF NOT FOUND THEN
         RAISE EXCEPTION 'Invalid sync group: %', sync_group_name;
     END IF;
 
-    -- Get tick rate for this sync group
-    tick_rate_ms := (sync_groups #>> ARRAY[sync_group_name, 'server_tick_rate_ms'])::int;
-    
     -- Calculate current tick for this sync group
     current_tick := FLOOR(EXTRACT(EPOCH FROM tick_start) * 1000 / tick_rate_ms)::bigint;
     

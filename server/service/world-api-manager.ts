@@ -7,6 +7,7 @@ import {
     type Tick,
 } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import type { Server, ServerWebSocket } from "bun";
+import type { Config } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 
 interface WorldSession<T = unknown> {
     ws: WebSocket | ServerWebSocket<T>;
@@ -14,13 +15,6 @@ interface WorldSession<T = unknown> {
     sessionId: string;
     lastHeartbeat: number;
     subscriptions: Set<string>;
-}
-
-interface AuthConfig {
-    jwt_session_duration: string;
-    jwt_secret: string;
-    admin_token_session_duration: string;
-    ws_check_interval: number;
 }
 
 interface WebSocketData {
@@ -32,7 +26,7 @@ interface WebSocketData {
 async function validateSession(
     sql: postgres.Sql,
     debugMode: boolean,
-    authConfig: AuthConfig,
+    authConfig: Config.I_ClientSettings["auth"],
     token: string,
 ): Promise<{ agentId: string; sessionId: string; isValid: boolean }> {
     try {
@@ -45,7 +39,7 @@ async function validateSession(
             };
         }
 
-        const decoded = verify(token, authConfig.jwt_secret) as {
+        const decoded = verify(token, authConfig.secret_jwt) as {
             sessionId: string;
             agentId: string;
         };
@@ -89,7 +83,7 @@ class WorldRestManager {
     constructor(
         private readonly sql: postgres.Sql,
         private readonly debugMode: boolean,
-        private readonly authConfig: AuthConfig,
+        private readonly authConfig: Config.I_ClientSettings["auth"],
     ) {}
 
     async handleRequest(req: Request): Promise<Response> {
@@ -506,7 +500,7 @@ class WorldWebSocketManager {
     constructor(
         private readonly sql: postgres.Sql,
         private readonly debugMode: boolean,
-        private readonly authConfig: AuthConfig,
+        private readonly authConfig: Config.I_ClientSettings["auth"],
     ) {}
 
     private async setAgentContext(
@@ -1262,7 +1256,7 @@ class WorldWebSocketManager {
 }
 
 export class WorldApiManager {
-    private authConfig: AuthConfig | undefined;
+    private authConfig: Config.I_ClientSettings["auth"] | undefined;
     private oauthManager: WorldRestManager | undefined;
     private wsManager: WorldWebSocketManager | undefined;
     private server: Server | undefined;
@@ -1282,9 +1276,9 @@ export class WorldApiManager {
 
         // Load auth config
         const [config] = await this.sql`
-            SELECT value FROM config.config WHERE key = 'auth_settings'
+            SELECT value FROM config.config WHERE key = 'client_settings'
         `;
-        this.authConfig = config.value as AuthConfig;
+        this.authConfig = (config.value as Config.I_ClientSettings).auth;
 
         // Initialize components
         this.oauthManager = new WorldRestManager(

@@ -4,9 +4,7 @@ CREATE SCHEMA IF NOT EXISTS config;
 CREATE TABLE config.config (
     general__key text PRIMARY KEY,
     general__value jsonb NOT NULL,
-    general__description text,
-    general__created_at timestamptz DEFAULT now(),
-    general__updated_at timestamptz DEFAULT now()
+    general__description text
 );
 
 -- Seeds tracking table
@@ -43,9 +41,11 @@ INSERT INTO config.config (general__key, general__value, general__description) V
     ),
     -- Authentication
     'auth', jsonb_build_object(
-        'jwt_session_duration', '24h',
-        'jwt_secret', 'CHANGE_ME!',
-        'admin_token_session_duration', '24h',
+        'session_duration_jwt', '24h',
+        'session_duration_ms', 86400000,    -- 24 hours in milliseconds (for timestamp calculations)
+        'secret_jwt', 'CHANGE_ME!',
+        'session_duration_admin_jwt', '24h',
+        'session_duration_admin_ms', 86400000, -- 24 hours in milliseconds (for timestamp calculations)
         'ws_check_interval', 10000
     ),
     -- Heartbeat settings

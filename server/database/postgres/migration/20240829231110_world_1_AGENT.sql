@@ -19,6 +19,7 @@ CREATE TABLE auth.agent_auth_providers (
     auth__provider_uid TEXT,
     auth__is_primary BOOLEAN NOT NULL DEFAULT FALSE,
     general__created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    general__updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (auth__agent_id, auth__provider_name)
 );
 
@@ -27,7 +28,8 @@ CREATE TABLE auth.roles (
     meta__description TEXT,
     auth__is_system BOOLEAN NOT NULL DEFAULT FALSE,
     auth__entity__insert BOOLEAN NOT NULL DEFAULT FALSE,
-    general__created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    general__created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    general__updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE auth.agent_roles (
@@ -36,6 +38,8 @@ CREATE TABLE auth.agent_roles (
     auth__is_active BOOLEAN NOT NULL DEFAULT TRUE,
     auth__granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     auth__granted_by UUID REFERENCES auth.agent_profiles(general__agent_profile_id),
+    general__created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    general__updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (auth__agent_id, auth__role_name)
 );
 
@@ -49,7 +53,9 @@ CREATE TABLE auth.agent_sessions (
     session__jwt TEXT,
     session__is_active BOOLEAN NOT NULL DEFAULT TRUE,
     stats__last_subscription_message JSONB DEFAULT NULL,
-    stats__last_subscription_message_at TIMESTAMPTZ DEFAULT NULL
+    stats__last_subscription_message_at TIMESTAMPTZ DEFAULT NULL,
+    general__created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    general__updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Enable RLS
@@ -82,10 +88,20 @@ CREATE INDEX idx_agent_sessions_validation ON auth.agent_sessions
 CREATE OR REPLACE FUNCTION auth.current_agent_id() 
 RETURNS UUID AS $$
 BEGIN
-    RETURN COALESCE(
-        current_setting('app.current_agent_id', true)::UUID,
-        '00000000-0000-0000-0000-000000000001'::UUID
-    );
+    -- First try to get the setting
+    IF current_setting('app.current_agent_id', true) IS NULL OR 
+       current_setting('app.current_agent_id', true) = '' THEN
+        -- Return anonymous user if no context is set
+        RETURN auth.get_anon_agent_id();
+    END IF;
+
+    -- Try to cast to UUID, return anon if invalid
+    BEGIN
+        RETURN current_setting('app.current_agent_id', true)::UUID;
+    EXCEPTION WHEN OTHERS THEN
+        RAISE WARNING 'Invalid UUID in app.current_agent_id setting: %', current_setting('app.current_agent_id', true);
+        RETURN auth.get_anon_agent_id();
+    END;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -204,7 +220,7 @@ CREATE OR REPLACE FUNCTION auth.create_agent_session(
 DECLARE
     v_session_id UUID;
     v_expires_at TIMESTAMPTZ;
-    v_duration INTERVAL;
+    v_duration BIGINT;
     v_max_sessions INTEGER;
     v_current_sessions INTEGER;
 BEGIN
@@ -214,10 +230,10 @@ BEGIN
     END IF;
 
     -- Get max sessions per agent from config
-    SELECT (value->>'max_sessions_per_agent')::INTEGER 
+    SELECT (general__value->>'max_sessions_per_agent')::INTEGER 
     INTO v_max_sessions 
     FROM config.config 
-    WHERE key = 'client__session';
+    WHERE general__key = 'client_settings';
 
     -- Count current active sessions for this agent
     SELECT COUNT(*) 
@@ -244,12 +260,12 @@ BEGIN
     END IF;
 
     -- Get duration from config
-    SELECT (value->>'jwt_session_duration')::INTERVAL 
+    SELECT (general__value->'auth'->>'session_duration_ms')::BIGINT 
     INTO v_duration 
     FROM config.config 
-    WHERE key = 'auth_settings';
+    WHERE general__key = 'client_settings';
     
-    v_expires_at := NOW() + v_duration;
+    v_expires_at := NOW() + (v_duration || ' milliseconds')::INTERVAL;
 
     INSERT INTO auth.agent_sessions AS s (
         auth__agent_id,
@@ -306,17 +322,29 @@ CREATE OR REPLACE FUNCTION auth.set_agent_context(
 DECLARE
     v_agent_id UUID;
     v_stored_token TEXT;
+    v_is_active BOOLEAN;
+    v_expires_at TIMESTAMPTZ;
 BEGIN
     -- Get the agent_id and stored token from the session
-    SELECT auth__agent_id, session__jwt 
-    INTO v_agent_id, v_stored_token
+    SELECT 
+        auth__agent_id, 
+        session__jwt,
+        session__is_active,
+        session__expires_at
+    INTO 
+        v_agent_id, 
+        v_stored_token,
+        v_is_active,
+        v_expires_at
     FROM auth.agent_sessions 
-    WHERE general__session_id = p_session_id
-    AND session__is_active = true
-    AND session__expires_at > NOW();
+    WHERE general__session_id = p_session_id;
 
-    -- Verify both session exists and token matches
-    IF v_agent_id IS NULL OR v_stored_token IS NULL OR v_stored_token != p_session_token THEN
+    -- Verify session exists, is active, not expired, and token matches
+    IF v_agent_id IS NULL OR 
+       v_stored_token IS NULL OR 
+       v_stored_token != p_session_token OR
+       NOT v_is_active OR
+       v_expires_at <= NOW() THEN
         -- Set to anonymous user if validation fails
         v_agent_id := auth.get_anon_agent_id();
     END IF;
@@ -324,6 +352,13 @@ BEGIN
     -- Set the agent context
     PERFORM set_config('app.current_agent_id', v_agent_id::text, true);
     
+    -- Update last seen timestamp for valid sessions
+    IF v_agent_id != auth.get_anon_agent_id() THEN
+        UPDATE auth.agent_sessions 
+        SET session__last_seen_at = NOW()
+        WHERE general__session_id = p_session_id;
+    END IF;
+
     RETURN v_agent_id != auth.get_anon_agent_id();
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -334,10 +369,10 @@ DECLARE
     v_max_age_ms INTEGER;
     v_count INTEGER;
 BEGIN
-    SELECT (value->>'max_session_age_ms')::INTEGER 
+    SELECT (general__value->'session'->>'max_age_ms')::INTEGER 
     INTO v_max_age_ms 
     FROM config.config 
-    WHERE key = 'client__session';
+    WHERE general__key = 'client_settings';
 
     WITH updated_sessions AS (
         UPDATE auth.agent_sessions 
@@ -358,10 +393,10 @@ DECLARE
     v_agent_id UUID;
     v_max_age_ms INTEGER;
 BEGIN
-    SELECT (value->>'max_session_age_ms')::INTEGER 
+    SELECT (general__value->'session'->>'max_age_ms')::INTEGER 
     INTO v_max_age_ms 
     FROM config.config 
-    WHERE key = 'client__session';
+    WHERE general__key = 'client_settings';
 
     -- Get the agent_id from the session
     SELECT auth__agent_id INTO v_agent_id
@@ -519,11 +554,10 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- Revoke set_config from public
 REVOKE ALL ON FUNCTION pg_catalog.set_config(text, text, boolean) FROM PUBLIC;
 
--- Only allow superuser to set config
--- Instead of granting to 'postgres' specifically, we'll grant to the current superuser
+-- Grant to current user
 DO $$ 
 BEGIN
-    -- Grant to current user (assuming they're a superuser)
+    -- Grant to current user
     EXECUTE format(
         'GRANT EXECUTE ON FUNCTION pg_catalog.set_config(text, text, boolean) TO %I',
         CURRENT_USER

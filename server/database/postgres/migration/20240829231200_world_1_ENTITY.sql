@@ -4,6 +4,49 @@
 CREATE SCHEMA IF NOT EXISTS entity;
 
 --
+-- ENTITY SYNC GROUPS
+--
+
+-- Modify entity_sync_groups table creation and default values (keeping just the defaults)
+CREATE TABLE entity.entity_sync_groups (
+    sync_group TEXT PRIMARY KEY,
+    server__tick__rate_ms INTEGER NOT NULL,
+    server__tick__buffer INTEGER NOT NULL,
+    client__render_delay_ms INTEGER NOT NULL,
+    client__max_prediction_time_ms INTEGER NOT NULL,
+    network__packet_timing_variance_ms INTEGER NOT NULL,
+    general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    general__created_by UUID DEFAULT auth.current_agent_id(),
+    general__updated_by UUID DEFAULT auth.current_agent_id()
+);
+
+-- Insert default sync groups with their network and performance settings
+INSERT INTO entity.entity_sync_groups (
+    sync_group, 
+    server__tick__rate_ms, 
+    server__tick__buffer,
+    client__render_delay_ms,
+    client__max_prediction_time_ms,
+    network__packet_timing_variance_ms
+) VALUES
+    ('REALTIME', 16, 2, 50, 100, 25),
+    ('NORMAL', 50, 1, 100, 150, 50),
+    ('BACKGROUND', 200, 1, 200, 300, 100),
+    ('STATIC', 2000, 1, 500, 1000, 200);
+
+-- Enable RLS and keep the basic policies
+ALTER TABLE entity.entity_sync_groups ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow viewing sync groups" ON entity.entity_sync_groups
+    FOR SELECT
+    USING (true);
+
+CREATE POLICY "Allow admin sync group modifications" ON entity.entity_sync_groups
+    FOR ALL
+    USING (auth.is_admin_agent());
+
+--
 -- ENTITY SCRIPTS
 --
 
@@ -16,6 +59,8 @@ CREATE TABLE entity.entity_scripts (
     general__created_by UUID DEFAULT auth.current_agent_id(),
     general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     general__updated_by UUID DEFAULT auth.current_agent_id(),
+
+    performance__sync_group TEXT NOT NULL REFERENCES entity.entity_sync_groups(sync_group) DEFAULT 'STATIC',
 
     script__source__node__repo__entry_path TEXT,
     script__source__node__repo__url TEXT,
@@ -86,167 +131,16 @@ CREATE POLICY "Allow deleting scripts with proper role" ON entity.entity_scripts
         )
     );
 
---
--- ENTITY SYNC GROUPS
---
-
--- Create a table to track protected sync groups first
-CREATE TABLE entity.protected_sync_groups (
-    sync_group TEXT PRIMARY KEY,
-    description TEXT NOT NULL
-);
-
--- Enable RLS on protected sync groups
-ALTER TABLE entity.protected_sync_groups ENABLE ROW LEVEL SECURITY;
-
--- Only allow admins to view/modify protected sync groups list
-CREATE POLICY "Allow admin protected sync groups access" ON entity.protected_sync_groups
-    FOR ALL
-    USING (auth.is_admin_agent());
-
--- Insert the protected (required) sync groups
-INSERT INTO entity.protected_sync_groups (sync_group, description) VALUES
-    ('REALTIME', 'High-frequency updates for real-time interactions'),
-    ('NORMAL', 'Standard update frequency for most entities'),
-    ('BACKGROUND', 'Low-frequency updates for background processes');
-
--- Now create entity_sync_groups table and insert default values
-CREATE TABLE entity.entity_sync_groups (
-    sync_group TEXT PRIMARY KEY,
-    server__tick__rate_ms INTEGER NOT NULL,                      -- How often server processes entity updates
-    server__tick__buffer INTEGER NOT NULL,                       -- Number of ticks to buffer for processing spikes
-    
-    -- Client-side smoothing: How far behind real-time to render
-    -- Higher = smoother but more latency, Lower = more responsive but potentially choppy
-    client__render_delay_ms INTEGER NOT NULL,                    
-    
-    -- Maximum time client will continue simulating without server data
-    -- Higher = more forgiving of network issues but potential for desyncs
-    -- Lower = more accurate but may stutter during network issues
-    client__max_prediction_time_ms INTEGER NOT NULL,             
-    
-    -- Maximum acceptable variance in network packet arrival times
-    -- If packet timing variance exceeds this, client adjusts its simulation
-    network__packet_timing_variance_ms INTEGER NOT NULL,         
-    
-    general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    general__created_by UUID DEFAULT auth.current_agent_id(),
-    general__updated_by UUID DEFAULT auth.current_agent_id()
-);
-
--- Insert default sync groups with their network and performance settings
-INSERT INTO entity.entity_sync_groups (
-    sync_group, 
-    server__tick__rate_ms, 
-    server__tick__buffer,
-    client__render_delay_ms,
-    client__max_prediction_time_ms,
-    network__packet_timing_variance_ms
-) VALUES
-    -- Fast-paced gameplay: Minimal delay, tight prediction window
-    ('REALTIME', 16, 2, 50, 100, 25),          
-    
-    -- Standard entities: Balance between smoothness and responsiveness
-    ('NORMAL', 50, 1, 100, 150, 50),           
-    
-    -- Background updates: Prioritize smoothness over immediacy
-    ('BACKGROUND', 200, 1, 200, 300, 100);     
-
--- Enable RLS
-ALTER TABLE entity.entity_sync_groups ENABLE ROW LEVEL SECURITY;
-
--- Allow all users to view sync groups
-CREATE POLICY "Allow viewing sync groups" ON entity.entity_sync_groups
-    FOR SELECT
-    USING (true);
-
--- Only allow admins to modify sync groups
-CREATE POLICY "Allow admin sync group modifications" ON entity.entity_sync_groups
-    FOR ALL
-    USING (auth.is_admin_agent());
-
--- Function to prevent deletion of protected sync groups
-CREATE OR REPLACE FUNCTION entity.protect_default_sync_groups()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF EXISTS (
-        SELECT 1 FROM entity.protected_sync_groups
-        WHERE sync_group = OLD.sync_group
-    ) THEN
-        RAISE EXCEPTION 'Cannot delete protected sync group: %', OLD.sync_group;
-    END IF;
-    RETURN OLD;
-END;
-$$ LANGUAGE plpgsql;
-
--- Function to ensure protected sync groups always exist
-CREATE OR REPLACE FUNCTION entity.ensure_protected_sync_groups()
-RETURNS TRIGGER AS $$
-BEGIN
-    -- Insert any missing protected sync groups with default values
-    INSERT INTO entity.entity_sync_groups (
-        sync_group, 
-        server__tick__rate_ms, 
-        server__tick__buffer,
-        client__render_delay_ms,
-        client__max_prediction_time_ms,
-        network__packet_timing_variance_ms
-    )
-    SELECT 
-        p.sync_group,
-        CASE p.sync_group
-            WHEN 'REALTIME' THEN 16
-            WHEN 'NORMAL' THEN 50
-            WHEN 'BACKGROUND' THEN 200
-        END as server__tick__rate_ms,
-        CASE p.sync_group
-            WHEN 'REALTIME' THEN 2
-            WHEN 'NORMAL' THEN 1
-            WHEN 'BACKGROUND' THEN 1
-        END as server__tick__buffer,
-        CASE p.sync_group
-            WHEN 'REALTIME' THEN 50
-            WHEN 'NORMAL' THEN 100
-            WHEN 'BACKGROUND' THEN 200
-        END as client__render_delay_ms,
-        CASE p.sync_group
-            WHEN 'REALTIME' THEN 100
-            WHEN 'NORMAL' THEN 150
-            WHEN 'BACKGROUND' THEN 300
-        END as client__max_prediction_time_ms,
-        CASE p.sync_group
-            WHEN 'REALTIME' THEN 25
-            WHEN 'NORMAL' THEN 50
-            WHEN 'BACKGROUND' THEN 100
-        END as network__packet_timing_variance_ms
-    FROM entity.protected_sync_groups p
-    WHERE NOT EXISTS (
-        SELECT 1 FROM entity.entity_sync_groups e
-        WHERE e.sync_group = p.sync_group
-    );
-    RETURN NULL;
-END;
-$$ LANGUAGE plpgsql;
-
--- Create trigger to prevent deletion of protected sync groups
-CREATE TRIGGER protect_default_sync_groups
-    BEFORE DELETE ON entity.entity_sync_groups
-    FOR EACH ROW
-    EXECUTE FUNCTION entity.protect_default_sync_groups();
-
--- Create trigger to ensure protected sync groups exist
-CREATE TRIGGER ensure_protected_sync_groups
-    AFTER INSERT OR UPDATE OR DELETE ON entity.entity_sync_groups
-    FOR STATEMENT
-    EXECUTE FUNCTION entity.ensure_protected_sync_groups();
-
 -- 
 -- ENTITIES
 -- 
 
+-- Create entity status enum
+CREATE TYPE entity_status_enum AS ENUM ('ACTIVE', 'AWAITING_SCRIPTS', 'INACTIVE');
+
 CREATE TABLE entity.entities (
     general__entity_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+
     general__name VARCHAR(255) NOT NULL,
     general__semantic_version TEXT NOT NULL DEFAULT '1.0.0',
     general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -258,6 +152,7 @@ CREATE TABLE entity.entities (
     general__initialized_by UUID DEFAULT NULL,
     meta__data JSONB DEFAULT '{}'::jsonb,
     scripts__ids UUID[] DEFAULT '{}',
+    scripts__status entity_status_enum DEFAULT 'ACTIVE'::entity_status_enum NOT NULL,
     validation__log JSONB DEFAULT '[]'::jsonb,
     performance__sync_group TEXT DEFAULT 'NORMAL' REFERENCES entity.entity_sync_groups(sync_group),
     permissions__roles__view TEXT[],
@@ -461,3 +356,63 @@ CREATE TRIGGER update_entities_updated_at
     BEFORE UPDATE ON entity.entities
     FOR EACH ROW
     EXECUTE FUNCTION entity.update_updated_at();
+
+-- Create function to update script status
+CREATE OR REPLACE FUNCTION entity.update_script_status()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Only check script status if scripts exist
+    IF NEW.scripts__ids IS NULL OR NEW.scripts__ids = '{}' THEN
+        NEW.scripts__status = 'ACTIVE'::entity_status_enum;
+    ELSE
+        -- Check if any scripts are pending
+        IF EXISTS (
+            SELECT 1 
+            FROM entity.entity_scripts es 
+            WHERE es.general__script_id = ANY(NEW.scripts__ids)
+            AND (
+                es.script__compiled__node__script_status = 'PENDING' OR
+                es.script__compiled__bun__script_status = 'PENDING' OR
+                es.script__compiled__browser__script_status = 'PENDING'
+            )
+        ) THEN
+            NEW.scripts__status = 'AWAITING_SCRIPTS'::entity_status_enum;
+        ELSE
+            NEW.scripts__status = 'ACTIVE'::entity_status_enum;
+        END IF;
+    END IF;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create triggers to update script status
+CREATE TRIGGER update_entity_script_status
+    BEFORE INSERT OR UPDATE OF scripts__ids ON entity.entities
+    FOR EACH ROW
+    EXECUTE FUNCTION entity.update_script_status();
+
+-- Create trigger to update entities when scripts are updated
+CREATE OR REPLACE FUNCTION entity.propagate_script_status_changes()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- If script status changed, update affected entities
+    IF TG_OP = 'UPDATE' AND (
+        OLD.script__compiled__node__script_status != NEW.script__compiled__node__script_status OR
+        OLD.script__compiled__bun__script_status != NEW.script__compiled__bun__script_status OR
+        OLD.script__compiled__browser__script_status != NEW.script__compiled__browser__script_status
+    ) THEN
+        -- Touch entities to trigger their status update
+        UPDATE entity.entities
+        SET general__updated_at = general__updated_at
+        WHERE NEW.general__script_id = ANY(scripts__ids);
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create trigger on entity_scripts
+CREATE TRIGGER propagate_script_status_changes
+    AFTER UPDATE ON entity.entity_scripts
+    FOR EACH ROW
+    EXECUTE FUNCTION entity.propagate_script_status_changes();

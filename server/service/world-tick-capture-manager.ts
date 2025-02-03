@@ -131,7 +131,7 @@ export class WorldTickCaptureManager {
                     duration_ms, 
                     is_delayed,
                     headroom_ms
-                FROM tick.tick_metrics
+                FROM tick.world_ticks
                 WHERE sync_group = ${syncGroup}
                 ORDER BY end_time DESC
                 LIMIT 1

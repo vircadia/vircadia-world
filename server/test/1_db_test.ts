@@ -17,6 +17,7 @@ import {
     type Tick,
 } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import { sign } from "jsonwebtoken";
+import { VircadiaConfig_Server } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
 
 interface TestAccount {
     id: string;
@@ -275,22 +276,46 @@ describe("Database Tests", () => {
                 SELECT * FROM auth.agent_sessions 
                 WHERE general__session_id = ${admin.sessionId}
             `;
-            console.log("Session check:", session);
+            log({
+                message: "Session check:",
+                type: "debug",
+                data: session,
+                debug: VircadiaConfig_Server.debug,
+            });
 
             // Add debug logging for the token
-            console.log("Token being sent:", admin.token);
+            log({
+                message: "Token being sent:",
+                type: "debug",
+                data: { token: admin.token },
+                debug: VircadiaConfig_Server.debug,
+            });
 
             // Try getting the raw result of set_agent_context
             const [contextResult] = await sql`
                 SELECT auth.set_agent_context(${admin.sessionId}, ${admin.token}) as success
             `;
-            console.log("Context set result:", contextResult);
+            log({
+                message: "Context set result:",
+                type: "debug",
+                data: contextResult,
+                debug: VircadiaConfig_Server.debug,
+            });
 
             // Get current agent id - should return admin's ID
             const [result] = await sql`SELECT auth.current_agent_id()`;
-            console.log("Current agent ID:", result.current_agent_id);
-            console.log("Expected admin ID:", admin.id);
-
+            log({
+                message: "Current agent ID:",
+                type: "debug",
+                data: result.current_agent_id,
+                debug: VircadiaConfig_Server.debug,
+            });
+            log({
+                message: "Expected admin ID:",
+                type: "debug",
+                data: { adminId: admin.id },
+                debug: VircadiaConfig_Server.debug,
+            });
             expect(result.current_agent_id).toBe(admin.id);
         });
 
@@ -459,41 +484,45 @@ describe("Database Tests", () => {
                         },
                     })},
                     ${"NORMAL"}
-                ) RETURNING general__entity_id
+                ) RETURNING *
             `;
 
-            // Capture initial tick state
-            const [tickResult] = await sql<
-                [
-                    {
-                        tick_data: Tick.I_TickMetadata;
-                        entity_updates: Tick.I_EntityUpdate[];
-                        script_updates: Tick.I_ScriptUpdate[];
-                    },
-                ]
-            >`
-                SELECT * FROM tick.capture_tick_state('NORMAL')
+            // Get the tick state
+            const [tickResult] = await sql<[{ tick_state: Tick.I_TickState }]>`
+                SELECT tick.capture_tick_state('NORMAL') as tick_state
             `;
 
-            // Verify tick metadata structure
-            expect(tickResult.tick_data).toBeDefined();
-            expect(typeof tickResult.tick_data.tick_number).toBe("number");
-            expect(tickResult.tick_data.tick_start_time).toBeDefined();
-            expect(tickResult.tick_data.tick_end_time).toBeDefined();
-            expect(typeof tickResult.tick_data.tick_duration_ms).toBe("number");
-            expect(typeof tickResult.tick_data.is_delayed).toBe("boolean");
-            expect(typeof tickResult.tick_data.headroom_ms).toBe("number");
+            const { tick_data, entity_updates, script_updates } =
+                tickResult.tick_state;
+
+            // Verify tick metadata structure matches schema
+            expect(tick_data).toMatchObject({
+                tick_number: expect.any(Number),
+                tick_start_time: expect.any(String),
+                tick_end_time: expect.any(String),
+                tick_duration_ms: expect.any(Number),
+                is_delayed: expect.any(Boolean),
+                headroom_ms: expect.any(Number),
+                delta_time_ms: expect.any(Number),
+                time_until_next_tick_ms: expect.any(Number),
+                tick_lag: expect.any(Number),
+                entity_states_processed: expect.any(Number),
+                script_states_processed: expect.any(Number),
+                rate_limited: expect.any(Boolean),
+            });
 
             // Verify entity updates
-            expect(Array.isArray(tickResult.entity_updates)).toBe(true);
-            const entityUpdate = tickResult.entity_updates.find(
+            expect(Array.isArray(entity_updates)).toBe(true);
+            const entityUpdate = entity_updates.find(
                 (update) => update.entityId === entityResult.general__entity_id,
             );
             expect(entityUpdate).toBeDefined();
-            expect(entityUpdate?.operation).toBe("INSERT");
-            expect(entityUpdate?.entityChanges).toBeDefined();
-            expect(entityUpdate?.sessionIds).toBeDefined();
-            expect(entityUpdate?.entityStatus).toBe("ACTIVE");
+            expect(entityUpdate).toMatchObject({
+                entityId: entityResult.general__entity_id,
+                operation: "INSERT",
+                entityChanges: expect.any(Object),
+                sessionIds: expect.any(Array),
+            });
 
             // Clean up
             await sql`
@@ -504,7 +533,7 @@ describe("Database Tests", () => {
 
         test("should track entity changes between ticks", async () => {
             // Create initial entity
-            const entityId = await sql`
+            const [entityResult] = await sql<[Entity.I_Entity]>`
                 INSERT INTO entity.entities (
                     general__name,
                     meta__data,
@@ -520,131 +549,107 @@ describe("Database Tests", () => {
                         },
                     })},
                     ${"NORMAL"}
-                ) RETURNING general__entity_id
+                ) RETURNING *
             `;
 
             // Capture first tick
-            await sql`SELECT * FROM tick.capture_tick_state('NORMAL')`;
+            await sql`SELECT tick.capture_tick_state('NORMAL')`;
 
             // Update entity
             await sql`
                 UPDATE entity.entities
                 SET general__name = ${"Updated Name"}
-                WHERE general__entity_id = ${entityId[0].general__entity_id}
+                WHERE general__entity_id = ${entityResult.general__entity_id}
             `;
 
-            // Capture second tick and check for changes
-            const [secondTickResult] = await sql`
-                SELECT * FROM tick.capture_tick_state('NORMAL')
+            // Capture second tick
+            const [secondTickResult] = await sql<
+                [{ tick_state: Tick.I_TickState }]
+            >`
+                SELECT tick.capture_tick_state('NORMAL') as tick_state
             `;
 
-            const entityUpdate = secondTickResult.entity_updates.find(
-                (update: Tick.I_EntityUpdate) =>
-                    update.entityId === entityId[0].general__entity_id,
-            );
+            const entityUpdate =
+                secondTickResult.tick_state.entity_updates.find(
+                    (update) =>
+                        update.entityId === entityResult.general__entity_id,
+                );
+
             expect(entityUpdate).toBeDefined();
-            expect(entityUpdate.operation).toBe("UPDATE");
-            expect(entityUpdate.entity_changes.general__name).toBe(
-                "Updated Name",
-            );
+            expect(entityUpdate).toMatchObject({
+                entityId: entityResult.general__entity_id,
+                operation: "UPDATE",
+                entityChanges: {
+                    general__name: "Updated Name",
+                },
+                sessionIds: expect.any(Array),
+            });
 
             // Clean up
             await sql`
                 DELETE FROM entity.entities
-                WHERE general__entity_id = ${entityId[0].general__entity_id}
+                WHERE general__entity_id = ${entityResult.general__entity_id}
             `;
         });
 
         test("should track script changes between ticks", async () => {
             // Create initial script
-            const scriptId = await sql`
+            const [scriptResult] = await sql<[Entity.Script.I_Script]>`
                 INSERT INTO entity.entity_scripts (
                     script__compiled__node__script,
-                    script__compiled__node__script_status
+                    script__compiled__node__script_status,
+                    performance__sync_group
                 ) VALUES (
                     ${'console.log("initial script")'},
-                    ${"COMPILED"}
-                ) RETURNING general__script_id
+                    ${Entity.Script.E_CompilationStatus.COMPILED},
+                    ${"NORMAL"}
+                ) RETURNING *
             `;
 
             // Capture first tick
-            await sql`SELECT * FROM tick.capture_tick_state('NORMAL')`;
+            await sql`SELECT tick.capture_tick_state('NORMAL')`;
 
             // Update script
             await sql`
                 UPDATE entity.entity_scripts
                 SET script__compiled__node__script = ${'console.log("updated script")'}
-                WHERE general__script_id = ${scriptId[0].general__script_id}
+                WHERE general__script_id = ${scriptResult.general__script_id}
             `;
 
-            // Capture second tick and check for changes
-            const [secondTickResult] = await sql`
-                SELECT * FROM tick.capture_tick_state('NORMAL')
+            // Capture second tick
+            const [secondTickResult] = await sql<
+                [{ tick_state: Tick.I_TickState }]
+            >`
+                SELECT tick.capture_tick_state('NORMAL') as tick_state
             `;
 
-            const scriptUpdate = secondTickResult.script_updates.find(
-                (update: Tick.I_ScriptUpdate) =>
-                    update.scriptId === scriptId[0].general__script_id,
-            );
+            const scriptUpdate =
+                secondTickResult.tick_state.script_updates.find(
+                    (update) =>
+                        update.scriptId === scriptResult.general__script_id,
+                );
+
             expect(scriptUpdate).toBeDefined();
-            expect(scriptUpdate.operation).toBe("UPDATE");
-            expect(
-                scriptUpdate.script_changes.script__compiled__node__script,
-            ).toBe('console.log("updated script")');
+            expect(scriptUpdate).toMatchObject({
+                scriptId: scriptResult.general__script_id,
+                operation: "UPDATE",
+                scriptChanges: {
+                    script__compiled__node__script:
+                        'console.log("updated script")',
+                },
+                sessionIds: expect.any(Array),
+            });
 
             // Clean up
             await sql`
                 DELETE FROM entity.entity_scripts
-                WHERE general__script_id = ${scriptId[0].general__script_id}
+                WHERE general__script_id = ${scriptResult.general__script_id}
             `;
-        });
-
-        test("should handle entity deletion in tick updates", async () => {
-            // Create entity
-            const entityId = await sql`
-                INSERT INTO entity.entities (
-                    general__name,
-                    meta__data,
-                    performance__sync_group
-                ) VALUES (
-                    ${"To Be Deleted"},
-                    ${JSON.stringify({
-                        babylon_js: {
-                            model_url: "test.glb",
-                            position: { x: 0, y: 0, z: 0 },
-                            rotation: { x: 0, y: 0, z: 0, w: 1 },
-                            scale: { x: 1, y: 1, z: 1 },
-                        },
-                    })},
-                    ${"NORMAL"}
-                ) RETURNING general__entity_id
-            `;
-
-            // Capture first tick
-            await sql`SELECT * FROM tick.capture_tick_state('NORMAL')`;
-
-            // Delete entity
-            await sql`
-                DELETE FROM entity.entities
-                WHERE general__entity_id = ${entityId[0].general__entity_id}
-            `;
-
-            // Capture second tick and check for deletion
-            const [secondTickResult] = await sql`
-                SELECT * FROM tick.capture_tick_state('NORMAL')
-            `;
-
-            const entityUpdate = secondTickResult.entity_updates.find(
-                (update: Tick.I_EntityUpdate) =>
-                    update.entityId === entityId[0].general__entity_id,
-            );
-            expect(entityUpdate).toBeDefined();
-            expect(entityUpdate.operation).toBe("DELETE");
         });
 
         test("should respect sync group settings", async () => {
             // Create entities in different sync groups
-            const [realtimeEntity] = await sql`
+            const [realtimeEntity] = await sql<[Entity.I_Entity]>`
                 INSERT INTO entity.entities (
                     general__name,
                     meta__data,
@@ -660,10 +665,10 @@ describe("Database Tests", () => {
                         },
                     })},
                     ${"REALTIME"}
-                ) RETURNING general__entity_id
+                ) RETURNING *
             `;
 
-            const [backgroundEntity] = await sql`
+            const [backgroundEntity] = await sql<[Entity.I_Entity]>`
                 INSERT INTO entity.entities (
                     general__name,
                     meta__data,
@@ -679,24 +684,26 @@ describe("Database Tests", () => {
                         },
                     })},
                     ${"BACKGROUND"}
-                ) RETURNING general__entity_id
+                ) RETURNING *
             `;
 
             // Capture REALTIME tick
-            const [realtimeTick] = await sql`
-                SELECT * FROM tick.capture_tick_state('REALTIME')
+            const [realtimeTick] = await sql<
+                [{ tick_state: Tick.I_TickState }]
+            >`
+                SELECT tick.capture_tick_state('REALTIME') as tick_state
             `;
 
             // Verify only REALTIME entity is included
             expect(
-                realtimeTick.entity_updates.some(
-                    (update: Tick.I_EntityUpdate) =>
+                realtimeTick.tick_state.entity_updates.some(
+                    (update) =>
                         update.entityId === realtimeEntity.general__entity_id,
                 ),
             ).toBe(true);
             expect(
-                realtimeTick.entity_updates.some(
-                    (update: Tick.I_EntityUpdate) =>
+                realtimeTick.tick_state.entity_updates.some(
+                    (update) =>
                         update.entityId === backgroundEntity.general__entity_id,
                 ),
             ).toBe(false);

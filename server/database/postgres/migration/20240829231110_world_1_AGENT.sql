@@ -405,11 +405,15 @@ BEGIN
     WITH updated_sessions AS (
         UPDATE auth.agent_sessions 
         SET session__is_active = false
-        WHERE session__last_seen_at < (NOW() - (v_max_age_ms || ' milliseconds')::INTERVAL)
+        WHERE (
+            -- Check both expiration and last seen conditions
+            session__expires_at < NOW() 
+            OR session__last_seen_at < (NOW() - (v_max_age_ms || ' milliseconds')::INTERVAL)
+        )
         AND session__is_active = true
         RETURNING 1
     )
-    SELECT COUNT(*) INTO v_count FROM updated_sessions;
+    SELECT COALESCE(COUNT(*)::INTEGER, 0) INTO v_count FROM updated_sessions;
     
     RETURN v_count;
 END;

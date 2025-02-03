@@ -721,6 +721,98 @@ describe("Database Tests", () => {
         });
     });
 
+    describe("Session Management", () => {
+        test("should handle expired sessions correctly", async () => {
+            // Create a test session with immediate expiration
+            const [expiredSession] = await sql<
+                [{ general__session_id: string; session__expires_at: string }]
+            >`
+                INSERT INTO auth.agent_sessions (
+                    auth__agent_id,
+                    auth__provider_name,
+                    session__expires_at,
+                    session__is_active,
+                    session__jwt
+                ) VALUES (
+                    ${admin.id},
+                    'test',
+                    NOW() - INTERVAL '1 second',
+                    true,
+                    'test_token'
+                ) RETURNING general__session_id, session__expires_at
+            `;
+
+            // First cleanup old/expired sessions
+            await sql`SELECT auth.cleanup_old_sessions()`;
+
+            // Then try to set context with expired session
+            await sql`SELECT auth.set_agent_context(${expiredSession.general__session_id}, 'test_token')`;
+
+            // Check current agent - should be anon since session is expired
+            const [currentAgent] = await sql`SELECT auth.current_agent_id()`;
+            const [anonId] = await sql`SELECT auth.get_anon_agent_id()`;
+            expect(currentAgent.current_agent_id).toBe(
+                anonId.get_anon_agent_id,
+            );
+
+            // Verify session is marked as inactive
+            const [sessionStatus] = await sql`
+                SELECT session__is_active 
+                FROM auth.agent_sessions 
+                WHERE general__session_id = ${expiredSession.general__session_id}
+            `;
+            expect(sessionStatus.session__is_active).toBe(false);
+        });
+
+        test("should cleanup old sessions", async () => {
+            // Create multiple old sessions
+            await sql`
+                INSERT INTO auth.agent_sessions (
+                    auth__agent_id,
+                    auth__provider_name,
+                    session__last_seen_at,
+                    session__expires_at,
+                    session__is_active
+                ) VALUES 
+                (
+                    ${admin.id},
+                    'test',
+                    NOW() - INTERVAL '2 days',
+                    NOW() + INTERVAL '1 day',
+                    true
+                ),
+                (
+                    ${agent.id},
+                    'test',
+                    NOW() - INTERVAL '3 days',
+                    NOW() + INTERVAL '1 day',
+                    true
+                )
+            `;
+
+            // Run cleanup function
+            const [cleanupResult] = await sql<
+                [{ cleanup_old_sessions: number }]
+            >`
+                SELECT auth.cleanup_old_sessions() as cleanup_old_sessions
+            `;
+
+            // Verify old sessions were cleaned up
+            expect(cleanupResult.cleanup_old_sessions).toBeGreaterThanOrEqual(
+                2,
+            );
+
+            // Verify sessions are marked as inactive
+            const activeSessions = await sql`
+                SELECT COUNT(*)::INTEGER as count 
+                FROM auth.agent_sessions 
+                WHERE session__last_seen_at < NOW() - INTERVAL '1 day'
+                AND session__is_active = true
+            `;
+            expect(activeSessions[0].count).toBe(0);
+        });
+    });
+
     describe("Test Environment Cleanup", () => {
         test("should cleanup test resources", async () => {
             try {

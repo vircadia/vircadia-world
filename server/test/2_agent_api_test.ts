@@ -109,10 +109,12 @@ describe("WorldApiManager Integration Tests", () => {
             // Wait for initial connection established message
             const connMsg =
                 await waitForMessage<Communication.WebSocket.ConnectionEstablishedMessage>(
-                    Communication.WebSocket.MessageType.CONNECTION_ESTABLISHED,
+                    Communication.WebSocket.MessageType
+                        .CONNECTION_ESTABLISHED_RESPONSE,
                 );
             expect(connMsg.type).toBe(
-                Communication.WebSocket.MessageType.CONNECTION_ESTABLISHED,
+                Communication.WebSocket.MessageType
+                    .CONNECTION_ESTABLISHED_RESPONSE,
             );
         });
 

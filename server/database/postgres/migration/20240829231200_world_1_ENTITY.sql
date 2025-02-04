@@ -15,6 +15,7 @@ CREATE TABLE entity.entity_sync_groups (
     client__render_delay_ms INTEGER NOT NULL,
     client__max_prediction_time_ms INTEGER NOT NULL,
     network__packet_timing_variance_ms INTEGER NOT NULL,
+    server__keyframe__interval_ticks INTEGER NOT NULL,
     general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     general__created_by UUID DEFAULT auth.current_agent_id(),
@@ -28,12 +29,13 @@ INSERT INTO entity.entity_sync_groups (
     server__tick__buffer,
     client__render_delay_ms,
     client__max_prediction_time_ms,
-    network__packet_timing_variance_ms
+    network__packet_timing_variance_ms,
+    server__keyframe__interval_ticks
 ) VALUES
-    ('REALTIME', 16, 2, 50, 100, 25),
-    ('NORMAL', 50, 1, 100, 150, 50),
-    ('BACKGROUND', 200, 1, 200, 300, 100),
-    ('STATIC', 2000, 1, 500, 1000, 200);
+    ('REALTIME', 16, 2, 50, 100, 25, 50),
+    ('NORMAL', 50, 1, 100, 150, 50, 40),
+    ('BACKGROUND', 200, 1, 200, 300, 100, 15),
+    ('STATIC', 2000, 1, 500, 1000, 200, 3);
 
 -- Enable RLS and keep the basic policies
 ALTER TABLE entity.entity_sync_groups ENABLE ROW LEVEL SECURITY;

@@ -138,7 +138,8 @@ class WorldConnection {
 
     private handleMessage(message: Communication.WebSocket.Message) {
         switch (message.type) {
-            case Communication.WebSocket.MessageType.CONNECTION_ESTABLISHED:
+            case Communication.WebSocket.MessageType
+                .CONNECTION_ESTABLISHED_RESPONSE:
                 log({
                     message: `Connected with agent ID: ${(message as Communication.WebSocket.ConnectionEstablishedMessage).agentId}`,
                     debug: this.debugMode,
@@ -157,7 +158,7 @@ class WorldConnection {
                 this.lastHeartbeatResponse = Date.now();
                 break;
 
-            case Communication.WebSocket.MessageType.ERROR:
+            case Communication.WebSocket.MessageType.ERROR_RESPONSE:
                 log({
                     message: `Server error: ${(message as Communication.WebSocket.ErrorMessage).message}`,
                     debug: this.debugMode,
@@ -183,7 +184,8 @@ class WorldConnection {
                 const heartbeatMsg =
                     Communication.WebSocket.createMessage<Communication.WebSocket.HeartbeatMessage>(
                         {
-                            type: Communication.WebSocket.MessageType.HEARTBEAT,
+                            type: Communication.WebSocket.MessageType
+                                .HEARTBEAT_REQUEST,
                         },
                     );
                 this.ws.send(JSON.stringify(heartbeatMsg));
@@ -291,7 +293,8 @@ const WorldScene: Component = () => {
         if (!scene) return;
 
         switch (message.type) {
-            case Communication.WebSocket.MessageType.CONNECTION_ESTABLISHED: {
+            case Communication.WebSocket.MessageType
+                .CONNECTION_ESTABLISHED_RESPONSE: {
                 const connMsg =
                     message as Communication.WebSocket.ConnectionEstablishedMessage;
                 // Subscribe to updates using the agent ID

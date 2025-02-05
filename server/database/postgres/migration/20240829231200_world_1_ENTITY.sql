@@ -10,32 +10,53 @@ CREATE SCHEMA IF NOT EXISTS entity;
 -- Modify entity_sync_groups table creation and default values (keeping just the defaults)
 CREATE TABLE entity.entity_sync_groups (
     sync_group TEXT PRIMARY KEY,
+    general__description TEXT,
+    permissions__admin_role TEXT NOT NULL,
+    permissions__is_admin BOOLEAN NOT NULL DEFAULT false,
+    
     server__tick__rate_ms INTEGER NOT NULL,
     server__tick__buffer INTEGER NOT NULL,
+    
     client__render_delay_ms INTEGER NOT NULL,
     client__max_prediction_time_ms INTEGER NOT NULL,
+    
     network__packet_timing_variance_ms INTEGER NOT NULL,
+    
     server__keyframe__interval_ticks INTEGER NOT NULL,
+    
     general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     general__created_by UUID DEFAULT auth.current_agent_id(),
     general__updated_by UUID DEFAULT auth.current_agent_id()
 );
 
--- Insert default sync groups with their network and performance settings
+-- Insert sync groups with prefixed columns
 INSERT INTO entity.entity_sync_groups (
-    sync_group, 
-    server__tick__rate_ms, 
+    sync_group,
+    general__description,
+    permissions__admin_role,
+    permissions__is_admin,
+    server__tick__rate_ms,
     server__tick__buffer,
     client__render_delay_ms,
     client__max_prediction_time_ms,
     network__packet_timing_variance_ms,
     server__keyframe__interval_ticks
 ) VALUES
-    ('REALTIME', 16, 2, 50, 100, 25, 50),
-    ('NORMAL', 50, 1, 100, 150, 50, 40),
-    ('BACKGROUND', 200, 1, 200, 300, 100, 15),
-    ('STATIC', 2000, 1, 500, 1000, 200, 3);
+    -- Public zone
+    ('public.REALTIME', 'Public realtime entities', 'admin', false, 16, 2, 50, 100, 25, 50),
+    ('public.NORMAL', 'Public normal-priority entities', 'admin', false, 50, 1, 100, 150, 50, 40),
+    ('public.BACKGROUND', 'Public background entities', 'admin', false, 200, 1, 200, 300, 100, 15),
+    ('public.STATIC', 'Public static entities', 'admin', false, 2000, 1, 500, 1000, 200, 3),
+    
+    -- Admin zone
+    ('admin.REALTIME', 'Admin-only realtime entities', 'admin', true, 16, 2, 50, 100, 25, 50),
+    ('admin.NORMAL', 'Admin-only normal-priority entities', 'admin', true, 50, 1, 100, 150, 50, 40),
+    
+    -- Game zone example
+    ('game1.REALTIME', 'Game 1 realtime entities', 'game1_admin', false, 16, 2, 50, 100, 25, 50),
+    ('game1.NORMAL', 'Game 1 normal-priority entities', 'game1_admin', false, 50, 1, 100, 150, 50, 40),
+    ('game1.BACKGROUND', 'Game 1 background entities', 'game1_admin', false, 200, 1, 200, 300, 100, 15);
 
 -- Enable RLS and keep the basic policies
 ALTER TABLE entity.entity_sync_groups ENABLE ROW LEVEL SECURITY;
@@ -62,7 +83,7 @@ CREATE TABLE entity.entity_scripts (
     general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     general__updated_by UUID DEFAULT auth.current_agent_id(),
 
-    performance__sync_group TEXT NOT NULL REFERENCES entity.entity_sync_groups(sync_group) DEFAULT 'STATIC',
+    group__sync TEXT NOT NULL REFERENCES entity.entity_sync_groups(sync_group) DEFAULT 'public.STATIC',
 
     script__source__node__repo__entry_path TEXT,
     script__source__node__repo__url TEXT,
@@ -95,42 +116,24 @@ CREATE POLICY "Allow viewing scripts" ON entity.entity_scripts
     USING (true);
 
 -- Create policy for inserting scripts
-CREATE POLICY "Allow inserting scripts with proper role" ON entity.entity_scripts
+CREATE POLICY "Allow inserting scripts with proper access" ON entity.entity_scripts
     FOR INSERT
     WITH CHECK (
         auth.is_admin_agent()
-        OR EXISTS (
-            SELECT 1 FROM auth.agent_roles ar
-            JOIN auth.roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth.current_agent_id()
-            AND ar.auth__is_active = true
-        )
     );
 
 -- Create policy for updating scripts
-CREATE POLICY "Allow updating scripts with proper role" ON entity.entity_scripts
+CREATE POLICY "Allow updating scripts with proper access" ON entity.entity_scripts
     FOR UPDATE
     USING (
         auth.is_admin_agent()
-        OR EXISTS (
-            SELECT 1 FROM auth.agent_roles ar
-            JOIN auth.roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth.current_agent_id()
-            AND ar.auth__is_active = true
-        )
     );
 
 -- Create policy for deleting scripts
-CREATE POLICY "Allow deleting scripts with proper role" ON entity.entity_scripts
+CREATE POLICY "Allow deleting scripts with proper access" ON entity.entity_scripts
     FOR DELETE
     USING (
         auth.is_admin_agent()
-        OR EXISTS (
-            SELECT 1 FROM auth.agent_roles ar
-            JOIN auth.roles r ON ar.auth__role_name = r.auth__role_name
-            WHERE ar.auth__agent_id = auth.current_agent_id()
-            AND ar.auth__is_active = true
-        )
     );
 
 -- 
@@ -142,7 +145,6 @@ CREATE TYPE entity_status_enum AS ENUM ('ACTIVE', 'AWAITING_SCRIPTS', 'INACTIVE'
 
 CREATE TABLE entity.entities (
     general__entity_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-
     general__name VARCHAR(255) NOT NULL,
     general__semantic_version TEXT NOT NULL DEFAULT '1.0.0',
     general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -156,16 +158,12 @@ CREATE TABLE entity.entities (
     scripts__ids UUID[] DEFAULT '{}',
     scripts__status entity_status_enum DEFAULT 'ACTIVE'::entity_status_enum NOT NULL,
     validation__log JSONB DEFAULT '[]'::jsonb,
-    performance__sync_group TEXT DEFAULT 'NORMAL' REFERENCES entity.entity_sync_groups(sync_group),
-    permissions__roles__view TEXT[],
-    permissions__roles__full TEXT[]
+    group__sync TEXT DEFAULT 'NORMAL' REFERENCES entity.entity_sync_groups(sync_group)
 );
 
 CREATE UNIQUE INDEX unique_seed_order_idx ON entity.entities(general__load_priority) WHERE general__load_priority IS NOT NULL;
 
 -- Entities indexes
-CREATE INDEX idx_entities_permissions__roles__view ON entity.entities USING GIN (permissions__roles__view);
-CREATE INDEX idx_entities_permissions__roles__full ON entity.entities USING GIN (permissions__roles__full);
 CREATE INDEX idx_entities_created_at ON entity.entities(general__created_at);
 CREATE INDEX idx_entities_updated_at ON entity.entities(general__updated_at);
 CREATE INDEX idx_entities_semantic_version ON entity.entities(general__semantic_version);
@@ -181,20 +179,7 @@ CREATE POLICY "entities_view_policy" ON entity.entities
     USING (
         auth.is_admin_agent()
         OR general__created_by = auth.current_agent_id()
-        OR permissions__roles__view IS NULL 
-        OR permissions__roles__view = '{}'
-        OR permissions__roles__full IS NULL 
-        OR permissions__roles__full = '{}'
-        OR EXISTS (
-            SELECT 1 
-            FROM auth.agent_roles ar
-            WHERE ar.auth__agent_id = auth.current_agent_id()
-            AND ar.auth__is_active = true
-            AND (
-                ar.auth__role_name = ANY(entity.entities.permissions__roles__view)
-                OR ar.auth__role_name = ANY(entity.entities.permissions__roles__full)
-            )
-        )
+        OR auth.has_sync_group_access(group__sync)
     );
 
 CREATE POLICY "entities_update_policy" ON entity.entities
@@ -202,29 +187,14 @@ CREATE POLICY "entities_update_policy" ON entity.entities
     USING (
         auth.is_admin_agent()
         OR general__created_by = auth.current_agent_id()
-        OR permissions__roles__full IS NULL 
-        OR permissions__roles__full = '{}'
-        OR EXISTS (
-            SELECT 1 
-            FROM auth.agent_roles ar
-            WHERE ar.auth__agent_id = auth.current_agent_id()
-            AND ar.auth__is_active = true
-            AND ar.auth__role_name = ANY(entity.entities.permissions__roles__full)
-        )
+        OR auth.has_sync_group_access(group__sync)
     );
 
 CREATE POLICY "entities_insert_policy" ON entity.entities
     FOR INSERT
     WITH CHECK (
         auth.is_admin_agent()
-        OR EXISTS (
-            SELECT 1 
-            FROM auth.agent_roles ar
-            JOIN auth.roles r ON r.auth__role_name = ar.auth__role_name
-            WHERE ar.auth__agent_id = auth.current_agent_id()
-            AND ar.auth__is_active = true
-            AND r.auth__entity__insert = true
-        )
+        OR auth.has_sync_group_access(group__sync)
     );
 
 CREATE POLICY "entities_delete_policy" ON entity.entities
@@ -232,15 +202,7 @@ CREATE POLICY "entities_delete_policy" ON entity.entities
     USING (
         auth.is_admin_agent()
         OR general__created_by = auth.current_agent_id()
-        OR permissions__roles__full IS NULL 
-        OR permissions__roles__full = '{}'
-        OR EXISTS (
-            SELECT 1 
-            FROM auth.agent_roles ar
-            WHERE ar.auth__agent_id = auth.current_agent_id()
-            AND ar.auth__is_active = true
-            AND ar.auth__role_name = ANY(entity.entities.permissions__roles__full)
-        )
+        OR auth.has_sync_group_access(group__sync)
     );
 
 -- Function to validate the validation log format
@@ -418,3 +380,27 @@ CREATE TRIGGER propagate_script_status_changes
     AFTER UPDATE ON entity.entity_scripts
     FOR EACH ROW
     EXECUTE FUNCTION entity.propagate_script_status_changes();
+
+-- Update has_sync_group_access function to not use auth.roles
+CREATE OR REPLACE FUNCTION auth.has_sync_group_access(p_sync_group TEXT) 
+RETURNS BOOLEAN AS $$
+BEGIN
+    -- Check if the agent is an admin
+    IF auth.is_admin_agent() THEN
+        RETURN true;
+    END IF;
+
+    -- Check if the sync group exists and agent has access
+    RETURN EXISTS (
+        SELECT 1 
+        FROM entity.entity_sync_groups sg
+        WHERE sg.sync_group = p_sync_group
+        AND (
+            -- Public access if no admin role required
+            sg.permissions__admin_role IS NULL
+            OR sg.permissions__admin_role = ''
+            OR sg.permissions__is_admin = false
+        )
+    );
+END;
+$$ LANGUAGE plpgsql;

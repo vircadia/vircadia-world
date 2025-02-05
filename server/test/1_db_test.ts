@@ -354,7 +354,7 @@ describe("Database Tests", () => {
                 INSERT INTO entity.entities (
                     general__name,
                     meta__data,
-                    performance__sync_group
+                    group__sync
                 ) VALUES (
                     ${"Test Entity"},
                     ${JSON.stringify({
@@ -472,7 +472,7 @@ describe("Database Tests", () => {
                 INSERT INTO entity.entities (
                     general__name,
                     meta__data,
-                    performance__sync_group
+                    group__sync
                 ) VALUES (
                     ${"Test Entity"},
                     ${JSON.stringify({
@@ -537,7 +537,7 @@ describe("Database Tests", () => {
                 INSERT INTO entity.entities (
                     general__name,
                     meta__data,
-                    performance__sync_group
+                    group__sync
                 ) VALUES (
                     ${"Initial Name"},
                     ${JSON.stringify({
@@ -598,7 +598,7 @@ describe("Database Tests", () => {
                 INSERT INTO entity.entity_scripts (
                     script__compiled__node__script,
                     script__compiled__node__script_status,
-                    performance__sync_group
+                    group__sync
                 ) VALUES (
                     ${'console.log("initial script")'},
                     ${Entity.Script.E_CompilationStatus.COMPILED},
@@ -653,7 +653,7 @@ describe("Database Tests", () => {
                 INSERT INTO entity.entities (
                     general__name,
                     meta__data,
-                    performance__sync_group
+                    group__sync
                 ) VALUES (
                     ${"Realtime Entity"},
                     ${JSON.stringify({
@@ -672,7 +672,7 @@ describe("Database Tests", () => {
                 INSERT INTO entity.entities (
                     general__name,
                     meta__data,
-                    performance__sync_group
+                    group__sync
                 ) VALUES (
                     ${"Background Entity"},
                     ${JSON.stringify({

@@ -1187,7 +1187,7 @@ class WorldWebSocketManager {
                         return await sql<[{ entities: Entity.I_Entity[] }]>`
                             SELECT array_agg(e.*) as entities
                             FROM entity.entities e
-                            WHERE e.performance__sync_group = ${syncGroup}
+                            WHERE e.group__sync = ${syncGroup}
                             AND e.scripts__status = 'ACTIVE'
                         `;
                     });
@@ -1251,7 +1251,7 @@ class WorldWebSocketManager {
                               >`
                                 SELECT array_agg(scripts.*) as entity_scripts
                                 FROM entity.entity_scripts scripts
-                                WHERE performance__sync_group = ${syncGroup}
+                                WHERE group__sync = ${syncGroup}
                             `
                             : sql<
                                   [{ entity_scripts: Entity.Script.I_Script[] }]

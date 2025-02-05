@@ -5,7 +5,7 @@ CREATE SCHEMA IF NOT EXISTS tick;
 CREATE TABLE tick.world_ticks (
     general__tick_id uuid DEFAULT uuid_generate_v4() PRIMARY KEY,
     tick__number bigint NOT NULL,
-    performance__sync_group TEXT NOT NULL REFERENCES entity.entity_sync_groups(sync_group),
+    group__sync TEXT NOT NULL REFERENCES entity.entity_sync_groups(sync_group),
     tick__start_time timestamptz NOT NULL,
     tick__end_time timestamptz NOT NULL,
     tick__duration_ms double precision NOT NULL,
@@ -21,7 +21,7 @@ CREATE TABLE tick.world_ticks (
     general__updated_by UUID DEFAULT auth.current_agent_id(),
 
     -- Add unique constraint for sync_group + tick number combination
-    UNIQUE (performance__sync_group, tick__number)
+    UNIQUE (group__sync, tick__number)
 
 );
 
@@ -37,7 +37,7 @@ CREATE TABLE tick.entity_states (
     CONSTRAINT entity_states_pkey PRIMARY KEY (general__entity_state_id),
     
     -- Add foreign key constraint for sync_group
-    CONSTRAINT entity_states_sync_group_fkey FOREIGN KEY (performance__sync_group) 
+    CONSTRAINT entity_states_sync_group_fkey FOREIGN KEY (group__sync) 
         REFERENCES entity.entity_sync_groups(sync_group),
         
     -- Add foreign key constraint to world_ticks with cascade delete
@@ -45,17 +45,16 @@ CREATE TABLE tick.entity_states (
         REFERENCES tick.world_ticks(general__tick_id) ON DELETE CASCADE
 );
 
--- View policy for entity_states (matching the entity read permissions)
+-- View policy for entity_states (using sync groups instead of roles)
 CREATE POLICY "entity_states_view_policy" ON tick.entity_states
     FOR SELECT
     USING (
-        EXISTS (
+        auth.is_admin_agent()
+        OR EXISTS (
             SELECT 1 
             FROM entity.entities e
-            JOIN auth.agent_roles ar ON ar.auth__role_name = ANY(e.permissions__roles__view)
             WHERE e.general__entity_id = tick.entity_states.general__entity_id
-            AND ar.auth__agent_id = auth.current_agent_id()
-            AND ar.auth__is_active = true
+            AND auth.has_sync_group_access(e.group__sync)
         )
     );
 
@@ -81,7 +80,7 @@ ALTER TABLE tick.entity_states ENABLE ROW LEVEL SECURITY;
 
 CREATE TYPE operation_enum AS ENUM ('INSERT', 'UPDATE', 'DELETE');
 
--- Update the get_entity_changes function to fix change detection
+-- Update the get_entity_changes function to remove role references
 CREATE OR REPLACE FUNCTION tick.get_entity_changes(
     p_sync_group text,
     p_last_tick bigint,
@@ -109,14 +108,14 @@ BEGIN
         -- Get the current entity state from the main table, only in the relevant sync group
         SELECT *
         FROM entity.entities
-        WHERE performance__sync_group = p_sync_group
+        WHERE group__sync = p_sync_group
     ),
     previous_entities AS (
         -- Get the previous entity state (from the entity_states table) for that same sync group/tick
         SELECT es.*
         FROM tick.entity_states es
         JOIN tick.world_ticks wt ON es.general__tick_id = wt.general__tick_id
-        WHERE es.performance__sync_group = p_sync_group
+        WHERE es.group__sync = p_sync_group
           AND wt.tick__number = p_last_tick
     ),
     changed_entities AS (
@@ -140,9 +139,7 @@ BEGIN
                     ce.scripts__ids IS DISTINCT FROM pe.scripts__ids OR
                     ce.scripts__status IS DISTINCT FROM pe.scripts__status OR
                     ce.validation__log IS DISTINCT FROM pe.validation__log OR
-                    ce.performance__sync_group IS DISTINCT FROM pe.performance__sync_group OR
-                    ce.permissions__roles__view IS DISTINCT FROM pe.permissions__roles__view OR
-                    ce.permissions__roles__full IS DISTINCT FROM pe.permissions__roles__full
+                    ce.group__sync IS DISTINCT FROM pe.group__sync
                 ) THEN 'UPDATE'::operation_enum
             END AS operation,
 
@@ -166,9 +163,7 @@ BEGIN
             ce.scripts__ids               AS ce_scripts__ids,
             ce.scripts__status            AS ce_scripts__status,
             ce.validation__log            AS ce_validation__log,
-            ce.performance__sync_group    AS ce_performance__sync_group,
-            ce.permissions__roles__view   AS ce_permissions__roles__view,
-            ce.permissions__roles__full   AS ce_permissions__roles__full,
+            ce.group__sync    AS ce_group__sync,
 
             -- "pe" columns (the previous state)
             pe.general__entity_id         AS pe_general__entity_id,
@@ -185,9 +180,7 @@ BEGIN
             pe.scripts__ids               AS pe_scripts__ids,
             pe.scripts__status            AS pe_scripts__status,
             pe.validation__log            AS pe_validation__log,
-            pe.performance__sync_group    AS pe_performance__sync_group,
-            pe.permissions__roles__view   AS pe_permissions__roles__view,
-            pe.permissions__roles__full   AS pe_permissions__roles__full
+            pe.group__sync    AS pe_group__sync
 
         FROM current_entities ce
         FULL OUTER JOIN previous_entities pe 
@@ -209,9 +202,7 @@ BEGIN
             OR ce.scripts__ids IS DISTINCT FROM pe.scripts__ids
             OR ce.scripts__status IS DISTINCT FROM pe.scripts__status
             OR ce.validation__log IS DISTINCT FROM pe.validation__log
-            OR ce.performance__sync_group IS DISTINCT FROM pe.performance__sync_group
-            OR ce.permissions__roles__view IS DISTINCT FROM pe.permissions__roles__view
-            OR ce.permissions__roles__full IS DISTINCT FROM pe.permissions__roles__full
+            OR ce.group__sync IS DISTINCT FROM pe.group__sync
     )
     SELECT
         changed_entities.entity_id,
@@ -231,9 +222,7 @@ BEGIN
                 'scripts__ids',                changed_entities.ce_scripts__ids,
                 'scripts__status',             changed_entities.ce_scripts__status,
                 'validation__log',             changed_entities.ce_validation__log,
-                'performance__sync_group',     changed_entities.ce_performance__sync_group,
-                'permissions__roles__view',    changed_entities.ce_permissions__roles__view,
-                'permissions__roles__full',    changed_entities.ce_permissions__roles__full
+                'group__sync',     changed_entities.ce_group__sync
             )
             WHEN 'DELETE' THEN NULL
             ELSE jsonb_strip_nulls(jsonb_build_object(
@@ -250,9 +239,7 @@ BEGIN
                 'scripts__ids',                NULLIF(changed_entities.ce_scripts__ids, changed_entities.pe_scripts__ids),
                 'scripts__status',             NULLIF(changed_entities.ce_scripts__status, changed_entities.pe_scripts__status),
                 'validation__log',             NULLIF(changed_entities.ce_validation__log, changed_entities.pe_validation__log),
-                'performance__sync_group',     NULLIF(changed_entities.ce_performance__sync_group, changed_entities.pe_performance__sync_group),
-                'permissions__roles__view',    NULLIF(changed_entities.ce_permissions__roles__view, changed_entities.pe_permissions__roles__view),
-                'permissions__roles__full',    NULLIF(changed_entities.ce_permissions__roles__full, changed_entities.pe_permissions__roles__full)
+                'group__sync',   NULLIF(changed_entities.ce_group__sync, changed_entities.pe_group__sync)
             ))
         END AS entity_changes,
         v_active_session_ids
@@ -273,7 +260,7 @@ CREATE TABLE tick.entity_script_states (
     CONSTRAINT entity_script_states_pkey PRIMARY KEY (general__script_state_id),
     
     -- Add foreign key constraint for sync_group
-    CONSTRAINT entity_script_states_sync_group_fkey FOREIGN KEY (performance__sync_group) 
+    CONSTRAINT entity_script_states_sync_group_fkey FOREIGN KEY (group__sync) 
         REFERENCES entity.entity_sync_groups(sync_group),
         
     -- Add foreign key constraint to world_ticks with cascade delete
@@ -285,7 +272,7 @@ CREATE TABLE tick.entity_script_states (
 CREATE INDEX entity_script_states_lookup_idx ON tick.entity_script_states (general__script_id, general__tick_id);
 CREATE INDEX entity_script_states_tick_idx ON tick.entity_script_states (general__tick_id);
 CREATE INDEX entity_script_states_sync_group_tick_idx 
-    ON tick.entity_script_states (performance__sync_group, general__tick_id DESC);
+    ON tick.entity_script_states (group__sync, general__tick_id DESC);
 
 -- Enable RLS on script states
 ALTER TABLE tick.entity_script_states ENABLE ROW LEVEL SECURITY;
@@ -334,7 +321,7 @@ BEGIN
         -- Get current state, only for the relevant sync group
         SELECT *
           FROM entity.entity_scripts
-         WHERE performance__sync_group = p_sync_group
+         WHERE group__sync = p_sync_group
     ),
     previous_scripts AS (
         -- Get previous state using the tick index
@@ -342,7 +329,7 @@ BEGIN
           FROM tick.entity_script_states ess
           JOIN tick.world_ticks wt 
             ON ess.general__tick_id = wt.general__tick_id
-         WHERE ess.performance__sync_group = p_sync_group
+         WHERE ess.group__sync = p_sync_group
            AND wt.tick__number = p_last_tick
     ),
     changed_scripts AS (
@@ -357,7 +344,7 @@ BEGIN
                     cs.general__created_by           IS DISTINCT FROM ps.general__created_by OR
                     cs.general__updated_at           IS DISTINCT FROM ps.general__updated_at OR
                     cs.general__updated_by           IS DISTINCT FROM ps.general__updated_by OR
-                    cs.performance__sync_group       IS DISTINCT FROM ps.performance__sync_group OR
+                    cs.group__sync       IS DISTINCT FROM ps.group__sync OR
                     -- Node script fields
                     cs.script__source__node__repo__entry_path IS DISTINCT FROM ps.script__source__node__repo__entry_path OR
                     cs.script__source__node__repo__url        IS DISTINCT FROM ps.script__source__node__repo__url OR
@@ -388,7 +375,7 @@ BEGIN
             cs.general__created_by           AS cs_general__created_by,
             cs.general__updated_at           AS cs_general__updated_at,
             cs.general__updated_by           AS cs_general__updated_by,
-            cs.performance__sync_group       AS cs_performance__sync_group,
+            cs.group__sync       AS cs_group__sync,
             cs.script__source__node__repo__entry_path AS cs_script__source__node__repo__entry_path,
             cs.script__source__node__repo__url        AS cs_script__source__node__repo__url,
             cs.script__compiled__node__script         AS cs_script__compiled__node__script,
@@ -414,7 +401,7 @@ BEGIN
             ps.general__created_by           AS ps_general__created_by,
             ps.general__updated_at           AS ps_general__updated_at,
             ps.general__updated_by           AS ps_general__updated_by,
-            ps.performance__sync_group       AS ps_performance__sync_group,
+            ps.group__sync       AS ps_group__sync,
             ps.script__source__node__repo__entry_path AS ps_script__source__node__repo__entry_path,
             ps.script__source__node__repo__url        AS ps_script__source__node__repo__url,
             ps.script__compiled__node__script         AS ps_script__compiled__node__script,
@@ -444,7 +431,7 @@ BEGIN
            OR cs.general__created_by           IS DISTINCT FROM ps.general__created_by
            OR cs.general__updated_at           IS DISTINCT FROM ps.general__updated_at
            OR cs.general__updated_by           IS DISTINCT FROM ps.general__updated_by
-           OR cs.performance__sync_group       IS DISTINCT FROM ps.performance__sync_group
+           OR cs.group__sync       IS DISTINCT FROM ps.group__sync
            OR cs.script__source__node__repo__entry_path IS DISTINCT FROM ps.script__source__node__repo__entry_path
            OR cs.script__source__node__repo__url        IS DISTINCT FROM ps.script__source__node__repo__url
            OR cs.script__compiled__node__script         IS DISTINCT FROM ps.script__compiled__node__script
@@ -473,7 +460,7 @@ BEGIN
                 'general__created_by',              changed_scripts.cs_general__created_by,
                 'general__updated_at',              changed_scripts.cs_general__updated_at,
                 'general__updated_by',              changed_scripts.cs_general__updated_by,
-                'performance__sync_group',          changed_scripts.cs_performance__sync_group,
+                'group__sync',          changed_scripts.cs_group__sync,
                 -- Node script
                 'script__source__node__repo__entry_path', changed_scripts.cs_script__source__node__repo__entry_path,
                 'script__source__node__repo__url',          changed_scripts.cs_script__source__node__repo__url,
@@ -502,7 +489,7 @@ BEGIN
                 'general__created_by',       NULLIF(changed_scripts.cs_general__created_by, changed_scripts.ps_general__created_by),
                 'general__updated_at',       NULLIF(changed_scripts.cs_general__updated_at, changed_scripts.ps_general__updated_at),
                 'general__updated_by',       NULLIF(changed_scripts.cs_general__updated_by, changed_scripts.ps_general__updated_by),
-                'performance__sync_group',   NULLIF(changed_scripts.cs_performance__sync_group, changed_scripts.ps_performance__sync_group),
+                'group__sync',   NULLIF(changed_scripts.cs_group__sync, changed_scripts.ps_group__sync),
                 -- Node script
                 'script__source__node__repo__entry_path', NULLIF(changed_scripts.cs_script__source__node__repo__entry_path, changed_scripts.ps_script__source__node__repo__entry_path),
                 'script__source__node__repo__url',          NULLIF(changed_scripts.cs_script__source__node__repo__url, changed_scripts.ps_script__source__node__repo__url),
@@ -573,18 +560,18 @@ BEGIN
     -- Calculate current tick number
     SELECT COALESCE(MAX(tick__number), 0) + 1 INTO current_tick
     FROM tick.world_ticks
-    WHERE performance__sync_group = p_sync_group;
+    WHERE group__sync = p_sync_group;
     
     -- Get the last tick number for this sync group
     SELECT COALESCE(MAX(wt.tick__number), current_tick - 1) INTO last_tick
     FROM tick.entity_states es
     JOIN tick.world_ticks wt ON es.general__tick_id = wt.general__tick_id
-    WHERE es.performance__sync_group = p_sync_group;
+    WHERE es.group__sync = p_sync_group;
 
     -- Get the last tick's timestamp
     SELECT tick__end_time INTO last_tick_time
     FROM tick.world_ticks
-    WHERE performance__sync_group = p_sync_group
+    WHERE group__sync = p_sync_group
     AND tick__number = last_tick;
 
     -- Calculate time since last tick
@@ -597,7 +584,7 @@ BEGIN
     -- Create new tick record with all required fields
     INSERT INTO tick.world_ticks (
         tick__number,
-        performance__sync_group,
+        group__sync,
         tick__start_time,
         tick__end_time,
         tick__duration_ms,
@@ -630,9 +617,7 @@ BEGIN
             scripts__ids,
             scripts__status,
             validation__log,
-            performance__sync_group,
-            permissions__roles__view,
-            permissions__roles__full,
+            group__sync,
             general__entity_state_id,
             general__tick_id
         )
@@ -651,13 +636,11 @@ BEGIN
             e.scripts__ids,
             e.scripts__status,
             e.validation__log,
-            e.performance__sync_group,
-            e.permissions__roles__view,
-            e.permissions__roles__full,
+            e.group__sync,
             uuid_generate_v4(),
-            (SELECT general__tick_id FROM tick.world_ticks WHERE tick__number = current_tick AND performance__sync_group = p_sync_group)
+            (SELECT general__tick_id FROM tick.world_ticks WHERE tick__number = current_tick AND group__sync = p_sync_group)
         FROM entity.entities e
-        WHERE e.performance__sync_group = p_sync_group
+        WHERE e.group__sync = p_sync_group
         RETURNING 1
     )
     SELECT COUNT(*) INTO entity_states_inserted FROM inserted_entities;
@@ -670,7 +653,7 @@ BEGIN
             general__created_by,
             general__updated_at,
             general__updated_by,
-            performance__sync_group,
+            group__sync,
             script__source__node__repo__entry_path,
             script__source__node__repo__url,
             script__compiled__node__script,
@@ -698,7 +681,7 @@ BEGIN
             js.general__created_by,
             js.general__updated_at,
             js.general__updated_by,
-            js.performance__sync_group,
+            js.group__sync,
             js.script__source__node__repo__entry_path,
             js.script__source__node__repo__url,
             js.script__compiled__node__script,
@@ -718,9 +701,9 @@ BEGIN
             js.script__compiled__browser__script_status,
             js.script__compiled__browser__updated_at,
             uuid_generate_v4(),
-            (SELECT general__tick_id FROM tick.world_ticks WHERE tick__number = current_tick AND performance__sync_group = p_sync_group)
+            (SELECT general__tick_id FROM tick.world_ticks WHERE tick__number = current_tick AND group__sync = p_sync_group)
         FROM entity.entity_scripts js
-        WHERE js.performance__sync_group = p_sync_group
+        WHERE js.group__sync = p_sync_group
         RETURNING 1
     )
     SELECT COUNT(*) INTO script_states_inserted FROM inserted_scripts;
@@ -840,7 +823,7 @@ CREATE POLICY "world_ticks_delete_policy" ON tick.world_ticks
 
 -- Add index for sync group queries
 CREATE INDEX entity_states_sync_group_tick_idx 
-ON tick.entity_states (performance__sync_group, general__tick_id DESC);
+ON tick.entity_states (group__sync, general__tick_id DESC);
 
 -- Create function to update timestamp
 CREATE OR REPLACE FUNCTION tick.update_updated_at()
@@ -865,7 +848,83 @@ CREATE TRIGGER update_world_ticks_updated_at
 
 -- Add optimized indexes for the tick system
 CREATE INDEX idx_entity_states_sync_tick_lookup 
-ON tick.entity_states (performance__sync_group, general__tick_id, general__entity_id);
+ON tick.entity_states (group__sync, general__tick_id, general__entity_id);
 
-CREATE INDEX idx_entity_states_roles 
-ON tick.entity_states USING GIN (permissions__roles__view);
+-- Update materialized view creation function to use prefixed column names
+CREATE OR REPLACE FUNCTION tick.create_sync_group_change_views() 
+RETURNS void AS $$
+DECLARE
+    v_sync_group text;
+    v_view_name text;
+    v_create_view text;
+BEGIN
+    FOR v_sync_group IN 
+        SELECT sync_group FROM entity.entity_sync_groups
+    LOOP
+        v_view_name := 'tick.latest_changes_' || replace(replace(v_sync_group, '.', '_'), '-', '_');
+        
+        EXECUTE 'DROP MATERIALIZED VIEW IF EXISTS ' || v_view_name;
+        
+        v_create_view := format(
+            'CREATE MATERIALIZED VIEW %s AS
+            WITH latest_ticks AS (
+                SELECT tick__number, general__tick_id
+                FROM tick.world_ticks
+                WHERE group__sync = %L
+                ORDER BY tick__number DESC
+                LIMIT 2
+            ),
+            changes AS (
+                SELECT 
+                    es.general__entity_id,
+                    es.group__sync,
+                    CASE 
+                        WHEN prev_es.general__entity_id IS NULL THEN ''INSERT''
+                        WHEN curr_es.general__entity_id IS NULL THEN ''DELETE''
+                        ELSE ''UPDATE''
+                    END as operation,
+                    jsonb_strip_nulls(
+                        CASE WHEN prev_es.general__entity_id IS NULL THEN
+                            jsonb_build_object(
+                                ''general__name'', curr_es.general__name,
+                                ''meta__data'', curr_es.meta__data
+                            )
+                        ELSE
+                            jsonb_build_object(
+                                ''general__name'', 
+                                    NULLIF(curr_es.general__name, prev_es.general__name),
+                                ''meta__data'', 
+                                    NULLIF(curr_es.meta__data, prev_es.meta__data)
+                            )
+                        END
+                    ) as changes
+                FROM (
+                    SELECT * FROM latest_ticks ORDER BY tick__number DESC LIMIT 1
+                ) curr_tick
+                LEFT JOIN tick.entity_states curr_es 
+                    ON curr_es.general__tick_id = curr_tick.general__tick_id
+                FULL OUTER JOIN (
+                    SELECT * FROM latest_ticks ORDER BY tick__number DESC OFFSET 1 LIMIT 1
+                ) prev_tick ON true
+                LEFT JOIN tick.entity_states prev_es 
+                    ON prev_es.general__tick_id = prev_tick.general__tick_id
+                    AND prev_es.general__entity_id = curr_es.general__entity_id
+                WHERE curr_es IS DISTINCT FROM prev_es
+            )
+            SELECT * FROM changes
+            WHERE changes IS NOT NULL',
+            v_view_name,
+            v_sync_group
+        );
+        
+        EXECUTE v_create_view;
+        
+        -- Simple index on sync_group
+        EXECUTE format(
+            'CREATE INDEX %s_sync_group_idx ON %s (group__sync)',
+            replace(replace(v_sync_group, '.', '_'), '-', '_'),
+            v_view_name
+        );
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql;

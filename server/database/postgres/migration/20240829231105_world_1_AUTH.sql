@@ -5,6 +5,7 @@
 -- Create auth schema
 CREATE SCHEMA IF NOT EXISTS auth;
 
+-- Update agent_profiles to be simpler
 CREATE TABLE auth.agent_profiles (
     general__agent_profile_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     profile__username TEXT UNIQUE,
@@ -21,26 +22,6 @@ CREATE TABLE auth.agent_auth_providers (
     general__created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     general__updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (auth__agent_id, auth__provider_name)
-);
-
-CREATE TABLE auth.roles (
-    auth__role_name TEXT PRIMARY KEY,
-    meta__description TEXT,
-    auth__is_system BOOLEAN NOT NULL DEFAULT FALSE,
-    auth__entity__insert BOOLEAN NOT NULL DEFAULT FALSE,
-    general__created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    general__updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE auth.agent_roles (
-    auth__agent_id UUID REFERENCES auth.agent_profiles(general__agent_profile_id) ON DELETE CASCADE,
-    auth__role_name TEXT REFERENCES auth.roles(auth__role_name) ON DELETE CASCADE,
-    auth__is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    auth__granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    auth__granted_by UUID REFERENCES auth.agent_profiles(general__agent_profile_id),
-    general__created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    general__updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (auth__agent_id, auth__role_name)
 );
 
 CREATE TABLE auth.agent_sessions (
@@ -60,12 +41,8 @@ CREATE TABLE auth.agent_sessions (
 
 -- Enable RLS
 ALTER TABLE auth.agent_profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE auth.agent_roles ENABLE ROW LEVEL SECURITY;
 
 -- Indexes for Agent-related tables
-CREATE INDEX idx_agent_roles_is_active ON auth.agent_roles(auth__is_active);
-CREATE INDEX idx_agent_roles_auth__role_name ON auth.agent_roles(auth__role_name);
-CREATE INDEX idx_agent_roles_auth__agent_id ON auth.agent_roles(auth__agent_id);
 CREATE INDEX idx_agent_sessions_auth__agent_id ON auth.agent_sessions(auth__agent_id);
 CREATE INDEX idx_agent_sessions_auth__provider_name ON auth.agent_sessions(auth__provider_name);
 CREATE INDEX idx_agent_profiles_email ON auth.agent_profiles(auth__email);
@@ -74,10 +51,6 @@ CREATE INDEX idx_agent_profiles_email ON auth.agent_profiles(auth__email);
 CREATE INDEX idx_agent_sessions_active_lookup ON auth.agent_sessions 
     (session__is_active, session__expires_at) 
     WHERE session__is_active = true;
-
-CREATE INDEX idx_agent_roles_active_lookup ON auth.agent_roles 
-    (auth__agent_id, auth__role_name) 
-    WHERE auth__is_active = true;
 
 -- Add composite index for session validation
 CREATE INDEX idx_agent_sessions_validation ON auth.agent_sessions 
@@ -107,34 +80,52 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Update is_admin_agent() to use sync groups
 CREATE OR REPLACE FUNCTION auth.is_admin_agent()
 RETURNS boolean AS $$
 BEGIN
     RETURN (SELECT usesuper FROM pg_user WHERE usename = CURRENT_USER)
            OR EXISTS (
                SELECT 1 
-               FROM auth.agent_roles ar
-               WHERE ar.auth__agent_id = auth.current_agent_id()
-               AND ar.auth__role_name = 'admin'
-               AND ar.auth__is_active = true
+               FROM entity.entity_sync_groups sg
+               WHERE sg.permissions__admin_role = 'admin'
+               AND sg.permissions__is_admin = true
+               AND auth.has_sync_group_access(sg.sync_group)
            );
 END;
 $$ LANGUAGE plpgsql;
 
--- Modify policies to use is_admin_agent
-CREATE POLICY admin_access ON auth.agent_profiles
-    TO PUBLIC
-    USING (
-        auth.is_admin_agent()
-    );
+-- Update has_sync_group_access to check against sync groups directly
+CREATE OR REPLACE FUNCTION auth.has_sync_group_access(p_sync_group TEXT) 
+RETURNS BOOLEAN AS $$
+BEGIN
+    -- Check if the agent is an admin
+    IF auth.is_admin_agent() THEN
+        RETURN true;
+    END IF;
 
--- First, let's create better RLS policies
+    -- Check if the sync group exists and agent has access
+    RETURN EXISTS (
+        SELECT 1 
+        FROM entity.entity_sync_groups sg
+        WHERE sg.sync_group = p_sync_group
+        AND (
+            -- Public access if no admin role required
+            sg.permissions__admin_role IS NULL
+            OR sg.permissions__admin_role = ''
+            OR sg.permissions__is_admin = false
+        )
+    );
+END;
+$$ LANGUAGE plpgsql;
+
+-- Simplify agent profile policies to use sync groups
 CREATE POLICY agent_view_own_profile ON auth.agent_profiles
     FOR SELECT
     TO PUBLIC
     USING (
         general__agent_profile_id = auth.current_agent_id()  -- Agents can view their own profile
-        OR auth.is_admin_agent()                 -- Admins can view all profiles
+        OR auth.is_admin_agent()                            -- Admins can view all profiles
     );
 
 CREATE POLICY agent_update_own_profile ON auth.agent_profiles
@@ -142,7 +133,7 @@ CREATE POLICY agent_update_own_profile ON auth.agent_profiles
     TO PUBLIC
     USING (
         general__agent_profile_id = auth.current_agent_id()  -- Agents can update their own profile
-        OR auth.is_admin_agent()                 -- Admins can update all profiles
+        OR auth.is_admin_agent()                            -- Admins can update all profiles
     );
 
 -- Update function to only modify updated_at timestamp
@@ -175,33 +166,13 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Seed default roles
-INSERT INTO auth.roles 
-    (auth__role_name, meta__description, auth__is_system, auth__entity__insert) 
-VALUES 
-    ('admin', 'System administrator with full access', 
-     TRUE, TRUE),
-    ('agent', 'Regular agent with basic access',
-     TRUE, FALSE),
-    ('anon', 'Anonymous user with limited access',
-     TRUE, FALSE)
-ON CONFLICT (auth__role_name) DO NOTHING;
-
--- Create system and anon agents with a known UUID
+-- Keep system and anon agent creation
 INSERT INTO auth.agent_profiles 
     (general__agent_profile_id, profile__username, auth__email) 
 VALUES 
     (auth.get_system_agent_id(), 'admin', 'system@internal'),
     (auth.get_anon_agent_id(), 'anon', 'anon@internal')
 ON CONFLICT (general__agent_profile_id) DO NOTHING;
-
--- Assign system role to the system agent and anon role for the anon agent
-INSERT INTO auth.agent_roles 
-    (auth__agent_id, auth__role_name, auth__is_active) 
-VALUES 
-    (auth.get_system_agent_id(), 'admin', TRUE),
-    (auth.get_anon_agent_id(), 'anon', TRUE)
-ON CONFLICT DO NOTHING;
 
 CREATE OR REPLACE FUNCTION auth.is_anon_agent()
 RETURNS boolean AS $$
@@ -210,6 +181,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Simplify session creation to not check roles
 CREATE OR REPLACE FUNCTION auth.create_agent_session(
     p_agent_id UUID,
     p_provider_name TEXT DEFAULT NULL,
@@ -446,6 +418,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- Update invalidate_session to use sync groups for permission check
 CREATE OR REPLACE FUNCTION auth.invalidate_session(
     p_session_id UUID
 ) RETURNS BOOLEAN AS $$
@@ -548,6 +521,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- Update get_session_stats to use sync groups for permission check
 CREATE OR REPLACE FUNCTION auth.get_session_stats(
     p_session_id UUID
 ) RETURNS TABLE (
@@ -602,17 +576,7 @@ CREATE TRIGGER update_agent_auth_providers_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION auth.set_agent_timestamps();
 
-CREATE TRIGGER update_agent_roles_updated_at
-    BEFORE UPDATE ON auth.agent_roles
-    FOR EACH ROW
-    EXECUTE FUNCTION auth.set_agent_timestamps();
-
 CREATE TRIGGER update_agent_sessions_updated_at
     BEFORE UPDATE ON auth.agent_sessions
-    FOR EACH ROW
-    EXECUTE FUNCTION auth.set_agent_timestamps();
-
-CREATE TRIGGER update_roles_updated_at
-    BEFORE UPDATE ON auth.roles
     FOR EACH ROW
     EXECUTE FUNCTION auth.set_agent_timestamps();

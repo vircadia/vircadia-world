@@ -5,7 +5,7 @@ CREATE SCHEMA IF NOT EXISTS tick;
 CREATE TABLE tick.world_ticks (
     general__tick_id uuid DEFAULT uuid_generate_v4() PRIMARY KEY,
     tick__number bigint NOT NULL,
-    group__sync TEXT NOT NULL REFERENCES entity.entity_sync_groups(sync_group),
+    group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group),
     tick__start_time timestamptz NOT NULL,
     tick__end_time timestamptz NOT NULL,
     tick__duration_ms double precision NOT NULL,
@@ -25,37 +25,36 @@ CREATE TABLE tick.world_ticks (
 
 );
 
+-- State template table
+CREATE TABLE tick.entity_state_template (
+    general__tick_id uuid NOT NULL
+);
+
 -- Lag compensation state history table (now references world_ticks)
 CREATE TABLE tick.entity_states (
     LIKE entity.entities INCLUDING DEFAULTS INCLUDING CONSTRAINTS,
     
     -- Additional metadata for state tracking
     general__entity_state_id uuid DEFAULT uuid_generate_v4(),
-    general__tick_id uuid NOT NULL,
     
     -- Override the primary key to allow multiple states per entity
     CONSTRAINT entity_states_pkey PRIMARY KEY (general__entity_state_id),
     
     -- Add foreign key constraint for sync_group
     CONSTRAINT entity_states_sync_group_fkey FOREIGN KEY (group__sync) 
-        REFERENCES entity.entity_sync_groups(sync_group),
+        REFERENCES auth.sync_groups(general__sync_group),
         
     -- Add foreign key constraint to world_ticks with cascade delete
     CONSTRAINT entity_states_tick_fkey FOREIGN KEY (general__tick_id)
         REFERENCES tick.world_ticks(general__tick_id) ON DELETE CASCADE
-);
+) INHERITS (tick.entity_state_template);
 
 -- View policy for entity_states (using sync groups instead of roles)
 CREATE POLICY "entity_states_view_policy" ON tick.entity_states
     FOR SELECT
     USING (
         auth.is_admin_agent()
-        OR EXISTS (
-            SELECT 1 
-            FROM entity.entities e
-            WHERE e.general__entity_id = tick.entity_states.general__entity_id
-            AND auth.has_sync_group_access(e.group__sync)
-        )
+        OR auth.has_sync_group_read_access(group__sync)
     );
 
 -- Update/Insert/Delete policies for entity_states (system users only)
@@ -80,7 +79,7 @@ ALTER TABLE tick.entity_states ENABLE ROW LEVEL SECURITY;
 
 CREATE TYPE operation_enum AS ENUM ('INSERT', 'UPDATE', 'DELETE');
 
--- Update the get_entity_changes function to remove role references
+-- Update the get_entity_changes function to use the new session lookup
 CREATE OR REPLACE FUNCTION tick.get_entity_changes(
     p_sync_group text,
     p_last_tick bigint,
@@ -93,16 +92,7 @@ RETURNS TABLE (
     session_ids uuid[]
 )
 AS $$
-DECLARE
-    v_active_session_ids uuid[];
 BEGIN
-    -- Gather active sessions just once for performance
-    SELECT array_agg(general__session_id)
-    INTO v_active_session_ids
-    FROM auth.agent_sessions
-    WHERE session__is_active = true 
-      AND session__expires_at > NOW();
-
     RETURN QUERY
     WITH current_entities AS (
         -- Get the current entity state from the main table, only in the relevant sync group
@@ -191,7 +181,7 @@ BEGIN
             OR ce.general__entity_id IS NULL
             OR ce.general__name IS DISTINCT FROM pe.general__name
             OR ce.general__semantic_version IS DISTINCT FROM pe.general__semantic_version
-            OR ce.general__created_at IS DISTINCT FROM pe.general__created_at
+            OR ce.general__created_at IS DISTINCT FROM pe.general__creat3ed_at
             OR ce.general__created_by IS DISTINCT FROM pe.general__created_by
             OR ce.general__updated_at IS DISTINCT FROM pe.general__updated_at
             OR ce.general__updated_by IS DISTINCT FROM pe.general__updated_by
@@ -242,31 +232,29 @@ BEGIN
                 'group__sync',   NULLIF(changed_entities.ce_group__sync, changed_entities.pe_group__sync)
             ))
         END AS entity_changes,
-        v_active_session_ids
+        auth.get_sync_group_session_ids(p_sync_group)
     FROM changed_entities;
-
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Create script states table (similar to entity_states)
+-- Update script states table to match new single-table structure
 CREATE TABLE tick.entity_script_states (
     LIKE entity.entity_scripts INCLUDING DEFAULTS INCLUDING CONSTRAINTS,
     
     -- Additional metadata for state tracking
     general__script_state_id uuid DEFAULT uuid_generate_v4(),
-    general__tick_id uuid NOT NULL,
     
-    -- Override the primary key to allow multiple states per script
+    -- Override the primary key
     CONSTRAINT entity_script_states_pkey PRIMARY KEY (general__script_state_id),
     
     -- Add foreign key constraint for sync_group
     CONSTRAINT entity_script_states_sync_group_fkey FOREIGN KEY (group__sync) 
-        REFERENCES entity.entity_sync_groups(sync_group),
+        REFERENCES auth.sync_groups(general__sync_group),
         
     -- Add foreign key constraint to world_ticks with cascade delete
     CONSTRAINT entity_script_states_tick_fkey FOREIGN KEY (general__tick_id)
         REFERENCES tick.world_ticks(general__tick_id) ON DELETE CASCADE
-);
+) INHERITS (tick.entity_state_template);
 
 -- Create indexes for script states
 CREATE INDEX entity_script_states_lookup_idx ON tick.entity_script_states (general__script_id, general__tick_id);
@@ -280,7 +268,10 @@ ALTER TABLE tick.entity_script_states ENABLE ROW LEVEL SECURITY;
 -- Add policies for script states (matching entity_scripts policies)
 CREATE POLICY "script_states_view_policy" ON tick.entity_script_states
     FOR SELECT
-    USING (true);
+    USING (
+        auth.is_admin_agent()
+        OR auth.has_sync_group_read_access(group__sync)
+    );
 
 CREATE POLICY "script_states_update_policy" ON tick.entity_script_states
     FOR UPDATE
@@ -294,7 +285,7 @@ CREATE POLICY "script_states_delete_policy" ON tick.entity_script_states
     FOR DELETE
     USING (auth.is_admin_agent());
 
--- Update the get_script_changes function to use script states
+-- Update the get_script_changes function to use simplified structure
 CREATE OR REPLACE FUNCTION tick.get_script_changes(
     p_sync_group text,
     p_last_tick bigint,
@@ -306,25 +297,14 @@ RETURNS TABLE (
     script_changes jsonb,
     session_ids uuid[]
 ) AS $$
-DECLARE
-    v_active_session_ids uuid[];
 BEGIN
-    -- Get active sessions once for performance
-    SELECT array_agg(general__session_id)
-      INTO v_active_session_ids
-      FROM auth.agent_sessions
-     WHERE session__is_active = true 
-       AND session__expires_at > NOW();
-
     RETURN QUERY
     WITH current_scripts AS (
-        -- Get current state, only for the relevant sync group
         SELECT *
           FROM entity.entity_scripts
          WHERE group__sync = p_sync_group
     ),
     previous_scripts AS (
-        -- Get previous state using the tick index
         SELECT ess.*
           FROM tick.entity_script_states ess
           JOIN tick.world_ticks wt 
@@ -334,194 +314,118 @@ BEGIN
     ),
     changed_scripts AS (
         SELECT 
-            -- Determine the common script_id and operation type
             COALESCE(cs.general__script_id, ps.general__script_id) AS script_id,
             CASE 
                 WHEN ps.general__script_id IS NULL THEN 'INSERT'::operation_enum
                 WHEN cs.general__script_id IS NULL THEN 'DELETE'::operation_enum
                 WHEN (
-                    cs.general__created_at           IS DISTINCT FROM ps.general__created_at OR
-                    cs.general__created_by           IS DISTINCT FROM ps.general__created_by OR
-                    cs.general__updated_at           IS DISTINCT FROM ps.general__updated_at OR
-                    cs.general__updated_by           IS DISTINCT FROM ps.general__updated_by OR
-                    cs.group__sync       IS DISTINCT FROM ps.group__sync OR
-                    -- Node script fields
-                    cs.script__source__node__repo__entry_path IS DISTINCT FROM ps.script__source__node__repo__entry_path OR
-                    cs.script__source__node__repo__url        IS DISTINCT FROM ps.script__source__node__repo__url OR
-                    cs.script__compiled__node__script         IS DISTINCT FROM ps.script__compiled__node__script OR
-                    cs.script__compiled__node__script_sha256    IS DISTINCT FROM ps.script__compiled__node__script_sha256 OR
-                    cs.script__compiled__node__script_status    IS DISTINCT FROM ps.script__compiled__node__script_status OR
-                    cs.script__compiled__node__updated_at       IS DISTINCT FROM ps.script__compiled__node__updated_at OR
-                    -- Bun script fields
-                    cs.script__source__bun__repo__entry_path     IS DISTINCT FROM ps.script__source__bun__repo__entry_path OR
-                    cs.script__source__bun__repo__url            IS DISTINCT FROM ps.script__source__bun__repo__url OR
-                    cs.script__compiled__bun__script             IS DISTINCT FROM ps.script__compiled__bun__script OR
-                    cs.script__compiled__bun__script_sha256        IS DISTINCT FROM ps.script__compiled__bun__script_sha256 OR
-                    cs.script__compiled__bun__script_status        IS DISTINCT FROM ps.script__compiled__bun__script_status OR
-                    cs.script__compiled__bun__updated_at           IS DISTINCT FROM ps.script__compiled__bun__updated_at OR
-                    -- Browser script fields
-                    cs.script__source__browser__repo__entry_path   IS DISTINCT FROM ps.script__source__browser__repo__entry_path OR
-                    cs.script__source__browser__repo__url          IS DISTINCT FROM ps.script__source__browser__repo__url OR
-                    cs.script__compiled__browser__script           IS DISTINCT FROM ps.script__compiled__browser__script OR
-                    cs.script__compiled__browser__script_sha256      IS DISTINCT FROM ps.script__compiled__browser__script_sha256 OR
-                    cs.script__compiled__browser__script_status      IS DISTINCT FROM ps.script__compiled__browser__script_status OR
-                    cs.script__compiled__browser__updated_at         IS DISTINCT FROM ps.script__compiled__browser__updated_at
+                    cs.general__created_at IS DISTINCT FROM ps.general__created_at OR
+                    cs.general__created_by IS DISTINCT FROM ps.general__created_by OR
+                    cs.general__updated_at IS DISTINCT FROM ps.general__updated_at OR
+                    cs.general__updated_by IS DISTINCT FROM ps.general__updated_by OR
+                    cs.group__sync IS DISTINCT FROM ps.group__sync OR
+                    cs.source__repo__entry_path IS DISTINCT FROM ps.source__repo__entry_path OR
+                    cs.source__repo__url IS DISTINCT FROM ps.source__repo__url OR
+                    cs.compiled__node__script IS DISTINCT FROM ps.compiled__node__script OR
+                    cs.compiled__node__script_sha256 IS DISTINCT FROM ps.compiled__node__script_sha256 OR
+                    cs.compiled__node__status IS DISTINCT FROM ps.compiled__node__status OR
+                    cs.compiled__node__updated_at IS DISTINCT FROM ps.compiled__node__updated_at OR
+                    cs.compiled__bun__script IS DISTINCT FROM ps.compiled__bun__script OR
+                    cs.compiled__bun__script_sha256 IS DISTINCT FROM ps.compiled__bun__script_sha256 OR
+                    cs.compiled__bun__status IS DISTINCT FROM ps.compiled__bun__status OR
+                    cs.compiled__bun__updated_at IS DISTINCT FROM ps.compiled__bun__updated_at OR
+                    cs.compiled__browser__script IS DISTINCT FROM ps.compiled__browser__script OR
+                    cs.compiled__browser__script_sha256 IS DISTINCT FROM ps.compiled__browser__script_sha256 OR
+                    cs.compiled__browser__status IS DISTINCT FROM ps.compiled__browser__status OR
+                    cs.compiled__browser__updated_at IS DISTINCT FROM ps.compiled__browser__updated_at
                 ) THEN 'UPDATE'::operation_enum
             END AS operation,
 
-            -- "Current scripts" columns with a cs_ prefix
-            cs.general__script_id            AS cs_general__script_id,
-            cs.general__created_at           AS cs_general__created_at,
-            cs.general__created_by           AS cs_general__created_by,
-            cs.general__updated_at           AS cs_general__updated_at,
-            cs.general__updated_by           AS cs_general__updated_by,
-            cs.group__sync       AS cs_group__sync,
-            cs.script__source__node__repo__entry_path AS cs_script__source__node__repo__entry_path,
-            cs.script__source__node__repo__url        AS cs_script__source__node__repo__url,
-            cs.script__compiled__node__script         AS cs_script__compiled__node__script,
-            cs.script__compiled__node__script_sha256    AS cs_script__compiled__node__script_sha256,
-            cs.script__compiled__node__script_status    AS cs_script__compiled__node__script_status,
-            cs.script__compiled__node__updated_at       AS cs_script__compiled__node__updated_at,
-            cs.script__source__bun__repo__entry_path     AS cs_script__source__bun__repo__entry_path,
-            cs.script__source__bun__repo__url            AS cs_script__source__bun__repo__url,
-            cs.script__compiled__bun__script             AS cs_script__compiled__bun__script,
-            cs.script__compiled__bun__script_sha256        AS cs_script__compiled__bun__script_sha256,
-            cs.script__compiled__bun__script_status        AS cs_script__compiled__bun__script_status,
-            cs.script__compiled__bun__updated_at           AS cs_script__compiled__bun__updated_at,
-            cs.script__source__browser__repo__entry_path   AS cs_script__source__browser__repo__entry_path,
-            cs.script__source__browser__repo__url          AS cs_script__source__browser__repo__url,
-            cs.script__compiled__browser__script           AS cs_script__compiled__browser__script,
-            cs.script__compiled__browser__script_sha256      AS cs_script__compiled__browser__script_sha256,
-            cs.script__compiled__browser__script_status      AS cs_script__compiled__browser__script_status,
-            cs.script__compiled__browser__updated_at         AS cs_script__compiled__browser__updated_at,
-
-            -- "Previous scripts" columns with a ps_ prefix
-            ps.general__script_id            AS ps_general__script_id,
-            ps.general__created_at           AS ps_general__created_at,
-            ps.general__created_by           AS ps_general__created_by,
-            ps.general__updated_at           AS ps_general__updated_at,
-            ps.general__updated_by           AS ps_general__updated_by,
-            ps.group__sync       AS ps_group__sync,
-            ps.script__source__node__repo__entry_path AS ps_script__source__node__repo__entry_path,
-            ps.script__source__node__repo__url        AS ps_script__source__node__repo__url,
-            ps.script__compiled__node__script         AS ps_script__compiled__node__script,
-            ps.script__compiled__node__script_sha256    AS ps_script__compiled__node__script_sha256,
-            ps.script__compiled__node__script_status    AS ps_script__compiled__node__script_status,
-            ps.script__compiled__node__updated_at       AS ps_script__compiled__node__updated_at,
-            ps.script__source__bun__repo__entry_path     AS ps_script__source__bun__repo__entry_path,
-            ps.script__source__bun__repo__url            AS ps_script__source__bun__repo__url,
-            ps.script__compiled__bun__script             AS ps_script__compiled__bun__script,
-            ps.script__compiled__bun__script_sha256        AS ps_script__compiled__bun__script_sha256,
-            ps.script__compiled__bun__script_status        AS ps_script__compiled__bun__script_status,
-            ps.script__compiled__bun__updated_at           AS ps_script__compiled__bun__updated_at,
-            ps.script__source__browser__repo__entry_path   AS ps_script__source__browser__repo__entry_path,
-            ps.script__source__browser__repo__url          AS ps_script__source__browser__repo__url,
-            ps.script__compiled__browser__script           AS ps_script__compiled__browser__script,
-            ps.script__compiled__browser__script_sha256      AS ps_script__compiled__browser__script_sha256,
-            ps.script__compiled__browser__script_status      AS ps_script__compiled__browser__script_status,
-            ps.script__compiled__browser__updated_at         AS ps_script__compiled__browser__updated_at
+            -- Current script columns
+            cs.*,
+            -- Previous script columns
+            ps.*
 
         FROM current_scripts cs
         FULL OUTER JOIN previous_scripts ps 
           ON cs.general__script_id = ps.general__script_id
         WHERE 
-              ps.general__script_id IS NULL 
-           OR cs.general__script_id IS NULL 
-           OR cs.general__created_at           IS DISTINCT FROM ps.general__created_at
-           OR cs.general__created_by           IS DISTINCT FROM ps.general__created_by
-           OR cs.general__updated_at           IS DISTINCT FROM ps.general__updated_at
-           OR cs.general__updated_by           IS DISTINCT FROM ps.general__updated_by
-           OR cs.group__sync       IS DISTINCT FROM ps.group__sync
-           OR cs.script__source__node__repo__entry_path IS DISTINCT FROM ps.script__source__node__repo__entry_path
-           OR cs.script__source__node__repo__url        IS DISTINCT FROM ps.script__source__node__repo__url
-           OR cs.script__compiled__node__script         IS DISTINCT FROM ps.script__compiled__node__script
-           OR cs.script__compiled__node__script_sha256    IS DISTINCT FROM ps.script__compiled__node__script_sha256
-           OR cs.script__compiled__node__script_status    IS DISTINCT FROM ps.script__compiled__node__script_status
-           OR cs.script__compiled__node__updated_at       IS DISTINCT FROM ps.script__compiled__node__updated_at
-           OR cs.script__source__bun__repo__entry_path     IS DISTINCT FROM ps.script__source__bun__repo__entry_path
-           OR cs.script__source__bun__repo__url            IS DISTINCT FROM ps.script__source__bun__repo__url
-           OR cs.script__compiled__bun__script             IS DISTINCT FROM ps.script__compiled__bun__script
-           OR cs.script__compiled__bun__script_sha256        IS DISTINCT FROM ps.script__compiled__bun__script_sha256
-           OR cs.script__compiled__bun__script_status        IS DISTINCT FROM ps.script__compiled__bun__script_status
-           OR cs.script__compiled__bun__updated_at           IS DISTINCT FROM ps.script__compiled__bun__updated_at
-           OR cs.script__source__browser__repo__entry_path   IS DISTINCT FROM ps.script__source__browser__repo__entry_path
-           OR cs.script__source__browser__repo__url          IS DISTINCT FROM ps.script__source__browser__repo__url
-           OR cs.script__compiled__browser__script           IS DISTINCT FROM ps.script__compiled__browser__script
-           OR cs.script__compiled__browser__script_sha256      IS DISTINCT FROM ps.script__compiled__browser__script_sha256
-           OR cs.script__compiled__browser__script_status      IS DISTINCT FROM ps.script__compiled__browser__script_status
-           OR cs.script__compiled__browser__updated_at         IS DISTINCT FROM ps.script__compiled__browser__updated_at
+            ps.general__script_id IS NULL 
+         OR cs.general__script_id IS NULL 
+         OR cs.general__created_at IS DISTINCT FROM ps.general__created_at
+         OR cs.general__created_by IS DISTINCT FROM ps.general__created_by
+         OR cs.general__updated_at IS DISTINCT FROM ps.general__updated_at
+         OR cs.general__updated_by IS DISTINCT FROM ps.general__updated_by
+         OR cs.group__sync IS DISTINCT FROM ps.group__sync
+         OR cs.source__repo__entry_path IS DISTINCT FROM ps.source__repo__entry_path
+         OR cs.source__repo__url IS DISTINCT FROM ps.source__repo__url
+         OR cs.compiled__node__script IS DISTINCT FROM ps.compiled__node__script
+         OR cs.compiled__node__script_sha256 IS DISTINCT FROM ps.compiled__node__script_sha256
+         OR cs.compiled__node__status IS DISTINCT FROM ps.compiled__node__status
+         OR cs.compiled__node__updated_at IS DISTINCT FROM ps.compiled__node__updated_at
+         OR cs.compiled__bun__script IS DISTINCT FROM ps.compiled__bun__script
+         OR cs.compiled__bun__script_sha256 IS DISTINCT FROM ps.compiled__bun__script_sha256
+         OR cs.compiled__bun__status IS DISTINCT FROM ps.compiled__bun__status
+         OR cs.compiled__bun__updated_at IS DISTINCT FROM ps.compiled__bun__updated_at
+         OR cs.compiled__browser__script IS DISTINCT FROM ps.compiled__browser__script
+         OR cs.compiled__browser__script_sha256 IS DISTINCT FROM ps.compiled__browser__script_sha256
+         OR cs.compiled__browser__status IS DISTINCT FROM ps.compiled__browser__status
+         OR cs.compiled__browser__updated_at IS DISTINCT FROM ps.compiled__browser__updated_at
     )
     SELECT 
         changed_scripts.script_id,
         changed_scripts.operation,
         CASE changed_scripts.operation
             WHEN 'INSERT' THEN jsonb_build_object(
-                'general__created_at',              changed_scripts.cs_general__created_at,
-                'general__created_by',              changed_scripts.cs_general__created_by,
-                'general__updated_at',              changed_scripts.cs_general__updated_at,
-                'general__updated_by',              changed_scripts.cs_general__updated_by,
-                'group__sync',          changed_scripts.cs_group__sync,
-                -- Node script
-                'script__source__node__repo__entry_path', changed_scripts.cs_script__source__node__repo__entry_path,
-                'script__source__node__repo__url',          changed_scripts.cs_script__source__node__repo__url,
-                'script__compiled__node__script',           changed_scripts.cs_script__compiled__node__script,
-                'script__compiled__node__script_sha256',      changed_scripts.cs_script__compiled__node__script_sha256,
-                'script__compiled__node__script_status',      changed_scripts.cs_script__compiled__node__script_status,
-                'script__compiled__node__updated_at',         changed_scripts.cs_script__compiled__node__updated_at,
-                -- Bun script
-                'script__source__bun__repo__entry_path',      changed_scripts.cs_script__source__bun__repo__entry_path,
-                'script__source__bun__repo__url',             changed_scripts.cs_script__source__bun__repo__url,
-                'script__compiled__bun__script',              changed_scripts.cs_script__compiled__bun__script,
-                'script__compiled__bun__script_sha256',         changed_scripts.cs_script__compiled__bun__script_sha256,
-                'script__compiled__bun__script_status',         changed_scripts.cs_script__compiled__bun__script_status,
-                'script__compiled__bun__updated_at',          changed_scripts.cs_script__compiled__bun__updated_at,
-                -- Browser script
-                'script__source__browser__repo__entry_path',  changed_scripts.cs_script__source__browser__repo__entry_path,
-                'script__source__browser__repo__url',         changed_scripts.cs_script__source__browser__repo__url,
-                'script__compiled__browser__script',          changed_scripts.cs_script__compiled__browser__script,
-                'script__compiled__browser__script_sha256',     changed_scripts.cs_script__compiled__browser__script_sha256,
-                'script__compiled__browser__script_status',     changed_scripts.cs_script__compiled__browser__script_status,
-                'script__compiled__browser__updated_at',        changed_scripts.cs_script__compiled__browser__updated_at
+                'general__created_at', cs.general__created_at,
+                'general__created_by', cs.general__created_by,
+                'general__updated_at', cs.general__updated_at,
+                'general__updated_by', cs.general__updated_by,
+                'group__sync', cs.group__sync,
+                'source__repo__entry_path', cs.source__repo__entry_path,
+                'source__repo__url', cs.source__repo__url,
+                'compiled__node__script', cs.compiled__node__script,
+                'compiled__node__script_sha256', cs.compiled__node__script_sha256,
+                'compiled__node__status', cs.compiled__node__status,
+                'compiled__node__updated_at', cs.compiled__node__updated_at,
+                'compiled__bun__script', cs.compiled__bun__script,
+                'compiled__bun__script_sha256', cs.compiled__bun__script_sha256,
+                'compiled__bun__status', cs.compiled__bun__status,
+                'compiled__bun__updated_at', cs.compiled__bun__updated_at,
+                'compiled__browser__script', cs.compiled__browser__script,
+                'compiled__browser__script_sha256', cs.compiled__browser__script_sha256,
+                'compiled__browser__status', cs.compiled__browser__status,
+                'compiled__browser__updated_at', cs.compiled__browser__updated_at
             )
             WHEN 'DELETE' THEN NULL
             ELSE jsonb_strip_nulls(jsonb_build_object(
-                'general__created_at',       NULLIF(changed_scripts.cs_general__created_at, changed_scripts.ps_general__created_at),
-                'general__created_by',       NULLIF(changed_scripts.cs_general__created_by, changed_scripts.ps_general__created_by),
-                'general__updated_at',       NULLIF(changed_scripts.cs_general__updated_at, changed_scripts.ps_general__updated_at),
-                'general__updated_by',       NULLIF(changed_scripts.cs_general__updated_by, changed_scripts.ps_general__updated_by),
-                'group__sync',   NULLIF(changed_scripts.cs_group__sync, changed_scripts.ps_group__sync),
-                -- Node script
-                'script__source__node__repo__entry_path', NULLIF(changed_scripts.cs_script__source__node__repo__entry_path, changed_scripts.ps_script__source__node__repo__entry_path),
-                'script__source__node__repo__url',          NULLIF(changed_scripts.cs_script__source__node__repo__url, changed_scripts.ps_script__source__node__repo__url),
-                'script__compiled__node__script',           NULLIF(changed_scripts.cs_script__compiled__node__script, changed_scripts.ps_script__compiled__node__script),
-                'script__compiled__node__script_sha256',      NULLIF(changed_scripts.cs_script__compiled__node__script_sha256, changed_scripts.ps_script__compiled__node__script_sha256),
-                'script__compiled__node__script_status',      NULLIF(changed_scripts.cs_script__compiled__node__script_status, changed_scripts.ps_script__compiled__node__script_status),
-                'script__compiled__node__updated_at',         NULLIF(changed_scripts.cs_script__compiled__node__updated_at, changed_scripts.ps_script__compiled__node__updated_at),
-                -- Bun script
-                'script__source__bun__repo__entry_path',      NULLIF(changed_scripts.cs_script__source__bun__repo__entry_path, changed_scripts.ps_script__source__bun__repo__entry_path),
-                'script__source__bun__repo__url',             NULLIF(changed_scripts.cs_script__source__bun__repo__url, changed_scripts.ps_script__source__bun__repo__url),
-                'script__compiled__bun__script',              NULLIF(changed_scripts.cs_script__compiled__bun__script, changed_scripts.ps_script__compiled__bun__script),
-                'script__compiled__bun__script_sha256',         NULLIF(changed_scripts.cs_script__compiled__bun__script_sha256, changed_scripts.ps_script__compiled__bun__script_sha256),
-                'script__compiled__bun__script_status',         NULLIF(changed_scripts.cs_script__compiled__bun__script_status, changed_scripts.ps_script__compiled__bun__script_status),
-                'script__compiled__bun__updated_at',          NULLIF(changed_scripts.cs_script__compiled__bun__updated_at, changed_scripts.ps_script__compiled__bun__updated_at),
-                -- Browser script
-                'script__source__browser__repo__entry_path',  NULLIF(changed_scripts.cs_script__source__browser__repo__entry_path, changed_scripts.ps_script__source__browser__repo__entry_path),
-                'script__source__browser__repo__url',         NULLIF(changed_scripts.cs_script__source__browser__repo__url, changed_scripts.ps_script__source__browser__repo__url),
-                'script__compiled__browser__script',          NULLIF(changed_scripts.cs_script__compiled__browser__script, changed_scripts.ps_script__compiled__browser__script),
-                'script__compiled__browser__script_sha256',     NULLIF(changed_scripts.cs_script__compiled__browser__script_sha256, changed_scripts.ps_script__compiled__browser__script_sha256),
-                'script__compiled__browser__script_status',     NULLIF(changed_scripts.cs_script__compiled__browser__script_status, changed_scripts.ps_script__compiled__browser__script_status),
-                'script__compiled__browser__updated_at',        NULLIF(changed_scripts.cs_script__compiled__browser__updated_at, changed_scripts.ps_script__compiled__browser__updated_at)
+                'general__created_at', NULLIF(cs.general__created_at, ps.general__created_at),
+                'general__created_by', NULLIF(cs.general__created_by, ps.general__created_by),
+                'general__updated_at', NULLIF(cs.general__updated_at, ps.general__updated_at),
+                'general__updated_by', NULLIF(cs.general__updated_by, ps.general__updated_by),
+                'group__sync', NULLIF(cs.group__sync, ps.group__sync),
+                'source__repo__entry_path', NULLIF(cs.source__repo__entry_path, ps.source__repo__entry_path),
+                'source__repo__url', NULLIF(cs.source__repo__url, ps.source__repo__url),
+                'compiled__node__script', NULLIF(cs.compiled__node__script, ps.compiled__node__script),
+                'compiled__node__script_sha256', NULLIF(cs.compiled__node__script_sha256, ps.compiled__node__script_sha256),
+                'compiled__node__status', NULLIF(cs.compiled__node__status, ps.compiled__node__status),
+                'compiled__node__updated_at', NULLIF(cs.compiled__node__updated_at, ps.compiled__node__updated_at),
+                'compiled__bun__script', NULLIF(cs.compiled__bun__script, ps.compiled__bun__script),
+                'compiled__bun__script_sha256', NULLIF(cs.compiled__bun__script_sha256, ps.compiled__bun__script_sha256),
+                'compiled__bun__status', NULLIF(cs.compiled__bun__status, ps.compiled__bun__status),
+                'compiled__bun__updated_at', NULLIF(cs.compiled__bun__updated_at, ps.compiled__bun__updated_at),
+                'compiled__browser__script', NULLIF(cs.compiled__browser__script, ps.compiled__browser__script),
+                'compiled__browser__script_sha256', NULLIF(cs.compiled__browser__script_sha256, ps.compiled__browser__script_sha256),
+                'compiled__browser__status', NULLIF(cs.compiled__browser__status, ps.compiled__browser__status),
+                'compiled__browser__updated_at', NULLIF(cs.compiled__browser__updated_at, ps.compiled__browser__updated_at)
             ))
         END AS script_changes,
-        v_active_session_ids
+        auth.get_sync_group_session_ids(p_sync_group)
     FROM changed_scripts;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Add a type to differentiate between entity and tick-only updates
-CREATE TYPE tick_update_type AS ENUM ('ENTITY', 'TICK_ONLY');
-
--- Update the capture_tick_state function to handle script states and return changes
+-- Update the capture_tick_state function to handle simplified script structure
 CREATE OR REPLACE FUNCTION tick.capture_tick_state(p_sync_group text)
 RETURNS jsonb AS $$
 DECLARE
@@ -645,7 +549,7 @@ BEGIN
     )
     SELECT COUNT(*) INTO entity_states_inserted FROM inserted_entities;
 
-    -- Insert new script states
+    -- Insert new script states with simplified structure
     WITH inserted_scripts AS (
         INSERT INTO tick.entity_script_states (
             general__script_id,
@@ -654,24 +558,13 @@ BEGIN
             general__updated_at,
             general__updated_by,
             group__sync,
-            script__source__node__repo__entry_path,
-            script__source__node__repo__url,
-            script__compiled__node__script,
-            script__compiled__node__script_sha256,
-            script__compiled__node__script_status,
-            script__compiled__node__updated_at,
-            script__source__bun__repo__entry_path,
-            script__source__bun__repo__url,
-            script__compiled__bun__script,
-            script__compiled__bun__script_sha256,
-            script__compiled__bun__script_status,
-            script__compiled__bun__updated_at,
-            script__source__browser__repo__entry_path,
-            script__source__browser__repo__url,
-            script__compiled__browser__script,
-            script__compiled__browser__script_sha256,
-            script__compiled__browser__script_status,
-            script__compiled__browser__updated_at,
+            platform,
+            source__repo__entry_path,
+            source__repo__url,
+            compiled__node__script,
+            compiled__node__script_sha256,
+            compiled__node__status,
+            compiled__node__updated_at,
             general__script_state_id,
             general__tick_id
         )
@@ -682,26 +575,15 @@ BEGIN
             js.general__updated_at,
             js.general__updated_by,
             js.group__sync,
-            js.script__source__node__repo__entry_path,
-            js.script__source__node__repo__url,
-            js.script__compiled__node__script,
-            js.script__compiled__node__script_sha256,
-            js.script__compiled__node__script_status,
-            js.script__compiled__node__updated_at,
-            js.script__source__bun__repo__entry_path,
-            js.script__source__bun__repo__url,
-            js.script__compiled__bun__script,
-            js.script__compiled__bun__script_sha256,
-            js.script__compiled__bun__script_status,
-            js.script__compiled__bun__updated_at,
-            js.script__source__browser__repo__entry_path,
-            js.script__source__browser__repo__url,
-            js.script__compiled__browser__script,
-            js.script__compiled__browser__script_sha256,
-            js.script__compiled__browser__script_status,
-            js.script__compiled__browser__updated_at,
+            js.platform,
+            js.source__repo__entry_path,
+            js.source__repo__url,
+            js.compiled__node__script,
+            js.compiled__node__script_sha256,
+            js.compiled__node__status,
+            js.compiled__node__updated_at,
             uuid_generate_v4(),
-            (SELECT general__tick_id FROM tick.world_ticks WHERE tick__number = current_tick AND group__sync = p_sync_group)
+            v_tick_id
         FROM entity.entity_scripts js
         WHERE js.group__sync = p_sync_group
         RETURNING 1

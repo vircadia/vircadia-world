@@ -5,59 +5,23 @@
 -- Create auth schema
 CREATE SCHEMA IF NOT EXISTS auth;
 
--- Update agent_profiles to be simpler
-CREATE TABLE auth.agent_profiles (
-    general__agent_profile_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    profile__username TEXT UNIQUE,
-    auth__email TEXT UNIQUE,
-    general__created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    general__updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+-- Function to get system agent id (needed for current_agent_id)
+CREATE OR REPLACE FUNCTION auth.get_system_agent_id() 
+RETURNS UUID AS $$
+BEGIN
+    RETURN '00000000-0000-0000-0000-000000000000'::UUID;
+END;
+$$ LANGUAGE plpgsql;
 
-CREATE TABLE auth.agent_auth_providers (
-    auth__agent_id UUID REFERENCES auth.agent_profiles(general__agent_profile_id) ON DELETE CASCADE,
-    auth__provider_name TEXT NOT NULL,
-    auth__provider_uid TEXT,
-    auth__is_primary BOOLEAN NOT NULL DEFAULT FALSE,
-    general__created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    general__updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (auth__agent_id, auth__provider_name)
-);
+-- Function to get anon agent id (needed for current_agent_id)
+CREATE OR REPLACE FUNCTION auth.get_anon_agent_id() 
+RETURNS UUID AS $$
+BEGIN
+    RETURN '00000000-0000-0000-0000-000000000001'::UUID;
+END;
+$$ LANGUAGE plpgsql;
 
-CREATE TABLE auth.agent_sessions (
-    general__session_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    auth__agent_id UUID REFERENCES auth.agent_profiles(general__agent_profile_id) ON DELETE CASCADE,
-    auth__provider_name TEXT NOT NULL,
-    session__started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    session__last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    session__expires_at TIMESTAMPTZ NOT NULL,
-    session__jwt TEXT,
-    session__is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    stats__last_subscription_message JSONB DEFAULT NULL,
-    stats__last_subscription_message_at TIMESTAMPTZ DEFAULT NULL,
-    general__created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    general__updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- Enable RLS
-ALTER TABLE auth.agent_profiles ENABLE ROW LEVEL SECURITY;
-
--- Indexes for Agent-related tables
-CREATE INDEX idx_agent_sessions_auth__agent_id ON auth.agent_sessions(auth__agent_id);
-CREATE INDEX idx_agent_sessions_auth__provider_name ON auth.agent_sessions(auth__provider_name);
-CREATE INDEX idx_agent_profiles_email ON auth.agent_profiles(auth__email);
-
--- Add optimized indexes for session-based entity change distribution
-CREATE INDEX idx_agent_sessions_active_lookup ON auth.agent_sessions 
-    (session__is_active, session__expires_at) 
-    WHERE session__is_active = true;
-
--- Add composite index for session validation
-CREATE INDEX idx_agent_sessions_validation ON auth.agent_sessions 
-    (general__session_id, session__is_active, session__expires_at) 
-    WHERE session__is_active = true;
-
--- Move functions to auth schema
+-- Create current_agent_id function before it's used in template
 CREATE OR REPLACE FUNCTION auth.current_agent_id() 
 RETURNS UUID AS $$
 BEGIN
@@ -80,42 +44,82 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Update is_admin_agent() to use sync groups
+-- Create a template table for common columns
+CREATE TABLE auth._template (
+    general__created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    general__created_by UUID DEFAULT auth.current_agent_id(),
+    general__updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    general__updated_by UUID DEFAULT auth.current_agent_id()
+);
+
+-- Update agent_profiles to be simpler
+CREATE TABLE auth.agent_profiles (
+    general__agent_profile_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    profile__username TEXT UNIQUE,
+    auth__email TEXT UNIQUE,
+    auth__is_admin BOOLEAN NOT NULL DEFAULT FALSE
+) INHERITS (auth._template);
+
+CREATE TABLE auth.agent_auth_providers (
+    auth__agent_id UUID REFERENCES auth.agent_profiles(general__agent_profile_id) ON DELETE CASCADE,
+    auth__provider_name TEXT NOT NULL,
+    auth__provider_uid TEXT NOT NULL,  -- Provider's unique ID for the user (e.g., Google's sub)
+    auth__refresh_token TEXT,          -- Provider's refresh token (if available)
+    auth__provider_email TEXT,         -- Email from the provider (for verification)
+    auth__is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+    auth__metadata JSONB,              -- Additional provider-specific data
+    PRIMARY KEY (auth__agent_id, auth__provider_name),
+    UNIQUE (auth__provider_name, auth__provider_uid)  -- Prevent duplicate provider accounts
+) INHERITS (auth._template);
+
+CREATE TABLE auth.agent_sessions (
+    general__session_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    auth__agent_id UUID REFERENCES auth.agent_profiles(general__agent_profile_id) ON DELETE CASCADE,
+    auth__provider_name TEXT NOT NULL,
+    session__started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    session__last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    session__expires_at TIMESTAMPTZ NOT NULL,
+    session__jwt TEXT,
+    session__is_active BOOLEAN NOT NULL DEFAULT TRUE
+) INHERITS (auth._template);
+
+
+-- Enable RLS
+ALTER TABLE auth.agent_profiles ENABLE ROW LEVEL SECURITY;
+
+-- Indexes for Agent-related tables
+CREATE INDEX idx_agent_sessions_auth__agent_id ON auth.agent_sessions(auth__agent_id);
+CREATE INDEX idx_agent_sessions_auth__provider_name ON auth.agent_sessions(auth__provider_name);
+CREATE INDEX idx_agent_profiles_email ON auth.agent_profiles(auth__email);
+
+-- Add optimized indexes for session-based entity change distribution
+CREATE INDEX idx_agent_sessions_active_lookup ON auth.agent_sessions 
+    (session__is_active, session__expires_at) 
+    WHERE session__is_active = true;
+
+-- Add composite index for session validation
+CREATE INDEX idx_agent_sessions_validation ON auth.agent_sessions 
+    (general__session_id, session__is_active, session__expires_at) 
+    WHERE session__is_active = true;
+
+-- Update is_admin_agent() to check the flag directly
 CREATE OR REPLACE FUNCTION auth.is_admin_agent()
 RETURNS boolean AS $$
 BEGIN
-    RETURN (SELECT usesuper FROM pg_user WHERE usename = CURRENT_USER)
-           OR EXISTS (
-               SELECT 1 
-               FROM entity.entity_sync_groups sg
-               WHERE sg.permissions__admin_role = 'admin'
-               AND sg.permissions__is_admin = true
-               AND auth.has_sync_group_access(sg.sync_group)
-           );
+    RETURN EXISTS (
+        SELECT 1 
+        FROM auth.agent_profiles
+        WHERE general__agent_profile_id = auth.current_agent_id()
+        AND auth__is_admin = true
+    );
 END;
 $$ LANGUAGE plpgsql;
 
--- Update has_sync_group_access to check against sync groups directly
-CREATE OR REPLACE FUNCTION auth.has_sync_group_access(p_sync_group TEXT) 
-RETURNS BOOLEAN AS $$
+-- Add new function to check for superuser status
+CREATE OR REPLACE FUNCTION auth.is_super_admin()
+RETURNS boolean AS $$
 BEGIN
-    -- Check if the agent is an admin
-    IF auth.is_admin_agent() THEN
-        RETURN true;
-    END IF;
-
-    -- Check if the sync group exists and agent has access
-    RETURN EXISTS (
-        SELECT 1 
-        FROM entity.entity_sync_groups sg
-        WHERE sg.sync_group = p_sync_group
-        AND (
-            -- Public access if no admin role required
-            sg.permissions__admin_role IS NULL
-            OR sg.permissions__admin_role = ''
-            OR sg.permissions__is_admin = false
-        )
-    );
+    RETURN (SELECT usesuper FROM pg_user WHERE usename = CURRENT_USER);
 END;
 $$ LANGUAGE plpgsql;
 
@@ -136,11 +140,12 @@ CREATE POLICY agent_update_own_profile ON auth.agent_profiles
         OR auth.is_admin_agent()                            -- Admins can update all profiles
     );
 
--- Update function to only modify updated_at timestamp
+-- Update function to modify both updated_at and updated_by timestamps
 CREATE OR REPLACE FUNCTION auth.set_agent_timestamps()
 RETURNS TRIGGER AS $$
 BEGIN
     NEW.general__updated_at = CURRENT_TIMESTAMP;
+    NEW.general__updated_by = auth.current_agent_id();
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -151,27 +156,13 @@ CREATE TRIGGER set_agent_profile_timestamps
     FOR EACH ROW
     EXECUTE FUNCTION auth.set_agent_timestamps();
 
--- Function to get system agent id
-CREATE OR REPLACE FUNCTION auth.get_system_agent_id() 
-RETURNS UUID AS $$
-BEGIN
-    RETURN '00000000-0000-0000-0000-000000000000'::UUID;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION auth.get_anon_agent_id() 
-RETURNS UUID AS $$
-BEGIN
-    RETURN '00000000-0000-0000-0000-000000000001'::UUID;
-END;
-$$ LANGUAGE plpgsql;
-
 -- Keep system and anon agent creation
 INSERT INTO auth.agent_profiles 
-    (general__agent_profile_id, profile__username, auth__email) 
+    (general__agent_profile_id, profile__username, auth__email, auth__is_admin) 
 VALUES 
-    (auth.get_system_agent_id(), 'admin', 'system@internal'),
-    (auth.get_anon_agent_id(), 'anon', 'anon@internal')
+    (auth.get_system_agent_id(), 'admin', 'system@internal', true),
+    (auth.get_anon_agent_id(), 'anon', 'anon@internal', false)
+
 ON CONFLICT (general__agent_profile_id) DO NOTHING;
 
 CREATE OR REPLACE FUNCTION auth.is_anon_agent()
@@ -204,10 +195,10 @@ BEGIN
     END IF;
 
     -- Get max sessions per agent from config
-    SELECT (general__value->>'max_sessions_per_agent')::INTEGER 
+    SELECT general__value::INTEGER 
     INTO v_max_sessions 
     FROM config.config 
-    WHERE general__key = 'client_settings';
+    WHERE general__key = 'session__max_sessions_per_agent';
 
     -- Count current active sessions for this agent
     SELECT COUNT(*) 
@@ -234,10 +225,10 @@ BEGIN
     END IF;
 
     -- Get duration from config
-    SELECT (general__value->'auth'->>'session_duration_ms')::BIGINT 
+    SELECT general__value::BIGINT 
     INTO v_duration 
     FROM config.config 
-    WHERE general__key = 'client_settings';
+    WHERE general__key = 'auth__session_duration_ms';
     
     v_expires_at := NOW() + (v_duration || ' milliseconds')::INTERVAL;
 
@@ -261,8 +252,11 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE OR REPLACE FUNCTION auth.validate_session(p_session_id UUID)
-RETURNS TABLE (
+-- Consolidate session validation logic
+CREATE OR REPLACE FUNCTION auth.validate_session_internal(
+    p_session_id UUID,
+    p_session_token TEXT DEFAULT NULL
+) RETURNS TABLE (
     auth__agent_id UUID,
     is_valid BOOLEAN,
     session_token TEXT
@@ -271,95 +265,61 @@ BEGIN
     RETURN QUERY
     SELECT 
         s.auth__agent_id,
-        TRUE as is_valid,
+        CASE WHEN 
+            s.session__is_active 
+            AND s.session__expires_at > NOW()
+            AND (p_session_token IS NULL OR TRIM(s.session__jwt) = TRIM(p_session_token))
+        THEN TRUE ELSE FALSE END as is_valid,
         s.session__jwt as session_token
     FROM auth.agent_sessions s
     WHERE s.general__session_id = p_session_id
-        AND s.session__is_active = true
-        AND s.session__expires_at > NOW()
     LIMIT 1;
 
-    -- If no row was returned, return invalid result
     IF NOT FOUND THEN
         RETURN QUERY SELECT 
-            NULL::UUID as auth__agent_id,
-            FALSE as is_valid,
-            NULL::TEXT as session_token;
+            NULL::UUID, FALSE, NULL::TEXT;
     END IF;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Add new function to explicitly clear agent context
-CREATE OR REPLACE FUNCTION auth.clear_agent_context()
-RETURNS VOID AS $$
+-- Update existing functions to use the new helper
+CREATE OR REPLACE FUNCTION auth.validate_session(p_session_id UUID)
+RETURNS TABLE (auth__agent_id UUID, is_valid BOOLEAN, session_token TEXT) AS $$
 BEGIN
-    -- Explicitly set to anon agent ID instead of NULL or empty string
-    PERFORM set_config('app.current_agent_id', auth.get_anon_agent_id()::text, false);
+    RETURN QUERY SELECT * FROM auth.validate_session_internal(p_session_id);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Update set_agent_context to be more strict
 CREATE OR REPLACE FUNCTION auth.set_agent_context(
     p_session_id UUID,
     p_session_token TEXT
 ) RETURNS BOOLEAN AS $$
 DECLARE
-    v_agent_id UUID;
-    v_stored_token TEXT;
-    v_is_active BOOLEAN;
-    v_expires_at TIMESTAMPTZ;
-    v_result TEXT;
+    v_validation RECORD;
 BEGIN
-    -- Get the agent_id and stored token from the session
-    SELECT 
-        auth__agent_id, 
-        session__jwt,
-        session__is_active,
-        session__expires_at
-    INTO 
-        v_agent_id, 
-        v_stored_token,
-        v_is_active,
-        v_expires_at
-    FROM auth.agent_sessions 
-    WHERE general__session_id = p_session_id;
+    SELECT * INTO v_validation 
+    FROM auth.validate_session_internal(p_session_id, p_session_token);
 
-    -- Add debug logging
-    RAISE NOTICE 'Session check: agent_id %, stored_token %, active %, expires %', 
-        v_agent_id, SUBSTRING(v_stored_token, 1, 10), v_is_active, v_expires_at;
-    RAISE NOTICE 'Provided token: %', SUBSTRING(p_session_token, 1, 10);
-
-    -- Verify session exists, is active, not expired, and token matches
-    IF v_agent_id IS NULL OR 
-       v_stored_token IS NULL OR 
-       TRIM(v_stored_token) != TRIM(p_session_token) OR
-       NOT v_is_active OR
-       v_expires_at <= NOW() THEN
-        -- Set to anonymous user if validation fails
-        RAISE NOTICE 'Validation failed: exists=%, token_match=%, active=%, not_expired=%',
-            v_agent_id IS NOT NULL,
-            CASE WHEN v_stored_token IS NOT NULL THEN TRIM(v_stored_token) = TRIM(p_session_token) ELSE FALSE END,
-            v_is_active,
-            v_expires_at > NOW();
-        
-        -- Call clear_agent_context instead of direct assignment
+    IF NOT v_validation.is_valid THEN
         PERFORM auth.clear_agent_context();
         RETURN FALSE;
     END IF;
 
-    -- Set the agent context with local = false to make it persist
-    SELECT set_config('app.current_agent_id', v_agent_id::text, false) INTO v_result;
-    RAISE NOTICE 'Set config result: %', v_result;
+    PERFORM set_config('app.current_agent_id', v_validation.auth__agent_id::text, false);
     
-    -- Update last seen timestamp for valid sessions
     UPDATE auth.agent_sessions 
     SET session__last_seen_at = NOW()
     WHERE general__session_id = p_session_id;
 
-    -- Verify the setting was applied
-    RAISE NOTICE 'Current agent ID after set: %', current_setting('app.current_agent_id', true);
-
     RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION auth.clear_agent_context()
+RETURNS VOID AS $$
+BEGIN
+    -- Explicitly set to anon agent ID instead of NULL or empty string
+    PERFORM set_config('app.current_agent_id', auth.get_anon_agent_id()::text, false);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -369,10 +329,10 @@ DECLARE
     v_max_age_ms INTEGER;
     v_count INTEGER;
 BEGIN
-    SELECT (general__value->'session'->>'max_age_ms')::INTEGER 
+    SELECT general__value::INTEGER 
     INTO v_max_age_ms 
     FROM config.config 
-    WHERE general__key = 'client_settings';
+    WHERE general__key = 'session__max_age_ms';
 
     WITH updated_sessions AS (
         UPDATE auth.agent_sessions 
@@ -391,34 +351,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION auth.set_session_context(p_session_id UUID)
-RETURNS VOID AS $$
-DECLARE
-    v_agent_id UUID;
-    v_max_age_ms INTEGER;
-BEGIN
-    SELECT (general__value->'session'->>'max_age_ms')::INTEGER 
-    INTO v_max_age_ms 
-    FROM config.config 
-    WHERE general__key = 'client_settings';
-
-    -- Get the agent_id from the session
-    SELECT auth__agent_id INTO v_agent_id
-    FROM auth.agent_sessions 
-    WHERE general__session_id = p_session_id
-    AND session__is_active = true
-    AND session__last_seen_at > (NOW() - (v_max_age_ms || ' milliseconds')::INTERVAL);
-
-    IF v_agent_id IS NULL THEN
-        v_agent_id := auth.get_anon_agent_id(); -- Anonymous
-    END IF;
-
-    -- Set the session context
-    PERFORM set_config('app.current_agent_id', v_agent_id::text, false);
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Update invalidate_session to use sync groups for permission check
 CREATE OR REPLACE FUNCTION auth.invalidate_session(
     p_session_id UUID
 ) RETURNS BOOLEAN AS $$
@@ -495,68 +427,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE OR REPLACE FUNCTION auth.record_session_message(
-    p_session_id UUID,
-    p_message JSONB
-) RETURNS BOOLEAN AS $$
-BEGIN
-    -- Check if session exists and is active
-    IF NOT EXISTS (
-        SELECT 1 FROM auth.agent_sessions 
-        WHERE general__session_id = p_session_id 
-        AND session__is_active = true
-    ) THEN
-        RETURN FALSE;
-    END IF;
-
-    -- Update session with message info
-    UPDATE auth.agent_sessions 
-    SET 
-        stats__last_subscription_message = p_message,
-        stats__last_subscription_message_at = CURRENT_TIMESTAMP,
-        session__last_seen_at = CURRENT_TIMESTAMP
-    WHERE general__session_id = p_session_id;
-
-    RETURN TRUE;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Update get_session_stats to use sync groups for permission check
-CREATE OR REPLACE FUNCTION auth.get_session_stats(
-    p_session_id UUID
-) RETURNS TABLE (
-    session_id UUID,
-    is_active BOOLEAN,
-    last_message JSONB,
-    last_message_at TIMESTAMPTZ,
-    last_seen_at TIMESTAMPTZ,
-    expires_at TIMESTAMPTZ
-) AS $$
-BEGIN
-    -- Check permissions (must be admin or session owner)
-    IF NOT auth.is_admin_agent() AND 
-       NOT EXISTS (
-           SELECT 1 
-           FROM auth.agent_sessions 
-           WHERE general__session_id = p_session_id
-           AND auth__agent_id = auth.current_agent_id()
-       ) THEN
-        RAISE EXCEPTION 'Insufficient permissions to view session stats';
-    END IF;
-
-    RETURN QUERY
-    SELECT 
-        s.general__session_id,
-        s.session__is_active,
-        s.stats__last_subscription_message,
-        s.stats__last_subscription_message_at,
-        s.session__last_seen_at,
-        s.session__expires_at
-    FROM auth.agent_sessions s
-    WHERE s.general__session_id = p_session_id;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
 -- Revoke set_config from public
 REVOKE ALL ON FUNCTION pg_catalog.set_config(text, text, boolean) FROM PUBLIC;
 
@@ -580,3 +450,191 @@ CREATE TRIGGER update_agent_sessions_updated_at
     BEFORE UPDATE ON auth.agent_sessions
     FOR EACH ROW
     EXECUTE FUNCTION auth.set_agent_timestamps();
+
+--
+-- SYNC GROUPS
+--
+
+-- Create sync groups table
+CREATE TABLE auth.sync_groups (
+    general__sync_group TEXT PRIMARY KEY,
+    general__description TEXT,
+    
+    server__tick__rate_ms INTEGER NOT NULL,
+    server__tick__buffer INTEGER NOT NULL,
+    
+    client__render_delay_ms INTEGER NOT NULL,
+    client__max_prediction_time_ms INTEGER NOT NULL,
+    
+    network__packet_timing_variance_ms INTEGER NOT NULL,
+    
+    server__keyframe__interval_ticks INTEGER NOT NULL
+) INHERITS (auth._template);
+
+-- Create agent sync group roles table
+CREATE TABLE auth.agent_sync_group_roles (
+    auth__agent_id UUID NOT NULL REFERENCES auth.agent_profiles(general__agent_profile_id) ON DELETE CASCADE,
+    group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) ON DELETE CASCADE,
+    permissions__can_insert BOOLEAN NOT NULL DEFAULT false,
+    permissions__can_update BOOLEAN NOT NULL DEFAULT false,
+    permissions__can_delete BOOLEAN NOT NULL DEFAULT false,
+    PRIMARY KEY (auth__agent_id, group__sync)
+) INHERITS (auth._template);
+
+-- Insert default sync groups
+INSERT INTO auth.sync_groups (
+    general__sync_group,
+    general__description,
+    server__tick__rate_ms,
+    server__tick__buffer,
+    client__render_delay_ms,
+    client__max_prediction_time_ms,
+    network__packet_timing_variance_ms,
+    server__keyframe__interval_ticks
+) VALUES
+    -- Public zone
+    ('public.REALTIME', 'Public realtime entities', 16, 2, 50, 100, 25, 50),
+    ('public.NORMAL', 'Public normal-priority entities', 50, 1, 100, 150, 50, 40),
+    ('public.BACKGROUND', 'Public background entities', 200, 1, 200, 300, 100, 15),
+    ('public.STATIC', 'Public static entities', 2000, 1, 500, 1000, 200, 3),
+    
+    -- Admin zone
+    ('admin.REALTIME', 'Admin-only realtime entities', 16, 2, 50, 100, 25, 50),
+    ('admin.NORMAL', 'Admin-only normal-priority entities', 50, 1, 100, 150, 50, 40),
+    
+    -- Game zone example
+    ('game1.REALTIME', 'Game 1 realtime entities', 16, 2, 50, 100, 25, 50),
+    ('game1.NORMAL', 'Game 1 normal-priority entities', 50, 1, 100, 150, 50, 40),
+    ('game1.BACKGROUND', 'Game 1 background entities', 200, 1, 200, 300, 100, 15);
+
+-- Enable RLS
+ALTER TABLE auth.sync_groups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE auth.agent_sync_group_roles ENABLE ROW LEVEL SECURITY;
+
+-- Sync groups policies
+CREATE POLICY "Allow viewing sync groups" ON auth.sync_groups
+    FOR SELECT
+    USING (true);
+
+CREATE POLICY "Allow admin sync group modifications" ON auth.sync_groups
+    FOR ALL
+    USING (auth.is_admin_agent() OR auth.is_super_admin());
+
+-- Sync group roles policies
+CREATE POLICY "Allow viewing sync group roles" ON auth.agent_sync_group_roles
+    FOR SELECT
+    USING (true);
+
+CREATE POLICY "Allow admin sync group role modifications" ON auth.agent_sync_group_roles
+    FOR ALL
+    USING (auth.is_admin_agent() OR auth.is_super_admin());
+
+-- Permission check functions
+CREATE OR REPLACE FUNCTION auth.has_sync_group_read_access(p_sync_group TEXT) 
+RETURNS BOOLEAN AS $$
+    SELECT EXISTS (
+        SELECT 1
+        FROM auth.agent_sync_group_roles
+        WHERE auth__agent_id = auth.current_agent_id()
+        AND group__sync = p_sync_group
+    );
+$$ LANGUAGE sql STABLE;
+
+CREATE OR REPLACE FUNCTION auth.has_sync_group_insert_access(p_sync_group TEXT) 
+RETURNS BOOLEAN AS $$
+    SELECT auth.is_super_admin() OR EXISTS (
+        SELECT 1
+        FROM auth.agent_sync_group_roles
+        WHERE auth__agent_id = auth.current_agent_id()
+        AND group__sync = p_sync_group
+        AND permissions__can_insert
+    );
+$$ LANGUAGE sql STABLE;
+
+CREATE OR REPLACE FUNCTION auth.has_sync_group_update_access(p_sync_group TEXT) 
+RETURNS BOOLEAN AS $$
+    SELECT auth.is_super_admin() OR EXISTS (
+        SELECT 1
+        FROM auth.agent_sync_group_roles
+        WHERE auth__agent_id = auth.current_agent_id()
+        AND group__sync = p_sync_group
+        AND permissions__can_update
+    );
+$$ LANGUAGE sql STABLE;
+
+CREATE OR REPLACE FUNCTION auth.has_sync_group_delete_access(p_sync_group TEXT) 
+RETURNS BOOLEAN AS $$
+    SELECT auth.is_super_admin() OR EXISTS (
+        SELECT 1
+        FROM auth.agent_sync_group_roles
+        WHERE auth__agent_id = auth.current_agent_id()
+        AND group__sync = p_sync_group
+        AND permissions__can_delete
+    );
+$$ LANGUAGE sql STABLE;
+
+-- Add timestamps trigger
+CREATE TRIGGER update_sync_groups_updated_at
+    BEFORE UPDATE ON auth.sync_groups
+    FOR EACH ROW
+    EXECUTE FUNCTION auth.set_agent_timestamps();
+
+CREATE TRIGGER update_agent_sync_group_roles_updated_at
+    BEFORE UPDATE ON auth.agent_sync_group_roles
+    FOR EACH ROW
+    EXECUTE FUNCTION auth.set_agent_timestamps();
+
+-- Create materialized view for active sessions per sync group
+CREATE MATERIALIZED VIEW auth.active_sync_group_sessions AS
+SELECT DISTINCT
+    asgr.group__sync,
+    array_agg(s.general__session_id) FILTER (WHERE s.session__is_active = true AND s.session__expires_at > NOW()) as active_session_ids
+FROM auth.agent_sync_group_roles asgr
+JOIN auth.agent_sessions s ON s.auth__agent_id = asgr.auth__agent_id
+GROUP BY asgr.group__sync;
+
+-- Create index on the materialized view
+CREATE INDEX idx_active_sync_group_sessions_lookup 
+ON auth.active_sync_group_sessions (group__sync);
+
+-- Function to refresh the materialized view
+CREATE OR REPLACE FUNCTION auth.refresh_active_sessions()
+RETURNS void AS $$
+BEGIN
+    REFRESH MATERIALIZED VIEW CONCURRENTLY auth.active_sync_group_sessions;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to get active session IDs for a sync group
+CREATE OR REPLACE FUNCTION auth.get_sync_group_session_ids(p_sync_group text)
+RETURNS uuid[] AS $$
+BEGIN
+    RETURN (
+        SELECT active_session_ids 
+        FROM auth.active_sync_group_sessions
+        WHERE group__sync = p_sync_group
+    );
+END;
+$$ LANGUAGE plpgsql STABLE;
+
+-- Create a trigger function to refresh the materialized view when sessions change
+CREATE OR REPLACE FUNCTION auth.refresh_active_sessions_trigger()
+RETURNS trigger AS $$
+BEGIN
+    -- Queue a refresh of the materialized view
+    -- Using pg_notify to avoid blocking the transaction
+    PERFORM pg_notify('refresh_active_sessions', '');
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create triggers to refresh the view when sessions or roles change
+CREATE TRIGGER refresh_active_sessions_on_session_change
+    AFTER INSERT OR UPDATE OR DELETE ON auth.agent_sessions
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION auth.refresh_active_sessions_trigger();
+
+CREATE TRIGGER refresh_active_sessions_on_role_change
+    AFTER INSERT OR UPDATE OR DELETE ON auth.agent_sync_group_roles
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION auth.refresh_active_sessions_trigger();

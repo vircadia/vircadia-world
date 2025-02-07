@@ -4,108 +4,47 @@
 CREATE SCHEMA IF NOT EXISTS entity;
 
 --
--- ENTITY SYNC GROUPS
---
-
--- Modify entity_sync_groups table creation and default values (keeping just the defaults)
-CREATE TABLE entity.entity_sync_groups (
-    sync_group TEXT PRIMARY KEY,
-    general__description TEXT,
-    permissions__admin_role TEXT NOT NULL,
-    permissions__is_admin BOOLEAN NOT NULL DEFAULT false,
-    
-    server__tick__rate_ms INTEGER NOT NULL,
-    server__tick__buffer INTEGER NOT NULL,
-    
-    client__render_delay_ms INTEGER NOT NULL,
-    client__max_prediction_time_ms INTEGER NOT NULL,
-    
-    network__packet_timing_variance_ms INTEGER NOT NULL,
-    
-    server__keyframe__interval_ticks INTEGER NOT NULL,
-    
-    general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    general__created_by UUID DEFAULT auth.current_agent_id(),
-    general__updated_by UUID DEFAULT auth.current_agent_id()
-);
-
--- Insert sync groups with prefixed columns
-INSERT INTO entity.entity_sync_groups (
-    sync_group,
-    general__description,
-    permissions__admin_role,
-    permissions__is_admin,
-    server__tick__rate_ms,
-    server__tick__buffer,
-    client__render_delay_ms,
-    client__max_prediction_time_ms,
-    network__packet_timing_variance_ms,
-    server__keyframe__interval_ticks
-) VALUES
-    -- Public zone
-    ('public.REALTIME', 'Public realtime entities', 'admin', false, 16, 2, 50, 100, 25, 50),
-    ('public.NORMAL', 'Public normal-priority entities', 'admin', false, 50, 1, 100, 150, 50, 40),
-    ('public.BACKGROUND', 'Public background entities', 'admin', false, 200, 1, 200, 300, 100, 15),
-    ('public.STATIC', 'Public static entities', 'admin', false, 2000, 1, 500, 1000, 200, 3),
-    
-    -- Admin zone
-    ('admin.REALTIME', 'Admin-only realtime entities', 'admin', true, 16, 2, 50, 100, 25, 50),
-    ('admin.NORMAL', 'Admin-only normal-priority entities', 'admin', true, 50, 1, 100, 150, 50, 40),
-    
-    -- Game zone example
-    ('game1.REALTIME', 'Game 1 realtime entities', 'game1_admin', false, 16, 2, 50, 100, 25, 50),
-    ('game1.NORMAL', 'Game 1 normal-priority entities', 'game1_admin', false, 50, 1, 100, 150, 50, 40),
-    ('game1.BACKGROUND', 'Game 1 background entities', 'game1_admin', false, 200, 1, 200, 300, 100, 15);
-
--- Enable RLS and keep the basic policies
-ALTER TABLE entity.entity_sync_groups ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Allow viewing sync groups" ON entity.entity_sync_groups
-    FOR SELECT
-    USING (true);
-
-CREATE POLICY "Allow admin sync group modifications" ON entity.entity_sync_groups
-    FOR ALL
-    USING (auth.is_admin_agent());
-
---
 -- ENTITY SCRIPTS
 --
 
 -- Create enum for script compilation status
 CREATE TYPE script_compilation_status AS ENUM ('PENDING', 'COMPILED', 'FAILED');
 
-CREATE TABLE entity.entity_scripts (
-    general__script_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+-- Create template table for inheritance
+CREATE TABLE entity._template (
     general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     general__created_by UUID DEFAULT auth.current_agent_id(),
     general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    general__updated_by UUID DEFAULT auth.current_agent_id(),
-
-    group__sync TEXT NOT NULL REFERENCES entity.entity_sync_groups(sync_group) DEFAULT 'public.STATIC',
-
-    script__source__node__repo__entry_path TEXT,
-    script__source__node__repo__url TEXT,
-    script__compiled__node__script TEXT,
-    script__compiled__node__script_sha256 TEXT,
-    script__compiled__node__script_status script_compilation_status NOT NULL DEFAULT 'PENDING',
-    script__compiled__node__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    
-    script__source__bun__repo__entry_path TEXT,
-    script__source__bun__repo__url TEXT,
-    script__compiled__bun__script TEXT,
-    script__compiled__bun__script_sha256 TEXT,
-    script__compiled__bun__script_status script_compilation_status NOT NULL DEFAULT 'PENDING',
-    script__compiled__bun__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    
-    script__source__browser__repo__entry_path TEXT,
-    script__source__browser__repo__url TEXT,
-    script__compiled__browser__script TEXT,
-    script__compiled__browser__script_sha256 TEXT,
-    script__compiled__browser__script_status script_compilation_status NOT NULL DEFAULT 'PENDING',
-    script__compiled__browser__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    general__updated_by UUID DEFAULT auth.current_agent_id()
 );
+
+-- Restructure entity_scripts into parent/child tables
+CREATE TABLE entity.entity_scripts (
+    general__script_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.STATIC',
+    
+    -- Source fields
+    source__repo__entry_path TEXT,
+    source__repo__url TEXT,
+    
+    -- Node platform
+    compiled__node__script TEXT,
+    compiled__node__script_sha256 TEXT,
+    compiled__node__status script_compilation_status NOT NULL DEFAULT 'PENDING',
+    compiled__node__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    
+    -- Bun platform
+    compiled__bun__script TEXT,
+    compiled__bun__script_sha256 TEXT,
+    compiled__bun__status script_compilation_status NOT NULL DEFAULT 'PENDING',
+    compiled__bun__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    
+    -- Browser platform
+    compiled__browser__script TEXT,
+    compiled__browser__script_sha256 TEXT,
+    compiled__browser__status script_compilation_status NOT NULL DEFAULT 'PENDING',
+    compiled__browser__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+) INHERITS (entity._template);
 
 -- Enable RLS
 ALTER TABLE entity.entity_scripts ENABLE ROW LEVEL SECURITY;
@@ -147,10 +86,6 @@ CREATE TABLE entity.entities (
     general__entity_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     general__name VARCHAR(255) NOT NULL,
     general__semantic_version TEXT NOT NULL DEFAULT '1.0.0',
-    general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    general__created_by UUID DEFAULT auth.current_agent_id(),
-    general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    general__updated_by UUID DEFAULT auth.current_agent_id(),
     general__load_priority INTEGER,
     general__initialized_at TIMESTAMPTZ DEFAULT NULL,
     general__initialized_by UUID DEFAULT NULL,
@@ -158,8 +93,8 @@ CREATE TABLE entity.entities (
     scripts__ids UUID[] DEFAULT '{}',
     scripts__status entity_status_enum DEFAULT 'ACTIVE'::entity_status_enum NOT NULL,
     validation__log JSONB DEFAULT '[]'::jsonb,
-    group__sync TEXT DEFAULT 'NORMAL' REFERENCES entity.entity_sync_groups(sync_group)
-);
+    group__sync TEXT DEFAULT 'NORMAL' REFERENCES auth.sync_groups(general__sync_group)
+) INHERITS (entity._template);
 
 CREATE UNIQUE INDEX unique_seed_order_idx ON entity.entities(general__load_priority) WHERE general__load_priority IS NOT NULL;
 
@@ -179,7 +114,7 @@ CREATE POLICY "entities_view_policy" ON entity.entities
     USING (
         auth.is_admin_agent()
         OR general__created_by = auth.current_agent_id()
-        OR auth.has_sync_group_access(group__sync)
+        OR auth.has_sync_group_read_access(group__sync)
     );
 
 CREATE POLICY "entities_update_policy" ON entity.entities
@@ -187,14 +122,14 @@ CREATE POLICY "entities_update_policy" ON entity.entities
     USING (
         auth.is_admin_agent()
         OR general__created_by = auth.current_agent_id()
-        OR auth.has_sync_group_access(group__sync)
+        OR auth.has_sync_group_update_access(group__sync)
     );
 
 CREATE POLICY "entities_insert_policy" ON entity.entities
     FOR INSERT
     WITH CHECK (
         auth.is_admin_agent()
-        OR auth.has_sync_group_access(group__sync)
+        OR auth.has_sync_group_insert_access(group__sync)
     );
 
 CREATE POLICY "entities_delete_policy" ON entity.entities
@@ -202,7 +137,7 @@ CREATE POLICY "entities_delete_policy" ON entity.entities
     USING (
         auth.is_admin_agent()
         OR general__created_by = auth.current_agent_id()
-        OR auth.has_sync_group_access(group__sync)
+        OR auth.has_sync_group_delete_access(group__sync)
     );
 
 -- Function to validate the validation log format
@@ -299,45 +234,22 @@ CREATE TRIGGER enforce_entity_metadata_format
     FOR EACH ROW
     EXECUTE FUNCTION entity.validate_entity_metadata();
 
--- Create function to update timestamp
-CREATE OR REPLACE FUNCTION entity.update_updated_at()
+-- Rename update_script_status to be more clear about what it does
+CREATE OR REPLACE FUNCTION entity.update_entity_status_based_on_scripts()
 RETURNS TRIGGER AS $$
 BEGIN
-    NEW.general__updated_at = CURRENT_TIMESTAMP;
-    NEW.general__updated_by = auth.current_agent_id();
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Create trigger for entity_sync_groups
-CREATE TRIGGER update_entity_sync_groups_updated_at
-    BEFORE UPDATE ON entity.entity_sync_groups
-    FOR EACH ROW
-    EXECUTE FUNCTION entity.update_updated_at();
-
--- Create trigger for entities
-CREATE TRIGGER update_entities_updated_at
-    BEFORE UPDATE ON entity.entities
-    FOR EACH ROW
-    EXECUTE FUNCTION entity.update_updated_at();
-
--- Create function to update script status
-CREATE OR REPLACE FUNCTION entity.update_script_status()
-RETURNS TRIGGER AS $$
-BEGIN
-    -- Only check script status if scripts exist
     IF NEW.scripts__ids IS NULL OR NEW.scripts__ids = '{}' THEN
         NEW.scripts__status = 'ACTIVE'::entity_status_enum;
     ELSE
-        -- Check if any scripts are pending
+        -- Check if any script versions are pending
         IF EXISTS (
             SELECT 1 
-            FROM entity.entity_scripts es 
+            FROM entity.entity_scripts es
             WHERE es.general__script_id = ANY(NEW.scripts__ids)
             AND (
-                es.script__compiled__node__script_status = 'PENDING' OR
-                es.script__compiled__bun__script_status = 'PENDING' OR
-                es.script__compiled__browser__script_status = 'PENDING'
+                es.compiled__node__status = 'PENDING' OR
+                es.compiled__bun__status = 'PENDING' OR
+                es.compiled__browser__status = 'PENDING'
             )
         ) THEN
             NEW.scripts__status = 'AWAITING_SCRIPTS'::entity_status_enum;
@@ -350,23 +262,16 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Create triggers to update script status
-CREATE TRIGGER update_entity_script_status
-    BEFORE INSERT OR UPDATE OF scripts__ids ON entity.entities
-    FOR EACH ROW
-    EXECUTE FUNCTION entity.update_script_status();
-
--- Create trigger to update entities when scripts are updated
-CREATE OR REPLACE FUNCTION entity.propagate_script_status_changes()
+-- Rename propagate_script_status_changes to be more clear
+CREATE OR REPLACE FUNCTION entity.propagate_script_changes_to_entities()
 RETURNS TRIGGER AS $$
 BEGIN
-    -- If script status changed, update affected entities
+    -- If any script status changed, update affected entities
     IF TG_OP = 'UPDATE' AND (
-        OLD.script__compiled__node__script_status != NEW.script__compiled__node__script_status OR
-        OLD.script__compiled__bun__script_status != NEW.script__compiled__bun__script_status OR
-        OLD.script__compiled__browser__script_status != NEW.script__compiled__browser__script_status
+        OLD.compiled__node__status != NEW.compiled__node__status OR
+        OLD.compiled__bun__status != NEW.compiled__bun__status OR
+        OLD.compiled__browser__status != NEW.compiled__browser__status
     ) THEN
-        -- Touch entities to trigger their status update
         UPDATE entity.entities
         SET general__updated_at = general__updated_at
         WHERE NEW.general__script_id = ANY(scripts__ids);
@@ -375,32 +280,30 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Create trigger on entity_scripts
-CREATE TRIGGER propagate_script_status_changes
+-- Update trigger names to match
+CREATE TRIGGER propagate_script_changes_to_entities
     AFTER UPDATE ON entity.entity_scripts
     FOR EACH ROW
-    EXECUTE FUNCTION entity.propagate_script_status_changes();
+    EXECUTE FUNCTION entity.propagate_script_changes_to_entities();
 
--- Update has_sync_group_access function to not use auth.roles
-CREATE OR REPLACE FUNCTION auth.has_sync_group_access(p_sync_group TEXT) 
-RETURNS BOOLEAN AS $$
+-- Create function to update audit columns
+CREATE OR REPLACE FUNCTION entity.update_audit_columns()
+RETURNS TRIGGER AS $$
 BEGIN
-    -- Check if the agent is an admin
-    IF auth.is_admin_agent() THEN
-        RETURN true;
-    END IF;
-
-    -- Check if the sync group exists and agent has access
-    RETURN EXISTS (
-        SELECT 1 
-        FROM entity.entity_sync_groups sg
-        WHERE sg.sync_group = p_sync_group
-        AND (
-            -- Public access if no admin role required
-            sg.permissions__admin_role IS NULL
-            OR sg.permissions__admin_role = ''
-            OR sg.permissions__is_admin = false
-        )
-    );
+    NEW.general__updated_at = CURRENT_TIMESTAMP;
+    NEW.general__updated_by = auth.current_agent_id();
+    RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Apply the audit trigger to all relevant tables (MOVE THESE AFTER TABLE CREATION)
+CREATE TRIGGER update_audit_columns
+    BEFORE UPDATE ON entity.entity_scripts
+    FOR EACH ROW
+    EXECUTE FUNCTION entity.update_audit_columns();
+
+CREATE TRIGGER update_audit_columns
+    BEFORE UPDATE ON entity.entities
+    FOR EACH ROW
+    EXECUTE FUNCTION entity.update_audit_columns();
+

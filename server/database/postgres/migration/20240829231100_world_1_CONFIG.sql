@@ -16,50 +16,40 @@ CREATE TABLE config.seeds (
 
 -- Insert default configuration
 INSERT INTO config.config (general__key, general__value, general__description) VALUES
-('tick_buffer_duration_ms', '2000'::jsonb, 'How long to keep tick history in milliseconds'),
-('tick_metrics_history_ms', '3600000'::jsonb, 'How long to keep tick metrics history in milliseconds (1 hour default)');
+('general__tick_buffer_duration_ms', '2000'::jsonb, 'How long to keep tick history in milliseconds'),
+('general__tick_metrics_history_ms', '3600000'::jsonb, 'How long to keep tick metrics history in milliseconds (1 hour default)');
 
--- Add separate network quality requirements
+-- Add network quality requirements
 INSERT INTO config.config (general__key, general__value, general__description) VALUES
-('client_network_requirements', jsonb_build_object(
-    'max_latency_ms', 500,                    -- Maximum allowed latency before disconnect
-    'warning_latency_ms', 200,                -- When to start warning the client
-    'consecutive_warnings_before_kick', 50,    -- How many high-latency ticks before disconnect
-    'measurement_window_ticks', 100,          -- Window for calculating average latency
-    'packet_loss_threshold_percent', 5        -- Maximum acceptable packet loss percentage
-), 'Network quality requirements for all clients regardless of sync group');
+('network__max_latency_ms', '500'::jsonb, 'Maximum allowed latency before disconnect'),
+('network__warning_latency_ms', '200'::jsonb, 'When to start warning the client'),
+('network__consecutive_warnings_before_kick', '50'::jsonb, 'How many high-latency ticks before disconnect'),
+('network__measurement_window_ticks', '100'::jsonb, 'Window for calculating average latency'),
+('network__packet_loss_threshold_percent', '5'::jsonb, 'Maximum acceptable packet loss percentage');
 
--- Remove duplicate/separate entries and create a unified client configuration
+-- Add client configuration settings
 INSERT INTO config.config (general__key, general__value, general__description) VALUES
-('client_settings', jsonb_build_object(
-    -- Session management
-    'session', jsonb_build_object(
-        'max_age_ms', 86400000,           -- 24 hours in milliseconds
-        'cleanup_interval_ms', 3600000,    -- 1 hour in milliseconds
-        'inactive_timeout_ms', 3600000,    -- 1 hour in milliseconds
-        'max_sessions_per_agent', 1        -- Maximum number of active sessions per agent
-    ),
-    -- Authentication
-    'auth', jsonb_build_object(
-        'session_duration_jwt', '24h',
-        'session_duration_ms', 86400000,    -- 24 hours in milliseconds (for timestamp calculations)
-        'secret_jwt', 'CHANGE_ME!',
-        'session_duration_admin_jwt', '24h',
-        'session_duration_admin_ms', 86400000, -- 24 hours in milliseconds (for timestamp calculations)
-        'ws_check_interval', 10000
-    ),
-    -- Heartbeat settings
-    'heartbeat', jsonb_build_object(
-        'interval_ms', 3000,              -- How often to send heartbeat
-        'timeout_ms', 12000               -- How long to wait for response
-    )
-), 'Unified client configuration including session management, authentication, and heartbeat settings');
+-- Session management
+('session__max_age_ms', '86400000'::jsonb, 'Maximum session age (24 hours in milliseconds)'),
+('session__cleanup_interval_ms', '3600000'::jsonb, 'Session cleanup interval (1 hour in milliseconds)'),
+('session__inactive_timeout_ms', '3600000'::jsonb, 'Session inactivity timeout (1 hour in milliseconds)'),
+('session__max_sessions_per_agent', '1'::jsonb, 'Maximum number of active sessions per agent'),
+
+-- Authentication
+('auth__session_duration_jwt', '"24h"'::jsonb, 'JWT session duration string'),
+('auth__session_duration_ms', '86400000'::jsonb, 'JWT session duration in milliseconds'),
+('auth__secret_jwt', '"CHANGE_ME!"'::jsonb, 'JWT secret key'),
+('auth__session_duration_admin_jwt', '"24h"'::jsonb, 'Admin JWT session duration string'),
+('auth__session_duration_admin_ms', '86400000'::jsonb, 'Admin JWT session duration in milliseconds'),
+('auth__ws_check_interval', '10000'::jsonb, 'WebSocket check interval in milliseconds'),
+
+-- Heartbeat settings
+('heartbeat__interval_ms', '3000'::jsonb, 'How often to send heartbeat'),
+('heartbeat__timeout_ms', '12000'::jsonb, 'How long to wait for heartbeat response');
 
 -- Add database version configuration
 INSERT INTO config.config (general__key, general__value, general__description) VALUES
-('database_version', jsonb_build_object(
-    'major', 1,
-    'minor', 0,
-    'patch', 0,
-    'migration_timestamp', '20240829231100'
-), 'Database schema version information');
+('database__major_version', '1'::jsonb, 'Database major version number'),
+('database__minor_version', '0'::jsonb, 'Database minor version number'),
+('database__patch_version', '0'::jsonb, 'Database patch version number'),
+('database__migration_timestamp', '"20240829231100"'::jsonb, 'Database migration timestamp');

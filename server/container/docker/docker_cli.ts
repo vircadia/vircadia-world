@@ -577,13 +577,17 @@ export async function generateDbSystemToken(): Promise<{
     const sql = createSqlClient(false);
 
     try {
-        // Get auth settings from config - updated column names
-        const [authConfig] = await sql`
+        // Get auth settings from config using the correct keys
+        const [jwtSecret] = await sql`
             SELECT general__value FROM config.config 
-            WHERE general__key = 'client_settings'
+            WHERE general__key = 'auth__secret_jwt'
+        `;
+        const [jwtDuration] = await sql`
+            SELECT general__value FROM config.config 
+            WHERE general__key = 'auth__session_duration_admin_jwt'
         `;
 
-        if (!authConfig?.general__value) {
+        if (!jwtSecret?.general__value || !jwtDuration?.general__value) {
             throw new Error("Auth settings not found in database");
         }
 
@@ -601,10 +605,9 @@ export async function generateDbSystemToken(): Promise<{
                 sessionId: sessionResult.general__session_id,
                 agentId: systemId.get_system_agent_id,
             },
-            authConfig.general__value.auth.secret_jwt,
+            jwtSecret.general__value,
             {
-                expiresIn:
-                    authConfig.general__value.auth.session_duration_admin_jwt,
+                expiresIn: jwtDuration.general__value,
             },
         );
 

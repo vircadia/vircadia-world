@@ -189,8 +189,8 @@ DECLARE
     v_max_sessions INTEGER;
     v_current_sessions INTEGER;
 BEGIN
-    -- Only admins can create sessions
-    IF NOT auth.is_admin_agent() THEN
+    -- Allow both admin agents and superusers to create sessions
+    IF NOT (auth.is_admin_agent() OR auth.is_super_admin()) THEN
         RAISE EXCEPTION 'Only administrators can create sessions';
     END IF;
 
@@ -211,15 +211,15 @@ BEGIN
     -- Check if max sessions would be exceeded
     IF v_current_sessions >= v_max_sessions THEN
         -- Invalidate oldest session if limit reached
-        UPDATE auth.agent_sessions 
+        UPDATE auth.agent_sessions target_session
         SET session__is_active = false,
             session__expires_at = NOW()
-        WHERE general__session_id = (
-            SELECT general__session_id 
-            FROM auth.agent_sessions 
-            WHERE auth__agent_id = p_agent_id 
-            AND session__is_active = true 
-            ORDER BY session__started_at ASC 
+        WHERE target_session.general__session_id = (
+            SELECT oldest_session.general__session_id 
+            FROM auth.agent_sessions oldest_session
+            WHERE oldest_session.auth__agent_id = p_agent_id 
+            AND oldest_session.session__is_active = true 
+            ORDER BY oldest_session.session__started_at ASC 
             LIMIT 1
         );
     END IF;

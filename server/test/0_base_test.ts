@@ -66,7 +66,7 @@ describe("System Admin Tests", () => {
 
         // Clean up expired system tokens
         const sql = createSqlClient(true);
-        const [result] = await sql`SELECT cleanup_system_tokens()`;
+        const [result] = await sql`SELECT auth.cleanup_system_tokens()`;
         expect(result.cleanup_system_tokens).toBeDefined();
         await sql.end();
     });

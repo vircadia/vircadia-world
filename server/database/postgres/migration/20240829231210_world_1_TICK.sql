@@ -289,8 +289,35 @@ DECLARE
     v_from_tick_id uuid;
     v_to_tick_id uuid;
 BEGIN
-    -- Similar timestamp-based tick lookup logic as above
-    -- ... rest of function ...
+    -- Get the nearest tick IDs based on timestamps
+    SELECT general__tick_id INTO v_to_tick_id
+    FROM tick.world_ticks
+    WHERE group__sync = p_sync_group
+      AND tick__start_time <= p_to_time
+    ORDER BY tick__start_time DESC
+    LIMIT 1;
+
+    IF p_from_time IS NOT NULL THEN
+        SELECT general__tick_id INTO v_from_tick_id
+        FROM tick.world_ticks
+        WHERE group__sync = p_sync_group
+          AND tick__start_time <= p_from_time
+        ORDER BY tick__start_time DESC
+        LIMIT 1;
+    END IF;
+
+    -- If no from_tick specified, get changes since last tick
+    IF v_from_tick_id IS NULL THEN
+        SELECT general__tick_id INTO v_from_tick_id
+        FROM tick.world_ticks
+        WHERE group__sync = p_sync_group
+          AND general__tick_id != v_to_tick_id
+        ORDER BY tick__start_time DESC
+        LIMIT 1;
+    END IF;
+
+    RETURN QUERY
+    SELECT * FROM tick.get_script_state_changes(p_sync_group, v_from_tick_id, v_to_tick_id);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -536,16 +563,40 @@ BEGIN
             WHEN ps.general__script_id IS NULL THEN 
                 jsonb_build_object(
                     'source__repo__entry_path', cs.source__repo__entry_path,
-                    'compiled__node__script', cs.compiled__node__script
-                    -- Add other fields as needed
+                    'source__repo__url', cs.source__repo__url,
+                    'compiled__node__script', cs.compiled__node__script,
+                    'compiled__node__script_sha256', cs.compiled__node__script_sha256,
+                    'compiled__node__status', cs.compiled__node__status,
+                    'compiled__node__updated_at', cs.compiled__node__updated_at,
+                    'compiled__bun__script', cs.compiled__bun__script,
+                    'compiled__bun__script_sha256', cs.compiled__bun__script_sha256,
+                    'compiled__bun__status', cs.compiled__bun__status,
+                    'compiled__bun__updated_at', cs.compiled__bun__updated_at,
+                    'compiled__browser__script', cs.compiled__browser__script,
+                    'compiled__browser__script_sha256', cs.compiled__browser__script_sha256,
+                    'compiled__browser__status', cs.compiled__browser__status,
+                    'compiled__browser__updated_at', cs.compiled__browser__updated_at,
+                    'group__sync', cs.group__sync
                 )
             WHEN cs.general__script_id IS NULL THEN 
                 NULL
             ELSE 
                 jsonb_strip_nulls(jsonb_build_object(
                     'source__repo__entry_path', NULLIF(cs.source__repo__entry_path, ps.source__repo__entry_path),
-                    'compiled__node__script', NULLIF(cs.compiled__node__script, ps.compiled__node__script)
-                    -- Add other fields as needed
+                    'source__repo__url', NULLIF(cs.source__repo__url, ps.source__repo__url),
+                    'compiled__node__script', NULLIF(cs.compiled__node__script, ps.compiled__node__script),
+                    'compiled__node__script_sha256', NULLIF(cs.compiled__node__script_sha256, ps.compiled__node__script_sha256),
+                    'compiled__node__status', NULLIF(cs.compiled__node__status, ps.compiled__node__status),
+                    'compiled__node__updated_at', NULLIF(cs.compiled__node__updated_at, ps.compiled__node__updated_at),
+                    'compiled__bun__script', NULLIF(cs.compiled__bun__script, ps.compiled__bun__script),
+                    'compiled__bun__script_sha256', NULLIF(cs.compiled__bun__script_sha256, ps.compiled__bun__script_sha256),
+                    'compiled__bun__status', NULLIF(cs.compiled__bun__status, ps.compiled__bun__status),
+                    'compiled__bun__updated_at', NULLIF(cs.compiled__bun__updated_at, ps.compiled__bun__updated_at),
+                    'compiled__browser__script', NULLIF(cs.compiled__browser__script, ps.compiled__browser__script),
+                    'compiled__browser__script_sha256', NULLIF(cs.compiled__browser__script_sha256, ps.compiled__browser__script_sha256),
+                    'compiled__browser__status', NULLIF(cs.compiled__browser__status, ps.compiled__browser__status),
+                    'compiled__browser__updated_at', NULLIF(cs.compiled__browser__updated_at, ps.compiled__browser__updated_at),
+                    'group__sync', NULLIF(cs.group__sync, ps.group__sync)
                 ))
         END,
         auth.get_sync_group_session_ids(p_sync_group)

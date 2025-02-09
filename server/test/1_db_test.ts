@@ -11,9 +11,9 @@ import type postgres from "postgres";
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 import { createSqlClient } from "../container/docker/docker_cli";
 import {
-    type Config,
+    Config,
     Entity,
-    type Agent,
+    type Auth,
     type Tick,
 } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import { sign } from "jsonwebtoken";
@@ -47,34 +47,89 @@ describe("Database Tests", () => {
         agent: TestAccount;
     }> {
         try {
-            // Clean up any existing test accounts first
+            // First create a system token with superuser privileges
+            const [authSecretConfig] = await sql<[Config.I_Config]>`
+                SELECT * FROM config.config 
+                WHERE general__key = ${Config.CONFIG_KEYS.AUTH_SECRET_JWT}
+            `;
+            const [authDurationConfig] = await sql<[Config.I_Config]>`
+                SELECT * FROM config.config 
+                WHERE general__key = ${Config.CONFIG_KEYS.AUTH_SESSION_DURATION_JWT}
+            `;
+
+            if (
+                !authSecretConfig?.general__value ||
+                !authDurationConfig?.general__value
+            ) {
+                throw new Error("Auth settings not found in database");
+            }
+
+            // Create system session directly in the database
+            const [systemSession] = await sql`
+                INSERT INTO auth.agent_sessions (
+                    auth__agent_id,
+                    auth__provider_name,
+                    session__expires_at,
+                    session__is_active
+                ) VALUES (
+                    auth.get_system_agent_id(),
+                    'system',
+                    NOW() + ${authDurationConfig.general__value}::interval,
+                    true
+                ) RETURNING general__session_id
+            `;
+
+            // Generate system token
+            const systemToken = sign(
+                {
+                    sessionId: systemSession.general__session_id,
+                    agentId: await sql`SELECT auth.get_system_agent_id()`,
+                },
+                authSecretConfig.general__value,
+                {
+                    expiresIn: authDurationConfig.general__value,
+                },
+            );
+
+            // Update system session with JWT
+            await sql`
+                UPDATE auth.agent_sessions 
+                SET session__jwt = ${systemToken}
+                WHERE general__session_id = ${systemSession.general__session_id}
+            `;
+
+            // Set system context
+            await sql`SELECT auth.set_agent_context(${systemSession.general__session_id}, ${systemToken})`;
+
+            // Clean up any existing test accounts
             await sql`
                 DELETE FROM auth.agent_profiles 
                 WHERE profile__username IN ('test_admin', 'test_agent')
             `;
 
-            // Get client settings from config
-            const [clientConfig] = await sql<[Config.I_Config]>`
-                SELECT general__value FROM config.config 
-                WHERE general__key = 'client_settings'
-            `;
-
-            if (!clientConfig?.general__value?.auth) {
-                throw new Error("Auth settings not found in database");
-            }
-
             // Create test admin account
             const [adminAccount] = await sql`
-                INSERT INTO auth.agent_profiles (profile__username, auth__email)
-                VALUES ('test_admin', 'test_admin@test.com')
+                INSERT INTO auth.agent_profiles (profile__username, auth__email, auth__is_admin)
+                VALUES ('test_admin', 'test_admin@test.com', true)
                 RETURNING general__agent_profile_id
             `;
             const adminId = adminAccount.general__agent_profile_id;
 
-            // Assign admin role
+            // Assign admin role to admin sync groups
             await sql`
-                INSERT INTO auth.agent_roles (auth__agent_id, auth__role_name, auth__is_active)
-                VALUES (${adminId}, 'admin', true)
+                INSERT INTO auth.agent_sync_group_roles (
+                    auth__agent_id, 
+                    group__sync,
+                    permissions__can_insert,
+                    permissions__can_update,
+                    permissions__can_delete
+                ) VALUES 
+                (${adminId}, 'admin.REALTIME', true, true, true),
+                (${adminId}, 'admin.NORMAL', true, true, true),
+                (${adminId}, 'public.REALTIME', true, true, true),
+                (${adminId}, 'public.NORMAL', true, true, true),
+                (${adminId}, 'public.BACKGROUND', true, true, true),
+                (${adminId}, 'public.STATIC', true, true, true)
             `;
 
             // Create test regular agent account
@@ -85,10 +140,19 @@ describe("Database Tests", () => {
             `;
             const agentId = agentAccount.general__agent_profile_id;
 
-            // Assign agent role
+            // Assign agent role to public sync groups
             await sql`
-                INSERT INTO auth.agent_roles (auth__agent_id, auth__role_name, auth__is_active)
-                VALUES (${agentId}, 'agent', true)
+                INSERT INTO auth.agent_sync_group_roles (
+                    auth__agent_id, 
+                    group__sync,
+                    permissions__can_insert,
+                    permissions__can_update,
+                    permissions__can_delete
+                ) VALUES 
+                (${agentId}, 'public.REALTIME', true, true, false),
+                (${agentId}, 'public.NORMAL', true, true, false),
+                (${agentId}, 'public.BACKGROUND', true, true, false),
+                (${agentId}, 'public.STATIC', true, true, false)
             `;
 
             // Create sessions for both accounts
@@ -108,10 +172,9 @@ describe("Database Tests", () => {
                     sessionId: adminSessionId,
                     agentId: adminId,
                 },
-                clientConfig.general__value.auth.secret_jwt,
+                authSecretConfig.general__value,
                 {
-                    expiresIn:
-                        clientConfig.general__value.auth.session_duration_jwt,
+                    expiresIn: authDurationConfig.general__value,
                 },
             );
 
@@ -120,10 +183,9 @@ describe("Database Tests", () => {
                     sessionId: agentSessionId,
                     agentId: agentId,
                 },
-                clientConfig.general__value.auth.secret_jwt,
+                authSecretConfig.general__value,
                 {
-                    expiresIn:
-                        clientConfig.general__value.auth.session_duration_jwt,
+                    expiresIn: authDurationConfig.general__value,
                 },
             );
 
@@ -216,32 +278,34 @@ describe("Database Tests", () => {
             agent = accounts.agent;
 
             // Verify admin account
-            const [adminProfile] = await sql<[Agent.I_Profile]>`
+            const [adminProfile] = await sql<[Auth.I_Profile]>`
                 SELECT * FROM auth.agent_profiles
                 WHERE general__agent_profile_id = ${admin.id}
             `;
             expect(adminProfile.profile__username).toBe("test_admin");
 
             // Verify admin role
-            const [adminRole] = await sql<[Agent.I_AgentRole]>`
-                SELECT * FROM auth.agent_roles
+            const [adminRole] = await sql<[Auth.I_SyncGroupRole]>`
+                SELECT * FROM auth.agent_sync_group_roles
                 WHERE auth__agent_id = ${admin.id}
+                AND group__sync LIKE 'admin.%'
             `;
-            expect(adminRole.auth__role_name).toBe("admin");
+            expect(adminRole.group__sync).toContain("admin.");
 
             // Verify agent account
-            const [agentProfile] = await sql<[Agent.I_Profile]>`
+            const [agentProfile] = await sql<[Auth.I_Profile]>`
                 SELECT * FROM auth.agent_profiles
                 WHERE general__agent_profile_id = ${agent.id}
             `;
             expect(agentProfile.profile__username).toBe("test_agent");
 
             // Verify agent role
-            const [agentRole] = await sql<[Agent.I_AgentRole]>`
-                SELECT * FROM auth.agent_roles
+            const [agentRole] = await sql<[Auth.I_SyncGroupRole]>`
+                SELECT * FROM auth.agent_sync_group_roles
                 WHERE auth__agent_id = ${agent.id}
+                AND group__sync LIKE 'agent.%'
             `;
-            expect(agentRole.auth__role_name).toBe("agent");
+            expect(agentRole.group__sync).toContain("agent.");
 
             // Set admin context for subsequent operations
             await sql`SELECT auth.set_agent_context(${admin.sessionId}, ${admin.token})`;
@@ -852,7 +916,7 @@ describe("Database Tests", () => {
                 `;
 
                 // Verify account deletion
-                const profiles = await sql<Agent.I_Profile[]>`
+                const profiles = await sql<Auth.I_Profile[]>`
                     SELECT * FROM auth.agent_profiles
                     WHERE profile__username IN ('test_admin', 'test_agent')
                 `;

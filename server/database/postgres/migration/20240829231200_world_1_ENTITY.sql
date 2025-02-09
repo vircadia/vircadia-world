@@ -189,18 +189,25 @@ CREATE TRIGGER enforce_validation_log_format
 -- Add validation function for meta__data structure
 CREATE OR REPLACE FUNCTION entity.validate_entity_metadata() RETURNS TRIGGER AS $$
 BEGIN
-    -- Validate required fields and their types
-    IF NOT (
-        jsonb_typeof(NEW.meta__data->'babylon_js') = 'object'
-        AND jsonb_typeof(NEW.meta__data->'babylon_js'->'model_url') = 'string'
-        AND jsonb_typeof(NEW.meta__data->'babylon_js'->'position') = 'object'
-        AND jsonb_typeof(NEW.meta__data->'babylon_js'->'rotation') = 'object'
-        AND jsonb_typeof(NEW.meta__data->'babylon_js'->'scale') = 'object'
-    ) THEN
-        RAISE EXCEPTION 'meta__data must contain babylon_js object with model_url, position, rotation, and scale with correct types';
+    -- Check if babylon_js object exists
+    IF NEW.meta__data IS NULL OR NEW.meta__data = '{}'::jsonb OR NEW.meta__data->'babylon_js' IS NULL THEN
+        RAISE EXCEPTION 'meta__data must contain babylon_js object';
     END IF;
 
-    -- Validate position structure
+    -- Check model_url exists and is string
+    IF NOT (
+        NEW.meta__data->'babylon_js'->>'model_url' IS NOT NULL
+        AND jsonb_typeof(NEW.meta__data->'babylon_js'->'model_url') = 'string'
+    ) THEN
+        RAISE EXCEPTION 'babylon_js must contain model_url as string';
+    END IF;
+
+    -- Check position exists
+    IF NEW.meta__data->'babylon_js'->'position' IS NULL THEN
+        RAISE EXCEPTION 'babylon_js must contain position object';
+    END IF;
+
+    -- Validate position values
     IF NOT (
         jsonb_typeof(NEW.meta__data->'babylon_js'->'position'->'x') = 'number'
         AND jsonb_typeof(NEW.meta__data->'babylon_js'->'position'->'y') = 'number'
@@ -209,7 +216,12 @@ BEGIN
         RAISE EXCEPTION 'babylon_js.position must contain numeric x, y, z values';
     END IF;
 
-    -- Validate rotation structure
+    -- Check rotation exists
+    IF NEW.meta__data->'babylon_js'->'rotation' IS NULL THEN
+        RAISE EXCEPTION 'babylon_js must contain rotation object';
+    END IF;
+
+    -- Validate rotation values
     IF NOT (
         jsonb_typeof(NEW.meta__data->'babylon_js'->'rotation'->'x') = 'number'
         AND jsonb_typeof(NEW.meta__data->'babylon_js'->'rotation'->'y') = 'number'
@@ -219,7 +231,12 @@ BEGIN
         RAISE EXCEPTION 'babylon_js.rotation must contain numeric x, y, z, w values';
     END IF;
 
-    -- Validate scale structure
+    -- Check scale exists
+    IF NEW.meta__data->'babylon_js'->'scale' IS NULL THEN
+        RAISE EXCEPTION 'babylon_js must contain scale object';
+    END IF;
+
+    -- Validate scale values
     IF NOT (
         jsonb_typeof(NEW.meta__data->'babylon_js'->'scale'->'x') = 'number'
         AND jsonb_typeof(NEW.meta__data->'babylon_js'->'scale'->'y') = 'number'

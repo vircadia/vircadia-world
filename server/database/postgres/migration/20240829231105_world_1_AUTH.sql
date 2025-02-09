@@ -466,9 +466,7 @@ CREATE TABLE auth.sync_groups (
     client__render_delay_ms INTEGER NOT NULL,
     client__max_prediction_time_ms INTEGER NOT NULL,
     
-    network__packet_timing_variance_ms INTEGER NOT NULL,
-    
-    server__keyframe__interval_ticks INTEGER NOT NULL
+    network__packet_timing_variance_ms INTEGER NOT NULL
 ) INHERITS (auth._template);
 
 -- Create agent sync group roles table
@@ -489,23 +487,22 @@ INSERT INTO auth.sync_groups (
     server__tick__buffer,
     client__render_delay_ms,
     client__max_prediction_time_ms,
-    network__packet_timing_variance_ms,
-    server__keyframe__interval_ticks
+    network__packet_timing_variance_ms
 ) VALUES
     -- Public zone
-    ('public.REALTIME', 'Public realtime entities', 16, 2, 50, 100, 25, 50),
-    ('public.NORMAL', 'Public normal-priority entities', 50, 1, 100, 150, 50, 40),
-    ('public.BACKGROUND', 'Public background entities', 200, 1, 200, 300, 100, 15),
-    ('public.STATIC', 'Public static entities', 2000, 1, 500, 1000, 200, 3),
+    ('public.REALTIME', 'Public realtime entities', 16, 2, 50, 100, 25),
+    ('public.NORMAL', 'Public normal-priority entities', 50, 1, 100, 150, 50),
+    ('public.BACKGROUND', 'Public background entities', 200, 1, 200, 300, 100),
+    ('public.STATIC', 'Public static entities', 2000, 1, 500, 1000, 200),
     
     -- Admin zone
-    ('admin.REALTIME', 'Admin-only realtime entities', 16, 2, 50, 100, 25, 50),
-    ('admin.NORMAL', 'Admin-only normal-priority entities', 50, 1, 100, 150, 50, 40),
+    ('admin.REALTIME', 'Admin-only realtime entities', 16, 2, 50, 100, 25),
+    ('admin.NORMAL', 'Admin-only normal-priority entities', 50, 1, 100, 150, 50),
     
     -- Game zone example
-    ('game1.REALTIME', 'Game 1 realtime entities', 16, 2, 50, 100, 25, 50),
-    ('game1.NORMAL', 'Game 1 normal-priority entities', 50, 1, 100, 150, 50, 40),
-    ('game1.BACKGROUND', 'Game 1 background entities', 200, 1, 200, 300, 100, 15);
+    ('game1.REALTIME', 'Game 1 realtime entities', 16, 2, 50, 100, 25),
+    ('game1.NORMAL', 'Game 1 normal-priority entities', 50, 1, 100, 150, 50),
+    ('game1.BACKGROUND', 'Game 1 background entities', 200, 1, 200, 300, 100);
 
 -- Enable RLS
 ALTER TABLE auth.sync_groups ENABLE ROW LEVEL SECURITY;

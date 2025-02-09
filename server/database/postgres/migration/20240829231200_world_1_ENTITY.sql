@@ -21,7 +21,7 @@ CREATE TABLE entity._template (
 -- Restructure entity_scripts into parent/child tables
 CREATE TABLE entity.entity_scripts (
     general__script_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.STATIC',
+    group__sync TEXT NOT NULL DEFAULT 'public.STATIC',
     
     -- Source fields
     source__repo__entry_path TEXT,
@@ -43,7 +43,9 @@ CREATE TABLE entity.entity_scripts (
     compiled__browser__script TEXT,
     compiled__browser__script_sha256 TEXT,
     compiled__browser__status script_compilation_status NOT NULL DEFAULT 'PENDING',
-    compiled__browser__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    compiled__browser__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_entity_scripts_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group)
 ) INHERITS (entity._template);
 
 -- Enable RLS
@@ -93,7 +95,9 @@ CREATE TABLE entity.entities (
     scripts__ids UUID[] DEFAULT '{}',
     scripts__status entity_status_enum DEFAULT 'ACTIVE'::entity_status_enum NOT NULL,
     validation__log JSONB DEFAULT '[]'::jsonb,
-    group__sync TEXT DEFAULT 'NORMAL' REFERENCES auth.sync_groups(general__sync_group)
+    group__sync TEXT NOT NULL DEFAULT 'public.NORMAL',
+
+    CONSTRAINT fk_entities_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group)
 ) INHERITS (entity._template);
 
 CREATE UNIQUE INDEX unique_seed_order_idx ON entity.entities(general__load_priority) WHERE general__load_priority IS NOT NULL;

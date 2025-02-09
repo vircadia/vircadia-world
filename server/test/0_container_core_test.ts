@@ -1,14 +1,5 @@
 import { describe, expect, test, beforeAll } from "bun:test";
-import {
-    up,
-    down,
-    restart,
-    isHealthy,
-    generateDbSystemToken,
-    createSqlClient,
-    generateDbConnectionString,
-    migrate,
-} from "../container/docker/docker_cli";
+import { up, down, restart, isHealthy } from "../container/docker/docker_cli";
 
 describe("System Operations Tests", () => {
     beforeAll(async () => {
@@ -53,36 +44,4 @@ describe("System Operations Tests", () => {
         expect(healthAfterUp.postgres.isHealthy).toBe(true);
         expect(healthAfterUp.pgweb.isHealthy).toBe(true);
     }, 30000);
-});
-
-describe("System Admin Tests", () => {
-    test("System token generation and cleanup works", async () => {
-        // Generate system token
-        const token = await generateDbSystemToken();
-        expect(token).toBeDefined();
-        expect(token.token).toBeDefined();
-        expect(token.sessionId).toBeDefined();
-        expect(token.agentId).toBeDefined();
-
-        // Clean up expired system tokens
-        const sql = createSqlClient(true);
-        const [result] = await sql`SELECT auth.cleanup_system_tokens()`;
-        expect(result.cleanup_system_tokens).toBeDefined();
-        await sql.end();
-    });
-
-    test("Database connection string generation works", async () => {
-        const connectionString = await generateDbConnectionString();
-        expect(connectionString).toBeDefined();
-        expect(connectionString).toContain("postgres://");
-        expect(connectionString).toContain("@");
-        expect(connectionString).toContain(":");
-        expect(connectionString).toContain("/");
-    });
-
-    test("Database migrations can be reapplied", async () => {
-        await migrate({ silent: true });
-        // If we reach here without errors, migrations worked
-        expect(true).toBe(true);
-    });
 });

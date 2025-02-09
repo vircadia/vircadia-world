@@ -115,6 +115,16 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Function to check system agent status (since this is a special case)
+CREATE OR REPLACE FUNCTION auth.is_system_agent(p_agent_id UUID)
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN p_agent_id = auth.get_system_agent_id();
+END;
+$$ LANGUAGE plpgsql STABLE;
+
+
+
 -- Add new function to check for superuser status
 CREATE OR REPLACE FUNCTION auth.is_super_admin()
 RETURNS boolean AS $$

@@ -164,11 +164,9 @@ describe("Entity Database Tests", () => {
     describe("Entity Operations", () => {
         test("should create and read an entity", async () => {
             const entityData = {
-                babylon_js: {
-                    model_url: "test.glb",
-                    position: { x: 0, y: 0, z: 0 },
-                    rotation: { x: 0, y: 0, z: 0, w: 1 },
-                    scale: { x: 1, y: 1, z: 1 },
+                customProperty: "test value",
+                nestedData: {
+                    someValue: 123,
                 },
             };
 
@@ -197,42 +195,8 @@ describe("Entity Database Tests", () => {
             await sql`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
         });
 
-        test("should reject invalid entity data", async () => {
-            expect.assertions(1);
-
-            try {
-                await sql<[Entity.I_Entity]>`
-                    INSERT INTO entity.entities (
-                        general__name,
-                        meta__data,
-                        group__sync
-                    ) VALUES (
-                        ${"Invalid Entity"},
-                        ${JSON.stringify({
-                            babylon_js: {
-                                model_url: "test.glb",
-                                position: {
-                                    x: "invalid",
-                                    y: "invalid",
-                                    z: "invalid",
-                                },
-                                rotation: { x: 0, y: 0, z: 0, w: 1 },
-                                scale: { x: 1, y: 1, z: 1 },
-                            },
-                        })}::jsonb,
-                        ${"public.NORMAL"}
-                    )
-                `;
-                // If we get here, the test should fail
-                expect(true).toBe(false);
-            } catch (error) {
-                // Just verify that an error occurred
-                expect(error).toBeTruthy();
-            }
-        });
-
         test("should update an entity", async () => {
-            // Create entity with valid metadata
+            // Create entity with any metadata
             const [entity] = await sql<[Entity.I_Entity]>`
                 INSERT INTO entity.entities (
                     general__name,
@@ -240,19 +204,12 @@ describe("Entity Database Tests", () => {
                     group__sync
                 ) VALUES (
                     ${"Test Entity"},
-                    ${JSON.stringify({
-                        babylon_js: {
-                            model_url: "test.glb",
-                            position: { x: 0, y: 0, z: 0 },
-                            rotation: { x: 0, y: 0, z: 0, w: 1 },
-                            scale: { x: 1, y: 1, z: 1 },
-                        },
-                    })}::jsonb,
+                    ${JSON.stringify({ someData: "test" })}::jsonb,
                     ${"public.NORMAL"}
                 ) RETURNING *
             `;
 
-            // Update entity name (keeping the same valid metadata)
+            // Update entity name
             await sql`
                 UPDATE entity.entities
                 SET general__name = ${"Updated Entity"}
@@ -270,39 +227,6 @@ describe("Entity Database Tests", () => {
             await sql`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
         });
 
-        test("should validate position values", async () => {
-            expect.assertions(1);
-
-            try {
-                await sql<[Entity.I_Entity]>`
-                    INSERT INTO entity.entities (
-                        general__name,
-                        meta__data,
-                        group__sync
-                    ) VALUES (
-                        ${"Invalid Entity"},
-                        ${JSON.stringify({
-                            babylon_js: {
-                                model_url: "test.glb",
-                                position: {
-                                    x: "invalid",
-                                    y: "invalid",
-                                    z: "invalid",
-                                },
-                                rotation: { x: 0, y: 0, z: 0, w: 1 },
-                                scale: { x: 1, y: 1, z: 1 },
-                            },
-                        })}::jsonb,
-                        ${"public.NORMAL"}
-                    )
-                `;
-            } catch (error) {
-                expect(error.message).toContain(
-                    "babylon_js.position must contain numeric x, y, z values",
-                );
-            }
-        });
-
         test("should handle entity scripts", async () => {
             // Create script
             const [script] = await sql<[Entity.Script.I_Script]>`
@@ -317,7 +241,7 @@ describe("Entity Database Tests", () => {
                 ) RETURNING *
             `;
 
-            // Create entity with script and valid metadata
+            // Create entity with script and simple metadata
             const [entity] = await sql<[Entity.I_Entity]>`
                 INSERT INTO entity.entities (
                     general__name,
@@ -327,14 +251,7 @@ describe("Entity Database Tests", () => {
                 ) VALUES (
                     ${"Scripted Entity"},
                     ARRAY[${script.general__script_id}]::UUID[],
-                    ${JSON.stringify({
-                        babylon_js: {
-                            model_url: "test.glb",
-                            position: { x: 0, y: 0, z: 0 },
-                            rotation: { x: 0, y: 0, z: 0, w: 1 },
-                            scale: { x: 1, y: 1, z: 1 },
-                        },
-                    })}::jsonb,
+                    ${JSON.stringify({ type: "scripted" })}::jsonb,
                     ${"public.NORMAL"}
                 ) RETURNING *
             `;

@@ -162,15 +162,11 @@ describe("Entity Database Tests", () => {
     });
 
     describe("Entity Operations", () => {
-        test("should create and read an entity with metadata", async () => {
+        test("should create and read an entity", async () => {
             const entityData = {
-                script_namespace_1: {
-                    state: "initialized",
-                    config: { enabled: true },
-                },
-                script_namespace_2: {
-                    counter: 0,
-                    lastUpdate: "2024-01-01",
+                customProperty: "test value",
+                nestedData: {
+                    someValue: 123,
                 },
             };
 
@@ -182,14 +178,13 @@ describe("Entity Database Tests", () => {
                     group__sync
                 ) VALUES (
                     ${"Test Entity"},
-                    ${entityData},
+                    ${JSON.stringify(entityData)}::jsonb,
                     ${"public.NORMAL"}
                 ) RETURNING *
             `;
 
             expect(entity.general__name).toBe("Test Entity");
             expect(entity.group__sync).toBe("public.NORMAL");
-
             const metaData =
                 typeof entity.meta__data === "string"
                     ? JSON.parse(entity.meta__data)
@@ -201,7 +196,7 @@ describe("Entity Database Tests", () => {
         });
 
         test("should update an entity", async () => {
-            // Create entity with namespaced metadata
+            // Create entity with any metadata
             const [entity] = await sql<[Entity.I_Entity]>`
                 INSERT INTO entity.entities (
                     general__name,
@@ -209,23 +204,15 @@ describe("Entity Database Tests", () => {
                     group__sync
                 ) VALUES (
                     ${"Test Entity"},
-                    ${{
-                        script1: { status: "init" },
-                        script2: { counter: 0 },
-                    }},
+                    ${JSON.stringify({ someData: "test" })}::jsonb,
                     ${"public.NORMAL"}
                 ) RETURNING *
             `;
 
-            // Update entity name and metadata
+            // Update entity name
             await sql`
                 UPDATE entity.entities
-                SET 
-                    general__name = ${"Updated Entity"},
-                    meta__data = ${{
-                        script1: { status: "ready" },
-                        script2: { counter: 1 },
-                    }}
+                SET general__name = ${"Updated Entity"}
                 WHERE general__entity_id = ${entity.general__entity_id}
             `;
 
@@ -235,10 +222,6 @@ describe("Entity Database Tests", () => {
                 WHERE general__entity_id = ${entity.general__entity_id}
             `;
             expect(updated.general__name).toBe("Updated Entity");
-            expect(updated.meta__data).toMatchObject({
-                script1: { status: "ready" },
-                script2: { counter: 1 },
-            });
 
             // Clean up
             await sql`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
@@ -258,8 +241,7 @@ describe("Entity Database Tests", () => {
                 ) RETURNING *
             `;
 
-            // Create entity with script and namespaced metadata
-            const scriptNamespace = `script_${script.general__script_id}`;
+            // Create entity with script and simple metadata
             const [entity] = await sql<[Entity.I_Entity]>`
                 INSERT INTO entity.entities (
                     general__name,
@@ -269,20 +251,12 @@ describe("Entity Database Tests", () => {
                 ) VALUES (
                     ${"Scripted Entity"},
                     ARRAY[${script.general__script_id}]::UUID[],
-                    ${{
-                        [scriptNamespace]: {
-                            initialized: true,
-                            lastRun: new Date().toISOString(),
-                        },
-                    }},
+                    ${JSON.stringify({ type: "scripted" })}::jsonb,
                     ${"public.NORMAL"}
                 ) RETURNING *
             `;
 
             expect(entity.scripts__ids).toContain(script.general__script_id);
-            expect(entity.meta__data[scriptNamespace]).toMatchObject({
-                initialized: true,
-            });
 
             // Clean up
             await sql`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;

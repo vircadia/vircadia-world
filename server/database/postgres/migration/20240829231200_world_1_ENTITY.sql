@@ -264,3 +264,36 @@ CREATE TRIGGER update_audit_columns
     BEFORE UPDATE ON entity.entities
     FOR EACH ROW
     EXECUTE FUNCTION entity.update_audit_columns();
+
+-- Create function to validate script metadata structure
+CREATE OR REPLACE FUNCTION entity.validate_entity_metadata()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Allow empty object or null
+    IF NEW.meta__data IS NULL OR NEW.meta__data = '{}'::jsonb THEN
+        RETURN NEW;
+    END IF;
+
+    -- Check if metadata is an object
+    IF jsonb_typeof(NEW.meta__data) != 'object' THEN
+        RAISE EXCEPTION 'meta__data must be a JSONB object';
+    END IF;
+
+    -- Check if all values are objects
+    IF EXISTS (
+        SELECT 1
+        FROM jsonb_each(NEW.meta__data) AS entry
+        WHERE jsonb_typeof(entry.value) != 'object'
+    ) THEN
+        RAISE EXCEPTION 'All values in meta__data must be objects';
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create trigger for script metadata validation
+CREATE TRIGGER enforce_script_metadata_structure
+    BEFORE INSERT OR UPDATE OF meta__data ON entity.entities
+    FOR EACH ROW
+    EXECUTE FUNCTION entity.validate_entity_metadata();

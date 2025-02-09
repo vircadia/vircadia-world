@@ -495,14 +495,11 @@ INSERT INTO auth.sync_groups (
     ('public.BACKGROUND', 'Public background entities', 200, 1, 200, 300, 100),
     ('public.STATIC', 'Public static entities', 2000, 1, 500, 1000, 200),
     
-    -- Admin zone
+    -- Admin zone (mirroring public zone structure)
     ('admin.REALTIME', 'Admin-only realtime entities', 16, 2, 50, 100, 25),
     ('admin.NORMAL', 'Admin-only normal-priority entities', 50, 1, 100, 150, 50),
-    
-    -- Game zone example
-    ('game1.REALTIME', 'Game 1 realtime entities', 16, 2, 50, 100, 25),
-    ('game1.NORMAL', 'Game 1 normal-priority entities', 50, 1, 100, 150, 50),
-    ('game1.BACKGROUND', 'Game 1 background entities', 200, 1, 200, 300, 100);
+    ('admin.BACKGROUND', 'Admin-only background entities', 200, 1, 200, 300, 100),
+    ('admin.STATIC', 'Admin-only static entities', 2000, 1, 500, 1000, 200);
 
 -- Enable RLS
 ALTER TABLE auth.sync_groups ENABLE ROW LEVEL SECURITY;

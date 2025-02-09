@@ -290,6 +290,12 @@ CREATE TRIGGER propagate_script_changes_to_entities
     FOR EACH ROW
     EXECUTE FUNCTION entity.propagate_script_changes_to_entities();
 
+-- Create trigger for entity status updates based on scripts
+CREATE TRIGGER update_entity_status_based_on_scripts
+    BEFORE INSERT OR UPDATE OF scripts__ids ON entity.entities
+    FOR EACH ROW
+    EXECUTE FUNCTION entity.update_entity_status_based_on_scripts();
+
 -- Create function to update audit columns
 CREATE OR REPLACE FUNCTION entity.update_audit_columns()
 RETURNS TRIGGER AS $$
@@ -300,7 +306,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Apply the audit trigger to all relevant tables (MOVE THESE AFTER TABLE CREATION)
+-- Apply the audit trigger to all relevant tables
 CREATE TRIGGER update_audit_columns
     BEFORE UPDATE ON entity.entity_scripts
     FOR EACH ROW
@@ -310,4 +316,3 @@ CREATE TRIGGER update_audit_columns
     BEFORE UPDATE ON entity.entities
     FOR EACH ROW
     EXECUTE FUNCTION entity.update_audit_columns();
-

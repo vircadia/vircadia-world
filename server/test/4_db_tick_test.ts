@@ -1,272 +1,153 @@
-import {
-    describe,
-    test,
-    expect,
-    beforeAll,
-    afterAll,
-    beforeEach,
-} from "bun:test";
+import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import type postgres from "postgres";
-import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 import { createSqlClient } from "../container/docker/docker_cli";
-import {
-    Config,
-    Entity,
-} from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
-import { sign } from "jsonwebtoken";
+import { Tick } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 
-interface TestAccount {
-    id: string;
-    token: string;
-    sessionId: string;
-}
-
-interface TestResources {
-    scriptId: string;
-    entityId: string;
-}
-
-describe("Entity Database Tests", () => {
+describe("World Tick Tests", () => {
     let sql: postgres.Sql;
-    let admin: TestAccount;
-    let agent: TestAccount;
-    let testResources: TestResources;
 
     // Setup before all tests
     beforeAll(async () => {
         sql = createSqlClient(true);
     });
 
-    async function createTestAccounts(): Promise<{
-        admin: TestAccount;
-        agent: TestAccount;
-    }> {
-        try {
-            // Get auth settings
-            const [authSecretConfig] = await sql<[Config.I_Config]>`
-                SELECT * FROM config.config 
-                WHERE general__key = ${Config.CONFIG_KEYS.AUTH_SECRET_JWT}
+    describe("Tick Operations", () => {
+        test("should create and manage world ticks", async () => {
+            const syncGroup = "public.NORMAL";
+
+            // Create first tick and get full tick record
+            const [{ capture_tick_state: tick1Id }] = await sql`
+                SELECT * FROM tick.capture_tick_state(${syncGroup})
             `;
-            const [authDurationConfig] = await sql<[Config.I_Config]>`
-                SELECT * FROM config.config 
-                WHERE general__key = ${Config.CONFIG_KEYS.AUTH_SESSION_DURATION_JWT}
+            expect(tick1Id).toBeTruthy();
+
+            // Verify tick record exists and check its properties
+            const [tickRecord1] = await sql`
+                SELECT * FROM tick.world_ticks 
+                WHERE general__tick_id = ${tick1Id}
             `;
-
-            if (
-                !authSecretConfig?.general__value ||
-                !authDurationConfig?.general__value
-            ) {
-                throw new Error("Auth settings not found in database");
-            }
-
-            // Clean up any existing test accounts
-            await sql`DELETE FROM auth.agent_profiles WHERE profile__username IN ('test_admin', 'test_agent')`;
-
-            // Create test admin account
-            const [adminAccount] = await sql`
-                INSERT INTO auth.agent_profiles (profile__username, auth__email, auth__is_admin)
-                VALUES ('test_admin', 'test_admin@test.com', true)
-                RETURNING general__agent_profile_id
-            `;
-            const adminId = adminAccount.general__agent_profile_id;
-
-            // Create test regular agent account
-            const [agentAccount] = await sql`
-                INSERT INTO auth.agent_profiles (profile__username, auth__email)
-                VALUES ('test_agent', 'test_agent@test.com')
-                RETURNING general__agent_profile_id
-            `;
-            const agentId = agentAccount.general__agent_profile_id;
-
-            // Assign roles
-            await sql`
-                INSERT INTO auth.agent_sync_group_roles (
-                    auth__agent_id, 
-                    group__sync,
-                    permissions__can_insert,
-                    permissions__can_update,
-                    permissions__can_delete
-                ) VALUES 
-                (${adminId}, 'public.NORMAL', true, true, true),
-                (${agentId}, 'public.NORMAL', true, true, false)
-            `;
-
-            // Create sessions
-            const [adminSession] =
-                await sql`SELECT * FROM auth.create_agent_session(${adminId}, 'test')`;
-            const [agentSession] =
-                await sql`SELECT * FROM auth.create_agent_session(${agentId}, 'test')`;
-
-            // Generate tokens
-            const adminToken = sign(
-                {
-                    sessionId: adminSession.general__session_id,
-                    agentId: adminId,
-                },
-                authSecretConfig.general__value,
-                { expiresIn: authDurationConfig.general__value },
+            expect(tickRecord1).toBeTruthy();
+            expect(tickRecord1.group__sync).toBe(syncGroup);
+            expect(tickRecord1.tick__states_processed).toBeGreaterThanOrEqual(
+                0,
             );
+            expect(tickRecord1.tick__duration_ms).toBeGreaterThan(0);
+            expect(tickRecord1.tick__start_time).toBeTruthy();
+            expect(tickRecord1.tick__end_time).toBeTruthy();
 
-            const agentToken = sign(
-                {
-                    sessionId: agentSession.general__session_id,
-                    agentId: agentId,
-                },
-                authSecretConfig.general__value,
-                { expiresIn: authDurationConfig.general__value },
+            // Create second tick and verify it has different properties
+            const [{ capture_tick_state: tick2Id }] = await sql`
+                SELECT * FROM tick.capture_tick_state(${syncGroup})
+            `;
+            const [tickRecord2] = await sql`
+                SELECT * FROM tick.world_ticks 
+                WHERE general__tick_id = ${tick2Id}
+            `;
+
+            expect(tickRecord2).toBeTruthy();
+            expect(tickRecord2.general__tick_id).not.toBe(
+                tickRecord1.general__tick_id,
             );
+            expect(
+                new Date(tickRecord2.tick__start_time).getTime(),
+            ).toBeGreaterThan(new Date(tickRecord1.tick__start_time).getTime());
+            expect(
+                new Date(tickRecord2.tick__end_time).getTime(),
+            ).toBeGreaterThan(new Date(tickRecord1.tick__end_time).getTime());
+            expect(tickRecord2.tick__time_since_last_tick_ms).toBeGreaterThan(
+                0,
+            );
+        });
 
-            // Update sessions with tokens
-            await sql`
-                UPDATE auth.agent_sessions 
-                SET session__jwt = ${adminToken}
-                WHERE general__session_id = ${adminSession.general__session_id}
-            `;
-            await sql`
-                UPDATE auth.agent_sessions 
-                SET session__jwt = ${agentToken}
-                WHERE general__session_id = ${agentSession.general__session_id}
-            `;
+        test("should track entity states across ticks", async () => {
+            const syncGroup = "public.NORMAL";
 
-            return {
-                admin: {
-                    id: adminId,
-                    token: adminToken,
-                    sessionId: adminSession.general__session_id,
-                },
-                agent: {
-                    id: agentId,
-                    token: agentToken,
-                    sessionId: agentSession.general__session_id,
-                },
-            };
-        } catch (error) {
-            log({
-                message: "Failed to create test accounts",
-                type: "error",
-                error,
-            });
-            throw error;
-        }
-    }
-
-    beforeEach(async () => {
-        // Create test accounts if they don't exist
-        if (!admin || !agent) {
-            const accounts = await createTestAccounts();
-            admin = accounts.admin;
-            agent = accounts.agent;
-        }
-        // Set admin context for tests
-        await sql`SELECT auth.set_agent_context(${admin.sessionId}, ${admin.token})`;
-    });
-
-    describe("Entity Operations", () => {
-        test("should create and read an entity", async () => {
-            const entityData = {
-                customProperty: "test value",
-                nestedData: {
-                    someValue: 123,
-                },
-            };
-
-            // Expect this to succeed
-            const [entity] = await sql<[Entity.I_Entity]>`
+            // Create an entity
+            const [entity] = await sql`
                 INSERT INTO entity.entities (
                     general__name,
                     meta__data,
                     group__sync
                 ) VALUES (
                     ${"Test Entity"},
-                    ${JSON.stringify(entityData)}::jsonb,
-                    ${"public.NORMAL"}
+                    ${{ position: { x: 0, y: 0, z: 0 } }}::jsonb,
+                    ${syncGroup}
                 ) RETURNING *
             `;
 
-            expect(entity.general__name).toBe("Test Entity");
-            expect(entity.group__sync).toBe("public.NORMAL");
-            const metaData =
-                typeof entity.meta__data === "string"
-                    ? JSON.parse(entity.meta__data)
-                    : entity.meta__data;
-            expect(metaData).toMatchObject(entityData);
+            // Capture tick state - extract the UUID value
+            const [{ capture_tick_state: tickId }] = await sql`
+                SELECT * FROM tick.capture_tick_state(${syncGroup})
+            `;
+
+            // Verify entity state was captured
+            const [entityState] = await sql`
+                SELECT * FROM tick.entity_states 
+                WHERE general__entity_id = ${entity.general__entity_id}
+                AND general__tick_id = ${tickId}
+            `;
+
+            expect(entityState).toBeTruthy();
+            expect(entityState.general__name).toBe("Test Entity");
+            expect(entityState.group__sync).toBe(syncGroup);
 
             // Clean up
             await sql`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
         });
 
-        test("should update an entity", async () => {
-            // Create entity with any metadata
-            const [entity] = await sql<[Entity.I_Entity]>`
+        test("should detect entity changes between ticks", async () => {
+            const syncGroup = "public.NORMAL";
+
+            // Create initial entity
+            const [entity] = await sql`
                 INSERT INTO entity.entities (
                     general__name,
                     meta__data,
                     group__sync
                 ) VALUES (
-                    ${"Test Entity"},
-                    ${JSON.stringify({ someData: "test" })}::jsonb,
-                    ${"public.NORMAL"}
+                    ${"Original Name"},
+                    ${{ position: { x: 0, y: 0, z: 0 } }}::jsonb,
+                    ${syncGroup}
                 ) RETURNING *
             `;
 
-            // Update entity name
+            // Capture first tick - extract the UUID value
+            const [{ capture_tick_state: tick1 }] = await sql`
+                SELECT * FROM tick.capture_tick_state(${syncGroup})
+            `;
+
+            // Update entity
             await sql`
-                UPDATE entity.entities
-                SET general__name = ${"Updated Entity"}
+                UPDATE entity.entities 
+                SET general__name = ${"Updated Name"},
+                    meta__data = ${{ position: { x: 1, y: 1, z: 1 } }}::jsonb
                 WHERE general__entity_id = ${entity.general__entity_id}
             `;
 
-            // Verify update
-            const [updated] = await sql<[Entity.I_Entity]>`
-                SELECT * FROM entity.entities
-                WHERE general__entity_id = ${entity.general__entity_id}
+            // Capture second tick - extract the UUID value
+            const [{ capture_tick_state: tick2 }] = await sql`
+                SELECT * FROM tick.capture_tick_state(${syncGroup})
             `;
-            expect(updated.general__name).toBe("Updated Entity");
+
+            // Get changes between ticks
+            const changes = await sql`
+                SELECT * FROM tick.get_entity_changes(
+                    ${syncGroup},
+                    (SELECT tick__start_time FROM tick.world_ticks WHERE general__tick_id = ${tick1}),
+                    (SELECT tick__start_time FROM tick.world_ticks WHERE general__tick_id = ${tick2})
+                )
+            `;
+
+            expect(changes).toHaveLength(1);
+            expect(changes[0].operation).toBe("UPDATE");
+            expect(changes[0].entity_id).toBe(entity.general__entity_id);
 
             // Clean up
             await sql`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
-        });
-
-        test("should handle entity scripts", async () => {
-            // Create script
-            const [script] = await sql<[Entity.Script.I_Script]>`
-                INSERT INTO entity.entity_scripts (
-                    compiled__browser__script,
-                    compiled__browser__status,
-                    group__sync
-                ) VALUES (
-                    ${'console.log("test")'},
-                    ${Entity.Script.E_CompilationStatus.COMPILED},
-                    ${"public.NORMAL"}
-                ) RETURNING *
-            `;
-
-            // Create entity with script and simple metadata
-            const [entity] = await sql<[Entity.I_Entity]>`
-                INSERT INTO entity.entities (
-                    general__name,
-                    scripts__ids,
-                    meta__data,
-                    group__sync
-                ) VALUES (
-                    ${"Scripted Entity"},
-                    ARRAY[${script.general__script_id}]::UUID[],
-                    ${JSON.stringify({ type: "scripted" })}::jsonb,
-                    ${"public.NORMAL"}
-                ) RETURNING *
-            `;
-
-            expect(entity.scripts__ids).toContain(script.general__script_id);
-
-            // Clean up
-            await sql`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
-            await sql`DELETE FROM entity.entity_scripts WHERE general__script_id = ${script.general__script_id}`;
         });
     });
 
     afterAll(async () => {
-        // Clean up test accounts
-        await sql`DELETE FROM auth.agent_profiles WHERE profile__username IN ('test_admin', 'test_agent')`;
         await sql.end();
     });
 });

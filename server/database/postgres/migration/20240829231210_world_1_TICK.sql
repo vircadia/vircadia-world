@@ -82,8 +82,8 @@ CREATE TYPE operation_enum AS ENUM ('INSERT', 'UPDATE', 'DELETE');
 -- Modified function to get entity changes using timestamps
 CREATE OR REPLACE FUNCTION tick.get_entity_changes(
     p_sync_group text,
-    p_from_time timestamptz DEFAULT NULL,  -- Optional, defaults to finding nearest tick before this time
-    p_to_time timestamptz DEFAULT now()    -- Optional, defaults to latest tick
+    p_from_time timestamptz DEFAULT NULL,  
+    p_to_time timestamptz DEFAULT now()    
 ) 
 RETURNS TABLE (
     entity_id uuid,
@@ -92,37 +92,7 @@ RETURNS TABLE (
     session_ids uuid[]
 )
 AS $$
-DECLARE
-    v_from_tick_id uuid;
-    v_to_tick_id uuid;
 BEGIN
-    -- Get the nearest tick IDs based on timestamps
-    SELECT general__tick_id INTO v_to_tick_id
-    FROM tick.world_ticks
-    WHERE group__sync = p_sync_group
-      AND tick__start_time <= p_to_time
-    ORDER BY tick__start_time DESC
-    LIMIT 1;
-
-    IF p_from_time IS NOT NULL THEN
-        SELECT general__tick_id INTO v_from_tick_id
-        FROM tick.world_ticks
-        WHERE group__sync = p_sync_group
-          AND tick__start_time <= p_from_time
-        ORDER BY tick__start_time DESC
-        LIMIT 1;
-    END IF;
-
-    -- If no from_tick specified, get changes since last tick
-    IF v_from_tick_id IS NULL THEN
-        SELECT general__tick_id INTO v_from_tick_id
-        FROM tick.world_ticks
-        WHERE group__sync = p_sync_group
-          AND general__tick_id != v_to_tick_id
-        ORDER BY tick__start_time DESC
-        LIMIT 1;
-    END IF;
-
     RETURN QUERY
     WITH current_entities AS (
         SELECT *
@@ -130,11 +100,17 @@ BEGIN
         WHERE group__sync = p_sync_group
     ),
     previous_entities AS (
-        SELECT es.*
+        SELECT *
         FROM tick.entity_states es
-        JOIN tick.world_ticks wt ON es.general__tick_id = wt.general__tick_id
         WHERE es.group__sync = p_sync_group
-          AND wt.tick__number = v_from_tick_id
+          AND es.general__tick_id = (
+              SELECT general__tick_id 
+              FROM tick.world_ticks
+              WHERE group__sync = p_sync_group
+                AND tick__start_time <= p_from_time
+              ORDER BY tick__start_time DESC
+              LIMIT 1
+          )
     ),
     changed_entities AS (
         SELECT 
@@ -142,25 +118,36 @@ BEGIN
             CASE 
                 WHEN pe.general__entity_id IS NULL THEN 'INSERT'::operation_enum
                 WHEN ce.general__entity_id IS NULL THEN 'DELETE'::operation_enum
-                WHEN (
-                    ce.general__name IS DISTINCT FROM pe.general__name OR
-                    ce.general__semantic_version IS DISTINCT FROM pe.general__semantic_version OR
-                    ce.general__load_priority IS DISTINCT FROM pe.general__load_priority OR
-                    ce.general__initialized_at IS DISTINCT FROM pe.general__initialized_at OR
-                    ce.general__initialized_by IS DISTINCT FROM pe.general__initialized_by OR
-                    ce.meta__data IS DISTINCT FROM pe.meta__data OR
-                    ce.scripts__ids IS DISTINCT FROM pe.scripts__ids OR
-                    ce.scripts__status IS DISTINCT FROM pe.scripts__status OR
-                    ce.validation__log IS DISTINCT FROM pe.validation__log OR
-                    ce.group__sync IS DISTINCT FROM pe.group__sync OR
-                    ce.general__created_at IS DISTINCT FROM pe.general__created_at OR
-                    ce.general__created_by IS DISTINCT FROM pe.general__created_by OR
-                    ce.general__updated_at IS DISTINCT FROM pe.general__updated_at OR
-                    ce.general__updated_by IS DISTINCT FROM pe.general__updated_by
-                ) THEN 'UPDATE'::operation_enum
+                ELSE 'UPDATE'::operation_enum
             END AS operation,
-            ce.*,
-            pe.*
+            ce.general__name AS current_name,
+            ce.general__semantic_version AS current_version,
+            ce.general__load_priority AS current_priority,
+            ce.general__initialized_at AS current_init_at,
+            ce.general__initialized_by AS current_init_by,
+            ce.meta__data AS current_meta,
+            ce.scripts__ids AS current_scripts,
+            ce.scripts__status AS current_status,
+            ce.validation__log AS current_log,
+            ce.group__sync AS current_sync,
+            ce.general__created_at AS current_created_at,
+            ce.general__created_by AS current_created_by,
+            ce.general__updated_at AS current_updated_at,
+            ce.general__updated_by AS current_updated_by,
+            pe.general__name AS prev_name,
+            pe.general__semantic_version AS prev_version,
+            pe.general__load_priority AS prev_priority,
+            pe.general__initialized_at AS prev_init_at,
+            pe.general__initialized_by AS prev_init_by,
+            pe.meta__data AS prev_meta,
+            pe.scripts__ids AS prev_scripts,
+            pe.scripts__status AS prev_status,
+            pe.validation__log AS prev_log,
+            pe.group__sync AS prev_sync,
+            pe.general__created_at AS prev_created_at,
+            pe.general__created_by AS prev_created_by,
+            pe.general__updated_at AS prev_updated_at,
+            pe.general__updated_by AS prev_updated_by
         FROM current_entities ce
         FULL OUTER JOIN previous_entities pe 
             ON ce.general__entity_id = pe.general__entity_id
@@ -183,45 +170,45 @@ BEGIN
             OR ce.general__updated_by IS DISTINCT FROM pe.general__updated_by
     )
     SELECT
-        changed_entities.entity_id,
-        changed_entities.operation,
-        CASE changed_entities.operation
+        ce.entity_id,
+        ce.operation,
+        CASE ce.operation
             WHEN 'INSERT' THEN jsonb_build_object(
-                'general__name', ce.general__name,
-                'general__semantic_version', ce.general__semantic_version,
-                'general__load_priority', ce.general__load_priority,
-                'general__initialized_at', ce.general__initialized_at,
-                'general__initialized_by', ce.general__initialized_by,
-                'meta__data', ce.meta__data,
-                'scripts__ids', ce.scripts__ids,
-                'scripts__status', ce.scripts__status,
-                'validation__log', ce.validation__log,
-                'group__sync', ce.group__sync,
-                'general__created_at', ce.general__created_at,
-                'general__created_by', ce.general__created_by,
-                'general__updated_at', ce.general__updated_at,
-                'general__updated_by', ce.general__updated_by
+                'general__name', ce.current_name,
+                'general__semantic_version', ce.current_version,
+                'general__load_priority', ce.current_priority,
+                'general__initialized_at', ce.current_init_at,
+                'general__initialized_by', ce.current_init_by,
+                'meta__data', ce.current_meta,
+                'scripts__ids', ce.current_scripts,
+                'scripts__status', ce.current_status,
+                'validation__log', ce.current_log,
+                'group__sync', ce.current_sync,
+                'general__created_at', ce.current_created_at,
+                'general__created_by', ce.current_created_by,
+                'general__updated_at', ce.current_updated_at,
+                'general__updated_by', ce.current_updated_by
             )
             WHEN 'DELETE' THEN NULL
             ELSE jsonb_strip_nulls(jsonb_build_object(
-                'general__name', NULLIF(ce.general__name, pe.general__name),
-                'general__semantic_version', NULLIF(ce.general__semantic_version, pe.general__semantic_version),
-                'general__load_priority', NULLIF(ce.general__load_priority, pe.general__load_priority),
-                'general__initialized_at', NULLIF(ce.general__initialized_at, pe.general__initialized_at),
-                'general__initialized_by', NULLIF(ce.general__initialized_by, pe.general__initialized_by),
-                'meta__data', NULLIF(ce.meta__data, pe.meta__data),
-                'scripts__ids', NULLIF(ce.scripts__ids, pe.scripts__ids),
-                'scripts__status', NULLIF(ce.scripts__status, pe.scripts__status),
-                'validation__log', NULLIF(ce.validation__log, pe.validation__log),
-                'group__sync', NULLIF(ce.group__sync, pe.group__sync),
-                'general__created_at', NULLIF(ce.general__created_at, pe.general__created_at),
-                'general__created_by', NULLIF(ce.general__created_by, pe.general__created_by),
-                'general__updated_at', NULLIF(ce.general__updated_at, pe.general__updated_at),
-                'general__updated_by', NULLIF(ce.general__updated_by, pe.general__updated_by)
+                'general__name', NULLIF(ce.current_name, ce.prev_name),
+                'general__semantic_version', NULLIF(ce.current_version, ce.prev_version),
+                'general__load_priority', NULLIF(ce.current_priority, ce.prev_priority),
+                'general__initialized_at', NULLIF(ce.current_init_at, ce.prev_init_at),
+                'general__initialized_by', NULLIF(ce.current_init_by, ce.prev_init_by),
+                'meta__data', NULLIF(ce.current_meta, ce.prev_meta),
+                'scripts__ids', NULLIF(ce.current_scripts, ce.prev_scripts),
+                'scripts__status', NULLIF(ce.current_status, ce.prev_status),
+                'validation__log', NULLIF(ce.current_log, ce.prev_log),
+                'group__sync', NULLIF(ce.current_sync, ce.prev_sync),
+                'general__created_at', NULLIF(ce.current_created_at, ce.prev_created_at),
+                'general__created_by', NULLIF(ce.current_created_by, ce.prev_created_by),
+                'general__updated_at', NULLIF(ce.current_updated_at, ce.prev_updated_at),
+                'general__updated_by', NULLIF(ce.current_updated_by, ce.prev_updated_by)
             ))
         END AS entity_changes,
         auth.get_sync_group_session_ids(p_sync_group)
-    FROM changed_entities;
+    FROM changed_entities ce;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -341,8 +328,8 @@ DECLARE
 BEGIN
     -- Validate sync group
     IF NOT EXISTS (
-        SELECT 1 FROM entity.entity_sync_groups 
-        WHERE sync_group = p_sync_group
+        SELECT 1 FROM auth.sync_groups 
+        WHERE general__sync_group = p_sync_group
     ) THEN
         RAISE EXCEPTION 'Invalid sync group: %', p_sync_group;
     END IF;
@@ -351,8 +338,8 @@ BEGIN
     
     -- Get sync group configuration
     SELECT server__tick__rate_ms INTO tick_rate_ms 
-    FROM entity.entity_sync_groups 
-    WHERE sync_group = p_sync_group;
+    FROM auth.sync_groups 
+    WHERE general__sync_group = p_sync_group;
     
     -- Calculate current tick number
     SELECT COALESCE(MAX(tick__number), 0) + 1 INTO current_tick
@@ -361,11 +348,13 @@ BEGIN
     
     -- Get last tick info
     SELECT 
-        COALESCE(MAX(tick__number), current_tick - 1),
-        MAX(tick__end_time)
+        tick__number,
+        tick__end_time
     INTO last_tick, last_tick_time
     FROM tick.world_ticks
-    WHERE group__sync = p_sync_group;
+    WHERE group__sync = p_sync_group
+    ORDER BY tick__number DESC
+    LIMIT 1;
 
     -- Calculate time since last tick
     time_since_last_tick := CASE 
@@ -374,7 +363,7 @@ BEGIN
         ELSE tick_rate_ms 
     END;
 
-    -- Create new tick record
+    -- Create new tick record with explicit type cast for tick__number
     INSERT INTO tick.world_ticks (
         tick__number,
         group__sync,
@@ -384,7 +373,7 @@ BEGIN
         tick__states_processed,
         tick__is_delayed
     ) VALUES (
-        current_tick,
+        current_tick::bigint,  -- Explicit cast to bigint
         p_sync_group,
         tick_start,
         tick_start,
@@ -415,7 +404,21 @@ BEGIN
             general__tick_id
         )
         SELECT 
-            e.*,
+            e.general__entity_id,
+            e.general__name,
+            e.general__semantic_version,
+            e.general__created_at,
+            e.general__created_by,
+            e.general__updated_at,
+            e.general__updated_by,
+            e.general__load_priority,
+            e.general__initialized_at,
+            e.general__initialized_by,
+            e.meta__data,
+            e.scripts__ids,
+            e.scripts__status,
+            e.validation__log,
+            e.group__sync,
             uuid_generate_v4(),
             v_tick_id
         FROM entity.entities e
@@ -428,27 +431,53 @@ BEGIN
     WITH inserted_scripts AS (
         INSERT INTO tick.entity_script_states (
             general__script_id,
-            general__created_at,
-            general__created_by,
-            general__updated_at,
-            general__updated_by,
             group__sync,
-            platform,
             source__repo__entry_path,
             source__repo__url,
             compiled__node__script,
             compiled__node__script_sha256,
             compiled__node__status,
             compiled__node__updated_at,
+            compiled__bun__script,
+            compiled__bun__script_sha256,
+            compiled__bun__status,
+            compiled__bun__updated_at,
+            compiled__browser__script,
+            compiled__browser__script_sha256,
+            compiled__browser__status,
+            compiled__browser__updated_at,
+            general__created_at,
+            general__created_by,
+            general__updated_at,
+            general__updated_by,
             general__script_state_id,
             general__tick_id
         )
         SELECT 
-            js.*,
+            es.general__script_id,
+            es.group__sync,
+            es.source__repo__entry_path,
+            es.source__repo__url,
+            es.compiled__node__script,
+            es.compiled__node__script_sha256,
+            es.compiled__node__status,
+            es.compiled__node__updated_at,
+            es.compiled__bun__script,
+            es.compiled__bun__script_sha256,
+            es.compiled__bun__status,
+            es.compiled__bun__updated_at,
+            es.compiled__browser__script,
+            es.compiled__browser__script_sha256,
+            es.compiled__browser__status,
+            es.compiled__browser__updated_at,
+            es.general__created_at,
+            es.general__created_by,
+            es.general__updated_at,
+            es.general__updated_by,
             uuid_generate_v4(),
             v_tick_id
-        FROM entity.entity_scripts js
-        WHERE js.group__sync = p_sync_group
+        FROM entity.entity_scripts es
+        WHERE es.group__sync = p_sync_group
         RETURNING 1
     )
     SELECT COUNT(*) INTO script_states_inserted FROM inserted_scripts;

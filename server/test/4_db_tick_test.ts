@@ -1,7 +1,10 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import type postgres from "postgres";
 import { createSqlClient } from "../container/docker/docker_cli";
-import { Tick } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+import type {
+    Tick,
+    Entity,
+} from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 
 describe("World Tick Tests", () => {
     let sql: postgres.Sql;
@@ -16,13 +19,15 @@ describe("World Tick Tests", () => {
             const syncGroup = "public.NORMAL";
 
             // Create first tick and get full tick record
-            const [{ capture_tick_state: tick1Id }] = await sql`
+            const [{ capture_tick_state: tick1Id }] = await sql<
+                [{ capture_tick_state: string }]
+            >`
                 SELECT * FROM tick.capture_tick_state(${syncGroup})
             `;
             expect(tick1Id).toBeTruthy();
 
             // Verify tick record exists and check its properties
-            const [tickRecord1] = await sql`
+            const [tickRecord1] = await sql<[Tick.I_WorldTick]>`
                 SELECT * FROM tick.world_ticks 
                 WHERE general__tick_id = ${tick1Id}
             `;
@@ -36,10 +41,12 @@ describe("World Tick Tests", () => {
             expect(tickRecord1.tick__end_time).toBeTruthy();
 
             // Create second tick and verify it has different properties
-            const [{ capture_tick_state: tick2Id }] = await sql`
+            const [{ capture_tick_state: tick2Id }] = await sql<
+                [{ capture_tick_state: string }]
+            >`
                 SELECT * FROM tick.capture_tick_state(${syncGroup})
             `;
-            const [tickRecord2] = await sql`
+            const [tickRecord2] = await sql<[Tick.I_WorldTick]>`
                 SELECT * FROM tick.world_ticks 
                 WHERE general__tick_id = ${tick2Id}
             `;
@@ -63,7 +70,7 @@ describe("World Tick Tests", () => {
             const syncGroup = "public.NORMAL";
 
             // Create an entity
-            const [entity] = await sql`
+            const [entity] = await sql<[Entity.I_Entity]>`
                 INSERT INTO entity.entities (
                     general__name,
                     meta__data,
@@ -75,13 +82,15 @@ describe("World Tick Tests", () => {
                 ) RETURNING *
             `;
 
-            // Capture tick state - extract the UUID value
-            const [{ capture_tick_state: tickId }] = await sql`
+            // Capture tick state
+            const [{ capture_tick_state: tickId }] = await sql<
+                [{ capture_tick_state: string }]
+            >`
                 SELECT * FROM tick.capture_tick_state(${syncGroup})
             `;
 
             // Verify entity state was captured
-            const [entityState] = await sql`
+            const [entityState] = await sql<[Tick.I_EntityState]>`
                 SELECT * FROM tick.entity_states 
                 WHERE general__entity_id = ${entity.general__entity_id}
                 AND general__tick_id = ${tickId}
@@ -99,7 +108,7 @@ describe("World Tick Tests", () => {
             const syncGroup = "public.NORMAL";
 
             // Create initial entity
-            const [entity] = await sql`
+            const [entity] = await sql<[Entity.I_Entity]>`
                 INSERT INTO entity.entities (
                     general__name,
                     meta__data,
@@ -111,8 +120,10 @@ describe("World Tick Tests", () => {
                 ) RETURNING *
             `;
 
-            // Capture first tick - extract the UUID value
-            const [{ capture_tick_state: tick1 }] = await sql`
+            // Capture first tick
+            const [{ capture_tick_state: tick1 }] = await sql<
+                [{ capture_tick_state: string }]
+            >`
                 SELECT * FROM tick.capture_tick_state(${syncGroup})
             `;
 
@@ -124,13 +135,17 @@ describe("World Tick Tests", () => {
                 WHERE general__entity_id = ${entity.general__entity_id}
             `;
 
-            // Capture second tick - extract the UUID value
-            const [{ capture_tick_state: tick2 }] = await sql`
+            // Capture second tick
+            const [{ capture_tick_state: tick2 }] = await sql<
+                [{ capture_tick_state: string }]
+            >`
                 SELECT * FROM tick.capture_tick_state(${syncGroup})
             `;
 
             // Get changes between ticks
-            const changes = await sql`
+            const changes = await sql<
+                Array<{ operation: Tick.E_OperationType; entity_id: string }>
+            >`
                 SELECT * FROM tick.get_entity_changes(
                     ${syncGroup},
                     (SELECT tick__start_time FROM tick.world_ticks WHERE general__tick_id = ${tick1}),

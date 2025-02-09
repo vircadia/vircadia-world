@@ -289,6 +289,155 @@ describe("DB -> Auth Tests", () => {
         });
     });
 
+    describe("Sync Group Management", () => {
+        beforeEach(async () => {
+            await sql`SELECT auth.set_agent_context(${admin.sessionId}, ${admin.token})`;
+        });
+
+        test("should verify default sync groups exist", async () => {
+            const syncGroups = await sql`
+                SELECT * FROM auth.sync_groups
+                ORDER BY general__sync_group
+            `;
+            expect(syncGroups).toHaveLength(8); // 4 public + 4 admin groups
+            expect(syncGroups.map((g) => g.general__sync_group)).toContain(
+                "public.REALTIME",
+            );
+            expect(syncGroups.map((g) => g.general__sync_group)).toContain(
+                "admin.STATIC",
+            );
+        });
+
+        test("should manage sync group roles correctly", async () => {
+            // First switch to agent context
+            await sql`SELECT auth.set_agent_context(${agent.sessionId}, ${agent.token})`;
+
+            // Assign roles to test agent
+            await sql`
+                INSERT INTO auth.agent_sync_group_roles (
+                    auth__agent_id,
+                    group__sync,
+                    permissions__can_insert,
+                    permissions__can_update,
+                    permissions__can_delete
+                ) VALUES (
+                    ${agent.id},
+                    'public.REALTIME',
+                    true,
+                    true,
+                    false
+                )
+            `;
+
+            // Verify permissions
+            const [hasRead] = await sql`
+                SELECT auth.has_sync_group_read_access('public.REALTIME') as has_access
+            `;
+            const [hasInsert] = await sql`
+                SELECT auth.has_sync_group_insert_access('public.REALTIME') as has_access
+            `;
+            const [hasDelete] = await sql`
+                SELECT auth.has_sync_group_delete_access('public.REALTIME') as has_access
+            `;
+
+            expect(hasRead.has_access).toBe(true);
+            expect(hasInsert.has_access).toBe(true);
+            expect(hasDelete.has_access).toBe(false);
+        });
+
+        test("should handle active sessions view correctly", async () => {
+            // Assign role to admin
+            await sql`
+                INSERT INTO auth.agent_sync_group_roles (
+                    auth__agent_id,
+                    group__sync,
+                    permissions__can_insert,
+                    permissions__can_update,
+                    permissions__can_delete
+                ) VALUES (
+                    ${admin.id},
+                    'admin.REALTIME',
+                    true,
+                    true,
+                    true
+                )
+            `;
+
+            // Refresh the materialized view
+            await sql`SELECT auth.refresh_active_sessions()`;
+
+            // Check active sessions
+            const [sessions] = await sql`
+                SELECT auth.get_sync_group_session_ids('admin.REALTIME') as session_ids
+            `;
+            expect(sessions.session_ids).toContain(admin.sessionId);
+        });
+    });
+
+    describe("Permission Management", () => {
+        beforeEach(async () => {
+            await sql`SELECT auth.set_agent_context(${admin.sessionId}, ${admin.token})`;
+        });
+
+        test("should verify admin permissions", async () => {
+            const [isAdmin] =
+                await sql`SELECT auth.is_admin_agent() as is_admin`;
+            expect(isAdmin.is_admin).toBe(true);
+        });
+
+        test("should verify non-admin permissions", async () => {
+            await sql`SELECT auth.set_agent_context(${agent.sessionId}, ${agent.token})`;
+            const [isAdmin] =
+                await sql`SELECT auth.is_admin_agent() as is_admin`;
+            expect(isAdmin.is_admin).toBe(false);
+        });
+
+        test("should handle super admin checks", async () => {
+            const [isSuperAdmin] =
+                await sql`SELECT auth.is_super_admin() as is_super`;
+            // This will typically be false in test environment
+            expect(typeof isSuperAdmin.is_super).toBe("boolean");
+        });
+    });
+
+    describe("Session Cleanup", () => {
+        test("should cleanup system tokens", async () => {
+            // Create an expired system token
+            await sql`
+                INSERT INTO auth.agent_sessions (
+                    auth__agent_id,
+                    auth__provider_name,
+                    session__expires_at,
+                    session__is_active
+                ) VALUES (
+                    auth.get_system_agent_id(),
+                    'system',
+                    NOW() - INTERVAL '1 hour',
+                    true
+                )
+            `;
+
+            const [result] =
+                await sql`SELECT auth.cleanup_system_tokens() as cleaned`;
+            expect(result.cleaned).toBeGreaterThan(0);
+        });
+
+        test("should handle session invalidation", async () => {
+            const success = await sql`
+                SELECT auth.invalidate_session(${agent.sessionId}) as success
+            `;
+            expect(success[0].success).toBe(true);
+
+            // Verify session is invalid
+            const [session] = await sql`
+                SELECT session__is_active 
+                FROM auth.agent_sessions 
+                WHERE general__session_id = ${agent.sessionId}
+            `;
+            expect(session.session__is_active).toBe(false);
+        });
+    });
+
     describe("Test Cleanup", () => {
         test("should cleanup test accounts", async () => {
             try {

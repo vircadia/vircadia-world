@@ -536,7 +536,7 @@ $$ LANGUAGE sql STABLE;
 
 CREATE OR REPLACE FUNCTION auth.has_sync_group_insert_access(p_sync_group TEXT) 
 RETURNS BOOLEAN AS $$
-    SELECT auth.is_super_admin() OR EXISTS (
+    SELECT EXISTS (
         SELECT 1
         FROM auth.agent_sync_group_roles
         WHERE auth__agent_id = auth.current_agent_id()
@@ -547,7 +547,7 @@ $$ LANGUAGE sql STABLE;
 
 CREATE OR REPLACE FUNCTION auth.has_sync_group_update_access(p_sync_group TEXT) 
 RETURNS BOOLEAN AS $$
-    SELECT auth.is_super_admin() OR EXISTS (
+    SELECT EXISTS (
         SELECT 1
         FROM auth.agent_sync_group_roles
         WHERE auth__agent_id = auth.current_agent_id()
@@ -558,7 +558,7 @@ $$ LANGUAGE sql STABLE;
 
 CREATE OR REPLACE FUNCTION auth.has_sync_group_delete_access(p_sync_group TEXT) 
 RETURNS BOOLEAN AS $$
-    SELECT auth.is_super_admin() OR EXISTS (
+    SELECT EXISTS (
         SELECT 1
         FROM auth.agent_sync_group_roles
         WHERE auth__agent_id = auth.current_agent_id()
@@ -588,7 +588,7 @@ JOIN auth.agent_sessions s ON s.auth__agent_id = asgr.auth__agent_id
 GROUP BY asgr.group__sync;
 
 -- Create index on the materialized view
-CREATE INDEX idx_active_sync_group_sessions_lookup 
+CREATE UNIQUE INDEX idx_active_sync_group_sessions_lookup 
 ON auth.active_sync_group_sessions (group__sync);
 
 -- Function to refresh the materialized view

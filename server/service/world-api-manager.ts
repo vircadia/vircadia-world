@@ -5,9 +5,10 @@
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 import type postgres from "postgres";
 import { sign, verify } from "jsonwebtoken";
-import type { VircadiaConfig_Server } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config.ts";
+import { VircadiaConfig_Server } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config.ts";
 import {
     Communication,
+    type Auth,
     type Tick,
 } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import type { Server, ServerWebSocket } from "bun";
@@ -15,6 +16,7 @@ import {
     Config,
     type Entity,
 } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+import { PostgresClient } from "../database/postgres/postgres_client";
 
 interface WorldSession<T = unknown> {
     ws: WebSocket | ServerWebSocket<T>;
@@ -35,59 +37,62 @@ interface WebSocketData {
 
 // #region SessionValidation
 
-async function validateJWTAndSession(
-    sql: postgres.Sql,
-    debugMode: boolean,
-    authConfig: Config.I_ClientSettings["auth"],
-    token: string,
-): Promise<{ agentId: string; sessionId: string; isValid: boolean }> {
-    try {
-        // Check for empty or malformed token first
-        if (!token || token.split(".").length !== 3) {
+namespace SessionValidation {
+    export async function validateJWTAndSession(
+        sql: postgres.Sql,
+        debugMode: boolean,
+        jwtSecret: string,
+        token: string,
+    ): Promise<{ agentId: string; sessionId: string; isValid: boolean }> {
+        try {
+            // Check for empty or malformed token first
+            if (!token || token.split(".").length !== 3) {
+                return {
+                    agentId: "",
+                    sessionId: "",
+                    isValid: false,
+                };
+            }
+
+            const decoded = verify(token, jwtSecret) as {
+                sessionId: string;
+                agentId: string;
+            };
+
+            const [validation] = await sql`
+            SELECT * FROM auth.validate_session(${decoded.sessionId}::UUID)
+        `;
+
+            log({
+                message: "Session validation result",
+                debug: debugMode,
+                type: "debug",
+                data: {
+                    validation,
+                },
+            });
+
+            return {
+                agentId: validation.auth__agent_id || "",
+                sessionId: decoded.sessionId,
+                isValid: validation.is_valid && !!validation.auth__agent_id,
+            };
+        } catch (error) {
+            log({
+                message: `Session validation failed: ${error}`,
+                debug: debugMode,
+                type: "debug",
+                data: {
+                    error:
+                        error instanceof Error ? error.message : String(error),
+                },
+            });
             return {
                 agentId: "",
                 sessionId: "",
                 isValid: false,
             };
         }
-
-        const decoded = verify(token, authConfig.secret_jwt) as {
-            sessionId: string;
-            agentId: string;
-        };
-
-        const [validation] = await sql`
-            SELECT * FROM auth.validate_session(${decoded.sessionId}::UUID)
-        `;
-
-        log({
-            message: "Session validation result",
-            debug: debugMode,
-            type: "debug",
-            data: {
-                validation,
-            },
-        });
-
-        return {
-            agentId: validation.auth__agent_id || "",
-            sessionId: decoded.sessionId,
-            isValid: validation.is_valid && !!validation.auth__agent_id,
-        };
-    } catch (error) {
-        log({
-            message: `Session validation failed: ${error}`,
-            debug: debugMode,
-            type: "debug",
-            data: {
-                error: error instanceof Error ? error.message : String(error),
-            },
-        });
-        return {
-            agentId: "",
-            sessionId: "",
-            isValid: false,
-        };
     }
 }
 
@@ -107,7 +112,7 @@ class WorldRestManager {
     constructor(
         private readonly sql: postgres.Sql,
         private readonly debugMode: boolean,
-        private readonly authConfig: Config.I_ClientSettings["auth"],
+        private readonly jwtSecret: string,
     ) {}
 
     async handleRequest(req: Request): Promise<Response> {
@@ -142,10 +147,10 @@ class WorldRestManager {
             );
         }
 
-        const validation = await validateJWTAndSession(
+        const validation = await SessionValidation.validateJWTAndSession(
             this.sql,
             this.debugMode,
-            this.authConfig,
+            this.jwtSecret,
             token,
         );
 
@@ -193,10 +198,10 @@ class WorldRestManager {
             );
         }
 
-        const validation = await validateJWTAndSession(
+        const validation = await SessionValidation.validateJWTAndSession(
             this.sql,
             this.debugMode,
-            this.authConfig,
+            this.jwtSecret,
             token,
         );
 
@@ -273,7 +278,7 @@ class WorldTickManager {
     private intervalIds: Map<string, Timer> = new Map();
     private entityStatesCleanupId: Timer | null = null;
     private tickMetricsCleanupId: Timer | null = null;
-    private syncGroups: Map<string, Entity.SyncGroup.I_SyncGroup> = new Map();
+    private syncGroups: Map<string, Auth.SyncGroup.I_SyncGroup> = new Map();
     private tickCounts: Map<string, number> = new Map();
     private tickBufferDurationMs = 2000;
     private tickMetricsHistoryMs = 3600000;
@@ -288,31 +293,21 @@ class WorldTickManager {
 
     async initialize() {
         try {
-            const syncGroupsData = await this.sql<
-                Entity.SyncGroup.I_SyncGroup[]
-            >`
-                SELECT 
-                    sync_group,
-                    server__tick__rate_ms as server_tick_rate_ms,
-                    server__tick__buffer as server_tick_buffer,
-                    client__render_delay_ms as client_render_delay_ms,
-                    client__max_prediction_time_ms as client_max_prediction_time_ms,
-                    network__packet_timing_variance_ms as network_packet_timing_variance_ms,
-                    server__keyframe__interval_ticks as keyframe_interval_ticks
-                FROM entity.entity_sync_groups
+            const syncGroupsData = await this.sql<Auth.SyncGroup.I_SyncGroup[]>`
+                SELECT * FROM entity.entity_sync_groups
             `;
 
             // Store the sync groups directly since they already match our interface
             for (const group of syncGroupsData) {
-                this.syncGroups.set(group.sync_group, group);
+                this.syncGroups.set(group.general__sync_group, group);
             }
 
             // Load other config values
             const [bufferConfig] = await this.sql`
-                SELECT value FROM config.config WHERE key = 'tick_buffer_duration_ms'
+                SELECT value FROM config.config WHERE general__key = ${Config.CONFIG_KEYS.TICK_BUFFER_DURATION}
             `;
             const [metricsConfig] = await this.sql`
-                SELECT value FROM config.config WHERE key = 'tick_metrics_history_ms'
+                SELECT value FROM config.config WHERE general__key = ${Config.CONFIG_KEYS.TICK_METRICS_HISTORY}
             `;
 
             if (bufferConfig) {
@@ -378,33 +373,50 @@ class WorldTickManager {
     }
 
     /**
-     * Capture a tick state using the new tick.capture_tick_state function.
-     * The function now returns a JSONB object with the following structure:
-     * {
-     *   tick_data: I_TickMetadata,
-     *   entity_updates: I_EntityUpdate[],
-     *   script_updates: I_ScriptUpdate[]
-     * }
+     * Capture a tick state and get changes in a single database round trip.
+     * Returns both the tick metadata and any entity/script changes.
      */
     private async captureTick(
-        syncGroup: string,
+        syncGroupName: string,
     ): Promise<Tick.I_TickState | null> {
         try {
-            // Using the new tick.capture_tick_state from the migration which returns the complete tick state as JSONB.
-            const result = await this.sql<{ tick_state: Tick.I_TickState }[]>`
-                SELECT tick.capture_tick_state(${syncGroup}) AS tick_state;
-            `;
-            if (!result.length || !result[0].tick_state) {
-                return null;
-            }
-            // Update tick count for internal metrics or debugging
-            const currentCount = this.tickCounts.get(syncGroup) || 0;
-            this.tickCounts.set(syncGroup, currentCount + 1);
+            // Execute both operations in a single transaction
+            const result = await this.sql.begin(async (sql) => {
+                // Capture the tick state and get metadata directly
+                const [tickData] = await sql<[Tick.I_Tick]>`
+                    SELECT * FROM tick.capture_tick_state(${syncGroupName})
+                `;
 
-            return result[0].tick_state;
+                if (!tickData) {
+                    return null;
+                }
+
+                // Get entity changes (function handles finding previous tick internally)
+                const entityChanges = await sql<Tick.I_EntityUpdate[]>`
+                    SELECT * FROM tick.get_entity_changes(${syncGroupName})
+                `;
+
+                // Get script changes (function handles finding previous tick internally)
+                const scriptChanges = await sql<Tick.I_ScriptUpdate[]>`
+                    SELECT * FROM tick.get_script_changes(${syncGroupName})
+                `;
+
+                // Update tick count for internal metrics
+                const currentCount = this.tickCounts.get(syncGroupName) || 0;
+                this.tickCounts.set(syncGroupName, currentCount + 1);
+
+                // Return complete tick state
+                return {
+                    tick_data: tickData,
+                    entity_updates: entityChanges,
+                    script_updates: scriptChanges,
+                };
+            });
+
+            return result;
         } catch (error) {
             log({
-                message: `Error capturing tick for ${syncGroup}: ${error}`,
+                message: `Error capturing tick for ${syncGroupName}: ${error}`,
                 debug: this.debugMode,
                 type: "error",
             });
@@ -429,7 +441,7 @@ class WorldTickManager {
 
             const tickLoop = () => {
                 // Schedule next tick immediately at fixed interval
-                nextTickTime += config.server_tick_rate_ms;
+                nextTickTime += config.server__tick__rate_ms;
                 this.intervalIds.set(
                     syncGroup,
                     setTimeout(tickLoop, nextTickTime - performance.now()),
@@ -463,47 +475,12 @@ class WorldTickManager {
             const tickState = await this.captureTick(syncGroup);
 
             if (tickState) {
-                // Get current tick count for this sync group
-                const currentTickCount = this.tickCounts.get(syncGroup) || 0;
-
-                // Check if keyframe is needed based on interval
-                const needsKeyframe =
-                    syncGroupConfig.keyframe_interval_ticks > 0 &&
-                    currentTickCount %
-                        syncGroupConfig.keyframe_interval_ticks ===
-                        0;
-
                 // Get all active WebSocket connections as an array
                 const activeWebSockets = Array.from(
                     this.wsManager.activeSessions.values(),
                 ).map(
                     (session) => session.ws as ServerWebSocket<WebSocketData>,
                 );
-
-                if (needsKeyframe) {
-                    // Send keyframes to all active connections
-                    await Promise.all([
-                        this.wsManager.sendEntitiesKeyframeNotification(
-                            activeWebSockets,
-                            syncGroup,
-                        ),
-                        this.wsManager.sendEntityScriptsKeyframeNotification(
-                            activeWebSockets,
-                            syncGroup,
-                        ),
-                    ]);
-
-                    log({
-                        message: "Sent scheduled keyframe",
-                        debug: this.debugMode,
-                        type: "debug",
-                        data: {
-                            syncGroup,
-                            tickCount: currentTickCount,
-                            activeConnections: activeWebSockets.length,
-                        },
-                    });
-                }
 
                 // Handle regular entity updates
                 if (
@@ -531,7 +508,7 @@ class WorldTickManager {
             }
 
             const processingTime = performance.now() - startTime;
-            if (processingTime > syncGroupConfig.server_tick_rate_ms) {
+            if (processingTime > syncGroupConfig.server__tick__rate_ms) {
                 log({
                     message: "Tick processing took longer than tick rate",
                     debug: this.debugMode,
@@ -539,7 +516,7 @@ class WorldTickManager {
                     data: {
                         syncGroup,
                         processingTime,
-                        tickRate: syncGroupConfig.server_tick_rate_ms,
+                        tickRate: syncGroupConfig.server__tick__rate_ms,
                     },
                 });
             }
@@ -728,7 +705,7 @@ class WorldWebSocketManager {
             return new Response("Authentication required", { status: 401 });
         }
 
-        const validation = await validateJWTAndSession(
+        const validation = await SessionValidation.validateJWTAndSession(
             this.sql,
             this.debugMode,
             this.authConfig,
@@ -861,7 +838,7 @@ class WorldWebSocketManager {
             }
 
             // Validate session using the existing function
-            const validation = await validateJWTAndSession(
+            const validation = await SessionValidation.validateJWTAndSession(
                 this.sql,
                 this.debugMode,
                 this.authConfig,
@@ -1301,140 +1278,140 @@ class WorldWebSocketManager {
 // #region WorldApiManager
 
 export class WorldApiManager {
+    private static instance: WorldApiManager | null = null;
     private authConfig: Config.I_ClientSettings["auth"] | undefined;
     private restManager: WorldRestManager | undefined;
     private wsManager: WorldWebSocketManager | undefined;
     private tickManager: WorldTickManager | undefined;
     private server: Server | undefined;
+    private sql: postgres.Sql | undefined;
 
-    // Private constructor ensures that the class can only be instantiated via the static async create() method.
-    private constructor(
-        private sql: postgres.Sql,
-        private readonly debugMode: boolean,
-        private readonly config: typeof VircadiaConfig_Server,
-    ) {}
+    private constructor() {}
 
-    /**
-     * Static async factory method.
-     *
-     * Use:
-     * const worldApiManager = await WorldApiManager.create(sql, debugMode, config);
-     */
-    public static async create(
-        sql: postgres.Sql,
-        debugMode: boolean,
-        config: typeof VircadiaConfig_Server,
-    ): Promise<WorldApiManager> {
-        const instance = new WorldApiManager(sql, debugMode, config);
-        await instance.initialize();
-        return instance;
+    public static async getInstance(): Promise<WorldApiManager> {
+        if (!WorldApiManager.instance) {
+            WorldApiManager.instance = new WorldApiManager();
+            await WorldApiManager.instance.initialize();
+        }
+        return WorldApiManager.instance;
     }
 
-    /**
-     * Asynchronous initialization.
-     * This sets up the auth configuration, REST manager, WebSocketManager, WorldTickManager,
-     * and finally starts the Bun server.
-     */
     private async initialize() {
-        log({
-            message: "Initializing world api manager",
-            debug: this.debugMode,
-            type: "debug",
-        });
+        try {
+            log({
+                message: "Initializing world api manager",
+                debug: VircadiaConfig_Server.debug,
+                type: "debug",
+            });
 
-        // Load auth config
-        const [configEntry] = await this.sql`
-            SELECT value FROM config.config WHERE general__key = '${Config.CONFIG_KEYS.CLIENT_SETTINGS}'
-        `;
-        this.authConfig = (configEntry.value as Config.I_ClientSettings).auth;
+            // Initialize database connection using PostgresClient
+            const postgresClient = PostgresClient.getInstance();
+            await postgresClient.connect();
+            this.sql = postgresClient.getClient();
 
-        // Initialize components
-        this.restManager = new WorldRestManager(
-            this.sql,
-            this.debugMode,
-            this.authConfig,
-        );
+            // Load auth config
+            const [configEntry] = await this.sql`
+                SELECT value FROM config.config WHERE general__key = ${Config.CONFIG_KEYS.CLIENT_SETTINGS}
+            `;
+            this.authConfig = (
+                configEntry.value as Config.I_ClientSettings
+            ).auth;
 
-        this.wsManager = new WorldWebSocketManager(
-            this.sql,
-            this.debugMode,
-            this.authConfig,
-        );
-        await this.wsManager.initialize();
+            // Initialize components
+            this.restManager = new WorldRestManager(
+                this.sql,
+                VircadiaConfig_Server.debug,
+                this.authConfig,
+            );
 
-        // Initialize Tick Manager after wsManager is ready.
-        this.tickManager = new WorldTickManager(
-            this.sql,
-            this.debugMode,
-            this.wsManager,
-        );
-        await this.tickManager.initialize();
-        this.tickManager.start();
+            this.wsManager = new WorldWebSocketManager(
+                this.sql,
+                VircadiaConfig_Server.debug,
+                this.authConfig,
+            );
+            await this.wsManager.initialize();
 
-        // Start server
-        this.server = Bun.serve({
-            port: this.config.serverPort,
-            hostname: this.config.serverHost,
-            development: this.debugMode,
+            // Initialize Tick Manager after wsManager is ready
+            this.tickManager = new WorldTickManager(
+                this.sql,
+                VircadiaConfig_Server.debug,
+                this.wsManager,
+            );
+            await this.tickManager.initialize();
+            this.tickManager.start();
 
-            fetch: async (req: Request, server: Server) => {
-                const url = new URL(req.url);
+            // Start server
+            this.server = Bun.serve({
+                port: VircadiaConfig_Server.serverPort,
+                hostname: VircadiaConfig_Server.serverHost,
+                development: VircadiaConfig_Server.debug,
 
-                // Handle WebSocket upgrade
-                if (url.pathname.startsWith(Communication.WS_PATH)) {
-                    return await this.wsManager?.handleUpgrade(req, server);
-                }
+                fetch: async (req: Request, server: Server) => {
+                    const url = new URL(req.url);
 
-                // Handle HTTP routes
-                if (url.pathname.startsWith(Communication.REST_BASE_PATH)) {
-                    return await this.restManager?.handleRequest(req);
-                }
+                    // Handle WebSocket upgrade
+                    if (url.pathname.startsWith(Communication.WS_PATH)) {
+                        return await this.wsManager?.handleUpgrade(req, server);
+                    }
 
-                return new Response("Not Found", { status: 404 });
-            },
+                    // Handle HTTP routes
+                    if (url.pathname.startsWith(Communication.REST_BASE_PATH)) {
+                        return await this.restManager?.handleRequest(req);
+                    }
 
-            websocket: {
-                message: (
-                    ws: ServerWebSocket<WebSocketData>,
-                    message: string,
-                ) => {
-                    log({
-                        message: "WebSocket message received",
-                        debug: this.debugMode,
-                        type: "debug",
-                    });
-                    this.wsManager?.handleMessage(ws, message);
+                    return new Response("Not Found", { status: 404 });
                 },
-                open: (ws: ServerWebSocket<WebSocketData>) => {
-                    log({
-                        message: "WebSocket connection opened",
-                        debug: this.debugMode,
-                        type: "debug",
-                    });
-                    this.wsManager?.handleConnection(ws, {
-                        agentId: ws.data.agentId,
-                        sessionId: ws.data.sessionId,
-                    });
-                },
-                close: (
-                    ws: ServerWebSocket<WebSocketData>,
-                    code: number,
-                    reason: string,
-                ) => {
-                    log({
-                        message: `WebSocket connection closed, code: ${code}, reason: ${reason}`,
-                        debug: this.debugMode,
-                        type: "debug",
-                    });
-                    this.wsManager?.handleDisconnect(ws.data.sessionId);
-                },
-            },
-        });
 
-        log({
-            message: `Bun HTTP+WS World API Server running at http://${this.config.serverHost}:${this.config.serverPort}`,
-            type: "success",
-        });
+                websocket: {
+                    message: (
+                        ws: ServerWebSocket<WebSocketData>,
+                        message: string,
+                    ) => {
+                        log({
+                            message: "WebSocket message received",
+                            debug: VircadiaConfig_Server.debug,
+                            type: "debug",
+                        });
+                        this.wsManager?.handleMessage(ws, message);
+                    },
+                    open: (ws: ServerWebSocket<WebSocketData>) => {
+                        log({
+                            message: "WebSocket connection opened",
+                            debug: VircadiaConfig_Server.debug,
+                            type: "debug",
+                        });
+                        this.wsManager?.handleConnection(ws, {
+                            agentId: ws.data.agentId,
+                            sessionId: ws.data.sessionId,
+                        });
+                    },
+                    close: (
+                        ws: ServerWebSocket<WebSocketData>,
+                        code: number,
+                        reason: string,
+                    ) => {
+                        log({
+                            message: `WebSocket connection closed, code: ${code}, reason: ${reason}`,
+                            debug: VircadiaConfig_Server.debug,
+                            type: "debug",
+                        });
+                        this.wsManager?.handleDisconnect(ws.data.sessionId);
+                    },
+                },
+            });
+
+            log({
+                message: `Bun HTTP+WS World API Server running at http://${VircadiaConfig_Server.serverHost}:${VircadiaConfig_Server.serverPort}`,
+                type: "success",
+            });
+        } catch (error) {
+            log({
+                message: `Failed to initialize WorldApiManager: ${error}`,
+                type: "error",
+                debug: true,
+            });
+            throw error;
+        }
     }
 
     cleanup() {
@@ -1442,6 +1419,36 @@ export class WorldApiManager {
         this.wsManager?.stop();
         this.restManager?.stop();
         this.server?.stop();
+        // Update cleanup to use PostgresClient
+        PostgresClient.getInstance().disconnect();
+        WorldApiManager.instance = null;
+    }
+}
+
+// Add command line entry point
+if (import.meta.main) {
+    try {
+        const manager = await WorldApiManager.getInstance();
+
+        // Handle cleanup on process termination
+        process.on("SIGINT", () => {
+            console.log("\nReceived SIGINT. Cleaning up...");
+            manager.cleanup();
+            process.exit(0);
+        });
+
+        process.on("SIGTERM", () => {
+            console.log("\nReceived SIGTERM. Cleaning up...");
+            manager.cleanup();
+            process.exit(0);
+        });
+    } catch (error) {
+        log({
+            message: `Failed to start WorldApiManager: ${error}`,
+            type: "error",
+            debug: true,
+        });
+        process.exit(1);
     }
 }
 

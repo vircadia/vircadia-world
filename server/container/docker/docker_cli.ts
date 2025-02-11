@@ -155,7 +155,7 @@ async function waitForHealthy(
         if (health.postgres.isHealthy && health.pgweb.isHealthy) {
             return true;
         }
-        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+        await Bun.sleep(intervalMs);
     }
     return false;
 }
@@ -190,7 +190,7 @@ export async function up(silent = false) {
     }
 
     // Add a small delay to ensure container is fully initialized
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    await Bun.sleep(2000);
 
     // Create and activate extensions
     const db = PostgresClient.getInstance();

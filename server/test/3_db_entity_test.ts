@@ -14,6 +14,7 @@ import {
     Entity,
 } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import { sign } from "jsonwebtoken";
+import { up } from "../container/docker/docker_cli";
 
 interface TestAccount {
     id: string;
@@ -26,7 +27,7 @@ interface TestResources {
     entityId: string;
 }
 
-describe("Entity Database Tests", () => {
+describe("DB -> Entity Tests", () => {
     let sql: postgres.Sql;
     let admin: TestAccount;
     let agent: TestAccount;
@@ -34,6 +35,7 @@ describe("Entity Database Tests", () => {
 
     // Setup before all tests
     beforeAll(async () => {
+        await up(true);
         // Initialize database connection using PostgresClient
         await PostgresClient.getInstance().connect(true);
         sql = PostgresClient.getInstance().getClient();

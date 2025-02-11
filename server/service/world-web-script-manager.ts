@@ -1,129 +1,114 @@
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 import type postgres from "postgres";
 import { build } from "bun";
-import type { Script } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+import {
+    Entity,
+    type Tick,
+} from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+import { PostgresClient } from "../database/postgres/postgres_client";
+import { VircadiaConfig_Server } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
 
 export class WorldWebScriptManager {
-    private compilationQueue: Set<string> = new Set();
-    private subscription?: postgres.SubscriptionHandle;
-    private lastScriptCheckTimestamp: Date;
+    private static instance: WorldWebScriptManager;
 
-    constructor(
-        private readonly sql: postgres.Sql,
-        private readonly debugMode: boolean = true,
-        private readonly heartbeatMs: number = 1000,
-    ) {
-        this.sql = sql;
-        this.lastScriptCheckTimestamp = new Date();
+    private sql: postgres.Sql | null = null;
+    private readonly debugMode: boolean;
+    private readonly heartbeatMs: number;
+    private isHeartbeatRunning: boolean = false;
+    private heartbeatController: AbortController | null = null;
+
+    private constructor() {
+        this.debugMode = VircadiaConfig_Server.debug;
+        this.heartbeatMs = 1000;
+    }
+
+    public static getInstance(): WorldWebScriptManager {
+        if (!WorldWebScriptManager.instance) {
+            WorldWebScriptManager.instance = new WorldWebScriptManager();
+        }
+        return WorldWebScriptManager.instance;
     }
 
     async initialize() {
+        await PostgresClient.getInstance().connect(true);
+        this.sql = PostgresClient.getInstance().getClient();
+
         try {
             log({
                 message: "Initializing world script manager",
                 debug: this.debugMode,
-                type: "debug",
+                type: "info",
             });
 
-            // Set any pending compilations to failed state on startup
-            await this.sql`
-                UPDATE entity.entity_scripts 
-                SET 
-                    script__compiled__node__script_status = 'FAILED',
-                    script__compiled__bun__script_status = 'FAILED',
-                    script__compiled__browser__script_status = 'FAILED'
-                WHERE 
-                    script__compiled__node__script_status = 'PENDING' OR
-                    script__compiled__bun__script_status = 'PENDING' OR
-                    script__compiled__browser__script_status = 'PENDING'
-            `;
-
-            // Subscribe to script changes using logical replication
-            this.subscription = await this.sql.subscribe(
-                "*:entity.entity_scripts",
-                async (row, { command }) => {
-                    try {
-                        // Handle script updates
-                        if (command === "insert" || command === "update") {
-                            const script = row as {
-                                general__script_id: string;
-                                script__source__node__repo__url: string;
-                                script__source__node__repo__entry_path: string;
-                                script__compiled__node__script_status: string;
-                            };
-
-                            // Trigger recompilation if script source was updated or status is PENDING
-                            if (
-                                script.script__compiled__node__script_status ===
-                                "PENDING"
-                            ) {
-                                await this.compileScript(
-                                    script.general__script_id,
-                                );
-                            }
-                        }
-                    } catch (error) {
-                        log({
-                            message: `Error processing script change: ${error}`,
-                            debug: this.debugMode,
-                            type: "error",
-                        });
-                    }
-                },
-                () => {
-                    log({
-                        message: "Connected to script changes subscription",
-                        debug: this.debugMode,
-                        type: "debug",
-                    });
-                },
-            );
-
-            // Start heartbeat check
+            // Reset all non-completed script statuses
+            const resetScriptIds = await this.resetPendingScripts();
+            log({
+                message: `Reset ${resetScriptIds.length} scripts`,
+                debug: this.debugMode,
+                type: "info",
+            });
             await this.startHeartbeat();
 
             log({
-                message: "Initialized WorldScriptManager",
+                message: "Initialized world web script manager",
                 debug: this.debugMode,
-                type: "debug",
+                type: "success",
             });
         } catch (error) {
-            log({
-                message: `Failed to initialize WorldScriptManager: ${error}`,
-                debug: this.debugMode,
-                type: "error",
-            });
+            await this.cleanup();
             throw error;
         }
     }
 
-    async getChangedScripts(): Promise<Script.ScriptChanges[]> {
-        const result = await this.sql<Script.ScriptChanges[]>`
-            SELECT * FROM tick.get_changed_entity_scripts(${this.lastScriptCheckTimestamp})
+    private async resetPendingScripts(): Promise<string[]> {
+        if (!this.sql) throw new Error("Database not connected");
+
+        const resetScripts = await this.sql<{ general__script_id: string }[]>`
+            UPDATE entity.entity_scripts 
+            SET 
+                compiled__node__status = ${Entity.Script.E_CompilationStatus.PENDING},
+                compiled__bun__status = ${Entity.Script.E_CompilationStatus.PENDING},
+                compiled__browser__status = ${Entity.Script.E_CompilationStatus.PENDING}
+            WHERE 
+                compiled__node__status IN (${Entity.Script.E_CompilationStatus.PENDING}, ${Entity.Script.E_CompilationStatus.COMPILING}) OR
+                compiled__bun__status IN (${Entity.Script.E_CompilationStatus.PENDING}, ${Entity.Script.E_CompilationStatus.COMPILING}) OR
+                compiled__browser__status IN (${Entity.Script.E_CompilationStatus.PENDING}, ${Entity.Script.E_CompilationStatus.COMPILING})
+            RETURNING general__script_id
         `;
-        this.lastScriptCheckTimestamp = new Date();
-        return result;
+
+        return resetScripts.map((script) => script.general__script_id);
     }
 
-    private async updateScriptStatus(
+    private async updateAllScriptStatuses(
         scriptId: string,
-        target: "node" | "bun" | "browser",
-        status: "PENDING" | "COMPILED" | "FAILED",
-        compiledScript?: string,
-        scriptSha256?: string,
+        status: Entity.Script.E_CompilationStatus,
+        compiledCode?: { node: string; browser: string; bun: string },
+        hashes?: { node: string; browser: string; bun: string },
     ) {
-        const updates = {
-            [`script__compiled__${target}__script_status`]: status,
-            ...(compiledScript && {
-                [`script__compiled__${target}__script`]: compiledScript,
+        if (!this.sql) throw new Error("Database not connected");
+
+        const platforms = [
+            Entity.Script.E_Platform.NODE,
+            Entity.Script.E_Platform.BROWSER,
+            Entity.Script.E_Platform.BUN,
+        ];
+
+        const updates = platforms.reduce(
+            (acc, platform) => ({
+                ...acc,
+                [`compiled__${platform}__status`]: status,
+                ...(compiledCode && {
+                    [`compiled__${platform}__script`]: compiledCode[platform],
+                }),
+                ...(hashes && {
+                    [`compiled__${platform}__script_sha256`]: hashes[platform],
+                }),
+                ...(status === Entity.Script.E_CompilationStatus.COMPILED && {
+                    [`compiled__${platform}__updated_at`]: new Date(),
+                }),
             }),
-            ...(scriptSha256 && {
-                [`script__compiled__${target}__script_sha256`]: scriptSha256,
-            }),
-            ...(status === "COMPILED" && {
-                [`script__compiled__${target}__updated_at`]: new Date(),
-            }),
-        };
+            {},
+        );
 
         await this.sql`
             UPDATE entity.entity_scripts 
@@ -135,7 +120,7 @@ export class WorldWebScriptManager {
     private async prepareGitRepo(
         repoUrl: string,
         entryPath: string,
-    ): Promise<string> {
+    ): Promise<{ path: string; cleanup: () => Promise<void> }> {
         const tempDir = `${Bun.env.BUN_TMPDIR || "/tmp"}/${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
         try {
@@ -162,13 +147,15 @@ export class WorldWebScriptManager {
                 );
             }
 
-            return `${tempDir}/${entryPath}`;
+            return {
+                path: `${tempDir}/${entryPath}`,
+                cleanup: async () => {
+                    await Bun.spawn(["rm", "-rf", tempDir]).exited;
+                },
+            };
         } catch (error) {
-            log({
-                message: `Error cloning repository ${repoUrl}: ${error}`,
-                type: "error",
-                debug: this.debugMode,
-            });
+            // Cleanup on error
+            await Bun.spawn(["rm", "-rf", tempDir]).exited;
             throw error;
         }
     }
@@ -221,21 +208,21 @@ export class WorldWebScriptManager {
     }
 
     async compileScript(scriptId: string, gitRef?: string) {
-        const queueKey = `${scriptId}:${gitRef || "latest"}`;
-
-        if (this.compilationQueue.has(queueKey)) {
-            log({
-                message: `Script ${scriptId} is already being compiled`,
-                debug: this.debugMode,
-                type: "warn",
-            });
-            return;
+        if (!this.sql) {
+            throw new Error("Database not connected");
         }
 
-        try {
-            this.compilationQueue.add(queueKey);
+        let cleanup: (() => Promise<void>) | undefined;
 
-            const [script] = await this.sql`
+        try {
+            log({
+                message: `Starting compilation for script ${scriptId}`,
+                debug: this.debugMode,
+                type: "info",
+            });
+
+            // First, check if the script exists and needs compilation
+            const [script] = await this.sql<Entity.Script.I_Script[]>`
                 SELECT * FROM entity.entity_scripts 
                 WHERE general__script_id = ${scriptId}
             `;
@@ -244,17 +231,42 @@ export class WorldWebScriptManager {
                 throw new Error(`Script ${scriptId} not found`);
             }
 
-            // Set all compilation statuses to PENDING
-            await Promise.all([
-                this.updateScriptStatus(scriptId, "node", "PENDING"),
-                this.updateScriptStatus(scriptId, "browser", "PENDING"),
-                this.updateScriptStatus(scriptId, "bun", "PENDING"),
-            ]);
+            // Set status to PENDING first if not already compiling
+            await this.sql`
+                UPDATE entity.entity_scripts 
+                SET 
+                    compiled__node__status = ${Entity.Script.E_CompilationStatus.PENDING},
+                    compiled__browser__status = ${Entity.Script.E_CompilationStatus.PENDING},
+                    compiled__bun__status = ${Entity.Script.E_CompilationStatus.PENDING}
+                WHERE 
+                    general__script_id = ${scriptId}
+                    AND compiled__node__status != ${Entity.Script.E_CompilationStatus.COMPILING}
+                    AND compiled__browser__status != ${Entity.Script.E_CompilationStatus.COMPILING}
+                    AND compiled__bun__status != ${Entity.Script.E_CompilationStatus.COMPILING}
+            `;
 
-            const scriptPath = await this.prepareGitRepo(
-                script.script__source__node__repo__url,
-                script.script__source__node__repo__entry_path,
-            );
+            // Then update to COMPILING
+            await this.sql`
+                UPDATE entity.entity_scripts 
+                SET 
+                    compiled__node__status = ${Entity.Script.E_CompilationStatus.COMPILING},
+                    compiled__browser__status = ${Entity.Script.E_CompilationStatus.COMPILING},
+                    compiled__bun__status = ${Entity.Script.E_CompilationStatus.COMPILING}
+                WHERE general__script_id = ${scriptId}
+            `;
+
+            const { path: scriptPath, cleanup: cleanupFn } =
+                await this.prepareGitRepo(
+                    script.source__repo__url || "",
+                    script.source__repo__entry_path || "",
+                );
+            cleanup = cleanupFn;
+
+            log({
+                message: `Starting compilation for script at path: ${scriptPath}`,
+                debug: this.debugMode,
+                type: "info",
+            });
 
             const compilationResult = await this.compileScriptCode(scriptPath);
 
@@ -263,41 +275,34 @@ export class WorldWebScriptManager {
                 compilationResult.compiledCode &&
                 compilationResult.hashes
             ) {
-                await Promise.all([
-                    this.updateScriptStatus(
-                        scriptId,
-                        "node",
-                        "COMPILED",
-                        compilationResult.compiledCode.node,
-                        compilationResult.hashes.node,
-                    ),
-                    this.updateScriptStatus(
-                        scriptId,
-                        "browser",
-                        "COMPILED",
-                        compilationResult.compiledCode.browser,
-                        compilationResult.hashes.browser,
-                    ),
-                    this.updateScriptStatus(
-                        scriptId,
-                        "bun",
-                        "COMPILED",
-                        compilationResult.compiledCode.bun,
-                        compilationResult.hashes.bun,
-                    ),
-                ]);
-            } else {
-                await Promise.all([
-                    this.updateScriptStatus(scriptId, "node", "FAILED"),
-                    this.updateScriptStatus(scriptId, "browser", "FAILED"),
-                    this.updateScriptStatus(scriptId, "bun", "FAILED"),
-                ]);
-
                 log({
-                    message: `Compilation failed for script ${scriptId}: ${compilationResult.error}`,
-                    type: "error",
+                    message: `Compilation successful for script ${scriptId}`,
                     debug: this.debugMode,
+                    type: "success",
                 });
+
+                await this.updateAllScriptStatuses(
+                    scriptId,
+                    Entity.Script.E_CompilationStatus.COMPILED,
+                    compilationResult.compiledCode,
+                    compilationResult.hashes,
+                );
+            } else {
+                log({
+                    message: `Compilation failed for script ${scriptId}`,
+                    debug: this.debugMode,
+                    type: "error",
+                    data: {
+                        error: compilationResult.error,
+                        scriptPath,
+                        scriptId,
+                    },
+                });
+
+                await this.updateAllScriptStatuses(
+                    scriptId,
+                    Entity.Script.E_CompilationStatus.FAILED,
+                );
             }
         } catch (error) {
             log({
@@ -305,8 +310,20 @@ export class WorldWebScriptManager {
                 debug: this.debugMode,
                 type: "error",
             });
+
+            // Update status to FAILED on error
+            await this.sql`
+                UPDATE entity.entity_scripts 
+                SET 
+                    compiled__node__status = ${Entity.Script.E_CompilationStatus.FAILED},
+                    compiled__browser__status = ${Entity.Script.E_CompilationStatus.FAILED},
+                    compiled__bun__status = ${Entity.Script.E_CompilationStatus.FAILED}
+                WHERE general__script_id = ${scriptId}
+            `;
         } finally {
-            this.compilationQueue.delete(queueKey);
+            if (cleanup) {
+                await cleanup();
+            }
         }
     }
 
@@ -315,6 +332,10 @@ export class WorldWebScriptManager {
         entryPath: string,
         gitRef?: string,
     ) {
+        if (!this.sql) {
+            throw new Error("Database not connected");
+        }
+
         try {
             const scripts = await this.sql`
                 SELECT general__script_id 
@@ -337,43 +358,84 @@ export class WorldWebScriptManager {
     }
 
     private async startHeartbeat() {
-        const checkPendingScripts = async () => {
-            try {
-                // Query for any PENDING scripts that aren't currently being processed
-                const pendingScripts = await this.sql<
-                    { general__script_id: string }[]
-                >`
+        if (this.isHeartbeatRunning) return;
+
+        this.isHeartbeatRunning = true;
+        this.heartbeatController = new AbortController();
+        const { signal } = this.heartbeatController;
+
+        try {
+            while (!signal.aborted) {
+                if (!this.sql) throw new Error("Database not connected");
+
+                const scriptsToCompile = await this.sql`
+                    WITH needs_compilation AS (
+                        SELECT 
+                            general__script_id,
+                            general__updated_at,
+                            GREATEST(
+                                compiled__node__updated_at,
+                                compiled__bun__updated_at,
+                                compiled__browser__updated_at
+                            ) as last_compilation
+                        FROM entity.entity_scripts 
+                        WHERE 
+                            compiled__node__status NOT IN (${Entity.Script.E_CompilationStatus.COMPILED}, ${Entity.Script.E_CompilationStatus.PENDING}, ${Entity.Script.E_CompilationStatus.COMPILING}) OR
+                            compiled__bun__status NOT IN (${Entity.Script.E_CompilationStatus.COMPILED}, ${Entity.Script.E_CompilationStatus.PENDING}, ${Entity.Script.E_CompilationStatus.COMPILING}) OR
+                            compiled__browser__status NOT IN (${Entity.Script.E_CompilationStatus.COMPILED}, ${Entity.Script.E_CompilationStatus.PENDING}, ${Entity.Script.E_CompilationStatus.COMPILING})
+                    )
                     SELECT general__script_id 
-                    FROM entity.entity_scripts 
-                    WHERE 
-                        script__compiled__node__script_status = 'PENDING' OR
-                        script__compiled__bun__script_status = 'PENDING' OR
-                        script__compiled__browser__script_status = 'PENDING'
+                    FROM needs_compilation
+                    WHERE last_compilation IS NULL 
+                       OR general__updated_at > last_compilation
+                    LIMIT 5
                 `;
 
-                // Process each pending script
-                for (const script of pendingScripts) {
-                    // Skip if already being processed
-                    if (this.compilationQueue.has(script.general__script_id)) {
-                        continue;
-                    }
-
+                for (const script of scriptsToCompile) {
+                    if (signal.aborted) break;
                     await this.compileScript(script.general__script_id);
+                    await Bun.sleep(100);
                 }
-            } catch (error) {
-                log({
-                    message: `Error in heartbeat check: ${error}`,
-                    debug: this.debugMode,
-                    type: "error",
-                });
+
+                await Bun.sleep(this.heartbeatMs);
             }
+        } catch (error) {
+            log({
+                message: `Error in heartbeat: ${error}`,
+                debug: this.debugMode,
+                type: "error",
+            });
+        } finally {
+            this.isHeartbeatRunning = false;
+        }
+    }
 
-            // Use Bun.sleep instead of setTimeout for better performance
-            await Bun.sleep(this.heartbeatMs);
-            checkPendingScripts();
-        };
+    public async cleanup() {
+        await this.stopHeartbeat();
+        // Allow time for any in-progress compilations to complete
+        await Bun.sleep(100);
+        this.sql = null;
+    }
 
-        // Start the heartbeat loop
-        checkPendingScripts();
+    public async stopHeartbeat() {
+        if (this.heartbeatController) {
+            this.heartbeatController.abort();
+            this.heartbeatController = null;
+        }
+        this.isHeartbeatRunning = false;
+    }
+}
+
+if (import.meta.main) {
+    try {
+        const manager = WorldWebScriptManager.getInstance();
+        await manager.initialize();
+    } catch (error) {
+        log({
+            message: `Failed to start world web script manager: ${error}`,
+            type: "error",
+            debug: true,
+        });
+        process.exit(1);
     }
 }

@@ -15,6 +15,7 @@ import {
 } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import { sign } from "jsonwebtoken";
 import { VircadiaConfig_Server } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
+import { up } from "../container/docker/docker_cli";
 
 interface TestAccount {
     id: string;
@@ -29,6 +30,7 @@ describe("DB -> Auth Tests", () => {
 
     // Setup before all tests
     beforeAll(async () => {
+        await up(true);
         // Initialize database connection using PostgresClient
         await PostgresClient.getInstance().connect(true);
         sql = PostgresClient.getInstance().getClient();

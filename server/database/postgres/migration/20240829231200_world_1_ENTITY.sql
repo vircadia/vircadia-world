@@ -8,7 +8,7 @@ CREATE SCHEMA IF NOT EXISTS entity;
 --
 
 -- Create enum for script compilation status
-CREATE TYPE script_compilation_status AS ENUM ('PENDING', 'COMPILED', 'FAILED');
+CREATE TYPE script_compilation_status AS ENUM ('PENDING', 'COMPILING', 'COMPILED', 'FAILED');
 
 -- Create template table for inheritance
 CREATE TABLE entity._template (
@@ -21,6 +21,7 @@ CREATE TABLE entity._template (
 -- Restructure entity_scripts into parent/child tables
 CREATE TABLE entity.entity_scripts (
     general__script_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    general__name TEXT NOT NULL DEFAULT 'UNNAMED',
     group__sync TEXT NOT NULL DEFAULT 'public.STATIC',
     
     -- Source fields

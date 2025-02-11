@@ -5,14 +5,12 @@ import type {
     Tick,
     Entity,
 } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
-import { up } from "../container/docker/docker_cli";
 
-describe("DB -> Tick Tests", () => {
+describe("World Tick Tests", () => {
     let sql: postgres.Sql;
 
     // Setup before all tests
     beforeAll(async () => {
-        await up(true);
         // Initialize database connection using PostgresClient
         await PostgresClient.getInstance().connect(false);
         sql = PostgresClient.getInstance().getClient();

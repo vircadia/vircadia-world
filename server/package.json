@@ -3,11 +3,22 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "app:dev": "bun run --watch server.ts",
-    "app:dev-debug": "VRCA_SERVER_DEBUG=1 bun run --watch server.ts",
-    "app:test": "bun test",
-    "app:start": "bun run server.ts",
-    "app:build": "bun build server.ts --outfile=server",
+    "test": "bun test",
+
+    "app:dev": "bun run service:dev:api && bun run service:dev:script",
+    "app:dev-debug": "VRCA_SERVER_DEBUG=1 bun run service:dev:api-debug && bun run service:dev:script-debug",
+    "app:start": "bun run service:run:api && bun run service:run:script",
+    "app:build": "bun run service:build:api && bun run service:build:script",
+
+    "service:run:api": "bun run service/world-api-manager.ts",
+    "service:run:script": "bun run service/world-web-script-manager.ts",
+    "service:build:api": "bun build service/world-api-manager.ts --outfile=service/world-api-manager",
+    "service:build:script": "bun build service/world-web-script-manager.ts --outfile=service/world-web-script-manager",
+    "service:dev:api": "bun run --watch service/world-api-manager.ts",
+    "service:dev:script": "bun run --watch service/world-web-script-manager.ts",
+    "service:dev:api-debug": "VRCA_SERVER_DEBUG=1 bun run --watch service/world-api-manager.ts",
+    "service:dev:script-debug": "VRCA_SERVER_DEBUG=1 bun run --watch service/world-web-script-manager.ts",
+
     "container:up": "bun run container/docker/docker_cli.ts container:up",
     "container:down": "bun run container/docker/docker_cli.ts container:down",
     "container:db:soft-reset": "bun run container/docker/docker_cli.ts container:db:soft-reset",

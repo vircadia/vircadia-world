@@ -16,8 +16,7 @@ CREATE TABLE config.seeds (
 
 -- Insert default configuration
 INSERT INTO config.config (general__key, general__value, general__description) VALUES
-('general__tick_buffer_duration_ms', '2000'::jsonb, 'How long to keep tick history in milliseconds'),
-('general__tick_metrics_history_ms', '3600000'::jsonb, 'How long to keep tick metrics history in milliseconds (1 hour default)');
+('tick__buffer_duration_ms', '2000'::jsonb, 'How long to keep tick history in milliseconds');
 
 -- Add network quality requirements
 INSERT INTO config.config (general__key, general__value, general__description) VALUES

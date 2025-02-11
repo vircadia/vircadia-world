@@ -194,7 +194,7 @@ export async function up(silent = false) {
 
     // Create and activate extensions
     const db = PostgresClient.getInstance();
-    await db.connect();
+    await db.connect(silent);
     const sql = db.getClient();
 
     try {
@@ -217,13 +217,11 @@ export async function up(silent = false) {
             });
         }
         throw error;
-    } finally {
-        await db.disconnect();
     }
 
     if (!silent) {
         log({
-            message: `${env.CONTAINER_NAME} container started with extensions installed and migrations applied`,
+            message: `${env.CONTAINER_NAME} container started successfully.`,
             type: "success",
         });
     }
@@ -293,45 +291,48 @@ export async function softResetDatabase(silent = false) {
     }
 
     const db = PostgresClient.getInstance();
-    await db.connect();
+    await db.connect(silent);
     const sql = db.getClient();
 
-    try {
-        await sql.unsafe(`
-            DO $$ 
-            DECLARE
-                pubname RECORD;
-            BEGIN
-                -- Drop publications if they exist
-                FOR pubname IN (SELECT p.pubname AS publication_name FROM pg_publication p)
-                LOOP
-                    EXECUTE 'DROP PUBLICATION ' || quote_ident(pubname.publication_name);
-                END LOOP;
+    await sql.unsafe(`
+        DO $$ 
+        DECLARE
+            pubname RECORD;
+        BEGIN
+            -- Drop publications if they exist
+            FOR pubname IN (SELECT p.pubname AS publication_name FROM pg_publication p)
+            LOOP
+                EXECUTE 'DROP PUBLICATION ' || quote_ident(pubname.publication_name);
+            END LOOP;
 
-                -- Drop specific schemas and all their contents
-                DROP SCHEMA IF EXISTS public CASCADE;
-                DROP SCHEMA IF EXISTS auth CASCADE;
-                DROP SCHEMA IF EXISTS entity CASCADE;
-                DROP SCHEMA IF EXISTS tick CASCADE;
-                DROP SCHEMA IF EXISTS config CASCADE;
-                -- Recreate the public schema (this is required for PostgreSQL)
-                CREATE SCHEMA public;
-                GRANT ALL ON SCHEMA public TO PUBLIC;
-            END $$;
-        `);
+            -- Drop specific schemas and all their contents
+            DROP SCHEMA IF EXISTS public CASCADE;
+            DROP SCHEMA IF EXISTS auth CASCADE;
+            DROP SCHEMA IF EXISTS entity CASCADE;
+            DROP SCHEMA IF EXISTS tick CASCADE;
+            DROP SCHEMA IF EXISTS config CASCADE;
+            -- Recreate the public schema (this is required for PostgreSQL)
+            CREATE SCHEMA public;
+            GRANT ALL ON SCHEMA public TO PUBLIC;
+        END $$;
+    `);
 
-        if (!silent) {
-            log({
-                message: `${env.CONTAINER_NAME} database reset complete. Running migrations...`,
-                type: "info",
-            });
-        }
-        await migrate({
-            silent,
-            runSeeds: true, // Always run seeds after a reset
+    if (!silent) {
+        log({
+            message: `${env.CONTAINER_NAME} database reset complete. Running migrations...`,
+            type: "info",
         });
-    } finally {
-        await db.disconnect();
+    }
+    await migrate({
+        silent,
+        runSeeds: true, // Always run seeds after a reset
+    });
+
+    if (!silent) {
+        log({
+            message: `${env.CONTAINER_NAME} container soft reset complete.`,
+            type: "success",
+        });
     }
 }
 
@@ -343,103 +344,105 @@ export async function migrate(data: {
     let migrationsRan = false;
 
     const db = PostgresClient.getInstance();
-    await db.connect();
+    await db.connect(data.silent);
     const sql = db.getClient();
 
-    try {
-        for (const name of VircadiaConfig_Server.postgres.extensions) {
-            if (!data.silent) {
-                log({
-                    message: `Installing PostgreSQL extension: ${name}...`,
-                    type: "info",
-                });
-            }
-            await sql`CREATE EXTENSION IF NOT EXISTS ${sql(name)};`;
-            if (!data.silent) {
-                log({
-                    message: `PostgreSQL extension ${name} installed successfully`,
-                    type: "success",
-                });
-            }
-        }
-
+    for (const name of VircadiaConfig_Server.postgres.extensions) {
         if (!data.silent) {
             log({
-                message: `Running ${env.CONTAINER_NAME} database migrations...`,
+                message: `Installing PostgreSQL extension: ${name}...`,
                 type: "info",
             });
         }
-
-        // Create config schema and migrations table if they don't exist
-        await sql.unsafe("CREATE SCHEMA IF NOT EXISTS config");
-
-        await sql.unsafe(`
-            CREATE TABLE IF NOT EXISTS config.migrations (
-                id SERIAL PRIMARY KEY,
-                name VARCHAR(255) NOT NULL,
-                executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        `);
-
-        // Get list of migration files
-        const files = await readdir(POSTGRES_MIGRATIONS_DIR);
-        const sqlFiles = files.filter((f) => f.endsWith(".sql")).sort();
-
-        // Get already executed migrations
-        const result =
-            await sql`SELECT name FROM config.migrations ORDER BY id`;
-        const executedMigrations = result.map((r) => r.name);
-
-        // Run pending migrations
-        for (const file of sqlFiles) {
-            if (!executedMigrations.includes(file)) {
-                migrationsRan = true; // Set flag when a migration runs
-                try {
-                    const filePath = path.join(POSTGRES_MIGRATIONS_DIR, file);
-                    const sqlContent = await readFile(filePath, "utf-8");
-
-                    // Run the migration in a transaction
-                    await sql.begin(async (sql) => {
-                        await sql.unsafe(sqlContent);
-                        await sql`
-                            INSERT INTO config.migrations (name)
-                            VALUES (${file})
-                        `;
-                    });
-
-                    if (!data.silent) {
-                        log({
-                            message: `Migration ${file} executed successfully`,
-                            type: "success",
-                        });
-                    }
-                } catch (error) {
-                    if (!data.silent) {
-                        log({
-                            message: `Failed to run migration ${file}.`,
-                            type: "error",
-                            error: error,
-                        });
-                    }
-                    throw error;
-                }
-            }
-        }
-
-        // Run seeds if explicitly requested or if migrations were executed
-        if (data.runSeeds || migrationsRan) {
-            if (!data.silent) {
-                log({
-                    message: "Running seeds after migration...",
-                    type: "info",
-                });
-            }
-            await seed({
-                silent: data.silent,
+        await sql`CREATE EXTENSION IF NOT EXISTS ${sql(name)};`;
+        if (!data.silent) {
+            log({
+                message: `PostgreSQL extension ${name} installed successfully`,
+                type: "success",
             });
         }
-    } finally {
-        await db.disconnect();
+    }
+
+    if (!data.silent) {
+        log({
+            message: `Running ${env.CONTAINER_NAME} database migrations...`,
+            type: "info",
+        });
+    }
+
+    // Create config schema and migrations table if they don't exist
+    await sql.unsafe("CREATE SCHEMA IF NOT EXISTS config");
+
+    await sql.unsafe(`
+        CREATE TABLE IF NOT EXISTS config.migrations (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+
+    // Get list of migration files
+    const files = await readdir(POSTGRES_MIGRATIONS_DIR);
+    const sqlFiles = files.filter((f) => f.endsWith(".sql")).sort();
+
+    // Get already executed migrations
+    const result = await sql`SELECT name FROM config.migrations ORDER BY id`;
+    const executedMigrations = result.map((r) => r.name);
+
+    // Run pending migrations
+    for (const file of sqlFiles) {
+        if (!executedMigrations.includes(file)) {
+            migrationsRan = true; // Set flag when a migration runs
+            try {
+                const filePath = path.join(POSTGRES_MIGRATIONS_DIR, file);
+                const sqlContent = await readFile(filePath, "utf-8");
+
+                // Run the migration in a transaction
+                await sql.begin(async (sql) => {
+                    await sql.unsafe(sqlContent);
+                    await sql`
+                        INSERT INTO config.migrations (name)
+                        VALUES (${file})
+                    `;
+                });
+
+                if (!data.silent) {
+                    log({
+                        message: `Migration ${file} executed successfully`,
+                        type: "success",
+                    });
+                }
+            } catch (error) {
+                if (!data.silent) {
+                    log({
+                        message: `Failed to run migration ${file}.`,
+                        type: "error",
+                        error: error,
+                    });
+                }
+                throw error;
+            }
+        }
+    }
+
+    // Run seeds if explicitly requested or if migrations were executed
+    if (data.runSeeds || migrationsRan) {
+        if (!data.silent) {
+            log({
+                message: "Running seeds after migration...",
+                type: "info",
+            });
+        }
+        await seed({
+            silent: data.silent,
+        });
+    }
+
+    if (!data.silent) {
+        log({
+            message: `${env.CONTAINER_NAME} container migrations applied`,
+            type: "success",
+        });
     }
 }
 
@@ -447,90 +450,95 @@ export async function seed(data: {
     seedPath?: string;
     silent?: boolean;
 }) {
+    const env = getDockerEnv();
+
     const db = PostgresClient.getInstance();
-    await db.connect();
+    await db.connect(data.silent);
     const sql = db.getClient();
 
-    try {
-        // Ensure we resolve the seed path to absolute path
-        const seedDir = data.seedPath
-            ? path.resolve(data.seedPath)
-            : DEFAULT_POSTGRES_SEEDS_DIR;
+    // Ensure we resolve the seed path to absolute path
+    const seedDir = data.seedPath
+        ? path.resolve(data.seedPath)
+        : DEFAULT_POSTGRES_SEEDS_DIR;
 
+    if (!data.silent) {
+        log({
+            message: `Attempting to read seed directory: ${seedDir}`,
+            type: "info",
+        });
+    }
+
+    // Get list of seed files
+    let files: string[] = [];
+    try {
+        files = await readdir(seedDir);
         if (!data.silent) {
             log({
-                message: `Attempting to read seed directory: ${seedDir}`,
+                message: `Directory contents: ${files.length ? files.join(", ") : "(empty directory)"}`,
                 type: "info",
             });
         }
-
-        // Get list of seed files
-        let files: string[] = [];
-        try {
-            files = await readdir(seedDir);
-            if (!data.silent) {
-                log({
-                    message: `Directory contents: ${files.length ? files.join(", ") : "(empty directory)"}`,
-                    type: "info",
-                });
-            }
-        } catch (error) {
-            if (!data.silent) {
-                log({
-                    message: `Error reading seed directory: ${error instanceof Error ? error.message : String(error)}`,
-                    type: "error",
-                });
-                log({
-                    message: `No seed directory found at ${seedDir}`,
-                    type: "info",
-                });
-            }
-            return;
+    } catch (error) {
+        if (!data.silent) {
+            log({
+                message: `Error reading seed directory: ${error instanceof Error ? error.message : String(error)}`,
+                type: "error",
+            });
+            log({
+                message: `No seed directory found at ${seedDir}`,
+                type: "info",
+            });
         }
+        return;
+    }
 
-        const sqlFiles = files.filter((f) => f.endsWith(".sql")).sort();
+    const sqlFiles = files.filter((f) => f.endsWith(".sql")).sort();
 
-        // Get already executed seeds - updated column names
-        const result =
-            await sql`SELECT general__name FROM config.seeds ORDER BY general__seed_id`;
-        const executedSeeds = result.map((r) => r.general__name);
+    // Get already executed seeds - updated column names
+    const result =
+        await sql`SELECT general__name FROM config.seeds ORDER BY general__seed_id`;
+    const executedSeeds = result.map((r) => r.general__name);
 
-        // Run pending seeds
-        for (const file of sqlFiles) {
-            if (!executedSeeds.includes(file)) {
-                try {
-                    const filePath = path.join(seedDir, file);
-                    const sqlContent = await readFile(filePath, "utf-8");
+    // Run pending seeds
+    for (const file of sqlFiles) {
+        if (!executedSeeds.includes(file)) {
+            try {
+                const filePath = path.join(seedDir, file);
+                const sqlContent = await readFile(filePath, "utf-8");
 
-                    // Run the seed in a transaction - updated column names
-                    await sql.begin(async (sql) => {
-                        await sql.unsafe(sqlContent);
-                        await sql`
-                            INSERT INTO config.seeds (general__name)
-                            VALUES (${file})
-                        `;
+                // Run the seed in a transaction - updated column names
+                await sql.begin(async (sql) => {
+                    await sql.unsafe(sqlContent);
+                    await sql`
+                        INSERT INTO config.seeds (general__name)
+                        VALUES (${file})
+                    `;
+                });
+
+                if (!data.silent) {
+                    log({
+                        message: `Seed ${file} executed successfully`,
+                        type: "success",
                     });
-
-                    if (!data.silent) {
-                        log({
-                            message: `Seed ${file} executed successfully`,
-                            type: "success",
-                        });
-                    }
-                } catch (error) {
-                    if (!data.silent) {
-                        log({
-                            message: `Failed to run seed ${file}`,
-                            type: "error",
-                            error: error,
-                        });
-                    }
-                    throw error;
                 }
+            } catch (error) {
+                if (!data.silent) {
+                    log({
+                        message: `Failed to run seed ${file}`,
+                        type: "error",
+                        error: error,
+                    });
+                }
+                throw error;
             }
         }
-    } finally {
-        await db.disconnect();
+    }
+
+    if (!data.silent) {
+        log({
+            message: `${env.CONTAINER_NAME} container seeds applied.`,
+            type: "success",
+        });
     }
 }
 
@@ -556,56 +564,52 @@ export async function generateDbSystemToken(): Promise<{
     await db.connect();
     const sql = db.getClient();
 
-    try {
-        // Get auth settings from config using the correct keys
-        const [jwtSecret] = await sql`
-            SELECT general__value FROM config.config 
-            WHERE general__key = 'auth__secret_jwt'
-        `;
-        const [jwtDuration] = await sql`
-            SELECT general__value FROM config.config 
-            WHERE general__key = 'auth__session_duration_admin_jwt'
-        `;
+    // Get auth settings from config using the correct keys
+    const [jwtSecret] = await sql`
+        SELECT general__value FROM config.config 
+        WHERE general__key = 'auth__secret_jwt'
+    `;
+    const [jwtDuration] = await sql`
+        SELECT general__value FROM config.config 
+        WHERE general__key = 'auth__session_duration_admin_jwt'
+    `;
 
-        if (!jwtSecret?.general__value || !jwtDuration?.general__value) {
-            throw new Error("Auth settings not found in database");
-        }
+    if (!jwtSecret?.general__value || !jwtDuration?.general__value) {
+        throw new Error("Auth settings not found in database");
+    }
 
-        // Get system agent ID
-        const [systemId] = await sql`SELECT auth.get_system_agent_id()`;
+    // Get system agent ID
+    const [systemId] = await sql`SELECT auth.get_system_agent_id()`;
 
-        // Create a new session for the system agent
-        const [sessionResult] = await sql`
-            SELECT * FROM auth.create_agent_session(${systemId.get_system_agent_id}, 'test')
-        `;
+    // Create a new session for the system agent
+    const [sessionResult] = await sql`
+        SELECT * FROM auth.create_agent_session(${systemId.get_system_agent_id}, 'test')
+    `;
 
-        // Generate JWT token using the config from database
-        const token = sign(
-            {
-                sessionId: sessionResult.general__session_id,
-                agentId: systemId.get_system_agent_id,
-            },
-            jwtSecret.general__value,
-            {
-                expiresIn: jwtDuration.general__value,
-            },
-        );
-
-        // Update the session with the JWT
-        await sql`
-            UPDATE auth.agent_sessions 
-            SET session__jwt = ${token}
-            WHERE general__session_id = ${sessionResult.general__session_id}
-        `;
-
-        return {
-            token,
+    // Generate JWT token using the config from database
+    const token = sign(
+        {
             sessionId: sessionResult.general__session_id,
             agentId: systemId.get_system_agent_id,
-        };
-    } finally {
-        await db.disconnect();
-    }
+        },
+        jwtSecret.general__value,
+        {
+            expiresIn: jwtDuration.general__value,
+        },
+    );
+
+    // Update the session with the JWT
+    await sql`
+        UPDATE auth.agent_sessions 
+        SET session__jwt = ${token}
+        WHERE general__session_id = ${sessionResult.general__session_id}
+    `;
+
+    return {
+        token,
+        sessionId: sessionResult.general__session_id,
+        agentId: systemId.get_system_agent_id,
+    };
 }
 
 export async function cleanupSystemTokens() {
@@ -613,12 +617,8 @@ export async function cleanupSystemTokens() {
     await db.connect();
     const sql = db.getClient();
 
-    try {
-        const [result] = await sql`SELECT cleanup_system_tokens()`;
-        return result;
-    } finally {
-        await db.disconnect();
-    }
+    const [result] = await sql`SELECT cleanup_system_tokens()`;
+    return result;
 }
 
 export async function generateDbConnectionString(): Promise<string> {
@@ -629,98 +629,104 @@ export async function generateDbConnectionString(): Promise<string> {
 // If this file is run directly
 if (import.meta.main) {
     const command = Bun.argv[2];
-    switch (command) {
-        case "container:up":
-            await up();
-            break;
-        case "container:down":
-            await down();
-            break;
-        case "container:rebuild":
-            await rebuildContainer();
-            break;
-        case "container:health": {
-            const health = await isHealthy();
-            log({
-                message: `PostgreSQL: ${health.postgres.isHealthy ? "healthy" : "unhealthy"}`,
-                data: health.postgres,
-                type: health.postgres.isHealthy ? "success" : "error",
-            });
-            log({
-                message: `Pgweb: ${health.pgweb.isHealthy ? "healthy" : "unhealthy"}`,
-                data: health.pgweb,
-                type: health.pgweb.isHealthy ? "success" : "error",
-            });
-            break;
-        }
-        case "container:db:soft-reset":
-            await softResetDatabase();
-            break;
-        case "container:db:migrate":
-            await migrate({});
-            break;
-        case "container:db:connection-string": {
-            const connectionString = await generateDbConnectionString();
-            log({
-                message: `PostgreSQL Connection String:\n\n${connectionString}\n`,
-                type: "success",
-            });
-            break;
-        }
-        case "container:restart":
-            await restart();
-            break;
-        case "container:db:system-token": {
-            const token = await generateDbSystemToken();
-            log({
-                message: `System token:\n${token.token}\n\nSession ID: ${token.sessionId}\nAgent ID: ${token.agentId}\n\nThis token has system privileges - use with caution!`,
-                type: "success",
-            });
-            break;
-        }
-        case "container:db:seed": {
-            const customPath = Bun.argv[3]; // Optional custom seed path
-            await seed({ seedPath: customPath });
-            break;
-        }
-        case "container:pgweb:access-command": {
-            const config = VircadiaConfig_Server;
-            const isRemoteHost = !["localhost", "127.0.0.1"].includes(
-                config.postgres.host,
-            );
+    try {
+        switch (command) {
+            case "container:up":
+                await up();
+                break;
+            case "container:down":
+                await down();
+                break;
+            case "container:rebuild":
+                await rebuildContainer();
+                break;
+            case "container:health": {
+                const health = await isHealthy();
+                log({
+                    message: `PostgreSQL: ${health.postgres.isHealthy ? "healthy" : "unhealthy"}`,
+                    data: health.postgres,
+                    type: health.postgres.isHealthy ? "success" : "error",
+                });
+                log({
+                    message: `Pgweb: ${health.pgweb.isHealthy ? "healthy" : "unhealthy"}`,
+                    data: health.pgweb,
+                    type: health.pgweb.isHealthy ? "success" : "error",
+                });
+                break;
+            }
+            case "container:db:soft-reset":
+                await softResetDatabase();
+                break;
+            case "container:db:migrate":
+                await migrate({});
+                break;
+            case "container:db:connection-string": {
+                const connectionString = await generateDbConnectionString();
+                log({
+                    message: `PostgreSQL Connection String:\n\n${connectionString}\n`,
+                    type: "success",
+                });
+                break;
+            }
+            case "container:restart":
+                await restart();
+                break;
+            case "container:db:system-token": {
+                const token = await generateDbSystemToken();
+                log({
+                    message: `System token:\n${token.token}\n\nSession ID: ${token.sessionId}\nAgent ID: ${token.agentId}\n\nThis token has system privileges - use with caution!`,
+                    type: "success",
+                });
+                break;
+            }
+            case "container:db:seed": {
+                const customPath = Bun.argv[3]; // Optional custom seed path
+                await seed({ seedPath: customPath });
+                break;
+            }
+            case "container:pgweb:access-command": {
+                const config = VircadiaConfig_Server;
+                const isRemoteHost = !["localhost", "127.0.0.1"].includes(
+                    config.postgres.host,
+                );
 
-            const accessMessage = isRemoteHost
-                ? `1. First create SSH tunnel:\nssh -L ${config.pgweb.port}:localhost:${config.pgweb.port} username@${config.postgres.host}\n\n2. Then access pgweb at:`
-                : "Access pgweb at:";
+                const accessMessage = isRemoteHost
+                    ? `1. First create SSH tunnel:\nssh -L ${config.pgweb.port}:localhost:${config.pgweb.port} username@${config.postgres.host}\n\n2. Then access pgweb at:`
+                    : "Access pgweb at:";
 
-            log({
-                message: `${accessMessage}\nhttp://localhost:${config.pgweb.port}\n`,
-                type: "info",
-            });
-            break;
+                log({
+                    message: `${accessMessage}\nhttp://localhost:${config.pgweb.port}\n`,
+                    type: "info",
+                });
+                break;
+            }
+            default:
+                console.error(
+                    `Valid commands: 
+
+                    // Container commands
+                    container:up, 
+                    container:down, 
+                    container:rebuild, 
+                    container:health,
+                    container:restart, 
+
+                    // Container -> Database commands
+                    container:db:soft-reset, 
+                    container:db:migrate, 
+                    container:db:connection-string, 
+                    container:db:system-token,
+                    container:db:seed [optional_seed_path],
+
+                    // Container -> Pgweb commands
+                    container:pgweb:access-command,
+                    `,
+                );
+                process.exit(1);
         }
-        default:
-            console.error(
-                `Valid commands: 
-
-                // Container commands
-                container:up, 
-                container:down, 
-                container:rebuild, 
-                container:health,
-                container:restart, 
-
-                // Container -> Database commands
-                container:db:soft-reset, 
-                container:db:migrate, 
-                container:db:connection-string, 
-                container:db:system-token,
-                container:db:seed [optional_seed_path],
-
-                // Container -> Pgweb commands
-                container:pgweb:access-command,
-                `,
-            );
-            process.exit(1);
+    } finally {
+        // Clean up database connection if it was used
+        const db = PostgresClient.getInstance();
+        await db.disconnect();
     }
 }

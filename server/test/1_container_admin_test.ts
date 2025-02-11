@@ -1,15 +1,23 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import {
     generateDbSystemToken,
-    createSqlClient,
     generateDbConnectionString,
     migrate,
     softResetDatabase,
     seed,
 } from "../container/docker/docker_cli";
 import { VircadiaConfig_Server } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
+import { PostgresClient } from "../database/postgres/postgres_client";
 
 describe("System Admin Tests", () => {
+    beforeAll(async () => {
+        await PostgresClient.getInstance().connect(true);
+    });
+
+    afterAll(async () => {
+        await PostgresClient.getInstance().disconnect();
+    });
+
     test("System token generation and cleanup works", async () => {
         // Generate system token
         const token = await generateDbSystemToken();
@@ -19,10 +27,9 @@ describe("System Admin Tests", () => {
         expect(token.agentId).toBeDefined();
 
         // Clean up expired system tokens
-        const sql = createSqlClient(true);
+        const sql = PostgresClient.getInstance().getClient();
         const [result] = await sql`SELECT auth.cleanup_system_tokens()`;
         expect(result.cleanup_system_tokens).toBeDefined();
-        await sql.end();
     });
 
     test("Database connection string generation works", async () => {
@@ -43,10 +50,9 @@ describe("System Admin Tests", () => {
     test("Soft reset database works", async () => {
         await softResetDatabase(true);
         // Verify database is accessible after reset
-        const sql = createSqlClient(true);
+        const sql = PostgresClient.getInstance().getClient();
         const [result] = await sql`SELECT current_database()`;
         expect(result.current_database).toBeDefined();
-        await sql.end();
     });
 
     test("Database seeding works", async () => {
@@ -54,18 +60,17 @@ describe("System Admin Tests", () => {
         await seed({ silent: true });
 
         // Verify some expected seed data exists
-        const sql = createSqlClient(true);
+        const sql = PostgresClient.getInstance().getClient();
         // Check if config table has essential auth settings
         const [authSecret] = await sql`
             SELECT general__value FROM config.config 
             WHERE general__key = 'auth__secret_jwt'
         `;
         expect(authSecret.general__value).toBeDefined();
-        await sql.end();
     });
 
     test("System agent exists and has correct permissions", async () => {
-        const sql = createSqlClient(true);
+        const sql = PostgresClient.getInstance().getClient();
 
         // Get system agent ID
         const [systemId] = await sql`SELECT auth.get_system_agent_id()`;
@@ -82,12 +87,10 @@ describe("System Admin Tests", () => {
 
         expect(agentCheck.auth__is_admin).toBe(true);
         expect(agentCheck.is_system).toBe(true);
-
-        await sql.end();
     });
 
     test("Database extensions are properly installed", async () => {
-        const sql = createSqlClient(true);
+        const sql = PostgresClient.getInstance().getClient();
 
         // Get list of installed extensions
         const extensions = await sql`
@@ -99,12 +102,10 @@ describe("System Admin Tests", () => {
         for (const ext of requiredExtensions) {
             expect(extensions.some((e) => e.extname === ext)).toBe(true);
         }
-
-        await sql.end();
     });
 
     test("Database schemas are properly created", async () => {
-        const sql = createSqlClient(true);
+        const sql = PostgresClient.getInstance().getClient();
 
         // Get list of schemas
         const schemas = await sql`
@@ -118,12 +119,10 @@ describe("System Admin Tests", () => {
         for (const schema of requiredSchemas) {
             expect(schemas.some((s) => s.schema_name === schema)).toBe(true);
         }
-
-        await sql.end();
     });
 
     test("Database tables are properly created", async () => {
-        const sql = createSqlClient(true);
+        const sql = PostgresClient.getInstance().getClient();
 
         // Check for essential tables in each schema
         const tableChecks = [
@@ -145,12 +144,10 @@ describe("System Admin Tests", () => {
             `;
             expect(exists.exists).toBe(true);
         }
-
-        await sql.end();
     });
 
     test("Database roles and permissions are properly set", async () => {
-        const sql = createSqlClient(true);
+        const sql = PostgresClient.getInstance().getClient();
 
         // Check for essential roles
         const [roles] = await sql`
@@ -169,12 +166,10 @@ describe("System Admin Tests", () => {
             ) as has_permission
         `;
         expect(permissions.has_permission).toBe(true);
-
-        await sql.end();
     });
 
     test("Database cleanup functions are working", async () => {
-        const sql = createSqlClient(true);
+        const sql = PostgresClient.getInstance().getClient();
 
         // Clean up old sessions
         const [sessionCleanup] = await sql`SELECT auth.cleanup_old_sessions()`;
@@ -183,7 +178,5 @@ describe("System Admin Tests", () => {
         // Clean up system tokens
         const [systemCleanup] = await sql`SELECT auth.cleanup_system_tokens()`;
         expect(systemCleanup.cleanup_system_tokens).toBeDefined();
-
-        await sql.end();
     });
 });

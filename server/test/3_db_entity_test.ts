@@ -8,7 +8,7 @@ import {
 } from "bun:test";
 import type postgres from "postgres";
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
-import { createSqlClient } from "../container/docker/docker_cli";
+import { PostgresClient } from "../database/postgres/postgres_client";
 import {
     Config,
     Entity,
@@ -34,7 +34,9 @@ describe("Entity Database Tests", () => {
 
     // Setup before all tests
     beforeAll(async () => {
-        sql = createSqlClient(true);
+        // Initialize database connection using PostgresClient
+        await PostgresClient.getInstance().connect(true);
+        sql = PostgresClient.getInstance().getClient();
     });
 
     async function createTestAccounts(): Promise<{
@@ -293,6 +295,7 @@ describe("Entity Database Tests", () => {
     afterAll(async () => {
         // Clean up test accounts
         await sql`DELETE FROM auth.agent_profiles WHERE profile__username IN ('test_admin', 'test_agent')`;
-        await sql.end();
+        // Disconnect using PostgresClient
+        await PostgresClient.getInstance().disconnect();
     });
 });

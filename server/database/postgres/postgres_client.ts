@@ -15,7 +15,7 @@ export class PostgresClient {
         return PostgresClient.instance;
     }
 
-    public async connect(): Promise<void> {
+    public async connect(silent?: boolean): Promise<void> {
         if (this.sql) {
             return; // Already connected
         }
@@ -33,8 +33,8 @@ export class PostgresClient {
                 database: VircadiaConfig.server.postgres.database,
                 username: VircadiaConfig.server.postgres.user,
                 password: VircadiaConfig.server.postgres.password,
-                onnotice: VircadiaConfig.server.debug ? () => {} : undefined,
-                onclose: VircadiaConfig.server.debug ? () => {} : undefined,
+                onnotice: silent ? () => {} : undefined,
+                onclose: silent ? () => {} : undefined,
             });
 
             // Test connection immediately

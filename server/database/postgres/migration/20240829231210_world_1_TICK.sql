@@ -144,8 +144,8 @@ BEGIN
     RETURN QUERY
     WITH latest_tick AS (
         SELECT general__tick_id
-        FROM tick.world_ticks
-        WHERE group__sync = p_sync_group
+        FROM tick.world_ticks wt
+        WHERE wt.group__sync = p_sync_group
         ORDER BY tick__number DESC
         LIMIT 1
     )
@@ -170,7 +170,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Function to get ONLY CHANGED entity states between latest two ticks
+-- Function to get ONLY CHANGED entity states between latest ticks
 CREATE OR REPLACE FUNCTION tick.get_changed_entity_states_between_latest_ticks(
     p_sync_group text
 ) RETURNS TABLE (
@@ -184,18 +184,18 @@ DECLARE
     v_previous_tick_id uuid;
 BEGIN
     -- Get the latest two tick IDs
-    WITH ordered_ticks AS (
-        SELECT general__tick_id
-        FROM tick.world_ticks
-        WHERE group__sync = p_sync_group
-        ORDER BY tick__number DESC
-        LIMIT 2
-    )
     SELECT general__tick_id INTO v_current_tick_id
-    FROM ordered_ticks LIMIT 1;
+    FROM tick.world_ticks
+    WHERE group__sync = p_sync_group
+    ORDER BY tick__number DESC
+    LIMIT 1;
 
     SELECT general__tick_id INTO v_previous_tick_id
-    FROM ordered_ticks OFFSET 1 LIMIT 1;
+    FROM tick.world_ticks
+    WHERE group__sync = p_sync_group
+    AND general__tick_id != v_current_tick_id
+    ORDER BY tick__number DESC
+    LIMIT 1;
 
     -- Return changes between these ticks
     RETURN QUERY

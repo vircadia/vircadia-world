@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import { readdir, readFile } from "node:fs/promises";
 import { sign } from "jsonwebtoken";
-import postgres from "postgres";
+import { PostgresClient } from "../../database/postgres/postgres_client";
 
 const DOCKER_COMPOSE_PATH = path.join(
     dirname(fileURLToPath(import.meta.url)),
@@ -35,19 +35,6 @@ export function getDockerEnv() {
         POSTGRES_EXTENSIONS: config.postgres.extensions.join(","),
         PGWEB_PORT: config.pgweb.port.toString(),
     };
-}
-
-export function createSqlClient(silent: boolean) {
-    const config = VircadiaConfig_Server.postgres;
-    return postgres({
-        host: config.host,
-        port: config.port,
-        database: config.database,
-        username: config.user,
-        password: config.password,
-        debug: !silent,
-        onnotice: silent ? () => {} : undefined, // Ignore notice callbacks when silent
-    });
 }
 
 async function runDockerCommand(args: string[], silent = false) {
@@ -123,17 +110,10 @@ export async function isHealthy(): Promise<{
         error?: Error;
     }> => {
         try {
-            const sql = createSqlClient(false);
-
-            // Try a simple query to verify the connection
-            const result = await sql`SELECT 1`;
-
-            if (result.length === 0) {
-                throw new Error("Failed to connect to database");
-            }
-
-            await sql.end();
-
+            const db = PostgresClient.getInstance();
+            await db.connect();
+            const sql = db.getClient();
+            await sql`SELECT 1`;
             return { isHealthy: true };
         } catch (error: unknown) {
             return { isHealthy: false, error: error as Error };
@@ -213,7 +193,9 @@ export async function up(silent = false) {
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
     // Create and activate extensions
-    const sql = createSqlClient(silent);
+    const db = PostgresClient.getInstance();
+    await db.connect();
+    const sql = db.getClient();
 
     try {
         // Add migration execution here
@@ -224,7 +206,6 @@ export async function up(silent = false) {
             });
         }
         await migrate({
-            existingClient: sql,
             silent,
         });
     } catch (error) {
@@ -237,7 +218,7 @@ export async function up(silent = false) {
         }
         throw error;
     } finally {
-        await sql.end();
+        await db.disconnect();
     }
 
     if (!silent) {
@@ -311,7 +292,9 @@ export async function softResetDatabase(silent = false) {
         });
     }
 
-    const sql = createSqlClient(silent);
+    const db = PostgresClient.getInstance();
+    await db.connect();
+    const sql = db.getClient();
 
     try {
         await sql.unsafe(`
@@ -344,27 +327,27 @@ export async function softResetDatabase(silent = false) {
             });
         }
         await migrate({
-            existingClient: sql,
             silent,
             runSeeds: true, // Always run seeds after a reset
         });
     } finally {
-        await sql.end();
+        await db.disconnect();
     }
 }
 
 export async function migrate(data: {
-    existingClient?: postgres.Sql;
     silent?: boolean;
-    runSeeds?: boolean; // New optional parameter
+    runSeeds?: boolean;
 }) {
     const env = getDockerEnv();
-    const config = VircadiaConfig_Server;
-    const sql = data.existingClient || createSqlClient(data.silent ?? false);
-    let migrationsRan = false; // Track if any migrations were executed
+    let migrationsRan = false;
+
+    const db = PostgresClient.getInstance();
+    await db.connect();
+    const sql = db.getClient();
 
     try {
-        for (const name of config.postgres.extensions) {
+        for (const name of VircadiaConfig_Server.postgres.extensions) {
             if (!data.silent) {
                 log({
                     message: `Installing PostgreSQL extension: ${name}...`,
@@ -452,24 +435,21 @@ export async function migrate(data: {
                 });
             }
             await seed({
-                existingClient: sql,
                 silent: data.silent,
             });
         }
     } finally {
-        if (!data.existingClient) {
-            await sql.end();
-        }
+        await db.disconnect();
     }
 }
 
 export async function seed(data: {
     seedPath?: string;
-    existingClient?: postgres.Sql;
     silent?: boolean;
 }) {
-    const env = getDockerEnv();
-    const sql = data.existingClient || createSqlClient(data.silent ?? false);
+    const db = PostgresClient.getInstance();
+    await db.connect();
+    const sql = db.getClient();
 
     try {
         // Ensure we resolve the seed path to absolute path
@@ -550,9 +530,7 @@ export async function seed(data: {
             }
         }
     } finally {
-        if (!data.existingClient) {
-            await sql.end();
-        }
+        await db.disconnect();
     }
 }
 
@@ -574,7 +552,9 @@ export async function generateDbSystemToken(): Promise<{
     sessionId: string;
     agentId: string;
 }> {
-    const sql = createSqlClient(false);
+    const db = PostgresClient.getInstance();
+    await db.connect();
+    const sql = db.getClient();
 
     try {
         // Get auth settings from config using the correct keys
@@ -624,15 +604,21 @@ export async function generateDbSystemToken(): Promise<{
             agentId: systemId.get_system_agent_id,
         };
     } finally {
-        await sql.end();
+        await db.disconnect();
     }
 }
 
 export async function cleanupSystemTokens() {
-    const sql = createSqlClient(false);
-    const [result] = await sql`SELECT cleanup_system_tokens()`;
-    await sql.end();
-    return result;
+    const db = PostgresClient.getInstance();
+    await db.connect();
+    const sql = db.getClient();
+
+    try {
+        const [result] = await sql`SELECT cleanup_system_tokens()`;
+        return result;
+    } finally {
+        await db.disconnect();
+    }
 }
 
 export async function generateDbConnectionString(): Promise<string> {

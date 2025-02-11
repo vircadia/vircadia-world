@@ -1,96 +1,65 @@
 import postgres from "postgres";
 import { log } from "../../../sdk/vircadia-world-sdk-ts/module/general/log.ts";
+import { VircadiaConfig } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.config.ts";
 
 export class PostgresClient {
     private static instance: PostgresClient | null = null;
-    private static debugMode = false;
     private sql: postgres.Sql | null = null;
-    private config!: {
-        host: string;
-        port: number;
-        database: string;
-        user: string;
-        password: string;
-        extensions: string[];
-    };
 
-    private constructor() {}
+    private constructor() {} // Empty constructor since we don't need to store config
 
-    public static getInstance(debug = false): PostgresClient {
+    public static getInstance(): PostgresClient {
         if (!PostgresClient.instance) {
             PostgresClient.instance = new PostgresClient();
         }
-        PostgresClient.debugMode = debug;
         return PostgresClient.instance;
     }
 
-    public async initialize(config: {
-        host: string;
-        port: number;
-        database: string;
-        user: string;
-        password: string;
-        extensions: string[];
-    }): Promise<void> {
-        this.config = config;
+    public async connect(): Promise<void> {
+        if (this.sql) {
+            return; // Already connected
+        }
 
         log({
             message: "Initializing PostgreSQL connection...",
             type: "info",
-            debug: PostgresClient.debugMode,
+            debug: VircadiaConfig.server.debug,
         });
 
         try {
-            await this.initializeClient();
-            await this.waitForHealthyConnection();
+            this.sql = postgres({
+                host: VircadiaConfig.server.postgres.host,
+                port: VircadiaConfig.server.postgres.port,
+                database: VircadiaConfig.server.postgres.database,
+                username: VircadiaConfig.server.postgres.user,
+                password: VircadiaConfig.server.postgres.password,
+                onnotice: VircadiaConfig.server.debug ? () => {} : undefined,
+                onclose: VircadiaConfig.server.debug ? () => {} : undefined,
+            });
+
+            // Test connection immediately
+            await this.sql`SELECT 1`;
+
+            log({
+                message: "PostgreSQL connection established successfully",
+                type: "success",
+                debug: VircadiaConfig.server.debug,
+            });
         } catch (error) {
             log({
-                message: `PostgreSQL initialization failed: ${error.message}`,
+                message: `PostgreSQL connection failed: ${error.message}`,
                 type: "error",
-                debug: PostgresClient.debugMode,
+                error: error,
+                debug: VircadiaConfig.server.debug,
             });
             throw error;
         }
     }
 
-    private async initializeClient(): Promise<void> {
-        this.sql = postgres({
-            host: this.config.host,
-            port: this.config.port,
-            database: this.config.database,
-            username: this.config.user,
-            password: this.config.password,
-            onnotice: () => {}, // Suppress notice messages
-        });
-    }
-
-    private async waitForHealthyConnection(): Promise<void> {
-        let attempts = 0;
-        const maxAttempts = 30; // 30 seconds timeout
-
-        while (attempts < maxAttempts) {
-            try {
-                if (!this.sql) throw new Error("SQL client is not initialized");
-                await this.sql`SELECT 1`;
-                log({
-                    message: "PostgreSQL connection is healthy",
-                    type: "success",
-                    debug: PostgresClient.debugMode,
-                });
-                return;
-            } catch (error) {
-                attempts++;
-                await new Promise((resolve) => setTimeout(resolve, 1000));
-            }
-        }
-
-        throw new Error("PostgreSQL connection failed to become healthy");
-    }
-
     public getClient(): postgres.Sql {
         if (!this.sql) {
             throw new Error(
-                "PostgreSQL client not initialized. Call initialize() first.",
+                "PostgreSQL client not initialized. Call connect() first.",
             );
         }
         return this.sql;
@@ -100,12 +69,12 @@ export class PostgresClient {
         if (this.sql) {
             await this.sql.end();
             this.sql = null;
-        }
 
-        log({
-            message: "PostgreSQL connection closed",
-            type: "info",
-            debug: PostgresClient.debugMode,
-        });
+            log({
+                message: "PostgreSQL connection closed",
+                type: "info",
+                debug: VircadiaConfig.server.debug,
+            });
+        }
     }
 }

@@ -20,8 +20,8 @@ async function init() {
     try {
         // ===== Database Initialization =====
         log({ message: "Initializing database client", type: "info" });
-        const postgresClient = PostgresClient.getInstance(debugMode);
-        await postgresClient.initialize(config.postgres);
+        const postgresClient = PostgresClient.getInstance();
+        await postgresClient.connect();
 
         // ===== World Services =====
         log({ message: "Starting world services", type: "info" });

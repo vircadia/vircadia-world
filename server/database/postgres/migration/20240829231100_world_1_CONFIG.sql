@@ -14,45 +14,46 @@ CREATE TABLE config.seeds (
     general__executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Insert default configuration
+-- Insert grouped configuration settings
 INSERT INTO config.config (general__key, general__value, general__description) VALUES
-('tick__buffer_duration_ms', '2000'::jsonb, 'How long to keep tick history in milliseconds');
+-- Entity settings
+('entity', jsonb_build_object(
+    'script_compilation_timeout_ms', 60000
+), 'Entity-related configuration settings'),
 
--- Insert entity settings
-INSERT INTO config.config (general__key, general__value, general__description) VALUES
-('entity__script_compilation_timeout_ms', '60000'::jsonb, 'How long to wait for script compilation to complete in milliseconds');
+-- Network settings
+('network', jsonb_build_object(
+    'max_latency_ms', 500,
+    'warning_latency_ms', 200,
+    'consecutive_warnings_before_kick', 50,
+    'measurement_window_ticks', 100,
+    'packet_loss_threshold_percent', 5
+), 'Network-related configuration settings'),
 
--- Add network quality requirements
-INSERT INTO config.config (general__key, general__value, general__description) VALUES
-('network__max_latency_ms', '500'::jsonb, 'Maximum allowed latency before disconnect'),
-('network__warning_latency_ms', '200'::jsonb, 'When to start warning the client'),
-('network__consecutive_warnings_before_kick', '50'::jsonb, 'How many high-latency ticks before disconnect'),
-('network__measurement_window_ticks', '100'::jsonb, 'Window for calculating average latency'),
-('network__packet_loss_threshold_percent', '5'::jsonb, 'Maximum acceptable packet loss percentage');
-
--- Add client configuration settings
-INSERT INTO config.config (general__key, general__value, general__description) VALUES
--- Session management
-('session__max_age_ms', '86400000'::jsonb, 'Maximum session age (24 hours in milliseconds)'),
-('session__cleanup_interval_ms', '3600000'::jsonb, 'Session cleanup interval (1 hour in milliseconds)'),
-('session__inactive_timeout_ms', '3600000'::jsonb, 'Session inactivity timeout (1 hour in milliseconds)'),
-('session__max_sessions_per_agent', '1'::jsonb, 'Maximum number of active sessions per agent'),
-
--- Authentication
-('auth__session_duration_jwt', '"24h"'::jsonb, 'JWT session duration string'),
-('auth__session_duration_ms', '86400000'::jsonb, 'JWT session duration in milliseconds'),
-('auth__secret_jwt', '"CHANGE_ME!"'::jsonb, 'JWT secret key'),
-('auth__session_duration_admin_jwt', '"24h"'::jsonb, 'Admin JWT session duration string'),
-('auth__session_duration_admin_ms', '86400000'::jsonb, 'Admin JWT session duration in milliseconds'),
-('auth__ws_check_interval', '10000'::jsonb, 'WebSocket check interval in milliseconds'),
+-- Authentication settings (merged with session settings)
+('auth', jsonb_build_object(
+    'session_duration_jwt', '24h',
+    'session_duration_ms', 86400000,
+    'secret_jwt', 'CHANGE_ME!',
+    'session_duration_admin_jwt', '24h',
+    'session_duration_admin_ms', 86400000,
+    'ws_check_interval', 10000,
+    'max_age_ms', 86400000,
+    'cleanup_interval_ms', 3600000,
+    'inactive_timeout_ms', 3600000,
+    'max_sessions_per_agent', 1
+), 'Authentication and session management configuration settings'),
 
 -- Heartbeat settings
-('heartbeat__interval_ms', '3000'::jsonb, 'How often to send heartbeat'),
-('heartbeat__timeout_ms', '12000'::jsonb, 'How long to wait for heartbeat response');
+('heartbeat', jsonb_build_object(
+    'interval_ms', 3000,
+    'timeout_ms', 12000
+), 'Heartbeat configuration settings'),
 
--- Add database version configuration
-INSERT INTO config.config (general__key, general__value, general__description) VALUES
-('database__major_version', '1'::jsonb, 'Database major version number'),
-('database__minor_version', '0'::jsonb, 'Database minor version number'),
-('database__patch_version', '0'::jsonb, 'Database patch version number'),
-('database__migration_timestamp', '"20240829231100"'::jsonb, 'Database migration timestamp');
+-- Database settings
+('database', jsonb_build_object(
+    'major_version', 1,
+    'minor_version', 0,
+    'patch_version', 0,
+    'migration_timestamp', '20240829231100'
+), 'Database version configuration settings');

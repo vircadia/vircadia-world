@@ -126,23 +126,12 @@ export class WorldWebScriptManager {
             if (!this.sql) throw new Error("Database not connected");
 
             const scriptsToCompile = await this.sql`
-                WITH needs_compilation AS (
-                    SELECT 
-                        general__script_id,
-                        general__updated_at,
-                        GREATEST(
-                            compiled__node__updated_at,
-                            compiled__bun__updated_at,
-                            compiled__browser__updated_at
-                        ) as last_compilation
-                    FROM entity.entity_scripts 
-                    WHERE 
-                        compiled__node__status = ${Entity.Script.E_CompilationStatus.PENDING} OR
-                        compiled__bun__status = ${Entity.Script.E_CompilationStatus.PENDING} OR
-                        compiled__browser__status = ${Entity.Script.E_CompilationStatus.PENDING}
-                )
                 SELECT general__script_id 
-                FROM needs_compilation
+                FROM entity.entity_scripts 
+                WHERE 
+                    compiled__node__status = ${Entity.Script.E_CompilationStatus.PENDING} OR
+                    compiled__bun__status = ${Entity.Script.E_CompilationStatus.PENDING} OR
+                    compiled__browser__status = ${Entity.Script.E_CompilationStatus.PENDING}
                 LIMIT 5
             `;
 
@@ -424,15 +413,31 @@ export class WorldWebScriptManager {
 
         this.sql = null;
     }
-
-    public stopHeartbeat() {
-        this.cleanup();
-    }
 }
 
 if (import.meta.main) {
+    const manager = WorldWebScriptManager.getInstance();
+
+    process.on("SIGINT", async () => {
+        log({
+            message: "\nReceived SIGINT. Cleaning up...",
+            debug: VircadiaConfig_Server.debug,
+            type: "debug",
+        });
+        await manager.cleanup();
+        process.exit(0);
+    });
+    process.on("SIGTERM", async () => {
+        log({
+            message: "\nReceived SIGTERM. Cleaning up...",
+            debug: VircadiaConfig_Server.debug,
+            type: "debug",
+        });
+        await manager.cleanup();
+        process.exit(0);
+    });
+
     try {
-        const manager = WorldWebScriptManager.getInstance();
         await manager.initialize();
     } catch (error) {
         log({

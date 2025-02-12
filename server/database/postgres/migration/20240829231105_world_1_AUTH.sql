@@ -195,7 +195,7 @@ CREATE OR REPLACE FUNCTION auth.create_agent_session(
 DECLARE
     v_session_id UUID;
     v_expires_at TIMESTAMPTZ;
-    v_duration BIGINT;
+    v_duration TEXT;
     v_max_sessions INTEGER;
     v_current_sessions INTEGER;
 BEGIN
@@ -205,10 +205,10 @@ BEGIN
     END IF;
 
     -- Get max sessions per agent from config
-    SELECT general__value::INTEGER 
+    SELECT (general__value -> 'max_sessions_per_agent')::INTEGER 
     INTO v_max_sessions 
     FROM config.config 
-    WHERE general__key = 'session__max_sessions_per_agent';
+    WHERE general__key = 'auth';
 
     -- Count current active sessions for this agent
     SELECT COUNT(*) 
@@ -234,13 +234,17 @@ BEGIN
         );
     END IF;
 
-    -- Get duration from config
-    SELECT general__value::BIGINT 
+    -- Get duration from config - fixed to use session_duration_admin_jwt for system tokens
+    SELECT general__value ->> 'session_duration_admin_jwt'
     INTO v_duration 
     FROM config.config 
-    WHERE general__key = 'auth__session_duration_ms';
+    WHERE general__key = 'auth';
     
-    v_expires_at := NOW() + (v_duration || ' milliseconds')::INTERVAL;
+    IF v_duration IS NULL THEN
+        RAISE EXCEPTION 'Session duration not found in config';
+    END IF;
+
+    v_expires_at := NOW() + v_duration::INTERVAL;
 
     INSERT INTO auth.agent_sessions AS s (
         auth__agent_id,
@@ -339,10 +343,10 @@ DECLARE
     v_max_age_ms INTEGER;
     v_count INTEGER;
 BEGIN
-    SELECT general__value::INTEGER 
+    SELECT (general__value ->> 'max_age_ms')::INTEGER 
     INTO v_max_age_ms 
     FROM config.config 
-    WHERE general__key = 'session__max_age_ms';
+    WHERE general__key = 'auth';
 
     WITH updated_sessions AS (
         UPDATE auth.agent_sessions 

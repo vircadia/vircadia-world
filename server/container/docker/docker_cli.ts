@@ -6,6 +6,7 @@ import { dirname } from "node:path";
 import { readdir, readFile } from "node:fs/promises";
 import { sign } from "jsonwebtoken";
 import { PostgresClient } from "../../database/postgres/postgres_client";
+import type { Config } from "../../../sdk/vircadia-world-sdk-ts/schema/schema.general.ts";
 
 const DOCKER_COMPOSE_PATH = path.join(
     dirname(fileURLToPath(import.meta.url)),
@@ -564,18 +565,22 @@ export async function generateDbSystemToken(): Promise<{
     await db.connect();
     const sql = db.getClient();
 
-    // Get auth settings from config using the correct keys
-    const [jwtSecret] = await sql`
-        SELECT general__value FROM config.config 
-        WHERE general__key = 'auth__secret_jwt'
-    `;
-    const [jwtDuration] = await sql`
-        SELECT general__value FROM config.config 
-        WHERE general__key = 'auth__session_duration_admin_jwt'
+    // Get auth settings from config using the new JSONB structure
+    const [authConfig] = await sql`
+        SELECT general__value 
+        FROM config.config 
+        WHERE general__key = 'auth'
     `;
 
-    if (!jwtSecret?.general__value || !jwtDuration?.general__value) {
+    if (!authConfig?.general__value) {
         throw new Error("Auth settings not found in database");
+    }
+
+    const jwtSecret = authConfig.general__value.secret_jwt;
+    const jwtDuration = authConfig.general__value.session_duration_admin_jwt;
+
+    if (!jwtSecret || !jwtDuration) {
+        throw new Error("Required auth settings missing from database");
     }
 
     // Get system agent ID
@@ -592,9 +597,9 @@ export async function generateDbSystemToken(): Promise<{
             sessionId: sessionResult.general__session_id,
             agentId: systemId.get_system_agent_id,
         },
-        jwtSecret.general__value,
+        jwtSecret,
         {
-            expiresIn: jwtDuration.general__value,
+            expiresIn: jwtDuration,
         },
     );
 

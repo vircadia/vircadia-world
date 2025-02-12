@@ -18,6 +18,10 @@ CREATE TABLE config.seeds (
 INSERT INTO config.config (general__key, general__value, general__description) VALUES
 ('tick__buffer_duration_ms', '2000'::jsonb, 'How long to keep tick history in milliseconds');
 
+-- Insert entity settings
+INSERT INTO config.config (general__key, general__value, general__description) VALUES
+('entity__script_compilation_timeout_ms', '60000'::jsonb, 'How long to wait for script compilation to complete in milliseconds');
+
 -- Add network quality requirements
 INSERT INTO config.config (general__key, general__value, general__description) VALUES
 ('network__max_latency_ms', '500'::jsonb, 'Maximum allowed latency before disconnect'),

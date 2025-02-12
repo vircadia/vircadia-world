@@ -298,3 +298,35 @@ CREATE TRIGGER enforce_script_metadata_structure
     BEFORE INSERT OR UPDATE OF meta__data ON entity.entities
     FOR EACH ROW
     EXECUTE FUNCTION entity.validate_entity_metadata();
+
+-- Create function to cleanup stalled compilations
+CREATE OR REPLACE FUNCTION entity.cleanup_stalled_compilations()
+RETURNS trigger AS $$
+DECLARE
+    timeout_ms INTEGER;
+BEGIN
+    -- Get the timeout value from config
+    SELECT (general__value)::integer INTO timeout_ms
+    FROM config.config
+    WHERE general__key = 'entity__script_compilation_timeout_ms';
+
+    -- Check if this compilation has stalled
+    IF NEW.compiled__node__status = 'COMPILING' 
+    AND NEW.compiled__node__updated_at < (NOW() - (timeout_ms || ' milliseconds')::interval) THEN
+        NEW.compiled__node__status := 'FAILED';
+        NEW.compiled__bun__status := 'FAILED';
+        NEW.compiled__browser__status := 'FAILED';
+        NEW.compiled__node__updated_at := NULL;
+        NEW.compiled__bun__updated_at := NULL;
+        NEW.compiled__browser__updated_at := NULL;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Change to BEFORE trigger and FOR EACH ROW
+CREATE TRIGGER cleanup_stalled_compilations_trigger
+    BEFORE UPDATE OF compiled__node__status, compiled__node__updated_at ON entity.entity_scripts
+    FOR EACH ROW
+    EXECUTE FUNCTION entity.cleanup_stalled_compilations();

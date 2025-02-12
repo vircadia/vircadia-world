@@ -110,7 +110,7 @@ describe("Service -> Web Script Manager Tests", () => {
                     continue;
                 }
 
-                // If all platforms are either COMPILED or FAILED, break
+                // If all platforms are either COMPILED, break
                 break;
             }
 

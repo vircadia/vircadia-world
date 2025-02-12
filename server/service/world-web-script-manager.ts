@@ -1,10 +1,7 @@
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 import type postgres from "postgres";
-import { build } from "bun";
-import {
-    Entity,
-    type Tick,
-} from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+import { build, type Subprocess } from "bun";
+import { Entity } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import { PostgresClient } from "../database/postgres/postgres_client";
 import { VircadiaConfig_Server } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
 
@@ -14,8 +11,8 @@ export class WorldWebScriptManager {
     private sql: postgres.Sql | null = null;
     private readonly debugMode: boolean;
     private readonly heartbeatMs: number;
-    private isHeartbeatRunning: boolean = false;
-    private heartbeatController: AbortController | null = null;
+    private isHeartbeatRunning = false;
+    private activeProcesses: Set<Subprocess> = new Set();
 
     private constructor() {
         this.debugMode = VircadiaConfig_Server.debug;
@@ -117,6 +114,51 @@ export class WorldWebScriptManager {
         `;
     }
 
+    private async startHeartbeat() {
+        if (this.isHeartbeatRunning) return;
+        this.isHeartbeatRunning = true;
+
+        while (this.isHeartbeatRunning) {
+            if (!this.sql) throw new Error("Database not connected");
+
+            const scriptsToCompile = await this.sql`
+                WITH needs_compilation AS (
+                    SELECT 
+                        general__script_id,
+                        general__updated_at,
+                        GREATEST(
+                            compiled__node__updated_at,
+                            compiled__bun__updated_at,
+                            compiled__browser__updated_at
+                        ) as last_compilation
+                    FROM entity.entity_scripts 
+                    WHERE 
+                        compiled__node__status = ${Entity.Script.E_CompilationStatus.PENDING} OR
+                        compiled__bun__status = ${Entity.Script.E_CompilationStatus.PENDING} OR
+                        compiled__browser__status = ${Entity.Script.E_CompilationStatus.PENDING}
+                )
+                SELECT general__script_id 
+                FROM needs_compilation
+                LIMIT 5
+            `;
+
+            for (const script of scriptsToCompile) {
+                if (!this.isHeartbeatRunning) break;
+                await this.compileScript(script.general__script_id);
+                await Bun.sleep(100);
+            }
+
+            await Bun.sleep(this.heartbeatMs);
+        }
+    }
+
+    private trackProcess(process: Subprocess) {
+        this.activeProcesses.add(process);
+        process.exited.then(() => {
+            this.activeProcesses.delete(process);
+        });
+    }
+
     private async prepareGitRepo(
         repoUrl: string,
         entryPath: string,
@@ -128,6 +170,7 @@ export class WorldWebScriptManager {
                 stdout: "inherit",
                 stderr: "inherit",
             });
+            this.trackProcess(clone);
 
             const cloneSuccess = await clone.exited;
             if (cloneSuccess !== 0) {
@@ -139,6 +182,7 @@ export class WorldWebScriptManager {
                 stdout: "inherit",
                 stderr: "inherit",
             });
+            this.trackProcess(install);
 
             const installSuccess = await install.exited;
             if (installSuccess !== 0) {
@@ -150,12 +194,16 @@ export class WorldWebScriptManager {
             return {
                 path: `${tempDir}/${entryPath}`,
                 cleanup: async () => {
-                    await Bun.spawn(["rm", "-rf", tempDir]).exited;
+                    const cleanup = Bun.spawn(["rm", "-rf", tempDir]);
+                    this.trackProcess(cleanup);
+                    await cleanup.exited;
                 },
             };
         } catch (error) {
             // Cleanup on error
-            await Bun.spawn(["rm", "-rf", tempDir]).exited;
+            const cleanup = Bun.spawn(["rm", "-rf", tempDir]);
+            this.trackProcess(cleanup);
+            await cleanup.exited;
             throw error;
         }
     }
@@ -357,72 +405,20 @@ export class WorldWebScriptManager {
         }
     }
 
-    private async startHeartbeat() {
-        if (this.isHeartbeatRunning) return;
-
-        this.isHeartbeatRunning = true;
-        this.heartbeatController = new AbortController();
-        const { signal } = this.heartbeatController;
-
-        try {
-            while (!signal.aborted) {
-                if (!this.sql) throw new Error("Database not connected");
-
-                const scriptsToCompile = await this.sql`
-                    WITH needs_compilation AS (
-                        SELECT 
-                            general__script_id,
-                            general__updated_at,
-                            GREATEST(
-                                compiled__node__updated_at,
-                                compiled__bun__updated_at,
-                                compiled__browser__updated_at
-                            ) as last_compilation
-                        FROM entity.entity_scripts 
-                        WHERE 
-                            compiled__node__status NOT IN (${Entity.Script.E_CompilationStatus.COMPILED}, ${Entity.Script.E_CompilationStatus.PENDING}, ${Entity.Script.E_CompilationStatus.COMPILING}) OR
-                            compiled__bun__status NOT IN (${Entity.Script.E_CompilationStatus.COMPILED}, ${Entity.Script.E_CompilationStatus.PENDING}, ${Entity.Script.E_CompilationStatus.COMPILING}) OR
-                            compiled__browser__status NOT IN (${Entity.Script.E_CompilationStatus.COMPILED}, ${Entity.Script.E_CompilationStatus.PENDING}, ${Entity.Script.E_CompilationStatus.COMPILING})
-                    )
-                    SELECT general__script_id 
-                    FROM needs_compilation
-                    WHERE last_compilation IS NULL 
-                       OR general__updated_at > last_compilation
-                    LIMIT 5
-                `;
-
-                for (const script of scriptsToCompile) {
-                    if (signal.aborted) break;
-                    await this.compileScript(script.general__script_id);
-                    await Bun.sleep(100);
-                }
-
-                await Bun.sleep(this.heartbeatMs);
-            }
-        } catch (error) {
-            log({
-                message: `Error in heartbeat: ${error}`,
-                debug: this.debugMode,
-                type: "error",
-            });
-        } finally {
-            this.isHeartbeatRunning = false;
-        }
-    }
-
     public async cleanup() {
-        await this.stopHeartbeat();
-        // Allow time for any in-progress compilations to complete
-        await Bun.sleep(100);
+        this.isHeartbeatRunning = false;
+
+        // Kill all active processes
+        for (const process of this.activeProcesses) {
+            process.kill();
+        }
+        this.activeProcesses.clear();
+
         this.sql = null;
     }
 
-    public async stopHeartbeat() {
-        if (this.heartbeatController) {
-            this.heartbeatController.abort();
-            this.heartbeatController = null;
-        }
-        this.isHeartbeatRunning = false;
+    public stopHeartbeat() {
+        this.cleanup();
     }
 }
 

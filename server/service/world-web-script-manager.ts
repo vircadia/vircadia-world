@@ -4,6 +4,10 @@ import { build, type Subprocess } from "bun";
 import { Entity } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import { PostgresClient } from "../database/postgres/postgres_client";
 import { VircadiaConfig_Server } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
+import tmp from "tmp";
+
+// Configure tmp for graceful cleanup
+tmp.setGracefulCleanup();
 
 export class WorldWebScriptManager {
     private static instance: WorldWebScriptManager;
@@ -163,49 +167,53 @@ export class WorldWebScriptManager {
         repoUrl: string,
         entryPath: string,
     ): Promise<{ path: string; cleanup: () => Promise<void> }> {
-        const tempDir = `${Bun.env.BUN_TMPDIR || "/tmp"}/${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        return new Promise((resolve, reject) => {
+            tmp.dir({ unsafeCleanup: true }, async (err, tempDir, cleanup) => {
+                if (err) return reject(err);
 
-        try {
-            const clone = Bun.spawn(["git", "clone", repoUrl, tempDir], {
-                stdout: "inherit",
-                stderr: "inherit",
+                try {
+                    const clone = Bun.spawn(
+                        ["git", "clone", repoUrl, tempDir],
+                        {
+                            stdout: "inherit",
+                            stderr: "inherit",
+                        },
+                    );
+                    this.trackProcess(clone);
+
+                    const cloneSuccess = await clone.exited;
+                    if (cloneSuccess !== 0) {
+                        throw new Error(
+                            `Failed to clone repository: ${repoUrl}`,
+                        );
+                    }
+
+                    const install = Bun.spawn(["bun", "install"], {
+                        cwd: tempDir,
+                        stdout: "inherit",
+                        stderr: "inherit",
+                    });
+                    this.trackProcess(install);
+
+                    const installSuccess = await install.exited;
+                    if (installSuccess !== 0) {
+                        throw new Error(
+                            `Failed to install dependencies for repository: ${repoUrl}`,
+                        );
+                    }
+
+                    resolve({
+                        path: `${tempDir}/${entryPath}`,
+                        cleanup: async () => {
+                            cleanup();
+                        },
+                    });
+                } catch (error) {
+                    cleanup();
+                    reject(error);
+                }
             });
-            this.trackProcess(clone);
-
-            const cloneSuccess = await clone.exited;
-            if (cloneSuccess !== 0) {
-                throw new Error(`Failed to clone repository: ${repoUrl}`);
-            }
-
-            const install = Bun.spawn(["bun", "install"], {
-                cwd: tempDir,
-                stdout: "inherit",
-                stderr: "inherit",
-            });
-            this.trackProcess(install);
-
-            const installSuccess = await install.exited;
-            if (installSuccess !== 0) {
-                throw new Error(
-                    `Failed to install dependencies for repository: ${repoUrl}`,
-                );
-            }
-
-            return {
-                path: `${tempDir}/${entryPath}`,
-                cleanup: async () => {
-                    const cleanup = Bun.spawn(["rm", "-rf", tempDir]);
-                    this.trackProcess(cleanup);
-                    await cleanup.exited;
-                },
-            };
-        } catch (error) {
-            // Cleanup on error
-            const cleanup = Bun.spawn(["rm", "-rf", tempDir]);
-            this.trackProcess(cleanup);
-            await cleanup.exited;
-            throw error;
-        }
+        });
     }
 
     private async compileScriptCode(path: string): Promise<{

@@ -37,7 +37,7 @@ INSERT INTO config.config (general__key, general__value, general__description) V
     'secret_jwt', 'CHANGE_ME!',
     'session_duration_admin_jwt', '24h',
     'session_duration_admin_ms', 86400000,
-    'ws_check_interval', 10000,
+    'ws_check_interval_ms', 10000,
     'max_age_ms', 86400000,
     'cleanup_interval_ms', 3600000,
     'inactive_timeout_ms', 3600000,

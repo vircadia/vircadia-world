@@ -38,13 +38,18 @@ interface WebSocketData {
 // #region SessionValidation
 
 namespace SessionValidation {
-    export async function validateJWTAndSession(
-        sql: postgres.Sql,
-        debugMode: boolean,
-        jwtSecret: string,
-        token: string,
-    ): Promise<{ agentId: string; sessionId: string; isValid: boolean }> {
+    export async function validateJWTAndSession(data: {
+        sql: postgres.Sql;
+        jwtSecret?: string;
+        token: string;
+    }): Promise<{ agentId: string; sessionId: string; isValid: boolean }> {
+        const { sql, jwtSecret, token } = data;
+
         try {
+            if (!jwtSecret) {
+                throw new Error("JWT secret is not set");
+            }
+
             // Check for empty or malformed token first
             if (!token || token.split(".").length !== 3) {
                 return {
@@ -65,7 +70,7 @@ namespace SessionValidation {
 
             log({
                 message: "Session validation result",
-                debug: debugMode,
+                debug: VircadiaConfig_Server.debug,
                 type: "debug",
                 data: {
                     validation,
@@ -80,7 +85,7 @@ namespace SessionValidation {
         } catch (error) {
             log({
                 message: `Session validation failed: ${error}`,
-                debug: debugMode,
+                debug: VircadiaConfig_Server.debug,
                 type: "debug",
                 data: {
                     error:
@@ -111,9 +116,10 @@ namespace SessionValidation {
 class WorldRestManager {
     constructor(
         private readonly sql: postgres.Sql,
-        private readonly debugMode: boolean,
-        private readonly jwtSecret: string,
+        private readonly config: Config.I_ConfigValue,
     ) {}
+
+    private readonly LOG_PREFIX = "WorldRestManager";
 
     async handleRequest(req: Request): Promise<Response> {
         const url = new URL(req.url);
@@ -147,12 +153,11 @@ class WorldRestManager {
             );
         }
 
-        const validation = await SessionValidation.validateJWTAndSession(
-            this.sql,
-            this.debugMode,
-            this.jwtSecret,
+        const validation = await SessionValidation.validateJWTAndSession({
+            sql: this.sql,
+            jwtSecret: this.config.auth?.secret_jwt,
             token,
-        );
+        });
 
         // Set the current agent ID for RLS
         if (validation.isValid) {
@@ -162,8 +167,9 @@ class WorldRestManager {
 
         log({
             message: "Auth endpoint - Session validation result",
-            debug: this.debugMode,
+            debug: VircadiaConfig_Server.debug,
             type: "debug",
+            prefix: this.LOG_PREFIX,
             data: {
                 validation,
             },
@@ -198,12 +204,11 @@ class WorldRestManager {
             );
         }
 
-        const validation = await SessionValidation.validateJWTAndSession(
-            this.sql,
-            this.debugMode,
-            this.jwtSecret,
+        const validation = await SessionValidation.validateJWTAndSession({
+            sql: this.sql,
+            jwtSecret: this.config.auth?.secret_jwt,
             token,
-        );
+        });
 
         // Set the current agent ID for RLS
         if (validation.isValid) {
@@ -230,8 +235,9 @@ class WorldRestManager {
 
             log({
                 message: "Auth endpoint - Successfully logged out",
-                debug: this.debugMode,
+                debug: VircadiaConfig_Server.debug,
                 type: "debug",
+                prefix: this.LOG_PREFIX,
                 data: {
                     validation,
                 },
@@ -243,8 +249,9 @@ class WorldRestManager {
         } catch (error) {
             log({
                 message: "Failed to invalidate session",
-                debug: this.debugMode,
+                debug: VircadiaConfig_Server.debug,
                 type: "error",
+                prefix: this.LOG_PREFIX,
                 data: {
                     error:
                         error instanceof Error ? error.message : String(error),
@@ -276,12 +283,8 @@ class WorldRestManager {
 
 class WorldTickManager {
     private intervalIds: Map<string, Timer> = new Map();
-    private entityStatesCleanupId: Timer | null = null;
-    private tickMetricsCleanupId: Timer | null = null;
     private syncGroups: Map<string, Auth.SyncGroup.I_SyncGroup> = new Map();
     private tickCounts: Map<string, number> = new Map();
-    private tickBufferDurationMs = 2000;
-    private tickMetricsHistoryMs = 3600000;
 
     private readonly LOG_PREFIX = "WorldTickManager";
 
@@ -293,31 +296,14 @@ class WorldTickManager {
 
     async initialize() {
         try {
+            // Updated to use auth schema for sync groups
             const syncGroupsData = await this.sql<Auth.SyncGroup.I_SyncGroup[]>`
-                SELECT * FROM entity.entity_sync_groups
+                SELECT * FROM auth.sync_groups
             `;
 
-            // Store the sync groups directly since they already match our interface
             for (const group of syncGroupsData) {
                 this.syncGroups.set(group.general__sync_group, group);
             }
-
-            // Load other config values
-            const [bufferConfig] = await this.sql`
-                SELECT value FROM config.config WHERE general__key = ${Config.CONFIG_KEYS.TICK_BUFFER_DURATION}
-            `;
-            const [metricsConfig] = await this.sql`
-                SELECT value FROM config.config WHERE general__key = ${Config.CONFIG_KEYS.TICK_METRICS_HISTORY}
-            `;
-
-            if (bufferConfig) {
-                this.tickBufferDurationMs = bufferConfig.value;
-            }
-            if (metricsConfig) {
-                this.tickMetricsHistoryMs = metricsConfig.value;
-            }
-
-            this.setupCleanupTimers();
         } catch (error) {
             log({
                 message: `Failed to initialize tick manager: ${error}`,
@@ -325,102 +311,6 @@ class WorldTickManager {
                 type: "error",
             });
             throw error;
-        }
-    }
-
-    private setupCleanupTimers() {
-        if (this.entityStatesCleanupId)
-            clearInterval(this.entityStatesCleanupId);
-        if (this.tickMetricsCleanupId) clearInterval(this.tickMetricsCleanupId);
-
-        this.entityStatesCleanupId = setInterval(async () => {
-            try {
-                await this.sql`SELECT tick.cleanup_old_entity_states()`;
-                log({
-                    prefix: this.LOG_PREFIX,
-                    message: "Entity states cleanup completed",
-                    debug: this.debugMode,
-                    type: "debug",
-                });
-            } catch (error) {
-                log({
-                    prefix: this.LOG_PREFIX,
-                    message: `Error during entity states cleanup: ${error}`,
-                    debug: this.debugMode,
-                    type: "error",
-                });
-            }
-        }, this.tickBufferDurationMs);
-
-        this.tickMetricsCleanupId = setInterval(async () => {
-            try {
-                await this.sql`SELECT tick.cleanup_old_tick_metrics()`;
-                log({
-                    prefix: this.LOG_PREFIX,
-                    message: "Tick metrics cleanup completed",
-                    debug: this.debugMode,
-                    type: "debug",
-                });
-            } catch (error) {
-                log({
-                    prefix: this.LOG_PREFIX,
-                    message: `Error during tick metrics cleanup: ${error}`,
-                    debug: this.debugMode,
-                    type: "error",
-                });
-            }
-        }, this.tickMetricsHistoryMs);
-    }
-
-    /**
-     * Capture a tick state and get changes in a single database round trip.
-     * Returns both the tick metadata and any entity/script changes.
-     */
-    private async captureTick(
-        syncGroupName: string,
-    ): Promise<Tick.I_TickState | null> {
-        try {
-            // Execute both operations in a single transaction
-            const result = await this.sql.begin(async (sql) => {
-                // Capture the tick state and get metadata directly
-                const [tickData] = await sql<[Tick.I_Tick]>`
-                    SELECT * FROM tick.capture_tick_state(${syncGroupName})
-                `;
-
-                if (!tickData) {
-                    return null;
-                }
-
-                // Get entity changes (function handles finding previous tick internally)
-                const entityChanges = await sql<Tick.I_EntityUpdate[]>`
-                    SELECT * FROM tick.get_entity_changes(${syncGroupName})
-                `;
-
-                // Get script changes (function handles finding previous tick internally)
-                const scriptChanges = await sql<Tick.I_ScriptUpdate[]>`
-                    SELECT * FROM tick.get_script_changes(${syncGroupName})
-                `;
-
-                // Update tick count for internal metrics
-                const currentCount = this.tickCounts.get(syncGroupName) || 0;
-                this.tickCounts.set(syncGroupName, currentCount + 1);
-
-                // Return complete tick state
-                return {
-                    tick_data: tickData,
-                    entity_updates: entityChanges,
-                    script_updates: scriptChanges,
-                };
-            });
-
-            return result;
-        } catch (error) {
-            log({
-                message: `Error capturing tick for ${syncGroupName}: ${error}`,
-                debug: this.debugMode,
-                type: "error",
-            });
-            return null;
         }
     }
 
@@ -437,27 +327,28 @@ class WorldTickManager {
                 continue;
             }
 
+            // Use performance.now() for precise timing
             let nextTickTime = performance.now();
 
             const tickLoop = () => {
-                // Schedule next tick immediately at fixed interval
-                nextTickTime += config.server__tick__rate_ms;
-                this.intervalIds.set(
-                    syncGroup,
-                    setTimeout(tickLoop, nextTickTime - performance.now()),
-                );
+                const now = performance.now();
+                const delay = Math.max(0, nextTickTime - now);
 
-                // Process tick asynchronously without blocking the loop
+                // Schedule next tick
+                nextTickTime += config.server__tick__rate_ms;
+                this.intervalIds.set(syncGroup, setTimeout(tickLoop, delay));
+
+                // Process tick asynchronously
                 this.processTick(syncGroup).catch((error) => {
                     log({
                         message: `Error in tick processing for ${syncGroup}: ${error}`,
+                        prefix: this.LOG_PREFIX,
                         debug: this.debugMode,
                         type: "error",
                     });
                 });
             };
 
-            // Start the loop
             tickLoop();
         }
     }
@@ -465,68 +356,153 @@ class WorldTickManager {
     private async processTick(syncGroup: string) {
         const startTime = performance.now();
 
-        try {
-            const syncGroupConfig = this.syncGroups.get(syncGroup);
+        const syncGroupConfig = this.syncGroups.get(syncGroup);
+        if (!syncGroupConfig) {
+            throw new Error(`Sync group ${syncGroup} not found`);
+        }
 
-            if (!syncGroupConfig) {
-                throw new Error(`Sync group ${syncGroup} not found`);
+        // Execute both operations in a single transaction
+        const result = await this.sql.begin(async (sql) => {
+            // Capture the tick state and get metadata directly
+            const [tickData] = await sql<[Tick.I_Tick]>`
+                    SELECT * FROM tick.capture_tick_state(${syncGroup})
+                `;
+
+            if (!tickData) {
+                return null;
             }
 
-            const tickState = await this.captureTick(syncGroup);
+            // Get entity changes using the new function
+            const entityChanges = await sql<Tick.I_EntityUpdate[]>`
+                    SELECT 
+                        general__entity_id as entity_id,
+                        operation,
+                        changes,
+                        sync_group_session_ids
+                    FROM tick.get_changed_entity_states_between_latest_ticks(${syncGroup})
+                `;
 
-            if (tickState) {
-                // Get all active WebSocket connections as an array
-                const activeWebSockets = Array.from(
-                    this.wsManager.activeSessions.values(),
-                ).map(
-                    (session) => session.ws as ServerWebSocket<WebSocketData>,
+            // Get script changes using the new function
+            const scriptChanges = await sql<Tick.I_ScriptUpdate[]>`
+                    SELECT 
+                        script_id,
+                        operation,
+                        changes,
+                        sync_group_session_ids
+                    FROM tick.get_changed_script_states_between_latest_ticks(${syncGroup})
+                `;
+
+            // Update tick count for internal metrics
+            const currentCount = this.tickCounts.get(syncGroup) || 0;
+            this.tickCounts.set(syncGroup, currentCount + 1);
+
+            return {
+                tick_data: tickData,
+                entity_updates: entityChanges,
+                script_updates: scriptChanges,
+            };
+        });
+
+        if (result) {
+            // Handle regular entity updates
+            if (
+                Array.isArray(result.entity_updates) &&
+                result.entity_updates.length > 0
+            ) {
+                // Group updates by session ID
+                const sessionUpdates = new Map<string, Tick.I_EntityUpdate[]>();
+
+                for (const update of result.entity_updates) {
+                    for (const sessionId of update.sync_group_session_ids) {
+                        if (!sessionUpdates.has(sessionId)) {
+                            sessionUpdates.set(sessionId, []);
+                        }
+                        sessionUpdates.get(sessionId)?.push(update);
+                    }
+                }
+
+                // Send updates to each session asynchronously
+                const updatePromises = Array.from(sessionUpdates.entries()).map(
+                    ([sessionId, updates]) => {
+                        const session =
+                            this.wsManager.activeSessions.get(sessionId);
+                        if (session?.ws) {
+                            return this.wsManager.sendEntitiesUpdatesNotification(
+                                session.ws as ServerWebSocket<WebSocketData>,
+                                updates,
+                                result.tick_data,
+                            );
+                        }
+                        return Promise.resolve();
+                    },
                 );
 
-                // Handle regular entity updates
-                if (
-                    Array.isArray(tickState.entity_updates) &&
-                    tickState.entity_updates.length > 0
-                ) {
-                    await this.wsManager.sendEntitiesUpdatesNotification(
-                        activeWebSockets,
-                        tickState.entity_updates,
-                        tickState.tick_data,
-                    );
-                }
-
-                // Handle script updates
-                if (
-                    Array.isArray(tickState.script_updates) &&
-                    tickState.script_updates.length > 0
-                ) {
-                    await this.wsManager.sendEntityScriptsUpdatesNotification(
-                        activeWebSockets,
-                        tickState.script_updates,
-                        tickState.tick_data,
-                    );
-                }
-            }
-
-            const processingTime = performance.now() - startTime;
-            if (processingTime > syncGroupConfig.server__tick__rate_ms) {
-                log({
-                    message: "Tick processing took longer than tick rate",
-                    debug: this.debugMode,
-                    type: "warning",
-                    data: {
-                        syncGroup,
-                        processingTime,
-                        tickRate: syncGroupConfig.server__tick__rate_ms,
-                    },
+                // Fire and forget - don't await the promises
+                Promise.all(updatePromises).catch((error) => {
+                    log({
+                        message: `Error sending entity updates: ${error}`,
+                        debug: this.debugMode,
+                        type: "error",
+                    });
                 });
             }
-        } catch (error) {
+
+            // Handle script updates
+            if (
+                Array.isArray(result.script_updates) &&
+                result.script_updates.length > 0
+            ) {
+                // Group updates by session ID
+                const sessionUpdates = new Map<string, Tick.I_ScriptUpdate[]>();
+
+                for (const update of result.script_updates) {
+                    for (const sessionId of update.sync_group_session_ids) {
+                        if (!sessionUpdates.has(sessionId)) {
+                            sessionUpdates.set(sessionId, []);
+                        }
+                        sessionUpdates.get(sessionId)?.push(update);
+                    }
+                }
+
+                // Send updates to each session asynchronously
+                const updatePromises = Array.from(sessionUpdates.entries()).map(
+                    ([sessionId, updates]) => {
+                        const session =
+                            this.wsManager.activeSessions.get(sessionId);
+                        if (session?.ws) {
+                            return this.wsManager.sendEntityScriptsUpdatesNotification(
+                                session.ws as ServerWebSocket<WebSocketData>,
+                                updates,
+                                result.tick_data,
+                            );
+                        }
+                        return Promise.resolve();
+                    },
+                );
+
+                // Fire and forget - don't await the promises
+                Promise.all(updatePromises).catch((error) => {
+                    log({
+                        message: `Error sending script updates: ${error}`,
+                        debug: this.debugMode,
+                        type: "error",
+                    });
+                });
+            }
+        }
+
+        const processingTime = performance.now() - startTime;
+        if (processingTime > syncGroupConfig.server__tick__rate_ms) {
             log({
-                message: `Error in tick processing for ${syncGroup}: ${error}`,
+                message: "Tick processing took longer than tick rate",
                 debug: this.debugMode,
-                type: "error",
+                type: "warning",
+                data: {
+                    syncGroup,
+                    processingTime,
+                    tickRate: syncGroupConfig.server__tick__rate_ms,
+                },
             });
-            throw error;
         }
     }
 
@@ -534,15 +510,6 @@ class WorldTickManager {
         for (const [syncGroup, intervalId] of this.intervalIds.entries()) {
             clearTimeout(intervalId);
             this.intervalIds.delete(syncGroup);
-        }
-
-        if (this.entityStatesCleanupId) {
-            clearInterval(this.entityStatesCleanupId);
-            this.entityStatesCleanupId = null;
-        }
-        if (this.tickMetricsCleanupId) {
-            clearInterval(this.tickMetricsCleanupId);
-            this.tickMetricsCleanupId = null;
         }
     }
 }
@@ -570,14 +537,12 @@ class WorldWebSocketManager {
         WebSocket | ServerWebSocket<unknown>,
         string
     >();
-    private clientConfig: Config.I_ClientSettings | undefined;
 
     private readonly LOG_PREFIX = "WorldWebSocketManager";
 
     constructor(
         private readonly sql: postgres.Sql,
-        private readonly debugMode: boolean,
-        private readonly authConfig: Config.I_ClientSettings["auth"],
+        private readonly config: Config.I_ConfigValue,
     ) {}
 
     private async setAgentContext(
@@ -670,20 +635,9 @@ class WorldWebSocketManager {
     }
 
     async initialize() {
-        // Load client configuration
-        const [configEntry] = await this.sql`
-            SELECT value FROM config.config WHERE general__key = '${Config.CONFIG_KEYS.CLIENT_SETTINGS}'
-        `;
-
-        if (configEntry?.value) {
-            this.clientConfig = configEntry.value as Config.I_ClientSettings;
-        } else {
-            throw new Error("Client settings configuration not found");
-        }
-
         this.heartbeatInterval = setInterval(
             () => this.checkHeartbeats(),
-            this.authConfig.ws_check_interval_ms,
+            this.config.auth?.ws_check_interval_ms,
         );
     }
 
@@ -699,24 +653,23 @@ class WorldWebSocketManager {
             log({
                 prefix: this.LOG_PREFIX,
                 message: "No token found in query parameters",
-                debug: this.debugMode,
+                debug: VircadiaConfig_Server.debug,
                 type: "debug",
             });
             return new Response("Authentication required", { status: 401 });
         }
 
-        const validation = await SessionValidation.validateJWTAndSession(
-            this.sql,
-            this.debugMode,
-            this.authConfig,
+        const validation = await SessionValidation.validateJWTAndSession({
+            sql: this.sql,
+            jwtSecret: this.config.auth?.secret_jwt,
             token,
-        );
+        });
 
         if (!validation.isValid) {
             log({
                 prefix: this.LOG_PREFIX,
                 message: "Token validation failed",
-                debug: this.debugMode,
+                debug: VircadiaConfig_Server.debug,
                 type: "debug",
             });
             return new Response("Invalid token", { status: 401 });
@@ -735,7 +688,7 @@ class WorldWebSocketManager {
             log({
                 prefix: this.LOG_PREFIX,
                 message: "WebSocket upgrade failed",
-                debug: this.debugMode,
+                debug: VircadiaConfig_Server.debug,
                 type: "error",
             });
             return new Response("WebSocket upgrade failed", { status: 500 });
@@ -751,7 +704,7 @@ class WorldWebSocketManager {
         log({
             prefix: this.LOG_PREFIX,
             message: "New WebSocket connection attempt",
-            debug: this.debugMode,
+            debug: VircadiaConfig_Server.debug,
             type: "debug",
             data: {
                 agentId: sessionData.agentId,
@@ -787,7 +740,7 @@ class WorldWebSocketManager {
             log({
                 prefix: this.LOG_PREFIX,
                 message: `Connection established with agent ${sessionData.agentId}`,
-                debug: this.debugMode,
+                debug: VircadiaConfig_Server.debug,
                 type: "debug",
             });
             // Send a full keyframe immediately on join.
@@ -803,7 +756,7 @@ class WorldWebSocketManager {
             log({
                 prefix: this.LOG_PREFIX,
                 message: `Failed to send connection message: ${error}`,
-                debug: this.debugMode,
+                debug: VircadiaConfig_Server.debug,
                 type: "error",
             });
         }
@@ -817,7 +770,7 @@ class WorldWebSocketManager {
             log({
                 prefix: this.LOG_PREFIX,
                 message: "Handling WebSocket message",
-                debug: this.debugMode,
+                debug: VircadiaConfig_Server.debug,
                 type: "debug",
                 data: { message },
             });
@@ -838,12 +791,11 @@ class WorldWebSocketManager {
             }
 
             // Validate session using the existing function
-            const validation = await SessionValidation.validateJWTAndSession(
-                this.sql,
-                this.debugMode,
-                this.authConfig,
-                sessionToken,
-            );
+            const validation = await SessionValidation.validateJWTAndSession({
+                sql: this.sql,
+                jwtSecret: this.config.auth?.secret_jwt,
+                token: sessionToken,
+            });
 
             if (!validation.isValid) {
                 const errorMsg =
@@ -888,13 +840,7 @@ class WorldWebSocketManager {
 
             const data = JSON.parse(
                 typeof message === "string" ? message : message.toString(),
-            ) as
-                | Communication.WebSocket.Message
-                | {
-                      type: "KEYFRAME_REQUEST";
-                      syncGroup: string;
-                      keyframeTypes: string[];
-                  };
+            ) as Communication.WebSocket.Message;
 
             switch (data.type) {
                 case Communication.WebSocket.MessageType.HEARTBEAT_REQUEST: {
@@ -908,16 +854,18 @@ class WorldWebSocketManager {
                     ws.send(JSON.stringify(heartbeatResponse));
                     break;
                 }
-                case Communication.WebSocket.MessageType.CONFIG_REQUEST: {
-                    if (!this.clientConfig) {
+                case Communication.WebSocket.MessageType
+                    .CLIENT_CONFIG_REQUEST: {
+                    if (!this.config) {
                         throw new Error("Client config not initialized");
                     }
                     const configMsg =
-                        Communication.WebSocket.createMessage<Communication.WebSocket.ConfigResponseMessage>(
+                        Communication.WebSocket.createMessage<Communication.WebSocket.ClientConfigResponseMessage>(
                             {
                                 type: Communication.WebSocket.MessageType
-                                    .CONFIG_RESPONSE,
-                                config: this.clientConfig,
+                                    .CLIENT_CONFIG_RESPONSE,
+                                // TODO: Add client config
+                                config: {},
                             },
                         );
                     ws.send(JSON.stringify(configMsg));
@@ -970,7 +918,7 @@ class WorldWebSocketManager {
             log({
                 prefix: this.LOG_PREFIX,
                 message: "WebSocket disconnection",
-                debug: this.debugMode,
+                debug: VircadiaConfig_Server.debug,
                 type: "debug",
                 data: {
                     sessionId,
@@ -995,10 +943,14 @@ class WorldWebSocketManager {
         // Process sessions in parallel
         await Promise.all(
             sessionsToCheck.map(async ([sessionId, session]) => {
+                if (!this.config.auth?.ws_check_interval_ms) {
+                    throw new Error("WebSocket check interval not set");
+                }
+
                 // Check heartbeat timeout first
                 if (
                     now - session.lastHeartbeat >
-                    this.authConfig.ws_check_interval_ms
+                    this.config.auth?.ws_check_interval_ms
                 ) {
                     // Use database validate_session function
                     const [validation] = await this.sql<
@@ -1018,7 +970,7 @@ class WorldWebSocketManager {
                             prefix: this.LOG_PREFIX,
                             message:
                                 "Session expired / invalid, closing WebSocket",
-                            debug: this.debugMode,
+                            debug: VircadiaConfig_Server.debug,
                             type: "debug",
                             data: {
                                 sessionId,
@@ -1051,41 +1003,32 @@ class WorldWebSocketManager {
 
     async sendEntitiesUpdatesNotification(
         ws: ServerWebSocket<WebSocketData>,
-        changes: Tick.I_TickState["entity_updates"],
-        tickData: Tick.I_TickState["tick_data"],
+        changes: Tick.I_EntityUpdate[],
+        tickData: Tick.I_Tick,
     ) {
         try {
-            // Filter entities that include this session ID
-            const relevantEntities = changes
-                .filter((change) =>
-                    change.sessionIds.includes(ws.data.sessionId),
-                )
-                .map((change) => ({
-                    id: change.entityId,
-                    operation: change.operation,
-                    entityChanges: change.entityChanges,
-                }));
-
             const notificationMsg =
                 Communication.WebSocket.createMessage<Communication.WebSocket.NotificationEntityUpdatesMessage>(
                     {
                         type: Communication.WebSocket.MessageType
                             .NOTIFICATION_ENTITY_UPDATE,
                         tickMetadata: tickData,
-                        entities: relevantEntities,
+                        entities: changes.map((change) => ({
+                            id: change.general__entity_id,
+                            operation: change.operation,
+                            entityChanges: change.changes,
+                        })),
                     },
                 );
 
-            if (ws && ws.readyState === WebSocket.OPEN) {
+            if (ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify(notificationMsg));
-            } else {
-                throw new Error("WebSocket is not open");
             }
         } catch (error) {
             log({
                 prefix: this.LOG_PREFIX,
                 message: `Failed to send entities updates: ${error}`,
-                debug: this.debugMode,
+                debug: VircadiaConfig_Server.debug,
                 type: "error",
             });
         }
@@ -1093,41 +1036,32 @@ class WorldWebSocketManager {
 
     async sendEntityScriptsUpdatesNotification(
         ws: ServerWebSocket<WebSocketData>,
-        scriptChanges: Tick.I_TickState["script_updates"],
-        tickData: Tick.I_TickState["tick_data"],
+        scriptChanges: Tick.I_ScriptUpdate[],
+        tickData: Tick.I_Tick,
     ) {
         try {
-            // Filter scripts that include this session ID
-            const relevantScripts = scriptChanges
-                .filter((change) =>
-                    change.sessionIds.includes(ws.data.sessionId),
-                )
-                .map((change) => ({
-                    id: change.scriptId,
-                    operation: change.operation,
-                    scriptChanges: change.scriptChanges,
-                }));
-
             const notificationMsg =
                 Communication.WebSocket.createMessage<Communication.WebSocket.NotificationEntityScriptUpdatesMessage>(
                     {
                         type: Communication.WebSocket.MessageType
                             .NOTIFICATION_ENTITY_SCRIPT_UPDATE,
                         tickMetadata: tickData,
-                        scripts: relevantScripts,
+                        scripts: scriptChanges.map((change) => ({
+                            id: change.general__script_id,
+                            operation: change.operation,
+                            scriptChanges: change.changes,
+                        })),
                     },
                 );
 
-            if (ws && ws.readyState === WebSocket.OPEN) {
+            if (ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify(notificationMsg));
-            } else {
-                throw new Error("WebSocket is not open");
             }
         } catch (error) {
             log({
                 prefix: this.LOG_PREFIX,
                 message: `Failed to send entity scripts updates: ${error}`,
-                debug: this.debugMode,
+                debug: VircadiaConfig_Server.debug,
                 type: "error",
             });
         }
@@ -1147,7 +1081,7 @@ class WorldWebSocketManager {
                     log({
                         prefix: this.LOG_PREFIX,
                         message: "Missing session data for WebSocket",
-                        debug: this.debugMode,
+                        debug: VircadiaConfig_Server.debug,
                         type: "debug",
                     });
                     return;
@@ -1185,7 +1119,7 @@ class WorldWebSocketManager {
                     log({
                         prefix: this.LOG_PREFIX,
                         message: `Failed to send entities keyframe to specific client: ${error}`,
-                        debug: this.debugMode,
+                        debug: VircadiaConfig_Server.debug,
                         type: "error",
                     });
                 }
@@ -1206,7 +1140,7 @@ class WorldWebSocketManager {
                     log({
                         prefix: this.LOG_PREFIX,
                         message: "Missing session data for WebSocket",
-                        debug: this.debugMode,
+                        debug: VircadiaConfig_Server.debug,
                         type: "debug",
                     });
                     return;
@@ -1227,14 +1161,14 @@ class WorldWebSocketManager {
                                   [{ entity_scripts: Entity.Script.I_Script[] }]
                               >`
                                 SELECT array_agg(scripts.*) as entity_scripts
-                                FROM entity.entity_scripts scripts
-                                WHERE group__sync = ${syncGroup}
+                                FROM entity.entity_scripts es
+                                WHERE es.group__sync = ${syncGroup}
                             `
                             : sql<
                                   [{ entity_scripts: Entity.Script.I_Script[] }]
                               >`
-                                SELECT array_agg(scripts.*) as entity_scripts
-                                FROM entity.entity_scripts scripts
+                                SELECT array_agg(es.*) as entity_scripts
+                                FROM entity.entity_scripts es
                             `;
 
                         return await query;
@@ -1256,7 +1190,7 @@ class WorldWebSocketManager {
                     log({
                         prefix: this.LOG_PREFIX,
                         message: `Failed to send entity scripts keyframe to specific client: ${error}`,
-                        debug: this.debugMode,
+                        debug: VircadiaConfig_Server.debug,
                         type: "error",
                     });
                 }
@@ -1278,25 +1212,13 @@ class WorldWebSocketManager {
 // #region WorldApiManager
 
 export class WorldApiManager {
-    private static instance: WorldApiManager | null = null;
-    private authConfig: Config.I_ClientSettings["auth"] | undefined;
     private restManager: WorldRestManager | undefined;
     private wsManager: WorldWebSocketManager | undefined;
     private tickManager: WorldTickManager | undefined;
     private server: Server | undefined;
     private sql: postgres.Sql | undefined;
 
-    private constructor() {}
-
-    public static async getInstance(): Promise<WorldApiManager> {
-        if (!WorldApiManager.instance) {
-            WorldApiManager.instance = new WorldApiManager();
-            await WorldApiManager.instance.initialize();
-        }
-        return WorldApiManager.instance;
-    }
-
-    private async initialize() {
+    async initialize() {
         try {
             log({
                 message: "Initializing world api manager",
@@ -1309,25 +1231,28 @@ export class WorldApiManager {
             await postgresClient.connect();
             this.sql = postgresClient.getClient();
 
-            // Load auth config
-            const [configEntry] = await this.sql`
-                SELECT value FROM config.config WHERE general__key = ${Config.CONFIG_KEYS.CLIENT_SETTINGS}
+            // Load full config with proper typing
+            const [configResult] = await this.sql<
+                [{ value: Config.I_ConfigValue }]
+            >`
+                SELECT general__value as value 
+                FROM config.config 
+                WHERE general__key = 'auth'
             `;
-            this.authConfig = (
-                configEntry.value as Config.I_ClientSettings
-            ).auth;
 
-            // Initialize components
+            if (!configResult?.value) {
+                throw new Error("Failed to load auth configuration");
+            }
+
+            // Initialize components with typed config
             this.restManager = new WorldRestManager(
                 this.sql,
-                VircadiaConfig_Server.debug,
-                this.authConfig,
+                configResult.value,
             );
 
             this.wsManager = new WorldWebSocketManager(
                 this.sql,
-                VircadiaConfig_Server.debug,
-                this.authConfig,
+                configResult.value,
             );
             await this.wsManager.initialize();
 
@@ -1419,26 +1344,33 @@ export class WorldApiManager {
         this.wsManager?.stop();
         this.restManager?.stop();
         this.server?.stop();
-        // Update cleanup to use PostgresClient
         PostgresClient.getInstance().disconnect();
-        WorldApiManager.instance = null;
     }
 }
 
 // Add command line entry point
 if (import.meta.main) {
     try {
-        const manager = await WorldApiManager.getInstance();
+        const manager = new WorldApiManager();
+        await manager.initialize();
 
         // Handle cleanup on process termination
         process.on("SIGINT", () => {
-            console.log("\nReceived SIGINT. Cleaning up...");
+            log({
+                message: "\nReceived SIGINT. Cleaning up...",
+                debug: VircadiaConfig_Server.debug,
+                type: "debug",
+            });
             manager.cleanup();
             process.exit(0);
         });
 
         process.on("SIGTERM", () => {
-            console.log("\nReceived SIGTERM. Cleaning up...");
+            log({
+                message: "\nReceived SIGTERM. Cleaning up...",
+                debug: VircadiaConfig_Server.debug,
+                type: "debug",
+            });
             manager.cleanup();
             process.exit(0);
         });

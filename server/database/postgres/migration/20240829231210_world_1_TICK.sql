@@ -23,7 +23,7 @@ CREATE TABLE tick.world_ticks (
 
 -- Lag compensation state history table (now references world_ticks)
 CREATE TABLE tick.entity_states (
-    LIKE entity.entities INCLUDING DEFAULTS INCLUDING CONSTRAINTS,
+    LIKE entity.entities INCLUDING DEFAULTS,
     
     -- Additional metadata for state tracking
     general__tick_id uuid NOT NULL REFERENCES tick.world_ticks(general__tick_id),
@@ -73,7 +73,7 @@ CREATE TYPE operation_enum AS ENUM ('INSERT', 'UPDATE', 'DELETE');
 
 -- Update script states table to match new single-table structure
 CREATE TABLE tick.entity_script_states (
-    LIKE entity.entity_scripts INCLUDING DEFAULTS INCLUDING CONSTRAINTS,
+    LIKE entity.entity_scripts INCLUDING DEFAULTS,
     
     -- Additional metadata for state tracking
     general__tick_id uuid NOT NULL REFERENCES tick.world_ticks(general__tick_id),
@@ -166,50 +166,49 @@ BEGIN
         es.general__created_by,
         es.general__updated_at,
         es.general__updated_by,
-        auth.get_sync_group_session_ids(p_sync_group)
+        auth.get_sync_group_session_ids(es.group__sync)
     FROM tick.entity_states es
     JOIN latest_tick lt ON es.general__tick_id = lt.general__tick_id;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Function to get ONLY CHANGED entity states between latest ticks
+-- Function to get CHANGED entity states between latest ticks
 CREATE OR REPLACE FUNCTION tick.get_changed_entity_states_between_latest_ticks(
     p_sync_group text
 ) RETURNS TABLE (
     general__entity_id uuid,
     operation operation_enum,
     changes jsonb,
-    session_ids uuid[]
+    sync_group_session_ids uuid[]
 ) AS $$
 DECLARE
     v_current_tick_id uuid;
     v_previous_tick_id uuid;
 BEGIN
     -- Get the latest two tick IDs
-    SELECT general__tick_id INTO v_current_tick_id
-    FROM tick.world_ticks
-    WHERE group__sync = p_sync_group
-    ORDER BY tick__number DESC
-    LIMIT 1;
-
-    SELECT general__tick_id INTO v_previous_tick_id
-    FROM tick.world_ticks
-    WHERE group__sync = p_sync_group
-    AND general__tick_id != v_current_tick_id
-    ORDER BY tick__number DESC
-    LIMIT 1;
+    WITH ordered_ticks AS (
+        SELECT general__tick_id
+        FROM tick.world_ticks wt
+        WHERE wt.group__sync = p_sync_group
+        ORDER BY tick__number DESC
+        LIMIT 2
+    )
+    SELECT
+        (SELECT general__tick_id FROM ordered_ticks LIMIT 1),
+        (SELECT general__tick_id FROM ordered_ticks OFFSET 1 LIMIT 1)
+    INTO v_current_tick_id, v_previous_tick_id;
 
     -- Return changes between these ticks
     RETURN QUERY
     WITH current_states AS (
-        SELECT *
-        FROM tick.entity_states
-        WHERE general__tick_id = v_current_tick_id
+        SELECT es.*
+        FROM tick.entity_states es
+        WHERE es.general__tick_id = v_current_tick_id
     ),
     previous_states AS (
-        SELECT *
-        FROM tick.entity_states
-        WHERE general__tick_id = v_previous_tick_id
+        SELECT es.*
+        FROM tick.entity_states es
+        WHERE es.general__tick_id = v_previous_tick_id
     )
     SELECT 
         COALESCE(cs.general__entity_id, ps.general__entity_id),
@@ -283,7 +282,7 @@ BEGIN
                     THEN cs.general__updated_by END
             ))
         END,
-        auth.get_sync_group_session_ids(p_sync_group)
+        auth.get_sync_group_session_ids(COALESCE(cs.group__sync, ps.group__sync))
     FROM current_states cs
     FULL OUTER JOIN previous_states ps ON cs.general__entity_id = ps.general__entity_id
     WHERE cs IS DISTINCT FROM ps;
@@ -333,9 +332,9 @@ BEGIN
 
     -- Efficient cleanup of old ticks using a single DELETE
     -- This will cascade to entity_states and script_states
-    DELETE FROM tick.world_ticks 
-    WHERE group__sync = p_sync_group
-    AND tick__start_time < (v_start_time - (v_buffer_duration_ms || ' milliseconds')::interval);
+    DELETE FROM tick.world_ticks wt
+    WHERE wt.group__sync = p_sync_group
+    AND wt.tick__start_time < (v_start_time - (v_buffer_duration_ms || ' milliseconds')::interval);
 
     -- Get last tick info
     SELECT 
@@ -600,8 +599,8 @@ BEGIN
     RETURN QUERY
     WITH latest_tick AS (
         SELECT general__tick_id
-        FROM tick.world_ticks
-        WHERE group__sync = p_sync_group
+        FROM tick.world_ticks wt
+        WHERE wt.group__sync = p_sync_group
         ORDER BY tick__number DESC
         LIMIT 1
     )
@@ -632,14 +631,14 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Function to get ONLY CHANGED script states between latest two ticks
+-- Function to get CHANGED script states between latest ticks
 CREATE OR REPLACE FUNCTION tick.get_changed_script_states_between_latest_ticks(
     p_sync_group text
 ) RETURNS TABLE (
     script_id uuid,
     operation operation_enum,
     changes jsonb,
-    session_ids uuid[]
+    sync_group_session_ids uuid[]
 ) AS $$
 DECLARE
     v_current_tick_id uuid;
@@ -648,28 +647,27 @@ BEGIN
     -- Get the latest two tick IDs
     WITH ordered_ticks AS (
         SELECT general__tick_id
-        FROM tick.world_ticks
-        WHERE group__sync = p_sync_group
+        FROM tick.world_ticks wt
+        WHERE wt.group__sync = p_sync_group
         ORDER BY tick__number DESC
         LIMIT 2
     )
-    SELECT general__tick_id INTO v_current_tick_id
-    FROM ordered_ticks LIMIT 1;
-
-    SELECT general__tick_id INTO v_previous_tick_id
-    FROM ordered_ticks OFFSET 1 LIMIT 1;
+    SELECT
+        (SELECT general__tick_id FROM ordered_ticks LIMIT 1),
+        (SELECT general__tick_id FROM ordered_ticks OFFSET 1 LIMIT 1)
+    INTO v_current_tick_id, v_previous_tick_id;
 
     -- Return changes between these ticks
     RETURN QUERY
     WITH current_states AS (
-        SELECT *
-        FROM tick.entity_script_states
-        WHERE general__tick_id = v_current_tick_id
+        SELECT ess.*
+        FROM tick.entity_script_states ess
+        WHERE ess.general__tick_id = v_current_tick_id
     ),
     previous_states AS (
-        SELECT *
-        FROM tick.entity_script_states
-        WHERE general__tick_id = v_previous_tick_id
+        SELECT ess.*
+        FROM tick.entity_script_states ess
+        WHERE ess.general__tick_id = v_previous_tick_id
     )
     SELECT 
         COALESCE(cs.general__script_id, ps.general__script_id),

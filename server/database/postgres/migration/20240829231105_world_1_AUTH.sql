@@ -2,6 +2,8 @@
 -- AGENTS AND AUTH
 --
 
+-- TODO: Add a max session count (default: 1) per auth provider, thus limiting sign-ins for an agent for a single provider.
+
 -- Create auth schema
 CREATE SCHEMA IF NOT EXISTS auth;
 

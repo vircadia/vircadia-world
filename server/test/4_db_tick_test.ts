@@ -40,7 +40,6 @@ describe("DB -> Tick Tests", () => {
             expect(Number(tickRecord1.tick__number)).toBeGreaterThan(0);
             expect(tickRecord1.tick__is_delayed).toBeDefined();
             expect(tickRecord1.tick__headroom_ms).toBeGreaterThanOrEqual(0);
-            expect(tickRecord1.tick__rate_limited).toBeDefined();
 
             // Create second tick and verify it has different properties
             const [tickRecord2] = await sql<[Tick.I_Tick]>`

@@ -8,7 +8,7 @@ import { VircadiaConfig_Server } from "../../sdk/vircadia-world-sdk-ts/config/vi
 
 describe("Service -> Web Script Manager Tests", () => {
     let sql: postgres.Sql;
-    let serverProcess: Subprocess;
+    let serverProcess: Subprocess | null;
     let testToken: string;
     let testAgentId: string;
     let testSessionId: string;
@@ -28,20 +28,17 @@ describe("Service -> Web Script Manager Tests", () => {
         testAgentId = session.agent_id;
         testSessionId = session.session_id;
         testToken = session.session_token;
-
-        serverProcess = Bun.spawn(["bun", "run", "service:run:api"], {
-            cwd: process.cwd(),
-            stdio: ["inherit", "inherit", "inherit"],
-            killSignal: "SIGTERM",
-        });
-
-        // Wait for server to start
-        await new Promise((resolve) => setTimeout(resolve, 1000));
     });
 
     describe("World API Manager -> REST API Tests", () => {
         test("service should launch and become available", async () => {
-            expect(serverProcess.pid).toBeGreaterThan(0);
+            serverProcess = Bun.spawn(["bun", "run", "service:run:api"], {
+                cwd: process.cwd(),
+                stdio: ["inherit", "inherit", "inherit"],
+                killSignal: "SIGTERM",
+            });
+
+            expect(serverProcess.).toBeGreaterThan(0);
         });
 
         describe("Authentication Endpoints", () => {
@@ -126,7 +123,7 @@ describe("Service -> Web Script Manager Tests", () => {
 
     afterAll(async () => {
         // Kill the server process and its children
-        if (serverProcess.pid) {
+        if (serverProcess?.pid) {
             try {
                 // First try to kill the process directly
                 serverProcess.kill("SIGTERM");

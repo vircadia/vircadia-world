@@ -13,7 +13,6 @@ CREATE TABLE tick.world_ticks (
     tick__script_states_processed int NOT NULL,
     tick__is_delayed boolean NOT NULL,
     tick__headroom_ms double precision,
-    tick__rate_limited boolean DEFAULT false,
     tick__time_since_last_tick_ms double precision,
 
     -- Add unique constraint for sync_group + tick number combination
@@ -303,7 +302,6 @@ CREATE OR REPLACE FUNCTION tick.capture_tick_state(
     tick__script_states_processed int,
     tick__is_delayed boolean,
     tick__headroom_ms double precision,
-    tick__rate_limited boolean,
     tick__time_since_last_tick_ms double precision
 ) AS $$
 DECLARE
@@ -316,7 +314,6 @@ DECLARE
     v_duration_ms double precision;
     v_headroom_ms double precision;
     v_is_delayed boolean;
-    v_rate_limited boolean;
     v_time_since_last_tick_ms double precision;
     v_tick_id uuid;
     v_buffer_duration_ms integer;
@@ -379,7 +376,6 @@ BEGIN
         tick__script_states_processed,
         tick__is_delayed,
         tick__headroom_ms,
-        tick__rate_limited,
         tick__time_since_last_tick_ms
     ) VALUES (
         v_tick_id,
@@ -392,7 +388,6 @@ BEGIN
         0,
         false,
         0,
-        false,
         v_time_since_last_tick_ms
     );
 
@@ -499,9 +494,8 @@ BEGIN
     -- Calculate if tick is delayed or rate limited based on configuration
     SELECT 
         v_duration_ms > sg.server__tick__rate_ms AS is_delayed,
-        v_duration_ms > sg.server__tick__rate_ms * 1.5 AS rate_limited,
         sg.server__tick__rate_ms - v_duration_ms AS headroom_ms
-    INTO v_is_delayed, v_rate_limited, v_headroom_ms
+    INTO v_is_delayed, v_headroom_ms
     FROM auth.sync_groups sg
     WHERE sg.general__sync_group = p_sync_group;
 
@@ -514,8 +508,7 @@ BEGIN
         tick__entity_states_processed = v_entity_states_processed,
         tick__script_states_processed = v_script_states_processed,
         tick__is_delayed = v_is_delayed,
-        tick__headroom_ms = v_headroom_ms,
-        tick__rate_limited = v_rate_limited
+        tick__headroom_ms = v_headroom_ms
     WHERE wt.general__tick_id = v_tick_id;
 
     -- Return the tick record
@@ -531,7 +524,6 @@ BEGIN
         v_script_states_processed,
         v_is_delayed,
         v_headroom_ms,
-        v_rate_limited,
         v_time_since_last_tick_ms;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

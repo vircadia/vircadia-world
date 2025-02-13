@@ -350,7 +350,7 @@ class WorldTickManager {
 	}
 
 	private async processTick(syncGroup: string) {
-		const startTime = performance.now();
+		const localTotalStartTime = performance.now();
 
 		const syncGroupConfig = this.syncGroups.get(syncGroup);
 		if (!syncGroupConfig) {
@@ -358,7 +358,7 @@ class WorldTickManager {
 		}
 
 		// Measure the time taken for the database operations
-		const dbStartTime = performance.now();
+		const localDbStartTime = performance.now();
 		const result = await this.sql.begin(async (sql) => {
 			// Capture the tick state and get metadata directly
 			const [tickData] = await sql<[Tick.I_Tick]>`
@@ -399,7 +399,7 @@ class WorldTickManager {
 				script_updates: scriptChanges,
 			};
 		});
-		const dbProcessingTime = performance.now() - dbStartTime;
+		const localDbProcessingTime = performance.now() - localDbStartTime;
 
 		if (result) {
 			// Handle regular entity updates
@@ -487,21 +487,22 @@ class WorldTickManager {
 			}
 		}
 
-		const processingTime = performance.now() - startTime;
-		if (
-			processingTime > syncGroupConfig.server__tick__rate_ms ||
-			dbProcessingTime > syncGroupConfig.server__tick__rate_ms
-			// result?.tick_data.tick__duration_ms
-		) {
+		const localTotalProcessingTime = performance.now() - localTotalStartTime;
+		const tickRate = syncGroupConfig.server__tick__rate_ms;
+		const isLocallyTotalDelayed = localTotalProcessingTime > tickRate;
+		const isLocallyDbDelayed = localDbProcessingTime > tickRate;
+		const isRemotelyDbDelayed = result?.tick_data.tick__is_delayed || false;
+
+		if (isLocallyTotalDelayed || isLocallyDbDelayed || isRemotelyDbDelayed) {
 			log({
-				message: "Tick processing took longer than tick rate",
+				message: `Tick processing is delayed for ${syncGroup}\nLocally: ${isLocallyDbDelayed || isLocallyTotalDelayed}\nRemotely: ${isRemotelyDbDelayed}`,
 				debug: this.debugMode,
 				type: "warning",
 				data: {
-					syncGroup,
-					serviceProcessingTime: `Service total processing time: ${processingTime}`,
-					dbProcessingTime: `Service database processing time: ${dbProcessingTime}`,
-					tickRate: syncGroupConfig.server__tick__rate_ms,
+					localDbProcessingTime: `Local database processing time: ${localDbProcessingTime}ms`,
+					localTotalProcessingTime: `Local total processing time: ${localTotalProcessingTime}ms`,
+					remoteDbProcessingTime: `Remote database processing time: ${result?.tick_data.tick__duration_ms}ms`,
+					tickRate: `Tick rate: ${tickRate}ms`,
 				},
 			});
 		}

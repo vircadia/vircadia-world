@@ -23,10 +23,10 @@ CREATE TABLE tick.world_ticks (
 
 -- Lag compensation state history table (now references world_ticks)
 CREATE TABLE tick.entity_states (
-    LIKE entity.entities INCLUDING DEFAULTS,
+    LIKE entity.entities INCLUDING DEFAULTS EXCLUDING CONSTRAINTS,
     
     -- Additional metadata for state tracking
-    general__tick_id uuid NOT NULL REFERENCES tick.world_ticks(general__tick_id),
+    general__tick_id uuid NOT NULL,
     general__entity_state_id uuid DEFAULT uuid_generate_v4(),
     
     -- Override the primary key to allow multiple states per entity
@@ -73,10 +73,10 @@ CREATE TYPE operation_enum AS ENUM ('INSERT', 'UPDATE', 'DELETE');
 
 -- Update script states table to match new single-table structure
 CREATE TABLE tick.entity_script_states (
-    LIKE entity.entity_scripts INCLUDING DEFAULTS,
+    LIKE entity.entity_scripts INCLUDING DEFAULTS EXCLUDING CONSTRAINTS,
     
     -- Additional metadata for state tracking
-    general__tick_id uuid NOT NULL REFERENCES tick.world_ticks(general__tick_id),
+    general__tick_id uuid NOT NULL,
     general__script_state_id uuid DEFAULT uuid_generate_v4(),
     
     -- Override the primary key
@@ -166,7 +166,7 @@ BEGIN
         es.general__created_by,
         es.general__updated_at,
         es.general__updated_by,
-        auth.get_sync_group_session_ids(es.group__sync)
+        coalesce(auth.get_sync_group_session_ids(es.group__sync), '{}')
     FROM tick.entity_states es
     JOIN latest_tick lt ON es.general__tick_id = lt.general__tick_id;
 END;
@@ -282,7 +282,7 @@ BEGIN
                     THEN cs.general__updated_by END
             ))
         END,
-        auth.get_sync_group_session_ids(COALESCE(cs.group__sync, ps.group__sync))
+        coalesce(auth.get_sync_group_session_ids(coalesce(cs.group__sync, ps.group__sync)), '{}')
     FROM current_states cs
     FULL OUTER JOIN previous_states ps ON cs.general__entity_id = ps.general__entity_id
     WHERE cs IS DISTINCT FROM ps;
@@ -321,6 +321,9 @@ DECLARE
     v_tick_id uuid;
     v_buffer_duration_ms integer;
 BEGIN
+    -- Acquire lock to avoid duplicate tick_number when multiple calls occur
+    LOCK TABLE tick.world_ticks IN SHARE ROW EXCLUSIVE MODE;
+
     -- Get start time
     v_start_time := clock_timestamp();
 
@@ -346,7 +349,8 @@ BEGIN
     FROM tick.world_ticks wt
     WHERE wt.group__sync = p_sync_group
     ORDER BY wt.tick__number DESC
-    LIMIT 1;
+    LIMIT 1
+    FOR UPDATE;
 
     -- Calculate new tick number
     IF v_tick_number IS NULL THEN
@@ -625,7 +629,7 @@ BEGIN
         ss.general__created_by,
         ss.general__updated_at,
         ss.general__updated_by,
-        auth.get_sync_group_session_ids(p_sync_group)
+        coalesce(auth.get_sync_group_session_ids(p_sync_group), '{}')
     FROM tick.entity_script_states ss
     JOIN latest_tick lt ON ss.general__tick_id = lt.general__tick_id;
 END;
@@ -761,7 +765,7 @@ BEGIN
                     THEN cs.general__updated_by END
             ))
         END,
-        auth.get_sync_group_session_ids(p_sync_group)
+        coalesce(auth.get_sync_group_session_ids(p_sync_group), '{}')
     FROM current_states cs
     FULL OUTER JOIN previous_states ps ON cs.general__script_id = ps.general__script_id
     WHERE cs IS DISTINCT FROM ps;

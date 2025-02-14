@@ -566,18 +566,18 @@ export async function generateDbSystemToken(): Promise<{
     const sql = db.getClient();
 
     // Get auth settings from config using the new JSONB structure
-    const [authConfig] = await sql`
+    const [authConfig] = await sql<[Config.I_Config<"auth">]>`
         SELECT general__value 
         FROM config.config 
         WHERE general__key = 'auth'
     `;
 
-    if (!authConfig?.general__value) {
+    if (!authConfig) {
         throw new Error("Auth settings not found in database");
     }
 
-    const jwtSecret = authConfig.general__value.secret_jwt;
-    const jwtDuration = authConfig.general__value.session_duration_admin_jwt;
+    const jwtSecret = authConfig.general__value.jwt_secret;
+    const jwtDuration = authConfig.general__value.default_session_duration_ms;
 
     if (!jwtSecret || !jwtDuration) {
         throw new Error("Required auth settings missing from database");

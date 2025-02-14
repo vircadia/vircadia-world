@@ -9,9 +9,9 @@ import {
 import type postgres from "postgres";
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 import { PostgresClient } from "../database/postgres/postgres_client";
-import {
+import type {
     Config,
-    type Auth,
+    Auth,
 } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import { sign } from "jsonwebtoken";
 import { VircadiaConfig_Server } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
@@ -42,19 +42,15 @@ describe("DB -> Auth Tests", () => {
     }> {
         try {
             // First create a system token with superuser privileges
-            const [authSecretConfig] = await sql<[Config.I_Config]>`
+            const [authConfig] = await sql<[Config.I_Config_Auth]>`
                 SELECT * FROM config.config 
-                WHERE general__key = ${Config.CONFIG_KEYS.AUTH_SECRET_JWT}
-            `;
-            const [authDurationConfig] = await sql<[Config.I_Config]>`
-                SELECT * FROM config.config 
-                WHERE general__key = ${Config.CONFIG_KEYS.AUTH_SESSION_DURATION_JWT}
+                WHERE general__key = 'auth'
             `;
 
-            if (
-                !authSecretConfig?.general__value ||
-                !authDurationConfig?.general__value
-            ) {
+            const authSecretConfig = authConfig.jwt_secret;
+            const authDurationConfigMs = authConfig.session_duration_ms;
+
+            if (!authSecretConfig || !authDurationConfigMs) {
                 throw new Error("Auth settings not found in database");
             }
 
@@ -68,7 +64,7 @@ describe("DB -> Auth Tests", () => {
                 ) VALUES (
                     auth.get_system_agent_id(),
                     'system',
-                    NOW() + ${authDurationConfig.general__value}::interval,
+                    NOW() + ${authDurationConfigMs}::interval,
                     true
                 ) RETURNING general__session_id
             `;
@@ -79,9 +75,9 @@ describe("DB -> Auth Tests", () => {
                     sessionId: systemSession.general__session_id,
                     agentId: await sql`SELECT auth.get_system_agent_id()`,
                 },
-                authSecretConfig.general__value,
+                authSecretConfig,
                 {
-                    expiresIn: authDurationConfig.general__value,
+                    expiresIn: authDurationConfigMs,
                 },
             );
 
@@ -134,9 +130,9 @@ describe("DB -> Auth Tests", () => {
                     sessionId: adminSessionId,
                     agentId: adminId,
                 },
-                authSecretConfig.general__value,
+                authSecretConfig,
                 {
-                    expiresIn: authDurationConfig.general__value,
+                    expiresIn: authDurationConfigMs,
                 },
             );
 
@@ -145,9 +141,9 @@ describe("DB -> Auth Tests", () => {
                     sessionId: agentSessionId,
                     agentId: agentId,
                 },
-                authSecretConfig.general__value,
+                authSecretConfig,
                 {
-                    expiresIn: authDurationConfig.general__value,
+                    expiresIn: authDurationConfigMs,
                 },
             );
 

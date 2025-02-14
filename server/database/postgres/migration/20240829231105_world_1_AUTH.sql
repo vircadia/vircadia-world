@@ -207,7 +207,7 @@ BEGIN
     END IF;
 
     -- Get max sessions per agent from config
-    SELECT (general__value -> 'max_sessions_per_agent')::INTEGER 
+    SELECT (general__value -> 'session_max_per_agent')::INTEGER 
     INTO v_max_sessions 
     FROM config.config 
     WHERE general__key = 'auth';
@@ -236,12 +236,12 @@ BEGIN
         );
     END IF;
 
-    -- Get duration from config - fixed to use session_duration_admin_jwt for system tokens
-    SELECT general__value ->> 'session_duration_admin_jwt'
+    -- Use session duration from config (no separate admin duration)
+    SELECT general__value ->> 'default_session_duration_jwt_string'
     INTO v_duration 
     FROM config.config 
     WHERE general__key = 'auth';
-    
+
     IF v_duration IS NULL THEN
         RAISE EXCEPTION 'Session duration not found in config';
     END IF;

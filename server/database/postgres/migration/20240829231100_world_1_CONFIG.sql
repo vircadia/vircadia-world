@@ -32,23 +32,16 @@ INSERT INTO config.config (general__key, general__value, general__description) V
 
 -- Authentication settings (merged with session settings)
 ('auth', jsonb_build_object(
-    'session_duration_jwt', '24h',
-    'session_duration_ms', 86400000,
-    'secret_jwt', 'CHANGE_ME!',
-    'session_duration_admin_jwt', '24h',
-    'session_duration_admin_ms', 86400000,
-    'ws_check_interval_ms', 10000,
-    'max_age_ms', 86400000,
-    'cleanup_interval_ms', 3600000,
-    'inactive_timeout_ms', 3600000,
-    'max_sessions_per_agent', 1
+    'default_session_duration_jwt_string', '24h',
+    'default_session_duration_ms', 86400000,
+    'default_session_max_age_ms', 86400000,
+    'jwt_secret', 'CHANGE_ME!',
+    'session_cleanup_interval', 3600000,
+    'session_inactive_expiry_ms', 3600000,
+    'session_max_per_agent', 1,
+    'heartbeat_interval_ms', 3000,
+    'heartbeat_inactive_expiry_ms', 12000
 ), 'Authentication and session management configuration settings'),
-
--- Heartbeat settings
-('heartbeat', jsonb_build_object(
-    'interval_ms', 3000,
-    'timeout_ms', 12000
-), 'Heartbeat configuration settings'),
 
 -- Database settings
 ('database', jsonb_build_object(

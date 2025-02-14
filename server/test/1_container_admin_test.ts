@@ -8,6 +8,7 @@ import {
     up,
 } from "../container/docker/docker_cli";
 import { VircadiaConfig_Server } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
+import type { Config } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import { PostgresClient } from "../database/postgres/postgres_client";
 
 describe("System Admin Tests", () => {
@@ -64,11 +65,12 @@ describe("System Admin Tests", () => {
         // Verify some expected seed data exists
         const sql = PostgresClient.getInstance().getClient();
         // Check if config table has essential auth settings
-        const [authSecret] = await sql`
+        const [authConfig] = await sql<[Config.I_Config<"auth">]>`
             SELECT general__value FROM config.config 
-            WHERE general__key = 'auth__secret_jwt'
+            WHERE general__key = 'auth'
         `;
-        expect(authSecret.general__value).toBeDefined();
+        expect(authConfig).toBeDefined();
+        expect(authConfig.general__value.jwt_secret).toBeDefined();
     });
 
     test("System agent exists and has correct permissions", async () => {

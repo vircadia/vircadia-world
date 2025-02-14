@@ -49,11 +49,11 @@ describe("DB -> Entity Tests", () => {
             // Get auth settings
             const [authSecretConfig] = await sql<[Config.I_Config]>`
                 SELECT * FROM config.config 
-                WHERE general__key = ${Config.CONFIG_KEYS.AUTH_SECRET_JWT}
+                WHERE general__key = ${Config.CONFIG_KEYS.AUTH_JWT_SECRET}
             `;
             const [authDurationConfig] = await sql<[Config.I_Config]>`
                 SELECT * FROM config.config 
-                WHERE general__key = ${Config.CONFIG_KEYS.AUTH_SESSION_DURATION_JWT}
+                WHERE general__key = ${Config.CONFIG_KEYS.AUTH_session_duration_jwt_string}
             `;
 
             if (

@@ -7,6 +7,8 @@ import type {
 } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import { isHealthy, up } from "../container/docker/docker_cli";
 
+// TODO: We need to do a more holistic test suite of the tick schema to detect issues between changes.
+
 describe("DB -> Tick Tests", () => {
     let sql: postgres.Sql;
 

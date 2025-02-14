@@ -15,7 +15,7 @@ import { PostgresClient } from "../database/postgres/postgres_client";
 describe("System Admin Tests", () => {
     beforeAll(async () => {
         if (!(await isHealthy()).isHealthy) {
-            await up(true);
+            await up();
 
             const healthyAfterUp = await isHealthy();
             if (!healthyAfterUp.isHealthy) {
@@ -53,13 +53,13 @@ describe("System Admin Tests", () => {
     });
 
     test("Database migrations can be reapplied", async () => {
-        await migrate({ silent: true });
+        await migrate({});
         // If we reach here without errors, migrations worked
         expect(true).toBe(true);
     });
 
     test("Soft reset database works", async () => {
-        await softResetDatabase(true);
+        await softResetDatabase();
         // Verify database is accessible after reset
         const sql = PostgresClient.getInstance().getClient();
         const [result] = await sql`SELECT current_database()`;
@@ -68,7 +68,7 @@ describe("System Admin Tests", () => {
 
     test("Database seeding works", async () => {
         // Run seeds
-        await seed({ silent: true });
+        await seed({});
 
         // Verify some expected seed data exists
         const sql = PostgresClient.getInstance().getClient();

@@ -38,20 +38,20 @@ export function getDockerEnv() {
     };
 }
 
-async function runDockerCommand(args: string[], silent = false) {
+// Update runDockerCommand to use suppress from config
+async function runDockerCommand(args: string[]) {
     const processEnv = {
         ...process.env,
         ...getDockerEnv(),
         PATH: process.env.PATH,
     };
 
-    // Log the command being executed
-    if (!silent) {
-        log({
-            message: `[Docker Command] docker-compose -f ${DOCKER_COMPOSE_PATH} ${args.join(" ")}`,
-            type: "debug",
-        });
-    }
+    log({
+        message: `[Docker Command] docker-compose -f ${DOCKER_COMPOSE_PATH} ${args.join(" ")}`,
+        type: "debug",
+        suppress: VircadiaConfig_Server.suppress,
+        debug: VircadiaConfig_Server.debug,
+    });
 
     const spawnedProcess = Bun.spawn(
         ["docker", "compose", "-f", DOCKER_COMPOSE_PATH, ...args],
@@ -65,27 +65,25 @@ async function runDockerCommand(args: string[], silent = false) {
     const stdout = await new Response(spawnedProcess.stdout).text();
     const stderr = await new Response(spawnedProcess.stderr).text();
 
-    // Always log output for better debugging
     if (stdout) {
-        if (!silent) {
-            log({
-                message: `[Docker Command Output]\n${stdout}`,
-                type: "info",
-            });
-        }
+        log({
+            message: `[Docker Command Output]\n${stdout}`,
+            type: "info",
+            suppress: VircadiaConfig_Server.suppress,
+            debug: VircadiaConfig_Server.debug,
+        });
     }
     if (stderr) {
-        if (!silent) {
-            log({
-                message: `[Docker Command Output]\n${stderr}`,
-                type: "info",
-            });
-        }
+        log({
+            message: `[Docker Command Output]\n${stderr}`,
+            type: "info",
+            suppress: VircadiaConfig_Server.suppress,
+            debug: VircadiaConfig_Server.debug,
+        });
     }
 
     const exitCode = await spawnedProcess.exitCode;
 
-    // For 'down' commands and 'up' commands, stderr output is expected and not an error
     const isExpectedOutput = args.includes("down") || args.includes("up");
     if (exitCode !== 0 && !isExpectedOutput) {
         throw new Error(
@@ -167,138 +165,133 @@ async function waitForHealthy(
     return false;
 }
 
-export async function up(silent = false) {
+// Update function signatures to remove silent parameter
+export async function up() {
     const env = getDockerEnv();
 
-    if (!silent) {
-        log({
-            message: `Starting ${env.CONTAINER_NAME} services...`,
-            type: "info",
-        });
-    }
-    await runDockerCommand(["up", "-d", "--build"], silent);
+    log({
+        message: `Starting ${env.CONTAINER_NAME} services...`,
+        type: "info",
+        suppress: VircadiaConfig_Server.suppress,
+        debug: VircadiaConfig_Server.debug,
+    });
+    await runDockerCommand(["up", "-d", "--build"]);
 
-    if (!silent) {
-        log({
-            message: `Waiting for ${env.CONTAINER_NAME} services to be ready...`,
-            type: "info",
-        });
-    }
+    log({
+        message: `Waiting for ${env.CONTAINER_NAME} services to be ready...`,
+        type: "info",
+        suppress: VircadiaConfig_Server.suppress,
+        debug: VircadiaConfig_Server.debug,
+    });
     if (!(await waitForHealthy())) {
         throw new Error(
             `${env.CONTAINER_NAME} services failed to start properly after 30 seconds`,
         );
     }
-    if (!silent) {
-        log({
-            message: `${env.CONTAINER_NAME} services are ready`,
-            type: "success",
-        });
-    }
-
-    // Add a small delay to ensure container is fully initialized
-    await Bun.sleep(2000);
+    log({
+        message: `${env.CONTAINER_NAME} services are ready`,
+        type: "success",
+        suppress: VircadiaConfig_Server.suppress,
+        debug: VircadiaConfig_Server.debug,
+    });
 
     // Create and activate extensions
     const db = PostgresClient.getInstance();
-    await db.connect(silent);
-    const sql = db.getClient();
+    await db.connect();
 
     try {
         // Add migration execution here
-        if (!silent) {
-            log({
-                message: `Running initial migrations for ${env.CONTAINER_NAME}...`,
-                type: "info",
-            });
-        }
-        await migrate({
-            silent,
+        log({
+            message: `Running initial migrations for ${env.CONTAINER_NAME}...`,
+            type: "info",
+            suppress: VircadiaConfig_Server.suppress,
+            debug: VircadiaConfig_Server.debug,
         });
+        await migrate({});
     } catch (error) {
-        if (!silent) {
-            log({
-                message: "Failed to initialize database.",
-                type: "error",
-                error: error,
-            });
-        }
+        log({
+            message: "Failed to initialize database.",
+            type: "error",
+            error: error,
+            suppress: VircadiaConfig_Server.suppress,
+            debug: VircadiaConfig_Server.debug,
+        });
         throw error;
     }
 
-    if (!silent) {
-        log({
-            message: `${env.CONTAINER_NAME} container started successfully.`,
-            type: "success",
-        });
-    }
+    log({
+        message: `${env.CONTAINER_NAME} container started successfully.`,
+        type: "success",
+        suppress: VircadiaConfig_Server.suppress,
+        debug: VircadiaConfig_Server.debug,
+    });
 }
 
-export async function down(silent = false) {
+// Update down function
+export async function down() {
     const env = getDockerEnv();
 
-    if (!silent) {
-        log({
-            message: `Stopping ${env.CONTAINER_NAME} container...`,
-            type: "info",
-        });
-    }
-    await runDockerCommand(["down"], silent);
-    if (!silent) {
-        log({
-            message: `${env.CONTAINER_NAME} container stopped`,
-            type: "success",
-        });
-    }
+    log({
+        message: `Stopping ${env.CONTAINER_NAME} container...`,
+        type: "info",
+        suppress: VircadiaConfig_Server.suppress,
+        debug: VircadiaConfig_Server.debug,
+    });
+    await runDockerCommand(["down"]);
+    log({
+        message: `${env.CONTAINER_NAME} container stopped`,
+        type: "success",
+        suppress: VircadiaConfig_Server.suppress,
+        debug: VircadiaConfig_Server.debug,
+    });
 }
 
-export async function rebuildContainer(silent = false) {
+// Update rebuildContainer function
+export async function rebuildContainer() {
     const env = getDockerEnv();
 
-    if (!silent) {
-        log({
-            message: `Performing hard reset of ${env.CONTAINER_NAME} container...`,
-            type: "info",
-        });
-    }
-    await runDockerCommand(["down", "-v"], silent);
-    if (!silent) {
-        log({
-            message: `Container ${env.CONTAINER_NAME} removed, rebuilding...`,
-            type: "info",
-        });
-    }
-    await runDockerCommand(["up", "-d", "--build"], silent);
-    if (!silent) {
-        log({
-            message: `${env.CONTAINER_NAME} container reset complete, running migrations...`,
-            type: "info",
-        });
-    }
+    log({
+        message: `Performing hard reset of ${env.CONTAINER_NAME} container...`,
+        type: "info",
+        suppress: VircadiaConfig_Server.suppress,
+        debug: VircadiaConfig_Server.debug,
+    });
+    await runDockerCommand(["down", "-v"]);
+    log({
+        message: `Container ${env.CONTAINER_NAME} removed, rebuilding...`,
+        type: "info",
+    });
+    await runDockerCommand(["up", "-d", "--build"]);
+    log({
+        message: `${env.CONTAINER_NAME} container reset complete, running migrations...`,
+        type: "info",
+        suppress: VircadiaConfig_Server.suppress,
+        debug: VircadiaConfig_Server.debug,
+    });
     await migrate({
-        silent,
         runSeeds: true,
     });
-    if (!silent) {
-        log({
-            message: `${env.CONTAINER_NAME} database migrations applied`,
-            type: "success",
-        });
-    }
+    log({
+        message: `${env.CONTAINER_NAME} database migrations applied`,
+        type: "success",
+        suppress: VircadiaConfig_Server.suppress,
+        debug: VircadiaConfig_Server.debug,
+    });
 }
 
-export async function softResetDatabase(silent = false) {
+// Update softResetDatabase function
+export async function softResetDatabase() {
     const env = getDockerEnv();
 
-    if (!silent) {
-        log({
-            message: `Performing soft reset of ${env.CONTAINER_NAME} database...`,
-            type: "info",
-        });
-    }
+    log({
+        message: `Performing soft reset of ${env.CONTAINER_NAME} database...`,
+        type: "info",
+        suppress: VircadiaConfig_Server.suppress,
+        debug: VircadiaConfig_Server.debug,
+    });
 
     const db = PostgresClient.getInstance();
-    await db.connect(silent);
+    await db.connect();
     const sql = db.getClient();
 
     await sql.unsafe(`
@@ -324,58 +317,57 @@ export async function softResetDatabase(silent = false) {
         END $$;
     `);
 
-    if (!silent) {
-        log({
-            message: `${env.CONTAINER_NAME} database reset complete. Running migrations...`,
-            type: "info",
-        });
-    }
+    log({
+        message: `${env.CONTAINER_NAME} database reset complete. Running migrations...`,
+        type: "info",
+        suppress: VircadiaConfig_Server.suppress,
+        debug: VircadiaConfig_Server.debug,
+    });
     await migrate({
-        silent,
         runSeeds: true, // Always run seeds after a reset
     });
 
-    if (!silent) {
-        log({
-            message: `${env.CONTAINER_NAME} container soft reset complete.`,
-            type: "success",
-        });
-    }
+    log({
+        message: `${env.CONTAINER_NAME} container soft reset complete.`,
+        type: "success",
+        suppress: VircadiaConfig_Server.suppress,
+        debug: VircadiaConfig_Server.debug,
+    });
 }
 
+// Update migrate function signature and remove silent parameter
 export async function migrate(data: {
-    silent?: boolean;
     runSeeds?: boolean;
 }) {
     const env = getDockerEnv();
     let migrationsRan = false;
 
     const db = PostgresClient.getInstance();
-    await db.connect(data.silent);
+    await db.connect();
     const sql = db.getClient();
 
     for (const name of VircadiaConfig_Server.postgres.extensions) {
-        if (!data.silent) {
-            log({
-                message: `Installing PostgreSQL extension: ${name}...`,
-                type: "info",
-            });
-        }
-        await sql`CREATE EXTENSION IF NOT EXISTS ${sql(name)};`;
-        if (!data.silent) {
-            log({
-                message: `PostgreSQL extension ${name} installed successfully`,
-                type: "success",
-            });
-        }
-    }
-
-    if (!data.silent) {
         log({
-            message: `Running ${env.CONTAINER_NAME} database migrations...`,
+            message: `Installing PostgreSQL extension: ${name}...`,
             type: "info",
+            suppress: VircadiaConfig_Server.suppress,
+            debug: VircadiaConfig_Server.debug,
+        });
+        await sql`CREATE EXTENSION IF NOT EXISTS ${sql(name)};`;
+        log({
+            message: `PostgreSQL extension ${name} installed successfully`,
+            type: "success",
+            suppress: VircadiaConfig_Server.suppress,
+            debug: VircadiaConfig_Server.debug,
         });
     }
+
+    log({
+        message: `Running ${env.CONTAINER_NAME} database migrations...`,
+        type: "info",
+        suppress: VircadiaConfig_Server.suppress,
+        debug: VircadiaConfig_Server.debug,
+    });
 
     // Create config schema and migrations table if they don't exist
     await sql.unsafe("CREATE SCHEMA IF NOT EXISTS config");
@@ -413,20 +405,20 @@ export async function migrate(data: {
                     `;
                 });
 
-                if (!data.silent) {
-                    log({
-                        message: `Migration ${file} executed successfully`,
-                        type: "success",
-                    });
-                }
+                log({
+                    message: `Migration ${file} executed successfully`,
+                    type: "success",
+                    suppress: VircadiaConfig_Server.suppress,
+                    debug: VircadiaConfig_Server.debug,
+                });
             } catch (error) {
-                if (!data.silent) {
-                    log({
-                        message: `Failed to run migration ${file}.`,
-                        type: "error",
-                        error: error,
-                    });
-                }
+                log({
+                    message: `Failed to run migration ${file}.`,
+                    type: "error",
+                    error: error,
+                    suppress: VircadiaConfig_Server.suppress,
+                    debug: VircadiaConfig_Server.debug,
+                });
                 throw error;
             }
         }
@@ -434,33 +426,27 @@ export async function migrate(data: {
 
     // Run seeds if explicitly requested or if migrations were executed
     if (data.runSeeds || migrationsRan) {
-        if (!data.silent) {
-            log({
-                message: "Running seeds after migration...",
-                type: "info",
-            });
-        }
-        await seed({
-            silent: data.silent,
+        log({
+            message: "Running seeds after migration...",
+            type: "info",
         });
+        await seed({});
     }
 
-    if (!data.silent) {
-        log({
-            message: `${env.CONTAINER_NAME} container migrations applied`,
-            type: "success",
-        });
-    }
+    log({
+        message: `${env.CONTAINER_NAME} container migrations applied`,
+        type: "success",
+    });
 }
 
+// Update seed function signature
 export async function seed(data: {
     seedPath?: string;
-    silent?: boolean;
 }) {
     const env = getDockerEnv();
 
     const db = PostgresClient.getInstance();
-    await db.connect(data.silent);
+    await db.connect();
     const sql = db.getClient();
 
     // Ensure we resolve the seed path to absolute path
@@ -468,34 +454,36 @@ export async function seed(data: {
         ? path.resolve(data.seedPath)
         : DEFAULT_POSTGRES_SEEDS_DIR;
 
-    if (!data.silent) {
-        log({
-            message: `Attempting to read seed directory: ${seedDir}`,
-            type: "info",
-        });
-    }
+    log({
+        message: `Attempting to read seed directory: ${seedDir}`,
+        type: "info",
+        suppress: VircadiaConfig_Server.suppress,
+        debug: VircadiaConfig_Server.debug,
+    });
 
     // Get list of seed files
     let files: string[] = [];
     try {
         files = await readdir(seedDir);
-        if (!data.silent) {
-            log({
-                message: `Directory contents: ${files.length ? files.join(", ") : "(empty directory)"}`,
-                type: "info",
-            });
-        }
+        log({
+            message: `Directory contents: ${files.length ? files.join(", ") : "(empty directory)"}`,
+            type: "info",
+            suppress: VircadiaConfig_Server.suppress,
+            debug: VircadiaConfig_Server.debug,
+        });
     } catch (error) {
-        if (!data.silent) {
-            log({
-                message: `Error reading seed directory: ${error instanceof Error ? error.message : String(error)}`,
-                type: "error",
-            });
-            log({
-                message: `No seed directory found at ${seedDir}`,
-                type: "info",
-            });
-        }
+        log({
+            message: `Error reading seed directory: ${error instanceof Error ? error.message : String(error)}`,
+            type: "error",
+            suppress: VircadiaConfig_Server.suppress,
+            debug: VircadiaConfig_Server.debug,
+        });
+        log({
+            message: `No seed directory found at ${seedDir}`,
+            type: "info",
+            suppress: VircadiaConfig_Server.suppress,
+            debug: VircadiaConfig_Server.debug,
+        });
         return;
     }
 
@@ -522,44 +510,43 @@ export async function seed(data: {
                     `;
                 });
 
-                if (!data.silent) {
-                    log({
-                        message: `Seed ${file} executed successfully`,
-                        type: "success",
-                    });
-                }
+                log({
+                    message: `Seed ${file} executed successfully`,
+                    type: "success",
+                    suppress: VircadiaConfig_Server.suppress,
+                    debug: VircadiaConfig_Server.debug,
+                });
             } catch (error) {
-                if (!data.silent) {
-                    log({
-                        message: `Failed to run seed ${file}`,
-                        type: "error",
-                        error: error,
-                    });
-                }
+                log({
+                    message: `Failed to run seed ${file}`,
+                    type: "error",
+                    error: error,
+                    suppress: VircadiaConfig_Server.suppress,
+                    debug: VircadiaConfig_Server.debug,
+                });
                 throw error;
             }
         }
     }
 
-    if (!data.silent) {
-        log({
-            message: `${env.CONTAINER_NAME} container seeds applied.`,
-            type: "success",
-        });
-    }
+    log({
+        message: `${env.CONTAINER_NAME} container seeds applied.`,
+        type: "success",
+    });
 }
 
-export async function restart(silent = false) {
+// Update restart function
+export async function restart() {
     const env = getDockerEnv();
 
-    if (!silent) {
-        log({
-            message: `Restarting ${env.CONTAINER_NAME} container...`,
-            type: "info",
-        });
-    }
-    await down(silent);
-    await up(silent);
+    log({
+        message: `Restarting ${env.CONTAINER_NAME} container...`,
+        type: "info",
+        suppress: VircadiaConfig_Server.suppress,
+        debug: VircadiaConfig_Server.debug,
+    });
+    await down();
+    await up();
 }
 
 export async function generateDbSystemToken(): Promise<{
@@ -678,6 +665,8 @@ if (import.meta.main) {
                 log({
                     message: `PostgreSQL Connection String:\n\n${connectionString}\n`,
                     type: "success",
+                    suppress: VircadiaConfig_Server.suppress,
+                    debug: VircadiaConfig_Server.debug,
                 });
                 break;
             }
@@ -689,6 +678,8 @@ if (import.meta.main) {
                 log({
                     message: `System token:\n${token.token}\n\nSession ID: ${token.sessionId}\nAgent ID: ${token.agentId}\n\nThis token has system privileges - use with caution!`,
                     type: "success",
+                    suppress: VircadiaConfig_Server.suppress,
+                    debug: VircadiaConfig_Server.debug,
                 });
                 break;
             }
@@ -710,6 +701,8 @@ if (import.meta.main) {
                 log({
                     message: `${accessMessage}\nhttp://localhost:${config.pgweb.port}\n`,
                     type: "info",
+                    suppress: VircadiaConfig_Server.suppress,
+                    debug: VircadiaConfig_Server.debug,
                 });
                 break;
             }

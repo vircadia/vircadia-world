@@ -1,51 +1,52 @@
 {
-  "name": "vircadia-world-server",
-  "version": "1.0.0",
-  "type": "module",
-  "scripts": {
-    "test": "bun test",
-    "app:dev": "bun run service:dev:api && bun run service:dev:script",
-    "app:dev-debug": "VRCA_SERVER_DEBUG=1 bun run service:dev:api-debug && bun run service:dev:script-debug",
-    "app:start": "bun run service:run:api && bun run service:run:script",
-    "app:build": "bun run service:build:api && bun run service:build:script",
-    "service:run:api": "bun run service/world-api-manager.ts",
-    "service:run:script": "bun run service/world-web-script-manager.ts",
-    "service:build:api": "bun build service/world-api-manager.ts --outfile=service/world-api-manager",
-    "service:build:script": "bun build service/world-web-script-manager.ts --outfile=service/world-web-script-manager",
-    "service:dev:api": "bun run --watch service/world-api-manager.ts",
-    "service:dev:script": "bun run --watch service/world-web-script-manager.ts",
-    "service:dev:api-debug": "VRCA_SERVER_DEBUG=1 bun run --watch service/world-api-manager.ts",
-    "service:dev:script-debug": "VRCA_SERVER_DEBUG=1 bun run --watch service/world-web-script-manager.ts",
-    "container:up": "bun run container/docker/docker_cli.ts container:up",
-    "container:down": "bun run container/docker/docker_cli.ts container:down",
-    "container:db:soft-reset": "bun run container/docker/docker_cli.ts container:db:soft-reset",
-    "container:db:migrate": "bun run container/docker/docker_cli.ts container:db:migrate",
-    "container:db:connection-string": "bun run container/docker/docker_cli.ts container:db:connection-string",
-    "container:restart": "bun run container/docker/docker_cli.ts container:restart",
-    "container:rebuild": "bun run container/docker/docker_cli.ts container:rebuild",
-    "container:pgweb:access-command": "bun run container/docker/docker_cli.ts container:pgweb:access-command",
-    "container:db:system-token": "bun run container/docker/docker_cli.ts container:db:system-token",
-    "container:health": "bun run container/docker/docker_cli.ts container:health"
-  },
-  "dependencies": {
-    "@babylonjs/core": "^7.47.2",
-    "eight-colors": "^1.3.1",
-    "jsonwebtoken": "^9.0.2",
-    "postgres": "^3.4.5",
-    "tmp": "^0.2.3",
-    "zod": "^3.24.1"
-  },
-  "devDependencies": {
-    "@types/bun": "1.2.2",
-    "@types/node": "22.10.10",
-    "@types/jsonwebtoken": "9.0.8"
-  },
-  "engines": {
-    "bun": ">=1.2.2"
-  },
-  "module": "index.ts",
-  "peerDependencies": {
-    "typescript": "^5.0.0"
-  },
-  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+    "name": "vircadia-world-server",
+    "version": "1.0.0",
+    "type": "module",
+    "scripts": {
+        "test": "VRCA_SERVER_SUPPRESS=1 bun test",
+        "test:verbose": "bun test",
+        "app:dev": "bun run service:dev:api && bun run service:dev:script",
+        "app:dev-debug": "VRCA_SERVER_DEBUG=1 bun run service:dev:api-debug && bun run service:dev:script-debug",
+        "app:start": "bun run service:run:api && bun run service:run:script",
+        "app:build": "bun run service:build:api && bun run service:build:script",
+        "service:run:api": "bun run service/world-api-manager.ts",
+        "service:run:script": "bun run service/world-web-script-manager.ts",
+        "service:build:api": "bun build service/world-api-manager.ts --outfile=service/world-api-manager",
+        "service:build:script": "bun build service/world-web-script-manager.ts --outfile=service/world-web-script-manager",
+        "service:dev:api": "bun run --watch service/world-api-manager.ts",
+        "service:dev:script": "bun run --watch service/world-web-script-manager.ts",
+        "service:dev:api-debug": "VRCA_SERVER_DEBUG=1 bun run --watch service/world-api-manager.ts",
+        "service:dev:script-debug": "VRCA_SERVER_DEBUG=1 bun run --watch service/world-web-script-manager.ts",
+        "container:up": "bun run container/docker/docker_cli.ts container:up",
+        "container:down": "bun run container/docker/docker_cli.ts container:down",
+        "container:db:soft-reset": "bun run container/docker/docker_cli.ts container:db:soft-reset",
+        "container:db:migrate": "bun run container/docker/docker_cli.ts container:db:migrate",
+        "container:db:connection-string": "bun run container/docker/docker_cli.ts container:db:connection-string",
+        "container:restart": "bun run container/docker/docker_cli.ts container:restart",
+        "container:rebuild": "bun run container/docker/docker_cli.ts container:rebuild",
+        "container:pgweb:access-command": "bun run container/docker/docker_cli.ts container:pgweb:access-command",
+        "container:db:system-token": "bun run container/docker/docker_cli.ts container:db:system-token",
+        "container:health": "bun run container/docker/docker_cli.ts container:health"
+    },
+    "dependencies": {
+        "@babylonjs/core": "^7.47.2",
+        "eight-colors": "^1.3.1",
+        "jsonwebtoken": "^9.0.2",
+        "postgres": "^3.4.5",
+        "tmp": "^0.2.3",
+        "zod": "^3.24.1"
+    },
+    "devDependencies": {
+        "@types/bun": "1.2.2",
+        "@types/node": "22.10.10",
+        "@types/jsonwebtoken": "9.0.8"
+    },
+    "engines": {
+        "bun": ">=1.2.2"
+    },
+    "module": "index.ts",
+    "peerDependencies": {
+        "typescript": "^5.0.0"
+    },
+    "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }

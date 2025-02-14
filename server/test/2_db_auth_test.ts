@@ -31,7 +31,7 @@ describe("DB -> Auth Tests", () => {
     // Setup before all tests
     beforeAll(async () => {
         if (!(await isHealthy()).isHealthy) {
-            await up(true);
+            await up();
 
             const healthyAfterUp = await isHealthy();
             if (!healthyAfterUp.isHealthy) {

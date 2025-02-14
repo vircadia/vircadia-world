@@ -5,7 +5,7 @@ describe("System Operations Tests", () => {
     beforeAll(async () => {
         try {
             if (!(await isHealthy()).isHealthy) {
-                await up(true);
+                await up();
 
                 const healthyAfterUp = await isHealthy();
                 if (!healthyAfterUp.isHealthy) {
@@ -31,7 +31,7 @@ describe("System Operations Tests", () => {
     });
 
     test("Docker container restart works", async () => {
-        await restart(true);
+        await restart();
         const health = await isHealthy();
         expect(health.services.postgres.isHealthy).toBe(true);
         expect(health.services.pgweb.isHealthy).toBe(true);
@@ -39,13 +39,13 @@ describe("System Operations Tests", () => {
 
     test("Docker container down and up cycle works", async () => {
         // Stop containers
-        await down(true);
+        await down();
         const healthAfterDown = await isHealthy();
         expect(healthAfterDown.services.postgres.isHealthy).toBe(false);
         expect(healthAfterDown.services.pgweb.isHealthy).toBe(false);
 
         // Start containers again
-        await up(true);
+        await up();
         const healthAfterUp = await isHealthy();
         expect(healthAfterUp.services.postgres.isHealthy).toBe(true);
         expect(healthAfterUp.services.pgweb.isHealthy).toBe(true);

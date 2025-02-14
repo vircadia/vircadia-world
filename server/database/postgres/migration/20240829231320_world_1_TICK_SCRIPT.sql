@@ -4,7 +4,7 @@
 
 -- Create script audit log table
 CREATE TABLE tick.script_audit_log (
-    general__audit_id uuid DEFAULT uuid_generate_v4() PRIMARY KEY,
+    general__asset_audit_id uuid DEFAULT uuid_generate_v4() PRIMARY KEY,
     general__script_id uuid NOT NULL,
     group__sync text NOT NULL
         REFERENCES auth.sync_groups(general__sync_group),
@@ -111,6 +111,7 @@ CREATE OR REPLACE FUNCTION tick.get_all_script_states_at_latest_tick(
     p_sync_group text
 ) RETURNS TABLE (
     general__script_id uuid,
+    general__script_name text,
     group__sync text,
     source__repo__entry_path text,
     source__repo__url text,
@@ -136,6 +137,7 @@ BEGIN
     RETURN QUERY
     SELECT 
         es.general__script_id,
+        es.general__script_name,
         es.group__sync,
         es.source__repo__entry_path,
         es.source__repo__url,
@@ -206,6 +208,7 @@ BEGIN
         CASE 
             WHEN sc.operation = 'DELETE' THEN NULL::jsonb
             ELSE jsonb_strip_nulls(jsonb_build_object(
+                'general__script_name', sc.general__script_name,
                 'source__repo__entry_path', sc.source__repo__entry_path,
                 'source__repo__url', sc.source__repo__url,
                 'compiled__node__script', sc.compiled__node__script,

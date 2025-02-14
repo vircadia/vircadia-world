@@ -45,7 +45,7 @@ describe("Service -> Web Script Manager Tests", () => {
             const result = await sql`
                 WITH inserted_script AS (
                     INSERT INTO entity.entity_scripts (
-                        general__name,
+                        general__script_name,
                         group__sync,
                         source__repo__url,
                         source__repo__entry_path

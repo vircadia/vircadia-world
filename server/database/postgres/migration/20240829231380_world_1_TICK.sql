@@ -109,7 +109,7 @@ BEGIN
     WITH entity_snapshot AS (
         INSERT INTO tick.entity_states (
             general__entity_id,
-            general__name,
+            general__entity_name,
             general__semantic_version,
             general__load_priority,
             general__initialized_at,
@@ -127,7 +127,7 @@ BEGIN
         )
         SELECT 
             e.general__entity_id,
-            e.general__name,
+            e.general__entity_name,
             e.general__semantic_version,
             e.general__load_priority,
             e.general__initialized_at,

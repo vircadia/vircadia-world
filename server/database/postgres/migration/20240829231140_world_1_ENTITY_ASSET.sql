@@ -3,8 +3,8 @@
 --
 
 CREATE TABLE entity.entity_assets (
-    general__script_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    general__name TEXT NOT NULL DEFAULT 'UNNAMED_ASSET',
+    general__asset_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    general__asset_name TEXT NOT NULL DEFAULT 'UNNAMED_ASSET',
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
     
     asset__data BYTEA,  -- Store asset binaries (GLBs, textures, etc.)

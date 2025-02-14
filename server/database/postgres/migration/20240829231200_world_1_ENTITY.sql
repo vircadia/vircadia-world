@@ -4,7 +4,7 @@
 
 CREATE TABLE entity.entities (
     general__entity_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    general__name TEXT NOT NULL,
+    general__entity_name TEXT NOT NULL,
     general__semantic_version TEXT NOT NULL DEFAULT '1.0.0',
     general__load_priority INTEGER,
     general__initialized_at TIMESTAMPTZ DEFAULT NULL,

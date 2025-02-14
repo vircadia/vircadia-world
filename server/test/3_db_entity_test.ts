@@ -33,18 +33,15 @@ describe("DB -> Entity Tests", () => {
     let agent: TestAccount;
     let testResources: TestResources;
 
-    // Setup before all tests
     beforeAll(async () => {
         if (!(await isHealthy()).isHealthy) {
             await up();
-
             const healthyAfterUp = await isHealthy();
             if (!healthyAfterUp.isHealthy) {
                 throw new Error("Failed to start services");
             }
         }
-        // Initialize database connection using PostgresClient
-        await PostgresClient.getInstance().connect(true);
+        await PostgresClient.getInstance().connect();
         sql = PostgresClient.getInstance().getClient();
     });
 
@@ -53,23 +50,18 @@ describe("DB -> Entity Tests", () => {
         agent: TestAccount;
     }> {
         try {
-            // Get auth settings
             const [authConfig] = await sql<[Config.I_Config<"auth">]>`
                 SELECT * FROM config.config 
                 WHERE general__key = ${Config.E_ConfigKey.AUTH}
             `;
-
             if (
                 !authConfig.general__value.jwt_secret ||
                 !authConfig.general__value.default_session_duration_ms
             ) {
                 throw new Error("Auth settings not found in database");
             }
-
-            // Clean up any existing test accounts
             await sql`DELETE FROM auth.agent_profiles WHERE profile__username IN ('test_admin', 'test_agent')`;
 
-            // Create test admin account
             const [adminAccount] = await sql`
                 INSERT INTO auth.agent_profiles (profile__username, auth__email, auth__is_admin)
                 VALUES ('test_admin', 'test_admin@test.com', true)
@@ -77,7 +69,6 @@ describe("DB -> Entity Tests", () => {
             `;
             const adminId = adminAccount.general__agent_profile_id;
 
-            // Create test regular agent account
             const [agentAccount] = await sql`
                 INSERT INTO auth.agent_profiles (profile__username, auth__email)
                 VALUES ('test_agent', 'test_agent@test.com')
@@ -85,7 +76,6 @@ describe("DB -> Entity Tests", () => {
             `;
             const agentId = agentAccount.general__agent_profile_id;
 
-            // Assign roles
             await sql`
                 INSERT INTO auth.agent_sync_group_roles (
                     auth__agent_id, 
@@ -98,13 +88,11 @@ describe("DB -> Entity Tests", () => {
                 (${agentId}, 'public.NORMAL', true, true, false)
             `;
 
-            // Create sessions
             const [adminSession] =
                 await sql`SELECT * FROM auth.create_agent_session(${adminId}, 'test')`;
             const [agentSession] =
                 await sql`SELECT * FROM auth.create_agent_session(${agentId}, 'test')`;
 
-            // Generate tokens
             const adminToken = sign(
                 {
                     sessionId: adminSession.general__session_id,
@@ -129,7 +117,6 @@ describe("DB -> Entity Tests", () => {
                 },
             );
 
-            // Update sessions with tokens
             await sql`
                 UPDATE auth.agent_sessions 
                 SET session__jwt = ${adminToken}
@@ -164,17 +151,15 @@ describe("DB -> Entity Tests", () => {
     }
 
     beforeEach(async () => {
-        // Create test accounts if they don't exist
         if (!admin || !agent) {
             const accounts = await createTestAccounts();
             admin = accounts.admin;
             agent = accounts.agent;
         }
-        // Set admin context for tests
         await sql`SELECT auth.set_agent_context(${admin.sessionId}, ${admin.token})`;
     });
 
-    describe("Entity Operations", () => {
+    describe("Entity -> Entities Operations", () => {
         test("should create and read an entity with metadata", async () => {
             const entityData = {
                 script_namespace_1: {
@@ -187,10 +172,9 @@ describe("DB -> Entity Tests", () => {
                 },
             };
 
-            // Expect this to succeed
             const [entity] = await sql<[Entity.I_Entity]>`
                 INSERT INTO entity.entities (
-                    general__name,
+                    general__entity_name,
                     meta__data,
                     group__sync
                 ) VALUES (
@@ -200,7 +184,7 @@ describe("DB -> Entity Tests", () => {
                 ) RETURNING *
             `;
 
-            expect(entity.general__name).toBe("Test Entity");
+            expect(entity.general__entity_name).toBe("Test Entity");
             expect(entity.group__sync).toBe("public.NORMAL");
 
             const metaData =
@@ -209,15 +193,13 @@ describe("DB -> Entity Tests", () => {
                     : entity.meta__data;
             expect(metaData).toMatchObject(entityData);
 
-            // Clean up
             await sql`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
         });
 
         test("should update an entity", async () => {
-            // Create entity with namespaced metadata
             const [entity] = await sql<[Entity.I_Entity]>`
                 INSERT INTO entity.entities (
-                    general__name,
+                    general__entity_name,
                     meta__data,
                     group__sync
                 ) VALUES (
@@ -230,11 +212,10 @@ describe("DB -> Entity Tests", () => {
                 ) RETURNING *
             `;
 
-            // Update entity name and metadata
             await sql`
                 UPDATE entity.entities
                 SET 
-                    general__name = ${"Updated Entity"},
+                    general__entity_name = ${"Updated Entity"},
                     meta__data = ${sql.json({
                         script1: { status: "ready" },
                         script2: { counter: 1 },
@@ -242,23 +223,22 @@ describe("DB -> Entity Tests", () => {
                 WHERE general__entity_id = ${entity.general__entity_id}
             `;
 
-            // Verify update
             const [updated] = await sql<[Entity.I_Entity]>`
                 SELECT * FROM entity.entities
                 WHERE general__entity_id = ${entity.general__entity_id}
             `;
-            expect(updated.general__name).toBe("Updated Entity");
+            expect(updated.general__entity_name).toBe("Updated Entity");
             expect(updated.meta__data).toMatchObject({
                 script1: { status: "ready" },
                 script2: { counter: 1 },
             });
 
-            // Clean up
             await sql`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
         });
+    });
 
-        test("should handle entity scripts", async () => {
-            // Create script
+    describe("Entity -> Entity Scripts Operations", () => {
+        test("should create a script and associate it with an entity", async () => {
             const [script] = await sql<[Entity.Script.I_Script]>`
                 INSERT INTO entity.entity_scripts (
                     compiled__browser__script,
@@ -271,11 +251,10 @@ describe("DB -> Entity Tests", () => {
                 ) RETURNING *
             `;
 
-            // Create entity with script and namespaced metadata
             const scriptNamespace = `script_${script.general__script_id}`;
             const [entity] = await sql<[Entity.I_Entity]>`
                 INSERT INTO entity.entities (
-                    general__name,
+                    general__entity_name,
                     scripts__ids,
                     meta__data,
                     group__sync
@@ -297,16 +276,46 @@ describe("DB -> Entity Tests", () => {
                 initialized: true,
             });
 
-            // Clean up
             await sql`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
             await sql`DELETE FROM entity.entity_scripts WHERE general__script_id = ${script.general__script_id}`;
         });
+
+        // You can add more tests targeting operations from the 20240829231120_WORLD_1_ENTITY_SCRIPT.sql file here.
+    });
+
+    describe("Entity -> Entity Assets Operations", () => {
+        test("should create an asset and verify its metadata", async () => {
+            // Creating an asset that mirrors the world_1_ENTITY_ASSET.sql structure.
+            const assetData = {
+                extra: "data",
+                info: { version: 1 },
+            };
+
+            const [asset] = await sql<[Entity.Asset.I_Asset]>`
+                INSERT INTO entity.entity_assets (
+                    general__asset_name,
+                    asset__data,
+                    meta__data,
+                    group__sync
+                ) VALUES (
+                    ${"Test Asset"},
+                    ${Buffer.from("sample asset binary data")},
+                    ${sql.json(assetData)},
+                    ${"public.NORMAL"}
+                ) RETURNING *
+            `;
+
+            expect(asset.general__asset_name).toBe("Test Asset");
+            expect(asset.meta__data).toMatchObject(assetData);
+
+            await sql`DELETE FROM entity.entity_assets WHERE general__asset_id = ${asset.general__asset_id}`;
+        });
+
+        // You can add more tests targeting operations from the 20240829231140_WORLD_1_ENTITY_ASSET.sql file here.
     });
 
     afterAll(async () => {
-        // Clean up test accounts
         await sql`DELETE FROM auth.agent_profiles WHERE profile__username IN ('test_admin', 'test_agent')`;
-        // Disconnect using PostgresClient
         await PostgresClient.getInstance().disconnect();
     });
 });

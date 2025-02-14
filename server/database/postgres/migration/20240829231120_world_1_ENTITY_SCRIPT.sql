@@ -5,7 +5,7 @@
 -- Restructure entity_scripts into parent/child tables
 CREATE TABLE entity.entity_scripts (
     general__script_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    general__name TEXT NOT NULL DEFAULT 'UNNAMED',
+    general__script_name TEXT NOT NULL DEFAULT 'UNNAMED',
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
     
     -- Source fields

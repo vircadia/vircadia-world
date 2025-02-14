@@ -78,7 +78,7 @@ describe("DB -> Tick Tests", () => {
             // Create an entity with namespaced metadata
             const [entity] = await sql<[Entity.I_Entity]>`
                 INSERT INTO entity.entities (
-                    general__name,
+                    general__entity_name,
                     meta__data,
                     group__sync,
                     scripts__ids,
@@ -109,7 +109,7 @@ describe("DB -> Tick Tests", () => {
             `;
 
             expect(entityState).toBeTruthy();
-            expect(entityState.general__name).toBe("Test Entity");
+            expect(entityState.general__entity_name).toBe("Test Entity");
             expect(entityState.group__sync).toBe(syncGroup);
             expect(entityState.general__tick_id).toBe(
                 tickRecord.general__tick_id,
@@ -126,7 +126,7 @@ describe("DB -> Tick Tests", () => {
             // Create initial entity
             const [entity] = await sql<[Entity.I_Entity]>`
                 INSERT INTO entity.entities (
-                    general__name,
+                    general__entity_name,
                     meta__data,
                     group__sync,
                     scripts__ids,
@@ -152,7 +152,7 @@ describe("DB -> Tick Tests", () => {
             // Update entity
             await sql`
                 UPDATE entity.entities 
-                SET general__name = ${"Updated Name"},
+                SET general__entity_name = ${"Updated Name"},
                     meta__data = ${sql.json({
                         [scriptNamespace]: {
                             position: { x: 1, y: 1, z: 1 },
@@ -184,7 +184,7 @@ describe("DB -> Tick Tests", () => {
                     ? JSON.parse(entityChange.changes)
                     : entityChange?.changes;
 
-            expect(changesData.general__name).toBe("Updated Name");
+            expect(changesData.general__entity_name).toBe("Updated Name");
             expect(changesData.meta__data).toEqual({
                 [scriptNamespace]: {
                     position: { x: 1, y: 1, z: 1 },
@@ -202,7 +202,7 @@ describe("DB -> Tick Tests", () => {
             // Create test entity
             const [entity] = await sql<[Entity.I_Entity]>`
                 INSERT INTO entity.entities (
-                    general__name,
+                    general__entity_name,
                     meta__data,
                     group__sync,
                     scripts__ids,
@@ -235,7 +235,7 @@ describe("DB -> Tick Tests", () => {
                 (s) => s.general__entity_id === entity.general__entity_id,
             );
             expect(entityState).toBeTruthy();
-            expect(entityState?.general__name).toBe("Latest State Test");
+            expect(entityState?.general__entity_name).toBe("Latest State Test");
 
             // Clean up
             await sql`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
@@ -248,7 +248,7 @@ describe("DB -> Tick Tests", () => {
             // Create initial entity
             const [entity] = await sql<[Entity.I_Entity]>`
                 INSERT INTO entity.entities (
-                    general__name,
+                    general__entity_name,
                     meta__data,
                     group__sync,
                     scripts__ids,

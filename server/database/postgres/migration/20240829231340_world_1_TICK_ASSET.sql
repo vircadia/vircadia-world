@@ -4,7 +4,7 @@
 
 -- Create the asset audit log table
 CREATE TABLE tick.asset_audit_log (
-    general__audit_id uuid DEFAULT uuid_generate_v4() PRIMARY KEY,
+    general__asset_audit_id uuid DEFAULT uuid_generate_v4() PRIMARY KEY,
     general__asset_id uuid NOT NULL,
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group),
     operation operation_enum NOT NULL,
@@ -42,7 +42,7 @@ BEGIN
             group__sync,
             operation
         ) VALUES (
-            NEW.general__script_id,
+            NEW.general__asset_id,
             NEW.group__sync,
             'INSERT'
         );
@@ -53,7 +53,7 @@ BEGIN
             group__sync,
             operation
         ) VALUES (
-            NEW.general__script_id,
+            NEW.general__asset_id,
             NEW.group__sync,
             'UPDATE'
         );
@@ -64,7 +64,7 @@ BEGIN
             group__sync,
             operation
         ) VALUES (
-            OLD.general__script_id,
+            OLD.general__asset_id,
             OLD.group__sync,
             'DELETE'
         );
@@ -90,7 +90,7 @@ CREATE OR REPLACE FUNCTION tick.get_all_asset_states_at_latest_tick(
 ) RETURNS TABLE (
     general__asset_id uuid,
     group__sync text,
-    general__name text,
+    general__asset_name text,
     asset__data bytea,
     meta__data jsonb,
     general__created_at timestamptz,
@@ -102,9 +102,9 @@ CREATE OR REPLACE FUNCTION tick.get_all_asset_states_at_latest_tick(
 BEGIN
     RETURN QUERY
     SELECT 
-        ea.general__script_id AS general__asset_id,
+        ea.general__asset_id,
         ea.group__sync,
-        ea.general__name,
+        ea.general__asset_name,
         ea.asset__data,
         ea.meta__data,
         ea.general__created_at,
@@ -162,7 +162,7 @@ BEGIN
         CASE 
             WHEN ac.operation = 'DELETE' THEN NULL::jsonb
             ELSE jsonb_strip_nulls(jsonb_build_object(
-                'general__name', ac.general__name,
+                'general__asset_name', ac.general__asset_name,
                 'meta__data', ac.meta__data,
                 'asset__data', CASE WHEN ac.asset__data IS NOT NULL THEN encode(ac.asset__data, 'hex') ELSE NULL END,
                 'group__sync', ac.group__sync

@@ -62,7 +62,7 @@ CREATE OR REPLACE FUNCTION tick.get_all_entity_states_at_latest_tick(
     p_sync_group text
 ) RETURNS TABLE (
     general__entity_id uuid,
-    general__name text,
+    general__entity_name text,
     general__semantic_version text,
     general__load_priority integer,
     general__initialized_at timestamptz,
@@ -89,7 +89,7 @@ BEGIN
     )
     SELECT 
         es.general__entity_id,
-        es.general__name,
+        es.general__entity_name,
         es.general__semantic_version,
         es.general__load_priority,
         es.general__initialized_at,
@@ -158,7 +158,7 @@ BEGIN
             WHEN ps.general__entity_id IS NULL THEN 
                 jsonb_build_object(
                     'general__entity_id', cs.general__entity_id,
-                    'general__name', cs.general__name,
+                    'general__entity_name', cs.general__entity_name,
                     'general__semantic_version', cs.general__semantic_version,
                     'general__load_priority', cs.general__load_priority,
                     'general__initialized_at', cs.general__initialized_at,
@@ -175,9 +175,9 @@ BEGIN
                 )
             WHEN cs.general__entity_id IS NULL THEN NULL::jsonb
             ELSE jsonb_strip_nulls(jsonb_build_object(
-                'general__name', 
-                    CASE WHEN cs.general__name IS DISTINCT FROM ps.general__name 
-                    THEN cs.general__name END,
+                'general__entity_name', 
+                    CASE WHEN cs.general__entity_name IS DISTINCT FROM ps.general__entity_name 
+                    THEN cs.general__entity_name END,
                 'general__semantic_version', 
                     CASE WHEN cs.general__semantic_version IS DISTINCT FROM ps.general__semantic_version 
                     THEN cs.general__semantic_version END,

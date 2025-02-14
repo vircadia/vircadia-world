@@ -4,6 +4,8 @@ import type postgres from "postgres";
 import { PostgresClient } from "../database/postgres/postgres_client";
 import { Entity } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import { isHealthy, up } from "../container/docker/docker_cli";
+import { VircadiaConfig_Server } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
+import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 
 describe("Service -> Web Script Manager Tests", () => {
     let sql: postgres.Sql;
@@ -22,9 +24,14 @@ describe("Service -> Web Script Manager Tests", () => {
         await PostgresClient.getInstance().connect(true);
         sql = PostgresClient.getInstance().getClient();
         serverProcess = Bun.spawn(["bun", "run", "service:run:script"], {
+            env: {
+                ...process.env,
+            },
             cwd: process.cwd(),
-            stdio: ["inherit", "inherit", "inherit"],
             killSignal: "SIGTERM",
+            ...(VircadiaConfig_Server.suppress
+                ? { stdio: ["ignore", "ignore", "ignore"] }
+                : { stdio: ["inherit", "inherit", "inherit"] }),
         });
     });
 
@@ -121,7 +128,13 @@ describe("Service -> Web Script Manager Tests", () => {
             }
 
             // Log detailed status for debugging
-            console.log("Final compilation status:", status);
+            log({
+                message: "Final compilation status",
+                data: status,
+                suppress: VircadiaConfig_Server.suppress,
+                type: "debug",
+                debug: VircadiaConfig_Server.debug,
+            });
 
             // Check compilation status for all platforms
             expect(status.compiled__browser__status).toBe(

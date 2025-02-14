@@ -22,7 +22,8 @@ export class PostgresClient {
 
         log({
             message: "Initializing PostgreSQL connection...",
-            type: "info",
+            type: "debug",
+            suppress: silent,
             debug: VircadiaConfig.server.debug,
         });
 
@@ -42,14 +43,16 @@ export class PostgresClient {
 
             log({
                 message: "PostgreSQL connection established successfully",
-                type: "success",
+                type: "debug",
+                suppress: silent,
                 debug: VircadiaConfig.server.debug,
             });
         } catch (error) {
             log({
-                message: `PostgreSQL connection failed: ${error.message}`,
+                message: "PostgreSQL connection failed.",
                 type: "error",
                 error: error,
+                suppress: silent,
                 debug: VircadiaConfig.server.debug,
             });
             throw error;
@@ -65,14 +68,15 @@ export class PostgresClient {
         return this.sql;
     }
 
-    public async disconnect(): Promise<void> {
+    public async disconnect(silent?: boolean): Promise<void> {
         if (this.sql) {
             await this.sql.end();
             this.sql = null;
 
             log({
                 message: "PostgreSQL connection closed",
-                type: "info",
+                type: "debug",
+                suppress: silent,
                 debug: VircadiaConfig.server.debug,
             });
         }

@@ -13,7 +13,7 @@ CREATE TABLE entity.entities (
     scripts__ids UUID[] DEFAULT '{}',
     scripts__status entity_status_enum DEFAULT 'ACTIVE'::entity_status_enum NOT NULL,
     validation__log JSONB DEFAULT '[]'::jsonb,
-    group__sync TEXT NOT NULL DEFAULT 'public.NORMAL',
+    group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
 
     CONSTRAINT fk_entities_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group)
 ) INHERITS (entity._template);

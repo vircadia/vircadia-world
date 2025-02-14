@@ -6,7 +6,7 @@
 CREATE TABLE entity.entity_scripts (
     general__script_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     general__name TEXT NOT NULL DEFAULT 'UNNAMED',
-    group__sync TEXT NOT NULL DEFAULT 'public.STATIC',
+    group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
     
     -- Source fields
     source__repo__entry_path TEXT,

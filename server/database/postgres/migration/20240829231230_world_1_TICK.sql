@@ -1,75 +1,3 @@
--- Create tick schema
-CREATE SCHEMA IF NOT EXISTS tick;
-
--- World ticks table (make this the authoritative table)
-CREATE TABLE tick.world_ticks (
-    general__tick_id uuid DEFAULT uuid_generate_v4() PRIMARY KEY,
-    tick__number bigint NOT NULL,
-    group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group),
-    tick__start_time timestamptz NOT NULL,
-    tick__end_time timestamptz NOT NULL,
-    tick__duration_ms double precision NOT NULL,
-    tick__entity_states_processed int NOT NULL,
-    tick__script_states_processed int NOT NULL,
-    tick__is_delayed boolean NOT NULL,
-    tick__headroom_ms double precision,
-    tick__time_since_last_tick_ms double precision,
-
-    -- Add unique constraint for sync_group + tick number combination
-    UNIQUE (group__sync, tick__number)
-
-);
-
--- Lag compensation state history table (now references world_ticks)
-CREATE TABLE tick.entity_states (
-    LIKE entity.entities INCLUDING DEFAULTS EXCLUDING CONSTRAINTS,
-    
-    -- Additional metadata for state tracking
-    general__tick_id uuid NOT NULL,
-    general__entity_state_id uuid DEFAULT uuid_generate_v4(),
-    
-    -- Override the primary key to allow multiple states per entity
-    CONSTRAINT entity_states_pkey PRIMARY KEY (general__entity_state_id),
-    
-    -- Add foreign key constraint for sync_group
-    CONSTRAINT entity_states_sync_group_fkey FOREIGN KEY (group__sync) 
-        REFERENCES auth.sync_groups(general__sync_group),
-        
-    -- Add foreign key constraint to world_ticks with cascade delete
-    CONSTRAINT entity_states_tick_fkey FOREIGN KEY (general__tick_id)
-        REFERENCES tick.world_ticks(general__tick_id) ON DELETE CASCADE
-);
-
--- View policy for entity_states (using sync groups instead of roles)
-CREATE POLICY "entity_states_view_policy" ON tick.entity_states
-    FOR SELECT
-    USING (
-        auth.is_admin_agent()
-        OR auth.has_sync_group_read_access(group__sync)
-    );
-
--- Update/Insert/Delete policies for entity_states (system users only)
-CREATE POLICY "entity_states_update_policy" ON tick.entity_states
-    FOR UPDATE
-    USING (auth.is_admin_agent());
-
-CREATE POLICY "entity_states_insert_policy" ON tick.entity_states
-    FOR INSERT
-    WITH CHECK (auth.is_admin_agent());
-
-CREATE POLICY "entity_states_delete_policy" ON tick.entity_states
-    FOR DELETE
-    USING (auth.is_admin_agent());
-
--- Updated indexes for fast state lookups
-CREATE INDEX entity_states_lookup_idx ON tick.entity_states (general__entity_id, general__tick_id);
-CREATE INDEX entity_states_tick_idx ON tick.entity_states (general__tick_id);
-
--- Enable RLS on entity_states table
-ALTER TABLE tick.entity_states ENABLE ROW LEVEL SECURITY;
-
-CREATE TYPE operation_enum AS ENUM ('INSERT', 'UPDATE', 'DELETE');
-
 -- Function to get ALL entity states from the latest tick in a sync group
 CREATE OR REPLACE FUNCTION tick.get_all_entity_states_at_latest_tick(
     p_sync_group text
@@ -276,7 +204,7 @@ BEGIN
     v_start_time := clock_timestamp();
 
     -- Get buffer duration from sync group config
-    SELECT server__tick__buffer * server__tick__rate_ms 
+    SELECT server__tick__max_ticks_buffer * server__tick__rate_ms 
     INTO v_buffer_duration_ms
     FROM auth.sync_groups
     WHERE general__sync_group = p_sync_group;
@@ -386,12 +314,12 @@ BEGIN
     SELECT COUNT(*) INTO v_entity_states_processed FROM entity_snapshot;
 
     -- Count scripts that were modified since last tick for script state processing metric
-    SELECT COUNT(*)
+    SELECT COUNT(DISTINCT sa.general__script_id)
     INTO v_script_states_processed
-    FROM entity.entity_scripts s
-    WHERE s.group__sync = p_sync_group
-    AND s.general__updated_at > v_last_tick_time
-    AND s.general__updated_at <= v_start_time;
+    FROM audit.script_audit_log sa
+    WHERE sa.group__sync = p_sync_group
+    AND sa.operation_timestamp > v_last_tick_time 
+    AND sa.operation_timestamp <= v_start_time;
 
     -- Get end time and calculate duration
     v_end_time := clock_timestamp();
@@ -432,42 +360,6 @@ BEGIN
         v_time_since_last_tick_ms;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Enable RLS on world_ticks table
-ALTER TABLE tick.world_ticks ENABLE ROW LEVEL SECURITY;
-
--- All policies for world_ticks (system users only)
-CREATE POLICY "world_ticks_view_policy" ON tick.world_ticks
-    FOR SELECT
-    USING (auth.is_admin_agent());
-
-CREATE POLICY "world_ticks_update_policy" ON tick.world_ticks
-    FOR UPDATE
-    USING (auth.is_admin_agent());
-
-CREATE POLICY "world_ticks_insert_policy" ON tick.world_ticks
-    FOR INSERT
-    WITH CHECK (auth.is_admin_agent());
-
-CREATE POLICY "world_ticks_delete_policy" ON tick.world_ticks
-    FOR DELETE
-    USING (auth.is_admin_agent());
-
--- Add index for sync group queries
-CREATE INDEX entity_states_sync_group_tick_idx 
-ON tick.entity_states (group__sync, general__tick_id DESC);
-
--- Add optimized indexes for the tick system
-CREATE INDEX idx_entity_states_sync_tick_lookup 
-    ON tick.entity_states (group__sync, general__tick_id, general__entity_id);
-
--- Add optimized indexes instead
-CREATE INDEX idx_world_ticks_sync_number ON tick.world_ticks (group__sync, tick__number DESC);
-CREATE INDEX idx_entity_states_sync_tick ON tick.entity_states (group__sync, general__tick_id);
-
--- Add index to support timestamp-based queries
-CREATE INDEX idx_world_ticks_sync_time 
-    ON tick.world_ticks (group__sync, tick__start_time DESC);
 
 -- Function to get ALL script states from the latest tick in a sync group
 CREATE OR REPLACE FUNCTION tick.get_all_script_states_at_latest_tick(
@@ -548,48 +440,46 @@ BEGIN
     LIMIT 2;
 
     RETURN QUERY
+    -- Get all changes from audit log
+    WITH script_changes AS (
+        SELECT DISTINCT ON (sa.general__script_id)
+            sa.general__script_id,
+            sa.operation,
+            sa.operation_timestamp,
+            es.general__created_at,
+            es.*
+        FROM audit.script_audit_log sa
+        LEFT JOIN entity.entity_scripts es ON sa.general__script_id = es.general__script_id
+        WHERE sa.group__sync = p_sync_group
+        AND sa.operation_timestamp > v_previous_tick_time 
+        AND sa.operation_timestamp <= v_latest_tick_time
+        ORDER BY sa.general__script_id, sa.operation_timestamp DESC
+    )
     SELECT 
-        es.general__script_id,
+        sc.general__script_id,
+        sc.operation,
         CASE 
-            WHEN es.general__created_at >= v_previous_tick_time THEN 'INSERT'::operation_enum
-            ELSE 'UPDATE'::operation_enum
-        END as operation,
-        jsonb_strip_nulls(jsonb_build_object(
-            'source__repo__entry_path', es.source__repo__entry_path,
-            'source__repo__url', es.source__repo__url,
-            'compiled__node__script', es.compiled__node__script,
-            'compiled__node__script_sha256', es.compiled__node__script_sha256,
-            'compiled__node__status', es.compiled__node__status,
-            'compiled__node__updated_at', es.compiled__node__updated_at,
-            'compiled__bun__script', es.compiled__bun__script,
-            'compiled__bun__script_sha256', es.compiled__bun__script_sha256,
-            'compiled__bun__status', es.compiled__bun__status,
-            'compiled__bun__updated_at', es.compiled__bun__updated_at,
-            'compiled__browser__script', es.compiled__browser__script,
-            'compiled__browser__script_sha256', es.compiled__browser__script_sha256,
-            'compiled__browser__status', es.compiled__browser__status,
-            'compiled__browser__updated_at', es.compiled__browser__updated_at,
-            'group__sync', es.group__sync
-        )) as changes,
-        coalesce(auth.get_sync_group_session_ids(es.group__sync), '{}') as sync_group_session_ids
-    FROM entity.entity_scripts es
-    WHERE es.group__sync = p_sync_group
-    AND es.general__updated_at > v_previous_tick_time
-    AND es.general__updated_at <= v_latest_tick_time
-
-    UNION ALL
-
-    -- Handle deleted scripts
-    SELECT 
-        es.general__script_id,
-        'DELETE'::operation_enum as operation,
-        NULL::jsonb as changes,
+            WHEN sc.operation = 'DELETE' THEN NULL::jsonb
+            ELSE jsonb_strip_nulls(jsonb_build_object(
+                'source__repo__entry_path', sc.source__repo__entry_path,
+                'source__repo__url', sc.source__repo__url,
+                'compiled__node__script', sc.compiled__node__script,
+                'compiled__node__script_sha256', sc.compiled__node__script_sha256,
+                'compiled__node__status', sc.compiled__node__status,
+                'compiled__node__updated_at', sc.compiled__node__updated_at,
+                'compiled__bun__script', sc.compiled__bun__script,
+                'compiled__bun__script_sha256', sc.compiled__bun__sha256,
+                'compiled__bun__status', sc.compiled__bun__status,
+                'compiled__bun__updated_at', sc.compiled__bun__updated_at,
+                'compiled__browser__script', sc.compiled__browser__script,
+                'compiled__browser__script_sha256', sc.compiled__browser__script_sha256,
+                'compiled__browser__status', sc.compiled__browser__status,
+                'compiled__browser__updated_at', sc.compiled__browser__updated_at,
+                'group__sync', sc.group__sync
+            ))
+        END as changes,
         coalesce(auth.get_sync_group_session_ids(p_sync_group), '{}') as sync_group_session_ids
-    FROM entity.entity_scripts_audit_log es
-    WHERE es.group__sync = p_sync_group
-    AND es.operation = 'DELETE'
-    AND es.operation_timestamp > v_previous_tick_time
-    AND es.operation_timestamp <= v_latest_tick_time;
+    FROM script_changes sc;
 
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

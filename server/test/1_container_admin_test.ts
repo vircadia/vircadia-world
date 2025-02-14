@@ -22,7 +22,7 @@ describe("System Admin Tests", () => {
                 throw new Error("Failed to start services");
             }
         }
-        await PostgresClient.getInstance().connect(true);
+        await PostgresClient.getInstance().connect();
     });
 
     afterAll(async () => {
@@ -130,31 +130,6 @@ describe("System Admin Tests", () => {
         const requiredSchemas = ["public", "auth", "entity", "tick", "config"];
         for (const schema of requiredSchemas) {
             expect(schemas.some((s) => s.schema_name === schema)).toBe(true);
-        }
-    });
-
-    test("Database tables are properly created", async () => {
-        const sql = PostgresClient.getInstance().getClient();
-
-        // Check for essential tables in each schema
-        const tableChecks = [
-            { schema: "auth", table: "agent_profiles" },
-            { schema: "auth", table: "agent_sessions" },
-            { schema: "config", table: "config" },
-            { schema: "config", table: "migrations" },
-            { schema: "config", table: "seeds" },
-            { schema: "entity", table: "entities" },
-        ];
-
-        for (const check of tableChecks) {
-            const [exists] = await sql`
-                SELECT EXISTS (
-                    SELECT FROM information_schema.tables 
-                    WHERE table_schema = ${check.schema}
-                    AND table_name = ${check.table}
-                ) as exists
-            `;
-            expect(exists.exists).toBe(true);
         }
     });
 

@@ -477,7 +477,7 @@ CREATE TABLE auth.sync_groups (
     general__description TEXT,
     
     server__tick__rate_ms INTEGER NOT NULL,
-    server__tick__buffer INTEGER NOT NULL,
+    server__tick__max_ticks_buffer INTEGER NOT NULL,
     
     client__render_delay_ms INTEGER NOT NULL,
     client__max_prediction_time_ms INTEGER NOT NULL,
@@ -500,7 +500,7 @@ INSERT INTO auth.sync_groups (
     general__sync_group,
     general__description,
     server__tick__rate_ms,
-    server__tick__buffer,
+    server__tick__max_ticks_buffer,
     client__render_delay_ms,
     client__max_prediction_time_ms,
     network__packet_timing_variance_ms

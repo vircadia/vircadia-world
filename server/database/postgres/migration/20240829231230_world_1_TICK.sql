@@ -3,7 +3,7 @@ CREATE OR REPLACE FUNCTION tick.get_all_entity_states_at_latest_tick(
     p_sync_group text
 ) RETURNS TABLE (
     general__entity_id uuid,
-    general__name varchar(255),
+    general__name text,
     general__semantic_version text,
     general__load_priority integer,
     general__initialized_at timestamptz,

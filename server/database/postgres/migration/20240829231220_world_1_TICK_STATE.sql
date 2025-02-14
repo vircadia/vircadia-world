@@ -1,5 +1,3 @@
-CREATE SCHEMA IF NOT EXISTS tick;
-
 -- 
 -- WORLD TICKS
 -- 

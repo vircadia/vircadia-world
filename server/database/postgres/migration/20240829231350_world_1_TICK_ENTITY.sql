@@ -70,6 +70,7 @@ CREATE OR REPLACE FUNCTION tick.get_all_entity_states_at_latest_tick(
     meta__data jsonb,
     scripts__ids uuid[],
     scripts__status entity_status_enum,
+    assets__ids uuid[],
     validation__log jsonb,
     group__sync text,
     general__created_at timestamptz,
@@ -97,6 +98,7 @@ BEGIN
         es.meta__data,
         es.scripts__ids,
         es.scripts__status,
+        es.assets__ids,
         es.validation__log,
         es.group__sync,
         es.general__created_at,
@@ -166,6 +168,7 @@ BEGIN
                     'meta__data', cs.meta__data,
                     'scripts__ids', cs.scripts__ids,
                     'scripts__status', cs.scripts__status,
+                    'assets__ids', cs.assets__ids,
                     'validation__log', cs.validation__log,
                     'group__sync', cs.group__sync,
                     'general__created_at', cs.general__created_at,
@@ -199,6 +202,9 @@ BEGIN
                 'scripts__status', 
                     CASE WHEN cs.scripts__status IS DISTINCT FROM ps.scripts__status 
                     THEN cs.scripts__status END,
+                'assets__ids',
+                    CASE WHEN cs.assets__ids IS DISTINCT FROM ps.assets__ids 
+                    THEN cs.assets__ids END,
                 'validation__log', 
                     CASE WHEN cs.validation__log IS DISTINCT FROM ps.validation__log 
                     THEN cs.validation__log END,

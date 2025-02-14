@@ -21,7 +21,7 @@ describe("DB -> Tick Tests", () => {
             }
         }
         // Initialize database connection using PostgresClient
-        await PostgresClient.getInstance().connect(false);
+        await PostgresClient.getInstance().connect();
         sql = PostgresClient.getInstance().getClient();
     });
 
@@ -82,7 +82,8 @@ describe("DB -> Tick Tests", () => {
                     meta__data,
                     group__sync,
                     scripts__ids,
-                    scripts__status
+                    scripts__status,
+                    assets__ids
                 ) VALUES (
                     ${"Test Entity"},
                     ${sql.json({
@@ -92,7 +93,8 @@ describe("DB -> Tick Tests", () => {
                     })},
                     ${syncGroup},
                     ARRAY[]::uuid[],
-                    ${"ACTIVE"}::entity_status_enum
+                    ${"ACTIVE"}::entity_status_enum,
+                    ARRAY[]::uuid[]
                 ) RETURNING *
             `;
 
@@ -130,7 +132,8 @@ describe("DB -> Tick Tests", () => {
                     meta__data,
                     group__sync,
                     scripts__ids,
-                    scripts__status
+                    scripts__status,
+                    assets__ids
                 ) VALUES (
                     ${"Original Name"},
                     ${sql.json({
@@ -140,7 +143,8 @@ describe("DB -> Tick Tests", () => {
                     })},
                     ${syncGroup},
                     ARRAY[]::uuid[],
-                    ${"ACTIVE"}::entity_status_enum
+                    ${"ACTIVE"}::entity_status_enum,
+                    ARRAY[]::uuid[]
                 ) RETURNING *
             `;
 
@@ -206,7 +210,8 @@ describe("DB -> Tick Tests", () => {
                     meta__data,
                     group__sync,
                     scripts__ids,
-                    scripts__status
+                    scripts__status,
+                    assets__ids
                 ) VALUES (
                     ${"Latest State Test"},
                     ${sql.json({
@@ -216,7 +221,8 @@ describe("DB -> Tick Tests", () => {
                     })},
                     ${syncGroup},
                     ARRAY[]::uuid[],
-                    ${"ACTIVE"}::entity_status_enum
+                    ${"ACTIVE"}::entity_status_enum,
+                    ARRAY[]::uuid[]
                 ) RETURNING *
             `;
 
@@ -252,7 +258,8 @@ describe("DB -> Tick Tests", () => {
                     meta__data,
                     group__sync,
                     scripts__ids,
-                    scripts__status
+                    scripts__status,
+                    assets__ids
                 ) VALUES (
                     ${"Change Test"},
                     ${sql.json({
@@ -262,7 +269,8 @@ describe("DB -> Tick Tests", () => {
                     })},
                     ${syncGroup},
                     ARRAY[]::uuid[],
-                    ${"ACTIVE"}::entity_status_enum
+                    ${"ACTIVE"}::entity_status_enum,
+                    ARRAY[]::uuid[]
                 ) RETURNING *
             `;
 

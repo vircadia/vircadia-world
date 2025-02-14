@@ -12,6 +12,7 @@ CREATE TABLE entity.entities (
     meta__data JSONB DEFAULT '{}'::jsonb,
     scripts__ids UUID[] DEFAULT '{}',
     scripts__status entity_status_enum DEFAULT 'ACTIVE'::entity_status_enum NOT NULL,
+    assets__ids UUID[] DEFAULT '{}',
     validation__log JSONB DEFAULT '[]'::jsonb,
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
 
@@ -25,6 +26,7 @@ CREATE INDEX idx_entities_created_at ON entity.entities(general__created_at);
 CREATE INDEX idx_entities_updated_at ON entity.entities(general__updated_at);
 CREATE INDEX idx_entities_semantic_version ON entity.entities(general__semantic_version);
 CREATE INDEX idx_entities_scripts_ids ON entity.entities USING GIN (scripts__ids);
+CREATE INDEX idx_entities_assets_ids ON entity.entities USING GIN (assets__ids);
 CREATE INDEX idx_entities_validation_log ON entity.entities USING GIN (validation__log);
 
 -- Enable RLS on entities table
@@ -145,6 +147,9 @@ BEGIN
         UPDATE entity.entities
         SET general__updated_at = general__updated_at
         WHERE NEW.general__script_id = ANY(scripts__ids);
+        UPDATE entity.entities
+        SET scripts__ids = scripts__ids
+        WHERE NEW.general__script_id = ANY(scripts__ids);
     END IF;
     RETURN NEW;
 END;
@@ -229,3 +234,21 @@ CREATE TRIGGER remove_deleted_script_references
     BEFORE DELETE ON entity.entity_scripts
     FOR EACH ROW
     EXECUTE FUNCTION entity.remove_deleted_script_references();
+
+-- Create function to remove deleted asset IDs from entities
+CREATE OR REPLACE FUNCTION entity.remove_deleted_asset_references()
+RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE entity.entities
+    SET assets__ids = array_remove(assets__ids, OLD.general__asset_id)
+    WHERE OLD.general__asset_id = ANY(assets__ids);
+    
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create trigger to handle asset deletions
+CREATE TRIGGER remove_deleted_asset_references
+    BEFORE DELETE ON entity.entity_assets
+    FOR EACH ROW
+    EXECUTE FUNCTION entity.remove_deleted_asset_references();

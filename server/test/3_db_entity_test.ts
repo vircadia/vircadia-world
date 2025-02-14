@@ -22,16 +22,10 @@ interface TestAccount {
     sessionId: string;
 }
 
-interface TestResources {
-    scriptId: string;
-    entityId: string;
-}
-
 describe("DB -> Entity Tests", () => {
     let sql: postgres.Sql;
     let admin: TestAccount;
     let agent: TestAccount;
-    let testResources: TestResources;
 
     beforeAll(async () => {
         if (!(await isHealthy()).isHealthy) {
@@ -279,8 +273,6 @@ describe("DB -> Entity Tests", () => {
             await sql`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
             await sql`DELETE FROM entity.entity_scripts WHERE general__script_id = ${script.general__script_id}`;
         });
-
-        // You can add more tests targeting operations from the 20240829231120_WORLD_1_ENTITY_SCRIPT.sql file here.
     });
 
     describe("Entity -> Entity Assets Operations", () => {
@@ -310,8 +302,221 @@ describe("DB -> Entity Tests", () => {
 
             await sql`DELETE FROM entity.entity_assets WHERE general__asset_id = ${asset.general__asset_id}`;
         });
+    });
 
-        // You can add more tests targeting operations from the 20240829231140_WORLD_1_ENTITY_ASSET.sql file here.
+    describe("Entity -> Relations Operations", () => {
+        test("should create an entity with related asset and script, then delete the entity", async () => {
+            // Insert an asset record.
+            const [asset] = await sql`
+                INSERT INTO entity.entity_assets (
+                    general__asset_name,
+                    group__sync,
+                    meta__data,
+                    asset__data
+                ) VALUES (
+                    ${"Test Asset"},
+                    ${"public.NORMAL"},
+                    ${sql.json({ type: "texture", description: "Test asset" })},
+                    decode('deadbeef', 'hex')
+                ) RETURNING *
+            `;
+
+            // Insert a script record.
+            const [script] = await sql`
+                INSERT INTO entity.entity_scripts (
+                    general__script_name,
+                    group__sync,
+                    source__repo__entry_path,
+                    source__repo__url
+                ) VALUES (
+                    ${"Test Script"},
+                    ${"public.NORMAL"},
+                    ${"path/to/script"},
+                    ${"https://github.com/example/repo"}
+                ) RETURNING *
+            `;
+
+            // Insert an entity that references the created script (and asset via metadata).
+            const [entity] = await sql`
+                INSERT INTO entity.entities (
+                    general__entity_name,
+                    assets__ids,
+                    scripts__ids,
+                    group__sync
+                ) VALUES (
+                    ${"Entity with asset and script"},
+                    ${[asset.general__asset_id]},
+                    ${[script.general__script_id]},
+                    ${"public.NORMAL"}
+                ) RETURNING *
+            `;
+
+            // Validate the entity data.
+            expect(entity.general__entity_name).toBe(
+                "Entity with asset and script",
+            );
+            expect(entity.assets__ids).toContain(asset.general__asset_id);
+            expect(entity.scripts__ids).toContain(script.general__script_id);
+
+            // Delete the entity record after all checks.
+            await sql`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
+
+            // Optionally clean up asset and script records.
+            await sql`DELETE FROM entity.entity_assets WHERE general__asset_id = ${asset.general__asset_id}`;
+            await sql`DELETE FROM entity.entity_scripts WHERE general__script_id = ${script.general__script_id}`;
+        });
+
+        test("should remove asset id from entity when corresponding asset is deleted", async () => {
+            // Insert an asset record.
+            const [asset] = await sql`
+                INSERT INTO entity.entity_assets (
+                    general__asset_name,
+                    group__sync,
+                    meta__data,
+                    asset__data
+                ) VALUES (
+                    ${"Asset to delete"},
+                    ${"public.NORMAL"},
+                    ${sql.json({ type: "texture", description: "Asset for deletion" })},
+                    decode('deadbeef', 'hex')
+                ) RETURNING *
+            `;
+
+            // Insert an entity referencing the asset.
+            const [entity] = await sql`
+                INSERT INTO entity.entities (
+                    general__entity_name,
+                    assets__ids,
+                    group__sync
+                ) VALUES (
+                    ${"Entity with asset"},
+                    ${[asset.general__asset_id]},
+                    ${"public.NORMAL"}
+                ) RETURNING *
+            `;
+
+            // Delete the asset.
+            await sql`DELETE FROM entity.entity_assets WHERE general__asset_id = ${asset.general__asset_id}`;
+
+            // Re-read the entity to ensure the asset id is removed.
+            const [updatedEntity] = await sql`
+                SELECT * FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}
+            `;
+            expect(updatedEntity.assets__ids).not.toContain(
+                asset.general__asset_id,
+            );
+
+            // Clean up
+            await sql`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
+        });
+
+        test("should remove script id from entity when corresponding script is deleted", async () => {
+            // Insert a script record.
+            const [script] = await sql`
+                INSERT INTO entity.entity_scripts (
+                    general__script_name,
+                    group__sync,
+                    source__repo__entry_path,
+                    source__repo__url,
+                    compiled__node__status,
+                    compiled__bun__status,
+                    compiled__browser__status
+                ) VALUES (
+                    ${"Script to delete"},
+                    ${"public.NORMAL"},
+                    ${"path/to/script"},
+                    ${"https://github.com/example/repo"},
+                    ${"COMPILED"},
+                    ${"COMPILED"},
+                    ${"COMPILED"}
+                ) RETURNING *
+            `;
+
+            // Insert an entity referencing the script.
+            const [entity] = await sql`
+                INSERT INTO entity.entities (
+                    general__entity_name,
+                    scripts__ids,
+                    group__sync
+                ) VALUES (
+                    ${"Entity with script"},
+                    ${[script.general__script_id]},
+                    ${"public.NORMAL"}
+                ) RETURNING *
+            `;
+
+            // Delete the script.
+            await sql`DELETE FROM entity.entity_scripts WHERE general__script_id = ${script.general__script_id}`;
+
+            // Re-read the entity to ensure the script id is removed.
+            const [updatedEntity] = await sql`
+                SELECT * FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}
+            `;
+            expect(updatedEntity.scripts__ids).not.toContain(
+                script.general__script_id,
+            );
+
+            // Clean up
+            await sql`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
+        });
+
+        test("should propagate script status changes to update entity scripts__status", async () => {
+            // Insert a script record with compiled statuses
+            const [script] = await sql`
+                INSERT INTO entity.entity_scripts (
+                    general__script_name,
+                    group__sync,
+                    source__repo__entry_path,
+                    source__repo__url,
+                    compiled__node__status,
+                    compiled__bun__status,
+                    compiled__browser__status
+                ) VALUES (
+                    ${"Script for status propagation"},
+                    ${"public.NORMAL"},
+                    ${"path/to/script"},
+                    ${"https://github.com/example/repo"},
+                    ${"COMPILED"},
+                    ${"COMPILED"},
+                    ${"COMPILED"}
+                ) RETURNING *
+            `;
+
+            // Insert an entity referencing the script.
+            const [entity] = await sql`
+                INSERT INTO entity.entities (
+                    general__entity_name,
+                    scripts__ids,
+                    scripts__status,
+                    group__sync
+                ) VALUES (
+                    ${"Entity for script status propagation"},
+                    ${[script.general__script_id]},
+                    ${"ACTIVE"},
+                    ${"public.NORMAL"}
+                ) RETURNING *
+            `;
+
+            // Update the script to a pending status (simulate a status change).
+            await sql`
+                UPDATE entity.entity_scripts
+                SET compiled__node__status = ${"PENDING"}
+                WHERE general__script_id = ${script.general__script_id}
+            `;
+
+            // The trigger on entity.entity_scripts should update affected entities.
+            // Re-read the entity to check the updated status.
+            const [updatedEntity] = await sql`
+                SELECT * FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}
+            `;
+
+            // Expect the entity's scripts__status to be updated to 'AWAITING_SCRIPTS'
+            expect(updatedEntity.scripts__status).toBe("AWAITING_SCRIPTS");
+
+            // Clean up
+            await sql`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
+            await sql`DELETE FROM entity.entity_scripts WHERE general__script_id = ${script.general__script_id}`;
+        });
     });
 
     afterAll(async () => {

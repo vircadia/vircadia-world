@@ -14,7 +14,7 @@ import {
     Entity,
 } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import { sign } from "jsonwebtoken";
-import { up } from "../container/docker/docker_cli";
+import { isHealthy, up } from "../container/docker/docker_cli";
 
 interface TestAccount {
     id: string;
@@ -35,7 +35,14 @@ describe("DB -> Entity Tests", () => {
 
     // Setup before all tests
     beforeAll(async () => {
-        await up(true);
+        if (!(await isHealthy()).isHealthy) {
+            await up(true);
+
+            const healthyAfterUp = await isHealthy();
+            if (!healthyAfterUp.isHealthy) {
+                throw new Error("Failed to start services");
+            }
+        }
         // Initialize database connection using PostgresClient
         await PostgresClient.getInstance().connect(true);
         sql = PostgresClient.getInstance().getClient();
@@ -47,18 +54,14 @@ describe("DB -> Entity Tests", () => {
     }> {
         try {
             // Get auth settings
-            const [authSecretConfig] = await sql<[Config.I_Config]>`
+            const [authConfig] = await sql<[Config.I_Config<"auth">]>`
                 SELECT * FROM config.config 
-                WHERE general__key = ${Config.CONFIG_KEYS.AUTH_JWT_SECRET}
-            `;
-            const [authDurationConfig] = await sql<[Config.I_Config]>`
-                SELECT * FROM config.config 
-                WHERE general__key = ${Config.CONFIG_KEYS.AUTH_session_duration_jwt_string}
+                WHERE general__key = ${Config.E_ConfigKey.AUTH}
             `;
 
             if (
-                !authSecretConfig?.general__value ||
-                !authDurationConfig?.general__value
+                !authConfig.general__value.jwt_secret ||
+                !authConfig.general__value.default_session_duration_ms
             ) {
                 throw new Error("Auth settings not found in database");
             }
@@ -107,8 +110,11 @@ describe("DB -> Entity Tests", () => {
                     sessionId: adminSession.general__session_id,
                     agentId: adminId,
                 },
-                authSecretConfig.general__value,
-                { expiresIn: authDurationConfig.general__value },
+                authConfig.general__value.jwt_secret,
+                {
+                    expiresIn:
+                        authConfig.general__value.default_session_duration_ms,
+                },
             );
 
             const agentToken = sign(
@@ -116,8 +122,11 @@ describe("DB -> Entity Tests", () => {
                     sessionId: agentSession.general__session_id,
                     agentId: agentId,
                 },
-                authSecretConfig.general__value,
-                { expiresIn: authDurationConfig.general__value },
+                authConfig.general__value.jwt_secret,
+                {
+                    expiresIn:
+                        authConfig.general__value.default_session_duration_ms,
+                },
             );
 
             // Update sessions with tokens
@@ -186,7 +195,7 @@ describe("DB -> Entity Tests", () => {
                     group__sync
                 ) VALUES (
                     ${"Test Entity"},
-                    ${entityData},
+                    ${sql.json(entityData)},
                     ${"public.NORMAL"}
                 ) RETURNING *
             `;
@@ -213,10 +222,10 @@ describe("DB -> Entity Tests", () => {
                     group__sync
                 ) VALUES (
                     ${"Test Entity"},
-                    ${{
+                    ${sql.json({
                         script1: { status: "init" },
                         script2: { counter: 0 },
-                    }},
+                    })},
                     ${"public.NORMAL"}
                 ) RETURNING *
             `;
@@ -226,10 +235,10 @@ describe("DB -> Entity Tests", () => {
                 UPDATE entity.entities
                 SET 
                     general__name = ${"Updated Entity"},
-                    meta__data = ${{
+                    meta__data = ${sql.json({
                         script1: { status: "ready" },
                         script2: { counter: 1 },
-                    }}
+                    })}
                 WHERE general__entity_id = ${entity.general__entity_id}
             `;
 
@@ -273,12 +282,12 @@ describe("DB -> Entity Tests", () => {
                 ) VALUES (
                     ${"Scripted Entity"},
                     ARRAY[${script.general__script_id}]::UUID[],
-                    ${{
+                    ${sql.json({
                         [scriptNamespace]: {
                             initialized: true,
                             lastRun: new Date().toISOString(),
                         },
-                    }},
+                    })},
                     ${"public.NORMAL"}
                 ) RETURNING *
             `;

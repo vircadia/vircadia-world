@@ -15,7 +15,7 @@ import type {
 } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import { sign } from "jsonwebtoken";
 import { VircadiaConfig_Server } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
-import { up } from "../container/docker/docker_cli";
+import { isHealthy, up } from "../container/docker/docker_cli";
 
 interface TestAccount {
     id: string;
@@ -30,7 +30,14 @@ describe("DB -> Auth Tests", () => {
 
     // Setup before all tests
     beforeAll(async () => {
-        await up(true);
+        if (!(await isHealthy()).isHealthy) {
+            await up(true);
+
+            const healthyAfterUp = await isHealthy();
+            if (!healthyAfterUp.isHealthy) {
+                throw new Error("Failed to start services");
+            }
+        }
         // Initialize database connection using PostgresClient
         await PostgresClient.getInstance().connect(true);
         sql = PostgresClient.getInstance().getClient();
@@ -42,13 +49,14 @@ describe("DB -> Auth Tests", () => {
     }> {
         try {
             // First create a system token with superuser privileges
-            const [authConfig] = await sql<[Config.I_Config_Auth]>`
+            const [authConfig] = await sql<[Config.I_Config<"auth">]>`
                 SELECT * FROM config.config 
                 WHERE general__key = 'auth'
             `;
 
-            const authSecretConfig = authConfig.jwt_secret;
-            const authDurationConfigMs = authConfig.session_duration_ms;
+            const authSecretConfig = authConfig.general__value.jwt_secret;
+            const authDurationConfigMs =
+                authConfig.general__value.default_session_duration_ms;
 
             if (!authSecretConfig || !authDurationConfigMs) {
                 throw new Error("Auth settings not found in database");

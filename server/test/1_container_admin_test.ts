@@ -6,6 +6,7 @@ import {
     softResetDatabase,
     seed,
     up,
+    isHealthy,
 } from "../container/docker/docker_cli";
 import { VircadiaConfig_Server } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
 import type { Config } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
@@ -13,7 +14,14 @@ import { PostgresClient } from "../database/postgres/postgres_client";
 
 describe("System Admin Tests", () => {
     beforeAll(async () => {
-        await up(true);
+        if (!(await isHealthy()).isHealthy) {
+            await up(true);
+
+            const healthyAfterUp = await isHealthy();
+            if (!healthyAfterUp.isHealthy) {
+                throw new Error("Failed to start services");
+            }
+        }
         await PostgresClient.getInstance().connect(true);
     });
 

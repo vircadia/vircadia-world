@@ -2,8 +2,8 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import type { Subprocess } from "bun";
 import type postgres from "postgres";
 import { PostgresClient } from "../database/postgres/postgres_client";
-import { Auth } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
-import { up } from "../container/docker/docker_cli";
+import type { Auth } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+import { isHealthy, up } from "../container/docker/docker_cli";
 import { VircadiaConfig_Server } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
 
 describe("Service -> Web Script Manager Tests", () => {
@@ -15,7 +15,14 @@ describe("Service -> Web Script Manager Tests", () => {
 
     // Setup before all tests
     beforeAll(async () => {
-        await up(true);
+        if (!(await isHealthy()).isHealthy) {
+            await up(true);
+
+            const healthyAfterUp = await isHealthy();
+            if (!healthyAfterUp.isHealthy) {
+                throw new Error("Failed to start services");
+            }
+        }
         await PostgresClient.getInstance().connect(true);
         sql = PostgresClient.getInstance().getClient();
 
@@ -38,7 +45,7 @@ describe("Service -> Web Script Manager Tests", () => {
                 killSignal: "SIGTERM",
             });
 
-            expect(serverProcess.).toBeGreaterThan(0);
+            expect(serverProcess).toBeGreaterThan(0);
         });
 
         describe("Authentication Endpoints", () => {

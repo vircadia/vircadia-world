@@ -4,8 +4,14 @@ import { up, down, restart, isHealthy } from "../container/docker/docker_cli";
 describe("System Operations Tests", () => {
     beforeAll(async () => {
         try {
-            // Start required services silently
-            await up(true);
+            if (!(await isHealthy()).isHealthy) {
+                await up(true);
+
+                const healthyAfterUp = await isHealthy();
+                if (!healthyAfterUp.isHealthy) {
+                    throw new Error("Failed to start services");
+                }
+            }
         } catch (error) {
             console.error("Failed to start services:", error);
             throw error;
@@ -16,32 +22,32 @@ describe("System Operations Tests", () => {
         const health = await isHealthy();
 
         // Verify PostgreSQL health
-        expect(health.postgres.isHealthy).toBe(true);
-        expect(health.postgres.error).toBeUndefined();
+        expect(health.services.postgres.isHealthy).toBe(true);
+        expect(health.services.postgres.error).toBeUndefined();
 
         // Verify Pgweb health
-        expect(health.pgweb.isHealthy).toBe(true);
-        expect(health.pgweb.error).toBeUndefined();
+        expect(health.services.pgweb.isHealthy).toBe(true);
+        expect(health.services.pgweb.error).toBeUndefined();
     });
 
     test("Docker container restart works", async () => {
         await restart(true);
         const health = await isHealthy();
-        expect(health.postgres.isHealthy).toBe(true);
-        expect(health.pgweb.isHealthy).toBe(true);
+        expect(health.services.postgres.isHealthy).toBe(true);
+        expect(health.services.pgweb.isHealthy).toBe(true);
     }, 30000);
 
     test("Docker container down and up cycle works", async () => {
         // Stop containers
         await down(true);
         const healthAfterDown = await isHealthy();
-        expect(healthAfterDown.postgres.isHealthy).toBe(false);
-        expect(healthAfterDown.pgweb.isHealthy).toBe(false);
+        expect(healthAfterDown.services.postgres.isHealthy).toBe(false);
+        expect(healthAfterDown.services.pgweb.isHealthy).toBe(false);
 
         // Start containers again
         await up(true);
         const healthAfterUp = await isHealthy();
-        expect(healthAfterUp.postgres.isHealthy).toBe(true);
-        expect(healthAfterUp.pgweb.isHealthy).toBe(true);
+        expect(healthAfterUp.services.postgres.isHealthy).toBe(true);
+        expect(healthAfterUp.services.pgweb.isHealthy).toBe(true);
     }, 30000);
 });

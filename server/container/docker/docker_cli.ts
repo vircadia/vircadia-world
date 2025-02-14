@@ -95,13 +95,16 @@ async function runDockerCommand(args: string[], silent = false) {
 }
 
 export async function isHealthy(): Promise<{
-    postgres: {
-        isHealthy: boolean;
-        error?: Error;
-    };
-    pgweb: {
-        isHealthy: boolean;
-        error?: Error;
+    isHealthy: boolean;
+    services: {
+        postgres: {
+            isHealthy: boolean;
+            error?: Error;
+        };
+        pgweb: {
+            isHealthy: boolean;
+            error?: Error;
+        };
     };
 }> {
     const config = VircadiaConfig_Server;
@@ -141,8 +144,11 @@ export async function isHealthy(): Promise<{
     ]);
 
     return {
-        postgres: postgresHealth,
-        pgweb: pgwebHealth,
+        isHealthy: postgresHealth.isHealthy && pgwebHealth.isHealthy,
+        services: {
+            postgres: postgresHealth,
+            pgweb: pgwebHealth,
+        },
     };
 }
 
@@ -153,7 +159,7 @@ async function waitForHealthy(
     const startTime = Date.now();
     while (Date.now() - startTime < timeoutSeconds * 1000) {
         const health = await isHealthy();
-        if (health.postgres.isHealthy && health.pgweb.isHealthy) {
+        if (health.isHealthy) {
             return true;
         }
         await Bun.sleep(intervalMs);
@@ -648,14 +654,16 @@ if (import.meta.main) {
             case "container:health": {
                 const health = await isHealthy();
                 log({
-                    message: `PostgreSQL: ${health.postgres.isHealthy ? "healthy" : "unhealthy"}`,
-                    data: health.postgres,
-                    type: health.postgres.isHealthy ? "success" : "error",
+                    message: `PostgreSQL: ${health.services.postgres.isHealthy ? "healthy" : "unhealthy"}`,
+                    data: health.services.postgres,
+                    type: health.services.postgres.isHealthy
+                        ? "success"
+                        : "error",
                 });
                 log({
-                    message: `Pgweb: ${health.pgweb.isHealthy ? "healthy" : "unhealthy"}`,
-                    data: health.pgweb,
-                    type: health.pgweb.isHealthy ? "success" : "error",
+                    message: `Pgweb: ${health.services.pgweb.isHealthy ? "healthy" : "unhealthy"}`,
+                    data: health.services.pgweb,
+                    type: health.services.pgweb.isHealthy ? "success" : "error",
                 });
                 break;
             }

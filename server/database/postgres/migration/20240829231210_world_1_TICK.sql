@@ -70,55 +70,6 @@ ALTER TABLE tick.entity_states ENABLE ROW LEVEL SECURITY;
 
 CREATE TYPE operation_enum AS ENUM ('INSERT', 'UPDATE', 'DELETE');
 
--- Update script states table to match new single-table structure
-CREATE TABLE tick.entity_script_states (
-    LIKE entity.entity_scripts INCLUDING DEFAULTS EXCLUDING CONSTRAINTS,
-    
-    -- Additional metadata for state tracking
-    general__tick_id uuid NOT NULL,
-    general__script_state_id uuid DEFAULT uuid_generate_v4(),
-    
-    -- Override the primary key
-    CONSTRAINT entity_script_states_pkey PRIMARY KEY (general__script_state_id),
-    
-    -- Add foreign key constraint for sync_group
-    CONSTRAINT entity_script_states_sync_group_fkey FOREIGN KEY (group__sync) 
-        REFERENCES auth.sync_groups(general__sync_group),
-        
-    -- Add foreign key constraint to world_ticks with cascade delete
-    CONSTRAINT entity_script_states_tick_fkey FOREIGN KEY (general__tick_id)
-        REFERENCES tick.world_ticks(general__tick_id) ON DELETE CASCADE
-);
-
--- Create indexes for script states
-CREATE INDEX entity_script_states_lookup_idx ON tick.entity_script_states (general__script_id, general__tick_id);
-CREATE INDEX entity_script_states_tick_idx ON tick.entity_script_states (general__tick_id);
-CREATE INDEX entity_script_states_sync_group_tick_idx 
-    ON tick.entity_script_states (group__sync, general__tick_id DESC);
-
--- Enable RLS on script states
-ALTER TABLE tick.entity_script_states ENABLE ROW LEVEL SECURITY;
-
--- Add policies for script states (matching entity_scripts policies)
-CREATE POLICY "script_states_view_policy" ON tick.entity_script_states
-    FOR SELECT
-    USING (
-        auth.is_admin_agent()
-        OR auth.has_sync_group_read_access(group__sync)
-    );
-
-CREATE POLICY "script_states_update_policy" ON tick.entity_script_states
-    FOR UPDATE
-    USING (auth.is_admin_agent());
-
-CREATE POLICY "script_states_insert_policy" ON tick.entity_script_states
-    FOR INSERT
-    WITH CHECK (auth.is_admin_agent());
-
-CREATE POLICY "script_states_delete_policy" ON tick.entity_script_states
-    FOR DELETE
-    USING (auth.is_admin_agent());
-
 -- Function to get ALL entity states from the latest tick in a sync group
 CREATE OR REPLACE FUNCTION tick.get_all_entity_states_at_latest_tick(
     p_sync_group text
@@ -331,7 +282,7 @@ BEGIN
     WHERE general__sync_group = p_sync_group;
 
     -- Efficient cleanup of old ticks using a single DELETE
-    -- This will cascade to entity_states and script_states
+    -- This will cascade to entity_states
     DELETE FROM tick.world_ticks wt
     WHERE wt.group__sync = p_sync_group
     AND wt.tick__start_time < (v_start_time - (v_buffer_duration_ms || ' milliseconds')::interval);
@@ -434,58 +385,13 @@ BEGIN
     )
     SELECT COUNT(*) INTO v_entity_states_processed FROM entity_snapshot;
 
-    -- Now capture script states
-    WITH script_snapshot AS (
-        INSERT INTO tick.entity_script_states (
-            general__script_id,
-            group__sync,
-            source__repo__entry_path,
-            source__repo__url,
-            compiled__node__script,
-            compiled__node__script_sha256,
-            compiled__node__status,
-            compiled__node__updated_at,
-            compiled__bun__script,
-            compiled__bun__script_sha256,
-            compiled__bun__status,
-            compiled__bun__updated_at,
-            compiled__browser__script,
-            compiled__browser__script_sha256,
-            compiled__browser__status,
-            compiled__browser__updated_at,
-            general__created_at,
-            general__created_by,
-            general__updated_at,
-            general__updated_by,
-            general__tick_id
-        )
-        SELECT 
-            s.general__script_id,
-            s.group__sync,
-            s.source__repo__entry_path,
-            s.source__repo__url,
-            s.compiled__node__script,
-            s.compiled__node__script_sha256,
-            s.compiled__node__status,
-            s.compiled__node__updated_at,
-            s.compiled__bun__script,
-            s.compiled__bun__script_sha256,
-            s.compiled__bun__status,
-            s.compiled__bun__updated_at,
-            s.compiled__browser__script,
-            s.compiled__browser__script_sha256,
-            s.compiled__browser__status,
-            s.compiled__browser__updated_at,
-            s.general__created_at,
-            s.general__created_by,
-            s.general__updated_at,
-            s.general__updated_by,
-            v_tick_id
-        FROM entity.entity_scripts s
-        WHERE s.group__sync = p_sync_group
-        RETURNING 1
-    )
-    SELECT COUNT(*) INTO v_script_states_processed FROM script_snapshot;
+    -- Count scripts that were modified since last tick for script state processing metric
+    SELECT COUNT(*)
+    INTO v_script_states_processed
+    FROM entity.entity_scripts s
+    WHERE s.group__sync = p_sync_group
+    AND s.general__updated_at > v_last_tick_time
+    AND s.general__updated_at <= v_start_time;
 
     -- Get end time and calculate duration
     v_end_time := clock_timestamp();
@@ -498,7 +404,6 @@ BEGIN
     INTO v_is_delayed, v_headroom_ms
     FROM auth.sync_groups sg
     WHERE sg.general__sync_group = p_sync_group;
-
 
     -- Update the world tick record with final values
     UPDATE tick.world_ticks wt
@@ -559,7 +464,6 @@ CREATE INDEX idx_entity_states_sync_tick_lookup
 -- Add optimized indexes instead
 CREATE INDEX idx_world_ticks_sync_number ON tick.world_ticks (group__sync, tick__number DESC);
 CREATE INDEX idx_entity_states_sync_tick ON tick.entity_states (group__sync, general__tick_id);
-CREATE INDEX idx_script_states_sync_tick ON tick.entity_script_states (group__sync, general__tick_id);
 
 -- Add index to support timestamp-based queries
 CREATE INDEX idx_world_ticks_sync_time 
@@ -593,41 +497,34 @@ CREATE OR REPLACE FUNCTION tick.get_all_script_states_at_latest_tick(
 ) AS $$
 BEGIN
     RETURN QUERY
-    WITH latest_tick AS (
-        SELECT general__tick_id
-        FROM tick.world_ticks wt
-        WHERE wt.group__sync = p_sync_group
-        ORDER BY tick__number DESC
-        LIMIT 1
-    )
     SELECT 
-        ss.general__script_id,
-        ss.group__sync,
-        ss.source__repo__entry_path,
-        ss.source__repo__url,
-        ss.compiled__node__script,
-        ss.compiled__node__script_sha256,
-        ss.compiled__node__status,
-        ss.compiled__node__updated_at,
-        ss.compiled__bun__script,
-        ss.compiled__bun__script_sha256,
-        ss.compiled__bun__status,
-        ss.compiled__bun__updated_at,
-        ss.compiled__browser__script,
-        ss.compiled__browser__script_sha256,
-        ss.compiled__browser__status,
-        ss.compiled__browser__updated_at,
-        ss.general__created_at,
-        ss.general__created_by,
-        ss.general__updated_at,
-        ss.general__updated_by,
-        coalesce(auth.get_sync_group_session_ids(p_sync_group), '{}')
-    FROM tick.entity_script_states ss
-    JOIN latest_tick lt ON ss.general__tick_id = lt.general__tick_id;
+        es.general__script_id,
+        es.group__sync,
+        es.source__repo__entry_path,
+        es.source__repo__url,
+        es.compiled__node__script,
+        es.compiled__node__script_sha256,
+        es.compiled__node__status,
+        es.compiled__node__updated_at,
+        es.compiled__bun__script,
+        es.compiled__bun__script_sha256,
+        es.compiled__bun__status,
+        es.compiled__bun__updated_at,
+        es.compiled__browser__script,
+        es.compiled__browser__script_sha256,
+        es.compiled__browser__status,
+        es.compiled__browser__updated_at,
+        es.general__created_at,
+        es.general__created_by,
+        es.general__updated_at,
+        es.general__updated_by,
+        coalesce(auth.get_sync_group_session_ids(es.group__sync), '{}')
+    FROM entity.entity_scripts es
+    WHERE es.group__sync = p_sync_group;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Function to get CHANGED script states between latest ticks
+-- Function to get CHANGED script states between latest tick (modified to use entity.entity_scripts)
 CREATE OR REPLACE FUNCTION tick.get_changed_script_states_between_latest_ticks(
     p_sync_group text
 ) RETURNS TABLE (
@@ -637,130 +534,63 @@ CREATE OR REPLACE FUNCTION tick.get_changed_script_states_between_latest_ticks(
     sync_group_session_ids uuid[]
 ) AS $$
 DECLARE
-    v_current_tick_id uuid;
-    v_previous_tick_id uuid;
+    v_latest_tick_time timestamptz;
+    v_previous_tick_time timestamptz;
 BEGIN
-    -- Get the latest two tick IDs
-    WITH ordered_ticks AS (
-        SELECT general__tick_id
-        FROM tick.world_ticks wt
-        WHERE wt.group__sync = p_sync_group
-        ORDER BY tick__number DESC
-        LIMIT 2
-    )
-    SELECT
-        (SELECT general__tick_id FROM ordered_ticks LIMIT 1),
-        (SELECT general__tick_id FROM ordered_ticks OFFSET 1 LIMIT 1)
-    INTO v_current_tick_id, v_previous_tick_id;
-
-    -- Return changes between these ticks
-    RETURN QUERY
-    WITH current_states AS (
-        SELECT ess.*
-        FROM tick.entity_script_states ess
-        WHERE ess.general__tick_id = v_current_tick_id
-    ),
-    previous_states AS (
-        SELECT ess.*
-        FROM tick.entity_script_states ess
-        WHERE ess.general__tick_id = v_previous_tick_id
-    )
+    -- Get the latest two tick timestamps
     SELECT 
-        COALESCE(cs.general__script_id, ps.general__script_id),
+        tick__start_time,
+        LAG(tick__start_time) OVER (ORDER BY tick__number DESC)
+    INTO v_latest_tick_time, v_previous_tick_time
+    FROM tick.world_ticks
+    WHERE group__sync = p_sync_group
+    ORDER BY tick__number DESC
+    LIMIT 2;
+
+    RETURN QUERY
+    SELECT 
+        es.general__script_id,
         CASE 
-            WHEN ps.general__script_id IS NULL THEN 'INSERT'::operation_enum
-            WHEN cs.general__script_id IS NULL THEN 'DELETE'::operation_enum
+            WHEN es.general__created_at >= v_previous_tick_time THEN 'INSERT'::operation_enum
             ELSE 'UPDATE'::operation_enum
-        END,
-        CASE 
-            WHEN ps.general__script_id IS NULL THEN 
-                jsonb_build_object(
-                    'general__script_id', cs.general__script_id,
-                    'group__sync', cs.group__sync,
-                    'source__repo__entry_path', cs.source__repo__entry_path,
-                    'source__repo__url', cs.source__repo__url,
-                    'compiled__node__script', cs.compiled__node__script,
-                    'compiled__node__script_sha256', cs.compiled__node__script_sha256,
-                    'compiled__node__status', cs.compiled__node__status,
-                    'compiled__node__updated_at', cs.compiled__node__updated_at,
-                    'compiled__bun__script', cs.compiled__bun__script,
-                    'compiled__bun__script_sha256', cs.compiled__bun__script_sha256,
-                    'compiled__bun__status', cs.compiled__bun__status,
-                    'compiled__bun__updated_at', cs.compiled__bun__updated_at,
-                    'compiled__browser__script', cs.compiled__browser__script,
-                    'compiled__browser__script_sha256', cs.compiled__browser__script_sha256,
-                    'compiled__browser__status', cs.compiled__browser__status,
-                    'compiled__browser__updated_at', cs.compiled__browser__updated_at,
-                    'general__created_at', cs.general__created_at,
-                    'general__created_by', cs.general__created_by,
-                    'general__updated_at', cs.general__updated_at,
-                    'general__updated_by', cs.general__updated_by
-                )
-            WHEN cs.general__script_id IS NULL THEN NULL::jsonb
-            ELSE jsonb_strip_nulls(jsonb_build_object(
-                'source__repo__entry_path', 
-                    CASE WHEN cs.source__repo__entry_path IS DISTINCT FROM ps.source__repo__entry_path 
-                    THEN cs.source__repo__entry_path END,
-                'source__repo__url', 
-                    CASE WHEN cs.source__repo__url IS DISTINCT FROM ps.source__repo__url 
-                    THEN cs.source__repo__url END,
-                'compiled__node__script', 
-                    CASE WHEN cs.compiled__node__script IS DISTINCT FROM ps.compiled__node__script 
-                    THEN cs.compiled__node__script END,
-                'compiled__node__script_sha256', 
-                    CASE WHEN cs.compiled__node__script_sha256 IS DISTINCT FROM ps.compiled__node__script_sha256 
-                    THEN cs.compiled__node__script_sha256 END,
-                'compiled__node__status', 
-                    CASE WHEN cs.compiled__node__status IS DISTINCT FROM ps.compiled__node__status 
-                    THEN cs.compiled__node__status END,
-                'compiled__node__updated_at', 
-                    CASE WHEN cs.compiled__node__updated_at IS DISTINCT FROM ps.compiled__node__updated_at 
-                    THEN cs.compiled__node__updated_at END,
-                'compiled__bun__script', 
-                    CASE WHEN cs.compiled__bun__script IS DISTINCT FROM ps.compiled__bun__script 
-                    THEN cs.compiled__bun__script END,
-                'compiled__bun__script_sha256', 
-                    CASE WHEN cs.compiled__bun__script_sha256 IS DISTINCT FROM ps.compiled__bun__script_sha256 
-                    THEN cs.compiled__bun__script_sha256 END,
-                'compiled__bun__status', 
-                    CASE WHEN cs.compiled__bun__status IS DISTINCT FROM ps.compiled__bun__status 
-                    THEN cs.compiled__bun__status END,
-                'compiled__bun__updated_at', 
-                    CASE WHEN cs.compiled__bun__updated_at IS DISTINCT FROM ps.compiled__bun__updated_at 
-                    THEN cs.compiled__bun__updated_at END,
-                'compiled__browser__script', 
-                    CASE WHEN cs.compiled__browser__script IS DISTINCT FROM ps.compiled__browser__script 
-                    THEN cs.compiled__browser__script END,
-                'compiled__browser__script_sha256', 
-                    CASE WHEN cs.compiled__browser__script_sha256 IS DISTINCT FROM ps.compiled__browser__script_sha256 
-                    THEN cs.compiled__browser__script_sha256 END,
-                'compiled__browser__status', 
-                    CASE WHEN cs.compiled__browser__status IS DISTINCT FROM ps.compiled__browser__status 
-                    THEN cs.compiled__browser__status END,
-                'compiled__browser__updated_at', 
-                    CASE WHEN cs.compiled__browser__updated_at IS DISTINCT FROM ps.compiled__browser__updated_at 
-                    THEN cs.compiled__browser__updated_at END,
-                'group__sync', 
-                    CASE WHEN cs.group__sync IS DISTINCT FROM ps.group__sync 
-                    THEN cs.group__sync END,
-                'general__created_at', 
-                    CASE WHEN cs.general__created_at IS DISTINCT FROM ps.general__created_at 
-                    THEN cs.general__created_at END,
-                'general__created_by', 
-                    CASE WHEN cs.general__created_by IS DISTINCT FROM ps.general__created_by 
-                    THEN cs.general__created_by END,
-                'general__updated_at', 
-                    CASE WHEN cs.general__updated_at IS DISTINCT FROM ps.general__updated_at 
-                    THEN cs.general__updated_at END,
-                'general__updated_by', 
-                    CASE WHEN cs.general__updated_by IS DISTINCT FROM ps.general__updated_by 
-                    THEN cs.general__updated_by END
-            ))
-        END,
-        coalesce(auth.get_sync_group_session_ids(p_sync_group), '{}')
-    FROM current_states cs
-    FULL OUTER JOIN previous_states ps ON cs.general__script_id = ps.general__script_id
-    WHERE cs IS DISTINCT FROM ps;
+        END as operation,
+        jsonb_strip_nulls(jsonb_build_object(
+            'source__repo__entry_path', es.source__repo__entry_path,
+            'source__repo__url', es.source__repo__url,
+            'compiled__node__script', es.compiled__node__script,
+            'compiled__node__script_sha256', es.compiled__node__script_sha256,
+            'compiled__node__status', es.compiled__node__status,
+            'compiled__node__updated_at', es.compiled__node__updated_at,
+            'compiled__bun__script', es.compiled__bun__script,
+            'compiled__bun__script_sha256', es.compiled__bun__script_sha256,
+            'compiled__bun__status', es.compiled__bun__status,
+            'compiled__bun__updated_at', es.compiled__bun__updated_at,
+            'compiled__browser__script', es.compiled__browser__script,
+            'compiled__browser__script_sha256', es.compiled__browser__script_sha256,
+            'compiled__browser__status', es.compiled__browser__status,
+            'compiled__browser__updated_at', es.compiled__browser__updated_at,
+            'group__sync', es.group__sync
+        )) as changes,
+        coalesce(auth.get_sync_group_session_ids(es.group__sync), '{}') as sync_group_session_ids
+    FROM entity.entity_scripts es
+    WHERE es.group__sync = p_sync_group
+    AND es.general__updated_at > v_previous_tick_time
+    AND es.general__updated_at <= v_latest_tick_time
+
+    UNION ALL
+
+    -- Handle deleted scripts
+    SELECT 
+        es.general__script_id,
+        'DELETE'::operation_enum as operation,
+        NULL::jsonb as changes,
+        coalesce(auth.get_sync_group_session_ids(p_sync_group), '{}') as sync_group_session_ids
+    FROM entity.entity_scripts_audit_log es
+    WHERE es.group__sync = p_sync_group
+    AND es.operation = 'DELETE'
+    AND es.operation_timestamp > v_previous_tick_time
+    AND es.operation_timestamp <= v_latest_tick_time;
+
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 

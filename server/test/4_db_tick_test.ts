@@ -5,14 +5,21 @@ import type {
     Tick,
     Entity,
 } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
-import { up } from "../container/docker/docker_cli";
+import { isHealthy, up } from "../container/docker/docker_cli";
 
 describe("DB -> Tick Tests", () => {
     let sql: postgres.Sql;
 
     // Setup before all tests
     beforeAll(async () => {
-        await up(true);
+        if (!(await isHealthy()).isHealthy) {
+            await up(true);
+
+            const healthyAfterUp = await isHealthy();
+            if (!healthyAfterUp.isHealthy) {
+                throw new Error("Failed to start services");
+            }
+        }
         // Initialize database connection using PostgresClient
         await PostgresClient.getInstance().connect(false);
         sql = PostgresClient.getInstance().getClient();
@@ -78,11 +85,11 @@ describe("DB -> Tick Tests", () => {
                     scripts__status
                 ) VALUES (
                     ${"Test Entity"},
-                    ${{
+                    ${sql.json({
                         [scriptNamespace]: {
                             position: { x: 0, y: 0, z: 0 },
                         },
-                    }},
+                    })},
                     ${syncGroup},
                     ARRAY[]::uuid[],
                     ${"ACTIVE"}::entity_status_enum
@@ -126,11 +133,11 @@ describe("DB -> Tick Tests", () => {
                     scripts__status
                 ) VALUES (
                     ${"Original Name"},
-                    ${{
+                    ${sql.json({
                         [scriptNamespace]: {
                             position: { x: 0, y: 0, z: 0 },
                         },
-                    }},
+                    })},
                     ${syncGroup},
                     ARRAY[]::uuid[],
                     ${"ACTIVE"}::entity_status_enum
@@ -146,11 +153,11 @@ describe("DB -> Tick Tests", () => {
             await sql`
                 UPDATE entity.entities 
                 SET general__name = ${"Updated Name"},
-                    meta__data = ${{
+                    meta__data = ${sql.json({
                         [scriptNamespace]: {
                             position: { x: 1, y: 1, z: 1 },
                         },
-                    }}
+                    })}
                 WHERE general__entity_id = ${entity.general__entity_id}
             `;
 
@@ -202,11 +209,11 @@ describe("DB -> Tick Tests", () => {
                     scripts__status
                 ) VALUES (
                     ${"Latest State Test"},
-                    ${{
+                    ${sql.json({
                         [scriptNamespace]: {
                             position: { x: 0, y: 0, z: 0 },
                         },
-                    }},
+                    })},
                     ${syncGroup},
                     ARRAY[]::uuid[],
                     ${"ACTIVE"}::entity_status_enum
@@ -248,11 +255,11 @@ describe("DB -> Tick Tests", () => {
                     scripts__status
                 ) VALUES (
                     ${"Change Test"},
-                    ${{
+                    ${sql.json({
                         [scriptNamespace]: {
                             position: { x: 0, y: 0, z: 0 },
                         },
-                    }},
+                    })},
                     ${syncGroup},
                     ARRAY[]::uuid[],
                     ${"ACTIVE"}::entity_status_enum
@@ -267,11 +274,11 @@ describe("DB -> Tick Tests", () => {
             // Update entity
             await sql`
                 UPDATE entity.entities 
-                SET meta__data = ${{
+                SET meta__data = ${sql.json({
                     [scriptNamespace]: {
                         position: { x: 2, y: 2, z: 2 },
                     },
-                }}
+                })}
                 WHERE general__entity_id = ${entity.general__entity_id}
             `;
 

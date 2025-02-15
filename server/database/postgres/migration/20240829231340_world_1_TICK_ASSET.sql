@@ -84,39 +84,6 @@ CREATE TRIGGER log_asset_changes
 -- ENTITY ASSETS TICK FUNCTIONS
 -- 
 
--- Function to get ALL asset states from the latest tick in a sync group
-CREATE OR REPLACE FUNCTION tick.get_all_asset_states_at_latest_tick(
-    p_sync_group text
-) RETURNS TABLE (
-    general__asset_id uuid,
-    group__sync text,
-    general__asset_name text,
-    asset__data bytea,
-    meta__data jsonb,
-    general__created_at timestamptz,
-    general__created_by uuid,
-    general__updated_at timestamptz,
-    general__updated_by uuid,
-    sync_group_session_ids uuid[]
-) AS $$
-BEGIN
-    RETURN QUERY
-    SELECT 
-        ea.general__asset_id,
-        ea.group__sync,
-        ea.general__asset_name,
-        ea.asset__data,
-        ea.meta__data,
-        ea.general__created_at,
-        ea.general__created_by,
-        ea.general__updated_at,
-        ea.general__updated_by,
-        coalesce(auth.get_sync_group_session_ids(ea.group__sync), '{}')
-    FROM entity.entity_assets ea
-    WHERE ea.group__sync = p_sync_group;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
 -- Function to get CHANGED asset states between latest ticks
 CREATE OR REPLACE FUNCTION tick.get_changed_asset_states_between_latest_ticks(
     p_sync_group text

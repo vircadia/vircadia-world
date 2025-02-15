@@ -116,7 +116,7 @@ namespace SessionValidation {
 class WorldRestManager {
     constructor(
         private readonly sql: postgres.Sql,
-        private readonly config: Config.I_ConfigValue,
+        private readonly config: Config.I_Config<"auth">,
     ) {}
 
     private readonly LOG_PREFIX = "WorldRestManager";
@@ -155,7 +155,7 @@ class WorldRestManager {
 
         const validation = await SessionValidation.validateJWTAndSession({
             sql: this.sql,
-            jwtSecret: this.config.auth?.jwt_secret,
+            jwtSecret: this.config.general__value?.jwt_secret,
             token,
         });
 
@@ -206,7 +206,7 @@ class WorldRestManager {
 
         const validation = await SessionValidation.validateJWTAndSession({
             sql: this.sql,
-            jwtSecret: this.config.auth?.jwt_secret,
+            jwtSecret: this.config.general__value?.jwt_secret,
             token,
         });
 
@@ -290,7 +290,6 @@ class WorldTickManager {
 
     constructor(
         private readonly sql: postgres.Sql,
-        private readonly debugMode: boolean,
         private readonly wsManager: WorldWebSocketManager,
     ) {}
 
@@ -307,7 +306,8 @@ class WorldTickManager {
         } catch (error) {
             log({
                 message: `Failed to initialize tick manager: ${error}`,
-                debug: this.debugMode,
+                debug: VircadiaConfig_Server.debug,
+                suppress: VircadiaConfig_Server.suppress,
                 type: "error",
             });
             throw error;
@@ -341,9 +341,11 @@ class WorldTickManager {
                 // Process tick asynchronously
                 this.processTick(syncGroup).catch((error) => {
                     log({
-                        message: `Error in tick processing for ${syncGroup}: ${error}`,
+                        message: `Error in tick processing for ${syncGroup}.`,
+                        error: error,
                         prefix: this.LOG_PREFIX,
-                        debug: this.debugMode,
+                        suppress: VircadiaConfig_Server.suppress,
+                        debug: VircadiaConfig_Server.debug,
                         type: "error",
                     });
                 });
@@ -374,7 +376,9 @@ class WorldTickManager {
             }
 
             // Get entity changes using the new function
-            const entityChanges = await sql<Tick.I_EntityUpdate[]>`
+            let entityChanges: Tick.I_EntityUpdate[] = [];
+            try {
+                entityChanges = await sql<Tick.I_EntityUpdate[]>`
                     SELECT 
                         general__entity_id as entity_id,
                         operation,
@@ -382,9 +386,20 @@ class WorldTickManager {
                         sync_group_session_ids
                     FROM tick.get_changed_entity_states_between_latest_ticks(${syncGroup})
                 `;
+            } catch (error) {
+                log({
+                    message: `Failed to get entity changes for ${syncGroup}`,
+                    debug: VircadiaConfig_Server.debug,
+                    suppress: VircadiaConfig_Server.suppress,
+                    error: error,
+                    type: "error",
+                });
+            }
 
             // Get script changes using the new function
-            const scriptChanges = await sql<Tick.I_ScriptUpdate[]>`
+            let scriptChanges: Tick.I_ScriptUpdate[] = [];
+            try {
+                scriptChanges = await sql<Tick.I_ScriptUpdate[]>`
                     SELECT 
                         script_id,
                         operation,
@@ -392,6 +407,15 @@ class WorldTickManager {
                         sync_group_session_ids
                     FROM tick.get_changed_script_states_between_latest_ticks(${syncGroup})
                 `;
+            } catch (error) {
+                log({
+                    message: `Failed to get script changes for ${syncGroup}`,
+                    debug: VircadiaConfig_Server.debug,
+                    suppress: VircadiaConfig_Server.suppress,
+                    error: error,
+                    type: "error",
+                });
+            }
 
             // Update tick count for internal metrics
             const currentCount = this.tickCounts.get(syncGroup) || 0;
@@ -443,7 +467,8 @@ class WorldTickManager {
                 Promise.all(updatePromises).catch((error) => {
                     log({
                         message: `Error sending entity updates: ${error}`,
-                        debug: this.debugMode,
+                        debug: VircadiaConfig_Server.debug,
+                        suppress: VircadiaConfig_Server.suppress,
                         type: "error",
                     });
                 });
@@ -486,7 +511,8 @@ class WorldTickManager {
                 Promise.all(updatePromises).catch((error) => {
                     log({
                         message: `Error sending script updates: ${error}`,
-                        debug: this.debugMode,
+                        debug: VircadiaConfig_Server.debug,
+                        suppress: VircadiaConfig_Server.suppress,
                         type: "error",
                     });
                 });
@@ -507,7 +533,8 @@ class WorldTickManager {
         ) {
             log({
                 message: `Tick processing is delayed for ${syncGroup}\nLocally: ${isLocallyDbDelayed || isLocallyTotalDelayed}\nRemotely: ${isRemotelyDbDelayed}`,
-                debug: this.debugMode,
+                debug: VircadiaConfig_Server.debug,
+                suppress: VircadiaConfig_Server.suppress,
                 type: "warning",
                 data: {
                     localDbProcessingTime: `Local database processing time: ${localDbProcessingTime}ms`,
@@ -555,7 +582,7 @@ class WorldWebSocketManager {
 
     constructor(
         private readonly sql: postgres.Sql,
-        private readonly config: Config.I_ConfigValue,
+        private readonly config: Config.I_Config<"auth">,
     ) {}
 
     private async setAgentContext(
@@ -674,7 +701,7 @@ class WorldWebSocketManager {
 
         const validation = await SessionValidation.validateJWTAndSession({
             sql: this.sql,
-            jwtSecret: this.config.auth?.jwt_secret,
+            jwtSecret: this.config.general__value?.jwt_secret,
             token,
         });
 
@@ -806,7 +833,7 @@ class WorldWebSocketManager {
             // Validate session using the existing function
             const validation = await SessionValidation.validateJWTAndSession({
                 sql: this.sql,
-                jwtSecret: this.config.auth?.jwt_secret,
+                jwtSecret: this.config.general__value?.jwt_secret,
                 token: sessionToken,
             });
 
@@ -956,14 +983,14 @@ class WorldWebSocketManager {
         // Process sessions in parallel
         await Promise.all(
             sessionsToCheck.map(async ([sessionId, session]) => {
-                if (!this.config.auth?.ws_check_interval_ms) {
+                if (!this.config.general__value?.heartbeat_inactive_expiry_ms) {
                     throw new Error("WebSocket check interval not set");
                 }
 
                 // Check heartbeat timeout first
                 if (
                     now - session.lastHeartbeat >
-                    this.config.auth?.ws_check_interval_ms
+                    this.config.general__value?.heartbeat_inactive_expiry_ms
                 ) {
                     // Use database validate_session function
                     const [validation] = await this.sql<
@@ -1245,36 +1272,31 @@ export class WorldApiManager {
             this.sql = postgresClient.getClient();
 
             // Load full config with proper typing
-            const [configResult] = await this.sql<
-                [{ value: Config.I_ConfigValue }]
-            >`
-                SELECT general__value as value 
+            const [authConfig] = await this.sql<[Config.I_Config<"auth">]>`
+                SELECT general__value 
                 FROM config.config 
                 WHERE general__key = 'auth'
             `;
 
-            if (!configResult?.value) {
+            if (!authConfig.general__value) {
+                log({
+                    message: "Failed to load auth configuration",
+                    error: authConfig,
+                    suppress: VircadiaConfig_Server.suppress,
+                    debug: VircadiaConfig_Server.debug,
+                    type: "error",
+                });
                 throw new Error("Failed to load auth configuration");
             }
 
             // Initialize components with typed config
-            this.restManager = new WorldRestManager(
-                this.sql,
-                configResult.value,
-            );
+            this.restManager = new WorldRestManager(this.sql, authConfig);
 
-            this.wsManager = new WorldWebSocketManager(
-                this.sql,
-                configResult.value,
-            );
+            this.wsManager = new WorldWebSocketManager(this.sql, authConfig);
             await this.wsManager.initialize();
 
             // Initialize Tick Manager after wsManager is ready
-            this.tickManager = new WorldTickManager(
-                this.sql,
-                VircadiaConfig_Server.debug,
-                this.wsManager,
-            );
+            this.tickManager = new WorldTickManager(this.sql, this.wsManager);
             await this.tickManager.initialize();
             this.tickManager.start();
 

@@ -137,8 +137,23 @@ BEGIN
             sa.operation,
             sa.operation_timestamp,
             es.general__created_at,
-            es.*
-        FROM audit.script_audit_log sa
+            es.general__script_name,
+            es.source__repo__entry_path,
+            es.source__repo__url,
+            es.compiled__node__script,
+            es.compiled__node__script_sha256,
+            es.compiled__node__status,
+            es.compiled__node__updated_at,
+            es.compiled__bun__script,
+            es.compiled__bun__script_sha256,
+            es.compiled__bun__status,
+            es.compiled__bun__updated_at,
+            es.compiled__browser__script,
+            es.compiled__browser__script_sha256,
+            es.compiled__browser__status,
+            es.compiled__browser__updated_at,
+            es.group__sync
+        FROM tick.script_audit_log sa
         LEFT JOIN entity.entity_scripts es ON sa.general__script_id = es.general__script_id
         WHERE sa.group__sync = p_sync_group
         AND sa.operation_timestamp > v_previous_tick_time 
@@ -159,7 +174,7 @@ BEGIN
                 'compiled__node__status', sc.compiled__node__status,
                 'compiled__node__updated_at', sc.compiled__node__updated_at,
                 'compiled__bun__script', sc.compiled__bun__script,
-                'compiled__bun__script_sha256', sc.compiled__bun__sha256,
+                'compiled__bun__script_sha256', sc.compiled__bun__script_sha256,
                 'compiled__bun__status', sc.compiled__bun__status,
                 'compiled__bun__updated_at', sc.compiled__bun__updated_at,
                 'compiled__browser__script', sc.compiled__browser__script,

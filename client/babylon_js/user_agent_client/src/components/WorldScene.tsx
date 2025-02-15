@@ -302,8 +302,7 @@ const WorldScene: Component = () => {
                 break;
             }
 
-            case Communication.WebSocket.MessageType
-                .NOTIFICATION_ENTITY_UPDATE: {
+            case Communication.WebSocket.MessageType.CHANGE_ENTITY_RESPONSE: {
                 const notifMsg =
                     message as Communication.WebSocket.NotificationEntityUpdateMessage;
                 // Handle entity updates
@@ -315,7 +314,7 @@ const WorldScene: Component = () => {
             }
 
             case Communication.WebSocket.MessageType
-                .NOTIFICATION_ENTITY_SCRIPT_UPDATE: {
+                .CHANGE_ENTITY_SCRIPT_RESPONSE: {
                 const scriptMsg =
                     message as Communication.WebSocket.NotificationEntityScriptUpdateMessage;
                 // Handle entity script updates

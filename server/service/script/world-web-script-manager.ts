@@ -1,9 +1,9 @@
-import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
+import { log } from "../../../sdk/vircadia-world-sdk-ts/module/general/log";
 import type postgres from "postgres";
 import { build, type Subprocess } from "bun";
-import { Entity } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
-import { PostgresClient } from "../database/postgres/postgres_client";
-import { VircadiaConfig_Server } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
+import { Entity } from "../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+import { PostgresClient } from "../../database/postgres/postgres_client";
+import { VircadiaConfig_Server } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
 import tmp from "tmp";
 
 // Configure tmp for graceful cleanup
@@ -31,7 +31,7 @@ export class WorldWebScriptManager {
     }
 
     async initialize() {
-        await PostgresClient.getInstance().connect(true);
+        await PostgresClient.getInstance().connect();
         this.sql = PostgresClient.getInstance().getClient();
 
         try {

@@ -2,21 +2,21 @@
 // ============================== IMPORTS, TYPES, AND INTERFACES ==============================
 // =============================================================================
 
-import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
+import { log } from "../../../sdk/vircadia-world-sdk-ts/module/general/log.ts";
 import type postgres from "postgres";
 import { sign, verify } from "jsonwebtoken";
-import { VircadiaConfig_Server } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config.ts";
+import { VircadiaConfig_Server } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.config.ts";
 import {
     Communication,
     type Auth,
     type Tick,
-} from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+} from "../../../sdk/vircadia-world-sdk-ts/schema/schema.general.ts";
 import type { Server, ServerWebSocket } from "bun";
 import type {
     Config,
     Entity,
-} from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
-import { PostgresClient } from "../database/postgres/postgres_client";
+} from "../../../sdk/vircadia-world-sdk-ts/schema/schema.general.ts";
+import { PostgresClient } from "../../database/postgres/postgres_client.ts";
 
 interface WorldSession<T = unknown> {
     ws: WebSocket | ServerWebSocket<T>;
@@ -912,7 +912,7 @@ class WorldWebSocketManager {
                     break;
                 }
                 case Communication.WebSocket.MessageType
-                    .KEYFRAME_ENTITIES_REQUEST: {
+                    .GET_ALL_ENTITIES_REQUEST: {
                     const request =
                         data as Communication.WebSocket.KeyframeEntitiesRequestMessage;
                     await this.sendEntitiesKeyframeNotification(
@@ -1051,7 +1051,7 @@ class WorldWebSocketManager {
                 Communication.WebSocket.createMessage<Communication.WebSocket.NotificationEntityUpdatesMessage>(
                     {
                         type: Communication.WebSocket.MessageType
-                            .NOTIFICATION_ENTITY_UPDATE,
+                            .CHANGE_ENTITY_RESPONSE,
                         tickMetadata: tickData,
                         entities: changes.map((change) => ({
                             id: change.general__entity_id,
@@ -1084,7 +1084,7 @@ class WorldWebSocketManager {
                 Communication.WebSocket.createMessage<Communication.WebSocket.NotificationEntityScriptUpdatesMessage>(
                     {
                         type: Communication.WebSocket.MessageType
-                            .NOTIFICATION_ENTITY_SCRIPT_UPDATE,
+                            .CHANGE_ENTITY_SCRIPT_RESPONSE,
                         tickMetadata: tickData,
                         scripts: scriptChanges.map((change) => ({
                             id: change.general__script_id,
@@ -1147,7 +1147,7 @@ class WorldWebSocketManager {
                         Communication.WebSocket.createMessage<Communication.WebSocket.KeyframeEntitiesResponseMessage>(
                             {
                                 type: Communication.WebSocket.MessageType
-                                    .KEYFRAME_ENTITIES_RESPONSE,
+                                    .GET_ALL_ENTITIES_RESPONSE,
                                 entities: result?.entities || [],
                             },
                         );
@@ -1218,7 +1218,7 @@ class WorldWebSocketManager {
                         Communication.WebSocket.createMessage<Communication.WebSocket.KeyframeEntityScriptsResponseMessage>(
                             {
                                 type: Communication.WebSocket.MessageType
-                                    .KEYFRAME_ENTITY_SCRIPTS_RESPONSE,
+                                    .GET_ALL_ENTITY_SCRIPTS_RESPONSE,
                                 scripts: result?.entity_scripts || [],
                             },
                         );

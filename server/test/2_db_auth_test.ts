@@ -16,6 +16,7 @@ import type {
 import { sign } from "jsonwebtoken";
 import { VircadiaConfig_Server } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
 import { isHealthy, up } from "../container/docker/docker_cli";
+import { randomUUIDv7 } from "bun";
 
 interface TestAccount {
     id: string;
@@ -233,7 +234,7 @@ describe("DB -> Auth Tests", () => {
         test("should handle invalid agent context gracefully", async () => {
             await sql`SELECT auth.set_agent_context_to_anon()`;
             const [contextResult] = await sql`
-                SELECT auth.set_agent_context('', '') as success
+                SELECT auth.set_agent_context(${randomUUIDv7()}, '') as success
             `;
             expect(contextResult.success).toBe(false);
 

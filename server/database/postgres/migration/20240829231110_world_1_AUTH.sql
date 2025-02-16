@@ -46,21 +46,22 @@ CREATE INDEX idx_agent_profiles_email ON auth.agent_profiles(auth__email);
 CREATE INDEX idx_agent_sessions_active_lookup ON auth.agent_sessions 
     (session__is_active, session__expires_at) 
     WHERE session__is_active = true;
-
 -- Add composite index for session validation
 CREATE INDEX idx_agent_sessions_validation ON auth.agent_sessions 
     (general__session_id, session__is_active, session__expires_at) 
     WHERE session__is_active = true;
+-- Add index for session cleanup
+CREATE INDEX idx_agent_sessions_last_seen ON auth.agent_sessions(session__last_seen_at) 
+WHERE session__is_active = true;
 
--- Update is_admin_agent() to check the flag directly
 CREATE OR REPLACE FUNCTION auth.is_admin_agent()
 RETURNS boolean AS $$
 BEGIN
     RETURN EXISTS (
-        SELECT 1 
-        FROM auth.agent_profiles
-        WHERE general__agent_profile_id = auth.current_agent_id()
-        AND auth__is_admin = true
+        SELECT 1
+        FROM auth.agent_profiles AS ap
+        WHERE ap.general__agent_profile_id = auth.current_agent_id()
+          AND ap.auth__is_admin = true
     );
 END;
 $$ LANGUAGE plpgsql;
@@ -229,12 +230,12 @@ BEGIN
     RETURN QUERY
     SELECT 
         s.auth__agent_id,
-        (s.session__is_active AND s.session__expires_at > NOW()) AS is_valid,
-        -- Return the token if you store it, or just leave as NULL
-        NULL AS session_token
+        (s.session__is_active 
+         AND s.session__expires_at > NOW()
+         AND (p_session_token IS NULL OR s.session__jwt = p_session_token)) AS is_valid,
+        s.session__jwt AS session_token
     FROM auth.agent_sessions s
     WHERE s.general__session_id = p_session_id;
-
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -282,10 +283,16 @@ CREATE OR REPLACE FUNCTION auth.cleanup_old_sessions()
 RETURNS INTEGER AS $$
 DECLARE
     v_max_age_ms INTEGER;
+    v_inactive_timeout_ms INTEGER;
     v_count INTEGER;
 BEGIN
-    SELECT (general__value ->> 'max_age_ms')::INTEGER 
-    INTO v_max_age_ms 
+    -- Get configuration values
+    SELECT 
+        (general__value ->> 'max_age_ms')::INTEGER,
+        (general__value ->> 'inactive_timeout_ms')::INTEGER
+    INTO 
+        v_max_age_ms,
+        v_inactive_timeout_ms
     FROM config.config 
     WHERE general__key = 'auth';
 
@@ -293,9 +300,12 @@ BEGIN
         UPDATE auth.agent_sessions 
         SET session__is_active = false
         WHERE (
-            -- Check both expiration and last seen conditions
+            -- Session is expired
             session__expires_at < NOW() 
-            OR session__last_seen_at < (NOW() - (v_max_age_ms || ' milliseconds')::INTERVAL)
+            -- OR session is too old
+            OR session__started_at < (NOW() - (v_max_age_ms || ' milliseconds')::INTERVAL)
+            -- OR session is inactive
+            OR session__last_seen_at < (NOW() - (v_inactive_timeout_ms || ' milliseconds')::INTERVAL)
         )
         AND session__is_active = true
         RETURNING 1
@@ -406,6 +416,22 @@ CREATE TRIGGER update_agent_sessions_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION auth.set_agent_timestamps();
 
+-- Create async cleanup trigger function
+CREATE OR REPLACE FUNCTION auth.async_cleanup_trigger()
+RETURNS trigger AS $$
+BEGIN
+    -- Queue cleanup asynchronously
+    PERFORM pg_notify('cleanup_old_sessions', '');
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create trigger to run after session validations
+CREATE TRIGGER trigger_async_cleanup
+    AFTER UPDATE OF session__last_seen_at ON auth.agent_sessions
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION auth.async_cleanup_trigger();
+
 --
 -- SYNC GROUPS
 --
@@ -479,24 +505,24 @@ CREATE POLICY "Allow admin sync group role modifications" ON auth.agent_sync_gro
     USING (auth.is_admin_agent() OR auth.is_super_admin());
 
 -- Permission check functions
-CREATE OR REPLACE FUNCTION auth.has_sync_group_read_access(p_sync_group TEXT) 
+CREATE OR REPLACE FUNCTION auth.has_sync_group_read_access(p_sync_group TEXT)
 RETURNS BOOLEAN AS $$
     SELECT EXISTS (
         SELECT 1
-        FROM auth.agent_sync_group_roles
-        WHERE auth__agent_id = auth.current_agent_id()
-        AND group__sync = p_sync_group
+        FROM auth.agent_sync_group_roles AS roles
+        WHERE roles.auth__agent_id = auth.current_agent_id()
+          AND roles.group__sync = p_sync_group
     );
 $$ LANGUAGE sql STABLE;
 
-CREATE OR REPLACE FUNCTION auth.has_sync_group_insert_access(p_sync_group TEXT) 
+CREATE OR REPLACE FUNCTION auth.has_sync_group_insert_access(p_sync_group TEXT)
 RETURNS BOOLEAN AS $$
     SELECT EXISTS (
         SELECT 1
-        FROM auth.agent_sync_group_roles
-        WHERE auth__agent_id = auth.current_agent_id()
-        AND group__sync = p_sync_group
-        AND permissions__can_insert
+        FROM auth.agent_sync_group_roles AS roles
+        WHERE roles.auth__agent_id = auth.current_agent_id()
+          AND roles.group__sync = p_sync_group
+          AND roles.permissions__can_insert = true
     );
 $$ LANGUAGE sql STABLE;
 
@@ -504,10 +530,10 @@ CREATE OR REPLACE FUNCTION auth.has_sync_group_update_access(p_sync_group TEXT)
 RETURNS BOOLEAN AS $$
     SELECT EXISTS (
         SELECT 1
-        FROM auth.agent_sync_group_roles
-        WHERE auth__agent_id = auth.current_agent_id()
-        AND group__sync = p_sync_group
-        AND permissions__can_update
+        FROM auth.agent_sync_group_roles AS roles
+        WHERE roles.auth__agent_id = auth.current_agent_id()
+          AND roles.group__sync = p_sync_group
+          AND roles.permissions__can_update = true
     );
 $$ LANGUAGE sql STABLE;
 
@@ -515,10 +541,10 @@ CREATE OR REPLACE FUNCTION auth.has_sync_group_delete_access(p_sync_group TEXT)
 RETURNS BOOLEAN AS $$
     SELECT EXISTS (
         SELECT 1
-        FROM auth.agent_sync_group_roles
-        WHERE auth__agent_id = auth.current_agent_id()
-        AND group__sync = p_sync_group
-        AND permissions__can_delete
+        FROM auth.agent_sync_group_roles AS roles
+        WHERE roles.auth__agent_id = auth.current_agent_id()
+          AND roles.group__sync = p_sync_group
+          AND roles.permissions__can_delete = true
     );
 $$ LANGUAGE sql STABLE;
 

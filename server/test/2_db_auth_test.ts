@@ -39,7 +39,7 @@ describe("DB -> Auth Tests", () => {
             }
         }
         // Initialize database connection using PostgresClient
-        await PostgresClient.getInstance().connect(true);
+        await PostgresClient.getInstance().connect();
         sql = PostgresClient.getInstance().getClient();
     });
 
@@ -222,7 +222,7 @@ describe("DB -> Auth Tests", () => {
         });
 
         test("should handle unset agent context gracefully", async () => {
-            await sql`SELECT auth.clear_agent_context()`;
+            await sql`SELECT auth.set_agent_context_to_anon()`;
 
             // Get current agent id - should return anon user
             const [result] = await sql`SELECT auth.current_agent_id()`;
@@ -231,8 +231,11 @@ describe("DB -> Auth Tests", () => {
         });
 
         test("should handle invalid agent context gracefully", async () => {
-            await sql`SELECT auth.clear_agent_context()`;
-            await sql`SELECT set_config('app.current_agent_id', '', true)`;
+            await sql`SELECT auth.set_agent_context_to_anon()`;
+            const [contextResult] = await sql`
+                SELECT auth.set_agent_context('', '') as success
+            `;
+            expect(contextResult.success).toBe(false);
 
             const [result] = await sql`SELECT auth.current_agent_id()`;
             const [anonId] = await sql`SELECT auth.get_anon_agent_id()`;

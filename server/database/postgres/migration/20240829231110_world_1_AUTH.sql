@@ -217,7 +217,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Consolidate session validation logic
-CREATE OR REPLACE FUNCTION auth.validate_session_internal(
+CREATE OR REPLACE FUNCTION auth.validate_session(
     p_session_id UUID,
     p_session_token TEXT DEFAULT NULL
 ) RETURNS TABLE (
@@ -229,28 +229,12 @@ BEGIN
     RETURN QUERY
     SELECT 
         s.auth__agent_id,
-        CASE WHEN 
-            s.session__is_active 
-            AND s.session__expires_at > NOW()
-            AND (p_session_token IS NULL OR TRIM(s.session__jwt) = TRIM(p_session_token))
-        THEN TRUE ELSE FALSE END as is_valid,
-        s.session__jwt as session_token
+        (s.session__is_active AND s.session__expires_at > NOW()) AS is_valid,
+        -- Return the token if you store it, or just leave as NULL
+        NULL AS session_token
     FROM auth.agent_sessions s
-    WHERE s.general__session_id = p_session_id
-    LIMIT 1;
+    WHERE s.general__session_id = p_session_id;
 
-    IF NOT FOUND THEN
-        RETURN QUERY SELECT 
-            NULL::UUID, FALSE, NULL::TEXT;
-    END IF;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Update existing functions to use the new helper
-CREATE OR REPLACE FUNCTION auth.validate_session(p_session_id UUID)
-RETURNS TABLE (auth__agent_id UUID, is_valid BOOLEAN, session_token TEXT) AS $$
-BEGIN
-    RETURN QUERY SELECT * FROM auth.validate_session_internal(p_session_id);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -262,10 +246,10 @@ DECLARE
     v_validation RECORD;
 BEGIN
     SELECT * INTO v_validation 
-    FROM auth.validate_session_internal(p_session_id, p_session_token);
+    FROM auth.validate_session(p_session_id, p_session_token);
 
     IF NOT v_validation.is_valid THEN
-        PERFORM auth.clear_agent_context();
+        PERFORM auth.set_agent_context_to_anon();
         RETURN FALSE;
     END IF;
 
@@ -279,11 +263,18 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE OR REPLACE FUNCTION auth.clear_agent_context()
+CREATE OR REPLACE FUNCTION auth.set_agent_context_to_anon()
 RETURNS VOID AS $$
 BEGIN
     -- Explicitly set to anon agent ID instead of NULL or empty string
     PERFORM set_config('app.current_agent_id', auth.get_anon_agent_id()::text, false);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION auth.set_agent_context_to_system()
+RETURNS VOID AS $$
+BEGIN
+    PERFORM set_config('app.current_agent_id', auth.get_system_agent_id()::text, false);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 

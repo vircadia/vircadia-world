@@ -15,12 +15,11 @@ import type { Config } from "../../../sdk/vircadia-world-sdk-ts/schema/schema.ge
 import { PostgresClient } from "../../database/postgres/postgres_client.ts";
 import { verify } from "jsonwebtoken";
 
-export async function validateJWTAndSession(data: {
-    sql: postgres.Sql;
+export async function validateJWT(data: {
     jwtSecret?: string;
     token: string;
 }): Promise<{ agentId: string; sessionId: string; isValid: boolean }> {
-    const { sql, jwtSecret, token } = data;
+    const { jwtSecret, token } = data;
 
     try {
         if (!jwtSecret) {
@@ -41,23 +40,21 @@ export async function validateJWTAndSession(data: {
             agentId: string;
         };
 
-        const [validation] = await sql`
-            SELECT * FROM auth.validate_session(${decoded.sessionId}::UUID)
-        `;
-
         log({
-            message: "Session validation result",
+            message: "JWT validation result",
             debug: VircadiaConfig_Server.debug,
+            suppress: VircadiaConfig_Server.suppress,
             type: "debug",
             data: {
-                validation,
+                token,
+                decoded,
             },
         });
 
         return {
-            agentId: validation.auth__agent_id || "",
+            agentId: decoded.agentId,
             sessionId: decoded.sessionId,
-            isValid: validation.is_valid && !!validation.auth__agent_id,
+            isValid: !!decoded.sessionId && !!decoded.agentId,
         };
     } catch (error) {
         log({
@@ -263,20 +260,6 @@ export class WorldApiManager {
 
     private LOG_PREFIX = "WorldApiManager";
 
-    private async setAgentContext(
-        sql: postgres.Sql,
-        sessionId: string,
-        sessionToken: string,
-    ): Promise<void> {
-        const [contextResult] = await sql<[{ set_agent_context: boolean }]>`
-            SELECT auth.set_agent_context(${sessionId}::UUID, ${sessionToken}::TEXT) as set_agent_context
-        `;
-
-        if (!contextResult.set_agent_context) {
-            throw new Error("Failed to set agent context");
-        }
-    }
-
     async initialize() {
         try {
             log({
@@ -359,17 +342,16 @@ export class WorldApiManager {
                             });
                         }
 
-                        const validation = await validateJWTAndSession({
-                            sql: this.sql,
+                        const jwtValidationResult = await validateJWT({
                             jwtSecret:
                                 this.authConfig?.general__value?.jwt_secret,
                             token,
                         });
 
-                        if (!validation.isValid) {
+                        if (!jwtValidationResult.isValid) {
                             log({
                                 prefix: this.LOG_PREFIX,
-                                message: "Token validation failed",
+                                message: "Token JWT validation failed",
                                 debug: VircadiaConfig_Server.debug,
                                 type: "debug",
                             });
@@ -378,12 +360,30 @@ export class WorldApiManager {
                             });
                         }
 
+                        const sessionValidationResult = await this.sql<
+                            [{ is_valid: boolean }]
+                        >`
+                            SELECT * FROM auth.validate_session(${jwtValidationResult.sessionId}::UUID)
+                        `;
+
+                        if (!sessionValidationResult[0].is_valid) {
+                            log({
+                                prefix: this.LOG_PREFIX,
+                                message: "Session validation failed",
+                                debug: VircadiaConfig_Server.debug,
+                                type: "debug",
+                            });
+                            return new Response("Invalid session", {
+                                status: 401,
+                            });
+                        }
+
                         // Only attempt upgrade if validation passes
                         const upgraded = server.upgrade(req, {
                             data: {
                                 token,
-                                agentId: validation.agentId,
-                                sessionId: validation.sessionId,
+                                agentId: jwtValidationResult.agentId,
+                                sessionId: jwtValidationResult.sessionId,
                             },
                         });
 
@@ -421,32 +421,14 @@ export class WorldApiManager {
                                     );
                                 }
 
-                                const validation = await validateJWTAndSession({
-                                    sql: this.sql,
+                                const jwtValidationResult = await validateJWT({
                                     jwtSecret:
                                         this.authConfig?.general__value
                                             .jwt_secret,
                                     token,
                                 });
 
-                                // Set the current agent ID for RLS
-                                if (validation.isValid) {
-                                    await this
-                                        .sql`SELECT set_config('app.current_agent_id', ${validation.agentId}::text, true)`;
-                                }
-
-                                log({
-                                    message:
-                                        "Auth endpoint - Session validation result",
-                                    debug: VircadiaConfig_Server.debug,
-                                    type: "debug",
-                                    prefix: this.LOG_PREFIX,
-                                    data: {
-                                        validation,
-                                    },
-                                });
-
-                                if (!validation.isValid) {
+                                if (!jwtValidationResult.isValid) {
                                     return Response.json(
                                         Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
                                             "Invalid token",
@@ -454,13 +436,67 @@ export class WorldApiManager {
                                     );
                                 }
 
-                                return Response.json(
-                                    Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createSuccess(
-                                        validation.isValid,
-                                        validation.agentId,
-                                        validation.sessionId,
-                                    ),
-                                );
+                                const setSessionContextResult = await this.sql<
+                                    [{ set_agent_context: boolean }]
+                                >`
+                                    SELECT auth.set_agent_context(${jwtValidationResult.sessionId}::UUID, ${token}::TEXT) as set_agent_context
+                                `;
+
+                                if (
+                                    !setSessionContextResult[0]
+                                        .set_agent_context
+                                ) {
+                                    return Response.json(
+                                        Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
+                                            "Failed to set agent context",
+                                        ),
+                                    );
+                                }
+
+                                try {
+                                    const sessionValidationResult = await this
+                                        .sql<[{ is_valid: boolean }]>`
+                                    SELECT * FROM auth.validate_session(${jwtValidationResult.sessionId}::UUID)
+                                `;
+
+                                    log({
+                                        message:
+                                            "Auth endpoint - Session validation result",
+                                        debug: VircadiaConfig_Server.debug,
+                                        suppress:
+                                            VircadiaConfig_Server.suppress,
+                                        type: "debug",
+                                        prefix: this.LOG_PREFIX,
+                                        data: {
+                                            jwtValidationResult,
+                                            setSessionContextResult,
+                                        },
+                                    });
+
+                                    return Response.json(
+                                        Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createSuccess(
+                                            sessionValidationResult[0].is_valid,
+                                        ),
+                                    );
+                                } catch (error) {
+                                    log({
+                                        message: "Failed to validate session",
+                                        debug: VircadiaConfig_Server.debug,
+                                        type: "error",
+                                        prefix: this.LOG_PREFIX,
+                                        data: {
+                                            error:
+                                                error instanceof Error
+                                                    ? error.message
+                                                    : String(error),
+                                        },
+                                    });
+                                    return Response.json(
+                                        Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
+                                            "Failed to validate session",
+                                        ),
+                                    );
+                                }
                             }
 
                             case url.pathname ===
@@ -479,34 +515,43 @@ export class WorldApiManager {
                                     );
                                 }
 
-                                const validation = await validateJWTAndSession({
-                                    sql: this.sql,
+                                const jwtValidationResult = await validateJWT({
                                     jwtSecret:
                                         this.authConfig?.general__value
                                             .jwt_secret,
                                     token,
                                 });
 
-                                // Set the current agent ID for RLS
-                                if (validation.isValid) {
-                                    await this
-                                        .sql`SELECT set_config('app.current_agent_id', ${validation.agentId}::text, true)`;
+                                if (!jwtValidationResult.isValid) {
+                                    return Response.json(
+                                        Communication.REST.Endpoint.AUTH_SESSION_LOGOUT.createError(
+                                            "Invalid token",
+                                        ),
+                                    );
+                                }
+
+                                const [setSessionContextResult] = await this
+                                    .sql<[{ set_agent_context: boolean }]>`
+                                    SELECT auth.set_agent_context(${jwtValidationResult.sessionId}::UUID, ${token}::TEXT) as set_agent_context
+                                `;
+
+                                if (
+                                    !setSessionContextResult.set_agent_context
+                                ) {
+                                    return Response.json(
+                                        Communication.REST.Endpoint.AUTH_SESSION_LOGOUT.createError(
+                                            "Failed to set agent context",
+                                        ),
+                                    );
                                 }
 
                                 try {
-                                    // Even if the token is invalid, we should return success since the session is effectively "logged out"
-                                    if (!validation.isValid) {
-                                        return Response.json(
-                                            Communication.REST.Endpoint.AUTH_SESSION_LOGOUT.createSuccess(),
-                                        );
-                                    }
-
                                     // Call invalidate_session and check its boolean return value
                                     const [result] = await this.sql<
                                         [{ invalidate_session: boolean }]
                                     >`
-                                SELECT auth.invalidate_session(${validation.sessionId}::UUID) as invalidate_session;
-                            `;
+                                        SELECT auth.invalidate_session(${jwtValidationResult.sessionId}::UUID) as invalidate_session;
+                                    `;
 
                                     if (!result.invalidate_session) {
                                         throw new Error(
@@ -521,7 +566,9 @@ export class WorldApiManager {
                                         type: "debug",
                                         prefix: this.LOG_PREFIX,
                                         data: {
-                                            validation,
+                                            jwtValidationResult,
+                                            setSessionContextResult,
+                                            result,
                                         },
                                     });
 
@@ -543,7 +590,9 @@ export class WorldApiManager {
                                     });
 
                                     return Response.json(
-                                        Communication.REST.Endpoint.AUTH_SESSION_LOGOUT.createSuccess(),
+                                        Communication.REST.Endpoint.AUTH_SESSION_LOGOUT.createError(
+                                            "Failed to invalidate session",
+                                        ),
                                     );
                                 }
                             }
@@ -599,18 +648,34 @@ export class WorldApiManager {
                             }
 
                             // Validate JWT
-                            const validation = await validateJWTAndSession({
-                                sql: this.sql,
+                            const jwtValidationResult = await validateJWT({
                                 jwtSecret:
                                     this.authConfig?.general__value.jwt_secret,
                                 token: sessionToken,
                             });
 
-                            if (!validation.isValid) {
+                            if (!jwtValidationResult.isValid) {
                                 session.ws.send(
                                     JSON.stringify(
                                         new Communication.WebSocket.GeneralErrorResponseMessage(
                                             "Invalid token",
+                                        ),
+                                    ),
+                                );
+                                return;
+                            }
+
+                            const setSessionContextResult = await this.sql<
+                                [{ set_agent_context: boolean }]
+                            >`
+                                SELECT auth.set_agent_context(${sessionId}::UUID, ${sessionToken}::TEXT) as set_agent_context
+                            `;
+
+                            if (!setSessionContextResult[0].set_agent_context) {
+                                session.ws.send(
+                                    JSON.stringify(
+                                        new Communication.WebSocket.GeneralErrorResponseMessage(
+                                            "Failed to set agent context",
                                         ),
                                     ),
                                 );
@@ -658,11 +723,6 @@ export class WorldApiManager {
                                     try {
                                         const results = await this.sql?.begin(
                                             async (sql) => {
-                                                await this.setAgentContext(
-                                                    sql,
-                                                    sessionId,
-                                                    sessionToken,
-                                                );
                                                 return await sql.unsafe(
                                                     typedRequest.query,
                                                     typedRequest.parameters ||

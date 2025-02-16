@@ -2,7 +2,10 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import type { Subprocess } from "bun";
 import type postgres from "postgres";
 import { PostgresClient } from "../database/postgres/postgres_client";
-import type { Config } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+import {
+    Communication,
+    type Config,
+} from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import { isHealthy, up } from "../container/docker/docker_cli";
 import {
     VircadiaConfig_Client,
@@ -143,8 +146,26 @@ describe("Service -> Web API Manager Tests", () => {
             killSignal: "SIGTERM",
         });
 
-        // Wait for server to start
-        Bun.sleep(1000);
+        // Wait for server to be ready by polling the health endpoint
+        const baseUrl = `${VircadiaConfig_Client.defaultWorldServerUriUsingSsl ? "https" : "http"}://${VircadiaConfig_Client.defaultWorldServerUri}`;
+        const maxAttempts = 10;
+        let attempts = 0;
+
+        while (attempts < maxAttempts) {
+            try {
+                const response = await fetch(baseUrl);
+                if (response.status === 404) {
+                    // Server is up but returns 404 for root path
+                    break;
+                }
+            } catch (error) {
+                attempts++;
+                if (attempts === maxAttempts) {
+                    throw new Error("Server failed to start in time");
+                }
+                await Bun.sleep(500); // 500ms between attempts
+            }
+        }
     });
 
     describe("World API Manager -> REST API Tests", () => {
@@ -153,11 +174,11 @@ describe("Service -> Web API Manager Tests", () => {
         });
 
         describe("Authentication Endpoints", () => {
-            const baseUrl = `${VircadiaConfig_Client.defaultWorldServerUriUsingSsl ? "https" : "http"}://${VircadiaConfig_Client.defaultWorldServerUri}/api/v1`;
+            const baseUrl = `${VircadiaConfig_Client.defaultWorldServerUriUsingSsl ? "https" : "http"}://${VircadiaConfig_Client.defaultWorldServerUri}`;
 
             test("should validate a valid session token", async () => {
                 const agentResponse = await fetch(
-                    `${baseUrl}/auth/session/validate`,
+                    `${baseUrl}${Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.path}`,
                     {
                         method: "GET",
                         headers: {
@@ -174,7 +195,7 @@ describe("Service -> Web API Manager Tests", () => {
                 expect(data.data.sessionId).toBe(agent.sessionId);
 
                 const adminResponse = await fetch(
-                    `${baseUrl}/auth/session/validate`,
+                    `${baseUrl}${Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.path}`,
                     {
                         method: "GET",
                         headers: {
@@ -193,7 +214,7 @@ describe("Service -> Web API Manager Tests", () => {
 
             test("should reject an invalid session token", async () => {
                 const response = await fetch(
-                    `${baseUrl}/auth/session/validate`,
+                    `${baseUrl}${Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.path}`,
                     {
                         method: "GET",
                         headers: {
@@ -209,7 +230,7 @@ describe("Service -> Web API Manager Tests", () => {
 
             test("should reject requests without a token", async () => {
                 const response = await fetch(
-                    `${baseUrl}/auth/session/validate`,
+                    `${baseUrl}${Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.path}`,
                     {
                         method: "GET",
                     },
@@ -222,12 +243,15 @@ describe("Service -> Web API Manager Tests", () => {
 
             test("should successfully logout with valid token", async () => {
                 // Use the agent token that was created in createTestAccounts
-                const response = await fetch(`${baseUrl}/auth/session/logout`, {
-                    method: "POST",
-                    headers: {
-                        Authorization: `Bearer ${agent.token}`,
+                const response = await fetch(
+                    `${baseUrl}${Communication.REST.Endpoint.AUTH_SESSION_LOGOUT.path}`,
+                    {
+                        method: "POST",
+                        headers: {
+                            Authorization: `Bearer ${agent.token}`,
+                        },
                     },
-                });
+                );
 
                 expect(response.status).toBe(200);
                 const data = await response.json();
@@ -235,7 +259,7 @@ describe("Service -> Web API Manager Tests", () => {
 
                 // Verify session is actually invalidated
                 const validateResponse = await fetch(
-                    `${baseUrl}/auth/session/validate`,
+                    `${baseUrl}${Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.path}`,
                     {
                         method: "GET",
                         headers: {

@@ -11,7 +11,7 @@ CREATE TABLE entity.entities (
     general__initialized_by UUID DEFAULT NULL,
     meta__data JSONB DEFAULT '{}'::jsonb,
     scripts__ids UUID[] DEFAULT '{}',
-    scripts__status entity_status_enum DEFAULT 'ACTIVE'::entity_status_enum NOT NULL,
+    scripts__status entity_script_status_enum DEFAULT 'ACTIVE'::entity_script_status_enum NOT NULL,
     assets__ids UUID[] DEFAULT '{}',
     validation__log JSONB DEFAULT '[]'::jsonb,
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
@@ -111,7 +111,7 @@ CREATE OR REPLACE FUNCTION entity.update_entity_status_based_on_scripts()
 RETURNS TRIGGER AS $$
 BEGIN
     IF NEW.scripts__ids IS NULL OR NEW.scripts__ids = '{}' THEN
-        NEW.scripts__status = 'ACTIVE'::entity_status_enum;
+        NEW.scripts__status = 'ACTIVE'::entity_script_status_enum;
     ELSE
         -- Check if any script versions are pending
         IF EXISTS (
@@ -124,9 +124,9 @@ BEGIN
                 es.compiled__browser__status = 'PENDING'
             )
         ) THEN
-            NEW.scripts__status = 'AWAITING_SCRIPTS'::entity_status_enum;
+            NEW.scripts__status = 'AWAITING_SCRIPTS'::entity_script_status_enum;
         ELSE
-            NEW.scripts__status = 'ACTIVE'::entity_status_enum;
+            NEW.scripts__status = 'ACTIVE'::entity_script_status_enum;
         END IF;
     END IF;
     

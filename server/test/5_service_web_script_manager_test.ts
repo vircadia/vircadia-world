@@ -21,7 +21,7 @@ describe("Service -> Web Script Manager Tests", () => {
                 throw new Error("Failed to start services");
             }
         }
-        await PostgresClient.getInstance().connect(true);
+        await PostgresClient.getInstance().connect();
         sql = PostgresClient.getInstance().getClient();
         serverProcess = Bun.spawn(["bun", "run", "service:run:script"], {
             env: {

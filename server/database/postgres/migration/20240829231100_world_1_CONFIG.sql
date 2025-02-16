@@ -54,5 +54,3 @@ INSERT INTO config.config (general__key, general__value, general__description) V
 -- Create ENUMS
 
 CREATE TYPE operation_enum AS ENUM ('INSERT', 'UPDATE', 'DELETE');
-CREATE TYPE script_compilation_status AS ENUM ('PENDING', 'COMPILING', 'COMPILED', 'FAILED');
-CREATE TYPE entity_status_enum AS ENUM ('ACTIVE', 'AWAITING_SCRIPTS', 'INACTIVE');

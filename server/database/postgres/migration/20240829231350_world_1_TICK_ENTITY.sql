@@ -63,8 +63,7 @@ CREATE OR REPLACE FUNCTION tick.get_changed_entity_states_between_latest_ticks(
 ) RETURNS TABLE (
     general__entity_id uuid,
     operation operation_enum,
-    changes jsonb,
-    sync_group_session_ids uuid[]
+    changes jsonb
 ) AS $$
 DECLARE
     v_current_tick_id uuid;
@@ -170,8 +169,7 @@ BEGIN
                     CASE WHEN cs.general__updated_by IS DISTINCT FROM ps.general__updated_by 
                     THEN cs.general__updated_by END
             ))
-        END,
-        coalesce(auth.get_sync_group_session_ids(coalesce(cs.group__sync, ps.group__sync)), '{}')
+        END
     FROM current_states cs
     FULL OUTER JOIN previous_states ps ON cs.general__entity_id = ps.general__entity_id
     WHERE cs IS DISTINCT FROM ps;

@@ -88,10 +88,9 @@ CREATE TRIGGER log_asset_changes
 CREATE OR REPLACE FUNCTION tick.get_changed_asset_states_between_latest_ticks(
     p_sync_group text
 ) RETURNS TABLE (
-    asset_id uuid,
+    general__asset_id uuid,
     operation operation_enum,
-    changes jsonb,
-    sync_group_session_ids uuid[]
+    changes jsonb
 ) AS $$
 DECLARE
     v_latest_tick_time timestamptz;
@@ -115,16 +114,19 @@ BEGIN
             aal.operation,
             aal.operation_timestamp,
             ea.general__created_at,
-            ea.*
+            ea.general__asset_name,
+            ea.meta__data,
+            ea.asset__data,
+            ea.group__sync
         FROM tick.asset_audit_log aal
-        LEFT JOIN entity.entity_assets ea ON aal.general__asset_id = ea.general__script_id
+        LEFT JOIN entity.entity_assets ea ON aal.general__asset_id = ea.general__asset_id
         WHERE aal.group__sync = p_sync_group
           AND aal.operation_timestamp > v_previous_tick_time 
           AND aal.operation_timestamp <= v_latest_tick_time
         ORDER BY aal.general__asset_id, aal.operation_timestamp DESC
     )
     SELECT 
-        ac.general__asset_id AS asset_id,
+        ac.general__asset_id,
         ac.operation,
         CASE 
             WHEN ac.operation = 'DELETE' THEN NULL::jsonb
@@ -134,8 +136,7 @@ BEGIN
                 'asset__data', CASE WHEN ac.asset__data IS NOT NULL THEN encode(ac.asset__data, 'hex') ELSE NULL END,
                 'group__sync', ac.group__sync
             ))
-        END AS changes,
-        coalesce(auth.get_sync_group_session_ids(p_sync_group), '{}') AS sync_group_session_ids
+        END AS changes
     FROM asset_changes ac;
 
 END;

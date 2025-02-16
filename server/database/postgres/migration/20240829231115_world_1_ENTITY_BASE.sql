@@ -1,6 +1,9 @@
 -- Create entity schema
 CREATE SCHEMA IF NOT EXISTS entity;
 
+CREATE TYPE entity_script_status_enum AS ENUM ('ACTIVE', 'AWAITING_SCRIPTS', 'INACTIVE');
+CREATE TYPE script_compilation_status_enum AS ENUM ('PENDING', 'COMPILING', 'COMPILED', 'FAILED');
+
 -- Create template table for inheritance
 CREATE TABLE entity._template (
     general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,

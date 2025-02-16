@@ -110,10 +110,9 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE OR REPLACE FUNCTION tick.get_changed_script_states_between_latest_ticks(
     p_sync_group text
 ) RETURNS TABLE (
-    script_id uuid,
+    general__script_id uuid,
     operation operation_enum,
-    changes jsonb,
-    sync_group_session_ids uuid[]
+    changes jsonb
 ) AS $$
 DECLARE
     v_latest_tick_time timestamptz;
@@ -183,8 +182,7 @@ BEGIN
                 'compiled__browser__updated_at', sc.compiled__browser__updated_at,
                 'group__sync', sc.group__sync
             ))
-        END as changes,
-        coalesce(auth.get_sync_group_session_ids(p_sync_group), '{}') as sync_group_session_ids
+        END as changes
     FROM script_changes sc;
 
 END;

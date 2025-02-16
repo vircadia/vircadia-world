@@ -15,19 +15,19 @@ CREATE TABLE entity.entity_scripts (
     -- Node platform
     compiled__node__script TEXT,
     compiled__node__script_sha256 TEXT,
-    compiled__node__status script_compilation_status NOT NULL DEFAULT 'PENDING',
+    compiled__node__status script_compilation_status_enum NOT NULL DEFAULT 'PENDING',
     compiled__node__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     
     -- Bun platform
     compiled__bun__script TEXT,
     compiled__bun__script_sha256 TEXT,
-    compiled__bun__status script_compilation_status NOT NULL DEFAULT 'PENDING',
+    compiled__bun__status script_compilation_status_enum NOT NULL DEFAULT 'PENDING',
     compiled__bun__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     
     -- Browser platform
     compiled__browser__script TEXT,
     compiled__browser__script_sha256 TEXT,
-    compiled__browser__status script_compilation_status NOT NULL DEFAULT 'PENDING',
+    compiled__browser__status script_compilation_status_enum NOT NULL DEFAULT 'PENDING',
     compiled__browser__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT fk_entity_scripts_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group)

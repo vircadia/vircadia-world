@@ -373,10 +373,13 @@ describe("DB -> Auth Tests", () => {
             // Refresh the materialized view
             await sql`SELECT auth.refresh_active_sessions()`;
 
-            // Check active sessions
+            // Query the materialized view directly
             const [sessions] = await sql`
-                SELECT auth.get_sync_group_session_ids('admin.REALTIME') as session_ids
+                SELECT active_session_ids as session_ids
+                FROM auth.active_sync_group_sessions
+                WHERE group__sync = 'admin.REALTIME'
             `;
+
             expect(sessions.session_ids).toContain(admin.sessionId);
         });
     });

@@ -563,18 +563,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Function to get active session IDs for a sync group
-CREATE OR REPLACE FUNCTION auth.get_sync_group_session_ids(p_sync_group text)
-RETURNS uuid[] AS $$
-BEGIN
-    RETURN (
-        SELECT active_session_ids 
-        FROM auth.active_sync_group_sessions
-        WHERE group__sync = p_sync_group
-    );
-END;
-$$ LANGUAGE plpgsql STABLE;
-
 -- Create a trigger function to refresh the materialized view when sessions change
 CREATE OR REPLACE FUNCTION auth.refresh_active_sessions_trigger()
 RETURNS trigger AS $$

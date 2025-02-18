@@ -44,6 +44,10 @@ describe("DB -> Auth Tests", () => {
         sql = PostgresClient.getInstance().getClient();
     });
 
+    beforeEach(async () => {
+        if (admin) await sql`SELECT auth.set_agent_context(${admin.sessionId})`;
+    });
+
     async function createTestAccounts(): Promise<{
         admin: TestAccount;
         agent: TestAccount;
@@ -98,7 +102,7 @@ describe("DB -> Auth Tests", () => {
             `;
 
             // Set system context
-            await sql`SELECT auth.set_agent_context(${systemSession.general__session_id}, ${systemToken})`;
+            await sql`SELECT auth.set_agent_context(${systemSession.general__session_id})`;
 
             // Clean up any existing test accounts
             await sql`
@@ -191,288 +195,362 @@ describe("DB -> Auth Tests", () => {
         }
     }
 
+    describe("Superuser AC", () => {
+        test("should verify that our connection is superuser.", async () => {
+            await sql.begin(async (tx) => {
+                const [result] =
+                    await tx`SELECT auth.is_super_admin() as is_super`;
+                expect(result.is_super).toBe(true);
+            });
+        });
+    });
+
     describe("Account Management", () => {
         test("should create and verify test accounts", async () => {
-            // Create test accounts
-            const accounts = await createTestAccounts();
-            admin = accounts.admin;
-            agent = accounts.agent;
+            await sql.begin(async (tx) => {
+                // Use the transaction tx for all queries in this test
+                const accounts = await createTestAccounts();
+                admin = accounts.admin;
+                agent = accounts.agent;
 
-            // Verify admin account
-            const [adminProfile] = await sql<[Auth.I_Profile]>`
-                SELECT * FROM auth.agent_profiles
-                WHERE general__agent_profile_id = ${admin.id}
-            `;
-            expect(adminProfile.profile__username).toBe("test_admin");
-            expect(adminProfile.auth__is_admin).toBe(true);
+                // Verify admin account using tx
+                const [adminProfile] = await tx<[Auth.I_Profile]>`
+                    SELECT * FROM auth.agent_profiles
+                    WHERE general__agent_profile_id = ${admin.id}
+                `;
+                expect(adminProfile.profile__username).toBe("test_admin");
+                expect(adminProfile.auth__is_admin).toBe(true);
 
-            // Verify agent account
-            const [agentProfile] = await sql<[Auth.I_Profile]>`
-                SELECT * FROM auth.agent_profiles
-                WHERE general__agent_profile_id = ${agent.id}
-            `;
-            expect(agentProfile.profile__username).toBe("test_agent");
-            expect(agentProfile.auth__is_admin).toBe(false);
+                // Verify agent account using tx
+                const [agentProfile] = await tx<[Auth.I_Profile]>`
+                    SELECT * FROM auth.agent_profiles
+                    WHERE general__agent_profile_id = ${agent.id}
+                `;
+                expect(agentProfile.profile__username).toBe("test_agent");
+                expect(agentProfile.auth__is_admin).toBe(false);
+            });
         });
     });
 
     describe("Session Management", () => {
         beforeEach(async () => {
             // Reset admin context before each test
-            await sql`SELECT auth.set_agent_context(${admin.sessionId}, ${admin.token})`;
+            await sql`SELECT auth.set_agent_context(${admin.sessionId})`;
         });
 
         test("should handle unset agent context gracefully", async () => {
-            await sql`SELECT auth.set_agent_context_to_anon()`;
-
-            // Get current agent id - should return anon user
-            const [result] = await sql`SELECT auth.current_agent_id()`;
-            const [anonId] = await sql`SELECT auth.get_anon_agent_id()`;
-            expect(result.current_agent_id).toBe(anonId.get_anon_agent_id);
+            await sql.begin(async (tx) => {
+                await tx`SELECT auth.set_agent_context(auth.get_anon_agent_id()::text)`;
+                const [result] = await tx`SELECT auth.current_agent_id()`;
+                const [anonId] = await tx`SELECT auth.get_anon_agent_id()`;
+                expect(result.current_agent_id).toBe(anonId.get_anon_agent_id);
+            });
         });
 
         test("should handle invalid agent context gracefully", async () => {
-            await sql`SELECT auth.set_agent_context_to_anon()`;
-            const [contextResult] = await sql`
-                SELECT auth.set_agent_context(${randomUUIDv7()}, '') as success
-            `;
-            expect(contextResult.success).toBe(false);
-
-            const [result] = await sql`SELECT auth.current_agent_id()`;
-            const [anonId] = await sql`SELECT auth.get_anon_agent_id()`;
-            expect(result.current_agent_id).toBe(anonId.get_anon_agent_id);
+            await sql.begin(async (tx) => {
+                await tx`SELECT auth.set_agent_context(auth.get_anon_agent_id()::text)`; // Invalid session ID
+                const [contextResult] = await tx`
+                    SELECT auth.set_agent_context(${randomUUIDv7()}, '') as success
+                `;
+                expect(contextResult.success).toBe(false);
+                const [result] = await tx`SELECT auth.current_agent_id()`;
+                const [anonId] = await tx`SELECT auth.get_anon_agent_id()`;
+                expect(result.current_agent_id).toBe(anonId.get_anon_agent_id);
+            });
         });
 
         test("should handle valid agent context", async () => {
-            const [session] = await sql`
-                SELECT * FROM auth.agent_sessions 
-                WHERE general__session_id = ${admin.sessionId}
-            `;
-            log({
-                message: "Session check:",
-                type: "debug",
-                data: session,
-                debug: VircadiaConfig_Server.debug,
+            await sql.begin(async (tx) => {
+                const [session] = await tx`
+                    SELECT * FROM auth.agent_sessions 
+                    WHERE general__session_id = ${admin.sessionId}
+                `;
+
+                const [contextResult] = await tx`
+                    SELECT auth.set_agent_context(${admin.sessionId}, ${admin.token}) as success
+                `;
+                expect(contextResult.success).toBe(true);
+                const [result] = await tx`SELECT auth.current_agent_id()`;
+                expect(result.current_agent_id).toBe(admin.id);
             });
-
-            const [contextResult] = await sql`
-                SELECT auth.set_agent_context(${admin.sessionId}, ${admin.token}) as success
-            `;
-            expect(contextResult.success).toBe(true);
-
-            const [result] = await sql`SELECT auth.current_agent_id()`;
-            expect(result.current_agent_id).toBe(admin.id);
         });
 
         test("should handle expired sessions correctly", async () => {
-            // Create a test session with immediate expiration
-            const [expiredSession] = await sql`
-                INSERT INTO auth.agent_sessions (
-                    auth__agent_id,
-                    auth__provider_name,
-                    session__expires_at,
-                    session__is_active,
-                    session__jwt
-                ) VALUES (
-                    ${admin.id},
-                    'test',
-                    NOW() - INTERVAL '1 second',
-                    true,
-                    'test_token'
-                ) RETURNING general__session_id
-            `;
+            await sql.begin(async (tx) => {
+                const [expiredSession] = await tx`
+                    INSERT INTO auth.agent_sessions (
+                        auth__agent_id,
+                        auth__provider_name,
+                        session__expires_at,
+                        session__is_active,
+                        session__jwt
+                    ) VALUES (
+                        ${admin.id},
+                        'test',
+                        NOW() - INTERVAL '1 second',
+                        true,
+                        'test_token'
+                    ) RETURNING general__session_id
+                `;
+                await tx`SELECT auth.cleanup_old_sessions()`;
+                await tx`SELECT auth.set_agent_context(${expiredSession.general__session_id}, 'test_token')`;
+                const [currentAgent] = await tx`SELECT auth.current_agent_id()`;
+                const [anonId] = await tx`SELECT auth.get_anon_agent_id()`;
+                expect(currentAgent.current_agent_id).toBe(
+                    anonId.get_anon_agent_id,
+                );
+                const [sessionStatus] = await tx`
+                    SELECT session__is_active 
+                    FROM auth.agent_sessions 
+                    WHERE general__session_id = ${expiredSession.general__session_id}
+                `;
+                expect(sessionStatus.session__is_active).toBe(false);
+            });
+        });
 
-            await sql`SELECT auth.cleanup_old_sessions()`;
-            await sql`SELECT auth.set_agent_context(${expiredSession.general__session_id}, 'test_token')`;
+        test("should enforce max sessions per agent", async () => {
+            await sql.begin(async (tx) => {
+                const [authConfig] = await tx`
+                    SELECT (general__value->>'session_max_per_agent')::INTEGER as max_sessions 
+                    FROM config.config 
+                    WHERE general__key = 'auth'
+                `;
+                const maxSessions = authConfig.max_sessions;
 
-            const [currentAgent] = await sql`SELECT auth.current_agent_id()`;
-            const [anonId] = await sql`SELECT auth.get_anon_agent_id()`;
-            expect(currentAgent.current_agent_id).toBe(
-                anonId.get_anon_agent_id,
-            );
-
-            const [sessionStatus] = await sql`
-                SELECT session__is_active 
-                FROM auth.agent_sessions 
-                WHERE general__session_id = ${expiredSession.general__session_id}
-            `;
-            expect(sessionStatus.session__is_active).toBe(false);
+                // Create sessions up to the limit
+                for (let i = 0; i < maxSessions + 1; i++) {
+                    await tx`SELECT * FROM auth.create_agent_session(${agent.id}, 'test')`;
+                }
+                // Verify that oldest session was invalidated
+                const [activeSessions] = await tx<{ count: string }[]>`
+                    SELECT COUNT(*)::TEXT as count 
+                    FROM auth.agent_sessions 
+                    WHERE auth__agent_id = ${agent.id} 
+                    AND session__is_active = true
+                `;
+                expect(Number.parseInt(activeSessions.count)).toBe(maxSessions);
+            });
         });
     });
 
     describe("Sync Group Management", () => {
-        beforeEach(async () => {
-            await sql`SELECT auth.set_agent_context(${admin.sessionId}, ${admin.token})`;
-        });
-
         test("should verify default sync groups exist", async () => {
-            const syncGroups = await sql`
-                SELECT * FROM auth.sync_groups
-                ORDER BY general__sync_group
-            `;
-            expect(syncGroups).toHaveLength(8); // 4 public + 4 admin groups
-            expect(syncGroups.map((g) => g.general__sync_group)).toContain(
-                "public.REALTIME",
-            );
-            expect(syncGroups.map((g) => g.general__sync_group)).toContain(
-                "admin.STATIC",
-            );
+            await sql.begin(async (tx) => {
+                const syncGroups = await tx`
+                    SELECT * FROM auth.sync_groups
+                    ORDER BY general__sync_group
+                `;
+                expect(syncGroups).toHaveLength(8); // 4 public + 4 admin groups
+                expect(syncGroups.map((g) => g.general__sync_group)).toContain(
+                    "public.REALTIME",
+                );
+                expect(syncGroups.map((g) => g.general__sync_group)).toContain(
+                    "admin.STATIC",
+                );
+            });
         });
 
         test("should manage sync group roles correctly", async () => {
-            // First switch to agent context
-            await sql`SELECT auth.set_agent_context(${agent.sessionId}, ${agent.token})`;
-
-            // Assign roles to test agent
-            await sql`
-                INSERT INTO auth.agent_sync_group_roles (
-                    auth__agent_id,
-                    group__sync,
-                    permissions__can_insert,
-                    permissions__can_update,
-                    permissions__can_delete
-                ) VALUES (
-                    ${agent.id},
-                    'public.REALTIME',
-                    true,
-                    true,
-                    false
-                )
-            `;
-
-            // Verify permissions
-            const [hasRead] = await sql`
-                SELECT auth.has_sync_group_read_access('public.REALTIME') as has_access
-            `;
-            const [hasInsert] = await sql`
-                SELECT auth.has_sync_group_insert_access('public.REALTIME') as has_access
-            `;
-            const [hasDelete] = await sql`
-                SELECT auth.has_sync_group_delete_access('public.REALTIME') as has_access
-            `;
-
-            expect(hasRead.has_access).toBe(true);
-            expect(hasInsert.has_access).toBe(true);
-            expect(hasDelete.has_access).toBe(false);
+            await sql.begin(async (tx) => {
+                await tx`
+                    INSERT INTO auth.agent_sync_group_roles (
+                        auth__agent_id,
+                        group__sync,
+                        permissions__can_insert,
+                        permissions__can_update,
+                        permissions__can_delete
+                    ) VALUES (
+                        ${agent.id},
+                        'public.REALTIME',
+                        true,
+                        true,
+                        false
+                    )
+                `;
+                const [role] = await tx`
+                    SELECT * FROM auth.agent_sync_group_roles
+                    WHERE auth__agent_id = ${agent.id}
+                `;
+                expect(role.group__sync).toBe("public.REALTIME");
+                expect(role.permissions__can_insert).toBe(true);
+                expect(role.permissions__can_update).toBe(true);
+                expect(role.permissions__can_delete).toBe(false);
+                await tx`SELECT auth.set_agent_context(${agent.sessionId}, ${agent.token})`;
+                const [hasRead] = await tx`
+                    SELECT auth.has_sync_group_read_access('public.REALTIME') as has_access
+                `;
+                const [hasInsert] = await tx`
+                    SELECT auth.has_sync_group_insert_access('public.REALTIME') as has_access
+                `;
+                const [hasUpdate] = await tx`
+                    SELECT auth.has_sync_group_update_access('public.REALTIME') as has_access
+                `;
+                const [hasDelete] = await tx`
+                    SELECT auth.has_sync_group_delete_access('public.REALTIME') as has_access
+                `;
+                expect(hasRead.has_access).toBe(true);
+                expect(hasInsert.has_access).toBe(true);
+                expect(hasUpdate.has_access).toBe(true);
+                expect(hasDelete.has_access).toBe(false);
+            });
         });
 
         test("should handle active sessions view correctly", async () => {
-            // Assign role to admin
-            await sql`
-                INSERT INTO auth.agent_sync_group_roles (
-                    auth__agent_id,
-                    group__sync,
-                    permissions__can_insert,
-                    permissions__can_update,
-                    permissions__can_delete
-                ) VALUES (
-                    ${admin.id},
-                    'admin.REALTIME',
-                    true,
-                    true,
-                    true
-                )
-            `;
-
-            // Refresh the materialized view
-            await sql`SELECT auth.refresh_active_sessions()`;
-
-            // Query the materialized view directly
-            const [sessions] = await sql`
-                SELECT active_session_ids as session_ids
-                FROM auth.active_sync_group_sessions
-                WHERE group__sync = 'admin.REALTIME'
-            `;
-
-            expect(sessions.session_ids).toContain(admin.sessionId);
+            await sql.begin(async (tx) => {
+                await tx`
+                    INSERT INTO auth.agent_sync_group_roles (
+                        auth__agent_id,
+                        group__sync,
+                        permissions__can_insert,
+                        permissions__can_update,
+                        permissions__can_delete
+                    ) VALUES (
+                        ${admin.id},
+                        'admin.REALTIME',
+                        true,
+                        true,
+                        true
+                    )
+                `;
+                await tx`SELECT auth.refresh_active_sessions()`;
+                const [sessions] = await tx`
+                    SELECT active_session_ids as session_ids
+                    FROM auth.active_sync_group_sessions
+                    WHERE group__sync = 'admin.REALTIME'
+                `;
+                expect(sessions.session_ids).toContain(admin.sessionId);
+            });
         });
     });
 
     describe("Permission Management", () => {
-        beforeEach(async () => {
-            await sql`SELECT auth.set_agent_context(${admin.sessionId}, ${admin.token})`;
-        });
-
         test("should verify admin permissions", async () => {
-            const [isAdmin] =
-                await sql`SELECT auth.is_admin_agent() as is_admin`;
-            expect(isAdmin.is_admin).toBe(true);
+            await sql.begin(async (tx) => {
+                const [isAdmin] =
+                    await tx`SELECT auth.is_admin_agent() as is_admin`;
+                expect(isAdmin.is_admin).toBe(true);
+            });
         });
 
         test("should verify non-admin permissions", async () => {
-            await sql`SELECT auth.set_agent_context(${agent.sessionId}, ${agent.token})`;
-            const [isAdmin] =
-                await sql`SELECT auth.is_admin_agent() as is_admin`;
-            expect(isAdmin.is_admin).toBe(false);
+            await sql.begin(async (tx) => {
+                await tx`SELECT auth.set_agent_context(${agent.sessionId}, ${agent.token})`;
+                const [isAdmin] =
+                    await tx`SELECT auth.is_admin_agent() as is_admin`;
+                expect(isAdmin.is_admin).toBe(false);
+            });
         });
 
         test("should handle super admin checks", async () => {
-            const [isSuperAdmin] =
-                await sql`SELECT auth.is_super_admin() as is_super`;
-            // This will typically be false in test environment
-            expect(typeof isSuperAdmin.is_super).toBe("boolean");
+            await sql.begin(async (tx) => {
+                const [isSuperAdmin] =
+                    await tx`SELECT auth.is_super_admin() as is_super`;
+                // This will typically be false in test environment
+                expect(typeof isSuperAdmin.is_super).toBe("boolean");
+            });
         });
     });
 
     describe("Session Cleanup", () => {
         test("should cleanup system tokens", async () => {
-            // Create an expired system token
-            await sql`
-                INSERT INTO auth.agent_sessions (
-                    auth__agent_id,
-                    auth__provider_name,
-                    session__expires_at,
-                    session__is_active
-                ) VALUES (
-                    auth.get_system_agent_id(),
-                    'system',
-                    NOW() - INTERVAL '1 hour',
-                    true
-                )
-            `;
-
-            const [result] =
-                await sql`SELECT auth.cleanup_system_tokens() as cleaned`;
-            expect(result.cleaned).toBeGreaterThan(0);
+            await sql.begin(async (tx) => {
+                await tx`
+                    INSERT INTO auth.agent_sessions (
+                        auth__agent_id,
+                        auth__provider_name,
+                        session__expires_at,
+                        session__is_active
+                    ) VALUES (
+                        auth.get_system_agent_id(),
+                        'system',
+                        NOW() - INTERVAL '1 hour',
+                        true
+                    )
+                `;
+                const [result] = await tx`
+                    SELECT auth.cleanup_system_tokens() as cleaned
+                `;
+                expect(result.cleaned).toBeGreaterThan(0);
+            });
         });
 
         test("should handle session invalidation", async () => {
-            const success = await sql`
-                SELECT auth.invalidate_session(${agent.sessionId}) as success
-            `;
-            expect(success[0].success).toBe(true);
+            await sql.begin(async (tx) => {
+                // First set admin context on the same connection
+                await tx`SELECT auth.set_agent_context(${admin.sessionId}, ${admin.token})`;
 
-            // Verify session is invalid
-            const [session] = await sql`
-                SELECT session__is_active 
-                FROM auth.agent_sessions 
-                WHERE general__session_id = ${agent.sessionId}
-            `;
-            expect(session.session__is_active).toBe(false);
+                // Ensure agent session is active
+                await tx`
+                    UPDATE auth.agent_sessions 
+                    SET 
+                        session__is_active = true,
+                        session__expires_at = NOW() + INTERVAL '1 hour'
+                    WHERE general__session_id = ${agent.sessionId}
+                `;
+
+                // Verify session is active before invalidation
+                const [initialState] = await tx`
+                    SELECT session__is_active 
+                    FROM auth.agent_sessions 
+                    WHERE general__session_id = ${agent.sessionId}
+                `;
+                expect(initialState.session__is_active).toBe(true);
+
+                // Invalidate session
+                const [success] = await tx`
+                    SELECT auth.invalidate_session(${agent.sessionId}) as success
+                `;
+                expect(success.success).toBe(true);
+
+                // Verify session is invalid
+                const [session] = await tx`
+                    SELECT session__is_active 
+                    FROM auth.agent_sessions 
+                    WHERE general__session_id = ${agent.sessionId}
+                `;
+                expect(session.session__is_active).toBe(false);
+            });
+        });
+
+        test("should cleanup inactive sessions", async () => {
+            await sql.begin(async (tx) => {
+                // Create an inactive session
+                await tx`
+                    UPDATE auth.agent_sessions 
+                    SET session__last_seen_at = NOW() - INTERVAL '1 hour'
+                    WHERE general__session_id = ${agent.sessionId}
+                `;
+
+                const cleanedCount =
+                    await tx`SELECT auth.cleanup_old_sessions()`;
+                expect(cleanedCount[0].cleanup_old_sessions).toBeGreaterThan(0);
+            });
         });
     });
 
     describe("Test Cleanup", () => {
         test("should cleanup test accounts", async () => {
-            try {
-                await sql`
-                    DELETE FROM auth.agent_profiles 
-                    WHERE profile__username IN ('test_admin', 'test_agent')
-                `;
-
-                const profiles = await sql<Auth.I_Profile[]>`
-                    SELECT * FROM auth.agent_profiles
-                    WHERE profile__username IN ('test_admin', 'test_agent')
-                `;
-                expect(profiles).toHaveLength(0);
-            } catch (error) {
-                log({
-                    message: "Failed to cleanup test accounts",
-                    type: "error",
-                    error,
-                });
-                throw error;
-            }
+            await sql.begin(async (tx) => {
+                try {
+                    await tx`
+                        DELETE FROM auth.agent_profiles 
+                        WHERE profile__username IN ('test_admin', 'test_agent')
+                    `;
+                    const profiles = await tx<Auth.I_Profile[]>`
+                        SELECT * FROM auth.agent_profiles
+                        WHERE profile__username IN ('test_admin', 'test_agent')
+                    `;
+                    expect(profiles).toHaveLength(0);
+                } catch (error) {
+                    log({
+                        message: "Failed to cleanup test accounts",
+                        type: "error",
+                        error,
+                    });
+                    throw error;
+                }
+            });
         });
     });
 

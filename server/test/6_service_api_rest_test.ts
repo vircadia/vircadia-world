@@ -140,7 +140,7 @@ describe("Service -> Web API Manager Tests", () => {
 
         serverProcess = Bun.spawn(["bun", "run", "service:run:api"], {
             cwd: process.cwd(),
-            ...(VircadiaConfig_Server.suppress
+            ...(VircadiaConfig_Server.SUPPRESS
                 ? { stdio: ["ignore", "ignore", "ignore"] }
                 : { stdio: ["inherit", "inherit", "inherit"] }),
             killSignal: "SIGTERM",

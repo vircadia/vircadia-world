@@ -1,5 +1,29 @@
 CREATE SCHEMA IF NOT EXISTS config;
 
+REVOKE ALL ON FUNCTION pg_catalog.set_config(text, text, boolean) FROM PUBLIC;
+
+-- Check if role exists and drop if needed
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'vircadia_agent_proxy') THEN
+        DROP ROLE vircadia_agent_proxy;
+    END IF;
+END
+$$;
+
+SET my.agent_proxy_password = '$POSTGRES_AGENT_PROXY_PASSWORD';
+-- User proxy role with limited permissions
+DO $$
+DECLARE
+    pwd text := current_setting('my.agent_proxy_password');
+BEGIN
+    EXECUTE format('CREATE ROLE vircadia_agent_proxy LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOREPLICATION', pwd);
+END
+$$;
+
+-- Grant usage on schema config to vircadia_agent_proxy
+GRANT USAGE ON SCHEMA config TO vircadia_agent_proxy;
+
 -- Configuration table
 CREATE TABLE config.config (
     general__key text PRIMARY KEY,

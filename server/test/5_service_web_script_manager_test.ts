@@ -29,7 +29,7 @@ describe("Service -> Web Script Manager Tests", () => {
             },
             cwd: process.cwd(),
             killSignal: "SIGTERM",
-            ...(VircadiaConfig_Server.suppress
+            ...(VircadiaConfig_Server.SUPPRESS
                 ? { stdio: ["ignore", "ignore", "ignore"] }
                 : { stdio: ["inherit", "inherit", "inherit"] }),
         });
@@ -131,9 +131,9 @@ describe("Service -> Web Script Manager Tests", () => {
             log({
                 message: "Final compilation status",
                 data: status,
-                suppress: VircadiaConfig_Server.suppress,
+                suppress: VircadiaConfig_Server.SUPPRESS,
                 type: "debug",
-                debug: VircadiaConfig_Server.debug,
+                debug: VircadiaConfig_Server.DEBUG,
             });
 
             // Check compilation status for all platforms

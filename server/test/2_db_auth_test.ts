@@ -42,10 +42,9 @@ describe("DB -> Auth Tests", () => {
         // Initialize database connection using PostgresClient
         await PostgresClient.getInstance().connect();
         sql = PostgresClient.getInstance().getClient();
-    });
 
-    beforeEach(async () => {
-        if (admin) await sql`SELECT auth.set_agent_context(${admin.sessionId})`;
+        // Set system context
+        await sql`SELECT auth.set_agent_context_to_system_agent()`;
     });
 
     async function createTestAccounts(): Promise<{
@@ -100,9 +99,6 @@ describe("DB -> Auth Tests", () => {
                 SET session__jwt = ${systemToken}
                 WHERE general__session_id = ${systemSession.general__session_id}
             `;
-
-            // Set system context
-            await sql`SELECT auth.set_agent_context(${systemSession.general__session_id})`;
 
             // Clean up any existing test accounts
             await sql`
@@ -195,16 +191,6 @@ describe("DB -> Auth Tests", () => {
         }
     }
 
-    describe("Superuser AC", () => {
-        test("should verify that our connection is superuser.", async () => {
-            await sql.begin(async (tx) => {
-                const [result] =
-                    await tx`SELECT auth.is_super_admin() as is_super`;
-                expect(result.is_super).toBe(true);
-            });
-        });
-    });
-
     describe("Account Management", () => {
         test("should create and verify test accounts", async () => {
             await sql.begin(async (tx) => {
@@ -232,52 +218,127 @@ describe("DB -> Auth Tests", () => {
         });
     });
 
-    describe("Session Management", () => {
-        beforeEach(async () => {
-            // Reset admin context before each test
-            await sql`SELECT auth.set_agent_context(${admin.sessionId})`;
-        });
-
-        test("should handle unset agent context gracefully", async () => {
+    describe("Permission Management", () => {
+        test("should verify super agent permissions", async () => {
             await sql.begin(async (tx) => {
-                await tx`SELECT auth.set_agent_context(auth.get_anon_agent_id()::text)`;
-                const [result] = await tx`SELECT auth.current_agent_id()`;
-                const [anonId] = await tx`SELECT auth.get_anon_agent_id()`;
-                expect(result.current_agent_id).toBe(anonId.get_anon_agent_id);
+                await tx`SELECT auth.set_agent_context_to_anon_agent()`; // Set to anon context so we can verify super user is working independent of our context system
+
+                const [isAdmin] =
+                    await tx`SELECT auth.is_admin_agent() as is_admin`;
+                expect(isAdmin.is_admin).toBe(false);
+                const [isSystem] =
+                    await tx`SELECT auth.is_system_agent() as is_system`;
+                expect(isSystem.is_system).toBe(false);
+                const [isSuper] =
+                    await tx`SELECT auth.is_super_admin() as is_super`;
+                expect(isSuper.is_super).toBe(true);
             });
         });
 
-        test("should handle invalid agent context gracefully", async () => {
+        test("should verify admin agent permissions", async () => {
             await sql.begin(async (tx) => {
-                await tx`SELECT auth.set_agent_context(auth.get_anon_agent_id()::text)`; // Invalid session ID
+                await tx`SELECT auth.set_agent_context(${admin.id}::uuid)`; // Set to admin context
+
+                const [isAdmin] =
+                    await tx`SELECT auth.is_admin_agent() as is_admin`;
+                expect(isAdmin.is_admin).toBe(true);
+                const [isSystem] =
+                    await tx`SELECT auth.is_system_agent() as is_system`;
+                expect(isSystem.is_system).toBe(false);
+                const [isSuper] =
+                    await tx`SELECT auth.is_super_admin() as is_super`;
+                expect(isSuper.is_super).toBe(false);
+
+                const [currentAgentId] =
+                    await tx`SELECT auth.current_agent_id()`;
+                expect(currentAgentId.current_agent_id).toBe(admin.id);
+            });
+        });
+
+        test("should verify system permissions", async () => {
+            await sql.begin(async (tx) => {
+                await tx`SELECT auth.set_agent_context_to_system_agent()`; // Set to system context
+
+                const [isAdmin] =
+                    await tx`SELECT auth.is_admin_agent() as is_admin`;
+                expect(isAdmin.is_admin).toBe(false);
+                const [isSystem] =
+                    await tx`SELECT auth.is_system_agent() as is_system`;
+                expect(isSystem.is_system).toBe(true);
+                const [isSuper] =
+                    await tx`SELECT auth.is_super_admin() as is_super`;
+                expect(isSuper.is_super).toBe(false);
+
+                const [systemAgentId] =
+                    await tx`SELECT auth.get_system_agent_id()`; // Get system agent id
+
+                const [currentAgentId] =
+                    await tx`SELECT auth.current_agent_id()`;
+                expect(currentAgentId.current_agent_id).toBe(systemAgentId);
+            });
+        });
+
+        test("should verify non-admin agent permissions", async () => {
+            await sql.begin(async (tx) => {
+                await tx`SELECT auth.set_agent_context(${agent.id}::uuid)`; // Set to agent context
+
+                const [isAdmin] =
+                    await tx`SELECT auth.is_admin_agent() as is_admin`;
+                expect(isAdmin.is_admin).toBe(false);
+                const [isSystem] =
+                    await tx`SELECT auth.is_system_agent() as is_system`;
+                expect(isSystem.is_system).toBe(false);
+                const [isSuper] =
+                    await tx`SELECT auth.is_super_admin() as is_super`;
+                expect(isSuper.is_super).toBe(false);
+
+                const [agentId] = await tx`SELECT auth.current_agent_id()`; // Get current agent id
+                expect(agentId.current_agent_id).toBe(agent.id);
+            });
+        });
+
+        test("should verify anon agent permissions", async () => {
+            await sql.begin(async (tx) => {
+                await tx`SELECT auth.set_agent_context_to_anon_agent()`; // Set to anon context
+
+                const [isAdmin] =
+                    await tx`SELECT auth.is_admin_agent() as is_admin`;
+                expect(isAdmin.is_admin).toBe(false);
+                const [isSystem] =
+                    await tx`SELECT auth.is_system_agent() as is_system`;
+                expect(isSystem.is_system).toBe(false);
+                const [isSuper] =
+                    await tx`SELECT auth.is_super_admin() as is_super`;
+                expect(isSuper.is_super).toBe(false);
+
+                const [anonId] = await tx`SELECT auth.get_anon_agent_id()`;
+                const [currentAgentId] =
+                    await tx`SELECT auth.current_agent_id()`; // Get current agent id
+                expect(currentAgentId.current_agent_id).toBe(
+                    anonId.get_anon_agent_id,
+                );
+            });
+        });
+
+        test("should handle set invalid agent context gracefully", async () => {
+            await sql.begin(async (tx) => {
                 const [contextResult] = await tx`
-                    SELECT auth.set_agent_context(${randomUUIDv7()}, '') as success
+                    SELECT auth.set_agent_context(${randomUUIDv7()}::uuid) as success
                 `;
                 expect(contextResult.success).toBe(false);
-                const [result] = await tx`SELECT auth.current_agent_id()`;
-                const [anonId] = await tx`SELECT auth.get_anon_agent_id()`;
-                expect(result.current_agent_id).toBe(anonId.get_anon_agent_id);
+
+                const [isSuper] =
+                    await tx`SELECT auth.is_super_admin() as is_super`;
+                expect(isSuper.is_super).toBe(true);
             });
         });
+    });
 
-        test("should handle valid agent context", async () => {
-            await sql.begin(async (tx) => {
-                const [session] = await tx`
-                    SELECT * FROM auth.agent_sessions 
-                    WHERE general__session_id = ${admin.sessionId}
-                `;
-
-                const [contextResult] = await tx`
-                    SELECT auth.set_agent_context(${admin.sessionId}, ${admin.token}) as success
-                `;
-                expect(contextResult.success).toBe(true);
-                const [result] = await tx`SELECT auth.current_agent_id()`;
-                expect(result.current_agent_id).toBe(admin.id);
-            });
-        });
-
+    describe("Session Management", () => {
         test("should handle expired sessions correctly", async () => {
             await sql.begin(async (tx) => {
+                await tx`SELECT auth.set_agent_context(${admin.id}::uuid)`; // Set to admin context
+
                 const [expiredSession] = await tx`
                     INSERT INTO auth.agent_sessions (
                         auth__agent_id,
@@ -294,7 +355,7 @@ describe("DB -> Auth Tests", () => {
                     ) RETURNING general__session_id
                 `;
                 await tx`SELECT auth.cleanup_old_sessions()`;
-                await tx`SELECT auth.set_agent_context(${expiredSession.general__session_id}, 'test_token')`;
+                await tx`SELECT auth.set_agent_context(${expiredSession.general__session_id})`;
                 const [currentAgent] = await tx`SELECT auth.current_agent_id()`;
                 const [anonId] = await tx`SELECT auth.get_anon_agent_id()`;
                 expect(currentAgent.current_agent_id).toBe(
@@ -311,6 +372,8 @@ describe("DB -> Auth Tests", () => {
 
         test("should enforce max sessions per agent", async () => {
             await sql.begin(async (tx) => {
+                await tx`SELECT auth.set_agent_context(${admin.id}::uuid)`; // Set to admin context
+
                 const [authConfig] = await tx`
                     SELECT (general__value->>'session_max_per_agent')::INTEGER as max_sessions 
                     FROM config.config 
@@ -337,6 +400,8 @@ describe("DB -> Auth Tests", () => {
     describe("Sync Group Management", () => {
         test("should verify default sync groups exist", async () => {
             await sql.begin(async (tx) => {
+                await tx`SELECT auth.set_agent_context(${admin.id}::uuid)`; // Set to admin context
+
                 const syncGroups = await tx`
                     SELECT * FROM auth.sync_groups
                     ORDER BY general__sync_group
@@ -353,6 +418,8 @@ describe("DB -> Auth Tests", () => {
 
         test("should manage sync group roles correctly", async () => {
             await sql.begin(async (tx) => {
+                await tx`SELECT auth.set_agent_context(${admin.id}::uuid)`; // Set to admin context
+
                 await tx`
                     INSERT INTO auth.agent_sync_group_roles (
                         auth__agent_id,
@@ -376,7 +443,10 @@ describe("DB -> Auth Tests", () => {
                 expect(role.permissions__can_insert).toBe(true);
                 expect(role.permissions__can_update).toBe(true);
                 expect(role.permissions__can_delete).toBe(false);
-                await tx`SELECT auth.set_agent_context(${agent.sessionId}, ${agent.token})`;
+
+                // Set to non-admin agent context to test permissions
+                await tx`SELECT auth.set_agent_context(${agent.sessionId})`;
+
                 const [hasRead] = await tx`
                     SELECT auth.has_sync_group_read_access('public.REALTIME') as has_access
                 `;
@@ -398,6 +468,8 @@ describe("DB -> Auth Tests", () => {
 
         test("should handle active sessions view correctly", async () => {
             await sql.begin(async (tx) => {
+                await tx`SELECT auth.set_agent_context(${admin.id}::uuid)`; // Set to admin context
+
                 await tx`
                     INSERT INTO auth.agent_sync_group_roles (
                         auth__agent_id,
@@ -424,37 +496,11 @@ describe("DB -> Auth Tests", () => {
         });
     });
 
-    describe("Permission Management", () => {
-        test("should verify admin permissions", async () => {
-            await sql.begin(async (tx) => {
-                const [isAdmin] =
-                    await tx`SELECT auth.is_admin_agent() as is_admin`;
-                expect(isAdmin.is_admin).toBe(true);
-            });
-        });
-
-        test("should verify non-admin permissions", async () => {
-            await sql.begin(async (tx) => {
-                await tx`SELECT auth.set_agent_context(${agent.sessionId}, ${agent.token})`;
-                const [isAdmin] =
-                    await tx`SELECT auth.is_admin_agent() as is_admin`;
-                expect(isAdmin.is_admin).toBe(false);
-            });
-        });
-
-        test("should handle super admin checks", async () => {
-            await sql.begin(async (tx) => {
-                const [isSuperAdmin] =
-                    await tx`SELECT auth.is_super_admin() as is_super`;
-                // This will typically be false in test environment
-                expect(typeof isSuperAdmin.is_super).toBe("boolean");
-            });
-        });
-    });
-
     describe("Session Cleanup", () => {
         test("should cleanup system tokens", async () => {
             await sql.begin(async (tx) => {
+                await tx`SELECT auth.set_agent_context(${admin.id}::uuid)`; // Set to admin context
+
                 await tx`
                     INSERT INTO auth.agent_sessions (
                         auth__agent_id,
@@ -477,8 +523,7 @@ describe("DB -> Auth Tests", () => {
 
         test("should handle session invalidation", async () => {
             await sql.begin(async (tx) => {
-                // First set admin context on the same connection
-                await tx`SELECT auth.set_agent_context(${admin.sessionId}, ${admin.token})`;
+                await tx`SELECT auth.set_agent_context(${admin.id}::uuid)`; // Set to admin context
 
                 // Ensure agent session is active
                 await tx`
@@ -515,6 +560,8 @@ describe("DB -> Auth Tests", () => {
 
         test("should cleanup inactive sessions", async () => {
             await sql.begin(async (tx) => {
+                await tx`SELECT auth.set_agent_context(${admin.id}::uuid)`; // Set to admin context
+
                 // Create an inactive session
                 await tx`
                     UPDATE auth.agent_sessions 

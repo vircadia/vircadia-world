@@ -110,7 +110,7 @@ describe("System Admin Tests", () => {
         `;
 
         // Verify required extensions are installed
-        const requiredExtensions = VircadiaConfig_Server.postgres.extensions;
+        const requiredExtensions = VircadiaConfig_Server.POSTGRES.extensions;
         for (const ext of requiredExtensions) {
             expect(extensions.some((e) => e.extname === ext)).toBe(true);
         }
@@ -140,15 +140,15 @@ describe("System Admin Tests", () => {
         const [roles] = await sql`
             SELECT r.rolname
             FROM pg_roles r
-            WHERE r.rolname = ${VircadiaConfig_Server.postgres.user}
+            WHERE r.rolname = ${VircadiaConfig_Server.POSTGRES.user}
         `;
         expect(roles).toBeDefined();
 
         // Check role has proper permissions
         const [permissions] = await sql`
             SELECT has_database_privilege(
-                ${VircadiaConfig_Server.postgres.user}, 
-                ${VircadiaConfig_Server.postgres.database}, 
+                ${VircadiaConfig_Server.POSTGRES.user}, 
+                ${VircadiaConfig_Server.POSTGRES.database}, 
                 'CREATE'
             ) as has_permission
         `;

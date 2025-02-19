@@ -19,7 +19,7 @@ export class WorldWebScriptManager {
     private activeProcesses: Set<Subprocess> = new Set();
 
     private constructor() {
-        this.debugMode = VircadiaConfig_Server.debug;
+        this.debugMode = VircadiaConfig_Server.DEBUG;
         this.heartbeatMs = 1000;
     }
 
@@ -421,7 +421,7 @@ if (import.meta.main) {
     process.on("SIGINT", async () => {
         log({
             message: "\nReceived SIGINT. Cleaning up...",
-            debug: VircadiaConfig_Server.debug,
+            debug: VircadiaConfig_Server.DEBUG,
             type: "debug",
         });
         await manager.cleanup();
@@ -430,7 +430,7 @@ if (import.meta.main) {
     process.on("SIGTERM", async () => {
         log({
             message: "\nReceived SIGTERM. Cleaning up...",
-            debug: VircadiaConfig_Server.debug,
+            debug: VircadiaConfig_Server.DEBUG,
             type: "debug",
         });
         await manager.cleanup();

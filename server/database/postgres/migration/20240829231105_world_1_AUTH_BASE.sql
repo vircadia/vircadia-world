@@ -1,6 +1,8 @@
 -- TODO: Add a max session count (default: 1) per auth provider, thus limiting sign-ins for an agent for a single provider.
 CREATE SCHEMA IF NOT EXISTS auth;
 
+GRANT USAGE ON SCHEMA auth TO vircadia_agent_proxy;
+
 -- Function to get system agent id (needed for current_agent_id)
 CREATE OR REPLACE FUNCTION auth.get_system_agent_id() 
 RETURNS UUID AS $$
@@ -9,11 +11,11 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Function to get anon agent id (needed for current_agent_id)
-CREATE OR REPLACE FUNCTION auth.get_anon_agent_id() 
-RETURNS UUID AS $$
+-- Add new function to check for superuser status
+CREATE OR REPLACE FUNCTION auth.is_super_admin()
+RETURNS boolean AS $$ 
 BEGIN
-    RETURN '00000000-0000-0000-0000-000000000001'::UUID;
+    RETURN (SELECT usesuper FROM pg_user WHERE usename = CURRENT_USER);
 END;
 $$ LANGUAGE plpgsql;
 
@@ -21,21 +23,28 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION auth.current_agent_id() 
 RETURNS UUID AS $$
 BEGIN
-    -- First try to get the setting
-    IF current_setting('app.current_agent_id', true) IS NULL OR 
-       TRIM(current_setting('app.current_agent_id', true)) = '' OR
-       TRIM(current_setting('app.current_agent_id', true)) = 'NULL' OR
-       LENGTH(TRIM(current_setting('app.current_agent_id', true))) != 36 THEN  -- UUID length check
-        -- Return anonymous user if no context is set or invalid format
-        RETURN auth.get_anon_agent_id();
+    -- First check if user is super admin
+    IF auth.is_super_admin() THEN
+        RETURN auth.get_system_agent_id();
     END IF;
 
-    -- Try to cast to UUID, return anon if invalid
+    -- Check if setting exists and is not empty/null
+    IF current_setting('app.current_agent_id', true) IS NULL OR 
+       TRIM(current_setting('app.current_agent_id', true)) = '' OR
+       TRIM(current_setting('app.current_agent_id', true)) = 'NULL' THEN
+        RAISE EXCEPTION 'No agent ID set in context';
+    END IF;
+
+    -- Validate UUID length
+    IF LENGTH(TRIM(current_setting('app.current_agent_id', true))) != 36 THEN
+        RAISE EXCEPTION 'Invalid UUID format: incorrect length';
+    END IF;
+
+    -- Try to cast to UUID, raise exception if invalid
     BEGIN
         RETURN TRIM(current_setting('app.current_agent_id', true))::UUID;
     EXCEPTION WHEN OTHERS THEN
-        RAISE WARNING 'Invalid UUID in app.current_agent_id setting: %', current_setting('app.current_agent_id', true);
-        RETURN auth.get_anon_agent_id();
+        RAISE EXCEPTION 'Invalid UUID format: %', current_setting('app.current_agent_id', true);
     END;
 END;
 $$ LANGUAGE plpgsql;

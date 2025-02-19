@@ -23,19 +23,19 @@ export class PostgresClient {
         log({
             message: "Initializing PostgreSQL connection...",
             type: "debug",
-            suppress: VircadiaConfig_Server.suppress,
-            debug: VircadiaConfig_Server.debug,
+            suppress: VircadiaConfig_Server.SUPPRESS,
+            debug: VircadiaConfig_Server.DEBUG,
         });
 
         try {
             this.sql = postgres({
-                host: VircadiaConfig_Server.postgres.host,
-                port: VircadiaConfig_Server.postgres.port,
-                database: VircadiaConfig_Server.postgres.database,
-                username: VircadiaConfig_Server.postgres.user,
-                password: VircadiaConfig_Server.postgres.password,
-                onnotice: VircadiaConfig_Server.suppress ? () => {} : undefined,
-                onclose: VircadiaConfig_Server.suppress ? () => {} : undefined,
+                host: VircadiaConfig_Server.POSTGRES.HOST,
+                port: VircadiaConfig_Server.POSTGRES.PORT,
+                database: VircadiaConfig_Server.POSTGRES.DATABASE,
+                username: VircadiaConfig_Server.POSTGRES.USER,
+                password: VircadiaConfig_Server.POSTGRES.PASSWORD,
+                onnotice: VircadiaConfig_Server.SUPPRESS ? () => {} : undefined,
+                onclose: VircadiaConfig_Server.SUPPRESS ? () => {} : undefined,
             });
 
             // Test connection immediately
@@ -44,16 +44,16 @@ export class PostgresClient {
             log({
                 message: "PostgreSQL connection established successfully",
                 type: "debug",
-                suppress: VircadiaConfig_Server.suppress,
-                debug: VircadiaConfig_Server.debug,
+                suppress: VircadiaConfig_Server.SUPPRESS,
+                debug: VircadiaConfig_Server.DEBUG,
             });
         } catch (error) {
             log({
                 message: "PostgreSQL connection failed.",
                 type: "error",
                 error: error,
-                suppress: VircadiaConfig_Server.suppress,
-                debug: VircadiaConfig_Server.debug,
+                suppress: VircadiaConfig_Server.SUPPRESS,
+                debug: VircadiaConfig_Server.DEBUG,
             });
             throw error;
         }
@@ -76,8 +76,8 @@ export class PostgresClient {
             log({
                 message: "PostgreSQL connection closed",
                 type: "debug",
-                suppress: VircadiaConfig_Server.suppress,
-                debug: VircadiaConfig_Server.debug,
+                suppress: VircadiaConfig_Server.SUPPRESS,
+                debug: VircadiaConfig_Server.DEBUG,
             });
         }
     }

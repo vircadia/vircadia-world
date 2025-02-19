@@ -8,7 +8,7 @@ import {
     up,
     isHealthy,
 } from "../container/docker/docker_cli";
-import { VircadiaConfig_Server } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
+import { VircadiaConfig } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
 import type { Config } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import { PostgresClient } from "../database/postgres/postgres_client";
 
@@ -110,7 +110,7 @@ describe("System Admin Tests", () => {
         `;
 
         // Verify required extensions are installed
-        const requiredExtensions = VircadiaConfig_Server.POSTGRES.extensions;
+        const requiredExtensions = VircadiaConfig.SERVER.POSTGRES.EXTENSIONS;
         for (const ext of requiredExtensions) {
             expect(extensions.some((e) => e.extname === ext)).toBe(true);
         }
@@ -140,15 +140,15 @@ describe("System Admin Tests", () => {
         const [roles] = await sql`
             SELECT r.rolname
             FROM pg_roles r
-            WHERE r.rolname = ${VircadiaConfig_Server.POSTGRES.user}
+            WHERE r.rolname = ${VircadiaConfig.SERVER.POSTGRES.USER}
         `;
         expect(roles).toBeDefined();
 
         // Check role has proper permissions
         const [permissions] = await sql`
             SELECT has_database_privilege(
-                ${VircadiaConfig_Server.POSTGRES.user}, 
-                ${VircadiaConfig_Server.POSTGRES.database}, 
+                ${VircadiaConfig.SERVER.POSTGRES.USER}, 
+                ${VircadiaConfig.SERVER.POSTGRES.DATABASE}, 
                 'CREATE'
             ) as has_permission
         `;

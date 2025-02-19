@@ -19,7 +19,7 @@
         "service:dev:script-debug": "VRCA_SERVER_DEBUG=1 bun run --watch service/script/world-web-script-manager.ts",
         "container:up": "bun run container/docker/docker_cli.ts container:up",
         "container:down": "bun run container/docker/docker_cli.ts container:down",
-        "container:db:soft-reset": "bun run container/docker/docker_cli.ts container:db:soft-reset",
+        "container:db:reset": "bun run container/docker/docker_cli.ts container:db:reset",
         "container:db:migrate": "bun run container/docker/docker_cli.ts container:db:migrate",
         "container:db:connection-string": "bun run container/docker/docker_cli.ts container:db:connection-string",
         "container:restart": "bun run container/docker/docker_cli.ts container:restart",

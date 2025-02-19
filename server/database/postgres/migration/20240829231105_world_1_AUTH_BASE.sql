@@ -11,7 +11,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Add new function to check for superuser status
 CREATE OR REPLACE FUNCTION auth.is_super_admin()
 RETURNS boolean AS $$ 
 BEGIN
@@ -19,7 +18,13 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Create current_agent_id function before it's used in template
+CREATE OR REPLACE FUNCTION auth.is_agent_proxy()
+RETURNS boolean AS $$
+BEGIN
+    RETURN current_user = 'vircadia_agent_proxy';
+END;
+$$ LANGUAGE plpgsql;
+
 CREATE OR REPLACE FUNCTION auth.current_agent_id() 
 RETURNS UUID AS $$
 BEGIN

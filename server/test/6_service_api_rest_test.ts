@@ -7,10 +7,7 @@ import {
     type Config,
 } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import { isHealthy, up } from "../container/docker/docker_cli";
-import {
-    VircadiaConfig_Client,
-    VircadiaConfig_Server,
-} from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
+import { VircadiaConfig } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
 import { sign } from "jsonwebtoken";
 
 describe("Service -> Web API Manager Tests", () => {
@@ -140,14 +137,14 @@ describe("Service -> Web API Manager Tests", () => {
 
         serverProcess = Bun.spawn(["bun", "run", "service:run:api"], {
             cwd: process.cwd(),
-            ...(VircadiaConfig_Server.SUPPRESS
+            ...(VircadiaConfig.SERVER.SUPPRESS
                 ? { stdio: ["ignore", "ignore", "ignore"] }
                 : { stdio: ["inherit", "inherit", "inherit"] }),
             killSignal: "SIGTERM",
         });
 
         // Wait for server to be ready by polling the health endpoint
-        const baseUrl = `${VircadiaConfig_Client.defaultWorldServerUriUsingSsl ? "https" : "http"}://${VircadiaConfig_Client.defaultWorldServerUri}`;
+        const baseUrl = `${VircadiaConfig.CLIENT.defaultWorldServerUriUsingSsl ? "https" : "http"}://${VircadiaConfig_Client.defaultWorldServerUri}`;
         const maxAttempts = 10;
         let attempts = 0;
 
@@ -174,7 +171,7 @@ describe("Service -> Web API Manager Tests", () => {
         });
 
         describe("Authentication Endpoints", () => {
-            const baseUrl = `${VircadiaConfig_Client.defaultWorldServerUriUsingSsl ? "https" : "http"}://${VircadiaConfig_Client.defaultWorldServerUri}`;
+            const baseUrl = `${VircadiaConfig.CLIENT.defaultWorldServerUriUsingSsl ? "https" : "http"}://${VircadiaConfig_Client.defaultWorldServerUri}`;
 
             test("should validate a valid session token", async () => {
                 const agentResponse = await fetch(

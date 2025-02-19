@@ -14,7 +14,7 @@ import type {
     Auth,
 } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import { sign } from "jsonwebtoken";
-import { VircadiaConfig_Server } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
+import { VircadiaConfig } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
 import { isHealthy, up } from "../container/docker/docker_cli";
 import { randomUUIDv7 } from "bun";
 

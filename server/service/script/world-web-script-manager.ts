@@ -3,7 +3,7 @@ import type postgres from "postgres";
 import { build, type Subprocess } from "bun";
 import { Entity } from "../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import { PostgresClient } from "../../database/postgres/postgres_client";
-import { VircadiaConfig_Server } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
+import { VircadiaConfig } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
 import tmp from "tmp";
 
 // Configure tmp for graceful cleanup
@@ -19,7 +19,7 @@ export class WorldWebScriptManager {
     private activeProcesses: Set<Subprocess> = new Set();
 
     private constructor() {
-        this.debugMode = VircadiaConfig_Server.DEBUG;
+        this.debugMode = VircadiaConfig.SERVER.DEBUG;
         this.heartbeatMs = 1000;
     }
 
@@ -421,7 +421,7 @@ if (import.meta.main) {
     process.on("SIGINT", async () => {
         log({
             message: "\nReceived SIGINT. Cleaning up...",
-            debug: VircadiaConfig_Server.DEBUG,
+            debug: VircadiaConfig.SERVER.DEBUG,
             type: "debug",
         });
         await manager.cleanup();
@@ -430,7 +430,7 @@ if (import.meta.main) {
     process.on("SIGTERM", async () => {
         log({
             message: "\nReceived SIGTERM. Cleaning up...",
-            debug: VircadiaConfig_Server.DEBUG,
+            debug: VircadiaConfig.SERVER.DEBUG,
             type: "debug",
         });
         await manager.cleanup();

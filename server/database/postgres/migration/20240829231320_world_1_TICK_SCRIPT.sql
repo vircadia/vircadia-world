@@ -24,7 +24,16 @@ ALTER TABLE tick.script_audit_log ENABLE ROW LEVEL SECURITY;
 
 -- Add RLS policies (system only)
 CREATE POLICY "script_audit_log_view_policy" ON tick.script_audit_log
-    FOR SELECT USING (auth.is_admin_agent());
+    FOR SELECT USING (
+        auth.is_admin_agent()
+        OR auth.is_system_agent()
+        OR EXISTS (
+            SELECT 1 
+            FROM auth.active_sync_group_sessions sess 
+            WHERE sess.auth__agent_id = auth.current_agent_id()
+            AND sess.group__sync = tick.script_audit_log.group__sync
+        )
+    );
 
 CREATE POLICY "script_audit_log_insert_policy" ON tick.script_audit_log
     FOR INSERT

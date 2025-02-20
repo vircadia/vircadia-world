@@ -21,7 +21,16 @@ ALTER TABLE tick.asset_audit_log ENABLE ROW LEVEL SECURITY;
 
 -- RLS policies for secure access
 CREATE POLICY "asset_audit_log_view_policy" ON tick.asset_audit_log
-    FOR SELECT USING (auth.is_admin_agent());
+    FOR SELECT USING (
+        auth.is_admin_agent()
+        OR auth.is_system_agent()
+        OR EXISTS (
+            SELECT 1 
+            FROM auth.active_sync_group_sessions sess 
+            WHERE sess.auth__agent_id = auth.current_agent_id()
+            AND sess.group__sync = tick.asset_audit_log.group__sync
+        )
+    );
     
 CREATE POLICY "asset_audit_log_insert_policy" ON tick.asset_audit_log
     FOR INSERT WITH CHECK (auth.is_admin_agent());

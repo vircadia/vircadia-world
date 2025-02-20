@@ -20,31 +20,55 @@ CREATE POLICY "entity_assets_view_policy" ON entity.entity_assets
     FOR SELECT
     USING (
         auth.is_admin_agent()
-        OR general__created_by = auth.current_agent_id()
-        OR auth.has_sync_group_read_access(group__sync)
+        OR auth.is_system_agent()
+        OR EXISTS (
+            SELECT 1 
+            FROM auth.active_sync_group_sessions sess 
+            WHERE sess.auth__agent_id = auth.current_agent_id()
+            AND sess.group__sync = entity.entity_assets.group__sync
+        )
     );
 
 CREATE POLICY "entity_assets_update_policy" ON entity.entity_assets
     FOR UPDATE
     USING (
         auth.is_admin_agent()
-        OR general__created_by = auth.current_agent_id()
-        OR auth.has_sync_group_update_access(group__sync)
+        OR auth.is_system_agent()
+        OR EXISTS (
+            SELECT 1 
+            FROM auth.active_sync_group_sessions sess 
+            WHERE sess.auth__agent_id = auth.current_agent_id()
+            AND sess.group__sync = entity.entity_assets.group__sync
+            AND sess.permissions__can_update = true
+        )
     );
 
 CREATE POLICY "entity_assets_insert_policy" ON entity.entity_assets
     FOR INSERT
     WITH CHECK (
         auth.is_admin_agent()
-        OR auth.has_sync_group_insert_access(group__sync)
+        OR auth.is_system_agent()
+        OR EXISTS (
+            SELECT 1 
+            FROM auth.active_sync_group_sessions sess 
+            WHERE sess.auth__agent_id = auth.current_agent_id()
+            AND sess.group__sync = entity.entity_assets.group__sync
+            AND sess.permissions__can_insert = true
+        )
     );
 
 CREATE POLICY "entity_assets_delete_policy" ON entity.entity_assets
     FOR DELETE
     USING (
         auth.is_admin_agent()
-        OR general__created_by = auth.current_agent_id()
-        OR auth.has_sync_group_delete_access(group__sync)
+        OR auth.is_system_agent()
+        OR EXISTS (
+            SELECT 1 
+            FROM auth.active_sync_group_sessions sess 
+            WHERE sess.auth__agent_id = auth.current_agent_id()
+            AND sess.group__sync = entity.entity_assets.group__sync
+            AND sess.permissions__can_delete = true
+        )
     );
 
 CREATE TRIGGER update_audit_columns

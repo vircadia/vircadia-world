@@ -27,7 +27,13 @@ CREATE POLICY "entity_states_view_policy" ON tick.entity_states
     FOR SELECT
     USING (
         auth.is_admin_agent()
-        OR auth.has_sync_group_read_access(group__sync)
+        OR auth.is_system_agent()
+        OR EXISTS (
+            SELECT 1 
+            FROM auth.active_sync_group_sessions sess 
+            WHERE sess.auth__agent_id = auth.current_agent_id()
+            AND sess.group__sync = tick.entity_states.group__sync
+        )
     );
 
 -- Update/Insert/Delete policies for entity_states (system users only)

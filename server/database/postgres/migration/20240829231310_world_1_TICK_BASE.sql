@@ -35,16 +35,27 @@ ALTER TABLE tick.world_ticks ENABLE ROW LEVEL SECURITY;
 -- All policies for world_ticks (system users only)
 CREATE POLICY "world_ticks_view_policy" ON tick.world_ticks
     FOR SELECT
-    USING (auth.is_admin_agent());
+    USING (
+        auth.is_admin_agent()
+        OR auth.is_system_agent()
+    );
 
 CREATE POLICY "world_ticks_update_policy" ON tick.world_ticks
     FOR UPDATE
-    USING (auth.is_admin_agent());
-
+    USING (
+        auth.is_admin_agent()
+        OR auth.is_system_agent()
+    );
 CREATE POLICY "world_ticks_insert_policy" ON tick.world_ticks
     FOR INSERT
-    WITH CHECK (auth.is_admin_agent());
+    WITH CHECK (
+        auth.is_admin_agent()
+        OR auth.is_system_agent()
+    );
 
 CREATE POLICY "world_ticks_delete_policy" ON tick.world_ticks
     FOR DELETE
-    USING (auth.is_admin_agent());
+    USING (
+        auth.is_admin_agent()
+        OR auth.is_system_agent()
+    );

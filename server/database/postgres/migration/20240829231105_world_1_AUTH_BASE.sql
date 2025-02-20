@@ -1,10 +1,16 @@
--- TODO: Add a max session count (default: 1) per auth provider, thus limiting sign-ins for an agent for a single provider.
+-- ============================================================================
+-- 1. SCHEMA CREATION AND INITIAL PERMISSIONS
+-- ============================================================================
 CREATE SCHEMA IF NOT EXISTS auth;
 
 REVOKE ALL ON SCHEMA auth FROM vircadia_agent_proxy;
 GRANT USAGE ON SCHEMA auth TO vircadia_agent_proxy;
 
--- Function to get system agent id (needed for current_agent_id)
+
+-- ============================================================================
+-- 2. CORE AUTHENTICATION FUNCTIONS
+-- ============================================================================
+-- System Agent ID Function
 CREATE OR REPLACE FUNCTION auth.get_system_agent_id() 
 RETURNS UUID AS $$
 BEGIN
@@ -12,6 +18,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Super Admin Check Function
 CREATE OR REPLACE FUNCTION auth.is_super_admin()
 RETURNS boolean AS $$ 
 BEGIN
@@ -19,6 +26,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Current Agent ID Function
 CREATE OR REPLACE FUNCTION auth.current_agent_id() 
 RETURNS UUID AS $$
 BEGIN
@@ -48,8 +56,17 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+
+-- ============================================================================
+-- 3. FUNCTION PERMISSIONS
+-- ============================================================================
 GRANT EXECUTE ON FUNCTION auth.current_agent_id() TO vircadia_agent_proxy;
 
+
+-- ============================================================================
+-- 4. BASE TEMPLATES
+-- ============================================================================
+-- Audit Template Table
 CREATE TABLE auth._template (
     general__created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     general__created_by UUID DEFAULT auth.current_agent_id(),
@@ -57,7 +74,11 @@ CREATE TABLE auth._template (
     general__updated_by UUID DEFAULT auth.current_agent_id()
 );
 
--- Update function to modify both updated_at and updated_by timestamps
+
+-- ============================================================================
+-- 5. TRIGGERS AND TRIGGER FUNCTIONS
+-- ============================================================================
+-- Audit Column Update Function
 CREATE OR REPLACE FUNCTION auth.update_audit_columns()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -66,3 +87,5 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+-- TODO: Add a max session count (default: 1) per auth provider

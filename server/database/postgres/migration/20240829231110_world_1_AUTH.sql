@@ -1,11 +1,17 @@
--- 1. Create schema
+-- ============================================================================
+-- 1. SCHEMA CREATION AND INITIAL PERMISSIONS
+-- ============================================================================
 CREATE SCHEMA IF NOT EXISTS auth;
 
--- 2. Initial schema-level permissions (needed for object creation)
+-- Initial schema-level permissions (needed for object creation)
 REVOKE ALL ON SCHEMA auth FROM PUBLIC, vircadia_agent_proxy;
 GRANT USAGE ON SCHEMA auth TO vircadia_agent_proxy;
 
--- 3. Create all objects
+
+-- ============================================================================
+-- 2. BASE TABLES
+-- ============================================================================
+-- Agent Profiles Table
 CREATE TABLE auth.agent_profiles (
     general__agent_profile_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     profile__username TEXT UNIQUE,
@@ -15,19 +21,7 @@ CREATE TABLE auth.agent_profiles (
 ) INHERITS (auth._template);
 ALTER TABLE auth.agent_profiles ENABLE ROW LEVEL SECURITY;
 
-CREATE TABLE auth.agent_auth_providers (
-    auth__agent_id UUID REFERENCES auth.agent_profiles(general__agent_profile_id) ON DELETE CASCADE,
-    auth__provider_name TEXT NOT NULL,
-    auth__provider_uid TEXT NOT NULL,  -- Provider's unique ID for the user (e.g., Google's sub)
-    auth__refresh_token TEXT,          -- Provider's refresh token (if available)
-    auth__provider_email TEXT,         -- Email from the provider (for verification)
-    auth__is_primary BOOLEAN NOT NULL DEFAULT FALSE,
-    auth__metadata JSONB,              -- Additional provider-specific data
-    PRIMARY KEY (auth__agent_id, auth__provider_name),
-    UNIQUE (auth__provider_name, auth__provider_uid)  -- Prevent duplicate provider accounts
-) INHERITS (auth._template);
-ALTER TABLE auth.agent_auth_providers ENABLE ROW LEVEL SECURITY;
-
+-- Sessions Table
 CREATE TABLE auth.agent_sessions (
     general__session_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     auth__agent_id UUID REFERENCES auth.agent_profiles(general__agent_profile_id) ON DELETE CASCADE,
@@ -40,6 +34,60 @@ CREATE TABLE auth.agent_sessions (
 ) INHERITS (auth._template);
 ALTER TABLE auth.agent_sessions ENABLE ROW LEVEL SECURITY;
 
+
+-- ============================================================================
+-- 3. AUTH PROVIDER TABLES
+-- ============================================================================
+-- Auth Provider Configurations Table
+CREATE TABLE auth.auth_providers (
+    provider__name TEXT PRIMARY KEY,                -- Provider identifier (e.g., 'google', 'github')
+    provider__display_name TEXT NOT NULL,           -- Human-readable name
+    provider__enabled BOOLEAN NOT NULL DEFAULT false,
+    provider__client_id TEXT,                       -- OAuth client ID
+    provider__client_secret TEXT,                   -- OAuth client secret
+    provider__auth_url TEXT,                        -- OAuth authorization endpoint
+    provider__token_url TEXT,                       -- OAuth token endpoint
+    provider__userinfo_url TEXT,                    -- OAuth userinfo endpoint
+    provider__scope TEXT[],                         -- Required OAuth scopes
+    provider__metadata JSONB,                       -- Additional provider-specific configuration
+    provider__icon_url TEXT,                        -- URL to provider's icon
+    provider__max_sessions INTEGER NOT NULL DEFAULT 1
+) INHERITS (auth._template);
+ALTER TABLE auth.auth_providers ENABLE ROW LEVEL SECURITY;
+
+-- Auth Providers Association Table
+CREATE TABLE auth.agent_auth_providers (
+    -- Core fields
+    auth__agent_id UUID NOT NULL REFERENCES auth.agent_profiles(general__agent_profile_id) ON DELETE CASCADE,
+    auth__provider_name TEXT NOT NULL REFERENCES auth.auth_providers(provider__name) ON DELETE RESTRICT,
+    
+    -- Provider-specific identifiers
+    auth__provider_uid TEXT NOT NULL,              -- Provider's unique ID for the user
+    auth__provider_email TEXT,                     -- Email from the provider
+    
+    -- OAuth tokens
+    auth__access_token TEXT,                       -- Current access token
+    auth__refresh_token TEXT,                      -- Refresh token (if available)
+    auth__token_expires_at TIMESTAMPTZ,           -- When the access token expires
+    
+    -- Account status
+    auth__is_verified BOOLEAN NOT NULL DEFAULT FALSE, -- Has email been verified
+    auth__last_login_at TIMESTAMPTZ,               -- Track last successful login
+    
+    -- Additional data
+    auth__metadata JSONB,                          -- Provider-specific data/claims
+
+    -- Constraints
+    PRIMARY KEY (auth__agent_id, auth__provider_name),
+    UNIQUE (auth__provider_name, auth__provider_uid)
+) INHERITS (auth._template);
+ALTER TABLE auth.agent_auth_providers ENABLE ROW LEVEL SECURITY;
+
+
+-- ============================================================================
+-- 4. SYNC GROUP TABLES
+-- ============================================================================
+-- Sync Groups Table
 CREATE TABLE auth.sync_groups (
     general__sync_group TEXT PRIMARY KEY,
     general__description TEXT,
@@ -54,6 +102,7 @@ CREATE TABLE auth.sync_groups (
 ) INHERITS (auth._template);
 ALTER TABLE auth.sync_groups ENABLE ROW LEVEL SECURITY;
 
+-- Sync Group Roles Table
 CREATE TABLE auth.agent_sync_group_roles (
     auth__agent_id UUID NOT NULL REFERENCES auth.agent_profiles(general__agent_profile_id) ON DELETE CASCADE,
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) ON DELETE CASCADE,
@@ -64,7 +113,11 @@ CREATE TABLE auth.agent_sync_group_roles (
 ) INHERITS (auth._template);
 ALTER TABLE auth.agent_sync_group_roles ENABLE ROW LEVEL SECURITY;
 
--- 4. Create all functions
+
+-- ============================================================================
+-- 5. AUTHENTICATION FUNCTIONS
+-- ============================================================================
+-- Agent Status Functions
 CREATE OR REPLACE FUNCTION auth.is_anon_agent()
 RETURNS boolean AS $$
 BEGIN
@@ -97,7 +150,11 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE;
 
--- Simplify session creation to not check roles
+
+-- ============================================================================
+-- 6. SESSION MANAGEMENT FUNCTIONS
+-- ============================================================================
+-- Session Creation and Validation
 CREATE OR REPLACE FUNCTION auth.create_agent_session(
     p_agent_id UUID,
     p_provider_name TEXT DEFAULT NULL,
@@ -122,18 +179,37 @@ BEGIN
         RAISE EXCEPTION 'Only administrators can create sessions';
     END IF;
 
-    -- Get max sessions per agent from config
-    SELECT auth_config__session_max_per_agent
-    INTO v_max_sessions 
-    FROM config.auth_config;
+    -- Validate provider exists if specified
+    IF p_provider_name IS NOT NULL THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM auth.auth_providers 
+            WHERE provider__name = p_provider_name
+            AND provider__enabled = true
+        ) THEN
+            RAISE EXCEPTION 'Invalid or disabled authentication provider: %', p_provider_name;
+        END IF;
+    END IF;
 
-    -- Count current active sessions for this agent
+    -- Get max sessions from provider if specified, otherwise from global config
+    IF p_provider_name IS NOT NULL THEN
+        SELECT provider__max_sessions
+        INTO v_max_sessions
+        FROM auth.auth_providers
+        WHERE provider__name = p_provider_name;
+    ELSE
+        SELECT auth_config__session_max_per_agent
+        INTO v_max_sessions 
+        FROM config.auth_config;
+    END IF;
+
+    -- Count current active sessions for this agent and provider
     SELECT COUNT(*) 
     INTO v_current_sessions 
     FROM auth.agent_sessions s
     WHERE s.auth__agent_id = p_agent_id 
     AND s.session__is_active = true 
-    AND s.session__expires_at > NOW();
+    AND s.session__expires_at > NOW()
+    AND (p_provider_name IS NULL OR s.auth__provider_name = p_provider_name);
 
     -- Check if max sessions would be exceeded
     IF v_current_sessions >= v_max_sessions THEN
@@ -146,6 +222,7 @@ BEGIN
             FROM auth.agent_sessions oldest_session
             WHERE oldest_session.auth__agent_id = p_agent_id 
             AND oldest_session.session__is_active = true 
+            AND (p_provider_name IS NULL OR oldest_session.auth__provider_name = p_provider_name)
             ORDER BY oldest_session.session__started_at ASC 
             LIMIT 1
         );
@@ -182,7 +259,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Consolidate session validation logic
 CREATE OR REPLACE FUNCTION auth.validate_session(
     p_session_id UUID,
     p_session_token TEXT DEFAULT NULL
@@ -211,12 +287,12 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- Session Cleanup Functions
 CREATE OR REPLACE FUNCTION auth.cleanup_old_sessions()
-RETURNS INTEGER AS $$ 
+RETURNS trigger AS $$ 
 DECLARE
     v_max_age_ms INTEGER;
     v_inactive_timeout_ms INTEGER;
-    v_count INTEGER;
 BEGIN
     IF NOT (
         auth.is_admin_agent()
@@ -234,23 +310,19 @@ BEGIN
         v_inactive_timeout_ms
     FROM config.auth_config;
 
-    WITH updated_sessions AS (
-        UPDATE auth.agent_sessions 
-        SET session__is_active = false
-        WHERE (
-            -- Session is expired
-            session__expires_at < NOW() 
-            -- OR session is too old
-            OR session__started_at < (NOW() - (v_max_age_ms || ' milliseconds')::INTERVAL)
-            -- OR session is inactive
-            OR session__last_seen_at < (NOW() - (v_inactive_timeout_ms || ' milliseconds')::INTERVAL)
-        )
-        AND session__is_active = true
-        RETURNING 1
+    UPDATE auth.agent_sessions 
+    SET session__is_active = false
+    WHERE (
+        -- Session is expired
+        session__expires_at < NOW() 
+        -- OR session is too old
+        OR session__started_at < (NOW() - (v_max_age_ms || ' milliseconds')::INTERVAL)
+        -- OR session is inactive
+        OR session__last_seen_at < (NOW() - (v_inactive_timeout_ms || ' milliseconds')::INTERVAL)
     )
-    SELECT COALESCE(COUNT(*)::INTEGER, 0) INTO v_count FROM updated_sessions;
+    AND session__is_active = true;
     
-    RETURN v_count;
+    RETURN NULL; -- For AFTER triggers, return value is ignored
 END;
 $$ LANGUAGE plpgsql;
 
@@ -337,43 +409,11 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Replace the async cleanup with direct cleanup
-CREATE OR REPLACE FUNCTION auth.cleanup_trigger()
-RETURNS trigger AS $$ 
-DECLARE
-    v_max_age_ms INTEGER;
-    v_inactive_timeout_ms INTEGER;
-BEGIN
-    -- Get configuration values
-    SELECT 
-        auth_config__default_session_max_age_ms,
-        auth_config__session_inactive_expiry_ms
-    INTO 
-        v_max_age_ms,
-        v_inactive_timeout_ms
-    FROM config.auth_config;
 
-    -- Directly cleanup old sessions
-    UPDATE auth.agent_sessions 
-    SET session__is_active = false
-    WHERE (
-        session__expires_at < NOW() 
-        OR session__started_at < (NOW() - (v_max_age_ms || ' milliseconds')::INTERVAL)
-        OR session__last_seen_at < (NOW() - (v_inactive_timeout_ms || ' milliseconds')::INTERVAL)
-    )
-    AND session__is_active = true;
-
-    RETURN NULL;
-END;
-$$ LANGUAGE plpgsql;
-
--- Create trigger to run after session updates
-CREATE TRIGGER trigger_cleanup
-    AFTER UPDATE OF session__last_seen_at ON auth.agent_sessions
-    FOR EACH STATEMENT
-    EXECUTE FUNCTION auth.cleanup_trigger();
-
--- First, add the materialized view before the triggers section
+-- ============================================================================
+-- 7. MATERIALIZED VIEWS AND RELATED FUNCTIONS
+-- ============================================================================
+-- Active Sessions View
 CREATE MATERIALIZED VIEW IF NOT EXISTS auth.active_sync_group_sessions AS
 SELECT DISTINCT
     s.general__session_id,
@@ -400,7 +440,11 @@ WITH DATA;
 CREATE UNIQUE INDEX IF NOT EXISTS active_sync_group_sessions_session_group 
 ON auth.active_sync_group_sessions (general__session_id, group__sync);
 
--- Replace the notification-based trigger function with direct refresh
+-- Additional indexes for materialized view
+CREATE UNIQUE INDEX idx_active_sync_group_sessions_lookup 
+ON auth.active_sync_group_sessions (group__sync);
+
+-- View Refresh Functions
 CREATE OR REPLACE FUNCTION auth.refresh_active_sessions_trigger()
 RETURNS trigger AS $$ 
 BEGIN
@@ -409,7 +453,30 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- 5. Create all policies
+
+-- ============================================================================
+-- 8. INDEXES
+-- ============================================================================
+-- Agent Profile Indexes
+CREATE INDEX idx_agent_profiles_email ON auth.agent_profiles(auth__email);
+
+-- Agent Session Indexes
+CREATE INDEX idx_agent_sessions_auth__agent_id ON auth.agent_sessions(auth__agent_id);
+CREATE INDEX idx_agent_sessions_auth__provider_name ON auth.agent_sessions(auth__provider_name);
+CREATE INDEX idx_agent_sessions_active_lookup ON auth.agent_sessions 
+    (session__is_active, session__expires_at) 
+    WHERE session__is_active = true;
+CREATE INDEX idx_agent_sessions_validation ON auth.agent_sessions 
+    (general__session_id, session__is_active, session__expires_at) 
+    WHERE session__is_active = true;
+CREATE INDEX idx_agent_sessions_last_seen ON auth.agent_sessions(session__last_seen_at) 
+    WHERE session__is_active = true;
+
+
+-- ============================================================================
+-- 9. ROW LEVEL SECURITY POLICIES
+-- ============================================================================
+-- Agent Profile Policies
 CREATE POLICY agent_view_own_profile ON auth.agent_profiles
     FOR SELECT
     TO PUBLIC
@@ -428,7 +495,7 @@ CREATE POLICY agent_update_own_profile ON auth.agent_profiles
         OR auth.is_system_agent()                           -- System agent can update all profiles
     );
 
--- Sync groups policies
+-- Sync Group Policies
 CREATE POLICY "Allow viewing sync groups" ON auth.sync_groups
     FOR SELECT
     USING (true);
@@ -440,7 +507,7 @@ CREATE POLICY "Allow admin sync group modifications" ON auth.sync_groups
         OR auth.is_system_agent() 
     );
 
--- Sync group roles policies
+-- Sync Group Role Policies
 CREATE POLICY "Allow viewing sync group roles" ON auth.agent_sync_group_roles
     FOR SELECT
     USING (true);
@@ -452,7 +519,34 @@ CREATE POLICY "Allow admin sync group role modifications" ON auth.agent_sync_gro
         OR auth.is_system_agent() 
     );
 
--- 6. Create all triggers
+-- Agent Auth Providers Policies
+CREATE POLICY "Users can view their own provider connections" ON auth.agent_auth_providers
+    FOR SELECT
+    TO PUBLIC
+    USING (
+        auth__agent_id = auth.current_agent_id()
+        OR auth.is_admin_agent()
+        OR auth.is_system_agent()
+    );
+
+CREATE POLICY "Only admins can manage provider connections" ON auth.agent_auth_providers
+    FOR ALL
+    TO PUBLIC
+    USING (
+        auth.is_admin_agent()
+        OR auth.is_system_agent()
+    );
+
+
+-- ============================================================================
+-- 10. TRIGGERS
+-- ============================================================================
+-- Session Management Triggers
+CREATE TRIGGER trigger_cleanup
+    AFTER UPDATE OF session__last_seen_at ON auth.agent_sessions
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION auth.cleanup_old_sessions();
+
 CREATE TRIGGER refresh_active_sessions_on_session_change
     AFTER INSERT OR UPDATE OR DELETE ON auth.agent_sessions
     FOR EACH STATEMENT
@@ -463,27 +557,61 @@ CREATE TRIGGER refresh_active_sessions_on_role_change
     FOR EACH STATEMENT
     EXECUTE FUNCTION auth.refresh_active_sessions_trigger();
 
--- 7. THEN do comprehensive revocation for all objects
+-- Audit Trail Triggers
+CREATE TRIGGER update_agent_profile_timestamps
+    BEFORE UPDATE ON auth.agent_profiles
+    FOR EACH ROW
+    EXECUTE FUNCTION auth.update_audit_columns();
+
+CREATE TRIGGER update_agent_auth_providers_updated_at
+    BEFORE UPDATE ON auth.agent_auth_providers
+    FOR EACH ROW
+    EXECUTE FUNCTION auth.update_audit_columns();
+
+CREATE TRIGGER update_agent_sessions_updated_at
+    BEFORE UPDATE ON auth.agent_sessions
+    FOR EACH ROW
+    EXECUTE FUNCTION auth.update_audit_columns();
+
+CREATE TRIGGER update_sync_groups_updated_at
+    BEFORE UPDATE ON auth.sync_groups
+    FOR EACH ROW
+    EXECUTE FUNCTION auth.update_audit_columns();
+
+CREATE TRIGGER update_agent_sync_group_roles_updated_at
+    BEFORE UPDATE ON auth.agent_sync_group_roles
+    FOR EACH ROW
+    EXECUTE FUNCTION auth.update_audit_columns();
+
+
+-- ============================================================================
+-- 11. PERMISSIONS
+-- ============================================================================
+-- Revoke All Permissions
 REVOKE ALL ON ALL TABLES IN SCHEMA auth FROM PUBLIC, vircadia_agent_proxy;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA auth FROM PUBLIC, vircadia_agent_proxy;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA auth FROM PUBLIC, vircadia_agent_proxy;
 REVOKE ALL ON ALL PROCEDURES IN SCHEMA auth FROM PUBLIC, vircadia_agent_proxy;
 REVOKE ALL ON ALL ROUTINES IN SCHEMA auth FROM PUBLIC, vircadia_agent_proxy;
 
--- 8. THEN grant specific permissions
+-- Grant Specific Permissions
 GRANT SELECT ON auth.agent_profiles TO vircadia_agent_proxy;
 GRANT SELECT ON auth.sync_groups TO vircadia_agent_proxy;
+GRANT SELECT ON auth.agent_auth_providers TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.is_anon_agent TO vircadia_agent_proxy;
 
--- 9. Finally do data inserts
--- Create a profile for the system agent
+
+-- ============================================================================
+-- 12. INITIAL DATA
+-- ============================================================================
+-- System Agent Profile
 INSERT INTO auth.agent_profiles 
     (general__agent_profile_id, profile__username, auth__email, auth__is_admin) 
 VALUES 
     (auth.get_system_agent_id(), 'admin', 'system@internal', true)
 ON CONFLICT (general__agent_profile_id) DO NOTHING;
 
--- Insert default sync groups
+-- Default Sync Groups
 INSERT INTO auth.sync_groups (
     general__sync_group,
     general__description,

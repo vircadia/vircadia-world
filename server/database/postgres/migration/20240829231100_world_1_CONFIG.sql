@@ -1,14 +1,21 @@
+-- ============================================================================
+-- 1. SCHEMA CREATION AND INITIAL PERMISSIONS
+-- ============================================================================
 CREATE SCHEMA IF NOT EXISTS config;
 
 REVOKE ALL ON SCHEMA config FROM PUBLIC, vircadia_agent_proxy;
 GRANT USAGE ON SCHEMA config TO vircadia_agent_proxy;
 
--- Create table for Entity configuration
+
+-- ============================================================================
+-- 2. CONFIGURATION TABLES
+-- ============================================================================
+-- Entity Configuration
 CREATE TABLE config.entity_config (
     entity_config__script_compilation_timeout_ms INTEGER NOT NULL
 );
 
--- Create table for Network configuration
+-- Network Configuration
 CREATE TABLE config.network_config (
     network_config__max_latency_ms INTEGER NOT NULL,
     network_config__warning_latency_ms INTEGER NOT NULL,
@@ -17,7 +24,7 @@ CREATE TABLE config.network_config (
     network_config__packet_loss_threshold_percent INTEGER NOT NULL
 );
 
--- Create table for Authentication configuration 
+-- Authentication Configuration
 CREATE TABLE config.auth_config (
     auth_config__default_session_duration_jwt_string TEXT NOT NULL,
     auth_config__default_session_duration_ms BIGINT NOT NULL,
@@ -26,12 +33,11 @@ CREATE TABLE config.auth_config (
     auth_config__agent_proxy_password TEXT NOT NULL,
     auth_config__session_cleanup_interval BIGINT NOT NULL,
     auth_config__session_inactive_expiry_ms BIGINT NOT NULL,
-    auth_config__session_max_per_agent INTEGER NOT NULL,
     auth_config__heartbeat_interval_ms INTEGER NOT NULL,
     auth_config__heartbeat_inactive_expiry_ms INTEGER NOT NULL
 );
 
--- Create table for Database configuration
+-- Database Version Configuration
 CREATE TABLE config.database_config (
     database_config__major_version INTEGER NOT NULL,
     database_config__minor_version INTEGER NOT NULL,
@@ -39,20 +45,26 @@ CREATE TABLE config.database_config (
     database_config__migration_timestamp TEXT NOT NULL
 );
 
--- SEEDS
 
+-- ============================================================================
+-- 3. SEED TRACKING
+-- ============================================================================
 CREATE TABLE config.seeds (
     general__seed_id SERIAL PRIMARY KEY,
     general__name TEXT NOT NULL,
     general__executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- THEN do comprehensive revocation for all objects
+
+-- ============================================================================
+-- 4. PERMISSIONS
+-- ============================================================================
+-- Revoke All Permissions
 REVOKE ALL ON ALL TABLES IN SCHEMA config FROM PUBLIC, vircadia_agent_proxy;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA config FROM PUBLIC, vircadia_agent_proxy;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA config FROM PUBLIC, vircadia_agent_proxy;
 
--- THEN grant specific permissions
+-- Grant Specific Permissions
 GRANT SELECT ON config.entity_config TO vircadia_agent_proxy;
 GRANT SELECT ON config.network_config TO vircadia_agent_proxy;
 GRANT SELECT (
@@ -61,25 +73,30 @@ GRANT SELECT (
     auth_config__default_session_max_age_ms,
     auth_config__session_cleanup_interval,
     auth_config__session_inactive_expiry_ms,
-    auth_config__session_max_per_agent,
     auth_config__heartbeat_interval_ms,
     auth_config__heartbeat_inactive_expiry_ms
 ) ON config.auth_config TO vircadia_agent_proxy;
 GRANT SELECT ON config.database_config TO vircadia_agent_proxy;
 
--- THEN do inserts
-INSERT INTO config.entity_config (entity_config__script_compilation_timeout_ms)
-VALUES (60000);
 
+-- ============================================================================
+-- 5. INITIAL DATA
+-- ============================================================================
+-- Entity Configuration
+INSERT INTO config.entity_config (
+    entity_config__script_compilation_timeout_ms
+) VALUES (60000);
+
+-- Network Configuration
 INSERT INTO config.network_config (
     network_config__max_latency_ms,
     network_config__warning_latency_ms,
     network_config__consecutive_warnings_before_kick,
     network_config__measurement_window_ticks,
     network_config__packet_loss_threshold_percent
-)
-VALUES (500, 200, 50, 100, 5);
+) VALUES (500, 200, 50, 100, 5);
 
+-- Authentication Configuration
 INSERT INTO config.auth_config (
     auth_config__default_session_duration_jwt_string,
     auth_config__default_session_duration_ms,
@@ -88,11 +105,9 @@ INSERT INTO config.auth_config (
     auth_config__agent_proxy_password,
     auth_config__session_cleanup_interval,
     auth_config__session_inactive_expiry_ms,
-    auth_config__session_max_per_agent,
     auth_config__heartbeat_interval_ms,
     auth_config__heartbeat_inactive_expiry_ms
-)
-VALUES (
+) VALUES (
     '24h',
     86400000,
     86400000,
@@ -100,15 +115,14 @@ VALUES (
     current_setting('vircadia.agent_proxy_password'),
     3600000,
     3600000,
-    1,
     3000,
     12000
 );
 
+-- Database Version Configuration
 INSERT INTO config.database_config (
     database_config__major_version,
     database_config__minor_version,
     database_config__patch_version,
     database_config__migration_timestamp
-)
-VALUES (1, 0, 0, '20240829231100');
+) VALUES (1, 0, 0, '20240829231100');

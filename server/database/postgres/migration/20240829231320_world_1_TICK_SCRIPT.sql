@@ -1,8 +1,7 @@
--- 
--- ENTITY SCRIPTS
--- 
+-- ============================================================================
+-- 1. TICK SCRIPT AUDIT LOG TABLE & INDEXES
+-- ============================================================================
 
--- Create script audit log table
 CREATE TABLE tick.script_audit_log (
     general__asset_audit_id uuid DEFAULT uuid_generate_v4() PRIMARY KEY,
     general__script_id uuid NOT NULL,
@@ -13,16 +12,19 @@ CREATE TABLE tick.script_audit_log (
     performed_by uuid DEFAULT auth.current_agent_id()
 );
 
--- Add indexes for efficient querying
+-- Indexes for efficient querying
 CREATE INDEX idx_script_audit_log_timestamp 
     ON tick.script_audit_log (group__sync, operation_timestamp DESC);
 CREATE INDEX idx_script_audit_log_script_id
     ON tick.script_audit_log (general__script_id);
 
--- Enable RLS
 ALTER TABLE tick.script_audit_log ENABLE ROW LEVEL SECURITY;
 
--- Add RLS policies (system only)
+
+-- ============================================================================
+-- 2. TICK SCRIPT AUDIT LOG POLICIES
+-- ============================================================================
+
 CREATE POLICY "script_audit_log_view_policy" ON tick.script_audit_log
     FOR SELECT USING (
         auth.is_admin_agent()
@@ -31,7 +33,7 @@ CREATE POLICY "script_audit_log_view_policy" ON tick.script_audit_log
             SELECT 1 
             FROM auth.active_sync_group_sessions sess 
             WHERE sess.auth__agent_id = auth.current_agent_id()
-            AND sess.group__sync = tick.script_audit_log.group__sync
+              AND sess.group__sync = tick.script_audit_log.group__sync
         )
     );
 
@@ -46,7 +48,12 @@ CREATE POLICY "script_audit_log_update_policy" ON tick.script_audit_log
 CREATE POLICY "script_audit_log_delete_policy" ON tick.script_audit_log
     FOR DELETE
     USING (auth.is_admin_agent());
-    
+
+
+-- ============================================================================
+-- 3. TICK SCRIPT TRIGGER FUNCTIONS & TRIGGERS
+-- ============================================================================
+
 -- Trigger function to log script changes
 CREATE OR REPLACE FUNCTION tick.log_script_change()
 RETURNS TRIGGER AS $$
@@ -89,13 +96,17 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Add triggers to entity.entity_scripts
+-- Add trigger to entity.entity_scripts
 CREATE TRIGGER log_script_changes
     AFTER INSERT OR UPDATE OR DELETE ON entity.entity_scripts
     FOR EACH ROW
     EXECUTE FUNCTION tick.log_script_change();
 
--- Cleanup function for audit logs
+
+-- ============================================================================
+-- 4. TICK SCRIPT CLEANUP FUNCTION
+-- ============================================================================
+
 CREATE OR REPLACE FUNCTION tick.cleanup_old_script_audit_logs() 
 RETURNS void AS $$
 BEGIN
@@ -104,18 +115,19 @@ BEGIN
         SELECT 1 
         FROM auth.sync_groups sg
         WHERE sg.general__sync_group = sal.group__sync
-        AND sal.operation_timestamp < (
+          AND sal.operation_timestamp < (
             NOW() - ((sg.server__tick__buffer * sg.server__tick__rate_ms) || ' milliseconds')::interval
-        )
+          )
     );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 
--- ENTITY SCRIPTS TICK FUNCTIONS
--- 
 
--- Function to get CHANGED script states between latest tick (modified to use entity.entity_scripts)
+-- ============================================================================
+-- 5. ENTITY SCRIPTS TICK FUNCTIONS
+-- ============================================================================
+
+-- Function to get changed script states between latest ticks (modified to use entity.entity_scripts)
 CREATE OR REPLACE FUNCTION tick.get_changed_script_states_between_latest_ticks(
     p_sync_group text
 ) RETURNS TABLE (
@@ -164,8 +176,8 @@ BEGIN
         FROM tick.script_audit_log sa
         LEFT JOIN entity.entity_scripts es ON sa.general__script_id = es.general__script_id
         WHERE sa.group__sync = p_sync_group
-        AND sa.operation_timestamp > v_previous_tick_time 
-        AND sa.operation_timestamp <= v_latest_tick_time
+          AND sa.operation_timestamp > v_previous_tick_time 
+          AND sa.operation_timestamp <= v_latest_tick_time
         ORDER BY sa.general__script_id, sa.operation_timestamp DESC
     )
     SELECT 
@@ -191,7 +203,7 @@ BEGIN
                 'compiled__browser__updated_at', sc.compiled__browser__updated_at,
                 'group__sync', sc.group__sync
             ))
-        END as changes
+        END AS changes
     FROM script_changes sc;
 
 END;

@@ -2,7 +2,10 @@
 -- ENTITY SCRIPTS
 --
 
--- Restructure entity_scripts into parent/child tables
+-- ============================================================================ 
+-- 1. ENTITY SCRIPTS TABLE
+-- ============================================================================ 
+
 CREATE TABLE entity.entity_scripts (
     general__script_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     general__script_name TEXT NOT NULL DEFAULT 'UNNAMED',
@@ -33,8 +36,11 @@ CREATE TABLE entity.entity_scripts (
     CONSTRAINT fk_entity_scripts_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group)
 ) INHERITS (entity._template);
 
--- Enable RLS
 ALTER TABLE entity.entity_scripts ENABLE ROW LEVEL SECURITY;
+
+-- ============================================================================ 
+-- 2. ENTITY SCRIPTS POLICIES
+-- ============================================================================ 
 
 -- Allow all users to view scripts
 CREATE POLICY "Allow viewing scripts" ON entity.entity_scripts
@@ -62,12 +68,10 @@ CREATE POLICY "Allow deleting scripts with proper access" ON entity.entity_scrip
         auth.is_admin_agent()
     );
 
-CREATE TRIGGER update_audit_columns
-    BEFORE UPDATE ON entity.entity_scripts
-    FOR EACH ROW
-    EXECUTE FUNCTION entity.update_audit_columns();
+-- ============================================================================ 
+-- 3. ENTITY SCRIPTS FUNCTIONS
+-- ============================================================================ 
 
--- Create function to cleanup stalled compilations
 CREATE OR REPLACE FUNCTION entity.cleanup_stalled_compilations()
 RETURNS trigger AS $$
 DECLARE
@@ -79,7 +83,7 @@ BEGIN
 
     -- Check if this compilation has stalled
     IF NEW.compiled__node__status = 'COMPILING' 
-    AND NEW.compiled__node__updated_at < (NOW() - (timeout_ms || ' milliseconds')::interval) THEN
+       AND NEW.compiled__node__updated_at < (NOW() - (timeout_ms || ' milliseconds')::interval) THEN
         NEW.compiled__node__status := 'FAILED';
         NEW.compiled__bun__status := 'FAILED';
         NEW.compiled__browser__status := 'FAILED';
@@ -92,7 +96,17 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Change to BEFORE trigger and FOR EACH ROW
+-- ============================================================================ 
+-- 4. ENTITY SCRIPTS TRIGGERS
+-- ============================================================================ 
+
+-- Update audit columns trigger
+CREATE TRIGGER update_audit_columns
+    BEFORE UPDATE ON entity.entity_scripts
+    FOR EACH ROW
+    EXECUTE FUNCTION entity.update_audit_columns();
+
+-- Trigger to cleanup stalled compilations
 CREATE TRIGGER cleanup_stalled_compilations_trigger
     BEFORE UPDATE OF compiled__node__status, compiled__node__updated_at ON entity.entity_scripts
     FOR EACH ROW

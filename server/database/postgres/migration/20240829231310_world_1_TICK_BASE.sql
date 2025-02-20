@@ -1,13 +1,14 @@
+-- ============================================================================
+-- 1. SCHEMA CREATION AND INITIAL PERMISSIONS
+-- ============================================================================
 CREATE SCHEMA IF NOT EXISTS tick;
 
 REVOKE ALL ON SCHEMA tick FROM vircadia_agent_proxy;
 GRANT USAGE ON SCHEMA tick TO vircadia_agent_proxy;
 
--- 
--- WORLD TICKS
--- 
-
--- World ticks table (make this the authoritative table)
+-- ============================================================================
+-- 2. WORLD TICKS TABLE
+-- ============================================================================
 CREATE TABLE tick.world_ticks (
     general__tick_id uuid DEFAULT uuid_generate_v4() PRIMARY KEY,
     tick__number bigint NOT NULL,
@@ -21,18 +22,25 @@ CREATE TABLE tick.world_ticks (
     tick__is_delayed boolean NOT NULL,
     tick__headroom_ms double precision,
     tick__time_since_last_tick_ms double precision,
-
+    
     -- Add unique constraint for sync_group + tick number combination
     UNIQUE (group__sync, tick__number)
 );
 
+-- ============================================================================
+-- 3. INDEXES
+-- ============================================================================
 CREATE INDEX idx_world_ticks_sync_number ON tick.world_ticks (group__sync, tick__number DESC);
 CREATE INDEX idx_world_ticks_sync_time ON tick.world_ticks (group__sync, tick__start_time DESC);
 
--- Enable RLS on world_ticks table
+-- ============================================================================
+-- 4. ROW LEVEL SECURITY
+-- ============================================================================
 ALTER TABLE tick.world_ticks ENABLE ROW LEVEL SECURITY;
 
--- All policies for world_ticks (system users only)
+-- ============================================================================
+-- 5. POLICIES
+-- ============================================================================
 CREATE POLICY "world_ticks_view_policy" ON tick.world_ticks
     FOR SELECT
     USING (
@@ -46,6 +54,7 @@ CREATE POLICY "world_ticks_update_policy" ON tick.world_ticks
         auth.is_admin_agent()
         OR auth.is_system_agent()
     );
+
 CREATE POLICY "world_ticks_insert_policy" ON tick.world_ticks
     FOR INSERT
     WITH CHECK (

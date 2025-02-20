@@ -1,8 +1,7 @@
--- 
--- ENTITY STATES
--- 
+-- ============================================================================
+-- 1. ENTITY STATES TABLE & INDEXES
+-- ============================================================================
 
--- Lag compensation state history table (now references world_ticks)
 CREATE TABLE tick.entity_states (
     LIKE entity.entities INCLUDING DEFAULTS EXCLUDING CONSTRAINTS,
 
@@ -22,7 +21,20 @@ CREATE TABLE tick.entity_states (
         REFERENCES tick.world_ticks(general__tick_id) ON DELETE CASCADE
 );
 
--- View policy for entity_states (using sync groups instead of roles)
+ALTER TABLE tick.entity_states ENABLE ROW LEVEL SECURITY;
+
+-- Indexes for efficient lookup
+CREATE INDEX entity_states_lookup_idx ON tick.entity_states (general__entity_id, general__tick_id);
+CREATE INDEX entity_states_tick_idx ON tick.entity_states (general__tick_id);
+CREATE INDEX entity_states_sync_group_tick_idx ON tick.entity_states (group__sync, general__tick_id DESC);
+CREATE INDEX idx_entity_states_sync_tick_lookup ON tick.entity_states (group__sync, general__tick_id, general__entity_id);
+CREATE INDEX idx_entity_states_sync_tick ON tick.entity_states (group__sync, general__tick_id);
+
+
+-- ============================================================================
+-- 2. ENTITY STATES POLICIES
+-- ============================================================================
+
 CREATE POLICY "entity_states_view_policy" ON tick.entity_states
     FOR SELECT
     USING (
@@ -32,11 +44,10 @@ CREATE POLICY "entity_states_view_policy" ON tick.entity_states
             SELECT 1 
             FROM auth.active_sync_group_sessions sess 
             WHERE sess.auth__agent_id = auth.current_agent_id()
-            AND sess.group__sync = tick.entity_states.group__sync
+              AND sess.group__sync = tick.entity_states.group__sync
         )
     );
 
--- Update/Insert/Delete policies for entity_states (system users only)
 CREATE POLICY "entity_states_update_policy" ON tick.entity_states
     FOR UPDATE
     USING (auth.is_admin_agent());
@@ -49,19 +60,10 @@ CREATE POLICY "entity_states_delete_policy" ON tick.entity_states
     FOR DELETE
     USING (auth.is_admin_agent());
 
--- Enable RLS on entity_states table
-ALTER TABLE tick.entity_states ENABLE ROW LEVEL SECURITY;
 
--- New or moved indexes
-CREATE INDEX entity_states_lookup_idx ON tick.entity_states (general__entity_id, general__tick_id);
-CREATE INDEX entity_states_tick_idx ON tick.entity_states (general__tick_id);
-CREATE INDEX entity_states_sync_group_tick_idx ON tick.entity_states (group__sync, general__tick_id DESC);
-CREATE INDEX idx_entity_states_sync_tick_lookup ON tick.entity_states (group__sync, general__tick_id, general__entity_id);
-CREATE INDEX idx_entity_states_sync_tick ON tick.entity_states (group__sync, general__tick_id);
-
--- 
--- ENTITY STATE TICK FUNCTIONS
--- 
+-- ============================================================================
+-- 3. ENTITY STATE TICK FUNCTIONS
+-- ============================================================================
 
 -- Function to get CHANGED entity states between latest ticks
 CREATE OR REPLACE FUNCTION tick.get_changed_entity_states_between_latest_ticks(

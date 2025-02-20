@@ -1,8 +1,7 @@
---
--- ENTITY ASSET AUDIT LOG
---
+-- ============================================================================
+-- 1. ASSET AUDIT LOG TABLE & INDEXES
+-- ============================================================================
 
--- Create the asset audit log table
 CREATE TABLE tick.asset_audit_log (
     general__asset_audit_id uuid DEFAULT uuid_generate_v4() PRIMARY KEY,
     general__asset_id uuid NOT NULL,
@@ -13,13 +12,18 @@ CREATE TABLE tick.asset_audit_log (
 );
 
 -- Indexes for efficient querying
-CREATE INDEX idx_asset_audit_log_timestamp ON tick.asset_audit_log (group__sync, operation_timestamp DESC);
-CREATE INDEX idx_asset_audit_log_asset_id ON tick.asset_audit_log (general__asset_id);
+CREATE INDEX idx_asset_audit_log_timestamp 
+    ON tick.asset_audit_log (group__sync, operation_timestamp DESC);
+CREATE INDEX idx_asset_audit_log_asset_id 
+    ON tick.asset_audit_log (general__asset_id);
 
--- Enable Row-Level Security on the audit log table
 ALTER TABLE tick.asset_audit_log ENABLE ROW LEVEL SECURITY;
 
--- RLS policies for secure access
+
+-- ============================================================================
+-- 2. ASSET AUDIT LOG POLICIES
+-- ============================================================================
+
 CREATE POLICY "asset_audit_log_view_policy" ON tick.asset_audit_log
     FOR SELECT USING (
         auth.is_admin_agent()
@@ -28,10 +32,10 @@ CREATE POLICY "asset_audit_log_view_policy" ON tick.asset_audit_log
             SELECT 1 
             FROM auth.active_sync_group_sessions sess 
             WHERE sess.auth__agent_id = auth.current_agent_id()
-            AND sess.group__sync = tick.asset_audit_log.group__sync
+              AND sess.group__sync = tick.asset_audit_log.group__sync
         )
     );
-    
+
 CREATE POLICY "asset_audit_log_insert_policy" ON tick.asset_audit_log
     FOR INSERT WITH CHECK (auth.is_admin_agent());
 
@@ -41,7 +45,11 @@ CREATE POLICY "asset_audit_log_update_policy" ON tick.asset_audit_log
 CREATE POLICY "asset_audit_log_delete_policy" ON tick.asset_audit_log
     FOR DELETE USING (auth.is_admin_agent());
 
--- Trigger function to log asset changes
+
+-- ============================================================================
+-- 3. ASSET CHANGE TRIGGER FUNCTION & TRIGGER
+-- ============================================================================
+
 CREATE OR REPLACE FUNCTION entity.log_asset_change()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -89,11 +97,12 @@ CREATE TRIGGER log_asset_changes
     FOR EACH ROW
     EXECUTE FUNCTION entity.log_asset_change();
 
--- 
--- ENTITY ASSETS TICK FUNCTIONS
--- 
 
--- Function to get CHANGED asset states between latest ticks
+-- ============================================================================
+-- 4. ASSET TICK FUNCTIONS
+-- ============================================================================
+
+-- Function to get changed asset states between latest ticks
 CREATE OR REPLACE FUNCTION tick.get_changed_asset_states_between_latest_ticks(
     p_sync_group text
 ) RETURNS TABLE (

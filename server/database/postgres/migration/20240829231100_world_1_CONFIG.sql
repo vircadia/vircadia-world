@@ -1,70 +1,114 @@
 CREATE SCHEMA IF NOT EXISTS config;
 
-REVOKE ALL ON FUNCTION pg_catalog.set_config(text, text, boolean) FROM PUBLIC;
-
--- User proxy role with limited permissions
-DO $$
-DECLARE
-    pwd text := current_setting('VRCA_SERVER.AGENT_PROXY_PASSWORD', true);
-BEGIN
-    EXECUTE format('CREATE ROLE vircadia_agent_proxy LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOREPLICATION', pwd, user);
-END
-$$;
-
--- Grant usage on schema config to vircadia_agent_proxy
+REVOKE ALL ON SCHEMA config FROM PUBLIC, vircadia_agent_proxy;
 GRANT USAGE ON SCHEMA config TO vircadia_agent_proxy;
 
--- Configuration table
-CREATE TABLE config.config (
-    general__key text PRIMARY KEY,
-    general__value jsonb NOT NULL,
-    general__description text
+-- Create table for Entity configuration
+CREATE TABLE config.entity_config (
+    entity_config__script_compilation_timeout_ms INTEGER NOT NULL
 );
 
--- Seeds tracking table
+-- Create table for Network configuration
+CREATE TABLE config.network_config (
+    network_config__max_latency_ms INTEGER NOT NULL,
+    network_config__warning_latency_ms INTEGER NOT NULL,
+    network_config__consecutive_warnings_before_kick INTEGER NOT NULL,
+    network_config__measurement_window_ticks INTEGER NOT NULL,
+    network_config__packet_loss_threshold_percent INTEGER NOT NULL
+);
+
+-- Create table for Authentication configuration 
+CREATE TABLE config.auth_config (
+    auth_config__default_session_duration_jwt_string TEXT NOT NULL,
+    auth_config__default_session_duration_ms BIGINT NOT NULL,
+    auth_config__default_session_max_age_ms BIGINT NOT NULL,
+    auth_config__jwt_secret TEXT NOT NULL,
+    auth_config__agent_proxy_password TEXT NOT NULL,
+    auth_config__session_cleanup_interval BIGINT NOT NULL,
+    auth_config__session_inactive_expiry_ms BIGINT NOT NULL,
+    auth_config__session_max_per_agent INTEGER NOT NULL,
+    auth_config__heartbeat_interval_ms INTEGER NOT NULL,
+    auth_config__heartbeat_inactive_expiry_ms INTEGER NOT NULL
+);
+
+-- Create table for Database configuration
+CREATE TABLE config.database_config (
+    database_config__major_version INTEGER NOT NULL,
+    database_config__minor_version INTEGER NOT NULL,
+    database_config__patch_version INTEGER NOT NULL,
+    database_config__migration_timestamp TEXT NOT NULL
+);
+
+-- SEEDS
+
 CREATE TABLE config.seeds (
     general__seed_id SERIAL PRIMARY KEY,
-    general__name VARCHAR(255) NOT NULL,
+    general__name TEXT NOT NULL,
     general__executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Insert grouped configuration settings
-INSERT INTO config.config (general__key, general__value, general__description) VALUES
--- Entity settings
-('entity', jsonb_build_object(
-    'script_compilation_timeout_ms', 60000
-), 'Entity-related configuration settings'),
+-- THEN do comprehensive revocation for all objects
+REVOKE ALL ON ALL TABLES IN SCHEMA config FROM PUBLIC, vircadia_agent_proxy;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA config FROM PUBLIC, vircadia_agent_proxy;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA config FROM PUBLIC, vircadia_agent_proxy;
 
--- Network settings
-('network', jsonb_build_object(
-    'max_latency_ms', 500,
-    'warning_latency_ms', 200,
-    'consecutive_warnings_before_kick', 50,
-    'measurement_window_ticks', 100,
-    'packet_loss_threshold_percent', 5
-), 'Network-related configuration settings'),
+-- THEN grant specific permissions
+GRANT SELECT ON config.entity_config TO vircadia_agent_proxy;
+GRANT SELECT ON config.network_config TO vircadia_agent_proxy;
+GRANT SELECT (
+    auth_config__default_session_duration_jwt_string,
+    auth_config__default_session_duration_ms,
+    auth_config__default_session_max_age_ms,
+    auth_config__session_cleanup_interval,
+    auth_config__session_inactive_expiry_ms,
+    auth_config__session_max_per_agent,
+    auth_config__heartbeat_interval_ms,
+    auth_config__heartbeat_inactive_expiry_ms
+) ON config.auth_config TO vircadia_agent_proxy;
+GRANT SELECT ON config.database_config TO vircadia_agent_proxy;
 
--- Authentication settings (merged with session settings)
-('auth', jsonb_build_object(
-    'default_session_duration_jwt_string', '24h',
-    'default_session_duration_ms', 86400000,
-    'default_session_max_age_ms', 86400000,
-    'jwt_secret', 'CHANGE_ME!',
-    'session_cleanup_interval', 3600000,
-    'session_inactive_expiry_ms', 3600000,
-    'session_max_per_agent', 1,
-    'heartbeat_interval_ms', 3000,
-    'heartbeat_inactive_expiry_ms', 12000
-), 'Authentication and session management configuration settings'),
+-- THEN do inserts
+INSERT INTO config.entity_config (entity_config__script_compilation_timeout_ms)
+VALUES (60000);
 
--- Database settings
-('database', jsonb_build_object(
-    'major_version', 1,
-    'minor_version', 0,
-    'patch_version', 0,
-    'migration_timestamp', '20240829231100'
-), 'Database version configuration settings');
+INSERT INTO config.network_config (
+    network_config__max_latency_ms,
+    network_config__warning_latency_ms,
+    network_config__consecutive_warnings_before_kick,
+    network_config__measurement_window_ticks,
+    network_config__packet_loss_threshold_percent
+)
+VALUES (500, 200, 50, 100, 5);
 
--- Create ENUMS
+INSERT INTO config.auth_config (
+    auth_config__default_session_duration_jwt_string,
+    auth_config__default_session_duration_ms,
+    auth_config__default_session_max_age_ms,
+    auth_config__jwt_secret,
+    auth_config__agent_proxy_password,
+    auth_config__session_cleanup_interval,
+    auth_config__session_inactive_expiry_ms,
+    auth_config__session_max_per_agent,
+    auth_config__heartbeat_interval_ms,
+    auth_config__heartbeat_inactive_expiry_ms
+)
+VALUES (
+    '24h',
+    86400000,
+    86400000,
+    'CHANGE_ME!',
+    current_setting('vircadia.agent_proxy_password'),
+    3600000,
+    3600000,
+    1,
+    3000,
+    12000
+);
 
-CREATE TYPE operation_enum AS ENUM ('INSERT', 'UPDATE', 'DELETE');
+INSERT INTO config.database_config (
+    database_config__major_version,
+    database_config__minor_version,
+    database_config__patch_version,
+    database_config__migration_timestamp
+)
+VALUES (1, 0, 0, '20240829231100');

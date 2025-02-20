@@ -11,7 +11,6 @@ import {
     type Tick,
 } from "../../../sdk/vircadia-world-sdk-ts/schema/schema.general.ts";
 import type { Server, ServerWebSocket } from "bun";
-import type { Config } from "../../../sdk/vircadia-world-sdk-ts/schema/schema.general.ts";
 import { PostgresClient } from "../../database/postgres/postgres_client.ts";
 import { verify } from "jsonwebtoken";
 
@@ -245,7 +244,13 @@ export class WorldApiManager {
     private tickManager: WorldTickManager | undefined;
     private server: Server | undefined;
     private sql: postgres.Sql | undefined;
-    private authConfig: Config.I_Config<"auth"> | undefined;
+    private authConfig: {
+        auth_config__jwt_secret: string | undefined;
+        auth_config__heartbeat_inactive_expiry_ms: number | undefined;
+    } = {
+        auth_config__jwt_secret: undefined,
+        auth_config__heartbeat_inactive_expiry_ms: undefined,
+    };
 
     public activeSessions: Map<string, WorldSession<unknown>> = new Map();
     private heartbeatInterval: Timer | null = null;
@@ -283,13 +288,24 @@ export class WorldApiManager {
             }
 
             // Load full config with proper typing
-            [this.authConfig] = await this.sql<[Config.I_Config<"auth">]>`
-                SELECT general__value 
-                FROM config.config 
-                WHERE general__key = 'auth'
+            [this.authConfig] = await this.sql<
+                [
+                    {
+                        auth_config__jwt_secret: string;
+                        auth_config__heartbeat_inactive_expiry_ms: number;
+                    },
+                ]
+            >`
+                SELECT 
+                    auth_config__jwt_secret,
+                    auth_config__heartbeat_inactive_expiry_ms
+                FROM config.auth_config
             `;
 
-            if (!this.authConfig.general__value) {
+            if (
+                !this.authConfig.auth_config__jwt_secret ||
+                !this.authConfig.auth_config__heartbeat_inactive_expiry_ms
+            ) {
                 log({
                     message: "Failed to load auth configuration",
                     error: this.authConfig,
@@ -343,8 +359,7 @@ export class WorldApiManager {
                         }
 
                         const jwtValidationResult = await validateJWT({
-                            jwtSecret:
-                                this.authConfig?.general__value?.jwt_secret,
+                            jwtSecret: this.authConfig.auth_config__jwt_secret,
                             token,
                         });
 
@@ -423,8 +438,7 @@ export class WorldApiManager {
 
                                 const jwtValidationResult = await validateJWT({
                                     jwtSecret:
-                                        this.authConfig?.general__value
-                                            .jwt_secret,
+                                        this.authConfig.auth_config__jwt_secret,
                                     token,
                                 });
 
@@ -517,8 +531,7 @@ export class WorldApiManager {
 
                                 const jwtValidationResult = await validateJWT({
                                     jwtSecret:
-                                        this.authConfig?.general__value
-                                            .jwt_secret,
+                                        this.authConfig.auth_config__jwt_secret,
                                     token,
                                 });
 
@@ -650,7 +663,7 @@ export class WorldApiManager {
                             // Validate JWT
                             const jwtValidationResult = await validateJWT({
                                 jwtSecret:
-                                    this.authConfig?.general__value.jwt_secret,
+                                    this.authConfig.auth_config__jwt_secret,
                                 token: sessionToken,
                             });
 
@@ -871,8 +884,8 @@ export class WorldApiManager {
                 await Promise.all(
                     sessionsToCheck.map(async ([sessionId, session]) => {
                         if (
-                            !this.authConfig?.general__value
-                                ?.heartbeat_inactive_expiry_ms
+                            !this.authConfig
+                                .auth_config__heartbeat_inactive_expiry_ms
                         ) {
                             throw new Error("WebSocket check interval not set");
                         }
@@ -880,8 +893,8 @@ export class WorldApiManager {
                         // Check heartbeat timeout first
                         if (
                             now - session.lastHeartbeat >
-                            this.authConfig?.general__value
-                                ?.heartbeat_inactive_expiry_ms
+                            this.authConfig
+                                .auth_config__heartbeat_inactive_expiry_ms
                         ) {
                             // Use database validate_session function
                             const [validation] = await this.sql<

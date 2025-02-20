@@ -1,6 +1,7 @@
 -- TODO: Add a max session count (default: 1) per auth provider, thus limiting sign-ins for an agent for a single provider.
 CREATE SCHEMA IF NOT EXISTS auth;
 
+REVOKE ALL ON SCHEMA auth FROM vircadia_agent_proxy;
 GRANT USAGE ON SCHEMA auth TO vircadia_agent_proxy;
 
 -- Function to get system agent id (needed for current_agent_id)
@@ -15,13 +16,6 @@ CREATE OR REPLACE FUNCTION auth.is_super_admin()
 RETURNS boolean AS $$ 
 BEGIN
     RETURN (SELECT usesuper FROM pg_user WHERE usename = CURRENT_USER);
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION auth.is_agent_proxy()
-RETURNS boolean AS $$
-BEGIN
-    RETURN current_user = 'vircadia_agent_proxy';
 END;
 $$ LANGUAGE plpgsql;
 
@@ -54,9 +48,21 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+GRANT EXECUTE ON FUNCTION auth.current_agent_id() TO vircadia_agent_proxy;
+
 CREATE TABLE auth._template (
     general__created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     general__created_by UUID DEFAULT auth.current_agent_id(),
     general__updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     general__updated_by UUID DEFAULT auth.current_agent_id()
 );
+
+-- Update function to modify both updated_at and updated_by timestamps
+CREATE OR REPLACE FUNCTION auth.update_audit_columns()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.general__updated_at = CURRENT_TIMESTAMP;
+    NEW.general__updated_by = auth.current_agent_id();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;

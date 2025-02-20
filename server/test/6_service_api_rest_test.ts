@@ -18,14 +18,21 @@ describe("Service -> Web API Manager Tests", () => {
 
     async function createTestAccounts() {
         // Get auth config
-        const [authConfig] = await sql<[Config.I_Config<"auth">]>`
-            SELECT * FROM config.config 
-            WHERE general__key = 'auth'
+        const [authConfig] = await sql<
+            [
+                {
+                    auth_config__jwt_secret: string;
+                    auth_config__default_session_duration_ms: number;
+                },
+            ]
+        >`
+            SELECT auth_config__jwt_secret, auth_config__default_session_duration_ms
+            FROM auth.auth_config
         `;
 
-        const authSecretConfig = authConfig.general__value.jwt_secret;
+        const authSecretConfig = authConfig.auth_config__jwt_secret;
         const authDurationConfigMs =
-            authConfig.general__value.default_session_duration_ms;
+            authConfig.auth_config__default_session_duration_ms;
 
         if (!authSecretConfig || !authDurationConfigMs) {
             throw new Error("Auth settings not found in database");

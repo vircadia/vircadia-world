@@ -1,5 +1,8 @@
 CREATE SCHEMA IF NOT EXISTS tick;
 
+REVOKE ALL ON SCHEMA tick FROM vircadia_agent_proxy;
+GRANT USAGE ON SCHEMA tick TO vircadia_agent_proxy;
+
 -- 
 -- WORLD TICKS
 -- 

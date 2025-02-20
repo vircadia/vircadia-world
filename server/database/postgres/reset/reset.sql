@@ -3,11 +3,7 @@ DECLARE
     pubname RECORD;
 BEGIN
     IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'vircadia_agent_proxy') THEN
-        REVOKE ALL ON SCHEMA config FROM vircadia_agent_proxy;
-        REVOKE ALL ON SCHEMA auth FROM vircadia_agent_proxy;
-        REVOKE ALL ON SCHEMA entity FROM vircadia_agent_proxy;
-        REVOKE ALL ON SCHEMA tick FROM vircadia_agent_proxy;
-        REVOKE ALL ON SCHEMA public FROM vircadia_agent_proxy;
+        DROP OWNED BY vircadia_agent_proxy;
 
         DROP ROLE vircadia_agent_proxy;
     END IF;

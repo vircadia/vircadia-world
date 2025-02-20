@@ -9,10 +9,7 @@ import {
 import type postgres from "postgres";
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 import { PostgresClient } from "../database/postgres/postgres_client";
-import {
-    Config,
-    Entity,
-} from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+import { Entity } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import { sign } from "jsonwebtoken";
 import { isHealthy, up } from "../container/docker/docker_cli";
 
@@ -44,13 +41,20 @@ describe("DB -> Entity Tests", () => {
         agent: TestAccount;
     }> {
         try {
-            const [authConfig] = await sql<[Config.I_Config<"auth">]>`
-                SELECT * FROM config.config 
-                WHERE general__key = ${Config.E_ConfigKey.AUTH}
+            const [authConfig] = await sql<
+                [
+                    {
+                        auth_config__jwt_secret: string;
+                        auth_config__default_session_duration_ms: number;
+                    },
+                ]
+            >`
+                SELECT auth_config__jwt_secret, auth_config__default_session_duration_ms 
+                FROM config.auth_config 
             `;
             if (
-                !authConfig.general__value.jwt_secret ||
-                !authConfig.general__value.default_session_duration_ms
+                !authConfig.auth_config__jwt_secret ||
+                !authConfig.auth_config__default_session_duration_ms
             ) {
                 throw new Error("Auth settings not found in database");
             }
@@ -92,10 +96,10 @@ describe("DB -> Entity Tests", () => {
                     sessionId: adminSession.general__session_id,
                     agentId: adminId,
                 },
-                authConfig.general__value.jwt_secret,
+                authConfig.auth_config__jwt_secret,
                 {
                     expiresIn:
-                        authConfig.general__value.default_session_duration_ms,
+                        authConfig.auth_config__default_session_duration_ms,
                 },
             );
 
@@ -104,10 +108,10 @@ describe("DB -> Entity Tests", () => {
                     sessionId: agentSession.general__session_id,
                     agentId: agentId,
                 },
-                authConfig.general__value.jwt_secret,
+                authConfig.auth_config__jwt_secret,
                 {
                     expiresIn:
-                        authConfig.general__value.default_session_duration_ms,
+                        authConfig.auth_config__default_session_duration_ms,
                 },
             );
 

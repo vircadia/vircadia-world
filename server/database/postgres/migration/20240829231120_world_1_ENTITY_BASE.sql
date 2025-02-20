@@ -1,6 +1,9 @@
 -- Create entity schema
 CREATE SCHEMA IF NOT EXISTS entity;
 
+REVOKE ALL ON SCHEMA entity FROM vircadia_agent_proxy;
+GRANT USAGE ON SCHEMA entity TO vircadia_agent_proxy;
+
 CREATE TYPE entity_script_status_enum AS ENUM ('ACTIVE', 'AWAITING_SCRIPTS', 'INACTIVE');
 CREATE TYPE script_compilation_status_enum AS ENUM ('PENDING', 'COMPILING', 'COMPILED', 'FAILED');
 

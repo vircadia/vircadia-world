@@ -9,10 +9,7 @@ import {
 import type postgres from "postgres";
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 import { PostgresClient } from "../database/postgres/postgres_client";
-import type {
-    Config,
-    Auth,
-} from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+import type { Auth } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import { sign } from "jsonwebtoken";
 import { VircadiaConfig } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
 import { isHealthy, up } from "../container/docker/docker_cli";
@@ -53,14 +50,21 @@ describe("DB -> Auth Tests", () => {
     }> {
         try {
             // First create a system token with superuser privileges
-            const [authConfig] = await sql<[Config.I_Config<"auth">]>`
-                SELECT * FROM config.config 
-                WHERE general__key = 'auth'
+            const [authConfig] = await sql<
+                [
+                    {
+                        auth_config__jwt_secret: string;
+                        auth_config__default_session_duration_ms: number;
+                    },
+                ]
+            >`
+                SELECT auth_config__jwt_secret, auth_config__default_session_duration_ms
+                FROM config.auth_config 
             `;
 
-            const authSecretConfig = authConfig.general__value.jwt_secret;
+            const authSecretConfig = authConfig.auth_config__jwt_secret;
             const authDurationConfigMs =
-                authConfig.general__value.default_session_duration_ms;
+                authConfig.auth_config__default_session_duration_ms;
 
             if (!authSecretConfig || !authDurationConfigMs) {
                 throw new Error("Auth settings not found in database");
@@ -374,12 +378,17 @@ describe("DB -> Auth Tests", () => {
             await sql.begin(async (tx) => {
                 await tx`SELECT auth.set_agent_context(${admin.id}::uuid)`; // Set to admin context
 
-                const [authConfig] = await tx`
-                    SELECT (general__value->>'session_max_per_agent')::INTEGER as max_sessions 
-                    FROM config.config 
-                    WHERE general__key = 'auth'
+                const [authConfig] = await tx<
+                    [
+                        {
+                            auth_config__session_max_per_agent: number;
+                        },
+                    ]
+                >`
+                    SELECT auth_config__session_max_per_agent FROM config.auth_config
                 `;
-                const maxSessions = authConfig.max_sessions;
+                const maxSessions =
+                    authConfig.auth_config__session_max_per_agent;
 
                 // Create sessions up to the limit
                 for (let i = 0; i < maxSessions + 1; i++) {

@@ -73,11 +73,9 @@ RETURNS trigger AS $$
 DECLARE
     timeout_ms INTEGER;
 BEGIN
-    -- Get the timeout value from config using new JSONB structure
-    SELECT (general__value -> 'entity' ->> 'script_compilation_timeout_ms')::integer 
+    SELECT entity_config__script_compilation_timeout_ms
     INTO timeout_ms
-    FROM config.config
-    WHERE general__key = 'entity';
+    FROM config.entity_config;
 
     -- Check if this compilation has stalled
     IF NEW.compiled__node__status = 'COMPILING' 

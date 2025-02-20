@@ -3,13 +3,12 @@ import {
     generateDbSystemToken,
     generateDbConnectionString,
     migrate,
-    softResetDatabase,
+    resetDatabase,
     seed,
     up,
     isHealthy,
 } from "../container/docker/docker_cli";
 import { VircadiaConfig } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
-import type { Config } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import { PostgresClient } from "../database/postgres/postgres_client";
 
 describe("System Admin Tests", () => {
@@ -58,8 +57,8 @@ describe("System Admin Tests", () => {
         expect(true).toBe(true);
     });
 
-    test("Soft reset database works", async () => {
-        await softResetDatabase();
+    test("Reset database works", async () => {
+        await resetDatabase();
         // Verify database is accessible after reset
         const sql = PostgresClient.getInstance().getClient();
         const [result] = await sql`SELECT current_database()`;
@@ -73,12 +72,11 @@ describe("System Admin Tests", () => {
         // Verify some expected seed data exists
         const sql = PostgresClient.getInstance().getClient();
         // Check if config table has essential auth settings
-        const [authConfig] = await sql<[Config.I_Config<"auth">]>`
-            SELECT general__value FROM config.config 
-            WHERE general__key = 'auth'
+        const [authConfig] = await sql<[{ auth_config__jwt_secret: string }]>`
+            SELECT auth_config__jwt_secret FROM config.auth_config
         `;
         expect(authConfig).toBeDefined();
-        expect(authConfig.general__value.jwt_secret).toBeDefined();
+        expect(authConfig.auth_config__jwt_secret).toBeDefined();
     });
 
     test("System agent exists and has correct permissions", async () => {

@@ -6,7 +6,6 @@ import { dirname } from "node:path";
 import { readdir, readFile } from "node:fs/promises";
 import { sign } from "jsonwebtoken";
 import { PostgresClient } from "../../database/postgres/postgres_client";
-import type { Config } from "../../../sdk/vircadia-world-sdk-ts/schema/schema.general.ts";
 
 const DOCKER_COMPOSE_PATH = path.join(
     dirname(fileURLToPath(import.meta.url)),
@@ -369,9 +368,9 @@ export async function migrate(data: {
 
     await sql.unsafe(`
         CREATE TABLE IF NOT EXISTS config.migrations (
-            id SERIAL PRIMARY KEY,
-            name VARCHAR(255) NOT NULL,
-            executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            general__id SERIAL PRIMARY KEY,
+            general__name VARCHAR(255) NOT NULL,
+            general__executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     `);
 
@@ -399,7 +398,8 @@ export async function migrate(data: {
         .sort();
 
     // Get already executed migrations
-    const result = await sql`SELECT name FROM config.migrations ORDER BY id`;
+    const result =
+        await sql`SELECT general__name FROM config.migrations ORDER BY general__id`;
     const executedMigrations = result.map((r) => r.name);
 
     // Run pending migrations
@@ -413,7 +413,7 @@ export async function migrate(data: {
                 await sql.begin(async (sql) => {
                     await sql.unsafe(sqlContent);
                     await sql`
-                        INSERT INTO config.migrations (name)
+                        INSERT INTO config.migrations (general__name)
                         VALUES (${file})
                     `;
                 });
@@ -568,18 +568,24 @@ export async function generateDbSystemToken(): Promise<{
     const sql = db.getClient();
 
     // Get auth settings from config using the new JSONB structure
-    const [authConfig] = await sql<[Config.I_Config<"auth">]>`
-        SELECT general__value 
-        FROM config.config 
-        WHERE general__key = 'auth'
+    const [authConfig] = await sql<
+        [
+            {
+                auth_config__jwt_secret: string;
+                auth_config__default_session_duration_ms: number;
+            },
+        ]
+    >`
+        SELECT auth_config__jwt_secret, auth_confing__default_session_duration_ms 
+        FROM config.auth_config
     `;
 
     if (!authConfig) {
         throw new Error("Auth settings not found in database");
     }
 
-    const jwtSecret = authConfig.general__value.jwt_secret;
-    const jwtDuration = authConfig.general__value.default_session_duration_ms;
+    const jwtSecret = authConfig.auth_config__jwt_secret;
+    const jwtDuration = authConfig.auth_config__default_session_duration_ms;
 
     if (!jwtSecret || !jwtDuration) {
         throw new Error("Required auth settings missing from database");

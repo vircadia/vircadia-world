@@ -403,28 +403,30 @@ export async function generateDbSystemToken(): Promise<{
     await db.connect();
     const sql = db.getClient();
 
-    // Get auth settings from config using the new JSONB structure
-    const [authConfig] = await sql<
+    // Get auth provider settings for the system provider
+    const [providerConfig] = await sql<
         [
             {
-                auth_config__jwt_secret: string;
-                auth_config__default_session_duration_ms: number;
+                provider__jwt_secret: string;
+                provider__session_duration_ms: number;
             },
         ]
     >`
-        SELECT auth_config__jwt_secret, auth_config__default_session_duration_ms 
-        FROM config.auth_config
+        SELECT provider__jwt_secret, provider__session_duration_ms
+        FROM auth.auth_providers
+        WHERE provider__name = 'system'
+        AND provider__enabled = true
     `;
 
-    if (!authConfig) {
-        throw new Error("Auth settings not found in database");
+    if (!providerConfig) {
+        throw new Error("System auth provider not found or disabled");
     }
 
-    const jwtSecret = authConfig.auth_config__jwt_secret;
-    const jwtDuration = authConfig.auth_config__default_session_duration_ms;
+    const jwtSecret = providerConfig.provider__jwt_secret;
+    const jwtDuration = providerConfig.provider__session_duration_ms;
 
-    if (!jwtSecret || !jwtDuration) {
-        throw new Error("Required auth settings missing from database");
+    if (!jwtSecret) {
+        throw new Error("JWT secret not configured for system provider");
     }
 
     // Get system agent ID
@@ -432,14 +434,15 @@ export async function generateDbSystemToken(): Promise<{
 
     // Create a new session for the system agent
     const [sessionResult] = await sql`
-        SELECT * FROM auth.create_agent_session(${systemId.get_system_agent_id}, 'test')
+        SELECT * FROM auth.create_agent_session(${systemId.get_system_agent_id}, 'system')
     `;
 
-    // Generate JWT token using the config from database
+    // Generate JWT token using the provider config
     const token = sign(
         {
             sessionId: sessionResult.general__session_id,
             agentId: systemId.get_system_agent_id,
+            provider: "system",
         },
         jwtSecret,
         {
@@ -470,7 +473,7 @@ export async function invalidateDbSystemTokens(): Promise<number> {
     await sql`
         UPDATE auth.agent_sessions 
         SET session__is_active = false
-        WHERE session__agent_id = auth.get_system_agent_id()
+        WHERE auth__agent_id = auth.get_system_agent_id()
         AND session__is_active = true
     `;
 
@@ -478,7 +481,7 @@ export async function invalidateDbSystemTokens(): Promise<number> {
     const [{ count }] = await sql`
         SELECT COUNT(*) as count
         FROM auth.agent_sessions
-        WHERE session__agent_id = auth.get_system_agent_id()
+        WHERE auth__agent_id = auth.get_system_agent_id()
         AND session__is_active = true
     `;
 

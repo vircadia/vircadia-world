@@ -7,7 +7,7 @@ CREATE TABLE tick.script_audit_log (
     general__script_id uuid NOT NULL,
     group__sync text NOT NULL
         REFERENCES auth.sync_groups(general__sync_group),
-    operation operation_enum NOT NULL,
+    operation config.operation_enum NOT NULL,
     operation_timestamp timestamptz DEFAULT clock_timestamp(),
     performed_by uuid DEFAULT auth.current_agent_id()
 );
@@ -132,7 +132,7 @@ CREATE OR REPLACE FUNCTION tick.get_changed_script_states_between_latest_ticks(
     p_sync_group text
 ) RETURNS TABLE (
     general__script_id uuid,
-    operation operation_enum,
+    operation config.operation_enum,
     changes jsonb
 ) AS $$
 DECLARE

@@ -8,7 +8,13 @@ GRANT USAGE ON SCHEMA config TO vircadia_agent_proxy;
 
 
 -- ============================================================================
--- 2. CONFIGURATION TABLES
+-- 2. TYPES
+-- ============================================================================
+CREATE TYPE config.operation_enum AS ENUM ('INSERT', 'UPDATE', 'DELETE');
+
+
+-- ============================================================================
+-- 3. CONFIGURATION TABLES
 -- ============================================================================
 -- Entity Configuration
 CREATE TABLE config.entity_config (
@@ -26,13 +32,7 @@ CREATE TABLE config.network_config (
 
 -- Authentication Configuration
 CREATE TABLE config.auth_config (
-    auth_config__default_session_duration_jwt_string TEXT NOT NULL,
-    auth_config__default_session_duration_ms BIGINT NOT NULL,
-    auth_config__default_session_max_age_ms BIGINT NOT NULL,
-    auth_config__jwt_secret TEXT NOT NULL,
-    auth_config__agent_proxy_password TEXT NOT NULL,
     auth_config__session_cleanup_interval BIGINT NOT NULL,
-    auth_config__session_inactive_expiry_ms BIGINT NOT NULL,
     auth_config__heartbeat_interval_ms INTEGER NOT NULL,
     auth_config__heartbeat_inactive_expiry_ms INTEGER NOT NULL
 );
@@ -47,7 +47,7 @@ CREATE TABLE config.database_config (
 
 
 -- ============================================================================
--- 3. SEED TRACKING
+-- 4. SEED TRACKING
 -- ============================================================================
 CREATE TABLE config.seeds (
     general__seed_id SERIAL PRIMARY KEY,
@@ -57,7 +57,7 @@ CREATE TABLE config.seeds (
 
 
 -- ============================================================================
--- 4. PERMISSIONS
+-- 5. PERMISSIONS
 -- ============================================================================
 -- Revoke All Permissions
 REVOKE ALL ON ALL TABLES IN SCHEMA config FROM PUBLIC, vircadia_agent_proxy;
@@ -67,20 +67,12 @@ REVOKE ALL ON ALL FUNCTIONS IN SCHEMA config FROM PUBLIC, vircadia_agent_proxy;
 -- Grant Specific Permissions
 GRANT SELECT ON config.entity_config TO vircadia_agent_proxy;
 GRANT SELECT ON config.network_config TO vircadia_agent_proxy;
-GRANT SELECT (
-    auth_config__default_session_duration_jwt_string,
-    auth_config__default_session_duration_ms,
-    auth_config__default_session_max_age_ms,
-    auth_config__session_cleanup_interval,
-    auth_config__session_inactive_expiry_ms,
-    auth_config__heartbeat_interval_ms,
-    auth_config__heartbeat_inactive_expiry_ms
-) ON config.auth_config TO vircadia_agent_proxy;
+GRANT SELECT ON config.auth_config TO vircadia_agent_proxy;
 GRANT SELECT ON config.database_config TO vircadia_agent_proxy;
 
 
 -- ============================================================================
--- 5. INITIAL DATA
+-- 6. INITIAL DATA
 -- ============================================================================
 -- Entity Configuration
 INSERT INTO config.entity_config (
@@ -98,22 +90,10 @@ INSERT INTO config.network_config (
 
 -- Authentication Configuration
 INSERT INTO config.auth_config (
-    auth_config__default_session_duration_jwt_string,
-    auth_config__default_session_duration_ms,
-    auth_config__default_session_max_age_ms,
-    auth_config__jwt_secret,
-    auth_config__agent_proxy_password,
     auth_config__session_cleanup_interval,
-    auth_config__session_inactive_expiry_ms,
     auth_config__heartbeat_interval_ms,
     auth_config__heartbeat_inactive_expiry_ms
 ) VALUES (
-    '24h',
-    86400000,
-    86400000,
-    'CHANGE_ME!',
-    current_setting('vircadia.agent_proxy_password'),
-    3600000,
     3600000,
     3000,
     12000

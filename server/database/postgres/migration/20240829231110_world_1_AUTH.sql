@@ -37,7 +37,6 @@ ALTER TABLE auth.agent_sessions ENABLE ROW LEVEL SECURITY;
 
 -- ============================================================================
 -- 3. AUTH PROVIDER TABLES
--- ============================================================================
 -- Auth Provider Configurations Table
 CREATE TABLE auth.auth_providers (
     provider__name TEXT PRIMARY KEY,                -- Provider identifier (e.g., 'google', 'github')
@@ -51,7 +50,12 @@ CREATE TABLE auth.auth_providers (
     provider__scope TEXT[],                         -- Required OAuth scopes
     provider__metadata JSONB,                       -- Additional provider-specific configuration
     provider__icon_url TEXT,                        -- URL to provider's icon
-    provider__max_sessions INTEGER NOT NULL DEFAULT 1
+    provider__jwt_secret TEXT NOT NULL,             -- JWT signing secret for this provider
+    provider__session_max_per_agent INTEGER NOT NULL DEFAULT 1,
+    provider__session_duration_jwt_string TEXT NOT NULL DEFAULT '24h',
+    provider__session_duration_ms BIGINT NOT NULL DEFAULT 86400000,
+    provider__session_max_age_ms BIGINT NOT NULL DEFAULT 86400000,
+    provider__session_inactive_expiry_ms BIGINT NOT NULL DEFAULT 3600000
 ) INHERITS (auth._template);
 ALTER TABLE auth.auth_providers ENABLE ROW LEVEL SECURITY;
 
@@ -157,7 +161,7 @@ $$ LANGUAGE plpgsql STABLE;
 -- Session Creation and Validation
 CREATE OR REPLACE FUNCTION auth.create_agent_session(
     p_agent_id UUID,
-    p_provider_name TEXT DEFAULT NULL,
+    p_provider_name TEXT,
     p_jwt TEXT DEFAULT NULL
 ) RETURNS TABLE (
     general__session_id UUID,
@@ -167,8 +171,7 @@ CREATE OR REPLACE FUNCTION auth.create_agent_session(
 DECLARE
     v_session_id UUID;
     v_expires_at TIMESTAMPTZ;
-    v_duration TEXT;
-    v_max_sessions INTEGER;
+    v_provider_record auth.auth_providers%ROWTYPE;
     v_current_sessions INTEGER;
 BEGIN
     -- Allow both admin agents and superusers to create sessions
@@ -179,40 +182,31 @@ BEGIN
         RAISE EXCEPTION 'Only administrators can create sessions';
     END IF;
 
-    -- Validate provider exists if specified
-    IF p_provider_name IS NOT NULL THEN
-        IF NOT EXISTS (
-            SELECT 1 FROM auth.auth_providers 
-            WHERE provider__name = p_provider_name
-            AND provider__enabled = true
-        ) THEN
-            RAISE EXCEPTION 'Invalid or disabled authentication provider: %', p_provider_name;
-        END IF;
+    -- Get provider settings (required)
+    IF p_provider_name IS NULL THEN
+        RAISE EXCEPTION 'Provider name is required';
     END IF;
 
-    -- Get max sessions from provider if specified, otherwise from global config
-    IF p_provider_name IS NOT NULL THEN
-        SELECT provider__max_sessions
-        INTO v_max_sessions
-        FROM auth.auth_providers
-        WHERE provider__name = p_provider_name;
-    ELSE
-        SELECT auth_config__session_max_per_agent
-        INTO v_max_sessions 
-        FROM config.auth_config;
+    -- Validate provider exists and is enabled
+    SELECT * INTO v_provider_record
+    FROM auth.auth_providers
+    WHERE provider__name = p_provider_name
+    AND provider__enabled = true;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Invalid or disabled authentication provider: %', p_provider_name;
     END IF;
 
     -- Count current active sessions for this agent and provider
-    SELECT COUNT(*) 
-    INTO v_current_sessions 
+    SELECT COUNT(*) INTO v_current_sessions
     FROM auth.agent_sessions s
     WHERE s.auth__agent_id = p_agent_id 
+    AND s.auth__provider_name = p_provider_name
     AND s.session__is_active = true 
-    AND s.session__expires_at > NOW()
-    AND (p_provider_name IS NULL OR s.auth__provider_name = p_provider_name);
+    AND s.session__expires_at > NOW();
 
     -- Check if max sessions would be exceeded
-    IF v_current_sessions >= v_max_sessions THEN
+    IF v_current_sessions >= v_provider_record.provider__session_max_per_agent THEN
         -- Invalidate oldest session if limit reached
         UPDATE auth.agent_sessions target_session
         SET session__is_active = false,
@@ -221,23 +215,15 @@ BEGIN
             SELECT oldest_session.general__session_id 
             FROM auth.agent_sessions oldest_session
             WHERE oldest_session.auth__agent_id = p_agent_id 
+            AND oldest_session.auth__provider_name = p_provider_name
             AND oldest_session.session__is_active = true 
-            AND (p_provider_name IS NULL OR oldest_session.auth__provider_name = p_provider_name)
             ORDER BY oldest_session.session__started_at ASC 
             LIMIT 1
         );
     END IF;
 
-    -- Use session duration from config (no separate admin duration)
-    SELECT auth_config__default_session_duration_jwt_string
-    INTO v_duration 
-    FROM config.auth_config;
-
-    IF v_duration IS NULL THEN
-        RAISE EXCEPTION 'Session duration not found in config';
-    END IF;
-
-    v_expires_at := NOW() + v_duration::INTERVAL;
+    -- Calculate expiration using provider settings
+    v_expires_at := NOW() + v_provider_record.provider__session_duration_jwt_string::INTERVAL;
 
     INSERT INTO auth.agent_sessions AS s (
         auth__agent_id,
@@ -290,124 +276,23 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- Session Cleanup Functions
 CREATE OR REPLACE FUNCTION auth.cleanup_old_sessions()
 RETURNS trigger AS $$ 
-DECLARE
-    v_max_age_ms INTEGER;
-    v_inactive_timeout_ms INTEGER;
 BEGIN
-    IF NOT (
-        auth.is_admin_agent()
-        OR auth.is_system_agent()
-    ) THEN
-        RAISE EXCEPTION 'Only admin agents can clean up old sessions';
-    END IF;
-
-    -- Get configuration values
-    SELECT 
-        auth_config__default_session_max_age_ms,
-        auth_config__session_inactive_expiry_ms
-    INTO 
-        v_max_age_ms,
-        v_inactive_timeout_ms
-    FROM config.auth_config;
-
-    UPDATE auth.agent_sessions 
-    SET session__is_active = false
-    WHERE (
-        -- Session is expired
-        session__expires_at < NOW() 
-        -- OR session is too old
-        OR session__started_at < (NOW() - (v_max_age_ms || ' milliseconds')::INTERVAL)
-        -- OR session is inactive
-        OR session__last_seen_at < (NOW() - (v_inactive_timeout_ms || ' milliseconds')::INTERVAL)
-    )
-    AND session__is_active = true;
+    -- Delete expired sessions based on provider settings
+    DELETE FROM auth.agent_sessions AS s
+    USING auth.auth_providers AS p
+    WHERE s.auth__provider_name = p.provider__name
+    AND (
+        -- Manual invalidation checks
+        NOT s.session__is_active 
+        OR s.session__expires_at < NOW()
+        -- Provider-based timeout checks
+        OR s.session__started_at < (NOW() - (p.provider__session_max_age_ms || ' milliseconds')::INTERVAL)
+        OR s.session__last_seen_at < (NOW() - (p.provider__session_inactive_expiry_ms || ' milliseconds')::INTERVAL)
+    );
     
-    RETURN NULL; -- For AFTER triggers, return value is ignored
+    RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION auth.invalidate_session(
-    p_session_id UUID
-) RETURNS BOOLEAN AS $$ 
-DECLARE
-    v_rows_affected INTEGER;
-BEGIN
-    -- Check if user has permission (must be admin or the owner of the session)
-    IF NOT (
-        auth.is_admin_agent() 
-        OR auth.is_system_agent()
-    )
-       AND NOT EXISTS (
-           SELECT 1 
-           FROM auth.agent_sessions 
-           WHERE general__session_id = p_session_id
-           AND auth__agent_id = auth.current_agent_id()
-       ) THEN
-        RAISE EXCEPTION 'Insufficient permissions to invalidate session';
-    END IF;
-
-    UPDATE auth.agent_sessions 
-    SET 
-        session__is_active = false,
-        session__expires_at = NOW()
-    WHERE 
-        general__session_id = p_session_id
-        AND session__is_active = true;
-
-    GET DIAGNOSTICS v_rows_affected = ROW_COUNT;
-    RETURN v_rows_affected > 0;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-CREATE OR REPLACE FUNCTION auth.invalidate_agent_sessions(
-    p_agent_id UUID
-) RETURNS INTEGER AS $$ 
-DECLARE
-    v_count INTEGER;
-BEGIN
-    -- Check if user has permission (must be admin or the agent themselves)
-    IF NOT (
-        auth.is_admin_agent() 
-        OR auth.is_system_agent()
-    )
-       AND auth.current_agent_id() != p_agent_id THEN
-        RAISE EXCEPTION 'Insufficient permissions to invalidate agent sessions';
-    END IF;
-
-    WITH updated_sessions AS (
-        UPDATE auth.agent_sessions 
-        SET 
-            session__is_active = false,
-            session__expires_at = NOW()
-        WHERE 
-            auth__agent_id = p_agent_id
-            AND session__is_active = true
-        RETURNING 1
-    )
-    SELECT COUNT(*) INTO v_count FROM updated_sessions;
-    
-    RETURN v_count;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-CREATE OR REPLACE FUNCTION auth.cleanup_system_tokens()
-RETURNS INTEGER AS $$ 
-DECLARE
-    v_count INTEGER;
-BEGIN
-    WITH updated_sessions AS (
-        UPDATE auth.agent_sessions 
-        SET session__is_active = false
-        WHERE auth__agent_id = auth.get_system_agent_id()
-        AND session__expires_at < NOW()
-        AND session__is_active = true
-        RETURNING 1
-    )
-    SELECT COUNT(*) INTO v_count FROM updated_sessions;
-    
-    RETURN v_count;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 
 -- ============================================================================
@@ -543,7 +428,7 @@ CREATE POLICY "Only admins can manage provider connections" ON auth.agent_auth_p
 -- ============================================================================
 -- Session Management Triggers
 CREATE TRIGGER trigger_cleanup
-    AFTER UPDATE OF session__last_seen_at ON auth.agent_sessions
+    AFTER INSERT OR UPDATE ON auth.agent_sessions
     FOR EACH STATEMENT
     EXECUTE FUNCTION auth.cleanup_old_sessions();
 
@@ -632,3 +517,26 @@ INSERT INTO auth.sync_groups (
     ('admin.NORMAL', 'Admin-only normal-priority entities', 50, 1, 100, 150, 50),
     ('admin.BACKGROUND', 'Admin-only background entities', 200, 1, 200, 300, 100),
     ('admin.STATIC', 'Admin-only static entities', 2000, 1, 500, 1000, 200);
+
+-- Add system provider to auth_providers table if not exists
+INSERT INTO auth.auth_providers (
+    provider__name,
+    provider__display_name,
+    provider__enabled,
+    provider__jwt_secret,
+    provider__session_max_per_agent,
+    provider__session_duration_jwt_string,
+    provider__session_duration_ms,
+    provider__session_max_age_ms,
+    provider__session_inactive_expiry_ms
+) VALUES (
+    'system',
+    'System Authentication',
+    true,
+    'CHANGE_ME!',
+    100,
+    '24h',
+    86400000,
+    86400000,
+    3600000
+) ON CONFLICT (provider__name) DO NOTHING;

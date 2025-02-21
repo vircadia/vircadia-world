@@ -70,7 +70,7 @@ CREATE OR REPLACE FUNCTION tick.get_changed_entity_states_between_latest_ticks(
     p_sync_group text
 ) RETURNS TABLE (
     general__entity_id uuid,
-    operation operation_enum,
+    operation config.operation_enum,
     changes jsonb
 ) AS $$
 DECLARE
@@ -105,9 +105,9 @@ BEGIN
     SELECT 
         COALESCE(cs.general__entity_id, ps.general__entity_id),
         CASE 
-            WHEN ps.general__entity_id IS NULL THEN 'INSERT'::operation_enum
-            WHEN cs.general__entity_id IS NULL THEN 'DELETE'::operation_enum
-            ELSE 'UPDATE'::operation_enum
+            WHEN ps.general__entity_id IS NULL THEN 'INSERT'::config.operation_enum
+            WHEN cs.general__entity_id IS NULL THEN 'DELETE'::config.operation_enum
+            ELSE 'UPDATE'::config.operation_enum
         END,
         CASE 
             WHEN ps.general__entity_id IS NULL THEN 

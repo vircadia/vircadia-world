@@ -6,7 +6,7 @@ CREATE TABLE tick.asset_audit_log (
     general__asset_audit_id uuid DEFAULT uuid_generate_v4() PRIMARY KEY,
     general__asset_id uuid NOT NULL,
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group),
-    operation operation_enum NOT NULL,
+    operation config.operation_enum NOT NULL,
     operation_timestamp timestamptz DEFAULT clock_timestamp(),
     performed_by uuid DEFAULT auth.current_agent_id()
 );
@@ -107,7 +107,7 @@ CREATE OR REPLACE FUNCTION tick.get_changed_asset_states_between_latest_ticks(
     p_sync_group text
 ) RETURNS TABLE (
     general__asset_id uuid,
-    operation operation_enum,
+    operation config.operation_enum,
     changes jsonb
 ) AS $$
 DECLARE

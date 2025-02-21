@@ -1,5 +1,11 @@
 import { describe, expect, test, beforeAll } from "bun:test";
-import { up, down, restart, isHealthy } from "../container/docker/docker_cli";
+import {
+    up,
+    down,
+    isHealthy,
+    seed,
+    migrate,
+} from "../container/docker/docker_cli";
 
 describe("System Operations Tests", () => {
     beforeAll(async () => {
@@ -30,13 +36,6 @@ describe("System Operations Tests", () => {
         expect(health.services.pgweb.error).toBeUndefined();
     });
 
-    test("Docker container restart works", async () => {
-        await restart();
-        const health = await isHealthy();
-        expect(health.services.postgres.isHealthy).toBe(true);
-        expect(health.services.pgweb.isHealthy).toBe(true);
-    }, 30000);
-
     test("Docker container down and up cycle works", async () => {
         // Stop containers
         await down();
@@ -50,4 +49,22 @@ describe("System Operations Tests", () => {
         expect(healthAfterUp.services.postgres.isHealthy).toBe(true);
         expect(healthAfterUp.services.pgweb.isHealthy).toBe(true);
     }, 30000);
+
+    test("Docker container rebuild works", async () => {
+        await down(true);
+        await up(true);
+        const health = await isHealthy();
+        expect(health.services.postgres.isHealthy).toBe(true);
+        expect(health.services.pgweb.isHealthy).toBe(true);
+
+        const migrationsRan = await migrate();
+        expect(migrationsRan).toBe(true);
+
+        await seed({});
+
+        // Verify database is still healthy after all operations
+        const finalHealth = await isHealthy();
+        expect(finalHealth.services.postgres.isHealthy).toBe(true);
+        expect(finalHealth.services.pgweb.isHealthy).toBe(true);
+    }, 60000); // Longer timeout since rebuild includes multiple operations
 });

@@ -10,8 +10,8 @@ GRANT USAGE ON SCHEMA entity TO vircadia_agent_proxy;
 -- ============================================================================
 -- 2. CORE ENTITY ENUMS
 -- ============================================================================
-CREATE TYPE entity_script_status_enum AS ENUM ('ACTIVE', 'AWAITING_SCRIPTS', 'INACTIVE');
-CREATE TYPE script_compilation_status_enum AS ENUM ('PENDING', 'COMPILING', 'COMPILED', 'FAILED');
+CREATE TYPE entity.script_status_enum AS ENUM ('ACTIVE', 'AWAITING_SCRIPTS', 'INACTIVE');
+CREATE TYPE entity.script_compilation_status_enum AS ENUM ('PENDING', 'COMPILING', 'COMPILED', 'FAILED');
 
 
 -- ============================================================================

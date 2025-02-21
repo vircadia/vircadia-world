@@ -30,12 +30,15 @@ $$;
 -- 4. ROLE CREATION
 -- ============================================================================
 -- Create Agent Proxy Role
+
 DO $$
 DECLARE
     pwd text;
 BEGIN
-    pwd := current_setting('vircadia.agent_proxy_password');
-    EXECUTE format('CREATE ROLE vircadia_agent_proxy LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOREPLICATION', pwd);
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'vircadia_agent_proxy') THEN
+        pwd := current_setting('vircadia.agent_proxy_password');
+        EXECUTE format('CREATE ROLE vircadia_agent_proxy LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOREPLICATION', pwd);
+    END IF;
 END
 $$;
 
@@ -47,9 +50,3 @@ $$;
 -- TODO: I do not think this is necessary since we whitelist vircadia_agent_proxy specifically only.
 GRANT USAGE ON SCHEMA public TO vircadia_agent_proxy;
 
-
--- ============================================================================
--- 6. TYPE DEFINITIONS
--- ============================================================================
--- Create ENUMS
-CREATE TYPE operation_enum AS ENUM ('INSERT', 'UPDATE', 'DELETE');

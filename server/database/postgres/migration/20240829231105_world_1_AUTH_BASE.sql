@@ -19,7 +19,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Super Admin Check Function
-CREATE OR REPLACE FUNCTION auth.is_super_admin()
+CREATE OR REPLACE FUNCTION auth.is_system_agent()
 RETURNS boolean AS $$ 
 BEGIN
     RETURN (SELECT usesuper FROM pg_user WHERE usename = CURRENT_USER);
@@ -31,7 +31,7 @@ CREATE OR REPLACE FUNCTION auth.current_agent_id()
 RETURNS UUID AS $$
 BEGIN
     -- First check if user is super admin
-    IF auth.is_super_admin() THEN
+    IF auth.is_system_agent() THEN
         RETURN auth.get_system_agent_id();
     END IF;
 
@@ -56,10 +56,25 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION auth.set_agent_context(new_agent_id UUID)
+RETURNS void AS $$
+BEGIN
+    -- Only allow system (super admin) users to set the agent context
+    IF NOT auth.is_system_agent() THEN
+        RAISE EXCEPTION 'Insufficient privileges: only system users can set agent context.';
+    END IF;
+
+    -- Set the new agent ID in the current session
+    PERFORM set_config('app.current_agent_id', new_agent_id::text, false);
+END;
+$$ LANGUAGE plpgsql;
+
 
 -- ============================================================================
 -- 3. FUNCTION PERMISSIONS
 -- ============================================================================
+GRANT EXECUTE ON FUNCTION auth.get_system_agent_id() TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.is_system_agent() TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.current_agent_id() TO vircadia_agent_proxy;
 
 

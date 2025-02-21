@@ -4,7 +4,8 @@ import { VircadiaConfig } from "../../../sdk/vircadia-world-sdk-ts/config/vircad
 
 export class PostgresClient {
     private static instance: PostgresClient | null = null;
-    private sql: postgres.Sql | null = null;
+    private superSql: postgres.Sql | null = null;
+    private proxySql: postgres.Sql | null = null;
 
     private constructor() {} // Empty constructor since we don't need to store config
 
@@ -15,20 +16,10 @@ export class PostgresClient {
         return PostgresClient.instance;
     }
 
-    public async connect(): Promise<void> {
-        if (this.sql) {
-            return; // Already connected
-        }
-
-        log({
-            message: "Initializing PostgreSQL connection...",
-            type: "debug",
-            suppress: VircadiaConfig.SERVER.SUPPRESS,
-            debug: VircadiaConfig.SERVER.DEBUG,
-        });
-
-        try {
-            this.sql = postgres({
+    public async getSuperClient(): Promise<postgres.Sql> {
+        if (!this.superSql) {
+            // Create super user connection using config
+            this.superSql = postgres({
                 host: VircadiaConfig.SERVER.POSTGRES.HOST,
                 port: VircadiaConfig.SERVER.POSTGRES.PORT,
                 database: VircadiaConfig.SERVER.POSTGRES.DATABASE,
@@ -38,43 +29,71 @@ export class PostgresClient {
                 onclose: VircadiaConfig.SERVER.SUPPRESS ? () => {} : undefined,
             });
 
-            // Test connection immediately
-            await this.sql`SELECT 1`;
+            // Test super user connection immediately
+            await this.superSql`SELECT 1`;
 
             log({
-                message: "PostgreSQL connection established successfully",
+                message:
+                    "PostgreSQL super user connection established successfully.",
                 type: "debug",
                 suppress: VircadiaConfig.SERVER.SUPPRESS,
                 debug: VircadiaConfig.SERVER.DEBUG,
             });
-        } catch (error) {
+        }
+        return this.superSql;
+    }
+
+    public async getProxyClient(): Promise<postgres.Sql> {
+        if (!this.proxySql) {
+            // Create proxy account connection
             log({
-                message: "PostgreSQL connection failed.",
-                type: "error",
-                error: error,
+                message: "Initializing PostgreSQL proxy account connection...",
+                type: "debug",
                 suppress: VircadiaConfig.SERVER.SUPPRESS,
                 debug: VircadiaConfig.SERVER.DEBUG,
             });
-            throw error;
-        }
-    }
 
-    public getClient(): postgres.Sql {
-        if (!this.sql) {
-            throw new Error(
-                "PostgreSQL client not initialized. Call connect() first.",
-            );
+            this.proxySql = postgres({
+                host: VircadiaConfig.SERVER.POSTGRES.HOST,
+                port: VircadiaConfig.SERVER.POSTGRES.PORT,
+                database: VircadiaConfig.SERVER.POSTGRES.DATABASE,
+                username: VircadiaConfig.GLOBAL_CONSTS.DB_AGENT_PROXY_USER,
+                password: VircadiaConfig.SERVER.POSTGRES.AGENT_PROXY_PASSWORD,
+                onnotice: VircadiaConfig.SERVER.SUPPRESS ? () => {} : undefined,
+                onclose: VircadiaConfig.SERVER.SUPPRESS ? () => {} : undefined,
+            });
+
+            // Test proxy account connection immediately
+            await this.proxySql`SELECT 1`;
+
+            log({
+                message:
+                    "PostgreSQL proxy account connection established successfully.",
+                type: "debug",
+                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.DEBUG,
+            });
         }
-        return this.sql;
+        return this.proxySql;
     }
 
     public async disconnect(): Promise<void> {
-        if (this.sql) {
-            await this.sql.end();
-            this.sql = null;
-
+        if (this.superSql) {
+            await this.superSql.end();
+            this.superSql = null;
             log({
-                message: "PostgreSQL connection closed",
+                message: "PostgreSQL super user connection closed.",
+                type: "debug",
+                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.DEBUG,
+            });
+        }
+
+        if (this.proxySql) {
+            await this.proxySql.end();
+            this.proxySql = null;
+            log({
+                message: "PostgreSQL proxy account connection closed.",
                 type: "debug",
                 suppress: VircadiaConfig.SERVER.SUPPRESS,
                 debug: VircadiaConfig.SERVER.DEBUG,

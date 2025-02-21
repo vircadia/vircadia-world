@@ -121,7 +121,7 @@ ALTER TABLE auth.agent_sync_group_roles ENABLE ROW LEVEL SECURITY;
 -- ============================================================================
 -- 5. AUTHENTICATION FUNCTIONS
 -- ============================================================================
--- Agent Status Functions
+-- Non-system agent Status Functions
 CREATE OR REPLACE FUNCTION auth.is_anon_agent()
 RETURNS boolean AS $$
 BEGIN
@@ -145,14 +145,6 @@ BEGIN
     );
 END;
 $$ LANGUAGE plpgsql;
-
--- Function to check system agent status (since this is a special case)
-CREATE OR REPLACE FUNCTION auth.is_system_agent()
-RETURNS BOOLEAN AS $$ 
-BEGIN
-    RETURN auth.get_system_agent_id() = auth.current_agent_id();
-END;
-$$ LANGUAGE plpgsql STABLE;
 
 
 -- ============================================================================
@@ -535,6 +527,29 @@ INSERT INTO auth.auth_providers (
     true,
     'CHANGE_ME!',
     100,
+    '24h',
+    86400000,
+    86400000,
+    3600000
+) ON CONFLICT (provider__name) DO NOTHING;
+
+-- Add anonymous provider to auth_providers table if not exists
+INSERT INTO auth.auth_providers (
+    provider__name,
+    provider__display_name,
+    provider__enabled,
+    provider__jwt_secret,
+    provider__session_max_per_agent,
+    provider__session_duration_jwt_string,
+    provider__session_duration_ms,
+    provider__session_max_age_ms,
+    provider__session_inactive_expiry_ms
+) VALUES (
+    'anon',
+    'Anonymous Authentication',
+    true,
+    'CHANGE_ME!',
+    1,
     '24h',
     86400000,
     86400000,

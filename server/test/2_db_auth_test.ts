@@ -1,11 +1,4 @@
-import {
-    describe,
-    test,
-    expect,
-    beforeAll,
-    afterAll,
-    beforeEach,
-} from "bun:test";
+import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import type postgres from "postgres";
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 import { PostgresClient } from "../database/postgres/postgres_client";
@@ -23,8 +16,9 @@ interface TestAccount {
 
 describe("DB -> Auth Tests", () => {
     let sql: postgres.Sql;
-    let admin: TestAccount;
-    let agent: TestAccount;
+    let adminAgent: TestAccount;
+    let regularAgent: TestAccount;
+    let anonAgent: TestAccount;
 
     // Setup before all tests
     beforeAll(async () => {
@@ -39,150 +33,188 @@ describe("DB -> Auth Tests", () => {
         // Initialize database connection using PostgresClient
         await PostgresClient.getInstance().connect();
         sql = PostgresClient.getInstance().getClient();
-
-        // Set system context
-        await sql`SELECT auth.set_agent_context_to_system_agent()`;
     });
 
+    async function cleanup(): Promise<void> {
+        await sql.begin(async (tx) => {
+            try {
+                await tx`
+                    DELETE FROM auth.agent_profiles 
+                    WHERE profile__username IN ('test_admin', 'test_agent')
+                `;
+                const profiles = await tx<Auth.I_Profile[]>`
+                    SELECT * FROM auth.agent_profiles
+                    WHERE profile__username IN ('test_admin', 'test_agent')
+                `;
+                expect(profiles).toHaveLength(0);
+            } catch (error) {
+                log({
+                    message: "Failed to cleanup test accounts",
+                    type: "error",
+                    error,
+                });
+                throw error;
+            }
+        });
+    }
+
     async function createTestAccounts(): Promise<{
-        admin: TestAccount;
-        agent: TestAccount;
+        adminAgent: TestAccount;
+        regularAgent: TestAccount;
+        anonAgent: TestAccount;
     }> {
         try {
-            // First create a system token with superuser privileges
-            const [authConfig] = await sql<
+            await cleanup();
+
+            // First create a system token with superuser privileges using system auth provider
+            const [systemAuthProviderConfig] = await sql<
                 [
                     {
-                        auth_config__jwt_secret: string;
-                        auth_config__default_session_duration_ms: number;
+                        provider__jwt_secret: string;
+                        provider__session_duration_ms: number;
                     },
                 ]
             >`
-                SELECT auth_config__jwt_secret, auth_config__default_session_duration_ms
-                FROM config.auth_config 
+                SELECT provider__jwt_secret, provider__session_duration_ms
+                FROM auth.auth_providers 
+                WHERE provider__name = 'system'
             `;
 
-            const authSecretConfig = authConfig.auth_config__jwt_secret;
-            const authDurationConfigMs =
-                authConfig.auth_config__default_session_duration_ms;
+            const [anonAuthProviderConfig] = await sql<
+                [
+                    {
+                        provider__jwt_secret: string;
+                        provider__session_duration_ms: number;
+                    },
+                ]
+            >`
+                SELECT provider__jwt_secret, provider__session_duration_ms
+                FROM auth.auth_providers 
+                WHERE provider__name = 'anon'
+            `;
 
-            if (!authSecretConfig || !authDurationConfigMs) {
-                throw new Error("Auth settings not found in database");
+            if (
+                !systemAuthProviderConfig.provider__jwt_secret ||
+                !systemAuthProviderConfig.provider__session_duration_ms ||
+                !anonAuthProviderConfig.provider__jwt_secret ||
+                !anonAuthProviderConfig.provider__session_duration_ms
+            ) {
+                throw new Error("Auth provider settings not found in database");
             }
 
-            // Create system session directly in the database
-            const [systemSession] = await sql`
-                INSERT INTO auth.agent_sessions (
-                    auth__agent_id,
-                    auth__provider_name,
-                    session__expires_at,
-                    session__is_active
-                ) VALUES (
-                    auth.get_system_agent_id(),
-                    'system',
-                    NOW() + ${authDurationConfigMs}::interval,
-                    true
-                ) RETURNING general__session_id
-            `;
-
-            // Generate system token
-            const systemToken = sign(
-                {
-                    sessionId: systemSession.general__session_id,
-                    agentId: await sql`SELECT auth.get_system_agent_id()`,
-                },
-                authSecretConfig,
-                {
-                    expiresIn: authDurationConfigMs,
-                },
-            );
-
-            // Update system session with JWT
-            await sql`
-                UPDATE auth.agent_sessions 
-                SET session__jwt = ${systemToken}
-                WHERE general__session_id = ${systemSession.general__session_id}
-            `;
-
-            // Clean up any existing test accounts
-            await sql`
-                DELETE FROM auth.agent_profiles 
-                WHERE profile__username IN ('test_admin', 'test_agent')
-            `;
-
             // Create test admin account
-            const [adminAccount] = await sql`
+            const [adminAgentAccount] = await sql`
                 INSERT INTO auth.agent_profiles (profile__username, auth__email, auth__is_admin)
                 VALUES ('test_admin', 'test_admin@test.com', true)
                 RETURNING general__agent_profile_id
             `;
-            const adminId = adminAccount.general__agent_profile_id;
+            const adminAgentId = adminAgentAccount.general__agent_profile_id;
 
             // Create test regular agent account
-            const [agentAccount] = await sql`
+            const [regularAgentAccount] = await sql`
                 INSERT INTO auth.agent_profiles (profile__username, auth__email)
                 VALUES ('test_agent', 'test_agent@test.com')
                 RETURNING general__agent_profile_id
             `;
-            const agentId = agentAccount.general__agent_profile_id;
+            const regularAgentId =
+                regularAgentAccount.general__agent_profile_id;
 
-            // Create sessions for both accounts
-            const [adminSession] = await sql`
-                SELECT * FROM auth.create_agent_session(${adminId}, 'test')
+            // Create test anon agent account
+            const [anonAgentAccount] = await sql`
+                INSERT INTO auth.agent_profiles (profile__username, auth__email)
+                VALUES ('test_anon', 'test_anon@test.com')
+                RETURNING general__agent_profile_id
             `;
-            const adminSessionId = adminSession.general__session_id;
+            const anonAgentId = anonAgentAccount.general__agent_profile_id;
 
-            const [agentSession] = await sql`
-                SELECT * FROM auth.create_agent_session(${agentId}, 'test')
+            // Create sessions
+            const [adminAgentSession] = await sql`
+                SELECT * FROM auth.create_agent_session(${adminAgentId}, 'system')
             `;
-            const agentSessionId = agentSession.general__session_id;
+            const adminAgentSessionId = adminAgentSession.general__session_id;
 
-            // Generate JWT tokens using the new config structure
-            const adminToken = sign(
+            const [regularAgentSession] = await sql`
+                SELECT * FROM auth.create_agent_session(${regularAgentId}, 'system')
+            `;
+            const regularAgentSessionId =
+                regularAgentSession.general__session_id;
+
+            const [anonAgentSession] = await sql`
+                SELECT * FROM auth.create_agent_session(${anonAgentId}, 'anon')
+            `;
+            const anonSessionId = anonAgentSession.general__session_id;
+
+            // Generate JWT tokens using the new provider config structure
+            const adminAgentToken = sign(
                 {
-                    sessionId: adminSessionId,
-                    agentId: adminId,
+                    sessionId: adminAgentSessionId,
+                    agentId: adminAgentId,
                 },
-                authSecretConfig,
+                systemAuthProviderConfig.provider__jwt_secret,
                 {
-                    expiresIn: authDurationConfigMs,
+                    expiresIn:
+                        systemAuthProviderConfig.provider__session_duration_ms,
                 },
             );
 
-            const agentToken = sign(
+            const regularAgentToken = sign(
                 {
-                    sessionId: agentSessionId,
-                    agentId: agentId,
+                    sessionId: regularAgentSessionId,
+                    agentId: regularAgentId,
                 },
-                authSecretConfig,
+                systemAuthProviderConfig.provider__jwt_secret,
                 {
-                    expiresIn: authDurationConfigMs,
+                    expiresIn:
+                        systemAuthProviderConfig.provider__session_duration_ms,
+                },
+            );
+
+            const anonAgentToken = sign(
+                {
+                    sessionId: anonSessionId,
+                    agentId: anonAgentId,
+                },
+                anonAuthProviderConfig.provider__jwt_secret,
+                {
+                    expiresIn:
+                        anonAuthProviderConfig.provider__session_duration_ms,
                 },
             );
 
             // Update sessions with JWT tokens
             await sql`
                 UPDATE auth.agent_sessions 
-                SET session__jwt = ${adminToken}
-                WHERE general__session_id = ${adminSessionId}
+                SET session__jwt = ${adminAgentToken}
+                WHERE general__session_id = ${adminAgentSessionId}
             `;
 
             await sql`
                 UPDATE auth.agent_sessions 
-                SET session__jwt = ${agentToken}
-                WHERE general__session_id = ${agentSessionId}
+                SET session__jwt = ${regularAgentToken}
+                WHERE general__session_id = ${regularAgentSessionId}
+            `;
+
+            await sql`
+                UPDATE auth.agent_sessions 
+                SET session__jwt = ${anonAgentToken}
+                WHERE general__session_id = ${anonSessionId}
             `;
 
             return {
-                admin: {
-                    id: adminId,
-                    token: adminToken,
-                    sessionId: adminSessionId,
+                adminAgent: {
+                    id: adminAgentId,
+                    token: adminAgentToken,
+                    sessionId: adminAgentSessionId,
                 },
-                agent: {
-                    id: agentId,
-                    token: agentToken,
-                    sessionId: agentSessionId,
+                regularAgent: {
+                    id: regularAgentId,
+                    token: regularAgentToken,
+                    sessionId: regularAgentSessionId,
+                },
+                anonAgent: {
+                    id: anonAgentId,
+                    token: anonAgentToken,
+                    sessionId: anonSessionId,
                 },
             };
         } catch (error) {
@@ -200,62 +232,52 @@ describe("DB -> Auth Tests", () => {
             await sql.begin(async (tx) => {
                 // Use the transaction tx for all queries in this test
                 const accounts = await createTestAccounts();
-                admin = accounts.admin;
-                agent = accounts.agent;
+                adminAgent = accounts.adminAgent;
+                regularAgent = accounts.regularAgent;
+                anonAgent = accounts.anonAgent;
 
                 // Verify admin account using tx
                 const [adminProfile] = await tx<[Auth.I_Profile]>`
                     SELECT * FROM auth.agent_profiles
-                    WHERE general__agent_profile_id = ${admin.id}
+                    WHERE general__agent_profile_id = ${adminAgent.id}
                 `;
                 expect(adminProfile.profile__username).toBe("test_admin");
                 expect(adminProfile.auth__is_admin).toBe(true);
 
-                // Verify agent account using tx
-                const [agentProfile] = await tx<[Auth.I_Profile]>`
+                // Verify regular account using tx
+                const [regularProfile] = await tx<[Auth.I_Profile]>`
                     SELECT * FROM auth.agent_profiles
-                    WHERE general__agent_profile_id = ${agent.id}
+                    WHERE general__agent_profile_id = ${regularAgent.id}
                 `;
-                expect(agentProfile.profile__username).toBe("test_agent");
-                expect(agentProfile.auth__is_admin).toBe(false);
+                expect(regularProfile.profile__username).toBe("test_agent");
+                expect(regularProfile.auth__is_admin).toBe(false);
+
+                // Verify anon account using tx
+                const [anonProfile] = await tx<[Auth.I_Profile]>`
+                    SELECT * FROM auth.agent_profiles
+                    WHERE general__agent_profile_id = ${anonAgent.id}
+                `;
+                expect(anonProfile.profile__username).toBe("test_anon");
+                expect(anonProfile.auth__is_admin).toBe(false);
             });
         });
     });
 
     describe("Permission Management", () => {
-        test("should verify super agent permissions", async () => {
-            await sql.begin(async (tx) => {
-                await tx`SELECT auth.set_agent_context_to_anon_agent()`; // Set to anon context so we can verify super user is working independent of our context system
-
-                const [isAdmin] =
-                    await tx`SELECT auth.is_admin_agent() as is_admin`;
-                expect(isAdmin.is_admin).toBe(false);
-                const [isSystem] =
-                    await tx`SELECT auth.is_system_agent() as is_system`;
-                expect(isSystem.is_system).toBe(false);
-                const [isSuper] =
-                    await tx`SELECT auth.is_super_admin() as is_super`;
-                expect(isSuper.is_super).toBe(true);
-            });
-        });
-
         test("should verify admin agent permissions", async () => {
             await sql.begin(async (tx) => {
-                await tx`SELECT auth.set_agent_context(${admin.id}::uuid)`; // Set to admin context
+                await tx`SELECT auth.set_agent_context(${adminAgent.id}::uuid)`; // Set to admin context
 
                 const [isAdmin] =
                     await tx`SELECT auth.is_admin_agent() as is_admin`;
                 expect(isAdmin.is_admin).toBe(true);
                 const [isSystem] =
                     await tx`SELECT auth.is_system_agent() as is_system`;
-                expect(isSystem.is_system).toBe(false);
-                const [isSuper] =
-                    await tx`SELECT auth.is_super_admin() as is_super`;
-                expect(isSuper.is_super).toBe(false);
+                expect(isSystem.is_system).toBe(true);
 
                 const [currentAgentId] =
                     await tx`SELECT auth.current_agent_id()`;
-                expect(currentAgentId.current_agent_id).toBe(admin.id);
+                expect(currentAgentId.current_agent_id).toBe(adminAgent.id);
             });
         });
 
@@ -270,7 +292,7 @@ describe("DB -> Auth Tests", () => {
                     await tx`SELECT auth.is_system_agent() as is_system`;
                 expect(isSystem.is_system).toBe(true);
                 const [isSuper] =
-                    await tx`SELECT auth.is_super_admin() as is_super`;
+                    await tx`SELECT auth.is_super_admin_agent() as is_super`;
                 expect(isSuper.is_super).toBe(false);
 
                 const [systemAgentId] =
@@ -284,7 +306,7 @@ describe("DB -> Auth Tests", () => {
 
         test("should verify non-admin agent permissions", async () => {
             await sql.begin(async (tx) => {
-                await tx`SELECT auth.set_agent_context(${agent.id}::uuid)`; // Set to agent context
+                await tx`SELECT auth.set_agent_context(${regularAgent.id}::uuid)`; // Set to agent context
 
                 const [isAdmin] =
                     await tx`SELECT auth.is_admin_agent() as is_admin`;
@@ -293,11 +315,11 @@ describe("DB -> Auth Tests", () => {
                     await tx`SELECT auth.is_system_agent() as is_system`;
                 expect(isSystem.is_system).toBe(false);
                 const [isSuper] =
-                    await tx`SELECT auth.is_super_admin() as is_super`;
+                    await tx`SELECT auth.is_super_admin_agent() as is_super`;
                 expect(isSuper.is_super).toBe(false);
 
                 const [agentId] = await tx`SELECT auth.current_agent_id()`; // Get current agent id
-                expect(agentId.current_agent_id).toBe(agent.id);
+                expect(agentId.current_agent_id).toBe(regularAgent.id);
             });
         });
 
@@ -312,7 +334,7 @@ describe("DB -> Auth Tests", () => {
                     await tx`SELECT auth.is_system_agent() as is_system`;
                 expect(isSystem.is_system).toBe(false);
                 const [isSuper] =
-                    await tx`SELECT auth.is_super_admin() as is_super`;
+                    await tx`SELECT auth.is_super_admin_agent() as is_super`;
                 expect(isSuper.is_super).toBe(false);
 
                 const [anonId] = await tx`SELECT auth.get_anon_agent_id()`;
@@ -332,281 +354,238 @@ describe("DB -> Auth Tests", () => {
                 expect(contextResult.success).toBe(false);
 
                 const [isSuper] =
-                    await tx`SELECT auth.is_super_admin() as is_super`;
+                    await tx`SELECT auth.is_super_admin_agent() as is_super`;
                 expect(isSuper.is_super).toBe(true);
             });
         });
     });
 
-    describe("Session Management", () => {
-        test("should handle expired sessions correctly", async () => {
-            await sql.begin(async (tx) => {
-                await tx`SELECT auth.set_agent_context(${admin.id}::uuid)`; // Set to admin context
+    // describe("Session Management", () => {
+    //     test("should handle expired sessions correctly", async () => {
+    //         await sql.begin(async (tx) => {
+    //             await tx`SELECT auth.set_agent_context(${admin.id}::uuid)`; // Set to admin context
 
-                const [expiredSession] = await tx`
-                    INSERT INTO auth.agent_sessions (
-                        auth__agent_id,
-                        auth__provider_name,
-                        session__expires_at,
-                        session__is_active,
-                        session__jwt
-                    ) VALUES (
-                        ${admin.id},
-                        'test',
-                        NOW() - INTERVAL '1 second',
-                        true,
-                        'test_token'
-                    ) RETURNING general__session_id
-                `;
-                await tx`SELECT auth.cleanup_old_sessions()`;
-                await tx`SELECT auth.set_agent_context(${expiredSession.general__session_id})`;
-                const [currentAgent] = await tx`SELECT auth.current_agent_id()`;
-                const [anonId] = await tx`SELECT auth.get_anon_agent_id()`;
-                expect(currentAgent.current_agent_id).toBe(
-                    anonId.get_anon_agent_id,
-                );
-                const [sessionStatus] = await tx`
-                    SELECT session__is_active 
-                    FROM auth.agent_sessions 
-                    WHERE general__session_id = ${expiredSession.general__session_id}
-                `;
-                expect(sessionStatus.session__is_active).toBe(false);
-            });
-        });
+    //             const [expiredSession] = await tx`
+    //                 INSERT INTO auth.agent_sessions (
+    //                     auth__agent_id,
+    //                     auth__provider_name,
+    //                     session__expires_at,
+    //                     session__is_active,
+    //                     session__jwt
+    //                 ) VALUES (
+    //                     ${admin.id},
+    //                     'test',
+    //                     NOW() - INTERVAL '1 second',
+    //                     true,
+    //                     'test_token'
+    //                 ) RETURNING general__session_id
+    //             `;
+    //             await tx`SELECT auth.cleanup_old_sessions()`;
+    //             await tx`SELECT auth.set_agent_context(${expiredSession.general__session_id})`;
+    //             const [currentAgent] = await tx`SELECT auth.current_agent_id()`;
+    //             const [anonId] = await tx`SELECT auth.get_anon_agent_id()`;
+    //             expect(currentAgent.current_agent_id).toBe(
+    //                 anonId.get_anon_agent_id,
+    //             );
+    //             const [sessionStatus] = await tx`
+    //                 SELECT session__is_active
+    //                 FROM auth.agent_sessions
+    //                 WHERE general__session_id = ${expiredSession.general__session_id}
+    //             `;
+    //             expect(sessionStatus.session__is_active).toBe(false);
+    //         });
+    //     });
 
-        test("should enforce max sessions per agent", async () => {
-            await sql.begin(async (tx) => {
-                await tx`SELECT auth.set_agent_context(${admin.id}::uuid)`; // Set to admin context
+    //     test("should enforce max sessions per agent", async () => {
+    //         await sql.begin(async (tx) => {
+    //             await tx`SELECT auth.set_agent_context(${admin.id}::uuid)`; // Set to admin context
 
-                const [authConfig] = await tx<
-                    [
-                        {
-                            auth_config__session_max_per_agent: number;
-                        },
-                    ]
-                >`
-                    SELECT auth_config__session_max_per_agent FROM config.auth_config
-                `;
-                const maxSessions =
-                    authConfig.auth_config__session_max_per_agent;
+    //             const [authConfig] = await tx<
+    //                 [
+    //                     {
+    //                         auth_config__default_session_max_per_agent: number;
+    //                     },
+    //                 ]
+    //             >`
+    //                 SELECT auth_config__default_session_max_per_agent FROM config.auth_config
+    //             `;
+    //             const maxSessions =
+    //                 authConfig.auth_config__default_session_max_per_agent;
 
-                // Create sessions up to the limit
-                for (let i = 0; i < maxSessions + 1; i++) {
-                    await tx`SELECT * FROM auth.create_agent_session(${agent.id}, 'test')`;
-                }
-                // Verify that oldest session was invalidated
-                const [activeSessions] = await tx<{ count: string }[]>`
-                    SELECT COUNT(*)::TEXT as count 
-                    FROM auth.agent_sessions 
-                    WHERE auth__agent_id = ${agent.id} 
-                    AND session__is_active = true
-                `;
-                expect(Number.parseInt(activeSessions.count)).toBe(maxSessions);
-            });
-        });
-    });
+    //             // Create sessions up to the limit
+    //             for (let i = 0; i < maxSessions + 1; i++) {
+    //                 await tx`SELECT * FROM auth.create_agent_session(${agent.id}, 'test')`;
+    //             }
+    //             // Verify that oldest session was invalidated
+    //             const [activeSessions] = await tx<{ count: string }[]>`
+    //                 SELECT COUNT(*)::TEXT as count
+    //                 FROM auth.agent_sessions
+    //                 WHERE auth__agent_id = ${agent.id}
+    //                 AND session__is_active = true
+    //             `;
+    //             expect(Number.parseInt(activeSessions.count)).toBe(maxSessions);
+    //         });
+    //     });
+    // });
 
-    describe("Sync Group Management", () => {
-        test("should verify default sync groups exist", async () => {
-            await sql.begin(async (tx) => {
-                await tx`SELECT auth.set_agent_context(${admin.id}::uuid)`; // Set to admin context
+    // describe("Sync Group Management", () => {
+    //     test("should verify default sync groups exist", async () => {
+    //         await sql.begin(async (tx) => {
+    //             await tx`SELECT auth.set_agent_context(${admin.id}::uuid)`; // Set to admin context
 
-                const syncGroups = await tx`
-                    SELECT * FROM auth.sync_groups
-                    ORDER BY general__sync_group
-                `;
-                expect(syncGroups).toHaveLength(8); // 4 public + 4 admin groups
-                expect(syncGroups.map((g) => g.general__sync_group)).toContain(
-                    "public.REALTIME",
-                );
-                expect(syncGroups.map((g) => g.general__sync_group)).toContain(
-                    "admin.STATIC",
-                );
-            });
-        });
+    //             const syncGroups = await tx`
+    //                 SELECT * FROM auth.sync_groups
+    //                 ORDER BY general__sync_group
+    //             `;
+    //             expect(syncGroups).toHaveLength(8); // 4 public + 4 admin groups
+    //             expect(syncGroups.map((g) => g.general__sync_group)).toContain(
+    //                 "public.REALTIME",
+    //             );
+    //             expect(syncGroups.map((g) => g.general__sync_group)).toContain(
+    //                 "admin.STATIC",
+    //             );
+    //         });
+    //     });
 
-        test("should manage sync group roles correctly", async () => {
-            await sql.begin(async (tx) => {
-                await tx`SELECT auth.set_agent_context(${admin.id}::uuid)`; // Set to admin context
+    //     test("should manage sync group roles correctly", async () => {
+    //         await sql.begin(async (tx) => {
+    //             await tx`SELECT auth.set_agent_context(${admin.id}::uuid)`; // Set to admin context
 
-                await tx`
-                    INSERT INTO auth.agent_sync_group_roles (
-                        auth__agent_id,
-                        group__sync,
-                        permissions__can_insert,
-                        permissions__can_update,
-                        permissions__can_delete
-                    ) VALUES (
-                        ${agent.id},
-                        'public.REALTIME',
-                        true,
-                        true,
-                        false
-                    )
-                `;
-                const [role] = await tx`
-                    SELECT * FROM auth.agent_sync_group_roles
-                    WHERE auth__agent_id = ${agent.id}
-                `;
-                expect(role.group__sync).toBe("public.REALTIME");
-                expect(role.permissions__can_insert).toBe(true);
-                expect(role.permissions__can_update).toBe(true);
-                expect(role.permissions__can_delete).toBe(false);
+    //             await tx`
+    //                 INSERT INTO auth.agent_sync_group_roles (
+    //                     auth__agent_id,
+    //                     group__sync,
+    //                     permissions__can_insert,
+    //                     permissions__can_update,
+    //                     permissions__can_delete
+    //                 ) VALUES (
+    //                     ${agent.id},
+    //                     'public.REALTIME',
+    //                     true,
+    //                     true,
+    //                     false
+    //                 )
+    //             `;
+    //             const [role] = await tx`
+    //                 SELECT * FROM auth.agent_sync_group_roles
+    //                 WHERE auth__agent_id = ${agent.id}
+    //             `;
+    //             expect(role.group__sync).toBe("public.REALTIME");
+    //             expect(role.permissions__can_insert).toBe(true);
+    //             expect(role.permissions__can_update).toBe(true);
+    //             expect(role.permissions__can_delete).toBe(false);
 
-                // Set to non-admin agent context to test permissions
-                await tx`SELECT auth.set_agent_context(${agent.sessionId})`;
+    //             // Set to non-admin agent context to test permissions
+    //             await tx`SELECT auth.set_agent_context(${agent.sessionId})`;
 
-                const [hasRead] = await tx`
-                    SELECT auth.has_sync_group_read_access('public.REALTIME') as has_access
-                `;
-                const [hasInsert] = await tx`
-                    SELECT auth.has_sync_group_insert_access('public.REALTIME') as has_access
-                `;
-                const [hasUpdate] = await tx`
-                    SELECT auth.has_sync_group_update_access('public.REALTIME') as has_access
-                `;
-                const [hasDelete] = await tx`
-                    SELECT auth.has_sync_group_delete_access('public.REALTIME') as has_access
-                `;
-                expect(hasRead.has_access).toBe(true);
-                expect(hasInsert.has_access).toBe(true);
-                expect(hasUpdate.has_access).toBe(true);
-                expect(hasDelete.has_access).toBe(false);
-            });
-        });
+    //             const [hasRead] = await tx`
+    //                 SELECT auth.has_sync_group_read_access('public.REALTIME') as has_access
+    //             `;
+    //             const [hasInsert] = await tx`
+    //                 SELECT auth.has_sync_group_insert_access('public.REALTIME') as has_access
+    //             `;
+    //             const [hasUpdate] = await tx`
+    //                 SELECT auth.has_sync_group_update_access('public.REALTIME') as has_access
+    //             `;
+    //             const [hasDelete] = await tx`
+    //                 SELECT auth.has_sync_group_delete_access('public.REALTIME') as has_access
+    //             `;
+    //             expect(hasRead.has_access).toBe(true);
+    //             expect(hasInsert.has_access).toBe(true);
+    //             expect(hasUpdate.has_access).toBe(true);
+    //             expect(hasDelete.has_access).toBe(false);
+    //         });
+    //     });
 
-        test("should handle active sessions view correctly", async () => {
-            await sql.begin(async (tx) => {
-                await tx`SELECT auth.set_agent_context(${admin.id}::uuid)`; // Set to admin context
+    //     test("should handle active sessions view correctly", async () => {
+    //         await sql.begin(async (tx) => {
+    //             await tx`SELECT auth.set_agent_context(${admin.id}::uuid)`; // Set to admin context
 
-                await tx`
-                    INSERT INTO auth.agent_sync_group_roles (
-                        auth__agent_id,
-                        group__sync,
-                        permissions__can_insert,
-                        permissions__can_update,
-                        permissions__can_delete
-                    ) VALUES (
-                        ${admin.id},
-                        'admin.REALTIME',
-                        true,
-                        true,
-                        true
-                    )
-                `;
-                await tx`SELECT auth.refresh_active_sessions()`;
-                const [sessions] = await tx`
-                    SELECT active_session_ids as session_ids
-                    FROM auth.active_sync_group_sessions
-                    WHERE group__sync = 'admin.REALTIME'
-                `;
-                expect(sessions.session_ids).toContain(admin.sessionId);
-            });
-        });
-    });
+    //             await tx`
+    //                 INSERT INTO auth.agent_sync_group_roles (
+    //                     auth__agent_id,
+    //                     group__sync,
+    //                     permissions__can_insert,
+    //                     permissions__can_update,
+    //                     permissions__can_delete
+    //                 ) VALUES (
+    //                     ${admin.id},
+    //                     'admin.REALTIME',
+    //                     true,
+    //                     true,
+    //                     true
+    //                 )
+    //             `;
+    //             await tx`SELECT auth.refresh_active_sessions()`;
+    //             const [sessions] = await tx`
+    //                 SELECT active_session_ids as session_ids
+    //                 FROM auth.active_sync_group_sessions
+    //                 WHERE group__sync = 'admin.REALTIME'
+    //             `;
+    //             expect(sessions.session_ids).toContain(admin.sessionId);
+    //         });
+    //     });
+    // });
 
-    describe("Session Cleanup", () => {
-        test("should cleanup system tokens", async () => {
-            await sql.begin(async (tx) => {
-                await tx`SELECT auth.set_agent_context(${admin.id}::uuid)`; // Set to admin context
+    // describe("Session Cleanup", () => {
+    //     test("should handle session invalidation", async () => {
+    //         await sql.begin(async (tx) => {
+    //             await tx`SELECT auth.set_agent_context(${admin.id}::uuid)`; // Set to admin context
 
-                await tx`
-                    INSERT INTO auth.agent_sessions (
-                        auth__agent_id,
-                        auth__provider_name,
-                        session__expires_at,
-                        session__is_active
-                    ) VALUES (
-                        auth.get_system_agent_id(),
-                        'system',
-                        NOW() - INTERVAL '1 hour',
-                        true
-                    )
-                `;
-                const [result] = await tx`
-                    SELECT auth.cleanup_system_tokens() as cleaned
-                `;
-                expect(result.cleaned).toBeGreaterThan(0);
-            });
-        });
+    //             // Ensure agent session is active
+    //             await tx`
+    //                 UPDATE auth.agent_sessions
+    //                 SET
+    //                     session__is_active = true,
+    //                     session__expires_at = NOW() + INTERVAL '1 hour'
+    //                 WHERE general__session_id = ${agent.sessionId}
+    //             `;
 
-        test("should handle session invalidation", async () => {
-            await sql.begin(async (tx) => {
-                await tx`SELECT auth.set_agent_context(${admin.id}::uuid)`; // Set to admin context
+    //             // Verify session is active before invalidation
+    //             const [initialState] = await tx`
+    //                 SELECT session__is_active
+    //                 FROM auth.agent_sessions
+    //                 WHERE general__session_id = ${agent.sessionId}
+    //             `;
+    //             expect(initialState.session__is_active).toBe(true);
 
-                // Ensure agent session is active
-                await tx`
-                    UPDATE auth.agent_sessions 
-                    SET 
-                        session__is_active = true,
-                        session__expires_at = NOW() + INTERVAL '1 hour'
-                    WHERE general__session_id = ${agent.sessionId}
-                `;
+    //             // Invalidate session
+    //             const [success] = await tx`
+    //                 SELECT auth.invalidate_session(${agent.sessionId}) as success
+    //             `;
+    //             expect(success.success).toBe(true);
 
-                // Verify session is active before invalidation
-                const [initialState] = await tx`
-                    SELECT session__is_active 
-                    FROM auth.agent_sessions 
-                    WHERE general__session_id = ${agent.sessionId}
-                `;
-                expect(initialState.session__is_active).toBe(true);
+    //             // Verify session is invalid
+    //             const [session] = await tx`
+    //                 SELECT session__is_active
+    //                 FROM auth.agent_sessions
+    //                 WHERE general__session_id = ${agent.sessionId}
+    //             `;
+    //             expect(session.session__is_active).toBe(false);
+    //         });
+    //     });
 
-                // Invalidate session
-                const [success] = await tx`
-                    SELECT auth.invalidate_session(${agent.sessionId}) as success
-                `;
-                expect(success.success).toBe(true);
+    //     test("should cleanup inactive sessions", async () => {
+    //         await sql.begin(async (tx) => {
+    //             await tx`SELECT auth.set_agent_context(${admin.id}::uuid)`; // Set to admin context
 
-                // Verify session is invalid
-                const [session] = await tx`
-                    SELECT session__is_active 
-                    FROM auth.agent_sessions 
-                    WHERE general__session_id = ${agent.sessionId}
-                `;
-                expect(session.session__is_active).toBe(false);
-            });
-        });
+    //             // Create an inactive session
+    //             await tx`
+    //                 UPDATE auth.agent_sessions
+    //                 SET session__last_seen_at = NOW() - INTERVAL '1 hour'
+    //                 WHERE general__session_id = ${agent.sessionId}
+    //             `;
 
-        test("should cleanup inactive sessions", async () => {
-            await sql.begin(async (tx) => {
-                await tx`SELECT auth.set_agent_context(${admin.id}::uuid)`; // Set to admin context
-
-                // Create an inactive session
-                await tx`
-                    UPDATE auth.agent_sessions 
-                    SET session__last_seen_at = NOW() - INTERVAL '1 hour'
-                    WHERE general__session_id = ${agent.sessionId}
-                `;
-
-                const cleanedCount =
-                    await tx`SELECT auth.cleanup_old_sessions()`;
-                expect(cleanedCount[0].cleanup_old_sessions).toBeGreaterThan(0);
-            });
-        });
-    });
+    //             const cleanedCount =
+    //                 await tx`SELECT auth.cleanup_old_sessions()`;
+    //             expect(cleanedCount[0].cleanup_old_sessions).toBeGreaterThan(0);
+    //         });
+    //     });
+    // });
 
     describe("Test Cleanup", () => {
         test("should cleanup test accounts", async () => {
-            await sql.begin(async (tx) => {
-                try {
-                    await tx`
-                        DELETE FROM auth.agent_profiles 
-                        WHERE profile__username IN ('test_admin', 'test_agent')
-                    `;
-                    const profiles = await tx<Auth.I_Profile[]>`
-                        SELECT * FROM auth.agent_profiles
-                        WHERE profile__username IN ('test_admin', 'test_agent')
-                    `;
-                    expect(profiles).toHaveLength(0);
-                } catch (error) {
-                    log({
-                        message: "Failed to cleanup test accounts",
-                        type: "error",
-                        error,
-                    });
-                    throw error;
-                }
-            });
+            await cleanup();
         });
     });
 

@@ -18,26 +18,16 @@ REVOKE ALL ON SCHEMA public FROM PUBLIC;
 -- ============================================================================
 -- 3. SYSTEM CONFIGURATION
 -- ============================================================================
--- Set Agent Proxy Password
-DO $$
-BEGIN
-    EXECUTE 'SET "vircadia.agent_proxy_password" = ''CHANGE_ME!''';
-END
-$$;
 
 
 -- ============================================================================
 -- 4. ROLE CREATION
 -- ============================================================================
--- Create Agent Proxy Role
-
+-- Create Agent Proxy Role with hard-coded password
 DO $$
-DECLARE
-    pwd text;
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'vircadia_agent_proxy') THEN
-        pwd := current_setting('vircadia.agent_proxy_password');
-        EXECUTE format('CREATE ROLE vircadia_agent_proxy LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOREPLICATION', pwd);
+        EXECUTE 'CREATE ROLE vircadia_agent_proxy LOGIN PASSWORD ''CHANGE_ME!'' NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOREPLICATION';
     END IF;
 END
 $$;

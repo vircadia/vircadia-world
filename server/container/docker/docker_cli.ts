@@ -108,8 +108,8 @@ export async function isHealthy(): Promise<{
     }> => {
         try {
             const db = PostgresClient.getInstance();
-            await db.connect();
-            const sql = db.getClient();
+
+            const sql = await db.getSuperClient();
             await sql`SELECT 1`;
             return { isHealthy: true };
         } catch (error: unknown) {
@@ -164,8 +164,8 @@ export async function down(wipeVolumes = false) {
 
 export async function wipeDatabase() {
     const db = PostgresClient.getInstance();
-    await db.connect();
-    const sql = db.getClient();
+
+    const sql = await db.getSuperClient();
 
     // Get list of migration files
     const resets = await readdir(POSTGRES_RESETS_DIR);
@@ -204,8 +204,8 @@ export async function migrate(): Promise<boolean> {
     let migrationsRan = false;
 
     const db = PostgresClient.getInstance();
-    await db.connect();
-    const sql = db.getClient();
+
+    const sql = await db.getSuperClient();
 
     for (const name of VircadiaConfig.SERVER.POSTGRES.EXTENSIONS) {
         log({
@@ -305,8 +305,8 @@ export async function seed(data: {
     seedPath?: string;
 }) {
     const db = PostgresClient.getInstance();
-    await db.connect();
-    const sql = db.getClient();
+
+    const sql = await db.getSuperClient();
 
     // Ensure we resolve the seed path to absolute path
     const seedDir = data.seedPath
@@ -400,8 +400,8 @@ export async function generateDbSystemToken(): Promise<{
     agentId: string;
 }> {
     const db = PostgresClient.getInstance();
-    await db.connect();
-    const sql = db.getClient();
+
+    const sql = await db.getSuperClient();
 
     // Get auth provider settings for the system provider
     const [providerConfig] = await sql<
@@ -466,8 +466,8 @@ export async function generateDbSystemToken(): Promise<{
 
 export async function invalidateDbSystemTokens(): Promise<number> {
     const db = PostgresClient.getInstance();
-    await db.connect();
-    const sql = db.getClient();
+
+    const sql = await db.getSuperClient();
 
     // First update all active sessions for the system agent to inactive
     await sql`
@@ -528,11 +528,40 @@ if (import.meta.main) {
                     });
                 } else {
                     log({
-                        message: "Container rebuild is complete",
+                        message: "Container rebuilt",
                         type: "success",
                         suppress: VircadiaConfig.SERVER.SUPPRESS,
                         debug: VircadiaConfig.SERVER.DEBUG,
                     });
+                    const migrationsRan = await migrate();
+                    if (migrationsRan) {
+                        log({
+                            message: "Migrations ran successfully",
+                            type: "success",
+                            suppress: VircadiaConfig.SERVER.SUPPRESS,
+                            debug: VircadiaConfig.SERVER.DEBUG,
+                        });
+                        await seed({});
+                        log({
+                            message: "Seeding complete",
+                            type: "success",
+                            suppress: VircadiaConfig.SERVER.SUPPRESS,
+                            debug: VircadiaConfig.SERVER.DEBUG,
+                        });
+                        log({
+                            message: "Container rebuild is complete",
+                            type: "success",
+                            suppress: VircadiaConfig.SERVER.SUPPRESS,
+                            debug: VircadiaConfig.SERVER.DEBUG,
+                        });
+                    } else {
+                        log({
+                            message: "No migrations ran!",
+                            type: "info",
+                            suppress: VircadiaConfig.SERVER.SUPPRESS,
+                            debug: VircadiaConfig.SERVER.DEBUG,
+                        });
+                    }
                 }
                 break;
             }

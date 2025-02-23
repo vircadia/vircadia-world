@@ -451,14 +451,18 @@ export class WorldApiManager {
                                 }
 
                                 const setSessionContextResult = await this.sql<
-                                    [{ set_agent_context: boolean }]
+                                    [
+                                        {
+                                            set_agent_context_from_session: boolean;
+                                        },
+                                    ]
                                 >`
-                                    SELECT auth.set_agent_context(${jwtValidationResult.sessionId}::UUID, ${token}::TEXT) as set_agent_context
+                                    SELECT auth.set_agent_context_from_session(${jwtValidationResult.sessionId}::UUID, ${token}::TEXT) as set_agent_context_from_session
                                 `;
 
                                 if (
                                     !setSessionContextResult[0]
-                                        .set_agent_context
+                                        .set_agent_context_from_session
                                 ) {
                                     return Response.json(
                                         Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
@@ -544,12 +548,18 @@ export class WorldApiManager {
                                 }
 
                                 const [setSessionContextResult] = await this
-                                    .sql<[{ set_agent_context: boolean }]>`
-                                    SELECT auth.set_agent_context(${jwtValidationResult.sessionId}::UUID, ${token}::TEXT) as set_agent_context
+                                    .sql<
+                                    [
+                                        {
+                                            set_agent_context_from_session: boolean;
+                                        },
+                                    ]
+                                >`
+                                    SELECT auth.set_agent_context_from_session(${jwtValidationResult.sessionId}::UUID, ${token}::TEXT) as set_agent_context_from_session
                                 `;
 
                                 if (
-                                    !setSessionContextResult.set_agent_context
+                                    !setSessionContextResult.set_agent_context_from_session
                                 ) {
                                     return Response.json(
                                         Communication.REST.Endpoint.AUTH_SESSION_LOGOUT.createError(
@@ -679,12 +689,15 @@ export class WorldApiManager {
                             }
 
                             const setSessionContextResult = await this.sql<
-                                [{ set_agent_context: boolean }]
+                                [{ set_agent_context_from_session: boolean }]
                             >`
-                                SELECT auth.set_agent_context(${sessionId}::UUID, ${sessionToken}::TEXT) as set_agent_context
+                                SELECT auth.set_agent_context_from_session(${sessionId}::UUID, ${sessionToken}::TEXT) as set_agent_context_from_session
                             `;
 
-                            if (!setSessionContextResult[0].set_agent_context) {
+                            if (
+                                !setSessionContextResult[0]
+                                    .set_agent_context_from_session
+                            ) {
                                 session.ws.send(
                                     JSON.stringify(
                                         new Communication.WebSocket.GeneralErrorResponseMessage(

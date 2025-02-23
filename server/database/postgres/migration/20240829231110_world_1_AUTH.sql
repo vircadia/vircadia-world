@@ -15,7 +15,7 @@ ALTER TABLE auth.agent_profiles ENABLE ROW LEVEL SECURITY;
 -- Sessions Table
 CREATE TABLE auth.agent_sessions (
     general__session_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    auth__agent_id UUID REFERENCES auth.agent_profiles(general__agent_profile_id) ON DELETE CASCADE,
+    auth__agent_id UUID NOT NULL REFERENCES auth.agent_profiles(general__agent_profile_id) ON DELETE CASCADE,
     auth__provider_name TEXT NOT NULL,
     session__started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     session__last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -235,26 +235,30 @@ CREATE OR REPLACE FUNCTION auth.validate_session(
     p_session_token TEXT DEFAULT NULL
 ) RETURNS UUID AS $$ 
 DECLARE
-    v_agent_id UUID;
-    v_is_valid BOOLEAN;
+    v_session RECORD;
 BEGIN
-    SELECT 
-        s.auth__agent_id,
-        (CASE 
-            WHEN s.general__session_id IS NULL THEN false
-            WHEN NOT s.session__is_active THEN false
-            WHEN s.session__expires_at < NOW() THEN false
-            WHEN p_session_token IS NOT NULL AND s.session__jwt != p_session_token THEN false
-            ELSE true
-        END) INTO v_agent_id, v_is_valid
-    FROM auth.agent_sessions s
-    WHERE s.general__session_id = p_session_id;
-
-    IF v_agent_id IS NULL OR NOT v_is_valid THEN
-        RAISE EXCEPTION 'Invalid session';
+    SELECT *
+      INTO v_session
+    FROM auth.agent_sessions
+    WHERE general__session_id = p_session_id;
+    
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Session not found for id: %', p_session_id;
     END IF;
-
-    RETURN v_agent_id;
+    
+    IF NOT v_session.session__is_active THEN
+        RAISE EXCEPTION 'Session % is inactive', p_session_id;
+    END IF;
+    
+    IF v_session.session__expires_at < NOW() THEN
+        RAISE EXCEPTION 'Session % has expired on %', p_session_id, v_session.session__expires_at;
+    END IF;
+    
+    IF p_session_token IS NOT NULL AND v_session.session__jwt != p_session_token THEN
+        RAISE EXCEPTION 'Session token mismatch for session id: %', p_session_id;
+    END IF;
+    
+    RETURN v_session.auth__agent_id;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -279,28 +283,28 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE OR REPLACE FUNCTION auth.set_agent_context(new_agent_id UUID)
-RETURNS boolean AS $$
+CREATE OR REPLACE FUNCTION auth.set_agent_context_from_session(p_session_id UUID)
+RETURNS void AS $$
+DECLARE
+    v_agent_id UUID;
 BEGIN
     -- Only allow the vircadia_agent_proxy role to set the agent context
     IF NOT auth.is_proxy_agent() THEN
-        RETURN false;
-        -- RAISE EXCEPTION 'ERROR: only vircadia_agent_proxy can set agent context. Do not proxy agent requests with a SUPERUSER!';
+        RAISE EXCEPTION 'Only the proxy agent can set the agent context';
     END IF;
+
+    -- Validate the session and get corresponding agent id.
+    v_agent_id := auth.validate_session(p_session_id, NULL);
 
     -- Prevent changing the context if it has already been set
-    IF current_setting('app.current_agent_id', true) IS NOT NULL 
-       AND TRIM(current_setting('app.current_agent_id', true)) <> '' 
+    IF current_setting('app.current_agent_id', true) IS NOT NULL
+       AND TRIM(current_setting('app.current_agent_id', true)) <> ''
        AND TRIM(current_setting('app.current_agent_id', true)) <> 'NULL' THEN
-            RETURN false;
-        -- RAISE EXCEPTION 'ERROR: Agent context is already set and cannot be modified in this connection session.';
+        RAISE EXCEPTION 'Agent context already set, a new transaction must be created';
     END IF;
 
-    -- Set the new agent ID for the session (transaction-local)
-    PERFORM set_config('app.current_agent_id', new_agent_id::text, true);
-    RETURN true;
-EXCEPTION WHEN OTHERS THEN
-    RETURN false;
+    -- Set the validated agent ID for the session (transaction-local)
+    PERFORM set_config('app.current_agent_id', v_agent_id::text, true);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -500,7 +504,8 @@ GRANT EXECUTE ON FUNCTION auth.is_system_agent() TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.is_proxy_agent() TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.current_agent_id() TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.get_system_agent_id() TO vircadia_agent_proxy;
-GRANT EXECUTE ON FUNCTION auth.set_agent_context(UUID) TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.validate_session(UUID, TEXT) TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.set_agent_context_from_session(UUID) TO vircadia_agent_proxy;
 
 
 -- =============================================================================

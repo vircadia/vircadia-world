@@ -72,26 +72,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE OR REPLACE FUNCTION auth.set_agent_context(new_agent_id UUID)
-RETURNS void AS $$
-BEGIN
-    -- Only allow the vircadia_agent_proxy role to set the agent context
-    IF NOT auth.is_proxy_agent() THEN
-        RAISE EXCEPTION 'Insufficient privileges: only vircadia_agent_proxy can set agent context.';
-    END IF;
-
-    -- Prevent changing the context if it has already been set
-    IF current_setting('app.current_agent_id', true) IS NOT NULL 
-       AND TRIM(current_setting('app.current_agent_id', true)) <> '' 
-       AND TRIM(current_setting('app.current_agent_id', true)) <> 'NULL' THEN
-        RAISE EXCEPTION 'Agent context is already set and cannot be modified in this connection session.';
-    END IF;
-
-    -- Set the new agent ID for the session (transaction-local)
-    PERFORM set_config('app.current_agent_id', new_agent_id::text, false);
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
 
 -- ============================================================================
 -- 3. BASE TEMPLATES

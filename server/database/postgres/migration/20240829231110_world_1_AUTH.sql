@@ -7,7 +7,8 @@ CREATE TABLE auth.agent_profiles (
     profile__username TEXT UNIQUE,
     auth__email TEXT UNIQUE,
     auth__is_admin BOOLEAN NOT NULL DEFAULT FALSE,
-    auth__is_anon BOOLEAN NOT NULL DEFAULT FALSE
+    auth__is_anon BOOLEAN NOT NULL DEFAULT FALSE,
+    auth__is_system BOOLEAN NOT NULL DEFAULT FALSE
 ) INHERITS (auth._template);
 ALTER TABLE auth.agent_profiles ENABLE ROW LEVEL SECURITY;
 
@@ -123,7 +124,7 @@ BEGIN
           AND ap.auth__is_anon = true
     );
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 CREATE OR REPLACE FUNCTION auth.is_admin_agent()
 RETURNS boolean AS $$
@@ -135,12 +136,13 @@ BEGIN
           AND ap.auth__is_admin = true
     );
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 
 -- =============================================================================
 -- 5. SESSION MANAGEMENT FUNCTIONS
 -- =============================================================================
+
 -- Session Creation and Validation
 CREATE OR REPLACE FUNCTION auth.create_agent_session(
     p_agent_id UUID,
@@ -275,7 +277,32 @@ BEGIN
     
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION auth.set_agent_context(new_agent_id UUID)
+RETURNS boolean AS $$
+BEGIN
+    -- Only allow the vircadia_agent_proxy role to set the agent context
+    IF NOT auth.is_proxy_agent() THEN
+        RETURN false;
+        -- RAISE EXCEPTION 'ERROR: only vircadia_agent_proxy can set agent context. Do not proxy agent requests with a SUPERUSER!';
+    END IF;
+
+    -- Prevent changing the context if it has already been set
+    IF current_setting('app.current_agent_id', true) IS NOT NULL 
+       AND TRIM(current_setting('app.current_agent_id', true)) <> '' 
+       AND TRIM(current_setting('app.current_agent_id', true)) <> 'NULL' THEN
+            RETURN false;
+        -- RAISE EXCEPTION 'ERROR: Agent context is already set and cannot be modified in this connection session.';
+    END IF;
+
+    -- Set the new agent ID for the session (transaction-local)
+    PERFORM set_config('app.current_agent_id', new_agent_id::text, true);
+    RETURN true;
+EXCEPTION WHEN OTHERS THEN
+    RETURN false;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 
 -- =============================================================================
@@ -467,8 +494,8 @@ REVOKE ALL ON ALL ROUTINES IN SCHEMA auth FROM PUBLIC, vircadia_agent_proxy;
 GRANT SELECT ON auth.agent_profiles TO vircadia_agent_proxy;
 GRANT SELECT ON auth.sync_groups TO vircadia_agent_proxy;
 GRANT SELECT ON auth.agent_auth_providers TO vircadia_agent_proxy;
-GRANT EXECUTE ON FUNCTION auth.is_anon_agent TO vircadia_agent_proxy;
-GRANT EXECUTE ON FUNCTION auth.is_admin_agent TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.is_anon_agent() TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.is_admin_agent() TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.is_system_agent() TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.is_proxy_agent() TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.current_agent_id() TO vircadia_agent_proxy;
@@ -481,7 +508,7 @@ GRANT EXECUTE ON FUNCTION auth.set_agent_context(UUID) TO vircadia_agent_proxy;
 -- =============================================================================
 -- System Agent Profile
 INSERT INTO auth.agent_profiles 
-    (general__agent_profile_id, profile__username, auth__email, auth__is_admin) 
+    (general__agent_profile_id, profile__username, auth__email, auth__is_system) 
 VALUES 
     (auth.get_system_agent_id(), 'admin', 'system@internal', true)
 ON CONFLICT (general__agent_profile_id) DO NOTHING;

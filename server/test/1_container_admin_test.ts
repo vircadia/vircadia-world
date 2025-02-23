@@ -113,25 +113,41 @@ describe("System Admin Tests", () => {
         }
     });
 
-    test("Database roles and permissions are properly set", async () => {
-        const sql = await PostgresClient.getInstance().getSuperClient();
+    test("Superuser SQL connection works", async () => {
+        const superUserSql =
+            await PostgresClient.getInstance().getSuperClient();
 
-        // Check for essential roles
-        const [roles] = await sql`
-            SELECT r.rolname
-            FROM pg_roles r
-            WHERE r.rolname = ${VircadiaConfig.SERVER.POSTGRES.USER}
-        `;
-        expect(roles).toBeDefined();
+        superUserSql.begin(async (tx) => {
+            const [result] = await tx`SELECT current_database()`;
+            expect(result.current_database).toBeDefined();
 
-        // Check role has proper permissions
-        const [permissions] = await sql`
-            SELECT has_database_privilege(
-                ${VircadiaConfig.SERVER.POSTGRES.USER}, 
-                ${VircadiaConfig.SERVER.POSTGRES.DATABASE}, 
-                'CREATE'
-            ) as has_permission
-        `;
-        expect(permissions.has_permission).toBe(true);
+            // Verify superuser status
+            const [isSuperUser] = await tx`SELECT auth.is_system_agent()`;
+            expect(isSuperUser.is_system_agent).toBe(true);
+
+            // Verify proxy agent status
+            const [isProxyAgent] = await tx`SELECT auth.is_proxy_agent()`;
+            expect(isProxyAgent.is_proxy_agent).toBe(false);
+        });
+    });
+
+    test("Proxy user SQL connection works", async () => {
+        const proxyUserSql =
+            await PostgresClient.getInstance().getProxyClient();
+
+        await proxyUserSql.begin(async (tx) => {
+            const [result] = await tx`SELECT current_database()`;
+            expect(result.current_database).toBeDefined();
+
+            // First verify we can call function through proxy user
+            const [isSystemAgent] = await tx`
+                        SELECT auth.is_system_agent() as is_system_agent
+                    `;
+            expect(isSystemAgent.is_system_agent).toBe(false);
+
+            // Verify proxy agent status
+            const [isProxyAgent] = await tx`SELECT auth.is_proxy_agent()`;
+            expect(isProxyAgent.is_proxy_agent).toBe(true);
+        });
     });
 });

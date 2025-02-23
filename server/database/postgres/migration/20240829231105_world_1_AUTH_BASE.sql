@@ -10,21 +10,37 @@ GRANT USAGE ON SCHEMA auth TO vircadia_agent_proxy;
 -- ============================================================================
 -- 2. CORE AUTHENTICATION FUNCTIONS
 -- ============================================================================
+
+-- Revoke Critical System Access
+REVOKE ALL ON FUNCTION pg_catalog.set_config(text, text, boolean) FROM PUBLIC;
+
 -- System Agent ID Function
 CREATE OR REPLACE FUNCTION auth.get_system_agent_id() 
 RETURNS UUID AS $$
 BEGIN
     RETURN '00000000-0000-0000-0000-000000000000'::UUID;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Super Admin Check Function
 CREATE OR REPLACE FUNCTION auth.is_system_agent()
 RETURNS boolean AS $$ 
 BEGIN
-    RETURN (SELECT usesuper FROM pg_user WHERE usename = CURRENT_USER);
+    RETURN session_user IN (
+        SELECT rolname 
+        FROM pg_roles 
+        WHERE rolsuper
+    );
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Proxy Agent Check Function
+CREATE OR REPLACE FUNCTION auth.is_proxy_agent()
+RETURNS boolean AS $$
+BEGIN
+    RETURN session_user = 'vircadia_agent_proxy';
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Current Agent ID Function
 CREATE OR REPLACE FUNCTION auth.current_agent_id() 
@@ -54,32 +70,31 @@ BEGIN
         RAISE EXCEPTION 'Invalid UUID format: %', current_setting('app.current_agent_id', true);
     END;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 CREATE OR REPLACE FUNCTION auth.set_agent_context(new_agent_id UUID)
 RETURNS void AS $$
 BEGIN
-    -- Only allow system (super admin) users to set the agent context
-    IF NOT auth.is_system_agent() THEN
-        RAISE EXCEPTION 'Insufficient privileges: only system users can set agent context.';
+    -- Only allow the vircadia_agent_proxy role to set the agent context
+    IF NOT auth.is_proxy_agent() THEN
+        RAISE EXCEPTION 'Insufficient privileges: only vircadia_agent_proxy can set agent context.';
     END IF;
 
-    -- Set the new agent ID in the current session
+    -- Prevent changing the context if it has already been set
+    IF current_setting('app.current_agent_id', true) IS NOT NULL 
+       AND TRIM(current_setting('app.current_agent_id', true)) <> '' 
+       AND TRIM(current_setting('app.current_agent_id', true)) <> 'NULL' THEN
+        RAISE EXCEPTION 'Agent context is already set and cannot be modified in this connection session.';
+    END IF;
+
+    -- Set the new agent ID for the session (transaction-local)
     PERFORM set_config('app.current_agent_id', new_agent_id::text, false);
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 
 -- ============================================================================
--- 3. FUNCTION PERMISSIONS
--- ============================================================================
-GRANT EXECUTE ON FUNCTION auth.get_system_agent_id() TO vircadia_agent_proxy;
-GRANT EXECUTE ON FUNCTION auth.is_system_agent() TO vircadia_agent_proxy;
-GRANT EXECUTE ON FUNCTION auth.current_agent_id() TO vircadia_agent_proxy;
-
-
--- ============================================================================
--- 4. BASE TEMPLATES
+-- 3. BASE TEMPLATES
 -- ============================================================================
 -- Audit Template Table
 CREATE TABLE auth._template (
@@ -91,7 +106,7 @@ CREATE TABLE auth._template (
 
 
 -- ============================================================================
--- 5. TRIGGERS AND TRIGGER FUNCTIONS
+-- 4. TRIGGERS AND TRIGGER FUNCTIONS
 -- ============================================================================
 -- Audit Column Update Function
 CREATE OR REPLACE FUNCTION auth.update_audit_columns()
@@ -102,5 +117,3 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
-
--- TODO: Add a max session count (default: 1) per auth provider

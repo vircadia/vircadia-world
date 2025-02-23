@@ -590,7 +590,7 @@ if (import.meta.main) {
                 });
                 await wipeDatabase();
                 log({
-                    message: "Database wiped, running migrations and seeds...",
+                    message: "Database wiped, running migrations...",
                     type: "info",
                     suppress: VircadiaConfig.SERVER.SUPPRESS,
                     debug: VircadiaConfig.SERVER.DEBUG,
@@ -604,7 +604,13 @@ if (import.meta.main) {
                 });
                 await seed({});
                 log({
-                    message: `Seeding complete. ${VircadiaConfig.SERVER.CONTAINER_NAME} database reset complete.`,
+                    message: "Seeding complete.",
+                    type: "info",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                log({
+                    message: `${VircadiaConfig.SERVER.CONTAINER_NAME} database reset complete.`,
                     type: "success",
                     suppress: VircadiaConfig.SERVER.SUPPRESS,
                     debug: VircadiaConfig.SERVER.DEBUG,

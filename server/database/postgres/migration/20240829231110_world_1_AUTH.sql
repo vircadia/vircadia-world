@@ -1,16 +1,6 @@
--- ============================================================================
--- 1. SCHEMA CREATION AND INITIAL PERMISSIONS
--- ============================================================================
-CREATE SCHEMA IF NOT EXISTS auth;
-
--- Initial schema-level permissions (needed for object creation)
-REVOKE ALL ON SCHEMA auth FROM PUBLIC, vircadia_agent_proxy;
-GRANT USAGE ON SCHEMA auth TO vircadia_agent_proxy;
-
-
--- ============================================================================
--- 2. BASE TABLES
--- ============================================================================
+-- =============================================================================
+-- 1. BASE TABLES
+-- =============================================================================
 -- Agent Profiles Table
 CREATE TABLE auth.agent_profiles (
     general__agent_profile_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -35,8 +25,9 @@ CREATE TABLE auth.agent_sessions (
 ALTER TABLE auth.agent_sessions ENABLE ROW LEVEL SECURITY;
 
 
--- ============================================================================
--- 3. AUTH PROVIDER TABLES
+-- =============================================================================
+-- 2. AUTH PROVIDER TABLES
+-- =============================================================================
 -- Auth Provider Configurations Table
 CREATE TABLE auth.auth_providers (
     provider__name TEXT PRIMARY KEY,                -- Provider identifier (e.g., 'google', 'github')
@@ -72,7 +63,7 @@ CREATE TABLE auth.agent_auth_providers (
     -- OAuth tokens
     auth__access_token TEXT,                       -- Current access token
     auth__refresh_token TEXT,                      -- Refresh token (if available)
-    auth__token_expires_at TIMESTAMPTZ,           -- When the access token expires
+    auth__token_expires_at TIMESTAMPTZ,            -- When the access token expires
     
     -- Account status
     auth__is_verified BOOLEAN NOT NULL DEFAULT FALSE, -- Has email been verified
@@ -88,9 +79,9 @@ CREATE TABLE auth.agent_auth_providers (
 ALTER TABLE auth.agent_auth_providers ENABLE ROW LEVEL SECURITY;
 
 
--- ============================================================================
--- 4. SYNC GROUP TABLES
--- ============================================================================
+-- =============================================================================
+-- 3. SYNC GROUP TABLES
+-- =============================================================================
 -- Sync Groups Table
 CREATE TABLE auth.sync_groups (
     general__sync_group TEXT PRIMARY KEY,
@@ -118,9 +109,9 @@ CREATE TABLE auth.agent_sync_group_roles (
 ALTER TABLE auth.agent_sync_group_roles ENABLE ROW LEVEL SECURITY;
 
 
--- ============================================================================
--- 5. AUTHENTICATION FUNCTIONS
--- ============================================================================
+-- =============================================================================
+-- 4. AUTHENTICATION FUNCTIONS
+-- =============================================================================
 -- Non-system agent Status Functions
 CREATE OR REPLACE FUNCTION auth.is_anon_agent()
 RETURNS boolean AS $$
@@ -147,9 +138,9 @@ END;
 $$ LANGUAGE plpgsql;
 
 
--- ============================================================================
--- 6. SESSION MANAGEMENT FUNCTIONS
--- ============================================================================
+-- =============================================================================
+-- 5. SESSION MANAGEMENT FUNCTIONS
+-- =============================================================================
 -- Session Creation and Validation
 CREATE OR REPLACE FUNCTION auth.create_agent_session(
     p_agent_id UUID,
@@ -287,9 +278,9 @@ END;
 $$ LANGUAGE plpgsql;
 
 
--- ============================================================================
--- 7. MATERIALIZED VIEWS AND RELATED FUNCTIONS
--- ============================================================================
+-- =============================================================================
+-- 6. MATERIALIZED VIEWS AND RELATED FUNCTIONS
+-- =============================================================================
 -- Active Sessions View
 CREATE MATERIALIZED VIEW IF NOT EXISTS auth.active_sync_group_sessions AS
 SELECT DISTINCT
@@ -321,6 +312,7 @@ ON auth.active_sync_group_sessions (general__session_id, group__sync);
 CREATE UNIQUE INDEX idx_active_sync_group_sessions_lookup 
 ON auth.active_sync_group_sessions (group__sync);
 
+
 -- View Refresh Functions
 CREATE OR REPLACE FUNCTION auth.refresh_active_sessions_trigger()
 RETURNS trigger AS $$ 
@@ -331,9 +323,9 @@ END;
 $$ LANGUAGE plpgsql;
 
 
--- ============================================================================
--- 8. INDEXES
--- ============================================================================
+-- =============================================================================
+-- 7. INDEXES
+-- =============================================================================
 -- Agent Profile Indexes
 CREATE INDEX idx_agent_profiles_email ON auth.agent_profiles(auth__email);
 
@@ -350,9 +342,9 @@ CREATE INDEX idx_agent_sessions_last_seen ON auth.agent_sessions(session__last_s
     WHERE session__is_active = true;
 
 
--- ============================================================================
--- 9. ROW LEVEL SECURITY POLICIES
--- ============================================================================
+-- =============================================================================
+-- 8. ROW LEVEL SECURITY POLICIES
+-- =============================================================================
 -- Agent Profile Policies
 CREATE POLICY agent_view_own_profile ON auth.agent_profiles
     FOR SELECT
@@ -415,9 +407,9 @@ CREATE POLICY "Only admins can manage provider connections" ON auth.agent_auth_p
     );
 
 
--- ============================================================================
--- 10. TRIGGERS
--- ============================================================================
+-- =============================================================================
+-- 9. TRIGGERS
+-- =============================================================================
 -- Session Management Triggers
 CREATE TRIGGER trigger_cleanup
     AFTER INSERT OR UPDATE ON auth.agent_sessions
@@ -461,9 +453,9 @@ CREATE TRIGGER update_agent_sync_group_roles_updated_at
     EXECUTE FUNCTION auth.update_audit_columns();
 
 
--- ============================================================================
--- 11. PERMISSIONS
--- ============================================================================
+-- =============================================================================
+-- 10. PERMISSIONS
+-- =============================================================================
 -- Revoke All Permissions
 REVOKE ALL ON ALL TABLES IN SCHEMA auth FROM PUBLIC, vircadia_agent_proxy;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA auth FROM PUBLIC, vircadia_agent_proxy;
@@ -476,11 +468,17 @@ GRANT SELECT ON auth.agent_profiles TO vircadia_agent_proxy;
 GRANT SELECT ON auth.sync_groups TO vircadia_agent_proxy;
 GRANT SELECT ON auth.agent_auth_providers TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.is_anon_agent TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.is_admin_agent TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.is_system_agent() TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.is_proxy_agent() TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.current_agent_id() TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.get_system_agent_id() TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.set_agent_context(UUID) TO vircadia_agent_proxy;
 
 
--- ============================================================================
--- 12. INITIAL DATA
--- ============================================================================
+-- =============================================================================
+-- 11. INITIAL DATA
+-- =============================================================================
 -- System Agent Profile
 INSERT INTO auth.agent_profiles 
     (general__agent_profile_id, profile__username, auth__email, auth__is_admin) 

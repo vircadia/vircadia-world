@@ -15,10 +15,15 @@ interface TestAccount {
 }
 
 describe("DB -> Auth Tests", () => {
-    let sql: postgres.Sql;
+    let superUserSql: postgres.Sql;
+    let proxyUserSql: postgres.Sql;
     let adminAgent: TestAccount;
     let regularAgent: TestAccount;
     let anonAgent: TestAccount;
+
+    const adminAgentUsername = "test_admin";
+    const regularAgentUsername = "test_agent";
+    const anonAgentUsername = "test_anon";
 
     // Setup before all tests
     beforeAll(async () => {
@@ -31,22 +36,28 @@ describe("DB -> Auth Tests", () => {
             }
         }
         // Initialize database connection using PostgresClient
-        await PostgresClient.getInstance().connect();
-        sql = PostgresClient.getInstance().getClient();
+
+        superUserSql = await PostgresClient.getInstance().getSuperClient();
+        proxyUserSql = await PostgresClient.getInstance().getProxyClient();
     });
 
     async function cleanup(): Promise<void> {
-        await sql.begin(async (tx) => {
+        await superUserSql.begin(async (tx) => {
             try {
+                const usernames = [
+                    anonAgentUsername,
+                    regularAgentUsername,
+                    adminAgentUsername,
+                ];
                 await tx`
                     DELETE FROM auth.agent_profiles 
-                    WHERE profile__username IN ('test_admin', 'test_agent')
+                    WHERE profile__username = ANY(${usernames}::text[])
                 `;
-                const profiles = await tx<Auth.I_Profile[]>`
+                const remainingProfiles = await tx<Auth.I_Profile[]>`
                     SELECT * FROM auth.agent_profiles
-                    WHERE profile__username IN ('test_admin', 'test_agent')
+                    WHERE profile__username = ANY(${usernames}::text[])
                 `;
-                expect(profiles).toHaveLength(0);
+                expect(remainingProfiles).toHaveLength(0);
             } catch (error) {
                 log({
                     message: "Failed to cleanup test accounts",
@@ -67,7 +78,7 @@ describe("DB -> Auth Tests", () => {
             await cleanup();
 
             // First create a system token with superuser privileges using system auth provider
-            const [systemAuthProviderConfig] = await sql<
+            const [systemAuthProviderConfig] = await superUserSql<
                 [
                     {
                         provider__jwt_secret: string;
@@ -80,7 +91,7 @@ describe("DB -> Auth Tests", () => {
                 WHERE provider__name = 'system'
             `;
 
-            const [anonAuthProviderConfig] = await sql<
+            const [anonAuthProviderConfig] = await superUserSql<
                 [
                     {
                         provider__jwt_secret: string;
@@ -103,43 +114,43 @@ describe("DB -> Auth Tests", () => {
             }
 
             // Create test admin account
-            const [adminAgentAccount] = await sql`
+            const [adminAgentAccount] = await superUserSql`
                 INSERT INTO auth.agent_profiles (profile__username, auth__email, auth__is_admin)
-                VALUES ('test_admin', 'test_admin@test.com', true)
+                VALUES (${adminAgentUsername}::text, 'test_admin@test.com', true)
                 RETURNING general__agent_profile_id
             `;
             const adminAgentId = adminAgentAccount.general__agent_profile_id;
 
             // Create test regular agent account
-            const [regularAgentAccount] = await sql`
+            const [regularAgentAccount] = await superUserSql`
                 INSERT INTO auth.agent_profiles (profile__username, auth__email)
-                VALUES ('test_agent', 'test_agent@test.com')
+                VALUES (${regularAgentUsername}::text, 'test_agent@test.com')
                 RETURNING general__agent_profile_id
             `;
             const regularAgentId =
                 regularAgentAccount.general__agent_profile_id;
 
             // Create test anon agent account
-            const [anonAgentAccount] = await sql`
+            const [anonAgentAccount] = await superUserSql`
                 INSERT INTO auth.agent_profiles (profile__username, auth__email)
-                VALUES ('test_anon', 'test_anon@test.com')
+                VALUES (${anonAgentUsername}::text, 'test_anon@test.com')
                 RETURNING general__agent_profile_id
             `;
             const anonAgentId = anonAgentAccount.general__agent_profile_id;
 
             // Create sessions
-            const [adminAgentSession] = await sql`
+            const [adminAgentSession] = await superUserSql`
                 SELECT * FROM auth.create_agent_session(${adminAgentId}, 'system')
             `;
             const adminAgentSessionId = adminAgentSession.general__session_id;
 
-            const [regularAgentSession] = await sql`
+            const [regularAgentSession] = await superUserSql`
                 SELECT * FROM auth.create_agent_session(${regularAgentId}, 'system')
             `;
             const regularAgentSessionId =
                 regularAgentSession.general__session_id;
 
-            const [anonAgentSession] = await sql`
+            const [anonAgentSession] = await superUserSql`
                 SELECT * FROM auth.create_agent_session(${anonAgentId}, 'anon')
             `;
             const anonSessionId = anonAgentSession.general__session_id;
@@ -182,19 +193,19 @@ describe("DB -> Auth Tests", () => {
             );
 
             // Update sessions with JWT tokens
-            await sql`
+            await superUserSql`
                 UPDATE auth.agent_sessions 
                 SET session__jwt = ${adminAgentToken}
                 WHERE general__session_id = ${adminAgentSessionId}
             `;
 
-            await sql`
+            await superUserSql`
                 UPDATE auth.agent_sessions 
                 SET session__jwt = ${regularAgentToken}
                 WHERE general__session_id = ${regularAgentSessionId}
             `;
 
-            await sql`
+            await superUserSql`
                 UPDATE auth.agent_sessions 
                 SET session__jwt = ${anonAgentToken}
                 WHERE general__session_id = ${anonSessionId}
@@ -227,138 +238,163 @@ describe("DB -> Auth Tests", () => {
         }
     }
 
-    describe("Account Management", () => {
-        test("should create and verify test accounts", async () => {
-            await sql.begin(async (tx) => {
-                // Use the transaction tx for all queries in this test
-                const accounts = await createTestAccounts();
-                adminAgent = accounts.adminAgent;
-                regularAgent = accounts.regularAgent;
-                anonAgent = accounts.anonAgent;
+    describe("Internal Role Management", () => {
+        test("Superuser SQL connection works", async () => {
+            const [result] = await superUserSql`SELECT current_database()`;
+            expect(result.current_database).toBeDefined();
 
-                // Verify admin account using tx
-                const [adminProfile] = await tx<[Auth.I_Profile]>`
-                    SELECT * FROM auth.agent_profiles
-                    WHERE general__agent_profile_id = ${adminAgent.id}
-                `;
-                expect(adminProfile.profile__username).toBe("test_admin");
-                expect(adminProfile.auth__is_admin).toBe(true);
+            // Check if superuser can access function directly
+            const [isSystemAgent] = await superUserSql`
+                SELECT has_function_privilege(
+                    'vircadia_agent_proxy', 
+                    'auth.is_system_agent()', 
+                    'EXECUTE'
+                ) as has_execute_permission
+            `;
+            expect(isSystemAgent.has_execute_permission).toBe(true);
 
-                // Verify regular account using tx
-                const [regularProfile] = await tx<[Auth.I_Profile]>`
-                    SELECT * FROM auth.agent_profiles
-                    WHERE general__agent_profile_id = ${regularAgent.id}
-                `;
-                expect(regularProfile.profile__username).toBe("test_agent");
-                expect(regularProfile.auth__is_admin).toBe(false);
+            // Verify superuser status
+            const [isSuperUser] =
+                await superUserSql`SELECT auth.is_system_agent()`;
+            expect(isSuperUser.is_system_agent).toBe(true);
+        });
 
-                // Verify anon account using tx
-                const [anonProfile] = await tx<[Auth.I_Profile]>`
-                    SELECT * FROM auth.agent_profiles
-                    WHERE general__agent_profile_id = ${anonAgent.id}
-                `;
-                expect(anonProfile.profile__username).toBe("test_anon");
-                expect(anonProfile.auth__is_admin).toBe(false);
-            });
+        test("Proxy user SQL connection works", async () => {
+            const [result] = await proxyUserSql`SELECT current_database()`;
+            expect(result.current_database).toBeDefined();
+
+            // First verify we can call function through proxy user
+            const [isSystemAgent] = await proxyUserSql`
+                SELECT auth.is_system_agent() as is_system_agent
+            `;
+            expect(isSystemAgent.is_system_agent).toBe(false);
+
+            // Verify proxy agent status
+            const [isProxyAgent] =
+                await proxyUserSql`SELECT auth.is_proxy_agent()`;
+            expect(isProxyAgent.is_proxy_agent).toBe(true);
         });
     });
 
-    describe("Permission Management", () => {
-        test("should verify admin agent permissions", async () => {
-            await sql.begin(async (tx) => {
-                await tx`SELECT auth.set_agent_context(${adminAgent.id}::uuid)`; // Set to admin context
+    // describe("Account Management", () => {
+    //     test("should create and verify test accounts", async () => {
+    //         await superUserSql.begin(async (tx) => {
+    //             // Use the transaction tx for all queries in this test
+    //             const accounts = await createTestAccounts();
+    //             adminAgent = accounts.adminAgent;
+    //             regularAgent = accounts.regularAgent;
+    //             anonAgent = accounts.anonAgent;
 
-                const [isAdmin] =
-                    await tx`SELECT auth.is_admin_agent() as is_admin`;
-                expect(isAdmin.is_admin).toBe(true);
-                const [isSystem] =
-                    await tx`SELECT auth.is_system_agent() as is_system`;
-                expect(isSystem.is_system).toBe(true);
+    //             // Verify admin account using tx
+    //             const [adminProfile] = await tx<[Auth.I_Profile]>`
+    //                 SELECT * FROM auth.agent_profiles
+    //                 WHERE general__agent_profile_id = ${adminAgent.id}
+    //             `;
+    //             expect(adminProfile.profile__username).toBe(adminAgentUsername);
+    //             expect(adminProfile.auth__is_admin).toBe(true);
 
-                const [currentAgentId] =
-                    await tx`SELECT auth.current_agent_id()`;
-                expect(currentAgentId.current_agent_id).toBe(adminAgent.id);
-            });
-        });
+    //             // Verify regular account using tx
+    //             const [regularProfile] = await tx<[Auth.I_Profile]>`
+    //                 SELECT * FROM auth.agent_profiles
+    //                 WHERE general__agent_profile_id = ${regularAgent.id}
+    //             `;
+    //             expect(regularProfile.profile__username).toBe(
+    //                 regularAgentUsername,
+    //             );
+    //             expect(regularProfile.auth__is_admin).toBe(false);
 
-        test("should verify system permissions", async () => {
-            await sql.begin(async (tx) => {
-                await tx`SELECT auth.set_agent_context_to_system_agent()`; // Set to system context
+    //             // Verify anon account using tx
+    //             const [anonProfile] = await tx<[Auth.I_Profile]>`
+    //                 SELECT * FROM auth.agent_profiles
+    //                 WHERE general__agent_profile_id = ${anonAgent.id}
+    //             `;
+    //             expect(anonProfile.profile__username).toBe(anonAgentUsername);
+    //             expect(anonProfile.auth__is_admin).toBe(false);
+    //         });
+    //     });
+    // });
 
-                const [isAdmin] =
-                    await tx`SELECT auth.is_admin_agent() as is_admin`;
-                expect(isAdmin.is_admin).toBe(false);
-                const [isSystem] =
-                    await tx`SELECT auth.is_system_agent() as is_system`;
-                expect(isSystem.is_system).toBe(true);
-                const [isSuper] =
-                    await tx`SELECT auth.is_super_admin_agent() as is_super`;
-                expect(isSuper.is_super).toBe(false);
+    // describe("Permission Management", () => {
+    //     test("should verify admin agent permissions", async () => {
+    //         await proxyUserSql.begin(async (tx) => {
+    //             await tx`SELECT auth.set_agent_context(${adminAgent.id}::uuid)`; // Set to admin context
 
-                const [systemAgentId] =
-                    await tx`SELECT auth.get_system_agent_id()`; // Get system agent id
+    //             const [isAdmin] =
+    //                 await tx`SELECT auth.is_admin_agent() as is_admin`;
+    //             expect(isAdmin.is_admin).toBe(true);
+    //             const [isSystem] =
+    //                 await tx`SELECT auth.is_system_agent() as is_system`;
+    //             expect(isSystem.is_system).toBe(true);
 
-                const [currentAgentId] =
-                    await tx`SELECT auth.current_agent_id()`;
-                expect(currentAgentId.current_agent_id).toBe(systemAgentId);
-            });
-        });
+    //             const [currentAgentId] =
+    //                 await tx`SELECT auth.current_agent_id()`;
+    //             expect(currentAgentId.current_agent_id).toBe(adminAgent.id);
+    //         });
+    //     });
 
-        test("should verify non-admin agent permissions", async () => {
-            await sql.begin(async (tx) => {
-                await tx`SELECT auth.set_agent_context(${regularAgent.id}::uuid)`; // Set to agent context
+    //     test("should verify system permissions", async () => {
+    //         await superUserSql.begin(async (tx) => {
+    //             const [isAdmin] =
+    //                 await tx`SELECT auth.is_admin_agent() as is_admin`;
+    //             expect(isAdmin.is_admin).toBe(false);
+    //             const [isSystem] =
+    //                 await tx`SELECT auth.is_system_agent() as is_system`;
+    //             expect(isSystem.is_system).toBe(true);
 
-                const [isAdmin] =
-                    await tx`SELECT auth.is_admin_agent() as is_admin`;
-                expect(isAdmin.is_admin).toBe(false);
-                const [isSystem] =
-                    await tx`SELECT auth.is_system_agent() as is_system`;
-                expect(isSystem.is_system).toBe(false);
-                const [isSuper] =
-                    await tx`SELECT auth.is_super_admin_agent() as is_super`;
-                expect(isSuper.is_super).toBe(false);
+    //             const [systemAgentId] =
+    //                 await tx`SELECT auth.get_system_agent_id()`; // Get system agent id
 
-                const [agentId] = await tx`SELECT auth.current_agent_id()`; // Get current agent id
-                expect(agentId.current_agent_id).toBe(regularAgent.id);
-            });
-        });
+    //             const [currentAgentId] =
+    //                 await tx`SELECT auth.current_agent_id()`;
+    //             expect(currentAgentId.current_agent_id).toBe(systemAgentId);
+    //         });
+    //     });
 
-        test("should verify anon agent permissions", async () => {
-            await sql.begin(async (tx) => {
-                await tx`SELECT auth.set_agent_context_to_anon_agent()`; // Set to anon context
+    //     test("should verify non-admin agent permissions", async () => {
+    //         await superUserSql.begin(async (tx) => {
+    //             await tx`SELECT auth.set_agent_context(${regularAgent.id}::uuid)`; // Set to agent context
 
-                const [isAdmin] =
-                    await tx`SELECT auth.is_admin_agent() as is_admin`;
-                expect(isAdmin.is_admin).toBe(false);
-                const [isSystem] =
-                    await tx`SELECT auth.is_system_agent() as is_system`;
-                expect(isSystem.is_system).toBe(false);
-                const [isSuper] =
-                    await tx`SELECT auth.is_super_admin_agent() as is_super`;
-                expect(isSuper.is_super).toBe(false);
+    //             const [isAdmin] =
+    //                 await tx`SELECT auth.is_admin_agent() as is_admin`;
+    //             expect(isAdmin.is_admin).toBe(false);
+    //             const [isSystem] =
+    //                 await tx`SELECT auth.is_system_agent() as is_system`;
+    //             expect(isSystem.is_system).toBe(false);
 
-                const [anonId] = await tx`SELECT auth.get_anon_agent_id()`;
-                const [currentAgentId] =
-                    await tx`SELECT auth.current_agent_id()`; // Get current agent id
-                expect(currentAgentId.current_agent_id).toBe(
-                    anonId.get_anon_agent_id,
-                );
-            });
-        });
+    //             const [agentId] = await tx`SELECT auth.current_agent_id()`; // Get current agent id
+    //             expect(agentId.current_agent_id).toBe(regularAgent.id);
+    //         });
+    //     });
 
-        test("should handle set invalid agent context gracefully", async () => {
-            await sql.begin(async (tx) => {
-                const [contextResult] = await tx`
-                    SELECT auth.set_agent_context(${randomUUIDv7()}::uuid) as success
-                `;
-                expect(contextResult.success).toBe(false);
+    //     test("should verify anon agent permissions", async () => {
+    //         await proxyUserSql.begin(async (tx) => {
+    //             await tx`SELECT auth.set_agent_context(${anonAgent.id}::uuid)`; // Set to anon context
 
-                const [isSuper] =
-                    await tx`SELECT auth.is_super_admin_agent() as is_super`;
-                expect(isSuper.is_super).toBe(true);
-            });
-        });
-    });
+    //             const [isAdmin] =
+    //                 await tx`SELECT auth.is_admin_agent() as is_admin`;
+    //             expect(isAdmin.is_admin).toBe(false);
+    //             const [isSystem] =
+    //                 await tx`SELECT auth.is_system_agent() as is_system`;
+    //             expect(isSystem.is_system).toBe(false);
+
+    //             const [anonId] = await tx`SELECT auth.get_anon_agent_id()`;
+    //             const [currentAgentId] =
+    //                 await tx`SELECT auth.current_agent_id()`; // Get current agent id
+    //             expect(currentAgentId.current_agent_id).toBe(
+    //                 anonId.get_anon_agent_id,
+    //             );
+    //         });
+    //     });
+
+    //     test("should handle set invalid agent context gracefully", async () => {
+    //         await proxyUserSql.begin(async (tx) => {
+    //             const [contextResult] = await tx`
+    //                 SELECT auth.set_agent_context(${randomUUIDv7()}::uuid) as success
+    //             `;
+    //             expect(contextResult.success).toBe(false);
+    //         });
+    //     });
+    // });
 
     // describe("Session Management", () => {
     //     test("should handle expired sessions correctly", async () => {

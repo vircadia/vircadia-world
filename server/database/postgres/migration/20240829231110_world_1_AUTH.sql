@@ -104,6 +104,7 @@ ALTER TABLE auth.sync_groups ENABLE ROW LEVEL SECURITY;
 CREATE TABLE auth.agent_sync_group_roles (
     auth__agent_id UUID NOT NULL REFERENCES auth.agent_profiles(general__agent_profile_id) ON DELETE CASCADE,
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) ON DELETE CASCADE,
+    permissions__can_read BOOLEAN NOT NULL DEFAULT true,
     permissions__can_insert BOOLEAN NOT NULL DEFAULT false,
     permissions__can_update BOOLEAN NOT NULL DEFAULT false,
     permissions__can_delete BOOLEAN NOT NULL DEFAULT false,
@@ -280,6 +281,7 @@ SELECT DISTINCT
     s.session__expires_at,
     s.session__is_active,
     r.group__sync,
+    r.permissions__can_read,
     r.permissions__can_insert,
     r.permissions__can_update,
     r.permissions__can_delete,
@@ -485,6 +487,8 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON auth.sync_groups TO vircadia_agent_proxy
 GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_sync_group_roles TO vircadia_agent_proxy;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_sessions TO vircadia_agent_proxy;
+
+GRANT SELECT ON auth.active_sync_group_sessions TO vircadia_agent_proxy;
 
 GRANT EXECUTE ON FUNCTION auth.is_anon_agent() TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.is_admin_agent() TO vircadia_agent_proxy;

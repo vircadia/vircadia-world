@@ -41,7 +41,7 @@ ALTER TABLE tick.world_ticks ENABLE ROW LEVEL SECURITY;
 -- ============================================================================
 -- 5. POLICIES
 -- ============================================================================
-CREATE POLICY "world_ticks_view_policy" ON tick.world_ticks
+CREATE POLICY "world_ticks_read_policy" ON tick.world_ticks
     FOR SELECT
     USING (
         auth.is_admin_agent()

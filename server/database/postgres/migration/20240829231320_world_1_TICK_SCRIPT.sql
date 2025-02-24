@@ -25,7 +25,7 @@ ALTER TABLE tick.script_audit_log ENABLE ROW LEVEL SECURITY;
 -- 2. TICK SCRIPT AUDIT LOG POLICIES
 -- ============================================================================
 
-CREATE POLICY "script_audit_log_view_policy" ON tick.script_audit_log
+CREATE POLICY "script_audit_log_read_policy" ON tick.script_audit_log
     FOR SELECT USING (
         auth.is_admin_agent()
         OR auth.is_system_agent()

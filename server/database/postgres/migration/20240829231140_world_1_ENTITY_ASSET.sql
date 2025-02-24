@@ -21,7 +21,7 @@ ALTER TABLE entity.entity_assets ENABLE ROW LEVEL SECURITY;
 -- ============================================================================
 
 -- View policy: allow admins, system agents, and agents with an active session in the asset's sync group
-CREATE POLICY "entity_assets_view_policy" ON entity.entity_assets
+CREATE POLICY "entity_assets_read_policy" ON entity.entity_assets
     FOR SELECT
     USING (
         auth.is_admin_agent()
@@ -31,6 +31,7 @@ CREATE POLICY "entity_assets_view_policy" ON entity.entity_assets
             FROM auth.active_sync_group_sessions sess 
             WHERE sess.auth__agent_id = auth.current_agent_id()
               AND sess.group__sync = entity.entity_assets.group__sync
+              AND sess.permissions__can_read = true
         )
     );
 

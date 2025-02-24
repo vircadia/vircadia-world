@@ -34,7 +34,7 @@ ALTER TABLE entity.entities ENABLE ROW LEVEL SECURITY;
 -- 2. ENTITIES POLICIES
 -- ============================================================================
 
-CREATE POLICY "entities_view_policy" ON entity.entities
+CREATE POLICY "entities_read_policy" ON entity.entities
     FOR SELECT
     USING (
         auth.is_admin_agent()
@@ -44,6 +44,7 @@ CREATE POLICY "entities_view_policy" ON entity.entities
             FROM auth.active_sync_group_sessions sess 
             WHERE sess.auth__agent_id = auth.current_agent_id()
               AND sess.group__sync = entity.entities.group__sync
+              AND sess.permissions__can_read = true
         )
     );
 

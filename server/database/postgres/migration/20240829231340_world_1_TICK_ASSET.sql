@@ -24,7 +24,7 @@ ALTER TABLE tick.asset_audit_log ENABLE ROW LEVEL SECURITY;
 -- 2. ASSET AUDIT LOG POLICIES
 -- ============================================================================
 
-CREATE POLICY "asset_audit_log_view_policy" ON tick.asset_audit_log
+CREATE POLICY "asset_audit_log_read_policy" ON tick.asset_audit_log
     FOR SELECT USING (
         auth.is_admin_agent()
         OR auth.is_system_agent()

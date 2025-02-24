@@ -35,7 +35,7 @@ CREATE INDEX idx_entity_states_sync_tick ON tick.entity_states (group__sync, gen
 -- 2. ENTITY STATES POLICIES
 -- ============================================================================
 
-CREATE POLICY "entity_states_view_policy" ON tick.entity_states
+CREATE POLICY "entity_states_read_policy" ON tick.entity_states
     FOR SELECT
     USING (
         auth.is_admin_agent()

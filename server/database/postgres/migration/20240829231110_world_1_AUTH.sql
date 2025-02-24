@@ -78,6 +78,8 @@ CREATE TABLE auth.agent_auth_providers (
     UNIQUE (auth__provider_name, auth__provider_uid)
 ) INHERITS (auth._template);
 ALTER TABLE auth.agent_auth_providers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE auth.agent_sessions ADD CONSTRAINT agent_sessions_auth__provider_name_fkey
+    FOREIGN KEY (auth__provider_name) REFERENCES auth.auth_providers(provider__name) ON DELETE CASCADE;
 
 
 -- =============================================================================
@@ -143,93 +145,6 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- 5. SESSION MANAGEMENT FUNCTIONS
 -- =============================================================================
 
--- Session Creation and Validation
-CREATE OR REPLACE FUNCTION auth.create_agent_session(
-    p_agent_id UUID,
-    p_provider_name TEXT,
-    p_jwt TEXT DEFAULT NULL
-) RETURNS TABLE (
-    general__session_id UUID,
-    session__expires_at TIMESTAMPTZ,
-    session__jwt TEXT
-) AS $$
-DECLARE
-    v_session_id UUID;
-    v_expires_at TIMESTAMPTZ;
-    v_provider_record auth.auth_providers%ROWTYPE;
-    v_current_sessions INTEGER;
-BEGIN
-    -- Allow both admin agents and superusers to create sessions
-    IF NOT (
-        auth.is_admin_agent() 
-        OR auth.is_system_agent() 
-    ) THEN
-        RAISE EXCEPTION 'Only administrators can create sessions';
-    END IF;
-
-    -- Get provider settings (required)
-    IF p_provider_name IS NULL THEN
-        RAISE EXCEPTION 'Provider name is required';
-    END IF;
-
-    -- Validate provider exists and is enabled
-    SELECT * INTO v_provider_record
-    FROM auth.auth_providers
-    WHERE provider__name = p_provider_name
-    AND provider__enabled = true;
-
-    IF NOT FOUND THEN
-        RAISE EXCEPTION 'Invalid or disabled authentication provider: %', p_provider_name;
-    END IF;
-
-    -- Count current active sessions for this agent and provider
-    SELECT COUNT(*) INTO v_current_sessions
-    FROM auth.agent_sessions s
-    WHERE s.auth__agent_id = p_agent_id 
-    AND s.auth__provider_name = p_provider_name
-    AND s.session__is_active = true 
-    AND s.session__expires_at > NOW();
-
-    -- Check if max sessions would be exceeded
-    IF v_current_sessions >= v_provider_record.provider__session_max_per_agent THEN
-        -- Invalidate oldest session if limit reached
-        UPDATE auth.agent_sessions target_session
-        SET session__is_active = false,
-            session__expires_at = NOW()
-        WHERE target_session.general__session_id = (
-            SELECT oldest_session.general__session_id 
-            FROM auth.agent_sessions oldest_session
-            WHERE oldest_session.auth__agent_id = p_agent_id 
-            AND oldest_session.auth__provider_name = p_provider_name
-            AND oldest_session.session__is_active = true 
-            ORDER BY oldest_session.session__started_at ASC 
-            LIMIT 1
-        );
-    END IF;
-
-    -- Calculate expiration using provider settings
-    v_expires_at := NOW() + v_provider_record.provider__session_duration_jwt_string::INTERVAL;
-
-    INSERT INTO auth.agent_sessions AS s (
-        auth__agent_id,
-        auth__provider_name,
-        session__expires_at,
-        session__jwt
-    ) VALUES (
-        p_agent_id,
-        p_provider_name,
-        v_expires_at,
-        p_jwt
-    ) RETURNING 
-        s.general__session_id,
-        s.session__expires_at,
-        s.session__jwt
-    INTO v_session_id, v_expires_at, p_jwt;
-
-    RETURN QUERY SELECT v_session_id, v_expires_at, p_jwt;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
 CREATE OR REPLACE FUNCTION auth.validate_session(
     p_session_id UUID,
     p_session_token TEXT DEFAULT NULL
@@ -283,7 +198,50 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE OR REPLACE FUNCTION auth.set_agent_context_from_session(p_session_id UUID)
+CREATE OR REPLACE FUNCTION auth.enforce_session_limit()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_current_sessions INTEGER;
+  v_provider_record auth.auth_providers%ROWTYPE;
+  v_oldest_session RECORD;
+BEGIN
+  -- Check that the provider exists and is enabled (already partly enforced by FK)
+  SELECT * INTO v_provider_record
+  FROM auth.auth_providers
+  WHERE provider__name = NEW.auth__provider_name;
+
+  -- Count active sessions
+  SELECT COUNT(*) INTO v_current_sessions
+  FROM auth.agent_sessions
+  WHERE auth__agent_id = NEW.auth__agent_id
+    AND auth__provider_name = NEW.auth__provider_name
+    AND session__is_active = true
+    AND session__expires_at > NOW();
+  
+  IF v_current_sessions > v_provider_record.provider__session_max_per_agent THEN
+      -- Deactivate oldest session if limit reached
+      SELECT general__session_id
+      INTO v_oldest_session
+      FROM auth.agent_sessions
+      WHERE auth__agent_id = NEW.auth__agent_id
+        AND auth__provider_name = NEW.auth__provider_name
+        AND session__is_active = true
+      ORDER BY session__started_at ASC
+      LIMIT 1;
+      
+      IF FOUND THEN
+          UPDATE auth.agent_sessions
+          SET session__is_active = false,
+              session__expires_at = NOW()
+          WHERE general__session_id = v_oldest_session.general__session_id;
+      END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION auth.set_agent_context_from_session_id(p_session_id UUID)
 RETURNS void AS $$
 DECLARE
     v_agent_id UUID;
@@ -351,7 +309,7 @@ BEGIN
     REFRESH MATERIALIZED VIEW auth.active_sync_group_sessions;
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 
 -- =============================================================================
@@ -398,10 +356,12 @@ CREATE POLICY agent_update_own_profile ON auth.agent_profiles
 -- Sync Group Policies
 CREATE POLICY "Allow viewing sync groups" ON auth.sync_groups
     FOR SELECT
+    TO PUBLIC
     USING (true);
 
 CREATE POLICY "Allow admin sync group modifications" ON auth.sync_groups
     FOR ALL
+    TO PUBLIC
     USING (
         auth.is_admin_agent() 
         OR auth.is_system_agent() 
@@ -410,10 +370,12 @@ CREATE POLICY "Allow admin sync group modifications" ON auth.sync_groups
 -- Sync Group Role Policies
 CREATE POLICY "Allow viewing sync group roles" ON auth.agent_sync_group_roles
     FOR SELECT
+    TO PUBLIC
     USING (true);
 
 CREATE POLICY "Allow admin sync group role modifications" ON auth.agent_sync_group_roles
     FOR ALL
+    TO PUBLIC
     USING (
         auth.is_admin_agent() 
         OR auth.is_system_agent() 
@@ -437,6 +399,22 @@ CREATE POLICY "Only admins can manage provider connections" ON auth.agent_auth_p
         OR auth.is_system_agent()
     );
 
+CREATE POLICY "Only admins can manage auth providers" ON auth.auth_providers
+    FOR ALL
+    TO PUBLIC
+    USING (
+        auth.is_admin_agent()
+        OR auth.is_system_agent()
+    );
+
+CREATE POLICY "Admins can manage agent sessions" ON auth.agent_sessions
+    FOR ALL
+    TO PUBLIC
+    USING (
+        auth.is_admin_agent() 
+        OR auth.is_system_agent()
+    );
+
 
 -- =============================================================================
 -- 9. TRIGGERS
@@ -446,6 +424,11 @@ CREATE TRIGGER trigger_cleanup
     AFTER INSERT OR UPDATE ON auth.agent_sessions
     FOR EACH STATEMENT
     EXECUTE FUNCTION auth.cleanup_old_sessions();
+
+CREATE TRIGGER trigger_enforce_max_sessions
+    AFTER INSERT ON auth.agent_sessions
+    FOR EACH ROW
+    EXECUTE FUNCTION auth.enforce_session_limit();
 
 CREATE TRIGGER refresh_active_sessions_on_session_change
     AFTER INSERT OR UPDATE OR DELETE ON auth.agent_sessions
@@ -495,9 +478,14 @@ REVOKE ALL ON ALL PROCEDURES IN SCHEMA auth FROM PUBLIC, vircadia_agent_proxy;
 REVOKE ALL ON ALL ROUTINES IN SCHEMA auth FROM PUBLIC, vircadia_agent_proxy;
 
 -- Grant Specific Permissions
-GRANT SELECT ON auth.agent_profiles TO vircadia_agent_proxy;
-GRANT SELECT ON auth.sync_groups TO vircadia_agent_proxy;
-GRANT SELECT ON auth.agent_auth_providers TO vircadia_agent_proxy;
+GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_profiles TO vircadia_agent_proxy;
+GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_auth_providers TO vircadia_agent_proxy;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON auth.sync_groups TO vircadia_agent_proxy;
+GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_sync_group_roles TO vircadia_agent_proxy;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_sessions TO vircadia_agent_proxy;
+
 GRANT EXECUTE ON FUNCTION auth.is_anon_agent() TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.is_admin_agent() TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.is_system_agent() TO vircadia_agent_proxy;
@@ -505,11 +493,17 @@ GRANT EXECUTE ON FUNCTION auth.is_proxy_agent() TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.current_agent_id() TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.get_system_agent_id() TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.validate_session(UUID, TEXT) TO vircadia_agent_proxy;
-GRANT EXECUTE ON FUNCTION auth.set_agent_context_from_session(UUID) TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.set_agent_context_from_session_id(UUID) TO vircadia_agent_proxy;
 
 
 -- =============================================================================
--- 11. INITIAL DATA
+-- 11. GLOBAL FUNCTION PERMISSIONS
+-- =============================================================================
+
+GRANT EXECUTE ON FUNCTION uuid_generate_v4() TO vircadia_agent_proxy;
+
+-- =============================================================================
+-- 12. INITIAL DATA
 -- =============================================================================
 -- System Agent Profile
 INSERT INTO auth.agent_profiles 

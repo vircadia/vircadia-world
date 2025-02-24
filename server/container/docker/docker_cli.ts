@@ -400,7 +400,6 @@ export async function generateDbSystemToken(): Promise<{
     agentId: string;
 }> {
     const db = PostgresClient.getInstance();
-
     const sql = await db.getSuperClient();
 
     // Get auth provider settings for the system provider
@@ -432,10 +431,20 @@ export async function generateDbSystemToken(): Promise<{
     // Get system agent ID
     const [systemId] = await sql`SELECT auth.get_system_agent_id()`;
 
-    // Create a new session for the system agent
+    // Insert a new session for the system agent directly, computing expiration from the provider's duration
     const [sessionResult] = await sql`
-        SELECT * FROM auth.create_agent_session(${systemId.get_system_agent_id}, 'system')
-    `;
+		INSERT INTO auth.agent_sessions (
+			auth__agent_id,
+			auth__provider_name,
+			session__expires_at
+		)
+		VALUES (
+			${systemId.get_system_agent_id},
+			'system',
+			(NOW() + (${jwtDuration} || ' milliseconds')::INTERVAL)
+		)
+		RETURNING *
+	`;
 
     // Generate JWT token using the provider config
     const token = sign(

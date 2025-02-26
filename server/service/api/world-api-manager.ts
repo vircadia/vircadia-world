@@ -378,7 +378,7 @@ export class WorldApiManager {
                         const sessionValidationResult = await this.sql<
                             [{ is_valid: boolean }]
                         >`
-                            SELECT * FROM auth.validate_session(${jwtValidationResult.sessionId}::UUID)
+                            SELECT * FROM auth.validate_session_id(${jwtValidationResult.sessionId}::UUID)
                         `;
 
                         if (!sessionValidationResult[0].is_valid) {
@@ -453,16 +453,16 @@ export class WorldApiManager {
                                 const setSessionContextResult = await this.sql<
                                     [
                                         {
-                                            set_agent_context_from_session_id: boolean;
+                                            set_agent_context_from_agent_id: boolean;
                                         },
                                     ]
                                 >`
-                                    SELECT auth.set_agent_context_from_session_id(${jwtValidationResult.sessionId}::UUID, ${token}::TEXT) as set_agent_context_from_session_id
+                                    SELECT auth.set_agent_context_from_agent_id(${jwtValidationResult.sessionId}::UUID, ${token}::TEXT) as set_agent_context_from_agent_id
                                 `;
 
                                 if (
                                     !setSessionContextResult[0]
-                                        .set_agent_context_from_session_id
+                                        .set_agent_context_from_agent_id
                                 ) {
                                     return Response.json(
                                         Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
@@ -474,7 +474,7 @@ export class WorldApiManager {
                                 try {
                                     const sessionValidationResult = await this
                                         .sql<[{ is_valid: boolean }]>`
-                                    SELECT * FROM auth.validate_session(${jwtValidationResult.sessionId}::UUID)
+                                    SELECT * FROM auth.validate_session_id(${jwtValidationResult.sessionId}::UUID)
                                 `;
 
                                     log({
@@ -551,15 +551,15 @@ export class WorldApiManager {
                                     .sql<
                                     [
                                         {
-                                            set_agent_context_from_session_id: boolean;
+                                            set_agent_context_from_agent_id: boolean;
                                         },
                                     ]
                                 >`
-                                    SELECT auth.set_agent_context_from_session_id(${jwtValidationResult.sessionId}::UUID, ${token}::TEXT) as set_agent_context_from_session_id
+                                    SELECT auth.set_agent_context_from_agent_id(${jwtValidationResult.sessionId}::UUID, ${token}::TEXT) as set_agent_context_from_agent_id
                                 `;
 
                                 if (
-                                    !setSessionContextResult.set_agent_context_from_session_id
+                                    !setSessionContextResult.set_agent_context_from_agent_id
                                 ) {
                                     return Response.json(
                                         Communication.REST.Endpoint.AUTH_SESSION_LOGOUT.createError(
@@ -689,14 +689,14 @@ export class WorldApiManager {
                             }
 
                             const setSessionContextResult = await this.sql<
-                                [{ set_agent_context_from_session_id: boolean }]
+                                [{ set_agent_context_from_agent_id: boolean }]
                             >`
-                                SELECT auth.set_agent_context_from_session_id(${sessionId}::UUID, ${sessionToken}::TEXT) as set_agent_context_from_session_id
+                                SELECT auth.set_agent_context_from_agent_id(${sessionId}::UUID, ${sessionToken}::TEXT) as set_agent_context_from_agent_id
                             `;
 
                             if (
                                 !setSessionContextResult[0]
-                                    .set_agent_context_from_session_id
+                                    .set_agent_context_from_agent_id
                             ) {
                                 session.ws.send(
                                     JSON.stringify(
@@ -909,7 +909,7 @@ export class WorldApiManager {
                             this.authConfig
                                 .auth_config__heartbeat_inactive_expiry_ms
                         ) {
-                            // Use database validate_session function
+                            // Use database validate_session_id function
                             const [validation] = await this.sql<
                                 [
                                     {
@@ -919,7 +919,7 @@ export class WorldApiManager {
                                     },
                                 ]
                             >`
-                                    SELECT * FROM auth.validate_session(${sessionId}::UUID)
+                                    SELECT * FROM auth.validate_session_id(${sessionId}::UUID)
                                 `;
 
                             if (!validation?.is_valid) {

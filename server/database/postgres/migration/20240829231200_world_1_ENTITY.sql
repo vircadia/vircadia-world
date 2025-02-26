@@ -31,68 +31,7 @@ ALTER TABLE entity.entities ENABLE ROW LEVEL SECURITY;
 
 
 -- ============================================================================
--- 2. ENTITIES POLICIES
--- ============================================================================
-
-CREATE POLICY "entities_read_policy" ON entity.entities
-    FOR SELECT
-    USING (
-        auth.is_admin_agent()
-        OR auth.is_system_agent()
-        OR EXISTS (
-            SELECT 1 
-            FROM auth.active_sync_group_sessions sess 
-            WHERE sess.auth__agent_id = auth.current_agent_id()
-              AND sess.group__sync = entity.entities.group__sync
-              AND sess.permissions__can_read = true
-        )
-    );
-
-CREATE POLICY "entities_update_policy" ON entity.entities
-    FOR UPDATE
-    USING (
-        auth.is_admin_agent()
-        OR auth.is_system_agent()
-        OR EXISTS (
-            SELECT 1 
-            FROM auth.active_sync_group_sessions sess 
-            WHERE sess.auth__agent_id = auth.current_agent_id()
-              AND sess.group__sync = entity.entities.group__sync
-              AND sess.permissions__can_update = true
-        )
-    );
-
-CREATE POLICY "entities_insert_policy" ON entity.entities
-    FOR INSERT
-    WITH CHECK (
-        auth.is_admin_agent()
-        OR auth.is_system_agent()
-        OR EXISTS (
-            SELECT 1 
-            FROM auth.active_sync_group_sessions sess 
-            WHERE sess.auth__agent_id = auth.current_agent_id()
-              AND sess.group__sync = entity.entities.group__sync
-              AND sess.permissions__can_insert = true
-        )
-    );
-
-CREATE POLICY "entities_delete_policy" ON entity.entities
-    FOR DELETE
-    USING (
-        auth.is_admin_agent()
-        OR auth.is_system_agent()
-        OR EXISTS (
-            SELECT 1 
-            FROM auth.active_sync_group_sessions sess 
-            WHERE sess.auth__agent_id = auth.current_agent_id()
-              AND sess.group__sync = entity.entities.group__sync
-              AND sess.permissions__can_delete = true
-        )
-    );
-
-
--- ============================================================================
--- 3. ENTITIES FUNCTIONS
+-- 2. ENTITIES FUNCTIONS
 -- ============================================================================
 
 -- Function to validate the validation log format
@@ -231,7 +170,7 @@ $$ LANGUAGE plpgsql;
 
 
 -- ============================================================================
--- 4. ENTITIES TRIGGERS
+-- 3. ENTITIES TRIGGERS
 -- ============================================================================
 
 -- Trigger for enforcing validation log format

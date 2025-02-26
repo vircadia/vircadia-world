@@ -1,43 +1,16 @@
 -- ============================================================================
--- 1. CORE SECURITY AND ROLE MANAGEMENT
--- ============================================================================
--- Revoke all public access first
-REVOKE ALL ON ALL TABLES IN SCHEMA public FROM PUBLIC;
-REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM PUBLIC;
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;
-REVOKE ALL ON SCHEMA public FROM PUBLIC;
-
--- Create Agent Proxy Role with hard-coded password
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'vircadia_agent_proxy') THEN
-        EXECUTE 'CREATE ROLE vircadia_agent_proxy LOGIN PASSWORD ''CHANGE_ME!'' NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOREPLICATION';
-    END IF;
-END
-$$;
-
--- Grant minimal permissions to start
--- TODO: I do not think this is necessary since we whitelist vircadia_agent_proxy specifically only.
-GRANT USAGE ON SCHEMA public TO vircadia_agent_proxy;
-
-
--- ============================================================================
--- 2. SCHEMA CREATION AND INITIAL PERMISSIONS
+-- 1. SCHEMA CREATION AND INITIAL PERMISSIONS
 -- ============================================================================
 CREATE SCHEMA IF NOT EXISTS config;
 
-REVOKE ALL ON SCHEMA config FROM PUBLIC, vircadia_agent_proxy;
-GRANT USAGE ON SCHEMA config TO vircadia_agent_proxy;
-
-
 -- ============================================================================
--- 3. TYPES
+-- 2. TYPES
 -- ============================================================================
 CREATE TYPE config.operation_enum AS ENUM ('INSERT', 'UPDATE', 'DELETE');
 
 
 -- ============================================================================
--- 4. CONFIGURATION TABLES
+-- 3. CONFIGURATION TABLES
 -- ============================================================================
 -- Entity Configuration
 CREATE TABLE config.entity_config (
@@ -65,12 +38,12 @@ CREATE TABLE config.database_config (
     database_config__major_version INTEGER NOT NULL,
     database_config__minor_version INTEGER NOT NULL,
     database_config__patch_version INTEGER NOT NULL,
-    database_config__migration_timestamp TEXT NOT NULL
+    database_config__setup_timestamp TIMESTAMP NOT NULL
 );
 
 
 -- ============================================================================
--- 5. SEED TRACKING
+-- 4. SEED TRACKING
 -- ============================================================================
 CREATE TABLE config.seeds (
     general__seed_id SERIAL PRIMARY KEY,
@@ -80,22 +53,7 @@ CREATE TABLE config.seeds (
 
 
 -- ============================================================================
--- 6. PERMISSIONS
--- ============================================================================
--- Revoke All Permissions
-REVOKE ALL ON ALL TABLES IN SCHEMA config FROM PUBLIC, vircadia_agent_proxy;
-REVOKE ALL ON ALL SEQUENCES IN SCHEMA config FROM PUBLIC, vircadia_agent_proxy;
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA config FROM PUBLIC, vircadia_agent_proxy;
-
--- Grant Specific Permissions
-GRANT SELECT ON config.entity_config TO vircadia_agent_proxy;
-GRANT SELECT ON config.network_config TO vircadia_agent_proxy;
-GRANT SELECT ON config.auth_config TO vircadia_agent_proxy;
-GRANT SELECT ON config.database_config TO vircadia_agent_proxy;
-
-
--- ============================================================================
--- 7. INITIAL DATA
+-- 5. INITIAL DATA
 -- ============================================================================
 -- Entity Configuration
 INSERT INTO config.entity_config (
@@ -127,5 +85,25 @@ INSERT INTO config.database_config (
     database_config__major_version,
     database_config__minor_version,
     database_config__patch_version,
-    database_config__migration_timestamp
-) VALUES (1, 0, 0, '20240829231100');
+    database_config__setup_timestamp
+) VALUES (1, 0, 0, CURRENT_TIMESTAMP);
+
+
+-- ============================================================================
+-- 6. CONFIG SCHEMA PERMISSIONS
+-- ============================================================================
+-- Revoke All Permissions
+REVOKE ALL ON ALL TABLES IN SCHEMA config FROM PUBLIC;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA config FROM PUBLIC;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA config FROM PUBLIC;
+REVOKE ALL ON SCHEMA config FROM PUBLIC;
+
+-- Grant Usage on Schema
+GRANT USAGE ON SCHEMA config TO vircadia_agent_proxy;
+GRANT USAGE ON SCHEMA config TO public;
+
+-- Grant Specific Permissions
+GRANT SELECT ON config.entity_config TO public;
+GRANT SELECT ON config.network_config TO public;
+GRANT SELECT ON config.auth_config TO public;
+GRANT SELECT ON config.database_config TO public;

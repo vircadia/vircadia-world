@@ -34,7 +34,7 @@ async function runDockerCommand(args: string[]) {
     const processEnv = {
         ...process.env,
         POSTGRES_DB: VircadiaConfig.SERVER.POSTGRES.DATABASE,
-        POSTGRES_USER: VircadiaConfig.SERVER.POSTGRES.USER,
+        POSTGRES_USER: VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER,
         POSTGRES_PASSWORD: VircadiaConfig.SERVER.POSTGRES.PASSWORD,
         POSTGRES_PORT: VircadiaConfig.SERVER.POSTGRES.PORT.toString(),
         POSTGRES_HOST: VircadiaConfig.SERVER.POSTGRES.HOST,
@@ -164,7 +164,6 @@ export async function down(wipeVolumes = false) {
 
 export async function wipeDatabase() {
     const db = PostgresClient.getInstance();
-
     const sql = await db.getSuperClient();
 
     // Get list of migration files
@@ -201,11 +200,10 @@ export async function wipeDatabase() {
 }
 
 export async function migrate(): Promise<boolean> {
-    let migrationsRan = false;
-
     const db = PostgresClient.getInstance();
-
     const sql = await db.getSuperClient();
+
+    let migrationsRan = false;
 
     for (const name of VircadiaConfig.SERVER.POSTGRES.EXTENSIONS) {
         log({
@@ -255,7 +253,19 @@ export async function migrate(): Promise<boolean> {
     const migrations = await readdir(POSTGRES_MIGRATIONS_DIR);
     const migrationSqlFiles = migrations
         .filter((f) => f.endsWith(".sql"))
-        .sort();
+        .sort((a, b) => {
+            // Extract numeric prefixes if present (e.g., "001_" from "001_create_tables.sql")
+            const numA = Number.parseInt(a.match(/^(\d+)/)?.[1] || "0");
+            const numB = Number.parseInt(b.match(/^(\d+)/)?.[1] || "0");
+
+            // If both have numeric prefixes, compare them numerically
+            if (!Number.isNaN(numA) && !Number.isNaN(numB)) {
+                return numA - numB;
+            }
+
+            // Fall back to lexicographic sorting
+            return a.localeCompare(b);
+        });
 
     // Get already executed migrations
     const result =
@@ -269,6 +279,13 @@ export async function migrate(): Promise<boolean> {
             try {
                 const filePath = path.join(POSTGRES_MIGRATIONS_DIR, file);
                 const sqlContent = await readFile(filePath, "utf-8");
+
+                log({
+                    message: `Executing migration ${file}...`,
+                    type: "debug",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
 
                 await sql.begin(async (sql) => {
                     await sql.unsafe(sqlContent);
@@ -305,7 +322,6 @@ export async function seed(data: {
     seedPath?: string;
 }) {
     const db = PostgresClient.getInstance();
-
     const sql = await db.getSuperClient();
 
     // Ensure we resolve the seed path to absolute path
@@ -475,7 +491,6 @@ export async function generateDbSystemToken(): Promise<{
 
 export async function invalidateDbSystemTokens(): Promise<number> {
     const db = PostgresClient.getInstance();
-
     const sql = await db.getSuperClient();
 
     // First update all active sessions for the system agent to inactive
@@ -498,7 +513,7 @@ export async function invalidateDbSystemTokens(): Promise<number> {
 }
 
 export async function generateDbConnectionString(): Promise<string> {
-    return `postgres://${VircadiaConfig.SERVER.POSTGRES.USER}:${VircadiaConfig.SERVER.POSTGRES.PASSWORD}@${VircadiaConfig.SERVER.POSTGRES.HOST}:${VircadiaConfig.SERVER.POSTGRES.PORT}/${VircadiaConfig.SERVER.POSTGRES.DATABASE}`;
+    return `postgres://${VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER}:${VircadiaConfig.SERVER.POSTGRES.PASSWORD}@${VircadiaConfig.SERVER.POSTGRES.HOST}:${VircadiaConfig.SERVER.POSTGRES.PORT}/${VircadiaConfig.SERVER.POSTGRES.DATABASE}`;
 }
 
 // If this file is run directly

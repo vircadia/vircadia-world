@@ -154,7 +154,7 @@ describe("DB -> Entity Tests", () => {
             admin = accounts.admin;
             agent = accounts.agent;
         }
-        await sql`SELECT auth.set_agent_context_from_session_id(${admin.sessionId}, ${admin.token})`;
+        await sql`SELECT auth.set_agent_context_from_agent_id(${admin.sessionId}, ${admin.token})`;
     });
 
     describe("Entity -> Entities Operations", () => {

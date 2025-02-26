@@ -23,7 +23,7 @@ export class PostgresClient {
                 host: VircadiaConfig.SERVER.POSTGRES.HOST,
                 port: VircadiaConfig.SERVER.POSTGRES.PORT,
                 database: VircadiaConfig.SERVER.POSTGRES.DATABASE,
-                username: VircadiaConfig.SERVER.POSTGRES.USER,
+                username: VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER,
                 password: VircadiaConfig.SERVER.POSTGRES.PASSWORD,
                 onnotice: VircadiaConfig.SERVER.SUPPRESS ? () => {} : undefined,
                 onclose: VircadiaConfig.SERVER.SUPPRESS ? () => {} : undefined,

@@ -1,6 +1,93 @@
--- =============================================================================
--- 1. BASE TABLES
--- =============================================================================
+-- ============================================================================
+-- 1. SCHEMA CREATION
+-- ============================================================================
+CREATE SCHEMA IF NOT EXISTS auth;
+
+-- ============================================================================
+-- 2. CORE AUTHENTICATION FUNCTIONS
+-- ============================================================================
+
+-- Super Admin Check Function
+CREATE OR REPLACE FUNCTION auth.is_system_agent()
+RETURNS boolean AS $$ 
+BEGIN
+    RETURN session_user = 'vircadia';
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Proxy Agent Check Function
+CREATE OR REPLACE FUNCTION auth.is_proxy_agent()
+RETURNS boolean AS $$
+BEGIN
+    RETURN session_user = 'vircadia_agent_proxy';
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- System Agent ID Function
+CREATE OR REPLACE FUNCTION auth.get_system_agent_id() 
+RETURNS UUID AS $$
+BEGIN
+    RETURN '00000000-0000-0000-0000-000000000000'::UUID;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Current Agent ID Function
+CREATE OR REPLACE FUNCTION auth.current_agent_id() 
+RETURNS UUID AS $$
+BEGIN
+    -- First check if user is super admin
+    IF auth.is_system_agent() THEN
+        RETURN auth.get_system_agent_id();
+    END IF;
+
+    -- Check if setting exists and is not empty/null
+    IF current_setting('app.current_agent_id', true) IS NULL OR 
+       TRIM(current_setting('app.current_agent_id', true)) = '' OR
+       TRIM(current_setting('app.current_agent_id', true)) = 'NULL' THEN
+        RAISE EXCEPTION 'No agent ID set in context';
+    END IF;
+
+    -- Validate UUID length
+    IF LENGTH(TRIM(current_setting('app.current_agent_id', true))) != 36 THEN
+        RAISE EXCEPTION 'Invalid UUID format: incorrect length';
+    END IF;
+
+    -- Try to cast to UUID, raise exception if invalid
+    BEGIN
+        RETURN TRIM(current_setting('app.current_agent_id', true))::UUID;
+    EXCEPTION WHEN OTHERS THEN
+        RAISE EXCEPTION 'Invalid UUID format: %', current_setting('app.current_agent_id', true);
+    END;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================================================
+-- 3. BASE TEMPLATES
+-- ============================================================================
+-- Audit Template Table
+CREATE TABLE auth._template (
+    general__created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    general__created_by UUID DEFAULT auth.current_agent_id(),
+    general__updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    general__updated_by UUID DEFAULT auth.current_agent_id()
+);
+
+-- ============================================================================
+-- 4. TRIGGERS AND TRIGGER FUNCTIONS
+-- ============================================================================
+-- Audit Column Update Function
+CREATE OR REPLACE FUNCTION auth.update_audit_columns()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.general__updated_at = CURRENT_TIMESTAMP;
+    NEW.general__updated_by = auth.current_agent_id();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================================================
+-- 5. BASE TABLES
+-- ============================================================================
 -- Agent Profiles Table
 CREATE TABLE auth.agent_profiles (
     general__agent_profile_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -25,10 +112,9 @@ CREATE TABLE auth.agent_sessions (
 ) INHERITS (auth._template);
 ALTER TABLE auth.agent_sessions ENABLE ROW LEVEL SECURITY;
 
-
--- =============================================================================
--- 2. AUTH PROVIDER TABLES
--- =============================================================================
+-- ============================================================================
+-- 6. AUTH PROVIDER TABLES
+-- ============================================================================
 -- Auth Provider Configurations Table
 CREATE TABLE auth.auth_providers (
     provider__name TEXT PRIMARY KEY,                -- Provider identifier (e.g., 'google', 'github')
@@ -81,10 +167,9 @@ ALTER TABLE auth.agent_auth_providers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE auth.agent_sessions ADD CONSTRAINT agent_sessions_auth__provider_name_fkey
     FOREIGN KEY (auth__provider_name) REFERENCES auth.auth_providers(provider__name) ON DELETE CASCADE;
 
-
--- =============================================================================
--- 3. SYNC GROUP TABLES
--- =============================================================================
+-- ============================================================================
+-- 7. SYNC GROUP TABLES
+-- ============================================================================
 -- Sync Groups Table
 CREATE TABLE auth.sync_groups (
     general__sync_group TEXT PRIMARY KEY,
@@ -112,10 +197,10 @@ CREATE TABLE auth.agent_sync_group_roles (
 ) INHERITS (auth._template);
 ALTER TABLE auth.agent_sync_group_roles ENABLE ROW LEVEL SECURITY;
 
+-- ============================================================================
+-- 8. AUTHENTICATION FUNCTIONS
+-- ============================================================================
 
--- =============================================================================
--- 4. AUTHENTICATION FUNCTIONS
--- =============================================================================
 -- Non-system agent Status Functions
 CREATE OR REPLACE FUNCTION auth.is_anon_agent()
 RETURNS boolean AS $$
@@ -141,12 +226,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-
--- =============================================================================
--- 5. SESSION MANAGEMENT FUNCTIONS
--- =============================================================================
-
-CREATE OR REPLACE FUNCTION auth.validate_session(
+-- ============================================================================
+-- 9. SESSION MANAGEMENT FUNCTIONS
+-- ============================================================================
+CREATE OR REPLACE FUNCTION auth.validate_session_id(
     p_session_id UUID,
     p_session_token TEXT DEFAULT NULL
 ) RETURNS UUID AS $$ 
@@ -242,18 +325,13 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE OR REPLACE FUNCTION auth.set_agent_context_from_session_id(p_session_id UUID)
+CREATE OR REPLACE FUNCTION auth.set_agent_context_from_agent_id(p_agent_id UUID)
 RETURNS void AS $$
-DECLARE
-    v_agent_id UUID;
 BEGIN
     -- Only allow the vircadia_agent_proxy role to set the agent context
     IF NOT auth.is_proxy_agent() THEN
         RAISE EXCEPTION 'Only the proxy agent can set the agent context';
     END IF;
-
-    -- Validate the session and get corresponding agent id.
-    v_agent_id := auth.validate_session(p_session_id, NULL);
 
     -- Prevent changing the context if it has already been set
     IF current_setting('app.current_agent_id', true) IS NOT NULL
@@ -263,14 +341,13 @@ BEGIN
     END IF;
 
     -- Set the validated agent ID for the session (transaction-local)
-    PERFORM set_config('app.current_agent_id', v_agent_id::text, true);
+    PERFORM set_config('app.current_agent_id', p_agent_id::text, true);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-
--- =============================================================================
--- 6. MATERIALIZED VIEWS AND RELATED FUNCTIONS
--- =============================================================================
+-- ============================================================================
+-- 10. MATERIALIZED VIEWS AND RELATED FUNCTIONS
+-- ============================================================================
 -- Active Sessions View
 CREATE MATERIALIZED VIEW IF NOT EXISTS auth.active_sync_group_sessions AS
 SELECT DISTINCT
@@ -303,7 +380,6 @@ ON auth.active_sync_group_sessions (general__session_id, group__sync);
 CREATE UNIQUE INDEX idx_active_sync_group_sessions_lookup 
 ON auth.active_sync_group_sessions (group__sync);
 
-
 -- View Refresh Functions
 CREATE OR REPLACE FUNCTION auth.refresh_active_sessions_trigger()
 RETURNS trigger AS $$ 
@@ -313,10 +389,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-
--- =============================================================================
--- 7. INDEXES
--- =============================================================================
+-- ============================================================================
+-- 11. INDEXES
+-- ============================================================================
 -- Agent Profile Indexes
 CREATE INDEX idx_agent_profiles_email ON auth.agent_profiles(auth__email);
 
@@ -332,95 +407,9 @@ CREATE INDEX idx_agent_sessions_validation ON auth.agent_sessions
 CREATE INDEX idx_agent_sessions_last_seen ON auth.agent_sessions(session__last_seen_at) 
     WHERE session__is_active = true;
 
-
--- =============================================================================
--- 8. ROW LEVEL SECURITY POLICIES
--- =============================================================================
--- Agent Profile Policies
-CREATE POLICY agent_view_own_profile ON auth.agent_profiles
-    FOR SELECT
-    TO PUBLIC
-    USING (
-        general__agent_profile_id = auth.current_agent_id()  -- Agents can view their own profile
-        OR auth.is_admin_agent()                            -- Admins can view all profiles
-        OR auth.is_system_agent()                           -- System agent can view all profiles
-    );
-
-CREATE POLICY agent_update_own_profile ON auth.agent_profiles
-    FOR UPDATE
-    TO PUBLIC
-    USING (
-        general__agent_profile_id = auth.current_agent_id()  -- Agents can update their own profile
-        OR auth.is_admin_agent()                            -- Admins can update all profiles
-        OR auth.is_system_agent()                           -- System agent can update all profiles
-    );
-
--- Sync Group Policies
-CREATE POLICY "Allow viewing sync groups" ON auth.sync_groups
-    FOR SELECT
-    TO PUBLIC
-    USING (true);
-
-CREATE POLICY "Allow admin sync group modifications" ON auth.sync_groups
-    FOR ALL
-    TO PUBLIC
-    USING (
-        auth.is_admin_agent() 
-        OR auth.is_system_agent() 
-    );
-
--- Sync Group Role Policies
-CREATE POLICY "Allow viewing sync group roles" ON auth.agent_sync_group_roles
-    FOR SELECT
-    TO PUBLIC
-    USING (true);
-
-CREATE POLICY "Allow admin sync group role modifications" ON auth.agent_sync_group_roles
-    FOR ALL
-    TO PUBLIC
-    USING (
-        auth.is_admin_agent() 
-        OR auth.is_system_agent() 
-    );
-
--- Agent Auth Providers Policies
-CREATE POLICY "Users can view their own provider connections" ON auth.agent_auth_providers
-    FOR SELECT
-    TO PUBLIC
-    USING (
-        auth__agent_id = auth.current_agent_id()
-        OR auth.is_admin_agent()
-        OR auth.is_system_agent()
-    );
-
-CREATE POLICY "Only admins can manage provider connections" ON auth.agent_auth_providers
-    FOR ALL
-    TO PUBLIC
-    USING (
-        auth.is_admin_agent()
-        OR auth.is_system_agent()
-    );
-
-CREATE POLICY "Only admins can manage auth providers" ON auth.auth_providers
-    FOR ALL
-    TO PUBLIC
-    USING (
-        auth.is_admin_agent()
-        OR auth.is_system_agent()
-    );
-
-CREATE POLICY "Admins can manage agent sessions" ON auth.agent_sessions
-    FOR ALL
-    TO PUBLIC
-    USING (
-        auth.is_admin_agent() 
-        OR auth.is_system_agent()
-    );
-
-
--- =============================================================================
--- 9. TRIGGERS
--- =============================================================================
+-- ============================================================================
+-- 12. TRIGGERS
+-- ============================================================================
 -- Session Management Triggers
 CREATE TRIGGER trigger_cleanup
     AFTER INSERT OR UPDATE ON auth.agent_sessions
@@ -468,47 +457,9 @@ CREATE TRIGGER update_agent_sync_group_roles_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION auth.update_audit_columns();
 
-
--- =============================================================================
--- 10. PERMISSIONS
--- =============================================================================
--- Revoke All Permissions
-REVOKE ALL ON ALL TABLES IN SCHEMA auth FROM PUBLIC, vircadia_agent_proxy;
-REVOKE ALL ON ALL SEQUENCES IN SCHEMA auth FROM PUBLIC, vircadia_agent_proxy;
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA auth FROM PUBLIC, vircadia_agent_proxy;
-REVOKE ALL ON ALL PROCEDURES IN SCHEMA auth FROM PUBLIC, vircadia_agent_proxy;
-REVOKE ALL ON ALL ROUTINES IN SCHEMA auth FROM PUBLIC, vircadia_agent_proxy;
-
--- Grant Specific Permissions
-GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_profiles TO vircadia_agent_proxy;
-GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_auth_providers TO vircadia_agent_proxy;
-
-GRANT SELECT, INSERT, UPDATE, DELETE ON auth.sync_groups TO vircadia_agent_proxy;
-GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_sync_group_roles TO vircadia_agent_proxy;
-
-GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_sessions TO vircadia_agent_proxy;
-
-GRANT SELECT ON auth.active_sync_group_sessions TO vircadia_agent_proxy;
-
-GRANT EXECUTE ON FUNCTION auth.is_anon_agent() TO vircadia_agent_proxy;
-GRANT EXECUTE ON FUNCTION auth.is_admin_agent() TO vircadia_agent_proxy;
-GRANT EXECUTE ON FUNCTION auth.is_system_agent() TO vircadia_agent_proxy;
-GRANT EXECUTE ON FUNCTION auth.is_proxy_agent() TO vircadia_agent_proxy;
-GRANT EXECUTE ON FUNCTION auth.current_agent_id() TO vircadia_agent_proxy;
-GRANT EXECUTE ON FUNCTION auth.get_system_agent_id() TO vircadia_agent_proxy;
-GRANT EXECUTE ON FUNCTION auth.validate_session(UUID, TEXT) TO vircadia_agent_proxy;
-GRANT EXECUTE ON FUNCTION auth.set_agent_context_from_session_id(UUID) TO vircadia_agent_proxy;
-
-
--- =============================================================================
--- 11. GLOBAL FUNCTION PERMISSIONS
--- =============================================================================
-
-GRANT EXECUTE ON FUNCTION uuid_generate_v4() TO vircadia_agent_proxy;
-
--- =============================================================================
--- 12. INITIAL DATA
--- =============================================================================
+-- ============================================================================
+-- 13. INITIAL DATA
+-- ============================================================================
 -- System Agent Profile
 INSERT INTO auth.agent_profiles 
     (general__agent_profile_id, profile__username, auth__email, auth__is_system) 
@@ -583,3 +534,155 @@ INSERT INTO auth.auth_providers (
     86400000,
     3600000
 ) ON CONFLICT (provider__name) DO NOTHING;
+
+-- ============================================================================
+-- 14. PERMISSIONS
+-- ============================================================================
+
+CREATE POLICY agent_view_own_profile ON auth.agent_profiles
+    FOR SELECT
+    TO PUBLIC
+    USING (
+        general__agent_profile_id = auth.current_agent_id()  -- Agents can view their own profile
+        OR auth.is_admin_agent()                            -- Admins can view all profiles
+        OR auth.is_system_agent()                           -- System agent can view all profiles
+    );
+
+CREATE POLICY agent_update_own_profile ON auth.agent_profiles
+    FOR UPDATE
+    TO PUBLIC
+    USING (
+        general__agent_profile_id = auth.current_agent_id()  -- Agents can update their own profile
+        OR auth.is_admin_agent()                            -- Admins can update all profiles
+        OR auth.is_system_agent()                           -- System agent can update all profiles
+    );
+
+-- Sync Group Policies
+CREATE POLICY "Allow viewing sync groups" ON auth.sync_groups
+    FOR SELECT
+    TO PUBLIC
+    USING (true);
+
+CREATE POLICY "Allow admin sync group modifications" ON auth.sync_groups
+    FOR ALL
+    TO PUBLIC
+    USING (
+        auth.is_admin_agent() 
+        OR auth.is_system_agent() 
+    );
+
+-- Sync Group Role Policies
+CREATE POLICY "Allow viewing sync group roles" ON auth.agent_sync_group_roles
+    FOR SELECT
+    TO PUBLIC
+    USING (true);
+
+CREATE POLICY "Allow admin sync group role modifications" ON auth.agent_sync_group_roles
+    FOR ALL
+    TO PUBLIC
+    USING (
+        auth.is_admin_agent() 
+        OR auth.is_system_agent() 
+    );
+
+-- Agent Auth Providers Policies
+CREATE POLICY "Users can view their own provider connections" ON auth.agent_auth_providers
+    FOR SELECT
+    TO PUBLIC
+    USING (
+        auth__agent_id = auth.current_agent_id()
+        OR auth.is_admin_agent()
+        OR auth.is_system_agent()
+    );
+
+CREATE POLICY "Only admins can manage provider connections" ON auth.agent_auth_providers
+    FOR ALL
+    TO PUBLIC
+    USING (
+        auth.is_admin_agent()
+        OR auth.is_system_agent()
+    );
+
+CREATE POLICY "Only admins can manage auth providers" ON auth.auth_providers
+    FOR ALL
+    TO PUBLIC
+    USING (
+        auth.is_admin_agent()
+        OR auth.is_system_agent()
+    );
+
+-- SELECT policy: Regular users can view their own sessions, admins/system can view all
+CREATE POLICY "Sessions SELECT permissions" ON auth.agent_sessions
+    FOR SELECT
+    TO PUBLIC
+    USING (
+        auth__agent_id = auth.current_agent_id()
+        OR auth.is_admin_agent() 
+        OR auth.is_system_agent()
+    );
+
+-- INSERT policy: Regular users can only create their own sessions, admins/system can create any
+CREATE POLICY "Sessions INSERT permissions" ON auth.agent_sessions
+    FOR INSERT
+    TO PUBLIC
+    WITH CHECK (
+        auth.is_admin_agent() 
+        OR auth.is_system_agent()
+    );
+
+-- UPDATE policy: Regular users can only update their own sessions, admins/system can update any
+CREATE POLICY "Sessions UPDATE permissions" ON auth.agent_sessions
+    FOR UPDATE
+    TO PUBLIC
+    USING (
+        auth.is_admin_agent() 
+        OR auth.is_system_agent()
+    );
+
+-- DELETE policy: Regular users can only delete their own sessions, admins/system can delete any
+CREATE POLICY "Sessions DELETE permissions" ON auth.agent_sessions
+    FOR DELETE
+    TO PUBLIC
+    USING (
+        auth__agent_id = auth.current_agent_id()
+        OR auth.is_admin_agent() 
+        OR auth.is_system_agent()
+    );
+
+
+
+
+-- Revoke all permissions first
+REVOKE ALL ON ALL TABLES IN SCHEMA auth FROM PUBLIC;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA auth FROM PUBLIC;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA auth FROM PUBLIC;
+REVOKE ALL ON SCHEMA auth FROM PUBLIC;
+
+-- Grant usage on schema
+GRANT USAGE ON SCHEMA auth TO vircadia_agent_proxy;
+GRANT USAGE ON SCHEMA auth TO PUBLIC;
+
+-- Grant table permissions
+GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_profiles TO public;
+GRANT SELECT, INSERT, UPDATE, DELETE ON auth.auth_providers TO public;
+GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_auth_providers TO public;
+GRANT SELECT, INSERT, UPDATE, DELETE ON auth.sync_groups TO public;
+GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_sync_group_roles TO public;
+GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_sessions TO public;
+
+-- Grant view permissions
+GRANT SELECT ON auth.active_sync_group_sessions TO public;
+
+-- Grant function permissions with explicit parameter types
+GRANT EXECUTE ON FUNCTION auth.is_anon_agent() TO public;
+GRANT EXECUTE ON FUNCTION auth.is_admin_agent() TO public;
+GRANT EXECUTE ON FUNCTION auth.is_system_agent() TO public;
+GRANT EXECUTE ON FUNCTION auth.is_proxy_agent() TO public;
+GRANT EXECUTE ON FUNCTION auth.current_agent_id() TO public;
+GRANT EXECUTE ON FUNCTION auth.get_system_agent_id() TO public;
+GRANT EXECUTE ON FUNCTION auth.validate_session_id(UUID, TEXT) TO public;
+GRANT EXECUTE ON FUNCTION auth.set_agent_context_from_agent_id(UUID) TO public;
+GRANT EXECUTE ON FUNCTION auth.refresh_active_sessions_trigger() TO public;
+GRANT EXECUTE ON FUNCTION auth.update_audit_columns() TO public;
+GRANT EXECUTE ON FUNCTION auth.cleanup_old_sessions() TO public;
+GRANT EXECUTE ON FUNCTION auth.enforce_session_limit() TO public;

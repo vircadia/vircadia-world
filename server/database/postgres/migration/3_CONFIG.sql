@@ -100,10 +100,9 @@ REVOKE ALL ON SCHEMA config FROM PUBLIC;
 
 -- Grant Usage on Schema
 GRANT USAGE ON SCHEMA config TO vircadia_agent_proxy;
-GRANT USAGE ON SCHEMA config TO public;
 
 -- Grant Specific Permissions
-GRANT SELECT ON config.entity_config TO public;
-GRANT SELECT ON config.network_config TO public;
-GRANT SELECT ON config.auth_config TO public;
-GRANT SELECT ON config.database_config TO public;
+GRANT SELECT ON config.entity_config TO vircadia_agent_proxy;
+GRANT SELECT ON config.network_config TO vircadia_agent_proxy;
+GRANT SELECT ON config.auth_config TO vircadia_agent_proxy;
+GRANT SELECT ON config.database_config TO vircadia_agent_proxy;

@@ -648,29 +648,28 @@ REVOKE ALL ON SCHEMA auth FROM PUBLIC;
 
 -- Grant usage on schema
 GRANT USAGE ON SCHEMA auth TO vircadia_agent_proxy;
-GRANT USAGE ON SCHEMA auth TO public;
 
 -- Grant table permissions
-GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_profiles TO public;
-GRANT SELECT, INSERT, UPDATE, DELETE ON auth.auth_providers TO public;
-GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_auth_providers TO public;
-GRANT SELECT, INSERT, UPDATE, DELETE ON auth.sync_groups TO public;
-GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_sync_group_roles TO public;
-GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_sessions TO public;
+GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_profiles TO vircadia_agent_proxy;
+GRANT SELECT, INSERT, UPDATE, DELETE ON auth.auth_providers TO vircadia_agent_proxy;
+GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_auth_providers TO vircadia_agent_proxy;
+GRANT SELECT, INSERT, UPDATE, DELETE ON auth.sync_groups TO vircadia_agent_proxy;
+GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_sync_group_roles TO vircadia_agent_proxy;
+GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_sessions TO vircadia_agent_proxy;
 
 -- Grant view permissions
-GRANT SELECT ON auth.active_sync_group_sessions TO public;
+GRANT SELECT ON auth.active_sync_group_sessions TO vircadia_agent_proxy;
 
 -- Grant function permissions with explicit parameter types
-GRANT EXECUTE ON FUNCTION auth.is_anon_agent() TO public;
-GRANT EXECUTE ON FUNCTION auth.is_admin_agent() TO public;
-GRANT EXECUTE ON FUNCTION auth.is_system_agent() TO public;
-GRANT EXECUTE ON FUNCTION auth.is_proxy_agent() TO public;
-GRANT EXECUTE ON FUNCTION auth.current_agent_id() TO public;
-GRANT EXECUTE ON FUNCTION auth.get_system_agent_id() TO public;
-GRANT EXECUTE ON FUNCTION auth.validate_session_id(UUID, TEXT) TO public;
-GRANT EXECUTE ON FUNCTION auth.set_agent_context_from_agent_id(UUID) TO public;
-GRANT EXECUTE ON FUNCTION auth.refresh_active_sessions_trigger() TO public;
-GRANT EXECUTE ON FUNCTION auth.update_audit_columns() TO public;
-GRANT EXECUTE ON FUNCTION auth.cleanup_old_sessions() TO public;
-GRANT EXECUTE ON FUNCTION auth.enforce_session_limit() TO public;
+GRANT EXECUTE ON FUNCTION auth.is_anon_agent() TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.is_admin_agent() TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.is_system_agent() TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.is_proxy_agent() TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.current_agent_id() TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.get_system_agent_id() TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.validate_session_id(UUID, TEXT) TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.set_agent_context_from_agent_id(UUID) TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.refresh_active_sessions_trigger() TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.update_audit_columns() TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.cleanup_old_sessions() TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.enforce_session_limit() TO vircadia_agent_proxy;

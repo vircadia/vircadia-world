@@ -412,245 +412,245 @@ describe("DB", () => {
                     expect(validateAnonSession.agent_id).toBe(anonAgent.id);
                 });
             });
-            // test("should verify SYSTEM agent permissions", async () => {
-            //     await superUserSql.begin(async (tx) => {
-            //         const [isAdmin] =
-            //             await tx`SELECT auth.is_admin_agent() as is_admin`;
-            //         expect(isAdmin.is_admin).toBe(false);
-            //         const [isSystem] =
-            //             await tx`SELECT auth.is_system_agent() as is_system`;
-            //         expect(isSystem.is_system).toBe(true);
-            //         const [isProxy] =
-            //             await tx`SELECT auth.is_proxy_agent() as is_proxy`;
-            //         expect(isProxy.is_proxy).toBe(false);
-            //         const [isAnon] =
-            //             await tx`SELECT auth.is_anon_agent() as is_anon`;
-            //         expect(isAnon.is_anon).toBe(false);
-            //         const [systemAgentId] =
-            //             await tx`SELECT auth.get_system_agent_id() as system_agent_id`; // Get system agent id
-            //         expect(systemAgentId.system_agent_id).toBeDefined();
-            //         const [currentAgentId] =
-            //             await tx`SELECT auth.current_agent_id() as current_agent_id`;
-            //         expect(currentAgentId.current_agent_id).toBe(
-            //             systemAgentId.system_agent_id,
-            //         );
-            //     });
-            // });
-            // test("should verify ADMIN PROXY agent permissions", async () => {
-            //     await proxyUserSql.begin(async (tx) => {
-            //         const [setAgentContext] =
-            //             await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
-            //         const [isAdmin] =
-            //             await tx`SELECT auth.is_admin_agent() as is_admin`;
-            //         expect(isAdmin.is_admin).toBe(true);
-            //         const [isSystem] =
-            //             await tx`SELECT auth.is_system_agent() as is_system`;
-            //         expect(isSystem.is_system).toBe(false);
-            //         const [isProxy] =
-            //             await tx`SELECT auth.is_proxy_agent() as is_proxy`;
-            //         expect(isProxy.is_proxy).toBe(true);
-            //         const [isAnon] =
-            //             await tx`SELECT auth.is_anon_agent() as is_anon`;
-            //         expect(isAnon.is_anon).toBe(false);
-            //         const [currentAgentId] =
-            //             await tx`SELECT auth.current_agent_id()`;
-            //         expect(currentAgentId.current_agent_id).toBe(adminAgent.id);
-            //     });
-            // });
-            // test("should verify REGULAR PROXY agent permissions", async () => {
-            //     await proxyUserSql.begin(async (tx) => {
-            //         const [setAgentContext] =
-            //             await tx`SELECT auth.set_agent_context_from_agent_id(${regularAgent.id}::uuid)`;
-            //         const [isAdmin] =
-            //             await tx`SELECT auth.is_admin_agent() as is_admin`;
-            //         expect(isAdmin.is_admin).toBe(false);
-            //         const [isSystem] =
-            //             await tx`SELECT auth.is_system_agent() as is_system`;
-            //         expect(isSystem.is_system).toBe(false);
-            //         const [isProxy] =
-            //             await tx`SELECT auth.is_proxy_agent() as is_proxy`;
-            //         expect(isProxy.is_proxy).toBe(true);
-            //         const [isAnon] =
-            //             await tx`SELECT auth.is_anon_agent() as is_anon`;
-            //         expect(isAnon.is_anon).toBe(false);
-            //         const [agentId] = await tx`SELECT auth.current_agent_id()`; // Get current agent id
-            //         expect(agentId.current_agent_id).toBe(regularAgent.id);
-            //     });
-            // });
-            // test("should verify ANON PROXY agent permissions", async () => {
-            //     await proxyUserSql.begin(async (tx) => {
-            //         await tx`SELECT auth.set_agent_context_from_agent_id(${anonAgent.id}::uuid)`;
-            //         const [isAdmin] =
-            //             await tx`SELECT auth.is_admin_agent() as is_admin`;
-            //         expect(isAdmin.is_admin).toBe(false);
-            //         const [isSystem] =
-            //             await tx`SELECT auth.is_system_agent() as is_system`;
-            //         expect(isSystem.is_system).toBe(false);
-            //         const [isProxy] =
-            //             await tx`SELECT auth.is_proxy_agent() as is_proxy`;
-            //         expect(isProxy.is_proxy).toBe(true);
-            //         const [isAnon] =
-            //             await tx`SELECT auth.is_anon_agent() as is_anon`;
-            //         expect(isAnon.is_anon).toBe(true);
-            //         const [currentAgentId] =
-            //             await tx`SELECT auth.current_agent_id()`; // Get current agent id
-            //         expect(currentAgentId.current_agent_id).toBe(anonAgent.id);
-            //     });
-            // });
-            // test("should handle expired sessions correctly", async () => {
-            //     await proxyUserSql.begin(async (tx) => {
-            //         await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
-            //         const [expiredSession] = await tx`
-            //                 INSERT INTO auth.agent_sessions (
-            //                     auth__agent_id,
-            //                     auth__provider_name,
-            //                     session__expires_at,
-            //                     session__is_active,
-            //                     session__jwt
-            //                 ) VALUES (
-            //                     ${adminAgent.id},
-            //                     'system',
-            //                     NOW() - INTERVAL '1 second',
-            //                     true,
-            //                     'test_token'
-            //                 ) RETURNING general__session_id
-            //             `;
-            //         // Now attempt to select that session row, it should be gone.
-            //         const [foundExpiredSession] = await tx`
-            //                 SELECT * FROM auth.agent_sessions
-            //                 WHERE general__session_id = ${expiredSession.general__session_id}
-            //             `;
-            //         expect(foundExpiredSession).toBeUndefined();
-            //     });
-            // });
-            // test("should enforce max sessions per agent for 'system' provider", async () => {
-            //     await superUserSql.begin(async (tx) => {
-            //         // Create a new test agent profile exclusive to this test
-            //         const uniqueSuffix = Math.floor(Math.random() * 1000000);
-            //         const testUsername = `test_temp_agent_${uniqueSuffix}`;
-            //         const testEmail = `temp_agent_${uniqueSuffix}@test.com`;
-            //         const [newAgent] = await tx`
-            //             INSERT INTO auth.agent_profiles (profile__username, auth__email)
-            //             VALUES (${testUsername}, ${testEmail})
-            //             RETURNING general__agent_profile_id
-            //         `;
-            //         const newAgentId = newAgent.general__agent_profile_id;
-            //         // Query provider config for the 'system' provider
-            //         const [testProviderConfig] = await tx<
-            //             [
-            //                 {
-            //                     provider__session_max_per_agent: number;
-            //                     provider__session_duration_ms: number;
-            //                 },
-            //             ]
-            //         >`SELECT provider__session_max_per_agent, provider__session_duration_ms
-            //           FROM auth.auth_providers
-            //           WHERE provider__name = 'system'`;
-            //         const maxSessions =
-            //             testProviderConfig.provider__session_max_per_agent;
-            //         // Create one more session than allowed to trigger session limit enforcement
-            //         for (let i = 0; i < maxSessions + 1; i++) {
-            //             await tx`
-            //                 INSERT INTO auth.agent_sessions (
-            //                     auth__agent_id,
-            //                     auth__provider_name,
-            //                     session__expires_at
-            //                 )
-            //                 VALUES (
-            //                     ${newAgentId},
-            //                     'system',
-            //                     (NOW() + (${testProviderConfig.provider__session_duration_ms} || ' milliseconds')::INTERVAL)
-            //                 )
-            //             `;
-            //         }
-            //         // Verify that the oldest session was invalidated
-            //         const [activeSessions] = await tx<{ count: string }[]>`
-            //             SELECT COUNT(*)::TEXT as count
-            //             FROM auth.agent_sessions
-            //             WHERE auth__agent_id = ${newAgentId}
-            //               AND session__is_active = true
-            //         `;
-            //         expect(Number.parseInt(activeSessions.count)).toBe(
-            //             maxSessions,
-            //         );
-            //     });
-            // });
+            test("should verify SYSTEM agent permissions", async () => {
+                await superUserSql.begin(async (tx) => {
+                    const [isAdmin] =
+                        await tx`SELECT auth.is_admin_agent() as is_admin`;
+                    expect(isAdmin.is_admin).toBe(false);
+                    const [isSystem] =
+                        await tx`SELECT auth.is_system_agent() as is_system`;
+                    expect(isSystem.is_system).toBe(true);
+                    const [isProxy] =
+                        await tx`SELECT auth.is_proxy_agent() as is_proxy`;
+                    expect(isProxy.is_proxy).toBe(false);
+                    const [isAnon] =
+                        await tx`SELECT auth.is_anon_agent() as is_anon`;
+                    expect(isAnon.is_anon).toBe(false);
+                    const [systemAgentId] =
+                        await tx`SELECT auth.get_system_agent_id() as system_agent_id`; // Get system agent id
+                    expect(systemAgentId.system_agent_id).toBeDefined();
+                    const [currentAgentId] =
+                        await tx`SELECT auth.current_agent_id() as current_agent_id`;
+                    expect(currentAgentId.current_agent_id).toBe(
+                        systemAgentId.system_agent_id,
+                    );
+                });
+            });
+            test("should verify ADMIN PROXY agent permissions", async () => {
+                await proxyUserSql.begin(async (tx) => {
+                    const [setAgentContext] =
+                        await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
+                    const [isAdmin] =
+                        await tx`SELECT auth.is_admin_agent() as is_admin`;
+                    expect(isAdmin.is_admin).toBe(true);
+                    const [isSystem] =
+                        await tx`SELECT auth.is_system_agent() as is_system`;
+                    expect(isSystem.is_system).toBe(false);
+                    const [isProxy] =
+                        await tx`SELECT auth.is_proxy_agent() as is_proxy`;
+                    expect(isProxy.is_proxy).toBe(true);
+                    const [isAnon] =
+                        await tx`SELECT auth.is_anon_agent() as is_anon`;
+                    expect(isAnon.is_anon).toBe(false);
+                    const [currentAgentId] =
+                        await tx`SELECT auth.current_agent_id()`;
+                    expect(currentAgentId.current_agent_id).toBe(adminAgent.id);
+                });
+            });
+            test("should verify REGULAR PROXY agent permissions", async () => {
+                await proxyUserSql.begin(async (tx) => {
+                    const [setAgentContext] =
+                        await tx`SELECT auth.set_agent_context_from_agent_id(${regularAgent.id}::uuid)`;
+                    const [isAdmin] =
+                        await tx`SELECT auth.is_admin_agent() as is_admin`;
+                    expect(isAdmin.is_admin).toBe(false);
+                    const [isSystem] =
+                        await tx`SELECT auth.is_system_agent() as is_system`;
+                    expect(isSystem.is_system).toBe(false);
+                    const [isProxy] =
+                        await tx`SELECT auth.is_proxy_agent() as is_proxy`;
+                    expect(isProxy.is_proxy).toBe(true);
+                    const [isAnon] =
+                        await tx`SELECT auth.is_anon_agent() as is_anon`;
+                    expect(isAnon.is_anon).toBe(false);
+                    const [agentId] = await tx`SELECT auth.current_agent_id()`; // Get current agent id
+                    expect(agentId.current_agent_id).toBe(regularAgent.id);
+                });
+            });
+            test("should verify ANON PROXY agent permissions", async () => {
+                await proxyUserSql.begin(async (tx) => {
+                    await tx`SELECT auth.set_agent_context_from_agent_id(${anonAgent.id}::uuid)`;
+                    const [isAdmin] =
+                        await tx`SELECT auth.is_admin_agent() as is_admin`;
+                    expect(isAdmin.is_admin).toBe(false);
+                    const [isSystem] =
+                        await tx`SELECT auth.is_system_agent() as is_system`;
+                    expect(isSystem.is_system).toBe(false);
+                    const [isProxy] =
+                        await tx`SELECT auth.is_proxy_agent() as is_proxy`;
+                    expect(isProxy.is_proxy).toBe(true);
+                    const [isAnon] =
+                        await tx`SELECT auth.is_anon_agent() as is_anon`;
+                    expect(isAnon.is_anon).toBe(true);
+                    const [currentAgentId] =
+                        await tx`SELECT auth.current_agent_id()`; // Get current agent id
+                    expect(currentAgentId.current_agent_id).toBe(anonAgent.id);
+                });
+            });
+            test("should handle expired sessions correctly", async () => {
+                await proxyUserSql.begin(async (tx) => {
+                    await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
+                    const [expiredSession] = await tx`
+                            INSERT INTO auth.agent_sessions (
+                                auth__agent_id,
+                                auth__provider_name,
+                                session__expires_at,
+                                session__is_active,
+                                session__jwt
+                            ) VALUES (
+                                ${adminAgent.id},
+                                'system',
+                                NOW() - INTERVAL '1 second',
+                                true,
+                                'test_token'
+                            ) RETURNING general__session_id
+                        `;
+                    // Now attempt to select that session row, it should be gone.
+                    const [foundExpiredSession] = await tx`
+                            SELECT * FROM auth.agent_sessions
+                            WHERE general__session_id = ${expiredSession.general__session_id}
+                        `;
+                    expect(foundExpiredSession).toBeUndefined();
+                });
+            });
+            test("should enforce max sessions per agent for 'system' provider", async () => {
+                await superUserSql.begin(async (tx) => {
+                    // Create a new test agent profile exclusive to this test
+                    const uniqueSuffix = Math.floor(Math.random() * 1000000);
+                    const testUsername = `test_temp_agent_${uniqueSuffix}`;
+                    const testEmail = `temp_agent_${uniqueSuffix}@test.com`;
+                    const [newAgent] = await tx`
+                        INSERT INTO auth.agent_profiles (profile__username, auth__email)
+                        VALUES (${testUsername}, ${testEmail})
+                        RETURNING general__agent_profile_id
+                    `;
+                    const newAgentId = newAgent.general__agent_profile_id;
+                    // Query provider config for the 'system' provider
+                    const [testProviderConfig] = await tx<
+                        [
+                            {
+                                provider__session_max_per_agent: number;
+                                provider__session_duration_ms: number;
+                            },
+                        ]
+                    >`SELECT provider__session_max_per_agent, provider__session_duration_ms
+                      FROM auth.auth_providers
+                      WHERE provider__name = 'system'`;
+                    const maxSessions =
+                        testProviderConfig.provider__session_max_per_agent;
+                    // Create one more session than allowed to trigger session limit enforcement
+                    for (let i = 0; i < maxSessions + 1; i++) {
+                        await tx`
+                            INSERT INTO auth.agent_sessions (
+                                auth__agent_id,
+                                auth__provider_name,
+                                session__expires_at
+                            )
+                            VALUES (
+                                ${newAgentId},
+                                'system',
+                                (NOW() + (${testProviderConfig.provider__session_duration_ms} || ' milliseconds')::INTERVAL)
+                            )
+                        `;
+                    }
+                    // Verify that the oldest session was invalidated
+                    const [activeSessions] = await tx<{ count: string }[]>`
+                        SELECT COUNT(*)::TEXT as count
+                        FROM auth.agent_sessions
+                        WHERE auth__agent_id = ${newAgentId}
+                          AND session__is_active = true
+                    `;
+                    expect(Number.parseInt(activeSessions.count)).toBe(
+                        maxSessions,
+                    );
+                });
+            });
         });
         describe("Sync Group Management", () => {
-            // test("should verify at least one default sync group exists", async () => {
-            //     await proxyUserSql.begin(async (tx) => {
-            //         await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
-            //         const syncGroups = await tx`
-            //             SELECT * FROM auth.sync_groups
-            //             WHERE general__sync_group = ${syncGroupToTest}
-            //             ORDER BY general__sync_group
-            //         `;
-            //         expect(syncGroups[0].general__sync_group).toBe(
-            //             syncGroupToTest,
-            //         );
-            //     });
-            // });
-            // test("should manage sync group roles correctly", async () => {
-            //     await proxyUserSql.begin(async (tx) => {
-            //         await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
-            //         await tx`
-            //             INSERT INTO auth.agent_sync_group_roles (
-            //                 auth__agent_id,
-            //                 group__sync,
-            //                 permissions__can_read,
-            //                 permissions__can_insert,
-            //                 permissions__can_update,
-            //                 permissions__can_delete
-            //             ) VALUES (
-            //                 ${regularAgent.id},
-            //                 ${syncGroupToTest},
-            //                 true,
-            //                 true,
-            //                 true,
-            //                 false
-            //             )
-            //         `;
-            //         const [checkAddedRole] = await tx`
-            //             SELECT * FROM auth.agent_sync_group_roles
-            //             WHERE auth__agent_id = ${regularAgent.id}
-            //         `;
-            //         expect(checkAddedRole.group__sync).toBe(syncGroupToTest);
-            //         expect(checkAddedRole.permissions__can_read).toBe(true);
-            //         expect(checkAddedRole.permissions__can_insert).toBe(true);
-            //         expect(checkAddedRole.permissions__can_update).toBe(true);
-            //         expect(checkAddedRole.permissions__can_delete).toBe(false);
-            //     });
-            //     await proxyUserSql.begin(async (tx) => {
-            //         // Set to non-admin agent context to test permissions
-            //         await tx`SELECT auth.set_agent_context_from_agent_id(${regularAgent.id})`;
-            //         // Query our role table for the regular agent's sync group permissions
-            //         const [checkRoleFromAgent] = await tx`
-            //         SELECT permissions__can_read, permissions__can_insert, permissions__can_update, permissions__can_delete
-            //         FROM auth.agent_sync_group_roles
-            //         WHERE auth__agent_id = ${regularAgent.id}
-            //         AND group__sync = ${syncGroupToTest}
-            //         `;
-            //         expect(checkRoleFromAgent.permissions__can_read).toBe(true);
-            //         expect(checkRoleFromAgent.permissions__can_insert).toBe(
-            //             true,
-            //         );
-            //         expect(checkRoleFromAgent.permissions__can_update).toBe(
-            //             true,
-            //         );
-            //         expect(checkRoleFromAgent.permissions__can_delete).toBe(
-            //             false,
-            //         );
-            //         // await tx`SELECT auth.refresh_active_sessions()`;
-            //         const [result] = await tx`
-            //             SELECT array_agg(general__session_id) as session_ids
-            //             FROM auth.active_sync_group_sessions
-            //             WHERE group__sync = ${syncGroupToTest};
-            //         `;
-            //         expect(result.session_ids).toContain(
-            //             regularAgent.sessionId,
-            //         );
-            //     });
-            // });
+            test("should verify at least one default sync group exists", async () => {
+                await proxyUserSql.begin(async (tx) => {
+                    await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
+                    const syncGroups = await tx`
+                        SELECT * FROM auth.sync_groups
+                        WHERE general__sync_group = ${syncGroupToTest}
+                        ORDER BY general__sync_group
+                    `;
+                    expect(syncGroups[0].general__sync_group).toBe(
+                        syncGroupToTest,
+                    );
+                });
+            });
+            test("should manage sync group roles correctly", async () => {
+                await proxyUserSql.begin(async (tx) => {
+                    await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
+                    await tx`
+                        INSERT INTO auth.agent_sync_group_roles (
+                            auth__agent_id,
+                            group__sync,
+                            permissions__can_read,
+                            permissions__can_insert,
+                            permissions__can_update,
+                            permissions__can_delete
+                        ) VALUES (
+                            ${regularAgent.id},
+                            ${syncGroupToTest},
+                            true,
+                            true,
+                            true,
+                            false
+                        )
+                    `;
+                    const [checkAddedRole] = await tx`
+                        SELECT * FROM auth.agent_sync_group_roles
+                        WHERE auth__agent_id = ${regularAgent.id}
+                    `;
+                    expect(checkAddedRole.group__sync).toBe(syncGroupToTest);
+                    expect(checkAddedRole.permissions__can_read).toBe(true);
+                    expect(checkAddedRole.permissions__can_insert).toBe(true);
+                    expect(checkAddedRole.permissions__can_update).toBe(true);
+                    expect(checkAddedRole.permissions__can_delete).toBe(false);
+                });
+                await proxyUserSql.begin(async (tx) => {
+                    // Set to non-admin agent context to test permissions
+                    await tx`SELECT auth.set_agent_context_from_agent_id(${regularAgent.id})`;
+                    // Query our role table for the regular agent's sync group permissions
+                    const [checkRoleFromAgent] = await tx`
+                    SELECT permissions__can_read, permissions__can_insert, permissions__can_update, permissions__can_delete
+                    FROM auth.agent_sync_group_roles
+                    WHERE auth__agent_id = ${regularAgent.id}
+                    AND group__sync = ${syncGroupToTest}
+                    `;
+                    expect(checkRoleFromAgent.permissions__can_read).toBe(true);
+                    expect(checkRoleFromAgent.permissions__can_insert).toBe(
+                        true,
+                    );
+                    expect(checkRoleFromAgent.permissions__can_update).toBe(
+                        true,
+                    );
+                    expect(checkRoleFromAgent.permissions__can_delete).toBe(
+                        false,
+                    );
+                    // await tx`SELECT auth.refresh_active_sessions()`;
+                    const [result] = await tx`
+                        SELECT array_agg(general__session_id) as session_ids
+                        FROM auth.active_sync_group_sessions
+                        WHERE group__sync = ${syncGroupToTest};
+                    `;
+                    expect(result.session_ids).toContain(
+                        regularAgent.sessionId,
+                    );
+                });
+            });
         });
     });
 

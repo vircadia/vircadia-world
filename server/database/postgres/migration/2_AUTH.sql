@@ -6,7 +6,6 @@ CREATE SCHEMA IF NOT EXISTS auth;
 -- ============================================================================
 -- 2. CORE AUTHENTICATION FUNCTIONS
 -- ============================================================================
-
 -- Super Admin Check Function
 CREATE OR REPLACE FUNCTION auth.is_system_agent()
 RETURNS boolean AS $$ 
@@ -73,20 +72,7 @@ CREATE TABLE auth._template (
 );
 
 -- ============================================================================
--- 4. TRIGGERS AND TRIGGER FUNCTIONS
--- ============================================================================
--- Audit Column Update Function
-CREATE OR REPLACE FUNCTION auth.update_audit_columns()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.general__updated_at = CURRENT_TIMESTAMP;
-    NEW.general__updated_by = auth.current_agent_id();
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- ============================================================================
--- 5. BASE TABLES
+-- 4. BASE TABLES
 -- ============================================================================
 -- Agent Profiles Table
 CREATE TABLE auth.agent_profiles (
@@ -112,9 +98,6 @@ CREATE TABLE auth.agent_sessions (
 ) INHERITS (auth._template);
 ALTER TABLE auth.agent_sessions ENABLE ROW LEVEL SECURITY;
 
--- ============================================================================
--- 6. AUTH PROVIDER TABLES
--- ============================================================================
 -- Auth Provider Configurations Table
 CREATE TABLE auth.auth_providers (
     provider__name TEXT PRIMARY KEY,                -- Provider identifier (e.g., 'google', 'github')
@@ -167,9 +150,6 @@ ALTER TABLE auth.agent_auth_providers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE auth.agent_sessions ADD CONSTRAINT agent_sessions_auth__provider_name_fkey
     FOREIGN KEY (auth__provider_name) REFERENCES auth.auth_providers(provider__name) ON DELETE CASCADE;
 
--- ============================================================================
--- 7. SYNC GROUP TABLES
--- ============================================================================
 -- Sync Groups Table
 CREATE TABLE auth.sync_groups (
     general__sync_group TEXT PRIMARY KEY,
@@ -198,66 +178,15 @@ CREATE TABLE auth.agent_sync_group_roles (
 ALTER TABLE auth.agent_sync_group_roles ENABLE ROW LEVEL SECURITY;
 
 -- ============================================================================
--- 8. AUTHENTICATION FUNCTIONS
+-- 5. UTILITY AND TRIGGER FUNCTIONS
 -- ============================================================================
-
--- Non-system agent Status Functions
-CREATE OR REPLACE FUNCTION auth.is_anon_agent()
-RETURNS boolean AS $$
+-- Audit Column Update Function
+CREATE OR REPLACE FUNCTION auth.update_audit_columns()
+RETURNS TRIGGER AS $$
 BEGIN
-    RETURN EXISTS (
-        SELECT 1
-        FROM auth.agent_profiles AS ap
-        WHERE ap.general__agent_profile_id = auth.current_agent_id()
-          AND ap.auth__is_anon = true
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-CREATE OR REPLACE FUNCTION auth.is_admin_agent()
-RETURNS boolean AS $$
-BEGIN
-    RETURN EXISTS (
-        SELECT 1
-        FROM auth.agent_profiles AS ap
-        WHERE ap.general__agent_profile_id = auth.current_agent_id()
-          AND ap.auth__is_admin = true
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- ============================================================================
--- 9. SESSION MANAGEMENT FUNCTIONS
--- ============================================================================
-CREATE OR REPLACE FUNCTION auth.validate_session_id(
-    p_session_id UUID,
-    p_session_token TEXT DEFAULT NULL
-) RETURNS UUID AS $$ 
-DECLARE
-    v_session RECORD;
-BEGIN
-    SELECT *
-      INTO v_session
-    FROM auth.agent_sessions
-    WHERE general__session_id = p_session_id;
-    
-    IF NOT FOUND THEN
-        RAISE EXCEPTION 'Session not found for id: %', p_session_id;
-    END IF;
-    
-    IF NOT v_session.session__is_active THEN
-        RAISE EXCEPTION 'Session % is inactive', p_session_id;
-    END IF;
-    
-    IF v_session.session__expires_at < NOW() THEN
-        RAISE EXCEPTION 'Session % has expired on %', p_session_id, v_session.session__expires_at;
-    END IF;
-    
-    IF p_session_token IS NOT NULL AND v_session.session__jwt != p_session_token THEN
-        RAISE EXCEPTION 'Session token mismatch for session id: %', p_session_id;
-    END IF;
-    
-    RETURN v_session.auth__agent_id;
+    NEW.general__updated_at = CURRENT_TIMESTAMP;
+    NEW.general__updated_by = auth.current_agent_id();
+    RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -325,6 +254,78 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- View Refresh Functions
+CREATE OR REPLACE FUNCTION auth.refresh_active_sessions_trigger()
+RETURNS trigger AS $$ 
+BEGIN
+    REFRESH MATERIALIZED VIEW auth.active_sync_group_sessions;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================================================
+-- 6. AUTHENTICATION FUNCTIONS
+-- ============================================================================
+-- Non-system agent Status Functions
+CREATE OR REPLACE FUNCTION auth.is_anon_agent()
+RETURNS boolean AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1
+        FROM auth.agent_profiles AS ap
+        WHERE ap.general__agent_profile_id = auth.current_agent_id()
+          AND ap.auth__is_anon = true
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION auth.is_admin_agent()
+RETURNS boolean AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1
+        FROM auth.agent_profiles AS ap
+        WHERE ap.general__agent_profile_id = auth.current_agent_id()
+          AND ap.auth__is_admin = true
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ============================================================================
+-- 7. SESSION MANAGEMENT FUNCTIONS
+-- ============================================================================
+CREATE OR REPLACE FUNCTION auth.validate_session_id(
+    p_session_id UUID,
+    p_session_token TEXT DEFAULT NULL
+) RETURNS UUID AS $$ 
+DECLARE
+    v_session RECORD;
+BEGIN
+    SELECT *
+      INTO v_session
+    FROM auth.agent_sessions
+    WHERE general__session_id = p_session_id;
+    
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Session not found for id: %', p_session_id;
+    END IF;
+    
+    IF NOT v_session.session__is_active THEN
+        RAISE EXCEPTION 'Session % is inactive', p_session_id;
+    END IF;
+    
+    IF v_session.session__expires_at < NOW() THEN
+        RAISE EXCEPTION 'Session % has expired on %', p_session_id, v_session.session__expires_at;
+    END IF;
+    
+    IF p_session_token IS NOT NULL AND v_session.session__jwt != p_session_token THEN
+        RAISE EXCEPTION 'Session token mismatch for session id: %', p_session_id;
+    END IF;
+    
+    RETURN v_session.auth__agent_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 CREATE OR REPLACE FUNCTION auth.set_agent_context_from_agent_id(p_agent_id UUID)
 RETURNS void AS $$
 BEGIN
@@ -346,7 +347,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- ============================================================================
--- 10. MATERIALIZED VIEWS AND RELATED FUNCTIONS
+-- 8. MATERIALIZED VIEWS AND RELATED FUNCTIONS
 -- ============================================================================
 -- Active Sessions View
 CREATE MATERIALIZED VIEW IF NOT EXISTS auth.active_sync_group_sessions AS
@@ -380,17 +381,8 @@ ON auth.active_sync_group_sessions (general__session_id, group__sync);
 CREATE UNIQUE INDEX idx_active_sync_group_sessions_lookup 
 ON auth.active_sync_group_sessions (group__sync);
 
--- View Refresh Functions
-CREATE OR REPLACE FUNCTION auth.refresh_active_sessions_trigger()
-RETURNS trigger AS $$ 
-BEGIN
-    REFRESH MATERIALIZED VIEW auth.active_sync_group_sessions;
-    RETURN NULL;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
 -- ============================================================================
--- 11. INDEXES
+-- 9. INDEXES
 -- ============================================================================
 -- Agent Profile Indexes
 CREATE INDEX idx_agent_profiles_email ON auth.agent_profiles(auth__email);
@@ -408,7 +400,7 @@ CREATE INDEX idx_agent_sessions_last_seen ON auth.agent_sessions(session__last_s
     WHERE session__is_active = true;
 
 -- ============================================================================
--- 12. TRIGGERS
+-- 10. TRIGGERS
 -- ============================================================================
 -- Session Management Triggers
 CREATE TRIGGER trigger_cleanup
@@ -458,7 +450,7 @@ CREATE TRIGGER update_agent_sync_group_roles_updated_at
     EXECUTE FUNCTION auth.update_audit_columns();
 
 -- ============================================================================
--- 13. INITIAL DATA
+-- 11. INITIAL DATA
 -- ============================================================================
 -- System Agent Profile
 INSERT INTO auth.agent_profiles 
@@ -536,9 +528,8 @@ INSERT INTO auth.auth_providers (
 ) ON CONFLICT (provider__name) DO NOTHING;
 
 -- ============================================================================
--- 14. PERMISSIONS
+-- 12. PERMISSIONS
 -- ============================================================================
-
 CREATE POLICY agent_view_own_profile ON auth.agent_profiles
     FOR SELECT
     TO PUBLIC
@@ -649,9 +640,6 @@ CREATE POLICY "Sessions DELETE permissions" ON auth.agent_sessions
         OR auth.is_system_agent()
     );
 
-
-
-
 -- Revoke all permissions first
 REVOKE ALL ON ALL TABLES IN SCHEMA auth FROM PUBLIC;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA auth FROM PUBLIC;
@@ -660,7 +648,7 @@ REVOKE ALL ON SCHEMA auth FROM PUBLIC;
 
 -- Grant usage on schema
 GRANT USAGE ON SCHEMA auth TO vircadia_agent_proxy;
-GRANT USAGE ON SCHEMA auth TO PUBLIC;
+GRANT USAGE ON SCHEMA auth TO public;
 
 -- Grant table permissions
 GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_profiles TO public;

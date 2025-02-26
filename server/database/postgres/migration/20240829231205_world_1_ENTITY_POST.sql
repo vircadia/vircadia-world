@@ -5,9 +5,9 @@
 -- Revoke all permissions from PUBLIC and vircadia_agent_proxy (to start with a clean slate)
 REVOKE ALL ON ALL TABLES IN SCHEMA entity FROM PUBLIC, vircadia_agent_proxy;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA entity FROM PUBLIC, vircadia_agent_proxy;
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA auth FROM PUBLIC, vircadia_agent_proxy;
-REVOKE ALL ON ALL PROCEDURES IN SCHEMA auth FROM PUBLIC, vircadia_agent_proxy;
-REVOKE ALL ON ALL ROUTINES IN SCHEMA auth FROM PUBLIC, vircadia_agent_proxy;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA entity FROM PUBLIC, vircadia_agent_proxy;
+REVOKE ALL ON ALL PROCEDURES IN SCHEMA entity FROM PUBLIC, vircadia_agent_proxy;
+REVOKE ALL ON ALL ROUTINES IN SCHEMA entity FROM PUBLIC, vircadia_agent_proxy;
 
 
 -- =============================================================================

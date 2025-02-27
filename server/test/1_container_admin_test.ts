@@ -6,22 +6,15 @@ import {
     migrate,
     wipeDatabase,
     seed,
-    up,
     isHealthy,
 } from "../container/docker/docker_cli";
 import { VircadiaConfig } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
 import { PostgresClient } from "../database/postgres/postgres_client";
+import { initContainers } from "./helper/helpers";
 
 describe("System Admin Tests", () => {
     beforeAll(async () => {
-        if (!(await isHealthy()).isHealthy) {
-            await up();
-
-            const healthyAfterUp = await isHealthy();
-            if (!healthyAfterUp.isHealthy) {
-                throw new Error("Failed to start services");
-            }
-        }
+        await initContainers();
     });
 
     afterAll(async () => {

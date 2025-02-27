@@ -1,29 +1,22 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import type postgres from "postgres";
-import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 import { PostgresClient } from "../database/postgres/postgres_client";
 import {
     Entity,
-    type Auth,
     type Tick,
 } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
-import { sign } from "jsonwebtoken";
-import { isHealthy, up } from "../container/docker/docker_cli";
-
-const TEST_SYNC_GROUP = "public.REALTIME";
-const TEST_SCRIPT_NAMESPACE = "test_script_1";
-
-const DB_TEST_PREFIX = "RESERVED_vtw908ncjw98t3t8kgr8y9ngv3w8b_db_test_";
-
-const ADMIN_AGENT_USERNAME = "admin";
-const REGULAR_AGENT_USERNAME = "agent";
-const ANON_AGENT_USERNAME = "anon";
-
-interface TestAccount {
-    id: string;
-    token: string;
-    sessionId: string;
-}
+import {
+    TEST_SCRIPT_NAMESPACE,
+    TEST_SYNC_GROUP,
+    DB_TEST_PREFIX,
+    initTestAccounts,
+    type TestAccount,
+    cleanupTestAccounts,
+    initContainers,
+    cleanupTestEntities,
+    cleanupTestScripts,
+    cleanupTestAssets,
+} from "./helper/helpers";
 
 let superUserSql: postgres.Sql;
 let proxyUserSql: postgres.Sql;
@@ -31,397 +24,29 @@ let adminAgent: TestAccount;
 let regularAgent: TestAccount;
 let anonAgent: TestAccount;
 
-const createdEntityIds: string[] = [];
-const createdScriptIds: string[] = [];
-const createdAssetIds: string[] = [];
-
-async function initContainers(): Promise<void> {
-    if (!(await isHealthy()).isHealthy) {
-        await up();
-
-        const healthyAfterUp = await isHealthy();
-        if (!healthyAfterUp.isHealthy) {
-            throw new Error("Failed to start services");
-        }
-    }
-}
-
-async function initTestConnections(): Promise<void> {
-    superUserSql = await PostgresClient.getInstance().getSuperClient();
-    proxyUserSql = await PostgresClient.getInstance().getProxyClient();
-}
-
-async function cleanupTestConnections(): Promise<void> {
-    await PostgresClient.getInstance().disconnect();
-}
-
-async function initTestAccounts(): Promise<void> {
-    await superUserSql.begin(async (tx) => {
-        // First create a system token with superuser privileges using system auth provider
-        const [systemAuthProviderConfig] = await superUserSql<
-            [
-                {
-                    provider__jwt_secret: string;
-                    provider__session_duration_ms: number;
-                },
-            ]
-        >`
-			SELECT provider__jwt_secret, provider__session_duration_ms
-			FROM auth.auth_providers 
-			WHERE provider__name = 'system'
-		`;
-        expect(systemAuthProviderConfig.provider__jwt_secret).toBeDefined();
-        expect(
-            systemAuthProviderConfig.provider__session_duration_ms,
-        ).toBeDefined();
-
-        const [anonAuthProviderConfig] = await superUserSql<
-            [
-                {
-                    provider__jwt_secret: string;
-                    provider__session_duration_ms: number;
-                },
-            ]
-        >`
-			SELECT provider__jwt_secret, provider__session_duration_ms
-			FROM auth.auth_providers 
-			WHERE provider__name = 'anon'
-		`;
-        expect(anonAuthProviderConfig.provider__jwt_secret).toBeDefined();
-        expect(
-            anonAuthProviderConfig.provider__session_duration_ms,
-        ).toBeDefined();
-
-        // Create test admin account
-        const [adminAgentAccount] = await superUserSql`
-			INSERT INTO auth.agent_profiles (profile__username, auth__email, auth__is_admin)
-			VALUES (${DB_TEST_PREFIX + ADMIN_AGENT_USERNAME}::text, 'test_admin@test.com', true)
-			RETURNING general__agent_profile_id
-		`;
-        expect(adminAgentAccount.general__agent_profile_id).toBeDefined();
-        const adminAgentId = adminAgentAccount.general__agent_profile_id;
-
-        // Create test regular agent account
-        const [regularAgentAccount] = await superUserSql`
-			INSERT INTO auth.agent_profiles (profile__username, auth__email)
-			VALUES (${DB_TEST_PREFIX + REGULAR_AGENT_USERNAME}::text, 'test_agent@test.com')
-			RETURNING general__agent_profile_id
-	  `;
-        expect(regularAgentAccount.general__agent_profile_id).toBeDefined();
-        const regularAgentId = regularAgentAccount.general__agent_profile_id;
-
-        // Create test anon agent account
-        const [anonAgentAccount] = await superUserSql`
-			INSERT INTO auth.agent_profiles (profile__username, auth__email, auth__is_anon)
-			VALUES (${DB_TEST_PREFIX + ANON_AGENT_USERNAME}::text, 'test_anon@test.com', true)
-			RETURNING general__agent_profile_id
-		`;
-        expect(anonAgentAccount.general__agent_profile_id).toBeDefined();
-        const anonAgentId = anonAgentAccount.general__agent_profile_id;
-
-        // Create sessions
-        const [adminAgentSession] = await superUserSql`
-			INSERT INTO auth.agent_sessions (
-				auth__agent_id,
-				auth__provider_name,
-				session__expires_at
-			)
-			VALUES (
-				${adminAgentId},
-				'system',
-				(NOW() + (${systemAuthProviderConfig.provider__session_duration_ms} || ' milliseconds')::INTERVAL)
-			)
-			RETURNING *
-		`;
-        expect(adminAgentSession.general__session_id).toBeDefined();
-        expect(adminAgentSession.session__expires_at).toBeDefined();
-        expect(adminAgentSession.session__jwt).toBeDefined();
-        const adminAgentSessionId = adminAgentSession.general__session_id;
-
-        const [regularAgentSession] = await superUserSql`
-			INSERT INTO auth.agent_sessions (
-				auth__agent_id,
-				auth__provider_name,
-				session__expires_at
-			)
-			VALUES (
-				${regularAgentId},
-				'system',
-				(NOW() + (${systemAuthProviderConfig.provider__session_duration_ms} || ' milliseconds')::INTERVAL)
-			)
-			RETURNING *
-		`;
-        expect(regularAgentSession.general__session_id).toBeDefined();
-        expect(regularAgentSession.session__expires_at).toBeDefined();
-        expect(regularAgentSession.session__jwt).toBeDefined();
-        const regularAgentSessionId = regularAgentSession.general__session_id;
-
-        const [anonAgentSession] = await superUserSql`
-			INSERT INTO auth.agent_sessions (
-				auth__agent_id,
-				auth__provider_name,
-				session__expires_at
-			)
-			VALUES (
-				${anonAgentId},
-				'anon',
-				(NOW() + (${anonAuthProviderConfig.provider__session_duration_ms} || ' milliseconds')::INTERVAL)
-			)
-			RETURNING *
-		`;
-        expect(anonAgentSession.general__session_id).toBeDefined();
-        expect(anonAgentSession.session__expires_at).toBeDefined();
-        expect(anonAgentSession.session__jwt).toBeDefined();
-        const anonSessionId = anonAgentSession.general__session_id;
-
-        // Generate JWT tokens using the new provider config structure
-        const adminAgentToken = sign(
-            {
-                sessionId: adminAgentSessionId,
-                agentId: adminAgentId,
-            },
-            systemAuthProviderConfig.provider__jwt_secret,
-            {
-                expiresIn:
-                    systemAuthProviderConfig.provider__session_duration_ms,
-            },
-        );
-
-        const regularAgentToken = sign(
-            {
-                sessionId: regularAgentSessionId,
-                agentId: regularAgentId,
-            },
-            systemAuthProviderConfig.provider__jwt_secret,
-            {
-                expiresIn:
-                    systemAuthProviderConfig.provider__session_duration_ms,
-            },
-        );
-
-        const anonAgentToken = sign(
-            {
-                sessionId: anonSessionId,
-                agentId: anonAgentId,
-            },
-            anonAuthProviderConfig.provider__jwt_secret,
-            {
-                expiresIn: anonAuthProviderConfig.provider__session_duration_ms,
-            },
-        );
-
-        // Update sessions with JWT tokens
-        await superUserSql`
-			UPDATE auth.agent_sessions 
-			SET session__jwt = ${adminAgentToken}
-			WHERE general__session_id = ${adminAgentSessionId}
-		`;
-
-        await superUserSql`
-			UPDATE auth.agent_sessions 
-			SET session__jwt = ${regularAgentToken}
-			WHERE general__session_id = ${regularAgentSessionId}
-		`;
-
-        await superUserSql`
-			UPDATE auth.agent_sessions 
-			SET session__jwt = ${anonAgentToken}
-			WHERE general__session_id = ${anonSessionId}
-		`;
-
-        adminAgent = {
-            id: adminAgentId,
-            token: adminAgentToken,
-            sessionId: adminAgentSessionId,
-        };
-        regularAgent = {
-            id: regularAgentId,
-            token: regularAgentToken,
-            sessionId: regularAgentSessionId,
-        };
-        anonAgent = {
-            id: anonAgentId,
-            token: anonAgentToken,
-            sessionId: anonSessionId,
-        };
-
-        // Verify admin account using tx
-        const [adminProfile] = await tx<[Auth.I_Profile]>`
-			SELECT * FROM auth.agent_profiles
-			WHERE general__agent_profile_id = ${adminAgent.id}
-		`;
-        expect(adminProfile.profile__username).toBe(
-            DB_TEST_PREFIX + ADMIN_AGENT_USERNAME,
-        );
-        expect(adminProfile.auth__is_admin).toBe(true);
-
-        // Verify regular account using tx
-        const [regularProfile] = await tx<[Auth.I_Profile]>`
-			SELECT * FROM auth.agent_profiles
-			WHERE general__agent_profile_id = ${regularAgent.id}
-		`;
-        expect(regularProfile.profile__username).toBe(
-            DB_TEST_PREFIX + REGULAR_AGENT_USERNAME,
-        );
-        expect(regularProfile.auth__is_admin).toBe(false);
-
-        // Verify anon account using tx
-        const [anonProfile] = await tx<[Auth.I_Profile]>`
-			SELECT * FROM auth.agent_profiles
-			WHERE general__agent_profile_id = ${anonAgent.id}
-		`;
-        expect(anonProfile.profile__username).toBe(
-            DB_TEST_PREFIX + ANON_AGENT_USERNAME,
-        );
-        expect(anonProfile.auth__is_admin).toBe(false);
-    });
-}
-
-async function cleanupTestAccounts(): Promise<void> {
-    await superUserSql.begin(async (tx) => {
-        try {
-            // Delete all accounts with the test prefix
-            await tx`
-                DELETE FROM auth.agent_profiles 
-                WHERE profile__username LIKE ${`${DB_TEST_PREFIX}%`}
-            `;
-
-            // Verify no test accounts remain
-            const remainingProfiles = await tx<Auth.I_Profile[]>`
-                SELECT * FROM auth.agent_profiles
-                WHERE profile__username LIKE ${`${DB_TEST_PREFIX}%`}
-            `;
-            expect(remainingProfiles).toHaveLength(0);
-
-            log({
-                message: "Cleaned up test accounts",
-                type: "info",
-            });
-        } catch (error) {
-            log({
-                message: "Failed to cleanup test accounts",
-                type: "error",
-                error,
-            });
-            throw error;
-        }
-    });
-}
-
-async function cleanupTestEntities(): Promise<void> {
-    await superUserSql.begin(async (tx) => {
-        try {
-            // First clean up specific tracked entities
-            if (createdEntityIds.length > 0) {
-                await tx`
-                    DELETE FROM entity.entities 
-                    WHERE general__entity_id = ANY(${createdEntityIds}::uuid[])
-                `;
-            }
-
-            // Then clean up any entities with the test prefix in their name
-            await tx`
-                DELETE FROM entity.entities 
-                WHERE general__entity_name LIKE ${`%${DB_TEST_PREFIX}%`}
-            `;
-
-            // Clear the tracking array
-            createdEntityIds.length = 0;
-
-            log({
-                message: "Cleaned up test entities",
-                type: "info",
-            });
-        } catch (error) {
-            log({
-                message: "Failed to cleanup test entities",
-                type: "error",
-                error,
-            });
-            throw error;
-        }
-    });
-}
-
-async function cleanupTestScripts(): Promise<void> {
-    await superUserSql.begin(async (tx) => {
-        try {
-            // First clean up specific tracked scripts
-            if (createdScriptIds.length > 0) {
-                await tx`
-                    DELETE FROM entity.entity_scripts 
-                    WHERE general__script_id = ANY(${createdScriptIds}::uuid[])
-                `;
-            }
-
-            // Then clean up any scripts with the test prefix in their name
-            await tx`
-                DELETE FROM entity.entity_scripts 
-                WHERE general__script_name LIKE ${`%${DB_TEST_PREFIX}%`}
-            `;
-
-            // Clear the tracking array
-            createdScriptIds.length = 0;
-
-            log({
-                message: "Cleaned up test scripts",
-                type: "info",
-            });
-        } catch (error) {
-            log({
-                message: "Failed to cleanup test scripts",
-                type: "error",
-                error,
-            });
-            throw error;
-        }
-    });
-}
-
-async function cleanupTestAssets(): Promise<void> {
-    await superUserSql.begin(async (tx) => {
-        try {
-            // First clean up specific tracked assets
-            if (createdAssetIds.length > 0) {
-                await tx`
-                    DELETE FROM entity.entity_assets 
-                    WHERE general__asset_id = ANY(${createdAssetIds}::uuid[])
-                `;
-            }
-
-            // Then clean up any assets with the test prefix in their name
-            await tx`
-                DELETE FROM entity.entity_assets 
-                WHERE general__asset_name LIKE ${`%${DB_TEST_PREFIX}%`}
-            `;
-
-            // Clear the tracking array
-            createdAssetIds.length = 0;
-
-            log({
-                message: "Cleaned up test assets",
-                type: "info",
-            });
-        } catch (error) {
-            log({
-                message: "Failed to cleanup test assets",
-                type: "error",
-                error,
-            });
-            throw error;
-        }
-    });
-}
-
 describe("DB", () => {
     beforeAll(async () => {
         await initContainers();
-        await initTestConnections();
-        await cleanupTestAccounts();
-        await cleanupTestEntities(); // Add cleanup before tests start
-        await cleanupTestScripts();
-        await cleanupTestAssets();
-        await initTestAccounts();
+        superUserSql = await PostgresClient.getInstance().getSuperClient();
+        proxyUserSql = await PostgresClient.getInstance().getProxyClient();
+        await cleanupTestAccounts({
+            superUserSql,
+        });
+        await cleanupTestEntities({
+            superUserSql,
+        });
+        await cleanupTestScripts({
+            superUserSql,
+        });
+        await cleanupTestAssets({
+            superUserSql,
+        });
+        const testAccounts = await initTestAccounts({
+            superUserSql,
+        });
+        adminAgent = testAccounts.adminAgent;
+        regularAgent = testAccounts.regularAgent;
+        anonAgent = testAccounts.anonAgent;
     });
 
     describe("Base Schema", () => {
@@ -1259,7 +884,7 @@ describe("DB", () => {
                         general__script_name,
                         group__sync
                     ) VALUES (
-                        ${"Test Script 1"},
+                        ${`${DB_TEST_PREFIX}Test Script 1`},
                         ${TEST_SYNC_GROUP}
                     ) RETURNING general__script_id
                 `;
@@ -1270,16 +895,10 @@ describe("DB", () => {
                         general__script_name,
                         group__sync
                     ) VALUES (
-                        ${"Test Script 2"},
+                        ${`${DB_TEST_PREFIX}Test Script 2`},
                         ${TEST_SYNC_GROUP}
                     ) RETURNING general__script_id
                 `;
-
-                        // Track created scripts for cleanup
-                        createdScriptIds.push(
-                            script1.general__script_id,
-                            script2.general__script_id,
-                        );
 
                         // Capture a tick so that the scripts are processed
                         await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
@@ -1321,16 +940,13 @@ describe("DB", () => {
                                 source__repo__url,
                                 group__sync
                             ) VALUES (
-                                ${"Original Script"},
+                                ${`${DB_TEST_PREFIX}Initial Script`},
                                 ${'console.log("initial version")'},
                                 ${"COMPILED"},
                                 ${"https://original-repo.git"},
                                 ${TEST_SYNC_GROUP}
                             ) RETURNING *
                         `;
-
-                        // Track for cleanup
-                        createdScriptIds.push(script1.general__script_id);
                     });
 
                     // Force a small delay to ensure timestamps are different
@@ -1351,7 +967,7 @@ describe("DB", () => {
                         await tx`
                             UPDATE entity.entity_scripts
                             SET 
-                                general__script_name = ${"Updated Script"},
+                                general__script_name = ${`${DB_TEST_PREFIX}Updated Script`},
                                 compiled__browser__script = ${'console.log("updated version")'},
                                 compiled__browser__status = ${"PENDING"}
                             WHERE general__script_id = ${script1.general__script_id}
@@ -1393,7 +1009,7 @@ describe("DB", () => {
 
                         // Check that only changed fields are included
                         expect(scriptChange?.changes.general__script_name).toBe(
-                            "Updated Script",
+                            `${DB_TEST_PREFIX}Updated Script`,
                         );
                         expect(
                             scriptChange?.changes.compiled__browser__status,
@@ -1420,7 +1036,7 @@ describe("DB", () => {
                         asset__data,
                         meta__data
                     ) VALUES (
-                        ${"Test Asset 1"},
+                        ${`${DB_TEST_PREFIX}Test Asset 1`},
                         ${TEST_SYNC_GROUP},
                         ${Buffer.from("asset data 1")},
                         ${tx.json({ info: "asset 1 meta" })}
@@ -1435,19 +1051,12 @@ describe("DB", () => {
                         asset__data,
                         meta__data
                     ) VALUES (
-                        ${"Test Asset 2"},
+                        ${`${DB_TEST_PREFIX}Test Asset 2`},
                         ${TEST_SYNC_GROUP},
                         ${Buffer.from("asset data 2")},
                         ${tx.json({ info: "asset 2 meta" })}
                     ) RETURNING general__asset_id
                 `;
-
-                        // Track created assets for cleanup
-                        createdAssetIds.push(
-                            asset1.general__asset_id,
-                            asset2.general__asset_id,
-                        );
-
                         // Capture a tick so that the asset changes are processed
                         await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
 
@@ -1490,15 +1099,12 @@ describe("DB", () => {
           asset__data,
           group__sync
         ) VALUES (
-          ${"Original Asset"},
+          ${`${DB_TEST_PREFIX}Original Asset`},
           ${tx.json({ type: "image", format: "png" })},
           ${Buffer.from("initial asset data")},
           ${TEST_SYNC_GROUP}
         ) RETURNING *
       `;
-
-                        // Track for cleanup
-                        createdAssetIds.push(asset1.general__asset_id);
                     });
 
                     // Force a small delay to ensure timestamps are different
@@ -1519,7 +1125,7 @@ describe("DB", () => {
                         await tx`
         UPDATE entity.entity_assets
         SET 
-          general__asset_name = ${"Updated Asset"},
+          general__asset_name = ${`${DB_TEST_PREFIX}Updated Asset`},
           meta__data = ${tx.json({ type: "image", format: "png", updated: true })}
         WHERE general__asset_id = ${asset1.general__asset_id}
       `;
@@ -1560,7 +1166,7 @@ describe("DB", () => {
 
                         // Check that only changed fields are included
                         expect(assetChange?.changes.general__asset_name).toBe(
-                            "Updated Asset",
+                            `${DB_TEST_PREFIX}Updated Asset`,
                         );
                         expect(assetChange?.changes.meta__data).toHaveProperty(
                             "updated",
@@ -1579,9 +1185,9 @@ describe("DB", () => {
                 test("should create multiple test entities and capture their tick states", async () => {
                     await superUserSql.begin(async (tx) => {
                         const entityNames = [
-                            "Entity One",
-                            "Entity Two",
-                            "Entity Three",
+                            `${DB_TEST_PREFIX}Entity One`,
+                            `${DB_TEST_PREFIX}Entity Two`,
+                            `${DB_TEST_PREFIX}Entity Three`,
                         ];
                         const createdEntities = [];
 
@@ -1612,7 +1218,6 @@ describe("DB", () => {
                         ) RETURNING *
                     `;
                             createdEntities.push(entity);
-                            createdEntityIds.push(entity.general__entity_id);
                         }
 
                         // Capture tick state
@@ -1651,7 +1256,7 @@ describe("DB", () => {
                         scripts__status,
                         assets__ids
                     ) VALUES (
-                        ${"Original Entity 1"},
+                        ${`${DB_TEST_PREFIX}Original Entity 1`},
                         ${tx.json({
                             [TEST_SCRIPT_NAMESPACE]: {
                                 position: {
@@ -1676,7 +1281,7 @@ describe("DB", () => {
                         scripts__status,
                         assets__ids
                     ) VALUES (
-                        ${"Original Entity 2"},
+                        ${`${DB_TEST_PREFIX}Original Entity 2`},
                         ${tx.json({ [TEST_SCRIPT_NAMESPACE]: { position: { x: 10, y: 10, z: 10 } } })},
                         ${TEST_SYNC_GROUP},
                         ${tx.array([])},
@@ -1684,25 +1289,19 @@ describe("DB", () => {
                         ${tx.array([])}
                     ) RETURNING *
                 `;
-                        // Track created entities for cleanup
-                        createdEntityIds.push(
-                            entity1.general__entity_id,
-                            entity2.general__entity_id,
-                        );
-
                         // Capture first tick
                         await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
 
                         // Update both entities
                         await tx`
                     UPDATE entity.entities
-                    SET general__entity_name = ${"Updated Entity 1"},
+                    SET general__entity_name = ${`${DB_TEST_PREFIX}Updated Entity 1`},
                         meta__data = ${tx.json({ [TEST_SCRIPT_NAMESPACE]: { position: { x: 5, y: 5, z: 5 } } })}
                     WHERE general__entity_id = ${entity1.general__entity_id}
                 `;
                         await tx`
                     UPDATE entity.entities
-                    SET general__entity_name = ${"Updated Entity 2"},
+                    SET general__entity_name = ${`${DB_TEST_PREFIX}Updated Entity 2`},
                         meta__data = ${tx.json({ [TEST_SCRIPT_NAMESPACE]: { position: { x: 15, y: 15, z: 15 } } })}
                     WHERE general__entity_id = ${entity2.general__entity_id}
                 `;
@@ -1734,7 +1333,7 @@ describe("DB", () => {
                         expect(updatedChange?.operation).toBe("UPDATE");
                         expect(
                             updatedChange?.changes.general__entity_name,
-                        ).toBe("Updated Entity 1");
+                        ).toBe(`${DB_TEST_PREFIX}Updated Entity 1`);
                     });
                 });
             });
@@ -1742,10 +1341,18 @@ describe("DB", () => {
     });
 
     afterAll(async () => {
-        await cleanupTestEntities(); // Add cleanup after all tests complete
-        await cleanupTestScripts();
-        await cleanupTestAssets();
-        await cleanupTestAccounts();
-        await cleanupTestConnections();
+        await cleanupTestEntities({
+            superUserSql,
+        });
+        await cleanupTestScripts({
+            superUserSql,
+        });
+        await cleanupTestAssets({
+            superUserSql,
+        });
+        await cleanupTestAccounts({
+            superUserSql,
+        });
+        await PostgresClient.getInstance().disconnect();
     });
 });

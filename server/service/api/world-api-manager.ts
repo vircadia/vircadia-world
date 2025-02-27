@@ -234,7 +234,6 @@ export interface WorldSession<T = unknown> {
     ws: WebSocket | ServerWebSocket<T>;
     agentId: string;
     sessionId: string;
-    lastHeartbeat: number;
 }
 
 export interface WebSocketData {
@@ -577,8 +576,20 @@ export class WorldApiManager {
                                 return;
                             }
 
-                            // Update heartbeat
-                            session.lastHeartbeat = Date.now();
+                            // Update session heartbeat in database (don't await)
+                            this
+                                .superUserSql`SELECT auth.update_session_heartbeat(${sessionId}::UUID)`.catch(
+                                (error) => {
+                                    log({
+                                        message:
+                                            "Failed to update session heartbeat",
+                                        debug: VircadiaConfig.SERVER.DEBUG,
+                                        type: "error",
+                                        prefix: this.LOG_PREFIX,
+                                        data: { error, sessionId },
+                                    });
+                                },
+                            );
 
                             // Parse message
                             data = JSON.parse(
@@ -589,13 +600,26 @@ export class WorldApiManager {
                             switch (data.type) {
                                 case Communication.WebSocket.MessageType
                                     .HEARTBEAT_REQUEST: {
-                                    ws.send(
-                                        JSON.stringify(
-                                            new Communication.WebSocket.HeartbeatResponseMessage(
-                                                session.agentId,
-                                            ),
-                                        ),
-                                    );
+                                    await this
+                                        .superUserSql`SELECT auth.update_session_heartbeat(${sessionId}::UUID)`
+                                        .catch((error) => {
+                                            ws.send(
+                                                JSON.stringify(
+                                                    new Communication.WebSocket.GeneralErrorResponseMessage(
+                                                        "Failed to update heartbeat",
+                                                    ),
+                                                ),
+                                            );
+                                        })
+                                        .then(() => {
+                                            ws.send(
+                                                JSON.stringify(
+                                                    new Communication.WebSocket.HeartbeatResponseMessage(
+                                                        session.agentId,
+                                                    ),
+                                                ),
+                                            );
+                                        });
                                     break;
                                 }
 
@@ -819,7 +843,6 @@ export class WorldApiManager {
                             ws,
                             agentId: sessionData.agentId,
                             sessionId: sessionData.sessionId,
-                            lastHeartbeat: Date.now(),
                         };
 
                         this.activeSessions.set(sessionData.sessionId, session);
@@ -873,11 +896,6 @@ export class WorldApiManager {
                                 data: {
                                     sessionId: session.sessionId,
                                     agentId: session.agentId,
-                                    lastHeartbeat: new Date(
-                                        session.lastHeartbeat,
-                                    ).toISOString(),
-                                    timeSinceLastHeartbeat:
-                                        Date.now() - session.lastHeartbeat,
                                 },
                             });
 
@@ -894,7 +912,6 @@ export class WorldApiManager {
             // #region Heartbeat Interval
 
             this.heartbeatInterval = setInterval(async () => {
-                const now = Date.now();
                 const sessionsToCheck = Array.from(
                     this.activeSessions.entries(),
                 );
@@ -908,51 +925,30 @@ export class WorldApiManager {
                             );
                         }
 
-                        if (
-                            !this.authConfig
-                                .auth_config__heartbeat_inactive_expiry_ms
-                        ) {
-                            throw new Error("WebSocket check interval not set");
-                        }
+                        // Check session validity directly in database
+                        const [validation] = await this.superUserSql<
+                            [
+                                {
+                                    is_valid: boolean;
+                                },
+                            ]
+                        >`
+                            SELECT * FROM auth.validate_session_id(${sessionId}::UUID)
+                        `;
 
-                        // Check heartbeat timeout first
-                        if (
-                            now - session.lastHeartbeat >
-                            this.authConfig
-                                .auth_config__heartbeat_inactive_expiry_ms
-                        ) {
-                            // Use database validate_session_id function
-                            const [validation] = await this.superUserSql<
-                                [
-                                    {
-                                        auth__agent_id: string | null;
-                                        is_valid: boolean;
-                                        session_token: string | null;
-                                    },
-                                ]
-                            >`
-                                    SELECT * FROM auth.validate_session_id(${sessionId}::UUID)
-                                `;
-
-                            if (!validation?.is_valid) {
-                                log({
-                                    prefix: this.LOG_PREFIX,
-                                    message:
-                                        "Session expired / invalid, closing WebSocket",
-                                    debug: VircadiaConfig.SERVER.DEBUG,
-                                    type: "debug",
-                                    data: {
-                                        sessionId,
-                                        agentId: session.agentId,
-                                        lastHeartbeat: new Date(
-                                            session.lastHeartbeat,
-                                        ).toISOString(),
-                                        timeSinceLastHeartbeat:
-                                            Date.now() - session.lastHeartbeat,
-                                    },
-                                });
-                                session.ws.close(1000, "Session expired");
-                            }
+                        if (!validation?.is_valid) {
+                            log({
+                                prefix: this.LOG_PREFIX,
+                                message:
+                                    "Session expired / invalid, closing WebSocket",
+                                debug: VircadiaConfig.SERVER.DEBUG,
+                                type: "debug",
+                                data: {
+                                    sessionId,
+                                    agentId: session.agentId,
+                                },
+                            });
+                            session.ws.close(1000, "Session expired");
                         }
                     }),
                 );

@@ -5,11 +5,13 @@ import { PostgresClient } from "../database/postgres/postgres_client";
 import {
     Entity,
     type Auth,
+    type Tick,
 } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import { sign } from "jsonwebtoken";
 import { isHealthy, up } from "../container/docker/docker_cli";
 
 const syncGroupToTest = "public.REALTIME";
+const scriptNamespace = "test_script_1";
 
 const adminAgentUsername = "test_admin";
 const regularAgentUsername = "test_agent";
@@ -26,6 +28,10 @@ let proxyUserSql: postgres.Sql;
 let adminAgent: TestAccount;
 let regularAgent: TestAccount;
 let anonAgent: TestAccount;
+
+const createdEntityIds: string[] = [];
+const createdScriptIds: string[] = [];
+const createdAssetIds: string[] = [];
 
 async function initContainers(): Promise<void> {
     if (!(await isHealthy()).isHealthy) {
@@ -1064,6 +1070,354 @@ describe("DB", () => {
                     // Clean up
                     await tx`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
                     await tx`DELETE FROM entity.entity_scripts WHERE general__script_id = ${script.general__script_id}`;
+                });
+            });
+        });
+    });
+
+    describe("Tick Schema", () => {
+        describe("Tick Operations", () => {
+            test("should create and manage world ticks", async () => {
+                await proxyUserSql.begin(async (tx) => {
+                    await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
+
+                    // Capture first tick and verify properties
+                    const [tickRecord1] = await tx<[Tick.I_Tick]>`
+                    SELECT * FROM tick.capture_tick_state(${syncGroupToTest})
+                `;
+                    expect(tickRecord1).toBeTruthy();
+                    expect(tickRecord1.group__sync).toBe(syncGroupToTest);
+                    expect(
+                        Number(tickRecord1.tick__entity_states_processed),
+                    ).toBeGreaterThanOrEqual(0);
+                    expect(
+                        Number(tickRecord1.tick__script_states_processed),
+                    ).toBeGreaterThanOrEqual(0);
+                    expect(tickRecord1.tick__duration_ms).toBeGreaterThan(0);
+                    expect(tickRecord1.tick__start_time).toBeTruthy();
+                    expect(tickRecord1.tick__end_time).toBeTruthy();
+                    expect(Number(tickRecord1.tick__number)).toBeGreaterThan(0);
+                    expect(tickRecord1.tick__is_delayed).toBeDefined();
+                    expect(
+                        tickRecord1.tick__headroom_ms,
+                    ).toBeGreaterThanOrEqual(0);
+
+                    // Capture second tick and verify difference
+                    const [tickRecord2] = await tx<[Tick.I_Tick]>`
+                    SELECT * FROM tick.capture_tick_state(${syncGroupToTest})
+                `;
+                    expect(tickRecord2).toBeTruthy();
+                    expect(tickRecord2.general__tick_id).not.toBe(
+                        tickRecord1.general__tick_id,
+                    );
+                    expect(Number(tickRecord2.tick__number)).toBeGreaterThan(
+                        Number(tickRecord1.tick__number),
+                    );
+                    expect(
+                        new Date(tickRecord2.tick__start_time).getTime(),
+                    ).toBeGreaterThan(
+                        new Date(tickRecord1.tick__start_time).getTime(),
+                    );
+                    expect(
+                        new Date(tickRecord2.tick__end_time).getTime(),
+                    ).toBeGreaterThan(
+                        new Date(tickRecord1.tick__end_time).getTime(),
+                    );
+                    expect(
+                        Number(tickRecord2.tick__time_since_last_tick_ms),
+                    ).toBeGreaterThan(0);
+                });
+            });
+
+            describe("Script Operations", () => {
+                test("should create multiple test scripts and capture their tick states", async () => {
+                    await superUserSql.begin(async (tx) => {
+                        // Create two test script records
+                        const [script1] = await tx<
+                            [{ general__script_id: string }]
+                        >`
+                    INSERT INTO entity.entity_scripts (
+                        general__script_name,
+                        group__sync
+                    ) VALUES (
+                        ${"Test Script 1"},
+                        ${syncGroupToTest}
+                    ) RETURNING general__script_id
+                `;
+                        const [script2] = await tx<
+                            [{ general__script_id: string }]
+                        >`
+                    INSERT INTO entity.entity_scripts (
+                        general__script_name,
+                        group__sync
+                    ) VALUES (
+                        ${"Test Script 2"},
+                        ${syncGroupToTest}
+                    ) RETURNING general__script_id
+                `;
+
+                        // Track created scripts for cleanup
+                        createdScriptIds.push(
+                            script1.general__script_id,
+                            script2.general__script_id,
+                        );
+
+                        // Capture a tick so that the scripts are processed
+                        await tx`SELECT * FROM tick.capture_tick_state(${syncGroupToTest})`;
+
+                        // Retrieve all script states at latest tick and verify the scripts are present
+                        const scripts = await tx<
+                            Array<{
+                                general__script_id: string;
+                                general__script_name: string;
+                                group__sync: string;
+                            }>
+                        >`
+                    SELECT * FROM entity.entity_scripts WHERE group__sync = ${syncGroupToTest}
+                `;
+
+                        const retrievedIds = scripts.map(
+                            (s) => s.general__script_id,
+                        );
+                        expect(retrievedIds).toContain(
+                            script1.general__script_id,
+                        );
+                        expect(retrievedIds).toContain(
+                            script2.general__script_id,
+                        );
+                    });
+                });
+            });
+
+            describe("Asset Operations", () => {
+                test("should create multiple test assets and capture their tick states", async () => {
+                    await superUserSql.begin(async (tx) => {
+                        // Create two test asset records
+                        const [asset1] = await tx<
+                            [{ general__asset_id: string }]
+                        >`
+                    INSERT INTO entity.entity_assets (
+                        general__asset_name,
+                        group__sync,
+                        asset__data,
+                        meta__data
+                    ) VALUES (
+                        ${"Test Asset 1"},
+                        ${syncGroupToTest},
+                        ${Buffer.from("asset data 1")},
+                        ${tx.json({ info: "asset 1 meta" })}
+                    ) RETURNING general__asset_id
+                `;
+                        const [asset2] = await tx<
+                            [{ general__asset_id: string }]
+                        >`
+                    INSERT INTO entity.entity_assets (
+                        general__asset_name,
+                        group__sync,
+                        asset__data,
+                        meta__data
+                    ) VALUES (
+                        ${"Test Asset 2"},
+                        ${syncGroupToTest},
+                        ${Buffer.from("asset data 2")},
+                        ${tx.json({ info: "asset 2 meta" })}
+                    ) RETURNING general__asset_id
+                `;
+
+                        // Track created assets for cleanup
+                        createdAssetIds.push(
+                            asset1.general__asset_id,
+                            asset2.general__asset_id,
+                        );
+
+                        // Capture a tick so that the asset changes are processed
+                        await tx`SELECT * FROM tick.capture_tick_state(${syncGroupToTest})`;
+
+                        // Retrieve all assets and verify they are present
+                        const assets = await tx<
+                            Array<{
+                                general__asset_id: string;
+                                group__sync: string;
+                                general__asset_name: string;
+                            }>
+                        >`
+                    SELECT * FROM entity.entity_assets WHERE group__sync = ${syncGroupToTest}
+                `;
+
+                        const retrievedAssetIds = assets.map(
+                            (a) => a.general__asset_id,
+                        );
+                        expect(retrievedAssetIds).toContain(
+                            asset1.general__asset_id,
+                        );
+                        expect(retrievedAssetIds).toContain(
+                            asset2.general__asset_id,
+                        );
+                    });
+                });
+            });
+
+            describe("Entity Operations", () => {
+                test("should create multiple test entities and capture their tick states", async () => {
+                    await superUserSql.begin(async (tx) => {
+                        const entityNames = [
+                            "Entity One",
+                            "Entity Two",
+                            "Entity Three",
+                        ];
+                        const createdEntities = [];
+
+                        for (const name of entityNames) {
+                            const [entity] = await tx<[Entity.I_Entity]>`
+                        INSERT INTO entity.entities (
+                            general__entity_name,
+                            meta__data,
+                            group__sync,
+                            scripts__ids,
+                            scripts__status,
+                            assets__ids
+                        ) VALUES (
+                            ${name},
+                            ${tx.json({
+                                [scriptNamespace]: {
+                                    position: {
+                                        x: 0,
+                                        y: 0,
+                                        z: 0,
+                                    },
+                                },
+                            })},
+                            ${syncGroupToTest},
+                            ${tx.array([])},
+                            ${"ACTIVE"},
+                            ${tx.array([])}
+                        ) RETURNING *
+                    `;
+                            createdEntities.push(entity);
+                            createdEntityIds.push(entity.general__entity_id);
+                        }
+
+                        // Capture tick state
+                        const [tickRecord] = await tx<[Tick.I_Tick]>`
+                    SELECT * FROM tick.capture_tick_state(${syncGroupToTest})
+                `;
+
+                        // Verify entities exist
+                        const states = await tx<
+                            Array<{ general__entity_id: string }>
+                        >`
+                    SELECT general__entity_id
+                    FROM entity.entities
+                    WHERE group__sync = ${syncGroupToTest}
+                `;
+
+                        const stateIds = states.map(
+                            (s) => s.general__entity_id,
+                        );
+                        for (const entity of createdEntities) {
+                            expect(stateIds).toContain(
+                                entity.general__entity_id,
+                            );
+                        }
+                    });
+                });
+
+                test("should detect entity changes between ticks for multiple entities", async () => {
+                    await superUserSql.begin(async (tx) => {
+                        const [entity1] = await tx<[Entity.I_Entity]>`
+                    INSERT INTO entity.entities (
+                        general__entity_name,
+                        meta__data,
+                        group__sync,
+                        scripts__ids,
+                        scripts__status,
+                        assets__ids
+                    ) VALUES (
+                        ${"Original Entity 1"},
+                        ${tx.json({
+                            [scriptNamespace]: {
+                                position: {
+                                    x: 0,
+                                    y: 0,
+                                    z: 0,
+                                },
+                            },
+                        })},
+                        ${syncGroupToTest},
+                        ${tx.array([])},
+                        ${"ACTIVE"},
+                        ${tx.array([])}
+                    ) RETURNING *
+                `;
+                        const [entity2] = await tx<[Entity.I_Entity]>`
+                    INSERT INTO entity.entities (
+                        general__entity_name,
+                        meta__data,
+                        group__sync,
+                        scripts__ids,
+                        scripts__status,
+                        assets__ids
+                    ) VALUES (
+                        ${"Original Entity 2"},
+                        ${tx.json({ [scriptNamespace]: { position: { x: 10, y: 10, z: 10 } } })},
+                        ${syncGroupToTest},
+                        ${tx.array([])},
+                        ${"ACTIVE"},
+                        ${tx.array([])}
+                    ) RETURNING *
+                `;
+                        // Track created entities for cleanup
+                        createdEntityIds.push(
+                            entity1.general__entity_id,
+                            entity2.general__entity_id,
+                        );
+
+                        // Capture first tick
+                        await tx`SELECT * FROM tick.capture_tick_state(${syncGroupToTest})`;
+
+                        // Update both entities
+                        await tx`
+                    UPDATE entity.entities
+                    SET general__entity_name = ${"Updated Entity 1"},
+                        meta__data = ${tx.json({ [scriptNamespace]: { position: { x: 5, y: 5, z: 5 } } })}
+                    WHERE general__entity_id = ${entity1.general__entity_id}
+                `;
+                        await tx`
+                    UPDATE entity.entities
+                    SET general__entity_name = ${"Updated Entity 2"},
+                        meta__data = ${tx.json({ [scriptNamespace]: { position: { x: 15, y: 15, z: 15 } } })}
+                    WHERE general__entity_id = ${entity2.general__entity_id}
+                `;
+
+                        // Capture second tick
+                        await tx`SELECT * FROM tick.capture_tick_state(${syncGroupToTest})`;
+
+                        // Retrieve changed entity states between latest ticks and verify
+                        const changes = await tx<Array<Tick.I_EntityUpdate>>`
+                    SELECT * FROM tick.get_changed_entity_states_between_latest_ticks(${syncGroupToTest})
+                `;
+                        const changeIds = changes.map(
+                            (c) => c.general__entity_id,
+                        );
+                        expect(changeIds).toEqual(
+                            expect.arrayContaining([
+                                entity1.general__entity_id,
+                                entity2.general__entity_id,
+                            ]),
+                        );
+
+                        // Verify updated details for one of the entities
+                        const updatedChange = changes.find(
+                            (c) =>
+                                c.general__entity_id ===
+                                entity1.general__entity_id,
+                        );
+                        expect(updatedChange).toBeTruthy();
+                        expect(updatedChange?.operation).toBe("UPDATE");
+                        expect(
+                            updatedChange?.changes.general__entity_name,
+                        ).toBe("Updated Entity 1");
+                    });
                 });
             });
         });

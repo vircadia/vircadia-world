@@ -463,6 +463,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- TODO: Every time we use log_script_change we should run this. Same should be done for assets, and entities (if not already).
 CREATE OR REPLACE FUNCTION tick.cleanup_old_script_audit_logs() 
 RETURNS void AS $$
 BEGIN
@@ -530,12 +531,20 @@ BEGIN
         FROM entity.entity_scripts s
         JOIN script_changes sc ON s.general__script_id = sc.general__script_id
         WHERE sc.operation != 'DELETE'
+    ),
+    -- Get previous script states from before this change
+    previous_scripts AS (
+        SELECT s.*
+        FROM entity.entity_scripts s
+        JOIN script_changes sc ON s.general__script_id = sc.general__script_id
+        WHERE sc.operation = 'UPDATE'
+        AND s.general__updated_at <= v_previous_tick_time
     )
-    -- Handle INSERT operations
     SELECT
         sc.general__script_id,
         sc.operation,
         CASE
+            -- Handle INSERT operations - include all fields
             WHEN sc.operation = 'INSERT' THEN 
                 jsonb_strip_nulls(jsonb_build_object(
                     'general__script_name', cs.general__script_name,
@@ -557,19 +566,32 @@ BEGIN
                 ))
             -- Handle DELETE operations    
             WHEN sc.operation = 'DELETE' THEN NULL
-            -- Handle UPDATE operations with direct field comparison
+            -- Handle UPDATE operations with field comparison
             ELSE
                 jsonb_strip_nulls(jsonb_build_object(
-                    'general__script_name', cs.general__script_name,
-                    'group__sync', cs.group__sync,
-                    'source__repo__entry_path', cs.source__repo__entry_path,
-                    'source__repo__url', cs.source__repo__url,
-                    'compiled__node__status', cs.compiled__node__status,
-                    'compiled__browser__status', cs.compiled__browser__status
+                    'general__script_name', 
+                        CASE WHEN cs.general__script_name IS DISTINCT FROM ps.general__script_name 
+                        THEN cs.general__script_name END,
+                    'group__sync', 
+                        CASE WHEN cs.group__sync IS DISTINCT FROM ps.group__sync 
+                        THEN cs.group__sync END,
+                    'source__repo__entry_path', 
+                        CASE WHEN cs.source__repo__entry_path IS DISTINCT FROM ps.source__repo__entry_path 
+                        THEN cs.source__repo__entry_path END,
+                    'source__repo__url', 
+                        CASE WHEN cs.source__repo__url IS DISTINCT FROM ps.source__repo__url 
+                        THEN cs.source__repo__url END,
+                    'compiled__node__status', 
+                        CASE WHEN cs.compiled__node__status IS DISTINCT FROM ps.compiled__node__status 
+                        THEN cs.compiled__node__status END,
+                    'compiled__browser__status', 
+                        CASE WHEN cs.compiled__browser__status IS DISTINCT FROM ps.compiled__browser__status 
+                        THEN cs.compiled__browser__status END
                 ))
         END
     FROM script_changes sc
-    LEFT JOIN current_scripts cs ON sc.general__script_id = cs.general__script_id;
+    LEFT JOIN current_scripts cs ON sc.general__script_id = cs.general__script_id
+    LEFT JOIN previous_scripts ps ON sc.general__script_id = ps.general__script_id;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 

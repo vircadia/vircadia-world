@@ -81,7 +81,8 @@ CREATE TABLE auth.agent_profiles (
     auth__email TEXT UNIQUE,
     auth__is_admin BOOLEAN NOT NULL DEFAULT FALSE,
     auth__is_anon BOOLEAN NOT NULL DEFAULT FALSE,
-    auth__is_system BOOLEAN NOT NULL DEFAULT FALSE
+    auth__is_system BOOLEAN NOT NULL DEFAULT FALSE,
+    profile__last_seen_at TIMESTAMPTZ
 ) INHERITS (auth._template);
 ALTER TABLE auth.agent_profiles ENABLE ROW LEVEL SECURITY;
 
@@ -255,7 +256,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- View Refresh Functions
-CREATE OR REPLACE FUNCTION auth.refresh_active_sessions_trigger()
+CREATE OR REPLACE FUNCTION auth.refresh_active_sessions_view_trigger()
 RETURNS trigger AS $$ 
 BEGIN
     REFRESH MATERIALIZED VIEW auth.active_sync_group_sessions;
@@ -346,6 +347,56 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- Session Heartbeat Function
+CREATE OR REPLACE FUNCTION auth.update_session_heartbeat(
+    p_session_id UUID
+)
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_agent_id UUID;
+BEGIN
+    -- Check if session exists and get agent ID
+    SELECT auth__agent_id INTO v_agent_id
+    FROM auth.agent_sessions
+    WHERE general__session_id = p_session_id
+      AND session__is_active = true
+      AND session__expires_at > NOW();
+    
+    IF NOT FOUND THEN
+        RETURN false;
+    END IF;
+    
+    -- Check permissions (user's own session, admin, or system)
+    IF v_agent_id != auth.current_agent_id() 
+       AND NOT auth.is_admin_agent() 
+       AND NOT auth.is_system_agent() THEN
+        RETURN false;
+    END IF;
+    
+    -- Update the last seen timestamp
+    UPDATE auth.agent_sessions
+    SET session__last_seen_at = NOW()
+    WHERE general__session_id = p_session_id;
+    
+    RETURN true;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to update profile's last seen time based on session activity
+CREATE OR REPLACE FUNCTION auth.update_profile_last_seen()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Update the agent's profile last seen timestamp if the session timestamp is newer
+    UPDATE auth.agent_profiles
+    SET profile__last_seen_at = NEW.session__last_seen_at
+    WHERE general__agent_profile_id = NEW.auth__agent_id
+      AND (profile__last_seen_at IS NULL 
+           OR profile__last_seen_at < NEW.session__last_seen_at);
+      
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 -- ============================================================================
 -- 8. MATERIALIZED VIEWS AND RELATED FUNCTIONS
 -- ============================================================================
@@ -413,15 +464,15 @@ CREATE TRIGGER trigger_enforce_max_sessions
     FOR EACH ROW
     EXECUTE FUNCTION auth.enforce_session_limit();
 
-CREATE TRIGGER refresh_active_sessions_on_session_change
+CREATE TRIGGER refresh_active_sessions_view_on_session_change
     AFTER INSERT OR UPDATE OR DELETE ON auth.agent_sessions
     FOR EACH STATEMENT
-    EXECUTE FUNCTION auth.refresh_active_sessions_trigger();
+    EXECUTE FUNCTION auth.refresh_active_sessions_view_trigger();
 
-CREATE TRIGGER refresh_active_sessions_on_role_change
+CREATE TRIGGER refresh_active_sessions_view_on_role_change
     AFTER INSERT OR UPDATE OR DELETE ON auth.agent_sync_group_roles
     FOR EACH STATEMENT
-    EXECUTE FUNCTION auth.refresh_active_sessions_trigger();
+    EXECUTE FUNCTION auth.refresh_active_sessions_view_trigger();
 
 -- Audit Trail Triggers
 CREATE TRIGGER update_agent_profile_timestamps
@@ -448,6 +499,16 @@ CREATE TRIGGER update_agent_sync_group_roles_updated_at
     BEFORE UPDATE ON auth.agent_sync_group_roles
     FOR EACH ROW
     EXECUTE FUNCTION auth.update_audit_columns();
+
+CREATE TRIGGER update_profile_last_seen_on_session_activity
+    AFTER UPDATE OF session__last_seen_at ON auth.agent_sessions
+    FOR EACH ROW
+    EXECUTE FUNCTION auth.update_profile_last_seen();
+
+CREATE TRIGGER update_profile_last_seen_on_session_creation
+    AFTER INSERT ON auth.agent_sessions
+    FOR EACH ROW
+    EXECUTE FUNCTION auth.update_profile_last_seen();
 
 -- ============================================================================
 -- 11. INITIAL DATA
@@ -669,7 +730,9 @@ GRANT EXECUTE ON FUNCTION auth.current_agent_id() TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.get_system_agent_id() TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.validate_session_id(UUID, TEXT) TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.set_agent_context_from_agent_id(UUID) TO vircadia_agent_proxy;
-GRANT EXECUTE ON FUNCTION auth.refresh_active_sessions_trigger() TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.refresh_active_sessions_view_trigger() TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.update_audit_columns() TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.cleanup_old_sessions() TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.enforce_session_limit() TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.update_session_heartbeat(UUID) TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.update_profile_last_seen() TO vircadia_agent_proxy;

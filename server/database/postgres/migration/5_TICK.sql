@@ -50,25 +50,44 @@ CREATE TABLE tick.entity_states (
         REFERENCES tick.world_ticks(general__tick_id) ON DELETE CASCADE
 );
 
--- 2.3 SCRIPT AUDIT LOG TABLE
-CREATE TABLE tick.script_audit_log (
-    general__asset_audit_id uuid DEFAULT uuid_generate_v4() PRIMARY KEY,
-    general__script_id uuid NOT NULL,
-    group__sync text NOT NULL
+-- 2.3 SCRIPT STATES TABLE - Replacing script_audit_log
+CREATE TABLE tick.script_states (
+    LIKE entity.entity_scripts INCLUDING DEFAULTS EXCLUDING CONSTRAINTS,
+
+    -- Additional metadata for state tracking
+    general__tick_id uuid NOT NULL,
+    general__script_state_id uuid DEFAULT uuid_generate_v4(),
+
+    -- Override the primary key to allow multiple states per script
+    CONSTRAINT script_states_pkey PRIMARY KEY (general__script_state_id),
+
+    -- Add foreign key constraint for sync_group
+    CONSTRAINT script_states_sync_group_fkey FOREIGN KEY (group__sync) 
         REFERENCES auth.sync_groups(general__sync_group),
-    operation config.operation_enum NOT NULL,
-    operation_timestamp timestamptz DEFAULT clock_timestamp(),
-    performed_by uuid DEFAULT auth.current_agent_id()
+    
+    -- Add foreign key constraint to world_ticks with cascade delete
+    CONSTRAINT script_states_tick_fkey FOREIGN KEY (general__tick_id)
+        REFERENCES tick.world_ticks(general__tick_id) ON DELETE CASCADE
 );
 
--- 2.4 ASSET AUDIT LOG TABLE
-CREATE TABLE tick.asset_audit_log (
-    general__asset_audit_id uuid DEFAULT uuid_generate_v4() PRIMARY KEY,
-    general__asset_id uuid NOT NULL,
-    group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group),
-    operation config.operation_enum NOT NULL,
-    operation_timestamp timestamptz DEFAULT clock_timestamp(),
-    performed_by uuid DEFAULT auth.current_agent_id()
+-- 2.4 ASSET STATES TABLE - Replacing asset_audit_log
+CREATE TABLE tick.asset_states (
+    LIKE entity.entity_assets INCLUDING DEFAULTS EXCLUDING CONSTRAINTS,
+
+    -- Additional metadata for state tracking
+    general__tick_id uuid NOT NULL,
+    general__asset_state_id uuid DEFAULT uuid_generate_v4(),
+
+    -- Override the primary key to allow multiple states per asset
+    CONSTRAINT asset_states_pkey PRIMARY KEY (general__asset_state_id),
+
+    -- Add foreign key constraint for sync_group
+    CONSTRAINT asset_states_sync_group_fkey FOREIGN KEY (group__sync) 
+        REFERENCES auth.sync_groups(general__sync_group),
+    
+    -- Add foreign key constraint to world_ticks with cascade delete
+    CONSTRAINT asset_states_tick_fkey FOREIGN KEY (general__tick_id)
+        REFERENCES tick.world_ticks(general__tick_id) ON DELETE CASCADE
 );
 
 -- ============================================================================
@@ -86,23 +105,25 @@ CREATE INDEX entity_states_sync_group_tick_idx ON tick.entity_states (group__syn
 CREATE INDEX idx_entity_states_sync_tick_lookup ON tick.entity_states (group__sync, general__tick_id, general__entity_id);
 CREATE INDEX idx_entity_states_sync_tick ON tick.entity_states (group__sync, general__tick_id);
 
--- 3.3 SCRIPT AUDIT LOG INDEXES
-CREATE INDEX idx_script_audit_log_timestamp 
-    ON tick.script_audit_log (group__sync, operation_timestamp DESC);
-CREATE INDEX idx_script_audit_log_script_id
-    ON tick.script_audit_log (general__script_id);
+-- 3.3 SCRIPT STATES INDEXES
+CREATE INDEX script_states_lookup_idx ON tick.script_states (general__script_id, general__tick_id);
+CREATE INDEX script_states_tick_idx ON tick.script_states (general__tick_id);
+CREATE INDEX script_states_sync_group_tick_idx ON tick.script_states (group__sync, general__tick_id DESC);
+CREATE INDEX idx_script_states_sync_tick_lookup ON tick.script_states (group__sync, general__tick_id, general__script_id);
+CREATE INDEX idx_script_states_sync_tick ON tick.script_states (group__sync, general__tick_id);
 
--- 3.4 ASSET AUDIT LOG INDEXES
-CREATE INDEX idx_asset_audit_log_timestamp 
-    ON tick.asset_audit_log (group__sync, operation_timestamp DESC);
-CREATE INDEX idx_asset_audit_log_asset_id 
-    ON tick.asset_audit_log (general__asset_id);
+-- 3.4 ASSET STATES INDEXES
+CREATE INDEX asset_states_lookup_idx ON tick.asset_states (general__asset_id, general__tick_id);
+CREATE INDEX asset_states_tick_idx ON tick.asset_states (general__tick_id);
+CREATE INDEX asset_states_sync_group_tick_idx ON tick.asset_states (group__sync, general__tick_id DESC);
+CREATE INDEX idx_asset_states_sync_tick_lookup ON tick.asset_states (group__sync, general__tick_id, general__asset_id);
+CREATE INDEX idx_asset_states_sync_tick ON tick.asset_states (group__sync, general__tick_id);
 
 -- ============================================================================
 -- 4. FUNCTIONS
 -- ============================================================================
 
--- 4.1 TICK CAPTURE FUNCTIONS
+-- 4.1 TICK CAPTURE FUNCTION - Updated to include script and asset states
 CREATE OR REPLACE FUNCTION tick.capture_tick_state(
     p_sync_group text
 ) RETURNS TABLE (
@@ -247,20 +268,91 @@ BEGIN
     )
     SELECT COUNT(*) INTO v_entity_states_processed FROM entity_snapshot;
 
-    -- Process script & asset state metrics
-    SELECT COUNT(DISTINCT sa.general__script_id)
-    INTO v_script_states_processed
-    FROM tick.script_audit_log sa
-    WHERE sa.group__sync = p_sync_group
-      AND sa.operation_timestamp > v_last_tick_time 
-      AND sa.operation_timestamp <= v_start_time;
+    -- Capture script states
+    WITH script_snapshot AS (
+        INSERT INTO tick.script_states (
+            general__script_id,
+            general__script_name,
+            group__sync,
+            source__repo__entry_path,
+            source__repo__url,
+            compiled__node__script,
+            compiled__node__script_sha256,
+            compiled__node__status,
+            compiled__node__updated_at,
+            compiled__bun__script,
+            compiled__bun__script_sha256,
+            compiled__bun__status,
+            compiled__bun__updated_at,
+            compiled__browser__script,
+            compiled__browser__script_sha256,
+            compiled__browser__status,
+            compiled__browser__updated_at,
+            general__created_at,
+            general__created_by,
+            general__updated_at,
+            general__updated_by,
+            general__tick_id
+        )
+        SELECT 
+            s.general__script_id,
+            s.general__script_name,
+            s.group__sync,
+            s.source__repo__entry_path,
+            s.source__repo__url,
+            s.compiled__node__script,
+            s.compiled__node__script_sha256,
+            s.compiled__node__status,
+            s.compiled__node__updated_at,
+            s.compiled__bun__script,
+            s.compiled__bun__script_sha256,
+            s.compiled__bun__status,
+            s.compiled__bun__updated_at,
+            s.compiled__browser__script,
+            s.compiled__browser__script_sha256,
+            s.compiled__browser__status,
+            s.compiled__browser__updated_at,
+            s.general__created_at,
+            s.general__created_by,
+            s.general__updated_at,
+            s.general__updated_by,
+            v_tick_id
+        FROM entity.entity_scripts s
+        WHERE s.group__sync = p_sync_group
+        RETURNING 1
+    )
+    SELECT COUNT(*) INTO v_script_states_processed FROM script_snapshot;
 
-    SELECT COUNT(DISTINCT aa.general__asset_id)
-    INTO v_asset_states_processed
-    FROM tick.asset_audit_log aa
-    WHERE aa.group__sync = p_sync_group
-      AND aa.operation_timestamp > v_last_tick_time
-      AND aa.operation_timestamp <= v_start_time;
+    -- Capture asset states
+    WITH asset_snapshot AS (
+        INSERT INTO tick.asset_states (
+            general__asset_id,
+            general__asset_name,
+            group__sync,
+            asset__data,
+            meta__data,
+            general__created_at,
+            general__created_by,
+            general__updated_at,
+            general__updated_by,
+            general__tick_id
+        )
+        SELECT 
+            a.general__asset_id,
+            a.general__asset_name,
+            a.group__sync,
+            a.asset__data,
+            a.meta__data,
+            a.general__created_at,
+            a.general__created_by,
+            a.general__updated_at,
+            a.general__updated_by,
+            v_tick_id
+        FROM entity.entity_assets a
+        WHERE a.group__sync = p_sync_group
+        RETURNING 1
+    )
+    SELECT COUNT(*) INTO v_asset_states_processed FROM asset_snapshot;
 
     -- Calculate tick duration, delay & headroom, then update tick record
     v_end_time := clock_timestamp();
@@ -421,65 +513,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 4.3 SCRIPT FUNCTIONS
-CREATE OR REPLACE FUNCTION tick.log_script_change()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF TG_OP = 'INSERT' THEN
-        INSERT INTO tick.script_audit_log (
-            general__script_id,
-            group__sync,
-            operation
-        ) VALUES (
-            NEW.general__script_id,
-            NEW.group__sync,
-            'INSERT'
-        );
-        RETURN NEW;
-    ELSIF TG_OP = 'UPDATE' THEN
-        INSERT INTO tick.script_audit_log (
-            general__script_id,
-            group__sync,
-            operation
-        ) VALUES (
-            NEW.general__script_id,
-            NEW.group__sync,
-            'UPDATE'
-        );
-        RETURN NEW;
-    ELSIF TG_OP = 'DELETE' THEN
-        INSERT INTO tick.script_audit_log (
-            general__script_id,
-            group__sync,
-            operation
-        ) VALUES (
-            OLD.general__script_id,
-            OLD.group__sync,
-            'DELETE'
-        );
-        RETURN OLD;
-    END IF;
-    RETURN NULL;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- TODO: Every time we use log_script_change we should run this. Same should be done for assets, and entities (if not already).
-CREATE OR REPLACE FUNCTION tick.cleanup_old_script_audit_logs() 
-RETURNS void AS $$
-BEGIN
-    DELETE FROM tick.script_audit_log sal
-    WHERE EXISTS (
-        SELECT 1 
-        FROM auth.sync_groups sg
-        WHERE sg.general__sync_group = sal.group__sync
-          AND sal.operation_timestamp < (
-            NOW() - ((sg.server__tick__buffer * sg.server__tick__rate_ms) || ' milliseconds')::interval
-          )
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-
+-- 4.3 SCRIPT STATE FUNCTIONS - Updated to use state comparison instead of audit logs
 CREATE OR REPLACE FUNCTION tick.get_changed_script_states_between_latest_ticks(
     p_sync_group text
 ) RETURNS TABLE (
@@ -488,155 +522,107 @@ CREATE OR REPLACE FUNCTION tick.get_changed_script_states_between_latest_ticks(
     changes jsonb
 ) AS $$
 DECLARE
-    v_latest_tick_id uuid;
+    v_current_tick_id uuid;
     v_previous_tick_id uuid;
-    v_latest_tick_time timestamptz;
-    v_previous_tick_time timestamptz;
 BEGIN
-    -- Get the latest two tick IDs and timestamps
+    -- Get the latest two tick IDs
     WITH ordered_ticks AS (
-        SELECT general__tick_id, tick__start_time, tick__number
+        SELECT general__tick_id
         FROM tick.world_ticks wt
         WHERE wt.group__sync = p_sync_group
         ORDER BY tick__number DESC
         LIMIT 2
     )
     SELECT
-        (SELECT general__tick_id FROM ordered_ticks ORDER BY tick__number DESC LIMIT 1),
-        (SELECT general__tick_id FROM ordered_ticks ORDER BY tick__number DESC OFFSET 1 LIMIT 1),
-        (SELECT tick__start_time FROM ordered_ticks ORDER BY tick__number DESC LIMIT 1),
-        (SELECT tick__start_time FROM ordered_ticks ORDER BY tick__number DESC OFFSET 1 LIMIT 1)
-    INTO v_latest_tick_id, v_previous_tick_id, v_latest_tick_time, v_previous_tick_time;
+        (SELECT general__tick_id FROM ordered_ticks LIMIT 1),
+        (SELECT general__tick_id FROM ordered_ticks OFFSET 1 LIMIT 1)
+    INTO v_current_tick_id, v_previous_tick_id;
 
     -- If we don't have enough ticks, return empty result
     IF v_previous_tick_id IS NULL THEN
         RETURN;
     END IF;
 
-    -- Return changes between ticks using the audit log
+    -- Return changes between these ticks
     RETURN QUERY
-    WITH script_changes AS (
-        SELECT DISTINCT ON (sal.general__script_id)
-            sal.general__script_id,
-            sal.operation,
-            sal.operation_timestamp
-        FROM tick.script_audit_log sal
-        WHERE sal.group__sync = p_sync_group
-          AND sal.operation_timestamp > v_previous_tick_time
-          AND sal.operation_timestamp <= v_latest_tick_time
-        ORDER BY sal.general__script_id, sal.operation_timestamp DESC
+    WITH current_states AS (
+        SELECT ss.*
+        FROM tick.script_states ss
+        WHERE ss.general__tick_id = v_current_tick_id
     ),
-    current_scripts AS (
-        SELECT s.*
-        FROM entity.entity_scripts s
-        JOIN script_changes sc ON s.general__script_id = sc.general__script_id
-        WHERE sc.operation != 'DELETE'
-    ),
-    -- Get previous script states from before this change
-    previous_scripts AS (
-        SELECT s.*
-        FROM entity.entity_scripts s
-        JOIN script_changes sc ON s.general__script_id = sc.general__script_id
-        WHERE sc.operation = 'UPDATE'
-        AND s.general__updated_at <= v_previous_tick_time
+    previous_states AS (
+        SELECT ss.*
+        FROM tick.script_states ss
+        WHERE ss.general__tick_id = v_previous_tick_id
     )
-    SELECT
-        sc.general__script_id,
-        sc.operation,
-        CASE
-            -- Handle INSERT operations - include all fields
-            WHEN sc.operation = 'INSERT' THEN 
-                jsonb_strip_nulls(jsonb_build_object(
+    SELECT 
+        COALESCE(cs.general__script_id, ps.general__script_id),
+        CASE 
+            WHEN ps.general__script_id IS NULL THEN 'INSERT'::config.operation_enum
+            WHEN cs.general__script_id IS NULL THEN 'DELETE'::config.operation_enum
+            ELSE 'UPDATE'::config.operation_enum
+        END,
+        CASE 
+            WHEN ps.general__script_id IS NULL THEN 
+                jsonb_build_object(
+                    'general__script_id', cs.general__script_id,
                     'general__script_name', cs.general__script_name,
                     'group__sync', cs.group__sync,
                     'source__repo__entry_path', cs.source__repo__entry_path,
                     'source__repo__url', cs.source__repo__url,
-                    'compiled__node__script', cs.compiled__node__script,
-                    'compiled__node__script_sha256', cs.compiled__node__script_sha256,
                     'compiled__node__status', cs.compiled__node__status,
                     'compiled__node__updated_at', cs.compiled__node__updated_at,
-                    'compiled__bun__script', cs.compiled__bun__script,
-                    'compiled__bun__script_sha256', cs.compiled__bun__script_sha256,
                     'compiled__bun__status', cs.compiled__bun__status,
                     'compiled__bun__updated_at', cs.compiled__bun__updated_at,
-                    'compiled__browser__script', cs.compiled__browser__script,
-                    'compiled__browser__script_sha256', cs.compiled__browser__script_sha256,
                     'compiled__browser__status', cs.compiled__browser__status,
-                    'compiled__browser__updated_at', cs.compiled__browser__updated_at
-                ))
-            -- Handle DELETE operations    
-            WHEN sc.operation = 'DELETE' THEN NULL
-            -- Handle UPDATE operations with field comparison
-            ELSE
-                jsonb_strip_nulls(jsonb_build_object(
-                    'general__script_name', 
-                        CASE WHEN cs.general__script_name IS DISTINCT FROM ps.general__script_name 
-                        THEN cs.general__script_name END,
-                    'group__sync', 
-                        CASE WHEN cs.group__sync IS DISTINCT FROM ps.group__sync 
-                        THEN cs.group__sync END,
-                    'source__repo__entry_path', 
-                        CASE WHEN cs.source__repo__entry_path IS DISTINCT FROM ps.source__repo__entry_path 
-                        THEN cs.source__repo__entry_path END,
-                    'source__repo__url', 
-                        CASE WHEN cs.source__repo__url IS DISTINCT FROM ps.source__repo__url 
-                        THEN cs.source__repo__url END,
-                    'compiled__node__status', 
-                        CASE WHEN cs.compiled__node__status IS DISTINCT FROM ps.compiled__node__status 
-                        THEN cs.compiled__node__status END,
-                    'compiled__browser__status', 
-                        CASE WHEN cs.compiled__browser__status IS DISTINCT FROM ps.compiled__browser__status 
-                        THEN cs.compiled__browser__status END
-                ))
+                    'compiled__browser__updated_at', cs.compiled__browser__updated_at,
+                    'general__created_at', cs.general__created_at,
+                    'general__updated_at', cs.general__updated_at
+                )
+            WHEN cs.general__script_id IS NULL THEN NULL::jsonb
+            ELSE jsonb_strip_nulls(jsonb_build_object(
+                'general__script_name', 
+                    CASE WHEN cs.general__script_name IS DISTINCT FROM ps.general__script_name 
+                    THEN cs.general__script_name END,
+                'group__sync', 
+                    CASE WHEN cs.group__sync IS DISTINCT FROM ps.group__sync 
+                    THEN cs.group__sync END,
+                'source__repo__entry_path', 
+                    CASE WHEN cs.source__repo__entry_path IS DISTINCT FROM ps.source__repo__entry_path 
+                    THEN cs.source__repo__entry_path END,
+                'source__repo__url', 
+                    CASE WHEN cs.source__repo__url IS DISTINCT FROM ps.source__repo__url 
+                    THEN cs.source__repo__url END,
+                'compiled__node__status', 
+                    CASE WHEN cs.compiled__node__status IS DISTINCT FROM ps.compiled__node__status 
+                    THEN cs.compiled__node__status END,
+                'compiled__node__updated_at', 
+                    CASE WHEN cs.compiled__node__updated_at IS DISTINCT FROM ps.compiled__node__updated_at 
+                    THEN cs.compiled__node__updated_at END,
+                'compiled__bun__status', 
+                    CASE WHEN cs.compiled__bun__status IS DISTINCT FROM ps.compiled__bun__status 
+                    THEN cs.compiled__bun__status END,
+                'compiled__bun__updated_at', 
+                    CASE WHEN cs.compiled__bun__updated_at IS DISTINCT FROM ps.compiled__bun__updated_at 
+                    THEN cs.compiled__bun__updated_at END,
+                'compiled__browser__status', 
+                    CASE WHEN cs.compiled__browser__status IS DISTINCT FROM ps.compiled__browser__status 
+                    THEN cs.compiled__browser__status END,
+                'compiled__browser__updated_at', 
+                    CASE WHEN cs.compiled__browser__updated_at IS DISTINCT FROM ps.compiled__browser__updated_at 
+                    THEN cs.compiled__browser__updated_at END,
+                'general__updated_at', 
+                    CASE WHEN cs.general__updated_at IS DISTINCT FROM ps.general__updated_at 
+                    THEN cs.general__updated_at END
+            ))
         END
-    FROM script_changes sc
-    LEFT JOIN current_scripts cs ON sc.general__script_id = cs.general__script_id
-    LEFT JOIN previous_scripts ps ON sc.general__script_id = ps.general__script_id;
+    FROM current_states cs
+    FULL OUTER JOIN previous_states ps ON cs.general__script_id = ps.general__script_id
+    WHERE cs IS DISTINCT FROM ps;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 4.4 ASSET FUNCTIONS
-CREATE OR REPLACE FUNCTION tick.log_asset_change()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF TG_OP = 'INSERT' THEN
-        INSERT INTO tick.asset_audit_log (
-            general__asset_id,
-            group__sync,
-            operation
-        ) VALUES (
-            NEW.general__asset_id,
-            NEW.group__sync,
-            'INSERT'
-        );
-        RETURN NEW;
-    ELSIF TG_OP = 'UPDATE' THEN
-        INSERT INTO tick.asset_audit_log (
-            general__asset_id,
-            group__sync,
-            operation
-        ) VALUES (
-            NEW.general__asset_id,
-            NEW.group__sync,
-            'UPDATE'
-        );
-        RETURN NEW;
-    ELSIF TG_OP = 'DELETE' THEN
-        INSERT INTO tick.asset_audit_log (
-            general__asset_id,
-            group__sync,
-            operation
-        ) VALUES (
-            OLD.general__asset_id,
-            OLD.group__sync,
-            'DELETE'
-        );
-        RETURN OLD;
-    END IF;
-    RETURN NULL;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
+-- 4.4 ASSET STATE FUNCTIONS - Updated to use state comparison instead of audit logs
 CREATE OR REPLACE FUNCTION tick.get_changed_asset_states_between_latest_ticks(
     p_sync_group text
 ) RETURNS TABLE (
@@ -645,51 +631,79 @@ CREATE OR REPLACE FUNCTION tick.get_changed_asset_states_between_latest_ticks(
     changes jsonb
 ) AS $$
 DECLARE
-    v_latest_tick_time timestamptz;
-    v_previous_tick_time timestamptz;
+    v_current_tick_id uuid;
+    v_previous_tick_id uuid;
 BEGIN
-    -- Get the latest two tick timestamps
-    SELECT 
-        tick__start_time,
-        LAG(tick__start_time) OVER (ORDER BY tick__number DESC)
-    INTO v_latest_tick_time, v_previous_tick_time
-    FROM tick.world_ticks
-    WHERE group__sync = p_sync_group
-    ORDER BY tick__number DESC
-    LIMIT 2;
+    -- Get the latest two tick IDs
+    WITH ordered_ticks AS (
+        SELECT general__tick_id
+        FROM tick.world_ticks wt
+        WHERE wt.group__sync = p_sync_group
+        ORDER BY tick__number DESC
+        LIMIT 2
+    )
+    SELECT
+        (SELECT general__tick_id FROM ordered_ticks LIMIT 1),
+        (SELECT general__tick_id FROM ordered_ticks OFFSET 1 LIMIT 1)
+    INTO v_current_tick_id, v_previous_tick_id;
 
+    -- If we don't have enough ticks, return empty result
+    IF v_previous_tick_id IS NULL THEN
+        RETURN;
+    END IF;
+
+    -- Return changes between these ticks
     RETURN QUERY
-    -- Get all changes from asset audit log
-    WITH asset_changes AS (
-        SELECT DISTINCT ON (aal.general__asset_id)
-            aal.general__asset_id,
-            aal.operation,
-            aal.operation_timestamp,
-            ea.general__created_at,
-            ea.general__asset_name,
-            ea.meta__data,
-            ea.asset__data,
-            ea.group__sync
-        FROM tick.asset_audit_log aal
-        LEFT JOIN entity.entity_assets ea ON aal.general__asset_id = ea.general__asset_id
-        WHERE aal.group__sync = p_sync_group
-          AND aal.operation_timestamp > v_previous_tick_time 
-          AND aal.operation_timestamp <= v_latest_tick_time
-        ORDER BY aal.general__asset_id, aal.operation_timestamp DESC
+    WITH current_states AS (
+        SELECT ast.*
+        FROM tick.asset_states ast
+        WHERE ast.general__tick_id = v_current_tick_id
+    ),
+    previous_states AS (
+        SELECT ast.*
+        FROM tick.asset_states ast
+        WHERE ast.general__tick_id = v_previous_tick_id
     )
     SELECT 
-        ac.general__asset_id,
-        ac.operation,
+        COALESCE(cs.general__asset_id, ps.general__asset_id),
         CASE 
-            WHEN ac.operation = 'DELETE' THEN NULL::jsonb
+            WHEN ps.general__asset_id IS NULL THEN 'INSERT'::config.operation_enum
+            WHEN cs.general__asset_id IS NULL THEN 'DELETE'::config.operation_enum
+            ELSE 'UPDATE'::config.operation_enum
+        END,
+        CASE 
+            WHEN ps.general__asset_id IS NULL THEN 
+                jsonb_build_object(
+                    'general__asset_id', cs.general__asset_id,
+                    'general__asset_name', cs.general__asset_name,
+                    'group__sync', cs.group__sync,
+                    'meta__data', cs.meta__data,
+                    'asset__data', CASE WHEN cs.asset__data IS NOT NULL THEN true ELSE false END,
+                    'general__created_at', cs.general__created_at,
+                    'general__updated_at', cs.general__updated_at
+                )
+            WHEN cs.general__asset_id IS NULL THEN NULL::jsonb
             ELSE jsonb_strip_nulls(jsonb_build_object(
-                'general__asset_name', ac.general__asset_name,
-                'meta__data', ac.meta__data,
-                'asset__data', CASE WHEN ac.asset__data IS NOT NULL THEN encode(ac.asset__data, 'hex') ELSE NULL END,
-                'group__sync', ac.group__sync
+                'general__asset_name', 
+                    CASE WHEN cs.general__asset_name IS DISTINCT FROM ps.general__asset_name 
+                    THEN cs.general__asset_name END,
+                'group__sync', 
+                    CASE WHEN cs.group__sync IS DISTINCT FROM ps.group__sync 
+                    THEN cs.group__sync END,
+                'meta__data', 
+                    CASE WHEN cs.meta__data IS DISTINCT FROM ps.meta__data 
+                    THEN cs.meta__data END,
+                'asset__data', 
+                    CASE WHEN cs.asset__data IS DISTINCT FROM ps.asset__data 
+                    THEN true END,
+                'general__updated_at', 
+                    CASE WHEN cs.general__updated_at IS DISTINCT FROM ps.general__updated_at 
+                    THEN cs.general__updated_at END
             ))
-        END AS changes
-    FROM asset_changes ac;
+        END
+    FROM current_states cs
+    FULL OUTER JOIN previous_states ps ON cs.general__asset_id = ps.general__asset_id
+    WHERE cs IS DISTINCT FROM ps;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -700,20 +714,8 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- 5.1 ENABLE ROW LEVEL SECURITY ON ALL TABLES
 ALTER TABLE tick.world_ticks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tick.entity_states ENABLE ROW LEVEL SECURITY;
-ALTER TABLE tick.script_audit_log ENABLE ROW LEVEL SECURITY;
-ALTER TABLE tick.asset_audit_log ENABLE ROW LEVEL SECURITY;
-
--- 5.2 SCRIPT TRIGGERS
-CREATE TRIGGER log_script_changes
-    AFTER INSERT OR UPDATE OR DELETE ON entity.entity_scripts
-    FOR EACH ROW
-    EXECUTE FUNCTION tick.log_script_change();
-
--- 5.3 ASSET TRIGGERS
-CREATE TRIGGER log_asset_changes
-    AFTER INSERT OR UPDATE OR DELETE ON entity.entity_assets
-    FOR EACH ROW
-    EXECUTE FUNCTION tick.log_asset_change();
+ALTER TABLE tick.script_states ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tick.asset_states ENABLE ROW LEVEL SECURITY;
 
 -- ============================================================================
 -- 6. POLICIES
@@ -774,52 +776,57 @@ CREATE POLICY "entity_states_delete_policy" ON tick.entity_states
     FOR DELETE
     USING (auth.is_admin_agent());
 
--- 6.3 SCRIPT AUDIT LOG POLICIES
-CREATE POLICY "script_audit_log_read_policy" ON tick.script_audit_log
-    FOR SELECT USING (
+-- 6.3 SCRIPT STATES POLICIES
+CREATE POLICY "script_states_read_policy" ON tick.script_states
+    FOR SELECT
+    USING (
         auth.is_admin_agent()
         OR auth.is_system_agent()
         OR EXISTS (
             SELECT 1 
             FROM auth.active_sync_group_sessions sess 
             WHERE sess.auth__agent_id = auth.current_agent_id()
-              AND sess.group__sync = tick.script_audit_log.group__sync
+              AND sess.group__sync = tick.script_states.group__sync
         )
     );
 
-CREATE POLICY "script_audit_log_insert_policy" ON tick.script_audit_log
-    FOR INSERT
-    WITH CHECK (auth.is_admin_agent());
-
-CREATE POLICY "script_audit_log_update_policy" ON tick.script_audit_log
+CREATE POLICY "script_states_update_policy" ON tick.script_states
     FOR UPDATE
     USING (auth.is_admin_agent());
 
-CREATE POLICY "script_audit_log_delete_policy" ON tick.script_audit_log
+CREATE POLICY "script_states_insert_policy" ON tick.script_states
+    FOR INSERT
+    WITH CHECK (auth.is_admin_agent());
+
+CREATE POLICY "script_states_delete_policy" ON tick.script_states
     FOR DELETE
     USING (auth.is_admin_agent());
 
--- 6.4 ASSET AUDIT LOG POLICIES
-CREATE POLICY "asset_audit_log_read_policy" ON tick.asset_audit_log
-    FOR SELECT USING (
+-- 6.4 ASSET STATES POLICIES
+CREATE POLICY "asset_states_read_policy" ON tick.asset_states
+    FOR SELECT
+    USING (
         auth.is_admin_agent()
         OR auth.is_system_agent()
         OR EXISTS (
             SELECT 1 
             FROM auth.active_sync_group_sessions sess 
             WHERE sess.auth__agent_id = auth.current_agent_id()
-              AND sess.group__sync = tick.asset_audit_log.group__sync
+              AND sess.group__sync = tick.asset_states.group__sync
         )
     );
 
-CREATE POLICY "asset_audit_log_insert_policy" ON tick.asset_audit_log
-    FOR INSERT WITH CHECK (auth.is_admin_agent());
+CREATE POLICY "asset_states_update_policy" ON tick.asset_states
+    FOR UPDATE
+    USING (auth.is_admin_agent());
 
-CREATE POLICY "asset_audit_log_update_policy" ON tick.asset_audit_log
-    FOR UPDATE USING (auth.is_admin_agent());
+CREATE POLICY "asset_states_insert_policy" ON tick.asset_states
+    FOR INSERT
+    WITH CHECK (auth.is_admin_agent());
 
-CREATE POLICY "asset_audit_log_delete_policy" ON tick.asset_audit_log
-    FOR DELETE USING (auth.is_admin_agent());
+CREATE POLICY "asset_states_delete_policy" ON tick.asset_states
+    FOR DELETE
+    USING (auth.is_admin_agent());
 
 -- ============================================================================
 -- 7. PERMISSIONS

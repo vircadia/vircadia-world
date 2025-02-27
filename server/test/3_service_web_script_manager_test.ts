@@ -8,7 +8,6 @@ import { VircadiaConfig } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 
 describe("Service -> Web Script Manager Tests", () => {
-    let sql: postgres.Sql;
     let serverProcess: Subprocess;
 
     // Setup before all tests
@@ -21,8 +20,6 @@ describe("Service -> Web Script Manager Tests", () => {
                 throw new Error("Failed to start services");
             }
         }
-        await PostgresClient.getInstance().connect();
-        sql = PostgresClient.getInstance().getClient();
         serverProcess = Bun.spawn(["bun", "run", "service:run:script"], {
             env: {
                 ...process.env,
@@ -41,8 +38,13 @@ describe("Service -> Web Script Manager Tests", () => {
         });
 
         test("should compile scripts for all platforms", async () => {
+            const superUserSql =
+                await PostgresClient.getInstance().getSuperClient();
+
             // Insert test script
-            const result = await sql`
+            const result = await superUserSql<
+                Pick<Entity.Script.I_Script, "general__script_id">[]
+            >`
                 WITH inserted_script AS (
                     INSERT INTO entity.entity_scripts (
                         general__script_name,
@@ -78,7 +80,7 @@ describe("Service -> Web Script Manager Tests", () => {
             };
 
             while (attempts < maxAttempts) {
-                const compilationResult = await sql<
+                const compilationResult = await superUserSql<
                     Pick<
                         Entity.Script.I_Script,
                         | "compiled__browser__status"

@@ -10,12 +10,14 @@ import {
 import { sign } from "jsonwebtoken";
 import { isHealthy, up } from "../container/docker/docker_cli";
 
-const syncGroupToTest = "public.REALTIME";
-const scriptNamespace = "test_script_1";
+const TEST_SYNC_GROUP = "public.REALTIME";
+const TEST_SCRIPT_NAMESPACE = "test_script_1";
 
-const adminAgentUsername = "test_admin";
-const regularAgentUsername = "test_agent";
-const anonAgentUsername = "test_anon";
+const DB_TEST_PREFIX = "RESERVED_vtw908ncjw98t3t8kgr8y9ngv3w8b_db_test_";
+
+const ADMIN_AGENT_USERNAME = "admin";
+const REGULAR_AGENT_USERNAME = "agent";
+const ANON_AGENT_USERNAME = "anon";
 
 interface TestAccount {
     id: string;
@@ -93,7 +95,7 @@ async function initTestAccounts(): Promise<void> {
         // Create test admin account
         const [adminAgentAccount] = await superUserSql`
 			INSERT INTO auth.agent_profiles (profile__username, auth__email, auth__is_admin)
-			VALUES (${adminAgentUsername}::text, 'test_admin@test.com', true)
+			VALUES (${DB_TEST_PREFIX + ADMIN_AGENT_USERNAME}::text, 'test_admin@test.com', true)
 			RETURNING general__agent_profile_id
 		`;
         expect(adminAgentAccount.general__agent_profile_id).toBeDefined();
@@ -102,7 +104,7 @@ async function initTestAccounts(): Promise<void> {
         // Create test regular agent account
         const [regularAgentAccount] = await superUserSql`
 			INSERT INTO auth.agent_profiles (profile__username, auth__email)
-			VALUES (${regularAgentUsername}::text, 'test_agent@test.com')
+			VALUES (${DB_TEST_PREFIX + REGULAR_AGENT_USERNAME}::text, 'test_agent@test.com')
 			RETURNING general__agent_profile_id
 	  `;
         expect(regularAgentAccount.general__agent_profile_id).toBeDefined();
@@ -111,7 +113,7 @@ async function initTestAccounts(): Promise<void> {
         // Create test anon agent account
         const [anonAgentAccount] = await superUserSql`
 			INSERT INTO auth.agent_profiles (profile__username, auth__email, auth__is_anon)
-			VALUES (${anonAgentUsername}::text, 'test_anon@test.com', true)
+			VALUES (${DB_TEST_PREFIX + ANON_AGENT_USERNAME}::text, 'test_anon@test.com', true)
 			RETURNING general__agent_profile_id
 		`;
         expect(anonAgentAccount.general__agent_profile_id).toBeDefined();
@@ -248,7 +250,9 @@ async function initTestAccounts(): Promise<void> {
 			SELECT * FROM auth.agent_profiles
 			WHERE general__agent_profile_id = ${adminAgent.id}
 		`;
-        expect(adminProfile.profile__username).toBe(adminAgentUsername);
+        expect(adminProfile.profile__username).toBe(
+            DB_TEST_PREFIX + ADMIN_AGENT_USERNAME,
+        );
         expect(adminProfile.auth__is_admin).toBe(true);
 
         // Verify regular account using tx
@@ -256,7 +260,9 @@ async function initTestAccounts(): Promise<void> {
 			SELECT * FROM auth.agent_profiles
 			WHERE general__agent_profile_id = ${regularAgent.id}
 		`;
-        expect(regularProfile.profile__username).toBe(regularAgentUsername);
+        expect(regularProfile.profile__username).toBe(
+            DB_TEST_PREFIX + REGULAR_AGENT_USERNAME,
+        );
         expect(regularProfile.auth__is_admin).toBe(false);
 
         // Verify anon account using tx
@@ -264,7 +270,9 @@ async function initTestAccounts(): Promise<void> {
 			SELECT * FROM auth.agent_profiles
 			WHERE general__agent_profile_id = ${anonAgent.id}
 		`;
-        expect(anonProfile.profile__username).toBe(anonAgentUsername);
+        expect(anonProfile.profile__username).toBe(
+            DB_TEST_PREFIX + ANON_AGENT_USERNAME,
+        );
         expect(anonProfile.auth__is_admin).toBe(false);
     });
 }
@@ -272,23 +280,131 @@ async function initTestAccounts(): Promise<void> {
 async function cleanupTestAccounts(): Promise<void> {
     await superUserSql.begin(async (tx) => {
         try {
-            const usernames = [
-                anonAgentUsername,
-                regularAgentUsername,
-                adminAgentUsername,
-            ];
+            // Delete all accounts with the test prefix
             await tx`
-				DELETE FROM auth.agent_profiles 
-				WHERE profile__username = ANY(${usernames}::text[])
-			`;
+                DELETE FROM auth.agent_profiles 
+                WHERE profile__username LIKE ${`${DB_TEST_PREFIX}%`}
+            `;
+
+            // Verify no test accounts remain
             const remainingProfiles = await tx<Auth.I_Profile[]>`
-				SELECT * FROM auth.agent_profiles
-				WHERE profile__username = ANY(${usernames}::text[])
-			`;
+                SELECT * FROM auth.agent_profiles
+                WHERE profile__username LIKE ${`${DB_TEST_PREFIX}%`}
+            `;
             expect(remainingProfiles).toHaveLength(0);
+
+            log({
+                message: "Cleaned up test accounts",
+                type: "info",
+            });
         } catch (error) {
             log({
                 message: "Failed to cleanup test accounts",
+                type: "error",
+                error,
+            });
+            throw error;
+        }
+    });
+}
+
+async function cleanupTestEntities(): Promise<void> {
+    await superUserSql.begin(async (tx) => {
+        try {
+            // First clean up specific tracked entities
+            if (createdEntityIds.length > 0) {
+                await tx`
+                    DELETE FROM entity.entities 
+                    WHERE general__entity_id = ANY(${createdEntityIds}::uuid[])
+                `;
+            }
+
+            // Then clean up any entities with the test prefix in their name
+            await tx`
+                DELETE FROM entity.entities 
+                WHERE general__entity_name LIKE ${`%${DB_TEST_PREFIX}%`}
+            `;
+
+            // Clear the tracking array
+            createdEntityIds.length = 0;
+
+            log({
+                message: "Cleaned up test entities",
+                type: "info",
+            });
+        } catch (error) {
+            log({
+                message: "Failed to cleanup test entities",
+                type: "error",
+                error,
+            });
+            throw error;
+        }
+    });
+}
+
+async function cleanupTestScripts(): Promise<void> {
+    await superUserSql.begin(async (tx) => {
+        try {
+            // First clean up specific tracked scripts
+            if (createdScriptIds.length > 0) {
+                await tx`
+                    DELETE FROM entity.entity_scripts 
+                    WHERE general__script_id = ANY(${createdScriptIds}::uuid[])
+                `;
+            }
+
+            // Then clean up any scripts with the test prefix in their name
+            await tx`
+                DELETE FROM entity.entity_scripts 
+                WHERE general__script_name LIKE ${`%${DB_TEST_PREFIX}%`}
+            `;
+
+            // Clear the tracking array
+            createdScriptIds.length = 0;
+
+            log({
+                message: "Cleaned up test scripts",
+                type: "info",
+            });
+        } catch (error) {
+            log({
+                message: "Failed to cleanup test scripts",
+                type: "error",
+                error,
+            });
+            throw error;
+        }
+    });
+}
+
+async function cleanupTestAssets(): Promise<void> {
+    await superUserSql.begin(async (tx) => {
+        try {
+            // First clean up specific tracked assets
+            if (createdAssetIds.length > 0) {
+                await tx`
+                    DELETE FROM entity.entity_assets 
+                    WHERE general__asset_id = ANY(${createdAssetIds}::uuid[])
+                `;
+            }
+
+            // Then clean up any assets with the test prefix in their name
+            await tx`
+                DELETE FROM entity.entity_assets 
+                WHERE general__asset_name LIKE ${`%${DB_TEST_PREFIX}%`}
+            `;
+
+            // Clear the tracking array
+            createdAssetIds.length = 0;
+
+            log({
+                message: "Cleaned up test assets",
+                type: "info",
+            });
+        } catch (error) {
+            log({
+                message: "Failed to cleanup test assets",
                 type: "error",
                 error,
             });
@@ -302,6 +418,9 @@ describe("DB", () => {
         await initContainers();
         await initTestConnections();
         await cleanupTestAccounts();
+        await cleanupTestEntities(); // Add cleanup before tests start
+        await cleanupTestScripts();
+        await cleanupTestAssets();
         await initTestAccounts();
     });
 
@@ -588,11 +707,11 @@ describe("DB", () => {
                     await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
                     const syncGroups = await tx`
                         SELECT * FROM auth.sync_groups
-                        WHERE general__sync_group = ${syncGroupToTest}
+                        WHERE general__sync_group = ${TEST_SYNC_GROUP}
                         ORDER BY general__sync_group
                     `;
                     expect(syncGroups[0].general__sync_group).toBe(
-                        syncGroupToTest,
+                        TEST_SYNC_GROUP,
                     );
                 });
             });
@@ -609,7 +728,7 @@ describe("DB", () => {
                             permissions__can_delete
                         ) VALUES (
                             ${regularAgent.id},
-                            ${syncGroupToTest},
+                            ${TEST_SYNC_GROUP},
                             true,
                             true,
                             true,
@@ -620,7 +739,7 @@ describe("DB", () => {
                         SELECT * FROM auth.agent_sync_group_roles
                         WHERE auth__agent_id = ${regularAgent.id}
                     `;
-                    expect(checkAddedRole.group__sync).toBe(syncGroupToTest);
+                    expect(checkAddedRole.group__sync).toBe(TEST_SYNC_GROUP);
                     expect(checkAddedRole.permissions__can_read).toBe(true);
                     expect(checkAddedRole.permissions__can_insert).toBe(true);
                     expect(checkAddedRole.permissions__can_update).toBe(true);
@@ -634,7 +753,7 @@ describe("DB", () => {
                     SELECT permissions__can_read, permissions__can_insert, permissions__can_update, permissions__can_delete
                     FROM auth.agent_sync_group_roles
                     WHERE auth__agent_id = ${regularAgent.id}
-                    AND group__sync = ${syncGroupToTest}
+                    AND group__sync = ${TEST_SYNC_GROUP}
                     `;
                     expect(checkRoleFromAgent.permissions__can_read).toBe(true);
                     expect(checkRoleFromAgent.permissions__can_insert).toBe(
@@ -650,7 +769,7 @@ describe("DB", () => {
                     const [result] = await tx`
                         SELECT array_agg(general__session_id) as session_ids
                         FROM auth.active_sync_group_sessions
-                        WHERE group__sync = ${syncGroupToTest};
+                        WHERE group__sync = ${TEST_SYNC_GROUP};
                     `;
                     expect(result.session_ids).toContain(
                         regularAgent.sessionId,
@@ -798,7 +917,7 @@ describe("DB", () => {
         			) VALUES (
         				${'console.log("test")'},
         				${Entity.Script.E_CompilationStatus.COMPILED},
-        				${syncGroupToTest}
+        				${TEST_SYNC_GROUP}
         			) RETURNING *
         		`;
                     const scriptNamespace = `script_${script.general__script_id}`;
@@ -1083,10 +1202,10 @@ describe("DB", () => {
 
                     // Capture first tick and verify properties
                     const [tickRecord1] = await tx<[Tick.I_Tick]>`
-                    SELECT * FROM tick.capture_tick_state(${syncGroupToTest})
+                    SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})
                 `;
                     expect(tickRecord1).toBeTruthy();
-                    expect(tickRecord1.group__sync).toBe(syncGroupToTest);
+                    expect(tickRecord1.group__sync).toBe(TEST_SYNC_GROUP);
                     expect(
                         Number(tickRecord1.tick__entity_states_processed),
                     ).toBeGreaterThanOrEqual(0);
@@ -1104,7 +1223,7 @@ describe("DB", () => {
 
                     // Capture second tick and verify difference
                     const [tickRecord2] = await tx<[Tick.I_Tick]>`
-                    SELECT * FROM tick.capture_tick_state(${syncGroupToTest})
+                    SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})
                 `;
                     expect(tickRecord2).toBeTruthy();
                     expect(tickRecord2.general__tick_id).not.toBe(
@@ -1141,7 +1260,7 @@ describe("DB", () => {
                         group__sync
                     ) VALUES (
                         ${"Test Script 1"},
-                        ${syncGroupToTest}
+                        ${TEST_SYNC_GROUP}
                     ) RETURNING general__script_id
                 `;
                         const [script2] = await tx<
@@ -1152,7 +1271,7 @@ describe("DB", () => {
                         group__sync
                     ) VALUES (
                         ${"Test Script 2"},
-                        ${syncGroupToTest}
+                        ${TEST_SYNC_GROUP}
                     ) RETURNING general__script_id
                 `;
 
@@ -1163,7 +1282,7 @@ describe("DB", () => {
                         );
 
                         // Capture a tick so that the scripts are processed
-                        await tx`SELECT * FROM tick.capture_tick_state(${syncGroupToTest})`;
+                        await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
 
                         // Retrieve all script states at latest tick and verify the scripts are present
                         const scripts = await tx<
@@ -1173,7 +1292,7 @@ describe("DB", () => {
                                 group__sync: string;
                             }>
                         >`
-                    SELECT * FROM entity.entity_scripts WHERE group__sync = ${syncGroupToTest}
+                    SELECT * FROM entity.entity_scripts WHERE group__sync = ${TEST_SYNC_GROUP}
                 `;
 
                         const retrievedIds = scripts.map(
@@ -1206,7 +1325,7 @@ describe("DB", () => {
                                 ${'console.log("initial version")'},
                                 ${"COMPILED"},
                                 ${"https://original-repo.git"},
-                                ${syncGroupToTest}
+                                ${TEST_SYNC_GROUP}
                             ) RETURNING *
                         `;
 
@@ -1220,7 +1339,7 @@ describe("DB", () => {
                     // Capture first tick in separate transaction
                     await superUserSql.begin(async (tx) => {
                         [tick1] =
-                            await tx`SELECT * FROM tick.capture_tick_state(${syncGroupToTest})`;
+                            await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
                     });
 
                     // Force another small delay
@@ -1246,7 +1365,7 @@ describe("DB", () => {
                     let tick2: any;
                     await superUserSql.begin(async (tx) => {
                         [tick2] =
-                            await tx`SELECT * FROM tick.capture_tick_state(${syncGroupToTest})`;
+                            await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
                     });
 
                     // Verify changes in separate transaction
@@ -1259,7 +1378,7 @@ describe("DB", () => {
                                 changes: any;
                             }>
                         >`
-                            SELECT * FROM tick.get_changed_script_states_between_latest_ticks(${syncGroupToTest})
+                            SELECT * FROM tick.get_changed_script_states_between_latest_ticks(${TEST_SYNC_GROUP})
                         `;
 
                         // Find our script in the changes
@@ -1302,7 +1421,7 @@ describe("DB", () => {
                         meta__data
                     ) VALUES (
                         ${"Test Asset 1"},
-                        ${syncGroupToTest},
+                        ${TEST_SYNC_GROUP},
                         ${Buffer.from("asset data 1")},
                         ${tx.json({ info: "asset 1 meta" })}
                     ) RETURNING general__asset_id
@@ -1317,7 +1436,7 @@ describe("DB", () => {
                         meta__data
                     ) VALUES (
                         ${"Test Asset 2"},
-                        ${syncGroupToTest},
+                        ${TEST_SYNC_GROUP},
                         ${Buffer.from("asset data 2")},
                         ${tx.json({ info: "asset 2 meta" })}
                     ) RETURNING general__asset_id
@@ -1330,7 +1449,7 @@ describe("DB", () => {
                         );
 
                         // Capture a tick so that the asset changes are processed
-                        await tx`SELECT * FROM tick.capture_tick_state(${syncGroupToTest})`;
+                        await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
 
                         // Retrieve all assets and verify they are present
                         const assets = await tx<
@@ -1340,7 +1459,7 @@ describe("DB", () => {
                                 general__asset_name: string;
                             }>
                         >`
-                    SELECT * FROM entity.entity_assets WHERE group__sync = ${syncGroupToTest}
+                    SELECT * FROM entity.entity_assets WHERE group__sync = ${TEST_SYNC_GROUP}
                 `;
 
                         const retrievedAssetIds = assets.map(
@@ -1374,7 +1493,7 @@ describe("DB", () => {
           ${"Original Asset"},
           ${tx.json({ type: "image", format: "png" })},
           ${Buffer.from("initial asset data")},
-          ${syncGroupToTest}
+          ${TEST_SYNC_GROUP}
         ) RETURNING *
       `;
 
@@ -1388,7 +1507,7 @@ describe("DB", () => {
                     // Capture first tick in separate transaction
                     await superUserSql.begin(async (tx) => {
                         [tick1] =
-                            await tx`SELECT * FROM tick.capture_tick_state(${syncGroupToTest})`;
+                            await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
                     });
 
                     // Force another small delay
@@ -1413,7 +1532,7 @@ describe("DB", () => {
                     let tick2: any;
                     await superUserSql.begin(async (tx) => {
                         [tick2] =
-                            await tx`SELECT * FROM tick.capture_tick_state(${syncGroupToTest})`;
+                            await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
                     });
 
                     // Verify changes in separate transaction
@@ -1426,7 +1545,7 @@ describe("DB", () => {
                                 changes: any;
                             }>
                         >`
-        SELECT * FROM tick.get_changed_asset_states_between_latest_ticks(${syncGroupToTest})
+        SELECT * FROM tick.get_changed_asset_states_between_latest_ticks(${TEST_SYNC_GROUP})
       `;
 
                         // Find our asset in the changes
@@ -1478,7 +1597,7 @@ describe("DB", () => {
                         ) VALUES (
                             ${name},
                             ${tx.json({
-                                [scriptNamespace]: {
+                                [TEST_SCRIPT_NAMESPACE]: {
                                     position: {
                                         x: 0,
                                         y: 0,
@@ -1486,7 +1605,7 @@ describe("DB", () => {
                                     },
                                 },
                             })},
-                            ${syncGroupToTest},
+                            ${TEST_SYNC_GROUP},
                             ${tx.array([])},
                             ${"ACTIVE"},
                             ${tx.array([])}
@@ -1498,7 +1617,7 @@ describe("DB", () => {
 
                         // Capture tick state
                         const [tickRecord] = await tx<[Tick.I_Tick]>`
-                    SELECT * FROM tick.capture_tick_state(${syncGroupToTest})
+                    SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})
                 `;
 
                         // Verify entities exist
@@ -1507,7 +1626,7 @@ describe("DB", () => {
                         >`
                     SELECT general__entity_id
                     FROM entity.entities
-                    WHERE group__sync = ${syncGroupToTest}
+                    WHERE group__sync = ${TEST_SYNC_GROUP}
                 `;
 
                         const stateIds = states.map(
@@ -1534,7 +1653,7 @@ describe("DB", () => {
                     ) VALUES (
                         ${"Original Entity 1"},
                         ${tx.json({
-                            [scriptNamespace]: {
+                            [TEST_SCRIPT_NAMESPACE]: {
                                 position: {
                                     x: 0,
                                     y: 0,
@@ -1542,7 +1661,7 @@ describe("DB", () => {
                                 },
                             },
                         })},
-                        ${syncGroupToTest},
+                        ${TEST_SYNC_GROUP},
                         ${tx.array([])},
                         ${"ACTIVE"},
                         ${tx.array([])}
@@ -1558,8 +1677,8 @@ describe("DB", () => {
                         assets__ids
                     ) VALUES (
                         ${"Original Entity 2"},
-                        ${tx.json({ [scriptNamespace]: { position: { x: 10, y: 10, z: 10 } } })},
-                        ${syncGroupToTest},
+                        ${tx.json({ [TEST_SCRIPT_NAMESPACE]: { position: { x: 10, y: 10, z: 10 } } })},
+                        ${TEST_SYNC_GROUP},
                         ${tx.array([])},
                         ${"ACTIVE"},
                         ${tx.array([])}
@@ -1572,28 +1691,28 @@ describe("DB", () => {
                         );
 
                         // Capture first tick
-                        await tx`SELECT * FROM tick.capture_tick_state(${syncGroupToTest})`;
+                        await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
 
                         // Update both entities
                         await tx`
                     UPDATE entity.entities
                     SET general__entity_name = ${"Updated Entity 1"},
-                        meta__data = ${tx.json({ [scriptNamespace]: { position: { x: 5, y: 5, z: 5 } } })}
+                        meta__data = ${tx.json({ [TEST_SCRIPT_NAMESPACE]: { position: { x: 5, y: 5, z: 5 } } })}
                     WHERE general__entity_id = ${entity1.general__entity_id}
                 `;
                         await tx`
                     UPDATE entity.entities
                     SET general__entity_name = ${"Updated Entity 2"},
-                        meta__data = ${tx.json({ [scriptNamespace]: { position: { x: 15, y: 15, z: 15 } } })}
+                        meta__data = ${tx.json({ [TEST_SCRIPT_NAMESPACE]: { position: { x: 15, y: 15, z: 15 } } })}
                     WHERE general__entity_id = ${entity2.general__entity_id}
                 `;
 
                         // Capture second tick
-                        await tx`SELECT * FROM tick.capture_tick_state(${syncGroupToTest})`;
+                        await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
 
                         // Retrieve changed entity states between latest ticks and verify
                         const changes = await tx<Array<Tick.I_EntityUpdate>>`
-                    SELECT * FROM tick.get_changed_entity_states_between_latest_ticks(${syncGroupToTest})
+                    SELECT * FROM tick.get_changed_entity_states_between_latest_ticks(${TEST_SYNC_GROUP})
                 `;
                         const changeIds = changes.map(
                             (c) => c.general__entity_id,
@@ -1623,6 +1742,9 @@ describe("DB", () => {
     });
 
     afterAll(async () => {
+        await cleanupTestEntities(); // Add cleanup after all tests complete
+        await cleanupTestScripts();
+        await cleanupTestAssets();
         await cleanupTestAccounts();
         await cleanupTestConnections();
     });

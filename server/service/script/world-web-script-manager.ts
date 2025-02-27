@@ -12,7 +12,7 @@ tmp.setGracefulCleanup();
 export class WorldWebScriptManager {
     private static instance: WorldWebScriptManager;
 
-    private sql: postgres.Sql | null = null;
+    private superUserSql: postgres.Sql | null = null;
     private readonly debugMode: boolean;
     private readonly heartbeatMs: number;
     private isHeartbeatRunning = false;
@@ -31,8 +31,7 @@ export class WorldWebScriptManager {
     }
 
     async initialize() {
-        await PostgresClient.getInstance().connect();
-        this.sql = PostgresClient.getInstance().getClient();
+        this.superUserSql = await PostgresClient.getInstance().getSuperClient();
 
         try {
             log({
@@ -62,9 +61,11 @@ export class WorldWebScriptManager {
     }
 
     private async resetPendingScripts(): Promise<string[]> {
-        if (!this.sql) throw new Error("Database not connected");
+        if (!this.superUserSql) throw new Error("Database not connected");
 
-        const resetScripts = await this.sql<{ general__script_id: string }[]>`
+        const resetScripts = await this.superUserSql<
+            { general__script_id: string }[]
+        >`
             UPDATE entity.entity_scripts 
             SET 
                 compiled__node__status = ${Entity.Script.E_CompilationStatus.PENDING},
@@ -86,7 +87,7 @@ export class WorldWebScriptManager {
         compiledCode?: { node: string; browser: string; bun: string },
         hashes?: { node: string; browser: string; bun: string },
     ) {
-        if (!this.sql) throw new Error("Database not connected");
+        if (!this.superUserSql) throw new Error("Database not connected");
 
         const platforms = [
             Entity.Script.E_Platform.NODE,
@@ -111,9 +112,9 @@ export class WorldWebScriptManager {
             {},
         );
 
-        await this.sql`
+        await this.superUserSql`
             UPDATE entity.entity_scripts 
-            SET ${this.sql(updates)}
+            SET ${this.superUserSql(updates)}
             WHERE general__script_id = ${scriptId}
         `;
     }
@@ -123,9 +124,9 @@ export class WorldWebScriptManager {
         this.isHeartbeatRunning = true;
 
         while (this.isHeartbeatRunning) {
-            if (!this.sql) throw new Error("Database not connected");
+            if (!this.superUserSql) throw new Error("Database not connected");
 
-            const scriptsToCompile = await this.sql`
+            const scriptsToCompile = await this.superUserSql`
                 SELECT general__script_id 
                 FROM entity.entity_scripts 
                 WHERE 
@@ -253,7 +254,7 @@ export class WorldWebScriptManager {
     }
 
     async compileScript(scriptId: string, gitRef?: string) {
-        if (!this.sql) {
+        if (!this.superUserSql) {
             throw new Error("Database not connected");
         }
 
@@ -267,7 +268,7 @@ export class WorldWebScriptManager {
             });
 
             // First, check if the script exists and needs compilation
-            const [script] = await this.sql<Entity.Script.I_Script[]>`
+            const [script] = await this.superUserSql<Entity.Script.I_Script[]>`
                 SELECT * FROM entity.entity_scripts 
                 WHERE general__script_id = ${scriptId}
             `;
@@ -277,7 +278,7 @@ export class WorldWebScriptManager {
             }
 
             // Set status to PENDING first if not already compiling
-            await this.sql`
+            await this.superUserSql`
                 UPDATE entity.entity_scripts 
                 SET 
                     compiled__node__status = ${Entity.Script.E_CompilationStatus.PENDING},
@@ -291,7 +292,7 @@ export class WorldWebScriptManager {
             `;
 
             // Then update to COMPILING
-            await this.sql`
+            await this.superUserSql`
                 UPDATE entity.entity_scripts 
                 SET 
                     compiled__node__status = ${Entity.Script.E_CompilationStatus.COMPILING},
@@ -357,7 +358,7 @@ export class WorldWebScriptManager {
             });
 
             // Update status to FAILED on error
-            await this.sql`
+            await this.superUserSql`
                 UPDATE entity.entity_scripts 
                 SET 
                     compiled__node__status = ${Entity.Script.E_CompilationStatus.FAILED},
@@ -377,12 +378,12 @@ export class WorldWebScriptManager {
         entryPath: string,
         gitRef?: string,
     ) {
-        if (!this.sql) {
+        if (!this.superUserSql) {
             throw new Error("Database not connected");
         }
 
         try {
-            const scripts = await this.sql`
+            const scripts = await this.superUserSql`
                 SELECT general__script_id 
                 FROM entity.entity_scripts 
                 WHERE 
@@ -411,7 +412,7 @@ export class WorldWebScriptManager {
         }
         this.activeProcesses.clear();
 
-        this.sql = null;
+        this.superUserSql = null;
     }
 }
 

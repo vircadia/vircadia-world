@@ -1187,6 +1187,116 @@ describe("DB", () => {
                         );
                     });
                 });
+                test("should detect script changes between ticks and only include changed fields", async () => {
+                    // First transaction - create initial script and capture first tick
+                    let script1: Entity.Script.I_Script;
+                    let tick1: any;
+
+                    await superUserSql.begin(async (tx) => {
+                        // Create initial script
+                        [script1] = await tx<[Entity.Script.I_Script]>`
+                            INSERT INTO entity.entity_scripts (
+                                general__script_name,
+                                compiled__browser__script,
+                                compiled__browser__status,
+                                source__repo__url,
+                                group__sync
+                            ) VALUES (
+                                ${"Original Script"},
+                                ${'console.log("initial version")'},
+                                ${"COMPILED"},
+                                ${"https://original-repo.git"},
+                                ${syncGroupToTest}
+                            ) RETURNING *
+                        `;
+
+                        // Track for cleanup
+                        createdScriptIds.push(script1.general__script_id);
+                    });
+
+                    // Force a small delay to ensure timestamps are different
+                    await new Promise((resolve) => setTimeout(resolve, 10));
+
+                    // Capture first tick in separate transaction
+                    await superUserSql.begin(async (tx) => {
+                        [tick1] =
+                            await tx`SELECT * FROM tick.capture_tick_state(${syncGroupToTest})`;
+                        console.log(
+                            "First tick captured:",
+                            tick1.general__tick_id,
+                            tick1.tick__start_time,
+                        );
+                    });
+
+                    // Force another small delay
+                    await new Promise((resolve) => setTimeout(resolve, 10));
+
+                    // Update the script in a separate transaction
+                    await superUserSql.begin(async (tx) => {
+                        // Update script - only change name and status but not repo URL
+                        await tx`
+                            UPDATE entity.entity_scripts
+                            SET 
+                                general__script_name = ${"Updated Script"},
+                                compiled__browser__script = ${'console.log("updated version")'},
+                                compiled__browser__status = ${"PENDING"}
+                            WHERE general__script_id = ${script1.general__script_id}
+                        `;
+                    });
+
+                    // Force another small delay
+                    await new Promise((resolve) => setTimeout(resolve, 10));
+
+                    // Capture second tick in separate transaction
+                    let tick2: any;
+                    await superUserSql.begin(async (tx) => {
+                        [tick2] =
+                            await tx`SELECT * FROM tick.capture_tick_state(${syncGroupToTest})`;
+                        console.log(
+                            "Second tick captured:",
+                            tick2.general__tick_id,
+                            tick2.tick__start_time,
+                        );
+                    });
+
+                    // Verify changes in separate transaction
+                    await superUserSql.begin(async (tx) => {
+                        // Retrieve script changes between ticks and verify
+                        const scriptChanges = await tx<
+                            Array<{
+                                general__script_id: string;
+                                operation: string;
+                                changes: any;
+                            }>
+                        >`
+                            SELECT * FROM tick.get_changed_script_states_between_latest_ticks(${syncGroupToTest})
+                        `;
+                        console.log("Script changes detected:", scriptChanges);
+
+                        // Find our script in the changes
+                        const scriptChange = scriptChanges.find(
+                            (c) =>
+                                c.general__script_id ===
+                                script1.general__script_id,
+                        );
+
+                        expect(scriptChange).toBeDefined();
+                        expect(scriptChange?.operation).toBe("UPDATE");
+
+                        // Check that only changed fields are included
+                        expect(scriptChange?.changes.general__script_name).toBe(
+                            "Updated Script",
+                        );
+                        expect(
+                            scriptChange?.changes.compiled__browser__status,
+                        ).toBe("PENDING");
+
+                        // The URL field wasn't changed, so it shouldn't be included
+                        expect(
+                            scriptChange?.changes.source__repo__url,
+                        ).toBeUndefined();
+                    });
+                });
             });
 
             describe("Asset Operations", () => {

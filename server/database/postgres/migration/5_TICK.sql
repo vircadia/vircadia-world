@@ -478,6 +478,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+
 CREATE OR REPLACE FUNCTION tick.get_changed_script_states_between_latest_ticks(
     p_sync_group text
 ) RETURNS TABLE (
@@ -486,75 +487,89 @@ CREATE OR REPLACE FUNCTION tick.get_changed_script_states_between_latest_ticks(
     changes jsonb
 ) AS $$
 DECLARE
+    v_latest_tick_id uuid;
+    v_previous_tick_id uuid;
     v_latest_tick_time timestamptz;
     v_previous_tick_time timestamptz;
 BEGIN
-    -- Get the latest two tick timestamps
-    SELECT 
-        tick__start_time,
-        LAG(tick__start_time) OVER (ORDER BY tick__number DESC)
-    INTO v_latest_tick_time, v_previous_tick_time
-    FROM tick.world_ticks
-    WHERE group__sync = p_sync_group
-    ORDER BY tick__number DESC
-    LIMIT 2;
-
-    RETURN QUERY
-    -- Get all changes from audit log
-    WITH script_changes AS (
-        SELECT DISTINCT ON (sa.general__script_id)
-            sa.general__script_id,
-            sa.operation,
-            sa.operation_timestamp,
-            es.general__created_at,
-            es.general__script_name,
-            es.source__repo__entry_path,
-            es.source__repo__url,
-            es.compiled__node__script,
-            es.compiled__node__script_sha256,
-            es.compiled__node__status,
-            es.compiled__node__updated_at,
-            es.compiled__bun__script,
-            es.compiled__bun__script_sha256,
-            es.compiled__bun__status,
-            es.compiled__bun__updated_at,
-            es.compiled__browser__script,
-            es.compiled__browser__script_sha256,
-            es.compiled__browser__status,
-            es.compiled__browser__updated_at,
-            es.group__sync
-        FROM tick.script_audit_log sa
-        LEFT JOIN entity.entity_scripts es ON sa.general__script_id = es.general__script_id
-        WHERE sa.group__sync = p_sync_group
-          AND sa.operation_timestamp > v_previous_tick_time 
-          AND sa.operation_timestamp <= v_latest_tick_time
-        ORDER BY sa.general__script_id, sa.operation_timestamp DESC
+    -- Get the latest two tick IDs and timestamps
+    WITH ordered_ticks AS (
+        SELECT general__tick_id, tick__start_time, tick__number
+        FROM tick.world_ticks wt
+        WHERE wt.group__sync = p_sync_group
+        ORDER BY tick__number DESC
+        LIMIT 2
     )
-    SELECT 
+    SELECT
+        (SELECT general__tick_id FROM ordered_ticks ORDER BY tick__number DESC LIMIT 1),
+        (SELECT general__tick_id FROM ordered_ticks ORDER BY tick__number DESC OFFSET 1 LIMIT 1),
+        (SELECT tick__start_time FROM ordered_ticks ORDER BY tick__number DESC LIMIT 1),
+        (SELECT tick__start_time FROM ordered_ticks ORDER BY tick__number DESC OFFSET 1 LIMIT 1)
+    INTO v_latest_tick_id, v_previous_tick_id, v_latest_tick_time, v_previous_tick_time;
+
+    -- If we don't have enough ticks, return empty result
+    IF v_previous_tick_id IS NULL THEN
+        RETURN;
+    END IF;
+
+    -- Return changes between ticks using the audit log
+    RETURN QUERY
+    WITH script_changes AS (
+        SELECT DISTINCT ON (sal.general__script_id)
+            sal.general__script_id,
+            sal.operation,
+            sal.operation_timestamp
+        FROM tick.script_audit_log sal
+        WHERE sal.group__sync = p_sync_group
+          AND sal.operation_timestamp > v_previous_tick_time
+          AND sal.operation_timestamp <= v_latest_tick_time
+        ORDER BY sal.general__script_id, sal.operation_timestamp DESC
+    ),
+    current_scripts AS (
+        SELECT s.*
+        FROM entity.entity_scripts s
+        JOIN script_changes sc ON s.general__script_id = sc.general__script_id
+        WHERE sc.operation != 'DELETE'
+    )
+    -- Handle INSERT operations
+    SELECT
         sc.general__script_id,
         sc.operation,
-        CASE 
-            WHEN sc.operation = 'DELETE' THEN NULL::jsonb
-            ELSE jsonb_strip_nulls(jsonb_build_object(
-                'general__script_name', sc.general__script_name,
-                'source__repo__entry_path', sc.source__repo__entry_path,
-                'source__repo__url', sc.source__repo__url,
-                'compiled__node__script', sc.compiled__node__script,
-                'compiled__node__script_sha256', sc.compiled__node__script_sha256,
-                'compiled__node__status', sc.compiled__node__status,
-                'compiled__node__updated_at', sc.compiled__node__updated_at,
-                'compiled__bun__script', sc.compiled__bun__script,
-                'compiled__bun__script_sha256', sc.compiled__bun__script_sha256,
-                'compiled__bun__status', sc.compiled__bun__status,
-                'compiled__bun__updated_at', sc.compiled__bun__updated_at,
-                'compiled__browser__script', sc.compiled__browser__script,
-                'compiled__browser__script_sha256', sc.compiled__browser__script_sha256,
-                'compiled__browser__status', sc.compiled__browser__status,
-                'compiled__browser__updated_at', sc.compiled__browser__updated_at,
-                'group__sync', sc.group__sync
-            ))
-        END AS changes
-    FROM script_changes sc;
+        CASE
+            WHEN sc.operation = 'INSERT' THEN 
+                jsonb_strip_nulls(jsonb_build_object(
+                    'general__script_name', cs.general__script_name,
+                    'group__sync', cs.group__sync,
+                    'source__repo__entry_path', cs.source__repo__entry_path,
+                    'source__repo__url', cs.source__repo__url,
+                    'compiled__node__script', cs.compiled__node__script,
+                    'compiled__node__script_sha256', cs.compiled__node__script_sha256,
+                    'compiled__node__status', cs.compiled__node__status,
+                    'compiled__node__updated_at', cs.compiled__node__updated_at,
+                    'compiled__bun__script', cs.compiled__bun__script,
+                    'compiled__bun__script_sha256', cs.compiled__bun__script_sha256,
+                    'compiled__bun__status', cs.compiled__bun__status,
+                    'compiled__bun__updated_at', cs.compiled__bun__updated_at,
+                    'compiled__browser__script', cs.compiled__browser__script,
+                    'compiled__browser__script_sha256', cs.compiled__browser__script_sha256,
+                    'compiled__browser__status', cs.compiled__browser__status,
+                    'compiled__browser__updated_at', cs.compiled__browser__updated_at
+                ))
+            -- Handle DELETE operations    
+            WHEN sc.operation = 'DELETE' THEN NULL
+            -- Handle UPDATE operations with direct field comparison
+            ELSE
+                jsonb_strip_nulls(jsonb_build_object(
+                    'general__script_name', cs.general__script_name,
+                    'group__sync', cs.group__sync,
+                    'source__repo__entry_path', cs.source__repo__entry_path,
+                    'source__repo__url', cs.source__repo__url,
+                    'compiled__node__status', cs.compiled__node__status,
+                    'compiled__browser__status', cs.compiled__browser__status
+                ))
+        END
+    FROM script_changes sc
+    LEFT JOIN current_scripts cs ON sc.general__script_id = cs.general__script_id;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 

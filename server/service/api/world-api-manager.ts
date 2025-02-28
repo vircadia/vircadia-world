@@ -14,15 +14,22 @@ import type { Server, ServerWebSocket } from "bun";
 import { PostgresClient } from "../../database/postgres/postgres_client.ts";
 import { verify } from "jsonwebtoken";
 
+let superUserSql: postgres.Sql | null = null;
+let proxyUserSql: postgres.Sql | null = null;
+
 export async function validateJWT(data: {
-    jwtSecret?: string;
+    provider: string;
     token: string;
 }): Promise<{ agentId: string; sessionId: string; isValid: boolean }> {
-    const { jwtSecret, token } = data;
+    const { provider, token } = data;
+
+    if (!superUserSql) {
+        throw new Error("No database connection available");
+    }
 
     try {
-        if (!jwtSecret) {
-            throw new Error("JWT secret is not set");
+        if (!provider) {
+            throw new Error("Provider is not set.");
         }
 
         // Check for empty or malformed token first
@@ -33,6 +40,22 @@ export async function validateJWT(data: {
                 isValid: false,
             };
         }
+
+        // Fetch JWT secret for this provider
+        const [providerConfig] = await superUserSql<
+            [{ provider__jwt_secret: string }]
+        >`
+            SELECT provider__jwt_secret
+            FROM auth.auth_providers
+            WHERE provider__name = ${provider}
+              AND provider__enabled = true
+        `;
+
+        if (!providerConfig) {
+            throw new Error(`Provider ${provider} not found or not enabled.`);
+        }
+
+        const jwtSecret = providerConfig.provider__jwt_secret;
 
         const decoded = verify(token, jwtSecret) as {
             sessionId: string;
@@ -87,18 +110,17 @@ class WorldTickManager {
     private syncGroups: Map<string, Auth.SyncGroup.I_SyncGroup> = new Map();
     private tickCounts: Map<string, number> = new Map();
 
-    private superUserSql: postgres.Sql | null = null;
-
     private readonly LOG_PREFIX = "WorldTickManager";
 
     constructor(private readonly worldApiManager: WorldApiManager) {}
 
     async initialize() {
-        this.superUserSql = await PostgresClient.getInstance().getSuperClient();
-
         try {
+            superUserSql = await PostgresClient.getInstance().getSuperClient();
+            proxyUserSql = await PostgresClient.getInstance().getProxyClient();
+
             // Updated to use auth schema for sync groups
-            const syncGroupsData = await this.superUserSql<
+            const syncGroupsData = await superUserSql<
                 Auth.SyncGroup.I_SyncGroup[]
             >`
                 SELECT * FROM auth.sync_groups
@@ -160,7 +182,7 @@ class WorldTickManager {
 
         // Measure the time taken for the database operations
         const localDbStartTime = performance.now();
-        const result = await this.superUserSql?.begin(async (tx) => {
+        const result = await superUserSql?.begin(async (tx) => {
             // Capture the tick state and get metadata directly
             const [tickData] = await tx<[Tick.I_Tick]>`
                     SELECT * FROM tick.capture_tick_state(${syncGroup})
@@ -245,15 +267,6 @@ export interface WebSocketData {
 export class WorldApiManager {
     private tickManager: WorldTickManager | undefined;
     private server: Server | undefined;
-    private superUserSql: postgres.Sql | null = null;
-    private proxyUserSql: postgres.Sql | null = null;
-    private authConfig: {
-        auth_config__jwt_secret: string | undefined;
-        auth_config__heartbeat_inactive_expiry_ms: number | undefined;
-    } = {
-        auth_config__jwt_secret: undefined,
-        auth_config__heartbeat_inactive_expiry_ms: undefined,
-    };
 
     public activeSessions: Map<string, WorldSession<unknown>> = new Map();
     private heartbeatInterval: Timer | null = null;
@@ -276,39 +289,8 @@ export class WorldApiManager {
                 type: "debug",
             });
 
-            this.superUserSql =
-                await PostgresClient.getInstance().getSuperClient();
-            this.proxyUserSql =
-                await PostgresClient.getInstance().getProxyClient();
-
-            // Load full config with proper typing
-            [this.authConfig] = await this.superUserSql<
-                [
-                    {
-                        auth_config__jwt_secret: string;
-                        auth_config__heartbeat_inactive_expiry_ms: number;
-                    },
-                ]
-            >`
-                SELECT 
-                    auth_config__jwt_secret,
-                    auth_config__heartbeat_inactive_expiry_ms
-                FROM config.auth_config
-            `;
-
-            if (
-                !this.authConfig.auth_config__jwt_secret ||
-                !this.authConfig.auth_config__heartbeat_inactive_expiry_ms
-            ) {
-                log({
-                    message: "Failed to load auth configuration",
-                    error: this.authConfig,
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
-                    type: "error",
-                });
-                throw new Error("Failed to load auth configuration");
-            }
+            superUserSql = await PostgresClient.getInstance().getSuperClient();
+            proxyUserSql = await PostgresClient.getInstance().getProxyClient();
 
             // Initialize Tick Manager after wsManager is ready
             this.tickManager = new WorldTickManager(this);
@@ -324,7 +306,7 @@ export class WorldApiManager {
                 fetch: async (req: Request, server: Server) => {
                     const url = new URL(req.url);
 
-                    if (!this.superUserSql || !this.proxyUserSql) {
+                    if (!superUserSql || !proxyUserSql) {
                         log({
                             message: "No database connection available",
                             debug: VircadiaConfig.SERVER.DEBUG,
@@ -336,9 +318,12 @@ export class WorldApiManager {
                     }
 
                     // Handle WebSocket upgrade
-                    if (url.pathname.startsWith(Communication.WS_PATH)) {
+                    if (
+                        url.pathname.startsWith(Communication.WS_UPGRADE_PATH)
+                    ) {
                         const url = new URL(req.url);
                         const token = url.searchParams.get("token");
+                        const provider = url.searchParams.get("provider");
 
                         // Handle missing token first
                         if (!token) {
@@ -353,8 +338,22 @@ export class WorldApiManager {
                             });
                         }
 
+                        // Handle missing provider
+                        if (!provider) {
+                            log({
+                                prefix: this.LOG_PREFIX,
+                                message:
+                                    "No provider found in query parameters",
+                                debug: VircadiaConfig.SERVER.DEBUG,
+                                type: "debug",
+                            });
+                            return new Response("Provider required", {
+                                status: 401,
+                            });
+                        }
+
                         const jwtValidationResult = await validateJWT({
-                            jwtSecret: this.authConfig.auth_config__jwt_secret,
+                            provider,
                             token,
                         });
 
@@ -370,7 +369,7 @@ export class WorldApiManager {
                             });
                         }
 
-                        const sessionValidationResult = await this.proxyUserSql<
+                        const sessionValidationResult = await proxyUserSql<
                             [{ is_valid: boolean }]
                         >`
                             SELECT * FROM auth.validate_session_id(${jwtValidationResult.sessionId}::UUID)
@@ -418,22 +417,46 @@ export class WorldApiManager {
                             case url.pathname ===
                                 Communication.REST.Endpoint
                                     .AUTH_SESSION_VALIDATE.path &&
-                                req.method === "GET": {
-                                const token = req.headers
-                                    .get("Authorization")
-                                    ?.replace("Bearer ", "");
-                                if (!token) {
+                                req.method === "POST": {
+                                // Parse request body to get token and provider
+                                let body: {
+                                    token: string;
+                                    provider: string;
+                                };
+                                try {
+                                    body = await req.json();
+
+                                    // Validate required fields
+                                    if (!body.token) {
+                                        return Response.json(
+                                            Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
+                                                "No token provided",
+                                            ),
+                                            { status: 401 },
+                                        );
+                                    }
+
+                                    if (!body.provider) {
+                                        return Response.json(
+                                            Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
+                                                "No provider specified",
+                                            ),
+                                            { status: 400 },
+                                        );
+                                    }
+                                } catch (error) {
                                     return Response.json(
                                         Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
-                                            "No token provided",
+                                            "Invalid request body",
                                         ),
-                                        { status: 401 },
+                                        { status: 400 },
                                     );
                                 }
 
+                                const { token, provider } = body;
+
                                 const jwtValidationResult = await validateJWT({
-                                    jwtSecret:
-                                        this.authConfig.auth_config__jwt_secret,
+                                    provider,
                                     token,
                                 });
 
@@ -442,12 +465,13 @@ export class WorldApiManager {
                                         Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
                                             "Invalid token",
                                         ),
+                                        { status: 401 },
                                     );
                                 }
 
                                 try {
                                     // Wrap the entire validation logic in a transaction
-                                    return await this.proxyUserSql.begin(
+                                    return await proxyUserSql.begin(
                                         async (tx) => {
                                             // Set the agent context within the transaction
                                             const [setSessionContextResult] =
@@ -497,7 +521,8 @@ export class WorldApiManager {
 
                                             return Response.json(
                                                 Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createSuccess(
-                                                    sessionValidationResult.is_valid,
+                                                    jwtValidationResult.agentId,
+                                                    jwtValidationResult.sessionId,
                                                 ),
                                             );
                                         },
@@ -547,7 +572,7 @@ export class WorldApiManager {
                         });
                         let data: Communication.WebSocket.Message | undefined;
 
-                        if (!this.superUserSql || !this.proxyUserSql) {
+                        if (!superUserSql || !proxyUserSql) {
                             log({
                                 message: "No database connections available",
                                 debug: VircadiaConfig.SERVER.DEBUG,
@@ -577,8 +602,7 @@ export class WorldApiManager {
                             }
 
                             // Update session heartbeat in database (don't await)
-                            this
-                                .superUserSql`SELECT auth.update_session_heartbeat(${sessionId}::UUID)`.catch(
+                            superUserSql`SELECT auth.update_session_heartbeat(${sessionId}::UUID)`.catch(
                                 (error) => {
                                     log({
                                         message:
@@ -600,8 +624,7 @@ export class WorldApiManager {
                             switch (data.type) {
                                 case Communication.WebSocket.MessageType
                                     .HEARTBEAT_REQUEST: {
-                                    await this
-                                        .superUserSql`SELECT auth.update_session_heartbeat(${sessionId}::UUID)`
+                                    await superUserSql`SELECT auth.update_session_heartbeat(${sessionId}::UUID)`
                                         .catch((error) => {
                                             ws.send(
                                                 JSON.stringify(
@@ -629,7 +652,7 @@ export class WorldApiManager {
                                         data as Communication.WebSocket.QueryRequestMessage;
                                     try {
                                         const results =
-                                            await this.proxyUserSql?.begin(
+                                            await proxyUserSql?.begin(
                                                 async (tx) => {
                                                     const [setAgentContext] =
                                                         await tx`
@@ -690,7 +713,7 @@ export class WorldApiManager {
 
                                         // Wrap the entire logout logic in a transaction
                                         const logoutResult =
-                                            await this.proxyUserSql.begin(
+                                            await proxyUserSql.begin(
                                                 async (tx) => {
                                                     // Set the agent context within the transaction
                                                     const [
@@ -919,14 +942,14 @@ export class WorldApiManager {
                 // Process sessions in parallel
                 await Promise.all(
                     sessionsToCheck.map(async ([sessionId, session]) => {
-                        if (!this.superUserSql) {
+                        if (!superUserSql) {
                             throw new Error(
                                 "No super user database connection available",
                             );
                         }
 
                         // Check session validity directly in database
-                        const [validation] = await this.superUserSql<
+                        const [validation] = await superUserSql<
                             [
                                 {
                                     is_valid: boolean;
@@ -973,10 +996,11 @@ export class WorldApiManager {
         }
     }
 
+    // #region World Updates
     public async sendWorldUpdatesToSyncGroup(data: {
         syncGroup: string;
     }): Promise<void> {
-        if (!this.superUserSql) {
+        if (!superUserSql) {
             log({
                 message: "No database connection available",
                 debug: VircadiaConfig.SERVER.DEBUG,
@@ -987,20 +1011,16 @@ export class WorldApiManager {
         }
 
         // Fetch active sessions for the sync group with proper type checking
-        const sessions = await this.superUserSql<
-            { active_session_ids: string[] }[]
+        const sessionRecords = await superUserSql<
+            { general__session_id: string }[]
         >`
-            SELECT active_session_ids
+            SELECT general__session_id
             FROM auth.active_sync_group_sessions
             WHERE group__sync = ${data.syncGroup}
         `;
 
         // Early return if no active sessions found
-        if (
-            !sessions ||
-            sessions.length === 0 ||
-            !sessions[0]?.active_session_ids
-        ) {
+        if (!sessionRecords || sessionRecords.length === 0) {
             return;
         }
 
@@ -1013,9 +1033,7 @@ export class WorldApiManager {
 
         // Fetch all changes.
         try {
-            updatePackage.entities = await this.superUserSql<
-                Tick.I_EntityUpdate[]
-            >`
+            updatePackage.entities = await superUserSql<Tick.I_EntityUpdate[]>`
                     SELECT 
                         general__entity_id,
                         operation,
@@ -1039,9 +1057,7 @@ export class WorldApiManager {
         }
 
         try {
-            updatePackage.scripts = await this.superUserSql<
-                Tick.I_ScriptUpdate[]
-            >`
+            updatePackage.scripts = await superUserSql<Tick.I_ScriptUpdate[]>`
                     SELECT 
                         general__script_id,
                         operation,
@@ -1065,9 +1081,7 @@ export class WorldApiManager {
         }
 
         try {
-            updatePackage.assets = await this.superUserSql<
-                Tick.I_AssetUpdate[]
-            >`
+            updatePackage.assets = await superUserSql<Tick.I_AssetUpdate[]>`
                     SELECT 
                         general__asset_id,
                         operation,
@@ -1102,23 +1116,22 @@ export class WorldApiManager {
             return;
         }
 
-        // Update the sessions loop to use the corrected array
-        const updatePromises = sessions[0].active_session_ids.map(
-            async (sessionId) => {
-                const session = this.activeSessions.get(sessionId);
-                if (!session?.ws) {
-                    log({
-                        message: `Session ${sessionId} not found`,
-                        debug: VircadiaConfig.SERVER.DEBUG,
-                        suppress: VircadiaConfig.SERVER.SUPPRESS,
-                        type: "debug",
-                    });
-                    return;
-                }
+        // Update the sessions loop to use the individual session records
+        const updatePromises = sessionRecords.map(async (record) => {
+            const sessionId = record.general__session_id;
+            const session = this.activeSessions.get(sessionId);
+            if (!session?.ws) {
+                log({
+                    message: `Session ${sessionId} not found`,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    type: "debug",
+                });
+                return;
+            }
 
-                session.ws.send(JSON.stringify(updatePackage));
-            },
-        );
+            session.ws.send(JSON.stringify(updatePackage));
+        });
 
         // Fire and forget
         Promise.all(updatePromises).catch((error) => {
@@ -1131,6 +1144,7 @@ export class WorldApiManager {
             });
         });
     }
+    // #endregion
 
     cleanup() {
         this.tickManager?.stop();

@@ -92,10 +92,14 @@ describe("Service -> API Manager Tests", () => {
                 const regularResponse = await fetch(
                     `${baseUrl}${Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.path}`,
                     {
-                        method: "GET",
+                        method: "POST",
                         headers: {
-                            Authorization: `Bearer ${regularAgent.token}`,
+                            "Content-Type": "application/json",
                         },
+                        body: JSON.stringify({
+                            token: regularAgent.token,
+                            provider: "system",
+                        }),
                     },
                 );
 
@@ -109,10 +113,14 @@ describe("Service -> API Manager Tests", () => {
                 const adminResponse = await fetch(
                     `${baseUrl}${Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.path}`,
                     {
-                        method: "GET",
+                        method: "POST",
                         headers: {
-                            Authorization: `Bearer ${adminAgent.token}`,
+                            "Content-Type": "application/json",
                         },
+                        body: JSON.stringify({
+                            token: adminAgent.token,
+                            provider: "system", // Use the default provider name
+                        }),
                     },
                 );
 
@@ -128,10 +136,14 @@ describe("Service -> API Manager Tests", () => {
                 const response = await fetch(
                     `${baseUrl}${Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.path}`,
                     {
-                        method: "GET",
+                        method: "POST",
                         headers: {
-                            Authorization: "Bearer invalid-token",
+                            "Content-Type": "application/json",
                         },
+                        body: JSON.stringify({
+                            token: "invalid-token",
+                            provider: "system",
+                        }),
                     },
                 );
 
@@ -144,7 +156,14 @@ describe("Service -> API Manager Tests", () => {
                 const response = await fetch(
                     `${baseUrl}${Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.path}`,
                     {
-                        method: "GET",
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({
+                            // Missing token
+                            provider: "system",
+                        }),
                     },
                 );
 

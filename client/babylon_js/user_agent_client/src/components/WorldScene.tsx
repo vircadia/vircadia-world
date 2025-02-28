@@ -46,7 +46,7 @@ class WorldConnection {
 
         // Create URL with token as query parameter, using the same path as server
         const wsUrl = new URL(
-            `${VircadiaConfig_Client.defaultWorldServerUriUsingSsl ? "wss" : "ws"}://${this.serverUrl}${Communication.WS_PATH}`,
+            `${VircadiaConfig_Client.defaultWorldServerUriUsingSsl ? "wss" : "ws"}://${this.serverUrl}${Communication.WS_UPGRADE_PATH}`,
         );
         wsUrl.searchParams.set("token", this.token);
 

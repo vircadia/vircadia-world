@@ -81,7 +81,6 @@ CREATE TABLE auth.agent_profiles (
     auth__email TEXT UNIQUE,
     auth__is_admin BOOLEAN NOT NULL DEFAULT FALSE,
     auth__is_anon BOOLEAN NOT NULL DEFAULT FALSE,
-    auth__is_system BOOLEAN NOT NULL DEFAULT FALSE,
     profile__last_seen_at TIMESTAMPTZ
 ) INHERITS (auth._template);
 ALTER TABLE auth.agent_profiles ENABLE ROW LEVEL SECURITY;
@@ -515,9 +514,9 @@ CREATE TRIGGER update_profile_last_seen_on_session_creation
 -- ============================================================================
 -- System Agent Profile
 INSERT INTO auth.agent_profiles 
-    (general__agent_profile_id, profile__username, auth__email, auth__is_system) 
+    (general__agent_profile_id, profile__username, auth__email) 
 VALUES 
-    (auth.get_system_agent_id(), 'admin', 'system@internal', true)
+    (auth.get_system_agent_id(), 'admin', 'system@internal')
 ON CONFLICT (general__agent_profile_id) DO NOTHING;
 
 -- Default Sync Groups

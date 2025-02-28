@@ -29,8 +29,7 @@ CREATE TABLE config.network_config (
 -- Authentication Configuration
 CREATE TABLE config.auth_config (
     auth_config__session_cleanup_interval BIGINT NOT NULL,
-    auth_config__heartbeat_interval_ms INTEGER NOT NULL,
-    auth_config__heartbeat_inactive_expiry_ms INTEGER NOT NULL
+    auth_config__heartbeat_interval_ms INTEGER NOT NULL
 );
 
 -- Database Version Configuration
@@ -72,12 +71,10 @@ INSERT INTO config.network_config (
 -- Authentication Configuration
 INSERT INTO config.auth_config (
     auth_config__session_cleanup_interval,
-    auth_config__heartbeat_interval_ms,
-    auth_config__heartbeat_inactive_expiry_ms
+    auth_config__heartbeat_interval_ms
 ) VALUES (
     3600000,
-    3000,
-    12000
+    3000
 );
 
 -- Database Version Configuration

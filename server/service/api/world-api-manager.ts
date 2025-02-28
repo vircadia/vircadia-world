@@ -80,8 +80,9 @@ export async function validateJWT(data: {
         };
     } catch (error) {
         log({
-            message: `Session validation failed: ${error}`,
+            message: `Internal JWT Session validation failed: ${error}`,
             debug: VircadiaConfig.SERVER.DEBUG,
+            suppress: VircadiaConfig.SERVER.SUPPRESS,
             type: "debug",
             data: {
                 error: error instanceof Error ? error.message : String(error),
@@ -217,18 +218,18 @@ class WorldTickManager {
             isLocallyDbDelayed ||
             isRemotelyDbDelayed
         ) {
-            log({
-                message: `Tick processing is delayed for ${syncGroup}\nLocally: ${isLocallyDbDelayed || isLocallyTotalDelayed}\nRemotely: ${isRemotelyDbDelayed}`,
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
-                type: "warning",
-                data: {
-                    localDbProcessingTime: `Local database processing time: ${localDbProcessingTime}ms`,
-                    localTotalProcessingTime: `Local total processing time: ${localTotalProcessingTime}ms`,
-                    remoteDbProcessingTime: `Remote database processing time: ${result?.tick_data.tick__duration_ms}ms`,
-                    tickRate: `Tick rate: ${tickRate}ms`,
-                },
-            });
+            // log({
+            //     message: `Tick processing is delayed for ${syncGroup}\nLocally: ${isLocallyDbDelayed || isLocallyTotalDelayed}\nRemotely: ${isRemotelyDbDelayed}`,
+            //     debug: VircadiaConfig.SERVER.DEBUG,
+            //     suppress: VircadiaConfig.SERVER.SUPPRESS,
+            //     type: "warning",
+            //     data: {
+            //         localDbProcessingTime: `Local database processing time: ${localDbProcessingTime}ms`,
+            //         localTotalProcessingTime: `Local total processing time: ${localTotalProcessingTime}ms`,
+            //         remoteDbProcessingTime: `Remote database processing time: ${result?.tick_data.tick__duration_ms}ms`,
+            //         tickRate: `Tick rate: ${tickRate}ms`,
+            //     },
+            // });
         }
     }
 
@@ -279,13 +280,14 @@ export class WorldApiManager {
         string
     >();
 
-    private LOG_PREFIX = "WorldApiManager";
+    private LOG_PREFIX = "World API Manager";
 
     async initialize() {
         try {
             log({
-                message: "Initializing world api manager",
+                message: "Initializing World API Manager",
                 debug: VircadiaConfig.SERVER.DEBUG,
+                suppress: VircadiaConfig.SERVER.SUPPRESS,
                 type: "debug",
             });
 
@@ -370,16 +372,17 @@ export class WorldApiManager {
                         }
 
                         const sessionValidationResult = await superUserSql<
-                            [{ is_valid: boolean }]
+                            [{ agent_id: string }]
                         >`
-                            SELECT * FROM auth.validate_session_id(${jwtValidationResult.sessionId}::UUID)
+                            SELECT * FROM auth.validate_session_id(${jwtValidationResult.sessionId}::UUID) as agent_id
                         `;
 
-                        if (!sessionValidationResult[0].is_valid) {
+                        if (!sessionValidationResult[0].agent_id) {
                             log({
                                 prefix: this.LOG_PREFIX,
-                                message: "Session validation failed",
+                                message: "WS Upgrade Session validation failed",
                                 debug: VircadiaConfig.SERVER.DEBUG,
+                                suppress: VircadiaConfig.SERVER.SUPPRESS,
                                 type: "debug",
                             });
                             return new Response("Invalid session", {
@@ -477,13 +480,13 @@ export class WorldApiManager {
                                             // Execute validation within the same transaction context
                                             const [sessionValidationResult] =
                                                 await tx<
-                                                    [{ is_valid: boolean }]
+                                                    [{ agent_id: string }]
                                                 >`
-                                                    SELECT * FROM auth.validate_session_id(${jwtValidationResult.sessionId}::UUID) as is_valid
+                                                    SELECT * FROM auth.validate_session_id(${jwtValidationResult.sessionId}::UUID) as agent_id
                                                 `;
 
                                             if (
-                                                !sessionValidationResult.is_valid
+                                                !sessionValidationResult.agent_id
                                             ) {
                                                 return Response.json(
                                                     Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
@@ -519,6 +522,8 @@ export class WorldApiManager {
                                     log({
                                         message: "Failed to validate session",
                                         debug: VircadiaConfig.SERVER.DEBUG,
+                                        suppress:
+                                            VircadiaConfig.SERVER.SUPPRESS,
                                         type: "error",
                                         prefix: this.LOG_PREFIX,
                                         data: {
@@ -555,6 +560,7 @@ export class WorldApiManager {
                     ) => {
                         log({
                             message: "WebSocket message received",
+                            suppress: VircadiaConfig.SERVER.SUPPRESS,
                             debug: VircadiaConfig.SERVER.DEBUG,
                             type: "debug",
                         });
@@ -563,6 +569,7 @@ export class WorldApiManager {
                         if (!superUserSql || !proxyUserSql) {
                             log({
                                 message: "No database connections available",
+                                suppress: VircadiaConfig.SERVER.SUPPRESS,
                                 debug: VircadiaConfig.SERVER.DEBUG,
                                 type: "error",
                             });
@@ -596,6 +603,8 @@ export class WorldApiManager {
                                         message:
                                             "Failed to update session heartbeat",
                                         debug: VircadiaConfig.SERVER.DEBUG,
+                                        suppress:
+                                            VircadiaConfig.SERVER.SUPPRESS,
                                         type: "error",
                                         prefix: this.LOG_PREFIX,
                                         data: { error, sessionId },
@@ -620,7 +629,7 @@ export class WorldApiManager {
                                                 async (tx) => {
                                                     const [setAgentContext] =
                                                         await tx`
-                                                        SELECT auth.set_agent_context_from_agent_id(${sessionId}::UUID, ${sessionToken}::TEXT)
+                                                        SELECT auth.set_agent_context_from_agent_id(${sessionId}::UUID)
                                                     `;
 
                                                     return await tx.unsafe(
@@ -639,15 +648,33 @@ export class WorldApiManager {
                                             ),
                                         );
                                     } catch (error) {
-                                        session.ws.send(
+                                        // Send detailed error information back to the client
+                                        const errorMessage =
+                                            error instanceof Error
+                                                ? error.message
+                                                : String(error);
+
+                                        log({
+                                            message: `Query failed: ${errorMessage}`,
+                                            debug: VircadiaConfig.SERVER.DEBUG,
+                                            suppress:
+                                                VircadiaConfig.SERVER.SUPPRESS,
+                                            type: "error",
+                                            prefix: this.LOG_PREFIX,
+                                            data: {
+                                                error,
+                                                query: typedRequest.query,
+                                            },
+                                        });
+
+                                        ws.send(
                                             JSON.stringify(
-                                                new Communication.WebSocket.GeneralErrorResponseMessage(
-                                                    "Query failed",
+                                                new Communication.WebSocket.QueryResponseMessage(
+                                                    undefined,
+                                                    errorMessage,
                                                 ),
                                             ),
                                         );
-
-                                        throw error;
                                     }
                                     break;
                                 }
@@ -679,6 +706,7 @@ export class WorldApiManager {
                             prefix: this.LOG_PREFIX,
                             message: "New WebSocket connection attempt",
                             debug: VircadiaConfig.SERVER.DEBUG,
+                            suppress: VircadiaConfig.SERVER.SUPPRESS,
                             type: "debug",
                             data: {
                                 agentId: sessionData.agentId,
@@ -700,26 +728,13 @@ export class WorldApiManager {
                             (ws as ServerWebSocket<WebSocketData>).data.token,
                         );
 
-                        try {
-                            const connectionMsg =
-                                new Communication.WebSocket.ConnectionEstablishedResponseMessage(
-                                    sessionData.agentId,
-                                );
-                            ws.send(JSON.stringify(connectionMsg));
-                            log({
-                                prefix: this.LOG_PREFIX,
-                                message: `Connection established with agent ${sessionData.agentId}`,
-                                debug: VircadiaConfig.SERVER.DEBUG,
-                                type: "debug",
-                            });
-                        } catch (error) {
-                            log({
-                                prefix: this.LOG_PREFIX,
-                                message: `Failed to send connection message: ${error}`,
-                                debug: VircadiaConfig.SERVER.DEBUG,
-                                type: "error",
-                            });
-                        }
+                        log({
+                            prefix: this.LOG_PREFIX,
+                            message: `Connection established with agent ${sessionData.agentId}`,
+                            suppress: VircadiaConfig.SERVER.SUPPRESS,
+                            debug: VircadiaConfig.SERVER.DEBUG,
+                            type: "debug",
+                        });
                     },
                     close: (
                         ws: ServerWebSocket<WebSocketData>,
@@ -729,6 +744,7 @@ export class WorldApiManager {
                         log({
                             message: `WebSocket connection closed, code: ${code}, reason: ${reason}`,
                             debug: VircadiaConfig.SERVER.DEBUG,
+                            suppress: VircadiaConfig.SERVER.SUPPRESS,
                             type: "debug",
                         });
                         const session = this.activeSessions.get(
@@ -777,19 +793,20 @@ export class WorldApiManager {
                         const [validation] = await superUserSql<
                             [
                                 {
-                                    is_valid: boolean;
+                                    agent_id: boolean;
                                 },
                             ]
                         >`
-                            SELECT * FROM auth.validate_session_id(${sessionId}::UUID)
+                            SELECT * FROM auth.validate_session_id(${sessionId}::UUID) as agent_id
                         `;
 
-                        if (!validation?.is_valid) {
+                        if (!validation.agent_id) {
                             log({
                                 prefix: this.LOG_PREFIX,
                                 message:
                                     "Session expired / invalid, closing WebSocket",
                                 debug: VircadiaConfig.SERVER.DEBUG,
+                                suppress: VircadiaConfig.SERVER.SUPPRESS,
                                 type: "debug",
                                 data: {
                                     sessionId,
@@ -812,7 +829,7 @@ export class WorldApiManager {
             // #endregion
         } catch (error) {
             log({
-                message: `Failed to initialize WorldApiManager: ${error}`,
+                message: `Failed to initialize World API Manager: ${error}`,
                 type: "error",
                 debug: VircadiaConfig.SERVER.DEBUG,
                 suppress: VircadiaConfig.SERVER.SUPPRESS,
@@ -1000,6 +1017,7 @@ if (import.meta.main) {
             log({
                 message: "\nReceived SIGINT. Cleaning up...",
                 debug: VircadiaConfig.SERVER.DEBUG,
+                suppress: VircadiaConfig.SERVER.SUPPRESS,
                 type: "debug",
             });
             manager.cleanup();
@@ -1010,6 +1028,7 @@ if (import.meta.main) {
             log({
                 message: "\nReceived SIGTERM. Cleaning up...",
                 debug: VircadiaConfig.SERVER.DEBUG,
+                suppress: VircadiaConfig.SERVER.SUPPRESS,
                 type: "debug",
             });
             manager.cleanup();
@@ -1017,8 +1036,9 @@ if (import.meta.main) {
         });
     } catch (error) {
         log({
-            message: `Failed to start WorldApiManager: ${error}`,
+            message: `Failed to start World API Manager: ${error}`,
             type: "error",
+            suppress: VircadiaConfig.SERVER.SUPPRESS,
             debug: true,
         });
         process.exit(1);

@@ -365,7 +365,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE OR REPLACE FUNCTION auth.update_session_heartbeat(
     p_session_id UUID
 )
-RETURNS BOOLEAN AS $$
+RETURNS void AS $$
 DECLARE
     v_agent_id UUID;
 BEGIN
@@ -377,22 +377,20 @@ BEGIN
       AND session__expires_at > NOW();
     
     IF NOT FOUND THEN
-        RETURN false;
+        RAISE EXCEPTION 'Session not found for id: %', p_session_id;
     END IF;
     
     -- Check permissions (user's own session, admin, or system)
     IF v_agent_id != auth.current_agent_id() 
        AND NOT auth.is_admin_agent() 
        AND NOT auth.is_system_agent() THEN
-        RETURN false;
+        RAISE EXCEPTION 'Insufficient permissions to update session: %', p_session_id;
     END IF;
     
     -- Update the last seen timestamp
     UPDATE auth.agent_sessions
     SET session__last_seen_at = NOW()
     WHERE general__session_id = p_session_id;
-    
-    RETURN true;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -400,7 +398,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE OR REPLACE FUNCTION auth.invalidate_session(
     p_session_id UUID
 )
-RETURNS BOOLEAN AS $$
+RETURNS void AS $$
 DECLARE
     v_agent_id UUID;
 BEGIN
@@ -412,14 +410,14 @@ BEGIN
       AND session__expires_at > NOW();
     
     IF NOT FOUND THEN
-        RETURN false;
+        RAISE EXCEPTION 'Session not found for id: %', p_session_id;
     END IF;
     
     -- Check permissions (user's own session, admin, or system)
     IF v_agent_id != auth.current_agent_id() 
        AND NOT auth.is_admin_agent() 
        AND NOT auth.is_system_agent() THEN
-        RETURN false;
+        RAISE EXCEPTION 'Insufficient permissions to invalidate session: %', p_session_id;
     END IF;
     
     -- Update the session to be inactive
@@ -427,8 +425,6 @@ BEGIN
     SET session__is_active = false,
         session__expires_at = NOW()
     WHERE general__session_id = p_session_id;
-    
-    RETURN true;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 

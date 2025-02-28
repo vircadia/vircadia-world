@@ -35,16 +35,15 @@ describe("Service -> Web Script Manager Tests", () => {
         });
     });
 
-    describe("World Web Script Manager", () => {
-        test("service should launch and become available", async () => {
-            expect(serverProcess.pid).toBeGreaterThan(0);
-        });
+    test("service should launch and become available", async () => {
+        expect(serverProcess.pid).toBeGreaterThan(0);
+    });
 
-        test("should compile scripts for all platforms", async () => {
-            // Insert test script
-            const result = await superUserSql<
-                Pick<Entity.Script.I_Script, "general__script_id">[]
-            >`
+    test("should compile scripts for all platforms", async () => {
+        // Insert test script
+        const result = await superUserSql<
+            Pick<Entity.Script.I_Script, "general__script_id">[]
+        >`
                 WITH inserted_script AS (
                     INSERT INTO entity.entity_scripts (
                         general__script_name,
@@ -63,31 +62,29 @@ describe("Service -> Web Script Manager Tests", () => {
                 SELECT general__script_id FROM inserted_script
             `;
 
-            expect(result.length).toBe(1);
-            const scriptId = result[0].general__script_id;
-            expect(scriptId).toBeDefined();
+        expect(result.length).toBe(1);
+        const scriptId = result[0].general__script_id;
+        expect(scriptId).toBeDefined();
 
-            // Increase polling duration to match the 60s timeout
-            const maxAttempts = 55; // 55 seconds total (leaving 5s buffer for other operations)
-            let attempts = 0;
-            let status = {
-                compiled__browser__status:
-                    Entity.Script.E_CompilationStatus.PENDING,
-                compiled__node__status:
-                    Entity.Script.E_CompilationStatus.PENDING,
-                compiled__bun__status:
-                    Entity.Script.E_CompilationStatus.PENDING,
-            };
+        // Increase polling duration to match the 60s timeout
+        const maxAttempts = 55; // 55 seconds total (leaving 5s buffer for other operations)
+        let attempts = 0;
+        let status = {
+            compiled__browser__status:
+                Entity.Script.E_CompilationStatus.PENDING,
+            compiled__node__status: Entity.Script.E_CompilationStatus.PENDING,
+            compiled__bun__status: Entity.Script.E_CompilationStatus.PENDING,
+        };
 
-            while (attempts < maxAttempts) {
-                const compilationResult = await superUserSql<
-                    Pick<
-                        Entity.Script.I_Script,
-                        | "compiled__browser__status"
-                        | "compiled__node__status"
-                        | "compiled__bun__status"
-                    >[]
-                >`
+        while (attempts < maxAttempts) {
+            const compilationResult = await superUserSql<
+                Pick<
+                    Entity.Script.I_Script,
+                    | "compiled__browser__status"
+                    | "compiled__node__status"
+                    | "compiled__bun__status"
+                >[]
+            >`
                     SELECT 
                         compiled__browser__status as "compiled__browser__status",
                         compiled__node__status as "compiled__node__status",
@@ -96,60 +93,59 @@ describe("Service -> Web Script Manager Tests", () => {
                     WHERE general__script_id = ${scriptId}
                 `;
 
-                if (!compilationResult[0]) {
-                    throw new Error("No compilation result found");
-                }
-
-                status = {
-                    compiled__browser__status:
-                        compilationResult[0].compiled__browser__status ??
-                        Entity.Script.E_CompilationStatus.PENDING,
-                    compiled__node__status:
-                        compilationResult[0].compiled__node__status ??
-                        Entity.Script.E_CompilationStatus.PENDING,
-                    compiled__bun__status:
-                        compilationResult[0].compiled__bun__status ??
-                        Entity.Script.E_CompilationStatus.PENDING,
-                };
-
-                // If any platform is still compiling or pending, wait
-                if (
-                    Object.values(status).some(
-                        (s) =>
-                            s === Entity.Script.E_CompilationStatus.COMPILING ||
-                            s === Entity.Script.E_CompilationStatus.PENDING,
-                    )
-                ) {
-                    await new Promise((resolve) => setTimeout(resolve, 1000));
-                    attempts++;
-                    continue;
-                }
-
-                // If all platforms are either COMPILED, break
-                break;
+            if (!compilationResult[0]) {
+                throw new Error("No compilation result found");
             }
 
-            // Log detailed status for debugging
-            log({
-                message: "Final compilation status",
-                data: status,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
-                type: "debug",
-                debug: VircadiaConfig.SERVER.DEBUG,
-            });
+            status = {
+                compiled__browser__status:
+                    compilationResult[0].compiled__browser__status ??
+                    Entity.Script.E_CompilationStatus.PENDING,
+                compiled__node__status:
+                    compilationResult[0].compiled__node__status ??
+                    Entity.Script.E_CompilationStatus.PENDING,
+                compiled__bun__status:
+                    compilationResult[0].compiled__bun__status ??
+                    Entity.Script.E_CompilationStatus.PENDING,
+            };
 
-            // Check compilation status for all platforms
-            expect(status.compiled__browser__status).toBe(
-                Entity.Script.E_CompilationStatus.COMPILED,
-            );
-            expect(status.compiled__node__status).toBe(
-                Entity.Script.E_CompilationStatus.COMPILED,
-            );
-            expect(status.compiled__bun__status).toBe(
-                Entity.Script.E_CompilationStatus.COMPILED,
-            );
-        }, 60000);
-    });
+            // If any platform is still compiling or pending, wait
+            if (
+                Object.values(status).some(
+                    (s) =>
+                        s === Entity.Script.E_CompilationStatus.COMPILING ||
+                        s === Entity.Script.E_CompilationStatus.PENDING,
+                )
+            ) {
+                await new Promise((resolve) => setTimeout(resolve, 1000));
+                attempts++;
+                continue;
+            }
+
+            // If all platforms are either COMPILED, break
+            break;
+        }
+
+        // Log detailed status for debugging
+        log({
+            message: "Final compilation status",
+            data: status,
+            suppress: VircadiaConfig.SERVER.SUPPRESS,
+            type: "debug",
+            debug: VircadiaConfig.SERVER.DEBUG,
+        });
+
+        // Check compilation status for all platforms
+        expect(status.compiled__browser__status).toBe(
+            Entity.Script.E_CompilationStatus.COMPILED,
+        );
+        expect(status.compiled__node__status).toBe(
+            Entity.Script.E_CompilationStatus.COMPILED,
+        );
+        expect(status.compiled__bun__status).toBe(
+            Entity.Script.E_CompilationStatus.COMPILED,
+        );
+    }, 60000);
 
     afterAll(async () => {
         // Kill the server process and its children

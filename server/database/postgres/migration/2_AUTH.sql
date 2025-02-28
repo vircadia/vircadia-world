@@ -263,6 +263,21 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- Trigger to update profile's last seen time based on session activity
+CREATE OR REPLACE FUNCTION auth.update_profile_last_seen()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Update the agent's profile last seen timestamp if the session timestamp is newer
+    UPDATE auth.agent_profiles
+    SET profile__last_seen_at = NEW.session__last_seen_at
+    WHERE general__agent_profile_id = NEW.auth__agent_id
+      AND (profile__last_seen_at IS NULL 
+           OR profile__last_seen_at < NEW.session__last_seen_at);
+      
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 -- ============================================================================
 -- 6. AUTHENTICATION FUNCTIONS
 -- ============================================================================
@@ -381,20 +396,42 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Function to update profile's last seen time based on session activity
-CREATE OR REPLACE FUNCTION auth.update_profile_last_seen()
-RETURNS TRIGGER AS $$
+-- Function to invalidate a session
+CREATE OR REPLACE FUNCTION auth.invalidate_session(
+    p_session_id UUID
+)
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_agent_id UUID;
 BEGIN
-    -- Update the agent's profile last seen timestamp if the session timestamp is newer
-    UPDATE auth.agent_profiles
-    SET profile__last_seen_at = NEW.session__last_seen_at
-    WHERE general__agent_profile_id = NEW.auth__agent_id
-      AND (profile__last_seen_at IS NULL 
-           OR profile__last_seen_at < NEW.session__last_seen_at);
-      
-    RETURN NEW;
+    -- Check if session exists and get agent ID
+    SELECT auth__agent_id INTO v_agent_id
+    FROM auth.agent_sessions
+    WHERE general__session_id = p_session_id
+      AND session__is_active = true
+      AND session__expires_at > NOW();
+    
+    IF NOT FOUND THEN
+        RETURN false;
+    END IF;
+    
+    -- Check permissions (user's own session, admin, or system)
+    IF v_agent_id != auth.current_agent_id() 
+       AND NOT auth.is_admin_agent() 
+       AND NOT auth.is_system_agent() THEN
+        RETURN false;
+    END IF;
+    
+    -- Update the session to be inactive
+    UPDATE auth.agent_sessions
+    SET session__is_active = false,
+        session__expires_at = NOW()
+    WHERE general__session_id = p_session_id;
+    
+    RETURN true;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
 
 -- ============================================================================
 -- 8. MATERIALIZED VIEWS AND RELATED FUNCTIONS

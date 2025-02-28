@@ -369,7 +369,7 @@ export class WorldApiManager {
                             });
                         }
 
-                        const sessionValidationResult = await proxyUserSql<
+                        const sessionValidationResult = await superUserSql<
                             [{ is_valid: boolean }]
                         >`
                             SELECT * FROM auth.validate_session_id(${jwtValidationResult.sessionId}::UUID)
@@ -611,30 +611,6 @@ export class WorldApiManager {
                             // Handle different message types
                             switch (data.type) {
                                 case Communication.WebSocket.MessageType
-                                    .HEARTBEAT_REQUEST: {
-                                    await superUserSql`SELECT auth.update_session_heartbeat(${sessionId}::UUID)`
-                                        .catch((error) => {
-                                            ws.send(
-                                                JSON.stringify(
-                                                    new Communication.WebSocket.GeneralErrorResponseMessage(
-                                                        "Failed to update heartbeat",
-                                                    ),
-                                                ),
-                                            );
-                                        })
-                                        .then(() => {
-                                            ws.send(
-                                                JSON.stringify(
-                                                    new Communication.WebSocket.HeartbeatResponseMessage(
-                                                        session.agentId,
-                                                    ),
-                                                ),
-                                            );
-                                        });
-                                    break;
-                                }
-
-                                case Communication.WebSocket.MessageType
                                     .QUERY_REQUEST: {
                                     const typedRequest =
                                         data as Communication.WebSocket.QueryRequestMessage;
@@ -672,145 +648,6 @@ export class WorldApiManager {
                                         );
 
                                         throw error;
-                                    }
-                                    break;
-                                }
-
-                                case Communication.WebSocket.MessageType
-                                    .SESSION_INVALIDATION_REQUEST: {
-                                    try {
-                                        // Get session information
-                                        const sessionToken =
-                                            this.tokenMap.get(ws);
-                                        const sessionId =
-                                            this.wsToSessionMap.get(ws);
-
-                                        if (!sessionToken || !sessionId) {
-                                            ws.send(
-                                                JSON.stringify(
-                                                    new Communication.WebSocket.GeneralErrorResponseMessage(
-                                                        "Invalid session for logout",
-                                                    ),
-                                                ),
-                                            );
-                                            return;
-                                        }
-
-                                        const typedRequest =
-                                            data as Communication.WebSocket.SessionInvalidationRequestMessage;
-
-                                        // Wrap the entire logout logic in a transaction
-                                        const logoutResult =
-                                            await proxyUserSql.begin(
-                                                async (tx) => {
-                                                    // Set the agent context within the transaction
-                                                    const [
-                                                        setSessionContextResult,
-                                                    ] = await tx<
-                                                        [
-                                                            {
-                                                                set_agent_context_from_agent_id: boolean;
-                                                            },
-                                                        ]
-                                                    >`
-                                                SELECT auth.set_agent_context_from_agent_id(${sessionId}::UUID, ${sessionToken}::TEXT) as set_agent_context_from_agent_id
-                                            `;
-
-                                                    if (
-                                                        !setSessionContextResult.set_agent_context_from_agent_id
-                                                    ) {
-                                                        return {
-                                                            success: false,
-                                                            message:
-                                                                "Failed to set agent context",
-                                                        };
-                                                    }
-
-                                                    // Call invalidate_session within the same transaction context
-                                                    const [result] = await tx<
-                                                        [
-                                                            {
-                                                                invalidate_session: boolean;
-                                                            },
-                                                        ]
-                                                    >`
-                                                SELECT auth.invalidate_session(${typedRequest.sessionId}::UUID) as invalidate_session;
-                                            `;
-
-                                                    if (
-                                                        !result.invalidate_session
-                                                    ) {
-                                                        return {
-                                                            success: false,
-                                                            message:
-                                                                "Failed to invalidate session",
-                                                        };
-                                                    }
-
-                                                    log({
-                                                        message:
-                                                            "WebSocket - Successfully logged out",
-                                                        debug: VircadiaConfig
-                                                            .SERVER.DEBUG,
-                                                        type: "debug",
-                                                        prefix: this.LOG_PREFIX,
-                                                        data: {
-                                                            sessionId,
-                                                            result,
-                                                        },
-                                                    });
-
-                                                    return { success: true };
-                                                },
-                                            );
-
-                                        if (!logoutResult.success) {
-                                            ws.send(
-                                                JSON.stringify(
-                                                    new Communication.WebSocket.GeneralErrorResponseMessage(
-                                                        logoutResult.message ||
-                                                            "Logout failed",
-                                                    ),
-                                                ),
-                                            );
-                                            return;
-                                        }
-
-                                        // Send success response
-                                        ws.send(
-                                            JSON.stringify(
-                                                new Communication.WebSocket.SessionInvalidationResponseMessage(
-                                                    sessionId,
-                                                ),
-                                            ),
-                                        );
-
-                                        // Close the websocket after logout
-                                        setTimeout(() => {
-                                            ws.close(1000, "Logged out");
-                                        }, 100);
-                                    } catch (error) {
-                                        log({
-                                            message:
-                                                "Failed to process logout request",
-                                            debug: VircadiaConfig.SERVER.DEBUG,
-                                            type: "error",
-                                            prefix: this.LOG_PREFIX,
-                                            data: {
-                                                error:
-                                                    error instanceof Error
-                                                        ? error.message
-                                                        : String(error),
-                                            },
-                                        });
-
-                                        ws.send(
-                                            JSON.stringify(
-                                                new Communication.WebSocket.GeneralErrorResponseMessage(
-                                                    "Failed to process logout request",
-                                                ),
-                                            ),
-                                        );
                                     }
                                     break;
                                 }

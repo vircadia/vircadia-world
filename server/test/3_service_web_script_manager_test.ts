@@ -29,7 +29,9 @@ describe("Service -> Web Script Manager Tests", () => {
             killSignal: "SIGTERM",
             ...(VircadiaConfig.SERVER.SUPPRESS
                 ? { stdio: ["ignore", "ignore", "ignore"] }
-                : { stdio: ["inherit", "inherit", "inherit"] }),
+                : VircadiaConfig.SERVER.DEBUG
+                  ? { stdio: ["inherit", "inherit", "inherit"] }
+                  : { stdio: ["ignore", "ignore", "ignore"] }),
         });
     });
 

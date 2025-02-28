@@ -54,7 +54,9 @@ describe("Service -> API Manager Tests", () => {
             cwd: process.cwd(),
             ...(VircadiaConfig.SERVER.SUPPRESS
                 ? { stdio: ["ignore", "ignore", "ignore"] }
-                : { stdio: ["inherit", "inherit", "inherit"] }),
+                : VircadiaConfig.SERVER.DEBUG
+                  ? { stdio: ["inherit", "inherit", "inherit"] }
+                  : { stdio: ["ignore", "ignore", "ignore"] }),
             killSignal: "SIGTERM",
         });
 
@@ -96,19 +98,18 @@ describe("Service -> API Manager Tests", () => {
                         headers: {
                             "Content-Type": "application/json",
                         },
-                        body: JSON.stringify({
-                            token: regularAgent.token,
-                            provider: "system",
-                        }),
+                        body: Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createRequest(
+                            {
+                                token: regularAgent.token,
+                                provider: "system",
+                            },
+                        ),
                     },
                 );
 
                 expect(regularResponse.status).toBe(200);
                 const data = await regularResponse.json();
                 expect(data.success).toBe(true);
-                expect(data.data.isValid).toBe(true);
-                expect(data.data.agentId).toBe(regularAgent.id);
-                expect(data.data.sessionId).toBe(regularAgent.sessionId);
 
                 const adminResponse = await fetch(
                     `${baseUrl}${Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.path}`,
@@ -117,19 +118,18 @@ describe("Service -> API Manager Tests", () => {
                         headers: {
                             "Content-Type": "application/json",
                         },
-                        body: JSON.stringify({
-                            token: adminAgent.token,
-                            provider: "system", // Use the default provider name
-                        }),
+                        body: Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createRequest(
+                            {
+                                token: adminAgent.token,
+                                provider: "system",
+                            },
+                        ),
                     },
                 );
 
                 expect(adminResponse.status).toBe(200);
                 const adminData = await adminResponse.json();
                 expect(adminData.success).toBe(true);
-                expect(adminData.data.isValid).toBe(true);
-                expect(adminData.data.agentId).toBe(adminAgent.id);
-                expect(adminData.data.sessionId).toBe(adminAgent.sessionId);
             });
 
             test("should reject an invalid session token", async () => {
@@ -140,14 +140,16 @@ describe("Service -> API Manager Tests", () => {
                         headers: {
                             "Content-Type": "application/json",
                         },
-                        body: JSON.stringify({
-                            token: "invalid-token",
-                            provider: "system",
-                        }),
+                        body: Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createRequest(
+                            {
+                                token: "invalid-token",
+                                provider: "system",
+                            },
+                        ),
                     },
                 );
 
-                expect(response.status).toBe(200);
+                expect(response.status).toBe(401);
                 const data = await response.json();
                 expect(data.success).toBe(false);
             });

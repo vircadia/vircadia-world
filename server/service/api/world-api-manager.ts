@@ -412,6 +412,7 @@ export class WorldApiManager {
                     }
 
                     // Handle HTTP routes
+                    // TODO: This code could be cleaned up.
                     if (url.pathname.startsWith(Communication.REST_BASE_PATH)) {
                         switch (true) {
                             case url.pathname ===
@@ -471,37 +472,25 @@ export class WorldApiManager {
 
                                 try {
                                     // Wrap the entire validation logic in a transaction
-                                    return await proxyUserSql.begin(
+                                    return await superUserSql.begin(
                                         async (tx) => {
-                                            // Set the agent context within the transaction
-                                            const [setSessionContextResult] =
-                                                await tx<
-                                                    [
-                                                        {
-                                                            set_agent_context_from_agent_id: boolean;
-                                                        },
-                                                    ]
-                                                >`
-                                            SELECT auth.set_agent_context_from_agent_id(${jwtValidationResult.sessionId}::UUID, ${token}::TEXT) as set_agent_context_from_agent_id
-                                        `;
-
-                                            if (
-                                                !setSessionContextResult.set_agent_context_from_agent_id
-                                            ) {
-                                                return Response.json(
-                                                    Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
-                                                        "Failed to set agent context",
-                                                    ),
-                                                );
-                                            }
-
                                             // Execute validation within the same transaction context
                                             const [sessionValidationResult] =
                                                 await tx<
                                                     [{ is_valid: boolean }]
                                                 >`
-                                            SELECT * FROM auth.validate_session_id(${jwtValidationResult.sessionId}::UUID)
-                                        `;
+                                                    SELECT * FROM auth.validate_session_id(${jwtValidationResult.sessionId}::UUID) as is_valid
+                                                `;
+
+                                            if (
+                                                !sessionValidationResult.is_valid
+                                            ) {
+                                                return Response.json(
+                                                    Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
+                                                        "Invalid session",
+                                                    ),
+                                                );
+                                            }
 
                                             log({
                                                 message:
@@ -515,7 +504,6 @@ export class WorldApiManager {
                                                 prefix: this.LOG_PREFIX,
                                                 data: {
                                                     jwtValidationResult,
-                                                    setSessionContextResult,
                                                 },
                                             });
 

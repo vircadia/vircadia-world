@@ -597,7 +597,7 @@ export class WorldApiManager {
                             }
 
                             // Update session heartbeat in database (don't await)
-                            superUserSql`SELECT auth.update_session_heartbeat(${sessionId}::UUID)`.catch(
+                            superUserSql`SELECT auth.update_session_heartbeat_from_session_id(${sessionId}::UUID)`.catch(
                                 (error) => {
                                     log({
                                         message:
@@ -627,10 +627,11 @@ export class WorldApiManager {
                                         const results =
                                             await proxyUserSql?.begin(
                                                 async (tx) => {
+                                                    // First set agent context
                                                     const [setAgentContext] =
                                                         await tx`
-                                                        SELECT auth.set_agent_context_from_agent_id(${sessionId}::UUID)
-                                                    `;
+                                                            SELECT auth.set_agent_context_from_agent_id(${session.agentId}::UUID)
+                                                        `;
 
                                                     return await tx.unsafe(
                                                         typedRequest.query,
@@ -789,18 +790,14 @@ export class WorldApiManager {
                             );
                         }
 
-                        // Check session validity directly in database
-                        const [validation] = await superUserSql<
-                            [
-                                {
-                                    agent_id: boolean;
-                                },
-                            ]
-                        >`
-                            SELECT * FROM auth.validate_session_id(${sessionId}::UUID) as agent_id
-                        `;
-
-                        if (!validation.agent_id) {
+                        try {
+                            // Check session validity directly in database
+                            await superUserSql<[{ agent_id: string }]>`
+                                SELECT * FROM auth.validate_session_id(${sessionId}::UUID) as agent_id
+                            `;
+                            // Session is valid if no exception was thrown
+                        } catch (error) {
+                            // Session is invalid, close the connection
                             log({
                                 prefix: this.LOG_PREFIX,
                                 message:
@@ -811,6 +808,10 @@ export class WorldApiManager {
                                 data: {
                                     sessionId,
                                     agentId: session.agentId,
+                                    error:
+                                        error instanceof Error
+                                            ? error.message
+                                            : String(error),
                                 },
                             });
                             session.ws.close(1000, "Session expired");

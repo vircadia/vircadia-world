@@ -7,7 +7,6 @@ import type { Auth } from "../../../sdk/vircadia-world-sdk-ts/schema/schema.gene
 import { isHealthy, up } from "../../container/docker/docker_cli";
 
 export const TEST_SYNC_GROUP = "public.REALTIME";
-export const TEST_SCRIPT_NAMESPACE = "test_script_1";
 export const DB_TEST_PREFIX = "RESERVED_vtw908ncjw98t3t8kgr8y9ngv3w8b_db_test_";
 export const ADMIN_AGENT_USERNAME = "admin";
 export const REGULAR_AGENT_USERNAME = "agent";
@@ -218,6 +217,47 @@ export async function initTestAccounts(data: {
             token: anonAgentToken,
             sessionId: anonSessionId,
         };
+
+        // Add sync group permissions for regularAgent
+        await tx`
+            INSERT INTO auth.agent_sync_group_roles (
+                auth__agent_id,
+                group__sync,
+                permissions__can_read,
+                permissions__can_insert,
+                permissions__can_update,
+                permissions__can_delete
+            )
+            VALUES (
+                ${regularAgent.id},
+                ${TEST_SYNC_GROUP},
+                true,
+                true,
+                true,
+                true
+            )
+        `;
+
+        // For adminAgent, permissions are implicitly granted by auth__is_admin=true
+        // For anonAgent, we add read-only permissions
+        await tx`
+            INSERT INTO auth.agent_sync_group_roles (
+                auth__agent_id,
+                group__sync,
+                permissions__can_read,
+                permissions__can_insert,
+                permissions__can_update,
+                permissions__can_delete
+            )
+            VALUES (
+                ${anonAgent.id},
+                ${TEST_SYNC_GROUP},
+                true,
+                false,
+                false,
+                false
+            )
+        `;
 
         // Verify admin account using tx
         const [adminProfile] = await tx<[Auth.I_Profile]>`

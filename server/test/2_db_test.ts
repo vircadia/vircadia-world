@@ -6,7 +6,6 @@ import {
     type Tick,
 } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import {
-    TEST_SCRIPT_NAMESPACE,
     TEST_SYNC_GROUP,
     DB_TEST_PREFIX,
     initTestAccounts,
@@ -340,25 +339,28 @@ describe("DB", () => {
                     );
                 });
             });
-            test("should manage sync group roles correctly", async () => {
+            test("should manage sync group roles correctly for regular agent", async () => {
                 await proxyUserSql.begin(async (tx) => {
                     await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
                     await tx`
                         INSERT INTO auth.agent_sync_group_roles (
-                            auth__agent_id,
+                            auth__agent_id, 
                             group__sync,
                             permissions__can_read,
-                            permissions__can_insert,
+                            permissions__can_insert, 
                             permissions__can_update,
                             permissions__can_delete
                         ) VALUES (
                             ${regularAgent.id},
                             ${TEST_SYNC_GROUP},
-                            true,
-                            true,
-                            true,
-                            false
+                            true, true, true, false
                         )
+                        ON CONFLICT (auth__agent_id, group__sync) 
+                        DO UPDATE SET
+                            permissions__can_read = EXCLUDED.permissions__can_read,
+                            permissions__can_insert = EXCLUDED.permissions__can_insert,
+                            permissions__can_update = EXCLUDED.permissions__can_update,
+                            permissions__can_delete = EXCLUDED.permissions__can_delete
                     `;
                     const [checkAddedRole] = await tx`
                         SELECT * FROM auth.agent_sync_group_roles
@@ -1203,7 +1205,7 @@ describe("DB", () => {
                         ) VALUES (
                             ${name},
                             ${tx.json({
-                                [TEST_SCRIPT_NAMESPACE]: {
+                                test_script_1: {
                                     position: {
                                         x: 0,
                                         y: 0,
@@ -1258,7 +1260,7 @@ describe("DB", () => {
                     ) VALUES (
                         ${`${DB_TEST_PREFIX}Original Entity 1`},
                         ${tx.json({
-                            [TEST_SCRIPT_NAMESPACE]: {
+                            test_script_1: {
                                 position: {
                                     x: 0,
                                     y: 0,
@@ -1282,7 +1284,7 @@ describe("DB", () => {
                         assets__ids
                     ) VALUES (
                         ${`${DB_TEST_PREFIX}Original Entity 2`},
-                        ${tx.json({ [TEST_SCRIPT_NAMESPACE]: { position: { x: 10, y: 10, z: 10 } } })},
+                        ${tx.json({ test_script_1: { position: { x: 10, y: 10, z: 10 } } })},
                         ${TEST_SYNC_GROUP},
                         ${tx.array([])},
                         ${"ACTIVE"},
@@ -1296,13 +1298,13 @@ describe("DB", () => {
                         await tx`
                     UPDATE entity.entities
                     SET general__entity_name = ${`${DB_TEST_PREFIX}Updated Entity 1`},
-                        meta__data = ${tx.json({ [TEST_SCRIPT_NAMESPACE]: { position: { x: 5, y: 5, z: 5 } } })}
+                        meta__data = ${tx.json({ test_script_1: { position: { x: 5, y: 5, z: 5 } } })}
                     WHERE general__entity_id = ${entity1.general__entity_id}
                 `;
                         await tx`
                     UPDATE entity.entities
                     SET general__entity_name = ${`${DB_TEST_PREFIX}Updated Entity 2`},
-                        meta__data = ${tx.json({ [TEST_SCRIPT_NAMESPACE]: { position: { x: 15, y: 15, z: 15 } } })}
+                        meta__data = ${tx.json({ test_script_1: { position: { x: 15, y: 15, z: 15 } } })}
                     WHERE general__entity_id = ${entity2.general__entity_id}
                 `;
 

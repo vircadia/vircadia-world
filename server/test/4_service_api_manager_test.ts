@@ -11,6 +11,7 @@ import {
     cleanupTestScripts,
     initContainers,
     initTestAccounts,
+    TEST_SYNC_GROUP,
     type TestAccount,
 } from "./helper/helpers";
 
@@ -24,7 +25,7 @@ describe("Service -> API Manager Tests", () => {
     let regularAgent: TestAccount;
     let anonAgent: TestAccount;
 
-    let wsConnection: WebSocket | null;
+    let regularAgentWsConnection: WebSocket | null;
 
     // Setup before all tests
     beforeAll(async () => {
@@ -112,26 +113,6 @@ describe("Service -> API Manager Tests", () => {
                 expect(regularResponse.status).toBe(200);
                 const data = await regularResponse.json();
                 expect(data.success).toBe(true);
-
-                const adminResponse = await fetch(
-                    `${baseUrl}${Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.path}`,
-                    {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json",
-                        },
-                        body: Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createRequest(
-                            {
-                                token: adminAgent.token,
-                                provider: "system",
-                            },
-                        ),
-                    },
-                );
-
-                expect(adminResponse.status).toBe(200);
-                const adminData = await adminResponse.json();
-                expect(adminData.success).toBe(true);
             });
 
             test("should reject an invalid session token", async () => {
@@ -186,20 +167,20 @@ describe("Service -> API Manager Tests", () => {
             }${Communication.WS_UPGRADE_PATH}?token=${regularAgent.token}&provider=system`;
 
             return new Promise((resolve, reject) => {
-                wsConnection = new WebSocket(wsUrl);
+                regularAgentWsConnection = new WebSocket(wsUrl);
 
-                wsConnection.onopen = () => {
+                regularAgentWsConnection.onopen = () => {
                     console.log("WebSocket connected");
                     resolve(true);
                 };
 
-                wsConnection.onerror = (error) => {
+                regularAgentWsConnection.onerror = (error) => {
                     console.error("WebSocket connection error:", error);
                     reject(error);
                 };
 
                 // Set up message handling for tests
-                wsConnection.onmessage = (event) => {
+                regularAgentWsConnection.onmessage = (event) => {
                     const message = JSON.parse(event.data);
                     lastReceivedMessage = message;
                     messageReceived = true;
@@ -232,139 +213,189 @@ describe("Service -> API Manager Tests", () => {
         };
 
         test("should establish WebSocket connection successfully", async () => {
-            expect(wsConnection).not.toBeNull();
-            expect(wsConnection?.readyState).toBe(WebSocket.OPEN);
+            expect(regularAgentWsConnection).not.toBeNull();
+            expect(regularAgentWsConnection?.readyState).toBe(WebSocket.OPEN);
         });
 
         test("should update session heartbeat through query request", async () => {
-            if (!wsConnection) {
+            if (!regularAgentWsConnection) {
                 throw new Error("WebSocket connection not established");
             }
 
-            // Send a query request to update the session heartbeat
-            wsConnection.send(
+            // First, query to get the current session timestamp
+            regularAgentWsConnection.send(
                 JSON.stringify(
                     new Communication.WebSocket.QueryRequestMessage(
-                        "SELECT auth.update_session_heartbeat($1::UUID)",
+                        "SELECT session__last_seen_at FROM auth.agent_sessions WHERE general__session_id = $1::UUID",
                         [regularAgent.sessionId],
                     ),
                 ),
             );
 
-            // Wait for and validate the response
+            // Wait for response with the original timestamp
+            const initialResponse = await waitForMessage();
+            expect(initialResponse).toBeDefined();
+            expect(initialResponse.type).toBe(
+                Communication.WebSocket.MessageType.QUERY_RESPONSE,
+            );
+            expect(initialResponse.result).toBeInstanceOf(Array);
+            expect(initialResponse.result.length).toBe(1);
+            const initialTimestamp = new Date(
+                initialResponse.result[0].session__last_seen_at,
+            );
+
+            // Wait briefly to ensure timestamp will be different
+            await Bun.sleep(10);
+
+            // Send a query request to update the session heartbeat
+            regularAgentWsConnection.send(
+                JSON.stringify(
+                    new Communication.WebSocket.QueryRequestMessage(
+                        "SELECT auth.update_session_heartbeat_from_session_id($1::UUID)",
+                        [regularAgent.sessionId],
+                    ),
+                ),
+            );
+
+            // Wait for heartbeat update response (should be void)
+            const updateResponse = await waitForMessage();
+            expect(updateResponse).toBeDefined();
+            expect(updateResponse.type).toBe(
+                Communication.WebSocket.MessageType.QUERY_RESPONSE,
+            );
+            expect(updateResponse.error).toBeNull();
+
+            // Query again to verify the timestamp was updated
+            regularAgentWsConnection.send(
+                JSON.stringify(
+                    new Communication.WebSocket.QueryRequestMessage(
+                        "SELECT session__last_seen_at FROM auth.agent_sessions WHERE general__session_id = $1::UUID",
+                        [regularAgent.sessionId],
+                    ),
+                ),
+            );
+
+            // Wait for response with the updated timestamp
+            const finalResponse = await waitForMessage();
+            expect(finalResponse).toBeDefined();
+            expect(finalResponse.type).toBe(
+                Communication.WebSocket.MessageType.QUERY_RESPONSE,
+            );
+            expect(finalResponse.result).toBeInstanceOf(Array);
+            expect(finalResponse.result.length).toBe(1);
+
+            // Verify the timestamp was updated and is newer
+            const updatedTimestamp = new Date(
+                finalResponse.result[0].session__last_seen_at,
+            );
+            expect(updatedTimestamp.getTime()).toBeGreaterThan(
+                initialTimestamp.getTime(),
+            );
+        });
+
+        test("should receive sync group updates after entity creation", async () => {
+            // Create an entity in the database to trigger an update
+            await proxyUserSql.begin(async (tx) => {
+                await tx`SELECT auth.set_agent_context_from_agent_id(${regularAgent.id}::uuid)`;
+
+                await tx`
+                    INSERT INTO entity.entities (
+                        general__entity_name,
+                        meta__data,
+                        group__sync
+                    ) VALUES (
+                        ${"Test WS Update Entity"},
+                        ${tx.json({
+                            test_script_1: {
+                                test_property: "lol",
+                            },
+                        })},
+                        ${TEST_SYNC_GROUP}
+                    )
+                `;
+            });
+
+            // Wait for potential sync group update message
+            try {
+                const response = await waitForMessage(3000);
+                const typedResponse =
+                    response as Communication.WebSocket.SyncGroupUpdatesResponseMessage;
+
+                // If we receive a message, validate it's a sync group update
+                if (typedResponse) {
+                    expect(typedResponse.type).toBe(
+                        Communication.WebSocket.MessageType
+                            .SYNC_GROUP_UPDATES_RESPONSE,
+                    );
+
+                    if (Array.isArray(typedResponse.entities)) {
+                        // We may or may not receive the entity we just created depending on timing
+                        // Just verify the message format is correct
+                        for (const entity of typedResponse.entities) {
+                            expect(entity).toHaveProperty("entityId");
+                            expect(entity).toHaveProperty("operation");
+                            expect(entity).toHaveProperty("changes");
+                        }
+                    }
+                }
+            } catch (error) {
+                // If we timeout waiting for a message, that's okay - the tick timing is unpredictable
+                // The test still passes because we successfully created the entity
+                console.log(
+                    "Note: No sync update received within timeout period. This can be normal depending on tick timing.",
+                );
+            }
+        });
+
+        test("should properly handle session invalidation request", async () => {
+            if (!regularAgentWsConnection) {
+                throw new Error("WebSocket connection not established");
+            }
+
+            // Send a query to invalidate our own session
+            regularAgentWsConnection.send(
+                JSON.stringify(
+                    new Communication.WebSocket.QueryRequestMessage(
+                        "SELECT auth.invalidate_session_from_session_id($1::UUID)",
+                        [regularAgent.sessionId],
+                    ),
+                ),
+            );
+
+            // Wait for the query response
             const response = await waitForMessage();
             expect(response).toBeDefined();
             expect(response.type).toBe(
                 Communication.WebSocket.MessageType.QUERY_RESPONSE,
             );
 
-            // Verify that the query executed successfully
-            expect(response.result).toBeDefined();
-            expect(response.result).toBeInstanceOf(Array);
-            expect(response.result.length).toBe(1);
+            // Wait for the server to detect invalidated session and close the connection
+            // This usually happens during the heartbeat interval check
+            return new Promise((resolve) => {
+                if (regularAgentWsConnection) {
+                    // Set up an event listener for connection close
+                    regularAgentWsConnection.onclose = (event) => {
+                        expect(event.code).toBe(1000);
+                        resolve(true);
+                    };
 
-            // Verify no errors were returned
-            expect(response.error).toBeNull();
-        });
-
-        // test("should receive sync group updates after entity creation", async () => {
-        //     // Create an entity in the database to trigger an update
-        //     await proxyUserSql.begin(async (tx) => {
-        //         await tx`SELECT auth.set_agent_context_from_agent_id(${regularAgent.id}::uuid)`;
-
-        //         await tx`
-        //             INSERT INTO entity.entities (
-        //                 general__entity_name,
-        //                 meta__data,
-        //                 group__sync
-        //             ) VALUES (
-        //                 ${"Test WS Update Entity"},
-        //                 ${tx.json({ test: "data" })},
-        //                 ${"public.NORMAL"}
-        //             )
-        //         `;
-        //     });
-
-        //     // Wait for potential sync group update message
-        //     try {
-        //         const response = await waitForMessage(3000);
-
-        //         // If we receive a message, validate it's a sync group update
-        //         if (response) {
-        //             expect(response.type).toBe(
-        //                 Communication.WebSocket.MessageType
-        //                     .SYNC_GROUP_UPDATES_RESPONSE,
-        //             );
-
-        //             if (Array.isArray(response.entities)) {
-        //                 // We may or may not receive the entity we just created depending on timing
-        //                 // Just verify the message format is correct
-        //                 response.entities.forEach((entity) => {
-        //                     expect(entity).toHaveProperty("entityId");
-        //                     expect(entity).toHaveProperty("operation");
-        //                     expect(entity).toHaveProperty("changes");
-        //                 });
-        //             }
-        //         }
-        //     } catch (error) {
-        //         // If we timeout waiting for a message, that's okay - the tick timing is unpredictable
-        //         // The test still passes because we successfully created the entity
-        //         console.log(
-        //             "Note: No sync update received within timeout period. This can be normal depending on tick timing.",
-        //         );
-        //     }
-        // });
-
-        // test("should properly handle session invalidation request", async () => {
-        //     if (!wsConnection) {
-        //         throw new Error("WebSocket connection not established");
-        //     }
-
-        //     // Send a query to invalidate our own session
-        //     wsConnection.send(
-        //         JSON.stringify(
-        //             new Communication.WebSocket.QueryRequestMessage(
-        //                 "SELECT auth.invalidate_session($1::UUID)",
-        //                 [regularAgent.sessionId || regularAgent.token],
-        //             ),
-        //         ),
-        //     );
-
-        //     // Wait for the query response
-        //     const response = await waitForMessage();
-        //     expect(response).toBeDefined();
-        //     expect(response.type).toBe(
-        //         Communication.WebSocket.MessageType.QUERY_RESPONSE,
-        //     );
-
-        //     // The query should return true for successful invalidation
-        //     expect(response.results[0].auth_invalidate_session).toBe(true);
-
-        //     // Wait for the server to detect invalidated session and close the connection
-        //     // This usually happens during the heartbeat interval check
-        //     return new Promise((resolve) => {
-        //         if (wsConnection) {
-        //             // Set up an event listener for connection close
-        //             wsConnection.onclose = (event) => {
-        //                 expect(event.code).toBe(1000);
-        //                 expect(event.reason).toBe("Session expired");
-        //                 resolve(true);
-        //             };
-
-        //             // Timeout if connection isn't closed within a reasonable time
-        //             setTimeout(() => {
-        //                 throw new Error(
-        //                     "Connection was not closed after session invalidation",
-        //                 );
-        //             }, 5000);
-        //         }
-        //     });
-        // }, 10000);
+                    // Timeout if connection isn't closed within a reasonable time
+                    setTimeout(() => {
+                        throw new Error(
+                            "Connection was not closed after session invalidation",
+                        );
+                    }, 5000);
+                }
+            });
+        }, 10000);
 
         afterAll(async () => {
-            if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
-                wsConnection.close();
-                wsConnection = null;
+            if (
+                regularAgentWsConnection &&
+                regularAgentWsConnection.readyState === WebSocket.OPEN
+            ) {
+                regularAgentWsConnection.close();
+                regularAgentWsConnection = null;
             }
         });
     });

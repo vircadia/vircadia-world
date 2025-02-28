@@ -349,6 +349,15 @@ BEGIN
         RAISE EXCEPTION 'Only the proxy agent can set the agent context';
     END IF;
 
+    -- If the agent ID does not exist, raise an exception
+    IF NOT EXISTS (
+        SELECT 1
+        FROM auth.agent_profiles
+        WHERE general__agent_profile_id = p_agent_id
+    ) THEN
+        RAISE EXCEPTION 'Agent ID % does not exist', p_agent_id;
+    END IF;
+
     -- Prevent changing the context if it has already been set
     IF current_setting('app.current_agent_id', true) IS NOT NULL
        AND TRIM(current_setting('app.current_agent_id', true)) <> ''
@@ -362,7 +371,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Session Heartbeat Function
-CREATE OR REPLACE FUNCTION auth.update_session_heartbeat(
+CREATE OR REPLACE FUNCTION auth.update_session_heartbeat_from_session_id(
     p_session_id UUID
 )
 RETURNS void AS $$
@@ -395,7 +404,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Function to invalidate a session
-CREATE OR REPLACE FUNCTION auth.invalidate_session(
+CREATE OR REPLACE FUNCTION auth.invalidate_session_from_session_id(
     p_session_id UUID
 )
 RETURNS void AS $$
@@ -457,11 +466,11 @@ WHERE
 WITH DATA;
 
 -- Create index for better performance
-CREATE UNIQUE INDEX IF NOT EXISTS active_sync_group_sessions_session_group 
+CREATE INDEX active_sync_group_sessions_session_group 
 ON auth.active_sync_group_sessions (general__session_id, group__sync);
 
 -- Additional indexes for materialized view
-CREATE UNIQUE INDEX idx_active_sync_group_sessions_lookup 
+CREATE INDEX idx_active_sync_group_sessions_lookup 
 ON auth.active_sync_group_sessions (group__sync);
 
 -- ============================================================================
@@ -766,5 +775,6 @@ GRANT EXECUTE ON FUNCTION auth.refresh_active_sessions_view_trigger() TO vircadi
 GRANT EXECUTE ON FUNCTION auth.update_audit_columns() TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.cleanup_old_sessions() TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.enforce_session_limit() TO vircadia_agent_proxy;
-GRANT EXECUTE ON FUNCTION auth.update_session_heartbeat(UUID) TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.update_session_heartbeat_from_session_id(UUID) TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.update_profile_last_seen() TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.invalidate_session_from_session_id(UUID) TO vircadia_agent_proxy;

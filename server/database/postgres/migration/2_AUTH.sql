@@ -466,7 +466,7 @@ WHERE
 WITH DATA;
 
 -- Create index for better performance
-CREATE INDEX active_sync_group_sessions_session_group 
+CREATE UNIQUE INDEX active_sync_group_sessions_session_group 
 ON auth.active_sync_group_sessions (general__session_id, group__sync);
 
 -- Additional indexes for materialized view

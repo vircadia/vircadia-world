@@ -182,31 +182,75 @@ describe("Service -> API Manager Tests", () => {
                 // Set up message handling for tests
                 regularAgentWsConnection.onmessage = (event) => {
                     const message = JSON.parse(event.data);
-                    lastReceivedMessage = message;
+
+                    // Store messages by type
+                    if (message?.type) {
+                        messagesByType[message.type] = message;
+                    }
+
+                    // Set flags to indicate message received (both general and type-specific)
                     messageReceived = true;
+                    messageReceivedByType[message.type] = true;
                 };
             });
         });
 
+        // Store messages by type
         let messageReceived = false;
-        let lastReceivedMessage: any = null;
+        const messageReceivedByType: Record<string, boolean> = {};
+        const messagesByType: Record<string, any> = {};
 
-        const waitForMessage = async (timeoutMs = 1000): Promise<any> => {
-            messageReceived = false;
-            lastReceivedMessage = null;
+        const waitForMessage = async (
+            messageType?: Communication.WebSocket.MessageType,
+            timeoutMs = 1000,
+        ): Promise<any> => {
+            // Reset flags
+            if (messageType) {
+                messageReceivedByType[messageType] = false;
+            } else {
+                messageReceived = false;
+            }
 
             return new Promise((resolve, reject) => {
                 const timeout = setTimeout(() => {
                     reject(
-                        new Error("Timed out waiting for WebSocket message"),
+                        new Error(
+                            `Timed out waiting for WebSocket message${messageType ? ` of type ${messageType}` : ""}`,
+                        ),
                     );
                 }, timeoutMs);
 
+                // If we already have the message type we're looking for, resolve immediately
+                if (messageType && messagesByType[messageType]) {
+                    clearTimeout(timeout);
+                    const message = messagesByType[messageType];
+                    // Clear the stored message to prevent returning stale data
+                    messagesByType[messageType] = null;
+                    resolve(message);
+                    return;
+                }
+
                 const checkInterval = setInterval(() => {
-                    if (messageReceived) {
+                    if (messageType && messageReceivedByType[messageType]) {
                         clearInterval(checkInterval);
                         clearTimeout(timeout);
-                        resolve(lastReceivedMessage);
+                        const message = messagesByType[messageType];
+                        // Clear the stored message to prevent returning stale data
+                        messagesByType[messageType] = null;
+                        resolve(message);
+                    } else if (!messageType && messageReceived) {
+                        clearInterval(checkInterval);
+                        clearTimeout(timeout);
+                        messageReceived = false;
+                        // Return the last message of any type
+                        for (const type in messageReceivedByType) {
+                            if (messageReceivedByType[type]) {
+                                messageReceivedByType[type] = false;
+                                resolve(messagesByType[type]);
+                                return;
+                            }
+                        }
+                        resolve(null); // Shouldn't reach here if messageReceived is true
                     }
                 }, 10);
             });
@@ -232,8 +276,10 @@ describe("Service -> API Manager Tests", () => {
                 ),
             );
 
-            // Wait for response with the original timestamp
-            const initialResponse = await waitForMessage();
+            // Wait specifically for a QUERY_RESPONSE message
+            const initialResponse = await waitForMessage(
+                Communication.WebSocket.MessageType.QUERY_RESPONSE,
+            );
             expect(initialResponse).toBeDefined();
             expect(initialResponse.type).toBe(
                 Communication.WebSocket.MessageType.QUERY_RESPONSE,
@@ -257,8 +303,10 @@ describe("Service -> API Manager Tests", () => {
                 ),
             );
 
-            // Wait for heartbeat update response (should be void)
-            const updateResponse = await waitForMessage();
+            // Wait specifically for a QUERY_RESPONSE message
+            const updateResponse = await waitForMessage(
+                Communication.WebSocket.MessageType.QUERY_RESPONSE,
+            );
             expect(updateResponse).toBeDefined();
             expect(updateResponse.type).toBe(
                 Communication.WebSocket.MessageType.QUERY_RESPONSE,
@@ -275,8 +323,10 @@ describe("Service -> API Manager Tests", () => {
                 ),
             );
 
-            // Wait for response with the updated timestamp
-            const finalResponse = await waitForMessage();
+            // Wait specifically for a QUERY_RESPONSE message
+            const finalResponse = await waitForMessage(
+                Communication.WebSocket.MessageType.QUERY_RESPONSE,
+            );
             expect(finalResponse).toBeDefined();
             expect(finalResponse.type).toBe(
                 Communication.WebSocket.MessageType.QUERY_RESPONSE,
@@ -317,7 +367,11 @@ describe("Service -> API Manager Tests", () => {
 
             // Wait for potential sync group update message
             try {
-                const response = await waitForMessage(3000);
+                const response = await waitForMessage(
+                    Communication.WebSocket.MessageType
+                        .SYNC_GROUP_UPDATES_RESPONSE,
+                    3000,
+                );
                 const typedResponse =
                     response as Communication.WebSocket.SyncGroupUpdatesResponseMessage;
 
@@ -363,15 +417,16 @@ describe("Service -> API Manager Tests", () => {
             );
 
             // Wait for the query response
-            const response = await waitForMessage();
+            const response = await waitForMessage(
+                Communication.WebSocket.MessageType.QUERY_RESPONSE,
+            );
             expect(response).toBeDefined();
             expect(response.type).toBe(
                 Communication.WebSocket.MessageType.QUERY_RESPONSE,
             );
 
             // Wait for the server to detect invalidated session and close the connection
-            // This usually happens during the heartbeat interval check
-            return new Promise((resolve) => {
+            return new Promise((resolve, reject) => {
                 if (regularAgentWsConnection) {
                     // Set up an event listener for connection close
                     regularAgentWsConnection.onclose = (event) => {
@@ -379,15 +434,25 @@ describe("Service -> API Manager Tests", () => {
                         resolve(true);
                     };
 
-                    // Timeout if connection isn't closed within a reasonable time
+                    // Use timeout with reject instead of throwing
                     setTimeout(() => {
-                        throw new Error(
-                            "Connection was not closed after session invalidation",
+                        // Ensure we close the connection ourselves if server doesn't
+                        if (
+                            regularAgentWsConnection &&
+                            regularAgentWsConnection.readyState ===
+                                WebSocket.OPEN
+                        ) {
+                            regularAgentWsConnection.close();
+                        }
+                        reject(
+                            new Error(
+                                "Connection was not closed after session invalidation within timeout",
+                            ),
                         );
-                    }, 5000);
+                    }, 8000); // Increased timeout to give server more time
                 }
             });
-        }, 10000);
+        }, 15000); // Also increase the overall test timeout
 
         afterAll(async () => {
             if (

@@ -7,6 +7,9 @@ import { readdir, readFile } from "node:fs/promises";
 import { sign } from "jsonwebtoken";
 import { PostgresClient } from "../../database/postgres/postgres_client";
 
+// TODO: this should become vircadia.world.cli.ts and should be able to use bun watch to hot-reload migrations, scripts, etc. locally and/or remotely
+// for remote use and local dev use.
+
 const DOCKER_COMPOSE_PATH = path.join(
     dirname(fileURLToPath(import.meta.url)),
     "/docker-compose.yml",

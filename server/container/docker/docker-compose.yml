@@ -1,4 +1,14 @@
 name: ${CONTAINER_NAME}
+# Restructure proj:
+#  - server
+#    - cli -> vircadia.world.cli.ts
+#    - cli -> test (tests go here)
+#    - service
+#      - pg
+#      - pgweb
+#      - tick
+#      - api
+#      - script_web
 services:
   postgres:
     image: postgres:17.3-alpine3.21

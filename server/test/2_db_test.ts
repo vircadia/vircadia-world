@@ -23,6 +23,8 @@ let adminAgent: TestAccount;
 let regularAgent: TestAccount;
 let anonAgent: TestAccount;
 
+// TODO: Add benchmarks.
+
 describe("DB", () => {
     beforeAll(async () => {
         await initContainers();

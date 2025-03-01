@@ -1,0 +1,28 @@
+services:
+  tick:
+    image: oven/bun:1.1-slim
+    container_name: ${CONTAINER_NAME}_tick
+    user: "1000:1000"  # Run as non-root user
+    restart: always
+    volumes:
+      - ./volume/world.tick.manager.ts:/app/manager.ts
+      - ./volume/test:/app/test
+    working_dir: /app
+    command: ["bun", "run", "manager.ts"]
+    environment:
+      - NODE_ENV=production
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_HOST=${CONTAINER_NAME}_postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bun", "test", "./test"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - vircadia_network

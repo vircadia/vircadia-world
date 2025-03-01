@@ -1,0 +1,26 @@
+services:
+  postgres:
+    image: postgres:17.3-alpine3.21
+    container_name: ${CONTAINER_NAME}_postgres
+    user: "70:70"  # Alpine postgres user (UID:GID)
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}  # This user gets superuser privileges by default
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    command: ["postgres", "-c", "wal_level=logical"]
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql:uid=70,gid=70,exec
+    volumes:
+      - vircadia_world_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - vircadia_network
+    restart: always

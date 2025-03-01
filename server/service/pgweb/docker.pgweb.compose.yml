@@ -1,0 +1,32 @@
+services:
+  pgweb:
+    image: sosedoff/pgweb:0.16.2
+    container_name: ${CONTAINER_NAME}_pgweb
+    user: "1000:1000"  # Run as non-root user (typical first user UID/GID)
+    restart: always
+    ports:
+      - "${PGWEB_PORT}:8081"
+    environment:
+      - PGWEB_DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${CONTAINER_NAME}_postgres:5432/${POSTGRES_DB}?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://0.0.0.0:8081"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run
+      - /var/cache
+      - /var/log
+      - /home/pgweb/.pgweb/bookmarks
+      - /home/pgweb/.pgweb/sessions
+      - /home/pgweb/.pgweb/queries
+    volumes:
+      - ./volume/test:/app/test
+    networks:
+      - vircadia_network

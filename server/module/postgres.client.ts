@@ -7,8 +7,6 @@ export class PostgresClient {
     private superSql: postgres.Sql | null = null;
     private proxySql: postgres.Sql | null = null;
 
-    private constructor() {} // Empty constructor since we don't need to store config
-
     public static getInstance(): PostgresClient {
         if (!PostgresClient.instance) {
             PostgresClient.instance = new PostgresClient();

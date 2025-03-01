@@ -5,8 +5,8 @@ import { PostgresClient } from "../database/postgres/postgres_client";
 import {
     Communication,
     Entity,
-} from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
-import { VircadiaConfig } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
+} from "../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+import { VircadiaConfig } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
 import {
     cleanupTestAccounts,
     cleanupTestAssets,
@@ -18,11 +18,11 @@ import {
     TEST_SYNC_GROUP,
     type TestAccount,
 } from "./helper/helpers";
-import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
+import { log } from "../../../sdk/vircadia-world-sdk-ts/module/general/log";
 
-import { WorldApiManager } from "../service/api/world-api-manager";
-import { WorldWebScriptManager } from "../service/script/world-web-script-manager";
-import { WorldTickManager } from "../service/tick/world-tick-manager";
+import { WorldApiManager } from "../service_old/api/world-api-manager";
+import { WorldWebScriptManager } from "../service_old/script/world-web-script-manager";
+import { WorldTickManager } from "../service_old/tick/world-tick-manager";
 
 // TODO: Add benchmarks.
 

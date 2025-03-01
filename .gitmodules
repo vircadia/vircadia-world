@@ -1,6 +1,15 @@
 [submodule "sdk/vircadia-world-sdk-ts"]
-	path = sdk/vircadia-world-sdk-ts
-	url = https://github.com/vircadia/vircadia-world-sdk-ts.git
+    path = sdk/vircadia-world-sdk-ts
+    url = https://github.com/vircadia/vircadia-world-sdk-ts.git
 [submodule "sdk/vircadia-world-sdk-py"]
-	path = sdk/vircadia-world-sdk-py
-	url = https://github.com/vircadia/vircadia-world-sdk-py.git
+    path = sdk/vircadia-world-sdk-py
+    url = https://github.com/vircadia/vircadia-world-sdk-py.git
+[submodule "server/service/api/volume/vircadia-world-sdk-ts"]
+	path = server/service/api/volume/vircadia-world-sdk-ts
+	url = https://github.com/vircadia/vircadia-world-sdk-ts.git
+[submodule "server/service/script_web/volume/vircadia-world-sdk-ts"]
+	path = server/service/script_web/volume/vircadia-world-sdk-ts
+	url = https://github.com/vircadia/vircadia-world-sdk-ts.git
+[submodule "server/service/tick/volume/vircadia-world-sdk-ts"]
+	path = server/service/tick/volume/vircadia-world-sdk-ts
+	url = https://github.com/vircadia/vircadia-world-sdk-ts.git

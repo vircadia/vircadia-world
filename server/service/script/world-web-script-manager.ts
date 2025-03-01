@@ -5,15 +5,16 @@ import { Entity } from "../../../sdk/vircadia-world-sdk-ts/schema/schema.general
 import { PostgresClient } from "../../database/postgres/postgres_client";
 import { VircadiaConfig } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
 import tmp from "tmp";
+import { EventEmitter } from "events";
 
 // Configure tmp for graceful cleanup
 tmp.setGracefulCleanup();
 
 export class WorldWebScriptManager {
     private static instance: WorldWebScriptManager;
+    public events: EventEmitter = new EventEmitter();
 
     private superUserSql: postgres.Sql | null = null;
-    private readonly debugMode = VircadiaConfig.SERVER.DEBUG;
     private readonly heartbeatMs = 1000;
     private isHeartbeatRunning = false;
     private activeProcesses: Set<Subprocess> = new Set();
@@ -25,13 +26,19 @@ export class WorldWebScriptManager {
         return WorldWebScriptManager.instance;
     }
 
+    // Add a getter for testing purposes
+    public getEventEmitter(): EventEmitter {
+        return this.events;
+    }
+
     async initialize() {
         this.superUserSql = await PostgresClient.getInstance().getSuperClient();
 
         try {
             log({
                 message: "Initializing world script manager",
-                debug: this.debugMode,
+                debug: VircadiaConfig.SERVER.DEBUG,
+                suppress: VircadiaConfig.SERVER.SUPPRESS,
                 type: "info",
             });
 
@@ -39,16 +46,21 @@ export class WorldWebScriptManager {
             const resetScriptIds = await this.resetPendingScripts();
             log({
                 message: `Reset ${resetScriptIds.length} scripts`,
-                debug: this.debugMode,
+                debug: VircadiaConfig.SERVER.DEBUG,
+                suppress: VircadiaConfig.SERVER.SUPPRESS,
                 type: "info",
             });
             await this.startHeartbeat();
 
             log({
                 message: "Initialized world web script manager",
-                debug: this.debugMode,
+                debug: VircadiaConfig.SERVER.DEBUG,
+                suppress: VircadiaConfig.SERVER.SUPPRESS,
                 type: "success",
             });
+
+            // Add event emissions at key points
+            this.events.emit("manager:initialized");
         } catch (error) {
             await this.cleanup();
             throw error;
@@ -256,9 +268,12 @@ export class WorldWebScriptManager {
         let cleanup: (() => Promise<void>) | undefined;
 
         try {
+            this.events.emit("script:compilation:start", { scriptId });
+
             log({
                 message: `Starting compilation for script ${scriptId}`,
-                debug: this.debugMode,
+                debug: VircadiaConfig.SERVER.DEBUG,
+                suppress: VircadiaConfig.SERVER.SUPPRESS,
                 type: "info",
             });
 
@@ -305,7 +320,8 @@ export class WorldWebScriptManager {
 
             log({
                 message: `Starting compilation for script at path: ${scriptPath}`,
-                debug: this.debugMode,
+                debug: VircadiaConfig.SERVER.DEBUG,
+                suppress: VircadiaConfig.SERVER.SUPPRESS,
                 type: "info",
             });
 
@@ -318,8 +334,14 @@ export class WorldWebScriptManager {
             ) {
                 log({
                     message: `Compilation successful for script ${scriptId}`,
-                    debug: this.debugMode,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
                     type: "success",
+                });
+
+                this.events.emit("script:compilation:success", {
+                    scriptId,
+                    platforms: ["node", "browser", "bun"],
                 });
 
                 await this.updateAllScriptStatuses(
@@ -331,13 +353,19 @@ export class WorldWebScriptManager {
             } else {
                 log({
                     message: `Compilation failed for script ${scriptId}`,
-                    debug: this.debugMode,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
                     type: "error",
                     data: {
                         error: compilationResult.error,
                         scriptPath,
                         scriptId,
                     },
+                });
+
+                this.events.emit("script:compilation:failed", {
+                    scriptId,
+                    error: compilationResult.error,
                 });
 
                 await this.updateAllScriptStatuses(
@@ -348,8 +376,14 @@ export class WorldWebScriptManager {
         } catch (error) {
             log({
                 message: `Error during script compilation: ${error}`,
-                debug: this.debugMode,
+                debug: VircadiaConfig.SERVER.DEBUG,
+                suppress: VircadiaConfig.SERVER.SUPPRESS,
                 type: "error",
+            });
+
+            this.events.emit("script:compilation:error", {
+                scriptId,
+                error: error instanceof Error ? error.message : String(error),
             });
 
             // Update status to FAILED on error
@@ -392,7 +426,8 @@ export class WorldWebScriptManager {
         } catch (error) {
             log({
                 message: `Error during repo scripts compilation: ${error}`,
-                debug: this.debugMode,
+                debug: VircadiaConfig.SERVER.DEBUG,
+                suppress: VircadiaConfig.SERVER.SUPPRESS,
                 type: "error",
             });
         }

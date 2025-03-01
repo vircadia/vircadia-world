@@ -218,18 +218,18 @@ class WorldTickManager {
             isLocallyDbDelayed ||
             isRemotelyDbDelayed
         ) {
-            // log({
-            //     message: `Tick processing is delayed for ${syncGroup}\nLocally: ${isLocallyDbDelayed || isLocallyTotalDelayed}\nRemotely: ${isRemotelyDbDelayed}`,
-            //     debug: VircadiaConfig.SERVER.DEBUG,
-            //     suppress: VircadiaConfig.SERVER.SUPPRESS,
-            //     type: "warning",
-            //     data: {
-            //         localDbProcessingTime: `Local database processing time: ${localDbProcessingTime}ms`,
-            //         localTotalProcessingTime: `Local total processing time: ${localTotalProcessingTime}ms`,
-            //         remoteDbProcessingTime: `Remote database processing time: ${result?.tick_data.tick__duration_ms}ms`,
-            //         tickRate: `Tick rate: ${tickRate}ms`,
-            //     },
-            // });
+            log({
+                message: `Tick processing is delayed for ${syncGroup}\nLocally: ${isLocallyDbDelayed || isLocallyTotalDelayed}\nRemotely: ${isRemotelyDbDelayed}`,
+                debug: VircadiaConfig.SERVER.DEBUG,
+                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                type: "warning",
+                data: {
+                    localDbProcessingTime: `Local database processing time: ${localDbProcessingTime}ms`,
+                    localTotalProcessingTime: `Local total processing time: ${localTotalProcessingTime}ms`,
+                    remoteDbProcessingTime: `Remote database processing time: ${result?.tick_data.tick__duration_ms}ms`,
+                    tickRate: `Tick rate: ${tickRate}ms`,
+                },
+            });
         }
     }
 
@@ -266,7 +266,6 @@ export interface WebSocketData {
 }
 
 export class WorldApiManager {
-    private tickManager: WorldTickManager | undefined;
     private server: Server | undefined;
 
     public activeSessions: Map<string, WorldSession<unknown>> = new Map();
@@ -294,9 +293,47 @@ export class WorldApiManager {
             superUserSql = await PostgresClient.getInstance().getSuperClient();
             proxyUserSql = await PostgresClient.getInstance().getProxyClient();
 
-            // Initialize Tick Manager after wsManager is ready
-            this.tickManager = new WorldTickManager(this);
-            await this.tickManager.initialize();
+            // Listen for tick_captured notifications
+            await superUserSql.begin(async (tx) => {
+                await tx`LISTEN tick_captured`;
+            });
+
+            // Set up notification handler
+            superUserSql.subscribe("notification", async (notification) => {
+                if (
+                    notification?.channel === "tick_captured" &&
+                    notification.payload
+                ) {
+                    try {
+                        const payload = JSON.parse(notification.payload);
+                        const syncGroup = payload.syncGroup;
+
+                        log({
+                            message: `Received tick notification for sync group: ${syncGroup}`,
+                            debug: VircadiaConfig.SERVER.DEBUG,
+                            suppress: VircadiaConfig.SERVER.SUPPRESS,
+                            type: "debug",
+                            prefix: this.LOG_PREFIX,
+                            data: {
+                                tickId: payload.tickId,
+                                tickNumber: payload.tickNumber,
+                            },
+                        });
+
+                        // Process world updates based on the notification
+                        await this.sendWorldUpdatesToSyncGroup({ syncGroup });
+                    } catch (error) {
+                        log({
+                            message: "Error processing tick notification",
+                            error: error,
+                            debug: VircadiaConfig.SERVER.DEBUG,
+                            suppress: VircadiaConfig.SERVER.SUPPRESS,
+                            type: "error",
+                            prefix: this.LOG_PREFIX,
+                        });
+                    }
+                }
+            });
 
             // Start server
             this.server = Bun.serve({
@@ -840,8 +877,110 @@ export class WorldApiManager {
     }
 
     // #region World Updates
-    public async sendWorldUpdatesToSyncGroup(data: {
+
+    /**
+     * Captures all changes for a sync group from the database
+     */
+    private async captureWorldChanges(data: {
         syncGroup: string;
+    }): Promise<Communication.WebSocket.SyncGroupUpdatesResponseMessage | null> {
+        if (!superUserSql) {
+            log({
+                message: "No database connection available",
+                debug: VircadiaConfig.SERVER.DEBUG,
+                type: "error",
+                suppress: VircadiaConfig.SERVER.SUPPRESS,
+            });
+            return null;
+        }
+
+        // Create an empty update package
+        const updatePackage =
+            new Communication.WebSocket.SyncGroupUpdatesResponseMessage(
+                [],
+                [],
+                [],
+            );
+        let hasChanges = false;
+
+        // Capture all changes in a single transaction to ensure consistency
+        try {
+            const result = await superUserSql.begin(async (tx) => {
+                // Fetch entity changes
+                const entityChanges = await tx<Tick.I_EntityUpdate[]>`
+                SELECT 
+                    general__entity_id,
+                    operation,
+                    changes
+                FROM tick.get_changed_entity_states_between_latest_ticks(${data.syncGroup})
+            `;
+
+                updatePackage.entities = entityChanges.map((e) => ({
+                    entityId: e.general__entity_id,
+                    operation: e.operation,
+                    changes: e.changes,
+                    error: null,
+                }));
+
+                // Fetch script changes
+                const scriptChanges = await tx<Tick.I_ScriptUpdate[]>`
+                SELECT 
+                    general__script_id,
+                    operation,
+                    changes
+                FROM tick.get_changed_script_states_between_latest_ticks(${data.syncGroup})
+            `;
+
+                updatePackage.scripts = scriptChanges.map((s) => ({
+                    scriptId: s.general__script_id,
+                    operation: s.operation,
+                    changes: s.changes,
+                    error: null,
+                }));
+
+                // Fetch asset changes
+                const assetChanges = await tx<Tick.I_AssetUpdate[]>`
+                SELECT 
+                    general__asset_id,
+                    operation,
+                    changes
+                FROM tick.get_changed_asset_states_between_latest_ticks(${data.syncGroup})
+            `;
+
+                updatePackage.assets = assetChanges.map((a) => ({
+                    assetId: a.general__asset_id,
+                    operation: a.operation,
+                    changes: a.changes,
+                    error: null,
+                }));
+
+                return updatePackage;
+            });
+
+            // Check if there are any changes
+            hasChanges =
+                (result.entities && result.entities.length > 0) ||
+                (result.scripts && result.scripts.length > 0) ||
+                (result.assets && result.assets.length > 0);
+
+            return hasChanges ? result : null;
+        } catch (error) {
+            log({
+                message: `Error capturing world changes: ${error}`,
+                debug: VircadiaConfig.SERVER.DEBUG,
+                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                type: "error",
+            });
+            return null;
+        }
+    }
+
+    /**
+     * Sends world updates to all sessions in a sync group
+     */
+    private async distributeWorldUpdates(data: {
+        syncGroup: string;
+        updatePackage: Communication.WebSocket.SyncGroupUpdatesResponseMessage;
     }): Promise<void> {
         if (!superUserSql) {
             log({
@@ -853,144 +992,77 @@ export class WorldApiManager {
             return;
         }
 
-        // Fetch active sessions for the sync group with proper type checking
-        const sessionRecords = await superUserSql<
-            { general__session_id: string }[]
-        >`
+        try {
+            // Fetch active sessions for the sync group
+            const sessionRecords = await superUserSql<
+                { general__session_id: string }[]
+            >`
             SELECT general__session_id
             FROM auth.active_sync_group_sessions
             WHERE group__sync = ${data.syncGroup}
         `;
 
-        // Early return if no active sessions found
-        if (!sessionRecords || sessionRecords.length === 0) {
-            return;
-        }
-
-        const updatePackage: Communication.WebSocket.SyncGroupUpdatesResponseMessage =
-            new Communication.WebSocket.SyncGroupUpdatesResponseMessage(
-                [],
-                [],
-                [],
-            );
-
-        // Fetch all changes.
-        try {
-            updatePackage.entities = await superUserSql<Tick.I_EntityUpdate[]>`
-                    SELECT 
-                        general__entity_id,
-                        operation,
-                        changes
-                    FROM tick.get_changed_entity_states_between_latest_ticks(${data.syncGroup})
-                `.then((result) => {
-                return result.map((e) => ({
-                    entityId: e.general__entity_id,
-                    operation: e.operation,
-                    changes: e.changes,
-                    error: null,
-                }));
-            });
-        } catch (error) {
-            log({
-                message: `Error fetching entity updates: ${error}`,
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
-                type: "error",
-            });
-        }
-
-        try {
-            updatePackage.scripts = await superUserSql<Tick.I_ScriptUpdate[]>`
-                    SELECT 
-                        general__script_id,
-                        operation,
-                        changes
-                    FROM tick.get_changed_script_states_between_latest_ticks(${data.syncGroup})
-                `.then((result) => {
-                return result.map((s) => ({
-                    scriptId: s.general__script_id,
-                    operation: s.operation,
-                    changes: s.changes,
-                    error: null,
-                }));
-            });
-        } catch (error) {
-            log({
-                message: `Error fetching script updates: ${error}`,
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
-                type: "error",
-            });
-        }
-
-        try {
-            updatePackage.assets = await superUserSql<Tick.I_AssetUpdate[]>`
-                    SELECT 
-                        general__asset_id,
-                        operation,
-                        changes
-                    FROM tick.get_changed_asset_states_between_latest_ticks(${data.syncGroup})
-                `.then((result) => {
-                return result.map((a) => ({
-                    assetId: a.general__asset_id,
-                    operation: a.operation,
-                    changes: a.changes,
-                    error: null,
-                }));
-            });
-        } catch (error) {
-            log({
-                message: `Error fetching asset updates: ${error}`,
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
-                type: "error",
-            });
-        }
-
-        // If there are no changes at all, just return
-        if (
-            (!Array.isArray(updatePackage.entities) ||
-                updatePackage.entities.length === 0) &&
-            (!Array.isArray(updatePackage.scripts) ||
-                updatePackage.scripts.length === 0) &&
-            (!Array.isArray(updatePackage.assets) ||
-                updatePackage.assets.length === 0)
-        ) {
-            return;
-        }
-
-        // Update the sessions loop to use the individual session records
-        const updatePromises = sessionRecords.map(async (record) => {
-            const sessionId = record.general__session_id;
-            const session = this.activeSessions.get(sessionId);
-            if (!session?.ws) {
-                log({
-                    message: `Session ${sessionId} not found`,
-                    debug: VircadiaConfig.SERVER.DEBUG,
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    type: "debug",
-                });
-                return;
+            if (!sessionRecords || sessionRecords.length === 0) {
+                return; // No active sessions
             }
 
-            session.ws.send(JSON.stringify(updatePackage));
-        });
+            // Convert update package to JSON once to avoid repeated serialization
+            const updateJson = JSON.stringify(data.updatePackage);
 
-        // Fire and forget
-        Promise.all(updatePromises).catch((error) => {
+            // Update the sessions in parallel
+            const updatePromises = sessionRecords.map(async (record) => {
+                const sessionId = record.general__session_id;
+                const session = this.activeSessions.get(sessionId);
+
+                if (!session?.ws) {
+                    return;
+                }
+
+                // Send update to client
+                session.ws.send(updateJson);
+            });
+
+            // Fire and forget
+            Promise.all(updatePromises).catch((error) => {
+                log({
+                    message: "Error distributing world updates to clients",
+                    error: error,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    type: "error",
+                });
+            });
+        } catch (error) {
             log({
-                message: "Error sending sync group updates.",
-                error: error,
+                message: `Error fetching sessions for sync group ${data.syncGroup}: ${error}`,
                 debug: VircadiaConfig.SERVER.DEBUG,
                 suppress: VircadiaConfig.SERVER.SUPPRESS,
                 type: "error",
             });
-        });
+        }
     }
+
+    /**
+     * Main function called by the tick system to update the world
+     */
+    public async sendWorldUpdatesToSyncGroup(data: {
+        syncGroup: string;
+    }): Promise<void> {
+        // Step 1: Capture changes from the database
+        const changes = await this.captureWorldChanges(data);
+
+        // Step 2: If there are changes, distribute them to clients
+        if (changes) {
+            await this.distributeWorldUpdates({
+                syncGroup: data.syncGroup,
+                updatePackage: changes,
+            });
+        }
+    }
+
     // #endregion
 
     cleanup() {
-        this.tickManager?.stop();
         this.server?.stop().finally(() => {
             if (this.heartbeatInterval) {
                 clearInterval(this.heartbeatInterval);

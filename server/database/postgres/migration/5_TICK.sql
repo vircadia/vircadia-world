@@ -376,6 +376,16 @@ BEGIN
         tick__headroom_ms = v_headroom_ms
     WHERE wt.general__tick_id = v_tick_id;
 
+    -- Send notification that a tick has been captured
+    PERFORM pg_notify(
+        'tick_captured', 
+        json_build_object(
+            'syncGroup', p_sync_group,
+            'tickId', v_tick_id,
+            'tickNumber', v_tick_number
+        )::text
+    );
+
     -- Return the captured tick record
     RETURN QUERY
     SELECT

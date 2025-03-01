@@ -13,15 +13,10 @@ export class WorldWebScriptManager {
     private static instance: WorldWebScriptManager;
 
     private superUserSql: postgres.Sql | null = null;
-    private readonly debugMode: boolean;
-    private readonly heartbeatMs: number;
+    private readonly debugMode = VircadiaConfig.SERVER.DEBUG;
+    private readonly heartbeatMs = 1000;
     private isHeartbeatRunning = false;
     private activeProcesses: Set<Subprocess> = new Set();
-
-    private constructor() {
-        this.debugMode = VircadiaConfig.SERVER.DEBUG;
-        this.heartbeatMs = 1000;
-    }
 
     public static getInstance(): WorldWebScriptManager {
         if (!WorldWebScriptManager.instance) {

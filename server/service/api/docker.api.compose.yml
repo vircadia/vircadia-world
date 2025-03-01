@@ -1,28 +1,30 @@
 services:
   api:
-    image: oven/bun:1.1-slim
-    container_name: ${CONTAINER_NAME}_api
+    image: oven/bun:1.2.4-slim
+    container_name: ${VRCA_SERVER_CONTAINER_NAME}_api
     user: "1000:1000"  # Run as non-root user
     restart: always
     ports:
       - "${API_PORT:-3000}:3000"
     volumes:
-      - ./volume/world.api.manager.ts:/app/manager.ts
-      - ./volume/test:/app/test
+      - ./volume:/app
     working_dir: /app
-    command: ["bun", "run", "manager.ts"]
+    command: ["bun", "run", "--watch", "/app/app/world.api.manager.ts"]
     environment:
-      - NODE_ENV=production
-      - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_HOST=${CONTAINER_NAME}_postgres
-      - PORT=3000
+      VRCA_SERVER_DEBUG: ${VRCA_SERVER_DEBUG}
+      VRCA_SERVER_SUPPRESS: ${VRCA_SERVER_SUPPRESS}
+      VRCA_SERVER_SERVICE_POSTGRES_HOST: ${VRCA_SERVER_SERVICE_POSTGRES_HOST}
+      VRCA_SERVER_SERVICE_POSTGRES_PORT: ${VRCA_SERVER_SERVICE_POSTGRES_PORT}
+      VRCA_SERVER_SERVICE_POSTGRES_DB: ${VRCA_SERVER_SERVICE_POSTGRES_DB}
+      VRCA_SERVER_SERVICE_POSTGRES_USER: ${VRCA_SERVER_SERVICE_POSTGRES_USER}
+      VRCA_SERVER_SERVICE_POSTGRES_PASSWORD: ${VRCA_SERVER_SERVICE_POSTGRES_PASSWORD}
+      VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER: ${VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER}
+      VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_PASSWORD: ${VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_PASSWORD}
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "bun", "test", "./test"]
+      test: ["CMD", "bun", "test", "/app/test"]
       interval: 30s
       timeout: 10s
       retries: 3

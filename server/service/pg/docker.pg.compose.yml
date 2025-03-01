@@ -1,15 +1,15 @@
 services:
   postgres:
     image: postgres:17.3-alpine3.21
-    container_name: ${CONTAINER_NAME}_postgres
+    container_name: ${VRCA_SERVER_CONTAINER_NAME}_postgres
     user: "70:70"  # Alpine postgres user (UID:GID)
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}  # This user gets superuser privileges by default
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${VRCA_SERVER_SERVICE_POSTGRES_DB}
+      POSTGRES_USER: ${VRCA_SERVER_SERVICE_POSTGRES_USER}  # This user gets superuser privileges by default
+      POSTGRES_PASSWORD: ${VRCA_SERVER_SERVICE_POSTGRES_PASSWORD}
     command: ["postgres", "-c", "wal_level=logical"]
     ports:
-      - "${POSTGRES_PORT}:5432"
+      - "${VRCA_SERVER_SERVICE_POSTGRES_PORT}:5432"
     read_only: true
     tmpfs:
       - /tmp
@@ -17,7 +17,7 @@ services:
     volumes:
       - vircadia_world_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U ${VRCA_SERVER_SERVICE_POSTGRES_USER} -d ${VRCA_SERVER_SERVICE_POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5

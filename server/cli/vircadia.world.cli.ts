@@ -1,11 +1,11 @@
-import { VircadiaConfig } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.config.ts";
-import { log } from "../../../sdk/vircadia-world-sdk-ts/module/general/log.ts";
+import { VircadiaConfig } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config.ts";
+import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log.ts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import { readdir, readFile } from "node:fs/promises";
 import { sign } from "jsonwebtoken";
-import { PostgresClient } from "../../database/postgres/postgres_client";
+import { PostgresClient } from "../../sdk/vircadia-world-sdk-ts/module/server/postgres.client.ts";
 
 // TODO: this should become vircadia.world.cli.ts and should be able to use bun watch to hot-reload migrations, scripts, etc. locally and/or remotely
 // for remote use and local dev use.

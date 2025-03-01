@@ -1,13 +1,13 @@
 services:
   pgweb:
     image: sosedoff/pgweb:0.16.2
-    container_name: ${CONTAINER_NAME}_pgweb
+    container_name: ${VRCA_SERVER_CONTAINER_NAME}_pgweb
     user: "1000:1000"  # Run as non-root user (typical first user UID/GID)
     restart: always
     ports:
       - "${PGWEB_PORT}:8081"
     environment:
-      - PGWEB_DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${CONTAINER_NAME}_postgres:5432/${POSTGRES_DB}?sslmode=disable
+      - PGWEB_DATABASE_URL=postgres://${VRCA_SERVER_SERVICE_POSTGRES_USER}:${VRCA_SERVER_SERVICE_POSTGRES_PASSWORD}@${VRCA_SERVER_CONTAINER_NAME}_postgres:5432/${VRCA_SERVER_SERVICE_POSTGRES_DB}?sslmode=disable
     depends_on:
       postgres:
         condition: service_healthy

@@ -1,4 +1,4 @@
-name: ${CONTAINER_NAME}
+name: ${VRCA_SERVER_CONTAINER_NAME}
 
 networks:
   vircadia_network:

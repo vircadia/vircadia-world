@@ -38,10 +38,96 @@ describe("Service Tests", () => {
     let regularAgent: TestAccount;
     let anonAgent: TestAccount;
 
+    let adminAgentWsConnection: WebSocket | null;
     let regularAgentWsConnection: WebSocket | null;
+    let anonAgentWsConnection: WebSocket | null;
 
-    // Add accessor for WorldApiManager instance from the server
-    let worldApiManager: any;
+    // Add these helper functions near the top of your describe block
+
+    async function launchApiManager(): Promise<Subprocess> {
+        const launchedProcess: Subprocess = Bun.spawn(
+            ["bun", "run", "service:run:api"],
+            {
+                cwd: process.cwd(),
+                ...(VircadiaConfig.SERVER.SUPPRESS
+                    ? { stdio: ["ignore", "ignore", "ignore"] }
+                    : VircadiaConfig.SERVER.DEBUG
+                      ? { stdio: ["inherit", "inherit", "inherit"] }
+                      : { stdio: ["ignore", "ignore", "ignore"] }),
+                killSignal: "SIGTERM",
+            },
+        );
+
+        // Wait for service to start
+        await Bun.sleep(500);
+        return launchedProcess;
+    }
+
+    async function launchScriptManager(): Promise<Subprocess> {
+        const launchedProcess: Subprocess = Bun.spawn(
+            ["bun", "run", "service:run:script"],
+            {
+                cwd: process.cwd(),
+                ...(VircadiaConfig.SERVER.SUPPRESS
+                    ? { stdio: ["ignore", "ignore", "ignore"] }
+                    : VircadiaConfig.SERVER.DEBUG
+                      ? { stdio: ["inherit", "inherit", "inherit"] }
+                      : { stdio: ["ignore", "ignore", "ignore"] }),
+                killSignal: "SIGTERM",
+            },
+        );
+
+        // Wait for service to start
+        await Bun.sleep(500);
+        return launchedProcess;
+    }
+
+    async function launchTickManager(): Promise<Subprocess> {
+        const launchedProcess: Subprocess = Bun.spawn(
+            ["bun", "run", "service:run:tick"],
+            {
+                cwd: process.cwd(),
+                ...(VircadiaConfig.SERVER.SUPPRESS
+                    ? { stdio: ["ignore", "ignore", "ignore"] }
+                    : VircadiaConfig.SERVER.DEBUG
+                      ? { stdio: ["inherit", "inherit", "inherit"] }
+                      : { stdio: ["ignore", "ignore", "ignore"] }),
+                killSignal: "SIGTERM",
+            },
+        );
+
+        // Wait for service to start
+        await Bun.sleep(500);
+        return launchedProcess;
+    }
+
+    async function killProcess(
+        processToKill: Subprocess | null,
+    ): Promise<void> {
+        if (processToKill?.pid) {
+            try {
+                // First try to kill the process directly
+                process.kill(processToKill.pid, "SIGTERM");
+
+                // Then try to kill the process group as fallback
+                try {
+                    process.kill(-process.pid, "SIGTERM");
+                } catch (e) {
+                    // Ignore error if process group doesn't exist
+                }
+
+                // Wait for process to fully terminate
+                await Bun.sleep(200);
+            } catch (error) {
+                log({
+                    message: `Error killing process: ${error}`,
+                    type: "error",
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                });
+            }
+        }
+    }
 
     // Setup before all tests
     beforeAll(async () => {
@@ -69,59 +155,9 @@ describe("Service Tests", () => {
         regularAgent = testAccounts.regularAgent;
         anonAgent = testAccounts.anonAgent;
 
-        apiManagerProcess = Bun.spawn(["bun", "run", "service:run:api"], {
-            cwd: process.cwd(),
-            ...(VircadiaConfig.SERVER.SUPPRESS
-                ? { stdio: ["ignore", "ignore", "ignore"] }
-                : VircadiaConfig.SERVER.DEBUG
-                  ? { stdio: ["inherit", "inherit", "inherit"] }
-                  : { stdio: ["ignore", "ignore", "ignore"] }),
-            killSignal: "SIGTERM",
-        });
-
-        webScriptManagerProcess = Bun.spawn(
-            ["bun", "run", "service:run:script"],
-            {
-                cwd: process.cwd(),
-                ...(VircadiaConfig.SERVER.SUPPRESS
-                    ? { stdio: ["ignore", "ignore", "ignore"] }
-                    : VircadiaConfig.SERVER.DEBUG
-                      ? { stdio: ["inherit", "inherit", "inherit"] }
-                      : { stdio: ["ignore", "ignore", "ignore"] }),
-                killSignal: "SIGTERM",
-            },
-        );
-
-        tickManagerProcess = Bun.spawn(["bun", "run", "service:run:tick"], {
-            cwd: process.cwd(),
-            ...(VircadiaConfig.SERVER.SUPPRESS
-                ? { stdio: ["ignore", "ignore", "ignore"] }
-                : VircadiaConfig.SERVER.DEBUG
-                  ? { stdio: ["inherit", "inherit", "inherit"] }
-                  : { stdio: ["ignore", "ignore", "ignore"] }),
-            killSignal: "SIGTERM",
-        });
-
-        // Wait for server to be ready by polling the health endpoint
-        const baseUrl = `${VircadiaConfig.CLIENT.defaultWorldServerUriUsingSsl ? "https" : "http"}://${VircadiaConfig.CLIENT.defaultWorldServerUri}`;
-        const maxAttempts = 10;
-        let attempts = 0;
-
-        while (attempts < maxAttempts) {
-            try {
-                const response = await fetch(baseUrl);
-                if (response.status === 404) {
-                    // Server is up but returns 404 for root path
-                    break;
-                }
-            } catch (error) {
-                attempts++;
-                if (attempts === maxAttempts) {
-                    throw new Error("Server failed to start in time");
-                }
-                await Bun.sleep(500); // 500ms between attempts
-            }
-        }
+        apiManagerProcess = await launchApiManager();
+        webScriptManagerProcess = await launchScriptManager();
+        tickManagerProcess = await launchTickManager();
     });
 
     test("services should launch and become available", async () => {
@@ -243,15 +279,31 @@ describe("Service Tests", () => {
     });
 
     describe("API Manager", () => {
+        const adminWsUrl = `${VircadiaConfig.CLIENT.defaultWorldServerUriUsingSsl ? "wss" : "ws"}://${
+            VircadiaConfig.CLIENT.defaultWorldServerUri
+        }${Communication.WS_UPGRADE_PATH}?token=${adminAgent.token}&provider=system`;
+        const regularWsUrl = `${VircadiaConfig.CLIENT.defaultWorldServerUriUsingSsl ? "wss" : "ws"}://${
+            VircadiaConfig.CLIENT.defaultWorldServerUri
+        }${Communication.WS_UPGRADE_PATH}?token=${regularAgent.token}&provider=system`;
+        const anonWsUrl = `${VircadiaConfig.CLIENT.defaultWorldServerUriUsingSsl ? "wss" : "ws"}://${
+            VircadiaConfig.CLIENT.defaultWorldServerUri
+        }${Communication.WS_UPGRADE_PATH}?token=${anonAgent.token}&provider=system`;
+
         beforeAll(async () => {
-            // Connect to WebSocket server with authentication token
-            const wsUrl = `${VircadiaConfig.CLIENT.defaultWorldServerUriUsingSsl ? "wss" : "ws"}://${
-                VircadiaConfig.CLIENT.defaultWorldServerUri
-            }${Communication.WS_UPGRADE_PATH}?token=${regularAgent.token}&provider=system`;
-
             return new Promise((resolve, reject) => {
-                regularAgentWsConnection = new WebSocket(wsUrl);
+                adminAgentWsConnection = new WebSocket(adminWsUrl);
+                regularAgentWsConnection = new WebSocket(regularWsUrl);
+                anonAgentWsConnection = new WebSocket(anonWsUrl);
 
+                adminAgentWsConnection.onopen = () => {
+                    log({
+                        message: "WebSocket connected",
+                        type: "debug",
+                        debug: VircadiaConfig.SERVER.DEBUG,
+                        suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    });
+                    resolve(true);
+                };
                 regularAgentWsConnection.onopen = () => {
                     log({
                         message: "WebSocket connected",
@@ -261,8 +313,35 @@ describe("Service Tests", () => {
                     });
                     resolve(true);
                 };
+                anonAgentWsConnection.onopen = () => {
+                    log({
+                        message: "WebSocket connected",
+                        type: "debug",
+                        debug: VircadiaConfig.SERVER.DEBUG,
+                        suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    });
+                    resolve(true);
+                };
 
+                adminAgentWsConnection.onerror = (error) => {
+                    log({
+                        message: `WebSocket connection error: ${error}`,
+                        type: "error",
+                        debug: VircadiaConfig.SERVER.DEBUG,
+                        suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    });
+                    reject(error);
+                };
                 regularAgentWsConnection.onerror = (error) => {
+                    log({
+                        message: `WebSocket connection error: ${error}`,
+                        type: "error",
+                        debug: VircadiaConfig.SERVER.DEBUG,
+                        suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    });
+                    reject(error);
+                };
+                anonAgentWsConnection.onerror = (error) => {
                     log({
                         message: `WebSocket connection error: ${error}`,
                         type: "error",
@@ -273,25 +352,55 @@ describe("Service Tests", () => {
                 };
 
                 // Set up message handling for tests
+                adminAgentWsConnection.onmessage = (event) => {
+                    const message = JSON.parse(event.data);
+
+                    // Store messages by type
+                    if (message?.type) {
+                        adminAgentMessagesByType[message.type] = message;
+                    }
+
+                    // Set flags to indicate message received (both general and type-specific)
+                    adminAgentMessageReceived = true;
+                    adminAgentMessageReceivedByType[message.type] = true;
+                };
                 regularAgentWsConnection.onmessage = (event) => {
                     const message = JSON.parse(event.data);
 
                     // Store messages by type
                     if (message?.type) {
-                        messagesByType[message.type] = message;
+                        regularAgentMessagesByType[message.type] = message;
                     }
 
                     // Set flags to indicate message received (both general and type-specific)
-                    messageReceived = true;
-                    messageReceivedByType[message.type] = true;
+                    regularAgentMessageReceived = true;
+                    regularAgentMessageReceivedByType[message.type] = true;
+                };
+                anonAgentWsConnection.onmessage = (event) => {
+                    const message = JSON.parse(event.data);
+
+                    // Store messages by type
+                    if (message?.type) {
+                        anonAgentMessagesByType[message.type] = message;
+                    }
+
+                    // Set flags to indicate message received (both general and type-specific)
+                    anonAgentMessageReceived = true;
+                    anonAgentMessageReceivedByType[message.type] = true;
                 };
             });
         });
 
         // Store messages by type
-        let messageReceived = false;
-        const messageReceivedByType: Record<string, boolean> = {};
-        const messagesByType: Record<string, any> = {};
+        let adminAgentMessageReceived = false;
+        let regularAgentMessageReceived = false;
+        let anonAgentMessageReceived = false;
+        const adminAgentMessageReceivedByType: Record<string, boolean> = {};
+        const regularAgentMessageReceivedByType: Record<string, boolean> = {};
+        const anonAgentMessageReceivedByType: Record<string, boolean> = {};
+        const adminAgentMessagesByType: Record<string, any> = {};
+        const regularAgentMessagesByType: Record<string, any> = {};
+        const anonAgentMessagesByType: Record<string, any> = {};
 
         const waitForMessage = async (
             messageType?: Communication.WebSocket.MessageType,
@@ -299,9 +408,9 @@ describe("Service Tests", () => {
         ): Promise<any> => {
             // Reset flags
             if (messageType) {
-                messageReceivedByType[messageType] = false;
+                regularAgentMessageReceivedByType[messageType] = false;
             } else {
-                messageReceived = false;
+                regularAgentMessageReceived = false;
             }
 
             return new Promise((resolve, reject) => {
@@ -314,32 +423,35 @@ describe("Service Tests", () => {
                 }, timeoutMs);
 
                 // If we already have the message type we're looking for, resolve immediately
-                if (messageType && messagesByType[messageType]) {
+                if (messageType && regularAgentMessagesByType[messageType]) {
                     clearTimeout(timeout);
-                    const message = messagesByType[messageType];
+                    const message = regularAgentMessagesByType[messageType];
                     // Clear the stored message to prevent returning stale data
-                    messagesByType[messageType] = null;
+                    regularAgentMessagesByType[messageType] = null;
                     resolve(message);
                     return;
                 }
 
                 const checkInterval = setInterval(() => {
-                    if (messageType && messageReceivedByType[messageType]) {
+                    if (
+                        messageType &&
+                        regularAgentMessageReceivedByType[messageType]
+                    ) {
                         clearInterval(checkInterval);
                         clearTimeout(timeout);
-                        const message = messagesByType[messageType];
+                        const message = regularAgentMessagesByType[messageType];
                         // Clear the stored message to prevent returning stale data
-                        messagesByType[messageType] = null;
+                        regularAgentMessagesByType[messageType] = null;
                         resolve(message);
-                    } else if (!messageType && messageReceived) {
+                    } else if (!messageType && regularAgentMessageReceived) {
                         clearInterval(checkInterval);
                         clearTimeout(timeout);
-                        messageReceived = false;
+                        regularAgentMessageReceived = false;
                         // Return the last message of any type
-                        for (const type in messageReceivedByType) {
-                            if (messageReceivedByType[type]) {
-                                messageReceivedByType[type] = false;
-                                resolve(messagesByType[type]);
+                        for (const type in regularAgentMessageReceivedByType) {
+                            if (regularAgentMessageReceivedByType[type]) {
+                                regularAgentMessageReceivedByType[type] = false;
+                                resolve(regularAgentMessagesByType[type]);
                                 return;
                             }
                         }
@@ -349,9 +461,123 @@ describe("Service Tests", () => {
             });
         };
 
-        test("should establish WebSocket connection successfully", async () => {
+        test("should establish WebSocket connections successfully", async () => {
+            expect(adminAgentWsConnection).not.toBeNull();
+            expect(adminAgentWsConnection?.readyState).toBe(WebSocket.OPEN);
+
             expect(regularAgentWsConnection).not.toBeNull();
             expect(regularAgentWsConnection?.readyState).toBe(WebSocket.OPEN);
+
+            expect(anonAgentWsConnection).not.toBeNull();
+            expect(anonAgentWsConnection?.readyState).toBe(WebSocket.OPEN);
+        });
+
+        describe("Auth -> Login", () => {
+            const baseAuthUrl = `${VircadiaConfig.CLIENT.defaultWorldServerUriUsingSsl ? "https" : "http"}://${VircadiaConfig.CLIENT.defaultWorldServerUri}`;
+
+            test("should validate valid session tokens", async () => {
+                const regularResponse = await fetch(
+                    `${baseAuthUrl}${Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.path}`,
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                        body: Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createRequest(
+                            {
+                                token: regularAgent.token,
+                                provider: "system",
+                            },
+                        ),
+                    },
+                );
+
+                expect(regularResponse.status).toBe(200);
+                const regularResponseData = await regularResponse.json();
+                expect(regularResponseData.success).toBe(true);
+
+                const adminResponse = await fetch(
+                    `${baseAuthUrl}${Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.path}`,
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                        body: Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createRequest(
+                            {
+                                token: adminAgent.token,
+                                provider: "system",
+                            },
+                        ),
+                    },
+                );
+
+                expect(adminResponse.status).toBe(200);
+                const adminResponseData = await adminResponse.json();
+                expect(adminResponseData.success).toBe(true);
+
+                const anonResponse = await fetch(
+                    `${baseAuthUrl}${Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.path}`,
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                        body: Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createRequest(
+                            {
+                                token: anonAgent.token,
+                                provider: "system",
+                            },
+                        ),
+                    },
+                );
+
+                expect(anonResponse.status).toBe(200);
+                const anonResponseData = await anonResponse.json();
+                expect(anonResponseData.success).toBe(true);
+            });
+
+            test("should reject an invalid session token", async () => {
+                const response = await fetch(
+                    `${baseAuthUrl}${Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.path}`,
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                        body: Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createRequest(
+                            {
+                                token: "invalid-token",
+                                provider: "system",
+                            },
+                        ),
+                    },
+                );
+
+                expect(response.status).toBe(401);
+                const data = await response.json();
+                expect(data.success).toBe(false);
+            });
+
+            test("should reject requests without a token", async () => {
+                const response = await fetch(
+                    `${baseAuthUrl}${Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.path}`,
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({
+                            // Missing token
+                            provider: "system",
+                        }),
+                    },
+                );
+
+                expect(response.status).toBe(401);
+                const data = await response.json();
+                expect(data.success).toBe(false);
+            });
         });
 
         test("should update session heartbeat through query request", async () => {
@@ -536,127 +762,110 @@ describe("Service Tests", () => {
             }
         });
 
-        test("should properly handle session invalidation request", async () => {
-            if (!regularAgentWsConnection) {
-                throw new Error("WebSocket connection not established");
-            }
+        describe("Auth -> Logout", () => {
+            // Add variables for direct service testing
+            let directApiManager: WorldApiManager;
+            let directWsConnection: WebSocket;
 
-            // Send a query to invalidate our own session
-            regularAgentWsConnection.send(
-                JSON.stringify(
-                    new Communication.WebSocket.QueryRequestMessage(
-                        "SELECT auth.invalidate_session_from_session_id($1::UUID)",
-                        [regularAgent.sessionId],
-                    ),
-                ),
-            );
-
-            // Wait for the query response
-            const response = await waitForMessage(
-                Communication.WebSocket.MessageType.QUERY_RESPONSE,
-            );
-            expect(response).toBeDefined();
-            expect(response.type).toBe(
-                Communication.WebSocket.MessageType.QUERY_RESPONSE,
-            );
-
-            // Wait for the server to detect invalidated session and close the connection
-            return new Promise((resolve, reject) => {
-                if (regularAgentWsConnection) {
-                    // Set up an event listener for connection close
-                    regularAgentWsConnection.onclose = (event) => {
-                        expect(event.code).toBe(1000);
-                        resolve(true);
-                    };
-
-                    // Use timeout with reject instead of throwing
-                    setTimeout(() => {
-                        // Ensure we close the connection ourselves if server doesn't
-                        if (
-                            regularAgentWsConnection &&
-                            regularAgentWsConnection.readyState ===
-                                WebSocket.OPEN
-                        ) {
-                            regularAgentWsConnection.close();
-                        }
-                        reject(
-                            new Error(
-                                "Connection was not closed after session invalidation within timeout",
-                            ),
-                        );
-                    }, 8000); // Increased timeout to give server more time
-                }
+            beforeAll(async () => {
+                // Set up direct API manager for this test group
+                directApiManager = new WorldApiManager();
+                await directApiManager.initialize();
             });
-        }, 15000); // Also increase the overall test timeout
 
-        afterAll(async () => {
-            if (
-                regularAgentWsConnection &&
-                regularAgentWsConnection.readyState === WebSocket.OPEN
-            ) {
-                regularAgentWsConnection.close();
-                regularAgentWsConnection = null;
-            }
+            test("should handle session invalidation (DIRECT)", async () => {
+                // Setup subscription to service events
+                const disconnectPromise = new Promise<any>((resolve) => {
+                    directApiManager.events.once(
+                        "client:disconnected",
+                        resolve,
+                    );
+                });
+
+                // Connect and authenticate a test WebSocket
+                directWsConnection = new WebSocket(regularWsUrl);
+                await new Promise<void>((resolve) => {
+                    directWsConnection.onopen = () => resolve();
+                });
+
+                // Send session invalidation query
+                directWsConnection.send(
+                    JSON.stringify(
+                        new Communication.WebSocket.QueryRequestMessage(
+                            "SELECT auth.invalidate_session_from_session_id($1::UUID)",
+                            [regularAgent.sessionId],
+                        ),
+                    ),
+                );
+
+                // Verify disconnection event was emitted
+                const result = await disconnectPromise;
+                expect(result.sessionId).toBe(regularAgent.sessionId);
+
+                // Verify connection closes
+                expect(directWsConnection.readyState).toBe(WebSocket.CLOSED);
+            });
+
+            test("should properly handle session invalidation (E2E)", async () => {
+                if (!regularAgentWsConnection) {
+                    throw new Error("WebSocket connection not established");
+                }
+
+                // Send a query to invalidate our own session
+                regularAgentWsConnection.send(
+                    JSON.stringify(
+                        new Communication.WebSocket.QueryRequestMessage(
+                            "SELECT auth.invalidate_session_from_session_id($1::UUID)",
+                            [regularAgent.sessionId],
+                        ),
+                    ),
+                );
+
+                // Wait for the query response
+                const response = await waitForMessage(
+                    Communication.WebSocket.MessageType.QUERY_RESPONSE,
+                );
+                expect(response).toBeDefined();
+                expect(response.type).toBe(
+                    Communication.WebSocket.MessageType.QUERY_RESPONSE,
+                );
+
+                // Wait for the server to detect invalidated session and close the connection
+                return new Promise((resolve, reject) => {
+                    if (regularAgentWsConnection) {
+                        // Set up an event listener for connection close
+                        regularAgentWsConnection.onclose = (event) => {
+                            expect(event.code).toBe(1000);
+                            resolve(true);
+                        };
+
+                        // Use timeout with reject instead of throwing
+                        setTimeout(() => {
+                            // Ensure we close the connection ourselves if server doesn't
+                            if (
+                                regularAgentWsConnection &&
+                                regularAgentWsConnection.readyState ===
+                                    WebSocket.OPEN
+                            ) {
+                                regularAgentWsConnection.close();
+                            }
+                            reject(
+                                new Error(
+                                    "Connection was not closed after session invalidation within timeout",
+                                ),
+                            );
+                        }, 8000); // Increased timeout to give server more time
+                    }
+                });
+            }, 15000); // Also increase the overall test timeout
         });
     });
 
     afterAll(async () => {
         // Kill the services processes and their children
-        if (apiManagerProcess?.pid) {
-            try {
-                // First try to kill the process directly
-                apiManagerProcess.kill("SIGTERM");
-                // Then try to kill the process group as fallback
-                try {
-                    process.kill(-apiManagerProcess.pid, "SIGTERM");
-                } catch (e) {
-                    // Ignore error if process group doesn't exist
-                }
-            } catch (error) {
-                log({
-                    message: `Error killing process: ${error}`,
-                    type: "error",
-                    debug: VircadiaConfig.SERVER.DEBUG,
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                });
-            }
-        }
-
-        if (webScriptManagerProcess?.pid) {
-            try {
-                webScriptManagerProcess.kill("SIGTERM");
-                try {
-                    process.kill(-webScriptManagerProcess.pid, "SIGTERM");
-                } catch (e) {
-                    // Ignore error if process group doesn't exist
-                }
-            } catch (error) {
-                log({
-                    message: `Error killing process: ${error}`,
-                    type: "error",
-                    debug: VircadiaConfig.SERVER.DEBUG,
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                });
-            }
-        }
-
-        if (tickManagerProcess?.pid) {
-            try {
-                tickManagerProcess.kill("SIGTERM");
-                try {
-                    process.kill(-tickManagerProcess.pid, "SIGTERM");
-                } catch (e) {
-                    // Ignore error if process group doesn't exist
-                }
-            } catch (error) {
-                log({
-                    message: `Error killing process: ${error}`,
-                    type: "error",
-                    debug: VircadiaConfig.SERVER.DEBUG,
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                });
-            }
-        }
+        await killProcess(apiManagerProcess);
+        await killProcess(webScriptManagerProcess);
+        await killProcess(tickManagerProcess);
 
         await cleanupTestAccounts({
             superUserSql,
@@ -672,73 +881,5 @@ describe("Service Tests", () => {
         });
 
         await PostgresClient.getInstance().disconnect();
-    });
-
-    describe("Authentication Endpoints", () => {
-        const baseUrl = `${VircadiaConfig.CLIENT.defaultWorldServerUriUsingSsl ? "https" : "http"}://${VircadiaConfig.CLIENT.defaultWorldServerUri}`;
-
-        test("should validate a valid session token", async () => {
-            const regularResponse = await fetch(
-                `${baseUrl}${Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.path}`,
-                {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
-                    body: Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createRequest(
-                        {
-                            token: regularAgent.token,
-                            provider: "system",
-                        },
-                    ),
-                },
-            );
-
-            expect(regularResponse.status).toBe(200);
-            const data = await regularResponse.json();
-            expect(data.success).toBe(true);
-        });
-
-        test("should reject an invalid session token", async () => {
-            const response = await fetch(
-                `${baseUrl}${Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.path}`,
-                {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
-                    body: Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createRequest(
-                        {
-                            token: "invalid-token",
-                            provider: "system",
-                        },
-                    ),
-                },
-            );
-
-            expect(response.status).toBe(401);
-            const data = await response.json();
-            expect(data.success).toBe(false);
-        });
-
-        test("should reject requests without a token", async () => {
-            const response = await fetch(
-                `${baseUrl}${Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.path}`,
-                {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({
-                        // Missing token
-                        provider: "system",
-                    }),
-                },
-            );
-
-            expect(response.status).toBe(401);
-            const data = await response.json();
-            expect(data.success).toBe(false);
-        });
     });
 });

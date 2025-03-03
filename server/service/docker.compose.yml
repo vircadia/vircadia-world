@@ -27,6 +27,7 @@ services:
     volumes:
       - vircadia_world_postgres_data:/var/lib/postgresql/data
     healthcheck:
+    # TODO: need to add a check that determines if the DB has had its first migration and seed or not (should not be considered ready until then)
       test: ["CMD-SHELL", "pg_isready -U ${VRCA_GLOBAL_CONSTS_DB_SUPER_USER} -d ${VRCA_SERVER_SERVICE_POSTGRES_DATABASE}"]
       interval: 5s
       timeout: 5s
@@ -75,7 +76,7 @@ services:
     user: "1000:1000"  # Run as non-root user
     restart: always
     ports:
-      - "${VRCA_SERVER_SERVICE_API_HOST_CONTAINER_EXTERNAL}:${VRCA_SERVER_SERVICE_API_PORT_CONTAINER_EXTERNAL:-3020}:3020"
+      - "${VRCA_SERVER_SERVICE_API_HOST_CONTAINER_EXTERNAL}:${VRCA_SERVER_SERVICE_API_PORT_CONTAINER_EXTERNAL}:3020"
     volumes:
       - ./api/volume:/app
     working_dir: /app
@@ -86,11 +87,6 @@ services:
     
       VRCA_SERVER_DEBUG: ${VRCA_SERVER_DEBUG}
       VRCA_SERVER_SUPPRESS: ${VRCA_SERVER_SUPPRESS}
-
-      VRCA_SERVER_SERVICE_API_HOST_BIND: ${VRCA_SERVER_SERVICE_API_HOST_BIND}
-      VRCA_SERVER_SERVICE_API_PORT_BIND: ${VRCA_SERVER_SERVICE_API_PORT_BIND}
-      VRCA_SERVER_SERVICE_API_HOST_CONTAINER_EXTERNAL: ${VRCA_SERVER_SERVICE_API_HOST_CONTAINER_EXTERNAL}
-      VRCA_SERVER_SERVICE_API_PORT_CONTAINER_EXTERNAL: ${VRCA_SERVER_SERVICE_API_PORT_CONTAINER_EXTERNAL}
 
       VRCA_SERVER_SERVICE_POSTGRES_HOST_CLUSTER: ${VRCA_SERVER_SERVICE_POSTGRES_HOST_CLUSTER}
       VRCA_SERVER_SERVICE_POSTGRES_PORT_CLUSTER: ${VRCA_SERVER_SERVICE_POSTGRES_PORT_CLUSTER}

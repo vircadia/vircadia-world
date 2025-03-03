@@ -39,10 +39,6 @@ async function runDockerCommand(data: {
         VRCA_SERVER_DEBUG: VircadiaConfig.SERVER.DEBUG.toString(),
         VRCA_SERVER_SUPPRESS: VircadiaConfig.SERVER.SUPPRESS.toString(),
 
-        VRCA_SERVER_SERVICE_API_HOST_BIND:
-            VircadiaConfig.SERVER_ENV.VRCA_SERVER_SERVICE_API_HOST_BIND,
-        VRCA_SERVER_SERVICE_API_PORT_BIND:
-            VircadiaConfig.SERVER_ENV.VRCA_SERVER_SERVICE_API_PORT_BIND.toString(),
         VRCA_SERVER_SERVICE_API_HOST_CLUSTER:
             VircadiaConfig.SERVER_ENV.VRCA_SERVER_SERVICE_API_HOST_CLUSTER,
         VRCA_SERVER_SERVICE_API_PORT_CLUSTER:
@@ -245,13 +241,11 @@ export async function isHealthy(): Promise<{
         error?: Error;
     }> => {
         try {
-            const response = await fetch(
-                `http://${VircadiaConfig.SERVER.SERVICE.API.HOST_PUBLIC}:${VircadiaConfig.SERVER.SERVICE.API.PORT_PUBLIC}${Communication.REST.Endpoint.STATS}`,
-                {
-                    method: "POST",
-                    body: Communication.REST.Endpoint.STATS.createRequest(),
-                },
-            );
+            const url = `http://${VircadiaConfig.SERVER.SERVICE.API.HOST_PUBLIC}:${VircadiaConfig.SERVER.SERVICE.API.PORT_PUBLIC}${Communication.REST.Endpoint.STATS.path}`;
+            const response = await fetch(url, {
+                method: "POST",
+                body: Communication.REST.Endpoint.STATS.createRequest(),
+            });
             return { isHealthy: response.ok };
         } catch (error: unknown) {
             return { isHealthy: false, error: error as Error };
@@ -411,6 +405,13 @@ export async function migrate(): Promise<boolean> {
             // Fall back to lexicographic sorting
             return a.localeCompare(b);
         });
+
+    log({
+        message: `Attempting to read migrations directory: ${migrations}, found ${migrationSqlFiles.length} files`,
+        type: "info",
+        suppress: VircadiaConfig.SERVER.SUPPRESS,
+        debug: VircadiaConfig.SERVER.DEBUG,
+    });
 
     // Get already executed migrations
     const result =

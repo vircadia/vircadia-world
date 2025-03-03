@@ -180,14 +180,11 @@ export class WorldApiManager {
             await tx`LISTEN tick_captured`;
         });
 
-        // Set up notification handler with event emission
-        superUserSql.subscribe("notification", async (notification) => {
-            if (
-                notification?.channel === "tick_captured" &&
-                notification.payload
-            ) {
+        await superUserSql.listen("tick_captured", async (notification) => {
+            const payload = JSON.parse(notification);
+
+            if (payload) {
                 try {
-                    const payload = JSON.parse(notification.payload);
                     const syncGroup = payload.syncGroup;
 
                     log({
@@ -224,10 +221,54 @@ export class WorldApiManager {
             }
         });
 
+        // Set up notification handler with event emission
+        // await superUserSql.subscribe("notification", async (notification) => {
+        //     if (
+        //         notification?.channel === "tick_captured" &&
+        //         notification.payload
+        //     ) {
+        //         try {
+        //             const payload = JSON.parse(notification.payload);
+        //             const syncGroup = payload.syncGroup;
+
+        //             log({
+        //                 message: `Received tick notification for sync group: ${syncGroup}`,
+        //                 debug: VircadiaConfig.SERVER.DEBUG,
+        //                 suppress: VircadiaConfig.SERVER.SUPPRESS,
+        //                 type: "debug",
+        //                 prefix: this.LOG_PREFIX,
+        //                 data: {
+        //                     tickId: payload.tickId,
+        //                     tickNumber: payload.tickNumber,
+        //                 },
+        //             });
+
+        //             // Emit event for tick notification received
+        //             this.events.emit("tick:notification", {
+        //                 syncGroup,
+        //                 tickId: payload.tickId,
+        //                 tickNumber: payload.tickNumber,
+        //             });
+
+        //             // Process world updates based on the notification
+        //             await this.sendWorldUpdatesToSyncGroup({ syncGroup });
+        //         } catch (error) {
+        //             log({
+        //                 message: "Error processing tick notification",
+        //                 error: error,
+        //                 debug: VircadiaConfig.SERVER.DEBUG,
+        //                 suppress: VircadiaConfig.SERVER.SUPPRESS,
+        //                 type: "error",
+        //                 prefix: this.LOG_PREFIX,
+        //             });
+        //         }
+        //     }
+        // });
+
         // Start server
         this.server = Bun.serve({
-            port: VircadiaConfig.SERVER.SERVICE.API.PORT_BIND,
-            hostname: VircadiaConfig.SERVER.SERVICE.API.HOST_BIND,
+            hostname: "0.0.0.0",
+            port: 3020,
             development: VircadiaConfig.SERVER.DEBUG,
 
             // #region API -> HTTP Routes
@@ -790,10 +831,7 @@ export class WorldApiManager {
         }, 1000);
 
         log({
-            message: `Bun HTTP+WS World API Server running at
-            \nINTERNAL: [ ${VircadiaConfig.SERVER.SERVICE.API.HOST_BIND}:${VircadiaConfig.SERVER.SERVICE.API.PORT_BIND} ]
-            \nCLUSTER: [ ${VircadiaConfig.SERVER.SERVICE.API.HOST_CLUSTER}:${VircadiaConfig.SERVER.SERVICE.API.PORT_CLUSTER} ]
-            \nPUBLIC: [ ${VircadiaConfig.SERVER.SERVICE.API.HOST_PUBLIC}:${VircadiaConfig.SERVER.SERVICE.API.PORT_PUBLIC} ]`,
+            message: "Bun HTTP+WS World API Server running.",
             type: "success",
             debug: VircadiaConfig.SERVER.DEBUG,
             suppress: VircadiaConfig.SERVER.SUPPRESS,

@@ -140,6 +140,8 @@ services:
     #   timeout: 10s
     #   retries: 3
     #   start_period: 10s
+    networks:
+      - vircadia_network
 
   # Tick service
   tick:
@@ -147,7 +149,7 @@ services:
     container_name: ${VRCA_SERVER_CONTAINER_NAME}_tick
     user: "1000:1000"  # Run as non-root user
     volumes:
-      - ./volume:/app
+      - ./tick/volume:/app
     working_dir: /app
     command: ["bun", "run", "--watch", "/app/app/world.tick.manager.ts"]
     environment:
@@ -171,3 +173,5 @@ services:
     #   timeout: 10s
     #   retries: 3
     #   start_period: 10s
+    networks:
+      - vircadia_network

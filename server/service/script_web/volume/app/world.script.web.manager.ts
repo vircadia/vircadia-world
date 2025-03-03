@@ -34,8 +34,8 @@ export class WorldWebScriptManager {
     async initialize() {
         this.superUserSql = await PostgresClient.getInstance().getSuperClient({
             postgres: {
-                host: VircadiaConfig.SERVER.SERVICE.POSTGRES.HOST_EXTERNAL,
-                port: VircadiaConfig.SERVER.SERVICE.POSTGRES.PORT_EXTERNAL,
+                host: VircadiaConfig.SERVER.SERVICE.POSTGRES.HOST_CLUSTER,
+                port: VircadiaConfig.SERVER.SERVICE.POSTGRES.PORT_CLUSTER,
             },
         });
 

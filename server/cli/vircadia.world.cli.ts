@@ -721,7 +721,7 @@ if (import.meta.main) {
     }
 
     // Parse service from command (if present)
-    let service: DOCKER_COMPOSE_SERVICE | null = null;
+    let service: DOCKER_COMPOSE_SERVICE | undefined;
 
     // Check if this is a service-specific command
     const commandParts = command.split(":");
@@ -774,7 +774,7 @@ if (import.meta.main) {
             // Handle service-specific UP commands like container:up:postgres
             case `container:up:${service?.toLowerCase().replace(/_/g, "-")}`:
                 log({
-                    message: `Starting ${service.toLowerCase()} service...`,
+                    message: "Starting service(s)...",
                     type: "info",
                     suppress: VircadiaConfig.SERVER.SUPPRESS,
                     debug: VircadiaConfig.SERVER.DEBUG,
@@ -804,7 +804,7 @@ if (import.meta.main) {
             // Handle service-specific DOWN commands
             case `container:down:${service?.toLowerCase().replace(/_/g, "-")}`:
                 log({
-                    message: `Stopping ${service.toLowerCase()} service...`,
+                    message: "Stopping service(s)...",
                     type: "info",
                     suppress: VircadiaConfig.SERVER.SUPPRESS,
                     debug: VircadiaConfig.SERVER.DEBUG,
@@ -864,7 +864,7 @@ if (import.meta.main) {
             // Handle service-specific REBUILD commands
             case `container:rebuild:${service?.toLowerCase().replace(/_/g, "-")}`: {
                 log({
-                    message: `Rebuilding ${service.toLowerCase()} service...`,
+                    message: "Rebuilding service(s)...",
                     type: "info",
                     suppress: VircadiaConfig.SERVER.SUPPRESS,
                     debug: VircadiaConfig.SERVER.DEBUG,
@@ -896,7 +896,7 @@ if (import.meta.main) {
                 }
 
                 log({
-                    message: `${service.toLowerCase()} service rebuilt successfully`,
+                    message: "Service(s) rebuilt successfully",
                     type: "success",
                     suppress: VircadiaConfig.SERVER.SUPPRESS,
                     debug: VircadiaConfig.SERVER.DEBUG,
@@ -935,7 +935,7 @@ if (import.meta.main) {
             // Handle service-specific RESTART commands
             case `container:restart:${service?.toLowerCase().replace(/_/g, "-")}`: {
                 log({
-                    message: `Restarting ${service.toLowerCase()} service...`,
+                    message: "Restarting service(s)...",
                     type: "info",
                     suppress: VircadiaConfig.SERVER.SUPPRESS,
                     debug: VircadiaConfig.SERVER.DEBUG,
@@ -943,7 +943,7 @@ if (import.meta.main) {
                 await down({ service });
                 await up({ service });
                 log({
-                    message: `${service.toLowerCase()} service restarted`,
+                    message: "Service(s) restarted",
                     type: "success",
                     suppress: VircadiaConfig.SERVER.SUPPRESS,
                     debug: VircadiaConfig.SERVER.DEBUG,

@@ -12,7 +12,6 @@ export class WorldTickManager {
     private syncGroups: Map<string, Auth.SyncGroup.I_SyncGroup> = new Map();
     private tickCounts: Map<string, number> = new Map();
     private superUserSql: postgres.Sql | null = null;
-    private proxyUserSql: postgres.Sql | null = null;
 
     private readonly LOG_PREFIX = "World Tick Manager";
 
@@ -27,9 +26,14 @@ export class WorldTickManager {
             });
 
             this.superUserSql =
-                await PostgresClient.getInstance().getSuperClient();
-            this.proxyUserSql =
-                await PostgresClient.getInstance().getProxyClient();
+                await PostgresClient.getInstance().getSuperClient({
+                    postgres: {
+                        host: VircadiaConfig.SERVER.SERVICE.POSTGRES
+                            .HOST_CLUSTER,
+                        port: VircadiaConfig.SERVER.SERVICE.POSTGRES
+                            .PORT_CLUSTER,
+                    },
+                });
 
             // Get sync groups from the database
             const syncGroupsData = await this.superUserSql<

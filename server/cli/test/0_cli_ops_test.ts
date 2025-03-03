@@ -1,25 +1,82 @@
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import {
+    up,
+    down,
+    isHealthy,
+    seed,
+    migrate,
     generateDbSystemToken,
     invalidateDbSystemTokens,
     generateDbConnectionString,
-    migrate,
     wipeDatabase,
-    seed,
-    isHealthy,
-} from "../container/docker/docker_cli";
-import { VircadiaConfig } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
-import { PostgresClient } from "../database/postgres/postgres_client";
-import { initContainers } from "./helper/helpers";
+} from "../vircadia.world.cli";
+import { VircadiaConfig } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
+import { PostgresClient } from "../../../sdk/vircadia-world-sdk-ts/module/server/postgres.client";
 
-describe("System Admin Tests", () => {
+describe("Docker Container and Database CLI Tests", () => {
     beforeAll(async () => {
-        await initContainers();
+        try {
+            if (!(await isHealthy()).isHealthy) {
+                await up({});
+
+                const healthyAfterUp = await isHealthy();
+                if (!healthyAfterUp.isHealthy) {
+                    throw new Error("Failed to start services");
+                }
+            }
+        } catch (error) {
+            console.error("Failed to start services:", error);
+            throw error;
+        }
     });
 
     afterAll(async () => {
         await PostgresClient.getInstance().disconnect();
     });
+
+    test("Docker containers are healthy", async () => {
+        const health = await isHealthy();
+
+        // Verify PostgreSQL health
+        expect(health.services.postgres.isHealthy).toBe(true);
+        expect(health.services.postgres.error).toBeUndefined();
+
+        // Verify Pgweb health
+        expect(health.services.pgweb.isHealthy).toBe(true);
+        expect(health.services.pgweb.error).toBeUndefined();
+    });
+
+    test("Docker container down and up cycle works", async () => {
+        // Stop containers
+        await down({});
+        const healthAfterDown = await isHealthy();
+        expect(healthAfterDown.services.postgres.isHealthy).toBe(false);
+        expect(healthAfterDown.services.pgweb.isHealthy).toBe(false);
+
+        // Start containers again
+        await up({});
+        const healthAfterUp = await isHealthy();
+        expect(healthAfterUp.services.postgres.isHealthy).toBe(true);
+        expect(healthAfterUp.services.pgweb.isHealthy).toBe(true);
+    }, 30000);
+
+    test("Docker container rebuild works", async () => {
+        await down({});
+        await up({});
+        const health = await isHealthy();
+        expect(health.services.postgres.isHealthy).toBe(true);
+        expect(health.services.pgweb.isHealthy).toBe(true);
+
+        const migrationsRan = await migrate();
+        expect(migrationsRan).toBe(true);
+
+        await seed({});
+
+        // Verify database is still healthy after all operations
+        const finalHealth = await isHealthy();
+        expect(finalHealth.services.postgres.isHealthy).toBe(true);
+        expect(finalHealth.services.pgweb.isHealthy).toBe(true);
+    }, 60000); // Longer timeout since rebuild includes multiple operations
 
     test("System token generation and cleanup works", async () => {
         // Generate system token
@@ -83,7 +140,8 @@ describe("System Admin Tests", () => {
         `;
 
         // Verify required extensions are installed
-        const requiredExtensions = VircadiaConfig.SERVER.POSTGRES.EXTENSIONS;
+        const requiredExtensions =
+            VircadiaConfig.SERVER.SERVICE.POSTGRES.EXTENSIONS;
         for (const ext of requiredExtensions) {
             expect(extensions.some((e) => e.extname === ext)).toBe(true);
         }
@@ -134,8 +192,8 @@ describe("System Admin Tests", () => {
 
             // First verify we can call function through proxy user
             const [isSystemAgent] = await tx`
-                        SELECT auth.is_system_agent() as is_system_agent
-                    `;
+                SELECT auth.is_system_agent() as is_system_agent
+            `;
             expect(isSystemAgent.is_system_agent).toBe(false);
 
             // Verify proxy agent status

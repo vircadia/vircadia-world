@@ -1,8 +1,0 @@
-name: ${VRCA_SERVER_CONTAINER_NAME}
-
-networks:
-  vircadia_network:
-    driver: bridge
-
-volumes:
-  vircadia_world_postgres_data:

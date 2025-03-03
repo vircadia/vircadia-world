@@ -144,626 +144,606 @@ export class WorldApiManager {
     }
 
     async initialize() {
-        try {
-            log({
-                message: "Initializing World API Manager",
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
-                type: "debug",
-            });
+        log({
+            message: "Initializing World API Manager",
+            debug: VircadiaConfig.SERVER.DEBUG,
+            suppress: VircadiaConfig.SERVER.SUPPRESS,
+            type: "debug",
+        });
 
+        try {
             superUserSql = await PostgresClient.getInstance().getSuperClient();
             proxyUserSql = await PostgresClient.getInstance().getProxyClient();
-
-            // Listen for tick_captured notifications
-            await superUserSql.begin(async (tx) => {
-                await tx`LISTEN tick_captured`;
+        } catch (error) {
+            log({
+                message: "Failed to initialize DB connection",
+                error: error,
+                debug: VircadiaConfig.SERVER.DEBUG,
+                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                type: "error",
             });
+            return;
+        }
 
-            // Set up notification handler with event emission
-            superUserSql.subscribe("notification", async (notification) => {
-                if (
-                    notification?.channel === "tick_captured" &&
-                    notification.payload
-                ) {
-                    try {
-                        const payload = JSON.parse(notification.payload);
-                        const syncGroup = payload.syncGroup;
+        // Listen for tick_captured notifications
+        await superUserSql.begin(async (tx) => {
+            await tx`LISTEN tick_captured`;
+        });
 
+        // Set up notification handler with event emission
+        superUserSql.subscribe("notification", async (notification) => {
+            if (
+                notification?.channel === "tick_captured" &&
+                notification.payload
+            ) {
+                try {
+                    const payload = JSON.parse(notification.payload);
+                    const syncGroup = payload.syncGroup;
+
+                    log({
+                        message: `Received tick notification for sync group: ${syncGroup}`,
+                        debug: VircadiaConfig.SERVER.DEBUG,
+                        suppress: VircadiaConfig.SERVER.SUPPRESS,
+                        type: "debug",
+                        prefix: this.LOG_PREFIX,
+                        data: {
+                            tickId: payload.tickId,
+                            tickNumber: payload.tickNumber,
+                        },
+                    });
+
+                    // Emit event for tick notification received
+                    this.events.emit("tick:notification", {
+                        syncGroup,
+                        tickId: payload.tickId,
+                        tickNumber: payload.tickNumber,
+                    });
+
+                    // Process world updates based on the notification
+                    await this.sendWorldUpdatesToSyncGroup({ syncGroup });
+                } catch (error) {
+                    log({
+                        message: "Error processing tick notification",
+                        error: error,
+                        debug: VircadiaConfig.SERVER.DEBUG,
+                        suppress: VircadiaConfig.SERVER.SUPPRESS,
+                        type: "error",
+                        prefix: this.LOG_PREFIX,
+                    });
+                }
+            }
+        });
+
+        // Start server
+        this.server = Bun.serve({
+            port: VircadiaConfig.SERVER.SERVICE.API.PORT,
+            hostname: VircadiaConfig.SERVER.SERVICE.API.HOST,
+            development: VircadiaConfig.SERVER.DEBUG,
+
+            // #region API -> HTTP Routes
+            fetch: async (req: Request, server: Server) => {
+                const url = new URL(req.url);
+
+                if (!superUserSql || !proxyUserSql) {
+                    log({
+                        message: "No database connection available",
+                        debug: VircadiaConfig.SERVER.DEBUG,
+                        type: "error",
+                    });
+                    return new Response("Internal server error", {
+                        status: 500,
+                    });
+                }
+
+                // Handle WebSocket upgrade
+                if (url.pathname.startsWith(Communication.WS_UPGRADE_PATH)) {
+                    const url = new URL(req.url);
+                    const token = url.searchParams.get("token");
+                    const provider = url.searchParams.get("provider");
+
+                    // Handle missing token first
+                    if (!token) {
                         log({
-                            message: `Received tick notification for sync group: ${syncGroup}`,
+                            prefix: this.LOG_PREFIX,
+                            message: "No token found in query parameters",
+                            debug: VircadiaConfig.SERVER.DEBUG,
+                            type: "debug",
+                        });
+                        return new Response("Authentication required", {
+                            status: 401,
+                        });
+                    }
+
+                    // Handle missing provider
+                    if (!provider) {
+                        log({
+                            prefix: this.LOG_PREFIX,
+                            message: "No provider found in query parameters",
+                            debug: VircadiaConfig.SERVER.DEBUG,
+                            type: "debug",
+                        });
+                        return new Response("Provider required", {
+                            status: 401,
+                        });
+                    }
+
+                    const jwtValidationResult = await this.validateJWT({
+                        provider,
+                        token,
+                    });
+
+                    if (!jwtValidationResult.isValid) {
+                        log({
+                            prefix: this.LOG_PREFIX,
+                            message: "Token JWT validation failed",
+                            debug: VircadiaConfig.SERVER.DEBUG,
+                            type: "debug",
+                        });
+                        return new Response("Invalid token", {
+                            status: 401,
+                        });
+                    }
+
+                    const sessionValidationResult = await superUserSql<
+                        [{ agent_id: string }]
+                    >`
+                            SELECT * FROM auth.validate_session_id(${jwtValidationResult.sessionId}::UUID) as agent_id
+                        `;
+
+                    if (!sessionValidationResult[0].agent_id) {
+                        log({
+                            prefix: this.LOG_PREFIX,
+                            message: "WS Upgrade Session validation failed",
                             debug: VircadiaConfig.SERVER.DEBUG,
                             suppress: VircadiaConfig.SERVER.SUPPRESS,
                             type: "debug",
-                            prefix: this.LOG_PREFIX,
-                            data: {
-                                tickId: payload.tickId,
-                                tickNumber: payload.tickNumber,
-                            },
                         });
-
-                        // Emit event for tick notification received
-                        this.events.emit("tick:notification", {
-                            syncGroup,
-                            tickId: payload.tickId,
-                            tickNumber: payload.tickNumber,
-                        });
-
-                        // Process world updates based on the notification
-                        await this.sendWorldUpdatesToSyncGroup({ syncGroup });
-                    } catch (error) {
-                        log({
-                            message: "Error processing tick notification",
-                            error: error,
-                            debug: VircadiaConfig.SERVER.DEBUG,
-                            suppress: VircadiaConfig.SERVER.SUPPRESS,
-                            type: "error",
-                            prefix: this.LOG_PREFIX,
+                        return new Response("Invalid session", {
+                            status: 401,
                         });
                     }
-                }
-            });
 
-            // Start server
-            this.server = Bun.serve({
-                port: VircadiaConfig.SERVER.SERVER_PORT,
-                hostname: VircadiaConfig.SERVER.SERVER_HOST,
-                development: VircadiaConfig.SERVER.DEBUG,
+                    // Only attempt upgrade if validation passes
+                    const upgraded = server.upgrade(req, {
+                        data: {
+                            token,
+                            agentId: jwtValidationResult.agentId,
+                            sessionId: jwtValidationResult.sessionId,
+                        },
+                    });
 
-                // #region API -> HTTP Routes
-                fetch: async (req: Request, server: Server) => {
-                    const url = new URL(req.url);
-
-                    if (!superUserSql || !proxyUserSql) {
+                    if (!upgraded) {
                         log({
-                            message: "No database connection available",
+                            prefix: this.LOG_PREFIX,
+                            message: "WebSocket upgrade failed",
                             debug: VircadiaConfig.SERVER.DEBUG,
                             type: "error",
                         });
-                        return new Response("Internal server error", {
+                        return new Response("WebSocket upgrade failed", {
                             status: 500,
                         });
                     }
 
-                    // Handle WebSocket upgrade
-                    if (
-                        url.pathname.startsWith(Communication.WS_UPGRADE_PATH)
-                    ) {
-                        const url = new URL(req.url);
-                        const token = url.searchParams.get("token");
-                        const provider = url.searchParams.get("provider");
+                    return undefined;
+                }
 
-                        // Handle missing token first
-                        if (!token) {
-                            log({
-                                prefix: this.LOG_PREFIX,
-                                message: "No token found in query parameters",
-                                debug: VircadiaConfig.SERVER.DEBUG,
-                                type: "debug",
-                            });
-                            return new Response("Authentication required", {
-                                status: 401,
-                            });
-                        }
+                // Handle HTTP routes
+                // TODO: This code could be cleaned up.
+                if (url.pathname.startsWith(Communication.REST_BASE_PATH)) {
+                    switch (true) {
+                        case url.pathname ===
+                            Communication.REST.Endpoint.AUTH_SESSION_VALIDATE
+                                .path && req.method === "POST": {
+                            // Parse request body to get token and provider
+                            let body: {
+                                token: string;
+                                provider: string;
+                            };
+                            try {
+                                body = await req.json();
 
-                        // Handle missing provider
-                        if (!provider) {
-                            log({
-                                prefix: this.LOG_PREFIX,
-                                message:
-                                    "No provider found in query parameters",
-                                debug: VircadiaConfig.SERVER.DEBUG,
-                                type: "debug",
-                            });
-                            return new Response("Provider required", {
-                                status: 401,
-                            });
-                        }
-
-                        const jwtValidationResult = await this.validateJWT({
-                            provider,
-                            token,
-                        });
-
-                        if (!jwtValidationResult.isValid) {
-                            log({
-                                prefix: this.LOG_PREFIX,
-                                message: "Token JWT validation failed",
-                                debug: VircadiaConfig.SERVER.DEBUG,
-                                type: "debug",
-                            });
-                            return new Response("Invalid token", {
-                                status: 401,
-                            });
-                        }
-
-                        const sessionValidationResult = await superUserSql<
-                            [{ agent_id: string }]
-                        >`
-                            SELECT * FROM auth.validate_session_id(${jwtValidationResult.sessionId}::UUID) as agent_id
-                        `;
-
-                        if (!sessionValidationResult[0].agent_id) {
-                            log({
-                                prefix: this.LOG_PREFIX,
-                                message: "WS Upgrade Session validation failed",
-                                debug: VircadiaConfig.SERVER.DEBUG,
-                                suppress: VircadiaConfig.SERVER.SUPPRESS,
-                                type: "debug",
-                            });
-                            return new Response("Invalid session", {
-                                status: 401,
-                            });
-                        }
-
-                        // Only attempt upgrade if validation passes
-                        const upgraded = server.upgrade(req, {
-                            data: {
-                                token,
-                                agentId: jwtValidationResult.agentId,
-                                sessionId: jwtValidationResult.sessionId,
-                            },
-                        });
-
-                        if (!upgraded) {
-                            log({
-                                prefix: this.LOG_PREFIX,
-                                message: "WebSocket upgrade failed",
-                                debug: VircadiaConfig.SERVER.DEBUG,
-                                type: "error",
-                            });
-                            return new Response("WebSocket upgrade failed", {
-                                status: 500,
-                            });
-                        }
-
-                        return undefined;
-                    }
-
-                    // Handle HTTP routes
-                    // TODO: This code could be cleaned up.
-                    if (url.pathname.startsWith(Communication.REST_BASE_PATH)) {
-                        switch (true) {
-                            case url.pathname ===
-                                Communication.REST.Endpoint
-                                    .AUTH_SESSION_VALIDATE.path &&
-                                req.method === "POST": {
-                                // Parse request body to get token and provider
-                                let body: {
-                                    token: string;
-                                    provider: string;
-                                };
-                                try {
-                                    body = await req.json();
-
-                                    // Validate required fields
-                                    if (!body.token) {
-                                        return Response.json(
-                                            Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
-                                                "No token provided",
-                                            ),
-                                            { status: 401 },
-                                        );
-                                    }
-
-                                    if (!body.provider) {
-                                        return Response.json(
-                                            Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
-                                                "No provider specified",
-                                            ),
-                                            { status: 400 },
-                                        );
-                                    }
-                                } catch (error) {
+                                // Validate required fields
+                                if (!body.token) {
                                     return Response.json(
                                         Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
-                                            "Invalid request body",
-                                        ),
-                                        { status: 400 },
-                                    );
-                                }
-
-                                const { token, provider } = body;
-
-                                const jwtValidationResult =
-                                    await this.validateJWT({
-                                        provider,
-                                        token,
-                                    });
-
-                                if (!jwtValidationResult.isValid) {
-                                    return Response.json(
-                                        Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
-                                            "Invalid token",
+                                            "No token provided",
                                         ),
                                         { status: 401 },
                                     );
                                 }
 
-                                try {
-                                    // Wrap the entire validation logic in a transaction
-                                    return await superUserSql.begin(
-                                        async (tx) => {
-                                            // Execute validation within the same transaction context
-                                            const [sessionValidationResult] =
-                                                await tx<
-                                                    [{ agent_id: string }]
-                                                >`
+                                if (!body.provider) {
+                                    return Response.json(
+                                        Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
+                                            "No provider specified",
+                                        ),
+                                        { status: 400 },
+                                    );
+                                }
+                            } catch (error) {
+                                return Response.json(
+                                    Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
+                                        "Invalid request body",
+                                    ),
+                                    { status: 400 },
+                                );
+                            }
+
+                            const { token, provider } = body;
+
+                            const jwtValidationResult = await this.validateJWT({
+                                provider,
+                                token,
+                            });
+
+                            if (!jwtValidationResult.isValid) {
+                                return Response.json(
+                                    Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
+                                        "Invalid token",
+                                    ),
+                                    { status: 401 },
+                                );
+                            }
+
+                            try {
+                                // Wrap the entire validation logic in a transaction
+                                return await superUserSql.begin(async (tx) => {
+                                    // Execute validation within the same transaction context
+                                    const [sessionValidationResult] = await tx<
+                                        [{ agent_id: string }]
+                                    >`
                                                     SELECT * FROM auth.validate_session_id(${jwtValidationResult.sessionId}::UUID) as agent_id
                                                 `;
 
-                                            if (
-                                                !sessionValidationResult.agent_id
-                                            ) {
-                                                return Response.json(
-                                                    Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
-                                                        "Invalid session",
-                                                    ),
-                                                );
-                                            }
+                                    if (!sessionValidationResult.agent_id) {
+                                        return Response.json(
+                                            Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
+                                                "Invalid session",
+                                            ),
+                                        );
+                                    }
 
-                                            log({
-                                                message:
-                                                    "Auth endpoint - Session validation result",
-                                                debug: VircadiaConfig.SERVER
-                                                    .DEBUG,
-                                                suppress:
-                                                    VircadiaConfig.SERVER
-                                                        .SUPPRESS,
-                                                type: "debug",
-                                                prefix: this.LOG_PREFIX,
-                                                data: {
-                                                    jwtValidationResult,
-                                                },
-                                            });
+                                    log({
+                                        message:
+                                            "Auth endpoint - Session validation result",
+                                        debug: VircadiaConfig.SERVER.DEBUG,
+                                        suppress:
+                                            VircadiaConfig.SERVER.SUPPRESS,
+                                        type: "debug",
+                                        prefix: this.LOG_PREFIX,
+                                        data: {
+                                            jwtValidationResult,
+                                        },
+                                    });
 
-                                            return Response.json(
-                                                Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createSuccess(
-                                                    jwtValidationResult.agentId,
-                                                    jwtValidationResult.sessionId,
-                                                ),
+                                    return Response.json(
+                                        Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createSuccess(
+                                            jwtValidationResult.agentId,
+                                            jwtValidationResult.sessionId,
+                                        ),
+                                    );
+                                });
+                            } catch (error) {
+                                log({
+                                    message: "Failed to validate session",
+                                    debug: VircadiaConfig.SERVER.DEBUG,
+                                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                                    type: "error",
+                                    prefix: this.LOG_PREFIX,
+                                    data: {
+                                        error:
+                                            error instanceof Error
+                                                ? error.message
+                                                : String(error),
+                                    },
+                                });
+                                return Response.json(
+                                    Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
+                                        "Failed to validate session",
+                                    ),
+                                );
+                            }
+                        }
+
+                        default:
+                            return new Response("Not Found", {
+                                status: 404,
+                            });
+                    }
+                }
+
+                return new Response("Not Found", { status: 404 });
+            },
+            // #endregion
+
+            // #region API -> WS Routes
+            websocket: {
+                message: async (
+                    ws: ServerWebSocket<WebSocketData>,
+                    message: string,
+                ) => {
+                    log({
+                        message: "WebSocket message received",
+                        suppress: VircadiaConfig.SERVER.SUPPRESS,
+                        debug: VircadiaConfig.SERVER.DEBUG,
+                        type: "debug",
+                    });
+                    let data: Communication.WebSocket.Message | undefined;
+
+                    if (!superUserSql || !proxyUserSql) {
+                        log({
+                            message: "No database connections available",
+                            suppress: VircadiaConfig.SERVER.SUPPRESS,
+                            debug: VircadiaConfig.SERVER.DEBUG,
+                            type: "error",
+                        });
+                        return;
+                    }
+
+                    try {
+                        // Session validation
+                        const sessionToken = this.tokenMap.get(ws);
+                        const sessionId = this.wsToSessionMap.get(ws);
+                        const session = sessionId
+                            ? this.activeSessions.get(sessionId)
+                            : undefined;
+
+                        if (!sessionToken || !sessionId || !session) {
+                            ws.send(
+                                JSON.stringify(
+                                    new Communication.WebSocket.GeneralErrorResponseMessage(
+                                        "Invalid session",
+                                    ),
+                                ),
+                            );
+                            ws.close(1000, "Invalid session");
+                            return;
+                        }
+
+                        // Update session heartbeat in database (don't await)
+                        superUserSql`SELECT auth.update_session_heartbeat_from_session_id(${sessionId}::UUID)`.catch(
+                            (error) => {
+                                log({
+                                    message:
+                                        "Failed to update session heartbeat",
+                                    debug: VircadiaConfig.SERVER.DEBUG,
+                                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                                    type: "error",
+                                    prefix: this.LOG_PREFIX,
+                                    data: { error, sessionId },
+                                });
+                            },
+                        );
+
+                        // Parse message
+                        data = JSON.parse(
+                            message,
+                        ) as Communication.WebSocket.Message;
+
+                        // Emit event for message received (optional, might be too verbose)
+                        this.events.emit("message:received", {
+                            sessionId: session?.sessionId,
+                            messageType: data?.type,
+                        });
+
+                        // Handle different message types
+                        switch (data.type) {
+                            case Communication.WebSocket.MessageType
+                                .QUERY_REQUEST: {
+                                const typedRequest =
+                                    data as Communication.WebSocket.QueryRequestMessage;
+                                try {
+                                    const results = await proxyUserSql?.begin(
+                                        async (tx) => {
+                                            // First set agent context
+                                            const [setAgentContext] = await tx`
+                                                            SELECT auth.set_agent_context_from_agent_id(${session.agentId}::UUID)
+                                                        `;
+
+                                            return await tx.unsafe(
+                                                typedRequest.query,
+                                                typedRequest.parameters || [],
                                             );
                                         },
                                     );
+
+                                    ws.send(
+                                        JSON.stringify(
+                                            new Communication.WebSocket.QueryResponseMessage(
+                                                results,
+                                            ),
+                                        ),
+                                    );
                                 } catch (error) {
+                                    // Send detailed error information back to the client
+                                    const errorMessage =
+                                        error instanceof Error
+                                            ? error.message
+                                            : String(error);
+
                                     log({
-                                        message: "Failed to validate session",
+                                        message: `Query failed: ${errorMessage}`,
                                         debug: VircadiaConfig.SERVER.DEBUG,
                                         suppress:
                                             VircadiaConfig.SERVER.SUPPRESS,
                                         type: "error",
                                         prefix: this.LOG_PREFIX,
                                         data: {
-                                            error:
-                                                error instanceof Error
-                                                    ? error.message
-                                                    : String(error),
+                                            error,
+                                            query: typedRequest.query,
                                         },
                                     });
-                                    return Response.json(
-                                        Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
-                                            "Failed to validate session",
+
+                                    ws.send(
+                                        JSON.stringify(
+                                            new Communication.WebSocket.QueryResponseMessage(
+                                                undefined,
+                                                errorMessage,
+                                            ),
                                         ),
                                     );
                                 }
+                                break;
                             }
 
-                            default:
-                                return new Response("Not Found", {
-                                    status: 404,
-                                });
-                        }
-                    }
-
-                    return new Response("Not Found", { status: 404 });
-                },
-                // #endregion
-
-                // #region API -> WS Routes
-                websocket: {
-                    message: async (
-                        ws: ServerWebSocket<WebSocketData>,
-                        message: string,
-                    ) => {
-                        log({
-                            message: "WebSocket message received",
-                            suppress: VircadiaConfig.SERVER.SUPPRESS,
-                            debug: VircadiaConfig.SERVER.DEBUG,
-                            type: "debug",
-                        });
-                        let data: Communication.WebSocket.Message | undefined;
-
-                        if (!superUserSql || !proxyUserSql) {
-                            log({
-                                message: "No database connections available",
-                                suppress: VircadiaConfig.SERVER.SUPPRESS,
-                                debug: VircadiaConfig.SERVER.DEBUG,
-                                type: "error",
-                            });
-                            return;
-                        }
-
-                        try {
-                            // Session validation
-                            const sessionToken = this.tokenMap.get(ws);
-                            const sessionId = this.wsToSessionMap.get(ws);
-                            const session = sessionId
-                                ? this.activeSessions.get(sessionId)
-                                : undefined;
-
-                            if (!sessionToken || !sessionId || !session) {
-                                ws.send(
+                            default: {
+                                session.ws.send(
                                     JSON.stringify(
                                         new Communication.WebSocket.GeneralErrorResponseMessage(
-                                            "Invalid session",
+                                            `Unsupported message type: ${data.type}`,
                                         ),
                                     ),
                                 );
-                                ws.close(1000, "Invalid session");
-                                return;
                             }
-
-                            // Update session heartbeat in database (don't await)
-                            superUserSql`SELECT auth.update_session_heartbeat_from_session_id(${sessionId}::UUID)`.catch(
-                                (error) => {
-                                    log({
-                                        message:
-                                            "Failed to update session heartbeat",
-                                        debug: VircadiaConfig.SERVER.DEBUG,
-                                        suppress:
-                                            VircadiaConfig.SERVER.SUPPRESS,
-                                        type: "error",
-                                        prefix: this.LOG_PREFIX,
-                                        data: { error, sessionId },
-                                    });
-                                },
-                            );
-
-                            // Parse message
-                            data = JSON.parse(
-                                message,
-                            ) as Communication.WebSocket.Message;
-
-                            // Emit event for message received (optional, might be too verbose)
-                            this.events.emit("message:received", {
-                                sessionId: session?.sessionId,
-                                messageType: data?.type,
-                            });
-
-                            // Handle different message types
-                            switch (data.type) {
-                                case Communication.WebSocket.MessageType
-                                    .QUERY_REQUEST: {
-                                    const typedRequest =
-                                        data as Communication.WebSocket.QueryRequestMessage;
-                                    try {
-                                        const results =
-                                            await proxyUserSql?.begin(
-                                                async (tx) => {
-                                                    // First set agent context
-                                                    const [setAgentContext] =
-                                                        await tx`
-                                                            SELECT auth.set_agent_context_from_agent_id(${session.agentId}::UUID)
-                                                        `;
-
-                                                    return await tx.unsafe(
-                                                        typedRequest.query,
-                                                        typedRequest.parameters ||
-                                                            [],
-                                                    );
-                                                },
-                                            );
-
-                                        ws.send(
-                                            JSON.stringify(
-                                                new Communication.WebSocket.QueryResponseMessage(
-                                                    results,
-                                                ),
-                                            ),
-                                        );
-                                    } catch (error) {
-                                        // Send detailed error information back to the client
-                                        const errorMessage =
-                                            error instanceof Error
-                                                ? error.message
-                                                : String(error);
-
-                                        log({
-                                            message: `Query failed: ${errorMessage}`,
-                                            debug: VircadiaConfig.SERVER.DEBUG,
-                                            suppress:
-                                                VircadiaConfig.SERVER.SUPPRESS,
-                                            type: "error",
-                                            prefix: this.LOG_PREFIX,
-                                            data: {
-                                                error,
-                                                query: typedRequest.query,
-                                            },
-                                        });
-
-                                        ws.send(
-                                            JSON.stringify(
-                                                new Communication.WebSocket.QueryResponseMessage(
-                                                    undefined,
-                                                    errorMessage,
-                                                ),
-                                            ),
-                                        );
-                                    }
-                                    break;
-                                }
-
-                                default: {
-                                    session.ws.send(
-                                        JSON.stringify(
-                                            new Communication.WebSocket.GeneralErrorResponseMessage(
-                                                `Unsupported message type: ${data.type}`,
-                                            ),
-                                        ),
-                                    );
-                                }
-                            }
-                        } catch (error) {
-                            log({
-                                type: "error",
-                                message: "Received WS message handling failed.",
-                                error: error,
-                                suppress: VircadiaConfig.SERVER.SUPPRESS,
-                                debug: VircadiaConfig.SERVER.DEBUG,
-                            });
                         }
-                    },
-                    open: (ws: ServerWebSocket<WebSocketData>) => {
-                        const sessionData = ws.data;
+                    } catch (error) {
+                        log({
+                            type: "error",
+                            message: "Received WS message handling failed.",
+                            error: error,
+                            suppress: VircadiaConfig.SERVER.SUPPRESS,
+                            debug: VircadiaConfig.SERVER.DEBUG,
+                        });
+                    }
+                },
+                open: (ws: ServerWebSocket<WebSocketData>) => {
+                    const sessionData = ws.data;
+
+                    log({
+                        prefix: this.LOG_PREFIX,
+                        message: "New WebSocket connection attempt",
+                        debug: VircadiaConfig.SERVER.DEBUG,
+                        suppress: VircadiaConfig.SERVER.SUPPRESS,
+                        type: "debug",
+                        data: {
+                            agentId: sessionData.agentId,
+                            sessionId: sessionData.sessionId,
+                            readyState: ws.readyState,
+                        },
+                    });
+
+                    const session: WorldSession<unknown> = {
+                        ws,
+                        agentId: sessionData.agentId,
+                        sessionId: sessionData.sessionId,
+                    };
+
+                    this.activeSessions.set(sessionData.sessionId, session);
+                    this.wsToSessionMap.set(ws, sessionData.sessionId);
+                    this.tokenMap.set(
+                        ws,
+                        (ws as ServerWebSocket<WebSocketData>).data.token,
+                    );
+
+                    // Emit client connected event
+                    this.events.emit("client:connected", {
+                        sessionId: sessionData.sessionId,
+                        agentId: sessionData.agentId,
+                    });
+
+                    log({
+                        prefix: this.LOG_PREFIX,
+                        message: `Connection established with agent ${sessionData.agentId}`,
+                        suppress: VircadiaConfig.SERVER.SUPPRESS,
+                        debug: VircadiaConfig.SERVER.DEBUG,
+                        type: "debug",
+                    });
+                },
+                close: (
+                    ws: ServerWebSocket<WebSocketData>,
+                    code: number,
+                    reason: string,
+                ) => {
+                    log({
+                        message: `WebSocket connection closed, code: ${code}, reason: ${reason}`,
+                        debug: VircadiaConfig.SERVER.DEBUG,
+                        suppress: VircadiaConfig.SERVER.SUPPRESS,
+                        type: "debug",
+                    });
+                    const session = this.activeSessions.get(ws.data.sessionId);
+                    if (session) {
+                        // Emit client disconnected event
+                        this.events.emit("client:disconnected", {
+                            sessionId: session.sessionId,
+                            agentId: session.agentId,
+                            reason,
+                            code,
+                        });
 
                         log({
                             prefix: this.LOG_PREFIX,
-                            message: "New WebSocket connection attempt",
+                            message: "WebSocket disconnection",
                             debug: VircadiaConfig.SERVER.DEBUG,
                             suppress: VircadiaConfig.SERVER.SUPPRESS,
                             type: "debug",
                             data: {
-                                agentId: sessionData.agentId,
-                                sessionId: sessionData.sessionId,
-                                readyState: ws.readyState,
+                                sessionId: session.sessionId,
+                                agentId: session.agentId,
                             },
                         });
 
-                        const session: WorldSession<unknown> = {
-                            ws,
-                            agentId: sessionData.agentId,
-                            sessionId: sessionData.sessionId,
-                        };
-
-                        this.activeSessions.set(sessionData.sessionId, session);
-                        this.wsToSessionMap.set(ws, sessionData.sessionId);
-                        this.tokenMap.set(
-                            ws,
-                            (ws as ServerWebSocket<WebSocketData>).data.token,
-                        );
-
-                        // Emit client connected event
-                        this.events.emit("client:connected", {
-                            sessionId: sessionData.sessionId,
-                            agentId: sessionData.agentId,
-                        });
-
-                        log({
-                            prefix: this.LOG_PREFIX,
-                            message: `Connection established with agent ${sessionData.agentId}`,
-                            suppress: VircadiaConfig.SERVER.SUPPRESS,
-                            debug: VircadiaConfig.SERVER.DEBUG,
-                            type: "debug",
-                        });
-                    },
-                    close: (
-                        ws: ServerWebSocket<WebSocketData>,
-                        code: number,
-                        reason: string,
-                    ) => {
-                        log({
-                            message: `WebSocket connection closed, code: ${code}, reason: ${reason}`,
-                            debug: VircadiaConfig.SERVER.DEBUG,
-                            suppress: VircadiaConfig.SERVER.SUPPRESS,
-                            type: "debug",
-                        });
-                        const session = this.activeSessions.get(
-                            ws.data.sessionId,
-                        );
-                        if (session) {
-                            // Emit client disconnected event
-                            this.events.emit("client:disconnected", {
-                                sessionId: session.sessionId,
-                                agentId: session.agentId,
-                                reason,
-                                code,
-                            });
-
-                            log({
-                                prefix: this.LOG_PREFIX,
-                                message: "WebSocket disconnection",
-                                debug: VircadiaConfig.SERVER.DEBUG,
-                                suppress: VircadiaConfig.SERVER.SUPPRESS,
-                                type: "debug",
-                                data: {
-                                    sessionId: session.sessionId,
-                                    agentId: session.agentId,
-                                },
-                            });
-
-                            // Clean up both maps
-                            this.wsToSessionMap.delete(session.ws);
-                            this.activeSessions.delete(session.sessionId);
-                        }
-                    },
+                        // Clean up both maps
+                        this.wsToSessionMap.delete(session.ws);
+                        this.activeSessions.delete(session.sessionId);
+                    }
                 },
-
-                // #endregion
-            });
-
-            // #region Heartbeat Interval
-
-            this.heartbeatInterval = setInterval(async () => {
-                const sessionsToCheck = Array.from(
-                    this.activeSessions.entries(),
-                );
-
-                // Process sessions in parallel
-                await Promise.all(
-                    sessionsToCheck.map(async ([sessionId, session]) => {
-                        if (!superUserSql) {
-                            throw new Error(
-                                "No super user database connection available",
-                            );
-                        }
-
-                        try {
-                            // Check session validity directly in database
-                            await superUserSql<[{ agent_id: string }]>`
-                                SELECT * FROM auth.validate_session_id(${sessionId}::UUID) as agent_id
-                            `;
-                            // Session is valid if no exception was thrown
-                        } catch (error) {
-                            // Session is invalid, close the connection
-                            log({
-                                prefix: this.LOG_PREFIX,
-                                message:
-                                    "Session expired / invalid, closing WebSocket",
-                                debug: VircadiaConfig.SERVER.DEBUG,
-                                suppress: VircadiaConfig.SERVER.SUPPRESS,
-                                type: "debug",
-                                data: {
-                                    sessionId,
-                                    agentId: session.agentId,
-                                    error:
-                                        error instanceof Error
-                                            ? error.message
-                                            : String(error),
-                                },
-                            });
-                            session.ws.close(1000, "Session expired");
-                        }
-                    }),
-                );
-            }, 1000);
-
-            log({
-                message: `Bun HTTP+WS World API Server running at http://${VircadiaConfig.SERVER.SERVER_HOST}:${VircadiaConfig.SERVER.SERVER_PORT}`,
-                type: "success",
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
-            });
+            },
 
             // #endregion
-        } catch (error) {
-            log({
-                message: `Failed to initialize World API Manager: ${error}`,
-                type: "error",
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
-            });
-            throw error;
-        }
+        });
+
+        // #region Heartbeat Interval
+
+        this.heartbeatInterval = setInterval(async () => {
+            const sessionsToCheck = Array.from(this.activeSessions.entries());
+
+            // Process sessions in parallel
+            await Promise.all(
+                sessionsToCheck.map(async ([sessionId, session]) => {
+                    if (!superUserSql) {
+                        throw new Error(
+                            "No super user database connection available",
+                        );
+                    }
+
+                    try {
+                        // Check session validity directly in database
+                        await superUserSql<[{ agent_id: string }]>`
+                                SELECT * FROM auth.validate_session_id(${sessionId}::UUID) as agent_id
+                            `;
+                        // Session is valid if no exception was thrown
+                    } catch (error) {
+                        // Session is invalid, close the connection
+                        log({
+                            prefix: this.LOG_PREFIX,
+                            message:
+                                "Session expired / invalid, closing WebSocket",
+                            debug: VircadiaConfig.SERVER.DEBUG,
+                            suppress: VircadiaConfig.SERVER.SUPPRESS,
+                            type: "debug",
+                            data: {
+                                sessionId,
+                                agentId: session.agentId,
+                                error:
+                                    error instanceof Error
+                                        ? error.message
+                                        : String(error),
+                            },
+                        });
+                        session.ws.close(1000, "Session expired");
+                    }
+                }),
+            );
+        }, 1000);
+
+        log({
+            message: `Bun HTTP+WS World API Server running at http://${VircadiaConfig.SERVER.SERVICE.API.HOST}:${VircadiaConfig.SERVER.SERVICE.API.PORT}`,
+            type: "success",
+            debug: VircadiaConfig.SERVER.DEBUG,
+            suppress: VircadiaConfig.SERVER.SUPPRESS,
+        });
+
+        // #endregion
     }
 
     // #region World Updates
@@ -1011,7 +991,8 @@ if (import.meta.main) {
         });
     } catch (error) {
         log({
-            message: `Failed to start World API Manager: ${error}`,
+            message: "Failed to start World API Manager.",
+            data: error as any,
             type: "error",
             suppress: VircadiaConfig.SERVER.SUPPRESS,
             debug: true,

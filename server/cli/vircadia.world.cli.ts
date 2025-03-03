@@ -687,31 +687,31 @@ function printValidCommands() {
     log({
         message: `Valid commands: 
 
-        // Container commands
-        container:up:all, 
-        container:up:[service], 
-        container:down:all, 
-        container:down:[service], 
-        container:rebuild:all, 
-        container:rebuild:[service], 
-        container:restart:all,
-        container:restart:[service],
-        container:health,
+        // Container commands - All services
+        container-up-all
+        container-down-all
+        container-rebuild-all
+        container-restart-all
+        container-health
 
-        // Container -> Database commands
-        container:db:reset,
-        container:db:wipe, 
-        container:db:migrate, 
-        container:db:connection-string, 
-        container:db:system-token,
-        container:db:seed [optional_seed_path],
+        // Container commands - Individual services
+        ${Object.keys(DOCKER_COMPOSE_SERVICE)
+            .map((k) => {
+                const service = k.toLowerCase().replace(/_/g, "-");
+                return `container-up-${service}\n        container-down-${service}\n        container-rebuild-${service}\n        container-restart-${service}`;
+            })
+            .join("\n        ")}
 
-        // Container -> PGWEB commands
-        container:pgweb:access-command,
-        
-        // Available services: ${Object.keys(DOCKER_COMPOSE_SERVICE)
-            .map((k) => k.toLowerCase().replace(/_/g, "-"))
-            .join(", ")}
+        // Database commands
+        database-reset
+        database-wipe
+        database-migrate
+        database-connection-string
+        database-system-token
+        database-seed
+
+        // PGWeb commands
+        pgweb-access-command
         `,
         type: "info",
     });
@@ -720,45 +720,17 @@ function printValidCommands() {
 // If this file is run directly
 if (import.meta.main) {
     const command = Bun.argv[2];
+    const additionalArgs = Bun.argv.slice(3);
+
     if (!command) {
         printValidCommands();
         process.exit(1);
     }
 
-    // Parse service from command (if present)
-    let service: DOCKER_COMPOSE_SERVICE | undefined;
-
-    // Check if this is a service-specific command
-    const commandParts = command.split(":");
-    if (commandParts.length >= 3) {
-        const serviceIdentifier = commandParts[2];
-
-        if (serviceIdentifier !== "all") {
-            const upperServiceArg = serviceIdentifier
-                .toUpperCase()
-                .replace(/-/g, "_");
-            if (upperServiceArg in DOCKER_COMPOSE_SERVICE) {
-                service =
-                    DOCKER_COMPOSE_SERVICE[
-                        upperServiceArg as keyof typeof DOCKER_COMPOSE_SERVICE
-                    ];
-            } else {
-                console.error(`Invalid service name: ${serviceIdentifier}`);
-                console.error(
-                    `Valid service names: ${Object.keys(DOCKER_COMPOSE_SERVICE)
-                        .map((k) => k.toLowerCase().replace(/_/g, "-"))
-                        .join(", ")}`,
-                );
-                process.exit(1);
-            }
-        }
-    }
-
     try {
-        // New command structure with clearer service specification
         switch (command) {
-            // UP commands
-            case "container:up:all":
+            // ALL SERVICES COMMANDS
+            case "container-up-all":
                 log({
                     message: "Starting all services...",
                     type: "info",
@@ -776,19 +748,7 @@ if (import.meta.main) {
                 });
                 break;
 
-            // Handle service-specific UP commands like container:up:postgres
-            case `container:up:${service?.toLowerCase().replace(/_/g, "-")}`:
-                log({
-                    message: "Starting service(s)...",
-                    type: "info",
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
-                });
-                await up({ service, rebuild: false });
-                break;
-
-            // DOWN commands
-            case "container:down:all":
+            case "container-down-all":
                 log({
                     message: "Stopping all services...",
                     type: "info",
@@ -806,19 +766,7 @@ if (import.meta.main) {
                 });
                 break;
 
-            // Handle service-specific DOWN commands
-            case `container:down:${service?.toLowerCase().replace(/_/g, "-")}`:
-                log({
-                    message: "Stopping service(s)...",
-                    type: "info",
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
-                });
-                await down({ service });
-                break;
-
-            // REBUILD commands
-            case "container:rebuild:all": {
+            case "container-rebuild-all": {
                 log({
                     message: "Rebuilding all services...",
                     type: "info",
@@ -866,51 +814,7 @@ if (import.meta.main) {
                 break;
             }
 
-            // Handle service-specific REBUILD commands
-            case `container:rebuild:${service?.toLowerCase().replace(/_/g, "-")}`: {
-                log({
-                    message: "Rebuilding service(s)...",
-                    type: "info",
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
-                });
-                await down({ service, wipeVolumes: true });
-                log({
-                    message: "Container down complete",
-                    type: "success",
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
-                });
-                await up({ service, rebuild: true });
-
-                // Run additional steps for Postgres rebuild
-                if (service === DOCKER_COMPOSE_SERVICE.POSTGRES) {
-                    const health = await isHealthy();
-                    if (health.services.postgres.isHealthy) {
-                        const migrationsRan = await migrate();
-                        if (migrationsRan) {
-                            log({
-                                message: "Migrations ran successfully",
-                                type: "success",
-                                suppress: VircadiaConfig.SERVER.SUPPRESS,
-                                debug: VircadiaConfig.SERVER.DEBUG,
-                            });
-                            await seed({});
-                        }
-                    }
-                }
-
-                log({
-                    message: "Service(s) rebuilt successfully",
-                    type: "success",
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
-                });
-                break;
-            }
-
-            // RESTART commands
-            case "container:restart:all": {
+            case "container-restart-all": {
                 log({
                     message: "Restarting all services...",
                     type: "info",
@@ -937,18 +841,64 @@ if (import.meta.main) {
                 break;
             }
 
-            // Handle service-specific RESTART commands
-            case `container:restart:${service?.toLowerCase().replace(/_/g, "-")}`: {
+            // INDIVIDUAL SERVICES COMMANDS
+
+            // POSTGRES COMMANDS
+            case "container-up-postgres":
                 log({
-                    message: "Restarting service(s)...",
+                    message: "Starting postgres service...",
                     type: "info",
                     suppress: VircadiaConfig.SERVER.SUPPRESS,
                     debug: VircadiaConfig.SERVER.DEBUG,
                 });
-                await down({ service });
-                await up({ service });
+                await up({
+                    service: DOCKER_COMPOSE_SERVICE.POSTGRES,
+                    rebuild: false,
+                });
+                break;
+
+            case "container-down-postgres":
                 log({
-                    message: "Service(s) restarted",
+                    message: "Stopping postgres service...",
+                    type: "info",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                await down({ service: DOCKER_COMPOSE_SERVICE.POSTGRES });
+                break;
+
+            case "container-rebuild-postgres": {
+                log({
+                    message: "Rebuilding postgres service...",
+                    type: "info",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                await down({
+                    service: DOCKER_COMPOSE_SERVICE.POSTGRES,
+                    wipeVolumes: true,
+                });
+                await up({
+                    service: DOCKER_COMPOSE_SERVICE.POSTGRES,
+                    rebuild: true,
+                });
+
+                // Run migrations and seed data after postgres rebuild
+                const health = await isHealthy();
+                if (health.services.postgres.isHealthy) {
+                    const migrationsRan = await migrate();
+                    if (migrationsRan) {
+                        log({
+                            message: "Migrations ran successfully",
+                            type: "success",
+                            suppress: VircadiaConfig.SERVER.SUPPRESS,
+                            debug: VircadiaConfig.SERVER.DEBUG,
+                        });
+                        await seed({});
+                    }
+                }
+                log({
+                    message: "Postgres service rebuilt successfully",
                     type: "success",
                     suppress: VircadiaConfig.SERVER.SUPPRESS,
                     debug: VircadiaConfig.SERVER.DEBUG,
@@ -956,7 +906,290 @@ if (import.meta.main) {
                 break;
             }
 
-            case "container:health": {
+            case "container-restart-postgres": {
+                log({
+                    message: "Restarting postgres service...",
+                    type: "info",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                await down({ service: DOCKER_COMPOSE_SERVICE.POSTGRES });
+                await up({ service: DOCKER_COMPOSE_SERVICE.POSTGRES });
+                log({
+                    message: "Postgres service restarted",
+                    type: "success",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                break;
+            }
+
+            // PGWEB COMMANDS
+            case "container-up-pgweb":
+                log({
+                    message: "Starting pgweb service...",
+                    type: "info",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                await up({
+                    service: DOCKER_COMPOSE_SERVICE.PGWEB,
+                    rebuild: false,
+                });
+                break;
+
+            case "container-down-pgweb":
+                log({
+                    message: "Stopping pgweb service...",
+                    type: "info",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                await down({ service: DOCKER_COMPOSE_SERVICE.PGWEB });
+                break;
+
+            case "container-rebuild-pgweb": {
+                log({
+                    message: "Rebuilding pgweb service...",
+                    type: "info",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                await down({
+                    service: DOCKER_COMPOSE_SERVICE.PGWEB,
+                    wipeVolumes: true,
+                });
+                await up({
+                    service: DOCKER_COMPOSE_SERVICE.PGWEB,
+                    rebuild: true,
+                });
+                log({
+                    message: "PGWEB service rebuilt successfully",
+                    type: "success",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                break;
+            }
+
+            case "container-restart-pgweb": {
+                log({
+                    message: "Restarting pgweb service...",
+                    type: "info",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                await down({ service: DOCKER_COMPOSE_SERVICE.PGWEB });
+                await up({ service: DOCKER_COMPOSE_SERVICE.PGWEB });
+                log({
+                    message: "PGWEB service restarted",
+                    type: "success",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                break;
+            }
+
+            // API COMMANDS
+            case "container-up-api":
+                log({
+                    message: "Starting API service...",
+                    type: "info",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                await up({
+                    service: DOCKER_COMPOSE_SERVICE.API,
+                    rebuild: false,
+                });
+                break;
+
+            case "container-down-api":
+                log({
+                    message: "Stopping API service...",
+                    type: "info",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                await down({ service: DOCKER_COMPOSE_SERVICE.API });
+                break;
+
+            case "container-rebuild-api": {
+                log({
+                    message: "Rebuilding API service...",
+                    type: "info",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                await down({
+                    service: DOCKER_COMPOSE_SERVICE.API,
+                    wipeVolumes: true,
+                });
+                await up({
+                    service: DOCKER_COMPOSE_SERVICE.API,
+                    rebuild: true,
+                });
+                log({
+                    message: "API service rebuilt successfully",
+                    type: "success",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                break;
+            }
+
+            case "container-restart-api": {
+                log({
+                    message: "Restarting API service...",
+                    type: "info",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                await down({ service: DOCKER_COMPOSE_SERVICE.API });
+                await up({ service: DOCKER_COMPOSE_SERVICE.API });
+                log({
+                    message: "API service restarted",
+                    type: "success",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                break;
+            }
+
+            // TICK COMMANDS
+            case "container-up-tick":
+                log({
+                    message: "Starting tick service...",
+                    type: "info",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                await up({
+                    service: DOCKER_COMPOSE_SERVICE.TICK,
+                    rebuild: false,
+                });
+                break;
+
+            case "container-down-tick":
+                log({
+                    message: "Stopping tick service...",
+                    type: "info",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                await down({ service: DOCKER_COMPOSE_SERVICE.TICK });
+                break;
+
+            case "container-rebuild-tick": {
+                log({
+                    message: "Rebuilding tick service...",
+                    type: "info",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                await down({
+                    service: DOCKER_COMPOSE_SERVICE.TICK,
+                    wipeVolumes: true,
+                });
+                await up({
+                    service: DOCKER_COMPOSE_SERVICE.TICK,
+                    rebuild: true,
+                });
+                log({
+                    message: "Tick service rebuilt successfully",
+                    type: "success",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                break;
+            }
+
+            case "container-restart-tick": {
+                log({
+                    message: "Restarting tick service...",
+                    type: "info",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                await down({ service: DOCKER_COMPOSE_SERVICE.TICK });
+                await up({ service: DOCKER_COMPOSE_SERVICE.TICK });
+                log({
+                    message: "Tick service restarted",
+                    type: "success",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                break;
+            }
+
+            // SCRIPT_WEB COMMANDS
+            case "container-up-script-web":
+                log({
+                    message: "Starting script-web service...",
+                    type: "info",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                await up({
+                    service: DOCKER_COMPOSE_SERVICE.SCRIPT_WEB,
+                    rebuild: false,
+                });
+                break;
+
+            case "container-down-script-web":
+                log({
+                    message: "Stopping script-web service...",
+                    type: "info",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                await down({ service: DOCKER_COMPOSE_SERVICE.SCRIPT_WEB });
+                break;
+
+            case "container-rebuild-script-web": {
+                log({
+                    message: "Rebuilding script-web service...",
+                    type: "info",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                await down({
+                    service: DOCKER_COMPOSE_SERVICE.SCRIPT_WEB,
+                    wipeVolumes: true,
+                });
+                await up({
+                    service: DOCKER_COMPOSE_SERVICE.SCRIPT_WEB,
+                    rebuild: true,
+                });
+                log({
+                    message: "Script web service rebuilt successfully",
+                    type: "success",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                break;
+            }
+
+            case "container-restart-script-web": {
+                log({
+                    message: "Restarting script-web service...",
+                    type: "info",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                await down({ service: DOCKER_COMPOSE_SERVICE.SCRIPT_WEB });
+                await up({ service: DOCKER_COMPOSE_SERVICE.SCRIPT_WEB });
+                log({
+                    message: "Script web service restarted",
+                    type: "success",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                break;
+            }
+
+            // CONTAINER HEALTH
+            case "container-health": {
                 const health = await isHealthy();
                 log({
                     message: `PostgreSQL: ${health.services.postgres.isHealthy ? "healthy" : "unhealthy"}`,
@@ -990,7 +1223,8 @@ if (import.meta.main) {
                 break;
             }
 
-            case "container:db:migrate":
+            // DATABASE COMMANDS
+            case "database-migrate":
                 log({
                     message: "Running migrations...",
                     type: "info",
@@ -1005,7 +1239,8 @@ if (import.meta.main) {
                     debug: VircadiaConfig.SERVER.DEBUG,
                 });
                 break;
-            case "container:db:wipe":
+
+            case "database-wipe":
                 log({
                     message: "Wiping database...",
                     type: "info",
@@ -1020,7 +1255,8 @@ if (import.meta.main) {
                     debug: VircadiaConfig.SERVER.DEBUG,
                 });
                 break;
-            case "container:db:reset":
+
+            case "database-reset":
                 log({
                     message: "Resetting database...",
                     type: "info",
@@ -1037,7 +1273,8 @@ if (import.meta.main) {
                     debug: VircadiaConfig.SERVER.DEBUG,
                 });
                 break;
-            case "container:db:connection-string": {
+
+            case "database-connection-string": {
                 const connectionString = await generateDbConnectionString();
                 log({
                     message: `Database connection string: ${connectionString}`,
@@ -1047,7 +1284,8 @@ if (import.meta.main) {
                 });
                 break;
             }
-            case "container:db:system-token": {
+
+            case "database-system-token": {
                 log({
                     message: "Generating system agent token...",
                     type: "info",
@@ -1065,16 +1303,19 @@ if (import.meta.main) {
                 });
                 break;
             }
-            case "container:db:seed":
+
+            case "database-seed":
                 log({
                     message: "Seeding database...",
                     type: "info",
                     suppress: VircadiaConfig.SERVER.SUPPRESS,
                     debug: VircadiaConfig.SERVER.DEBUG,
                 });
-                await seed({});
+                await seed({ seedPath: additionalArgs[0] });
                 break;
-            case "container:pgweb:access-command": {
+
+            // PGWEB COMMANDS
+            case "pgweb-access-command": {
                 const pgwebAccessURL = await generatePgwebAccessURL();
                 log({
                     message: `Access PGWEB at: ${pgwebAccessURL}`,
@@ -1084,6 +1325,7 @@ if (import.meta.main) {
                 });
                 break;
             }
+
             default:
                 printValidCommands();
                 process.exit(1);

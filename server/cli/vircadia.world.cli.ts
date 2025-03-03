@@ -6,6 +6,7 @@ import { dirname } from "node:path";
 import { readdir, readFile } from "node:fs/promises";
 import { sign } from "jsonwebtoken";
 import { PostgresClient } from "../../sdk/vircadia-world-sdk-ts/module/server/postgres.client.ts";
+import { Communication } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general.ts";
 
 enum DOCKER_COMPOSE_SERVICE {
     POSTGRES = "postgres",
@@ -155,21 +156,28 @@ export async function up(data: {
     }
 }
 
-// Update down function
 export async function down(data: {
     service?: DOCKER_COMPOSE_SERVICE;
-    wipeVolumes?: boolean;
 }): Promise<void> {
-    const { wipeVolumes } = data;
-    // For down commands, don't append service - specify in docker-compose args
-    const args = wipeVolumes ? ["down", "-v"] : ["down"];
+    let args: string[];
 
     if (data.service) {
-        args.push(data.service.toLowerCase());
+        // For a specific service, just remove the container
+        args = ["rm", "-f", data.service.toLowerCase()];
+    } else {
+        // For all services, just down without -v
+        // Ignoring wipeVolumes parameter for safety
+        args = ["down"];
     }
 
     await runDockerCommand({
         args,
+    });
+}
+
+export async function downAndWipeAllServices(): Promise<void> {
+    await runDockerCommand({
+        args: ["down", "-v"],
     });
 }
 
@@ -238,7 +246,11 @@ export async function isHealthy(): Promise<{
     }> => {
         try {
             const response = await fetch(
-                `http://${VircadiaConfig.SERVER.SERVICE.API.HOST_PUBLIC}:${VircadiaConfig.SERVER.SERVICE.API.PORT_PUBLIC}`,
+                `http://${VircadiaConfig.SERVER.SERVICE.API.HOST_PUBLIC}:${VircadiaConfig.SERVER.SERVICE.API.PORT_PUBLIC}${Communication.REST.Endpoint.STATS}`,
+                {
+                    method: "POST",
+                    body: Communication.REST.Endpoint.STATS.createRequest(),
+                },
             );
             return { isHealthy: response.ok };
         } catch (error: unknown) {
@@ -698,7 +710,7 @@ function printValidCommands() {
         ${Object.keys(DOCKER_COMPOSE_SERVICE)
             .map((k) => {
                 const service = k.toLowerCase().replace(/_/g, "-");
-                return `container-up-${service}\n        container-down-${service}\n        container-rebuild-${service}\n        container-restart-${service}`;
+                return `container-up-${service}\n        container-down-${service}\n        container-rebuild-${service}\n        container-restart-${service}\n        container-wipe-${service}`;
             })
             .join("\n        ")}
 
@@ -773,6 +785,7 @@ if (import.meta.main) {
                     suppress: VircadiaConfig.SERVER.SUPPRESS,
                     debug: VircadiaConfig.SERVER.DEBUG,
                 });
+                await downAndWipeAllServices();
                 await runForAllServices(async (svc) => {
                     log({
                         message: `Rebuilding ${svc.toLowerCase()} service...`,
@@ -780,13 +793,12 @@ if (import.meta.main) {
                         suppress: VircadiaConfig.SERVER.SUPPRESS,
                         debug: VircadiaConfig.SERVER.DEBUG,
                     });
-                    await down({ service: svc, wipeVolumes: true });
                     await up({ service: svc, rebuild: true });
                 });
 
                 // After rebuilding all services, run migrations and seed
                 const health = await isHealthy();
-                if (health.isHealthy) {
+                if (health.services.postgres.isHealthy) {
                     const migrationsRan = await migrate();
                     if (migrationsRan) {
                         log({
@@ -803,10 +815,13 @@ if (import.meta.main) {
                         suppress: VircadiaConfig.SERVER.SUPPRESS,
                         debug: VircadiaConfig.SERVER.DEBUG,
                     });
-                } else {
+                }
+
+                if (!health.isHealthy) {
                     log({
                         message: "Failed to start some services after rebuild",
                         type: "error",
+                        data: health.services,
                         suppress: VircadiaConfig.SERVER.SUPPRESS,
                         debug: VircadiaConfig.SERVER.DEBUG,
                     });
@@ -876,7 +891,6 @@ if (import.meta.main) {
                 });
                 await down({
                     service: DOCKER_COMPOSE_SERVICE.POSTGRES,
-                    wipeVolumes: true,
                 });
                 await up({
                     service: DOCKER_COMPOSE_SERVICE.POSTGRES,
@@ -957,7 +971,6 @@ if (import.meta.main) {
                 });
                 await down({
                     service: DOCKER_COMPOSE_SERVICE.PGWEB,
-                    wipeVolumes: true,
                 });
                 await up({
                     service: DOCKER_COMPOSE_SERVICE.PGWEB,
@@ -1021,10 +1034,7 @@ if (import.meta.main) {
                     suppress: VircadiaConfig.SERVER.SUPPRESS,
                     debug: VircadiaConfig.SERVER.DEBUG,
                 });
-                await down({
-                    service: DOCKER_COMPOSE_SERVICE.API,
-                    wipeVolumes: true,
-                });
+                await down({ service: DOCKER_COMPOSE_SERVICE.API }); // No wipeVolumes here
                 await up({
                     service: DOCKER_COMPOSE_SERVICE.API,
                     rebuild: true,
@@ -1089,7 +1099,6 @@ if (import.meta.main) {
                 });
                 await down({
                     service: DOCKER_COMPOSE_SERVICE.TICK,
-                    wipeVolumes: true,
                 });
                 await up({
                     service: DOCKER_COMPOSE_SERVICE.TICK,
@@ -1155,7 +1164,6 @@ if (import.meta.main) {
                 });
                 await down({
                     service: DOCKER_COMPOSE_SERVICE.SCRIPT_WEB,
-                    wipeVolumes: true,
                 });
                 await up({
                     service: DOCKER_COMPOSE_SERVICE.SCRIPT_WEB,

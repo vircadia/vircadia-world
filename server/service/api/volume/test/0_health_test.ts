@@ -1,30 +1,40 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import type { Subprocess } from "bun";
-import type postgres from "postgres";
-import { PostgresClient } from "../database/postgres/postgres_client";
-import {
-    Communication,
-    Entity,
-} from "../vircadia-world-sdk-ts/schema/schema.general";
+import { describe, test, expect } from "bun:test";
 import { VircadiaConfig } from "../vircadia-world-sdk-ts/config/vircadia.config";
-import {
-    cleanupTestAccounts,
-    cleanupTestAssets,
-    cleanupTestEntities,
-    cleanupTestScripts,
-    DB_TEST_PREFIX,
-    initContainers,
-    initTestAccounts,
-    TEST_SYNC_GROUP,
-    type TestAccount,
-} from "./helper/helpers";
 import { log } from "../vircadia-world-sdk-ts/module/general/log";
+import { Communication } from "../vircadia-world-sdk-ts/schema/schema.general";
+import { fetch } from "bun";
 
 describe("World API Manager - HEALTH", () => {
-    test("Health Check", async () => {
-        const healthCheckResponse = await Communication.HealthCheck();
-        expect(healthCheckResponse).toEqual({
-            status: "ok",
+    test("Health Check - Stats Endpoint", async () => {
+        // Construct the stats endpoint URL
+        const statsEndpoint = `http://${VircadiaConfig.SERVER.SERVICE.API.HOST_BIND}:${VircadiaConfig.SERVER.SERVICE.API.PORT_BIND}${Communication.REST.Endpoint.STATS.path}`;
+
+        // Send request to the stats endpoint
+        const response = await fetch(statsEndpoint, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                // Add localhost headers to ensure access is granted
+                "X-Forwarded-For": "127.0.0.1",
+            },
+            body: Communication.REST.Endpoint.STATS.createRequest(),
         });
-    }
+
+        // Check if the response was successful
+        expect(response.status).toBe(200);
+
+        // Parse the response body
+        const responseData = await response.json();
+
+        // Verify that the response indicates success
+        expect(responseData).toHaveProperty("success", true);
+
+        // Log success for debugging
+        log({
+            message: "Stats endpoint health check successful",
+            debug: VircadiaConfig.SERVER.DEBUG,
+            type: "debug",
+            data: { responseData },
+        });
+    });
 });

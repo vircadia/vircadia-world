@@ -455,6 +455,49 @@ export class WorldApiManager {
                             }
                         }
 
+                        case url.pathname ===
+                            Communication.REST.Endpoint.STATS.path &&
+                            req.method === "POST": {
+                            const requestIP =
+                                req.headers
+                                    .get("x-forwarded-for")
+                                    ?.split(",")[0] ||
+                                server.requestIP(req)?.address ||
+                                "";
+
+                            // Only allow access from localhost
+                            if (
+                                requestIP !== "127.0.0.1" &&
+                                requestIP !== "::1" &&
+                                requestIP !== "localhost"
+                            ) {
+                                return Response.json(
+                                    Communication.REST.Endpoint.STATS.createError(
+                                        "Forbidden.",
+                                    ),
+                                );
+                            }
+
+                            // Gather stats information
+                            return Response.json(
+                                Communication.REST.Endpoint.STATS.createSuccess(
+                                    {
+                                        uptime: process.uptime(),
+                                        connections: {
+                                            active: this.activeSessions.size,
+                                        },
+                                        database: {
+                                            connected:
+                                                !!superUserSql &&
+                                                !!proxyUserSql,
+                                        },
+                                        memory: process.memoryUsage(),
+                                        cpu: process.cpuUsage(),
+                                    },
+                                ),
+                            );
+                        }
+
                         default:
                             return new Response("Not Found", {
                                 status: 404,

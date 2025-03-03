@@ -75,7 +75,7 @@ services:
     user: "1000:1000"  # Run as non-root user
     restart: always
     ports:
-      - "${VRCA_SERVER_SERVICE_API_HOST_CONTAINER_EXTERNAL}:${VRCA_SERVER_SERVICE_API_PORT_CONTAINER_EXTERNAL:-3000}:3000"
+      - "${VRCA_SERVER_SERVICE_API_HOST_CONTAINER_EXTERNAL}:${VRCA_SERVER_SERVICE_API_PORT_CONTAINER_EXTERNAL:-3020}:3020"
     volumes:
       - ./api/volume:/app
     working_dir: /app
@@ -100,12 +100,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    # healthcheck:
-    #   test: ["CMD", "bun", "test", "/app/test"]
-    #   interval: 30s
-    #   timeout: 10s
-    #   retries: 3
-    #   start_period: 10s
+    healthcheck:
+      test: ["CMD", "bun", "test", "/app/test"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     networks:
       - vircadia_network
 

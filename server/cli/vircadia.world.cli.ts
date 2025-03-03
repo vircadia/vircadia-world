@@ -39,41 +39,40 @@ async function runDockerCommand(data: {
         VRCA_SERVER_SUPPRESS: VircadiaConfig.SERVER.SUPPRESS.toString(),
 
         VRCA_SERVER_SERVICE_API_HOST_BIND:
-            VircadiaConfig.SERVER.SERVICE.API.HOST_BIND,
+            VircadiaConfig.SERVER_ENV.VRCA_SERVER_SERVICE_API_HOST_BIND,
         VRCA_SERVER_SERVICE_API_PORT_BIND:
-            VircadiaConfig.SERVER.SERVICE.API.HOST_BIND.toString(),
+            VircadiaConfig.SERVER_ENV.VRCA_SERVER_SERVICE_API_PORT_BIND.toString(),
         VRCA_SERVER_SERVICE_API_HOST_CLUSTER:
-            VircadiaConfig.SERVER.SERVICE.API.HOST_CLUSTER,
+            VircadiaConfig.SERVER_ENV.VRCA_SERVER_SERVICE_API_HOST_CLUSTER,
         VRCA_SERVER_SERVICE_API_PORT_CLUSTER:
-            VircadiaConfig.SERVER.SERVICE.API.PORT_CLUSTER.toString(),
+            VircadiaConfig.SERVER_ENV.VRCA_SERVER_SERVICE_API_PORT_CLUSTER.toString(),
         VRCA_SERVER_SERVICE_API_HOST_PUBLIC:
-            VircadiaConfig.SERVER.SERVICE.API.HOST_PUBLIC,
+            VircadiaConfig.SERVER_ENV.VRCA_SERVER_SERVICE_API_HOST_PUBLIC,
         VRCA_SERVER_SERVICE_API_PORT_PUBLIC:
-            VircadiaConfig.SERVER.SERVICE.API.PORT_PUBLIC.toString(),
+            VircadiaConfig.SERVER_ENV.VRCA_SERVER_SERVICE_API_PORT_PUBLIC.toString(),
 
-        VRCA_SERVER_SERVICE_POSTGRES_HOST_EXTERNAL:
-            VircadiaConfig.SERVER.SERVICE.POSTGRES.HOST_EXTERNAL,
-        VRCA_SERVER_SERVICE_POSTGRES_PORT_INTERNAL:
-            VircadiaConfig.SERVER.SERVICE.POSTGRES.PORT_EXTERNAL.toString(),
+        VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_EXTERNAL:
+            VircadiaConfig.SERVER_ENV
+                .VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_EXTERNAL,
+        VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_EXTERNAL:
+            VircadiaConfig.SERVER_ENV.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_EXTERNAL.toString(),
         VRCA_SERVER_SERVICE_POSTGRES_HOST_CLUSTER:
-            VircadiaConfig.SERVER.SERVICE.POSTGRES.HOST_CLUSTER,
+            VircadiaConfig.SERVER_ENV.VRCA_SERVER_SERVICE_POSTGRES_HOST_CLUSTER,
         VRCA_SERVER_SERVICE_POSTGRES_PORT_CLUSTER:
-            VircadiaConfig.SERVER.SERVICE.POSTGRES.PORT_CLUSTER.toString(),
+            VircadiaConfig.SERVER_ENV.VRCA_SERVER_SERVICE_POSTGRES_PORT_CLUSTER.toString(),
         VRCA_SERVER_SERVICE_POSTGRES_DATABASE:
-            VircadiaConfig.SERVER.SERVICE.POSTGRES.DATABASE,
+            VircadiaConfig.SERVER_ENV.VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
         VRCA_SERVER_SERVICE_POSTGRES_PASSWORD:
-            VircadiaConfig.SERVER.SERVICE.POSTGRES.PASSWORD,
-        VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER:
-            VircadiaConfig.GLOBAL_CONSTS.DB_AGENT_PROXY_USER,
+            VircadiaConfig.SERVER_ENV.VRCA_SERVER_SERVICE_POSTGRES_PASSWORD,
         VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_PASSWORD:
             VircadiaConfig.SERVER.SERVICE.POSTGRES.AGENT_PROXY_PASSWORD,
         VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS:
             VircadiaConfig.SERVER.SERVICE.POSTGRES.EXTENSIONS.join(","),
 
         VRCA_SERVER_SERVICE_PGWEB_HOST_EXTERNAL:
-            VircadiaConfig.SERVER.SERVICE.PGWEB.HOST_EXTERNAL,
+            VircadiaConfig.SERVER_ENV.VRCA_SERVER_SERVICE_PGWEB_HOST_EXTERNAL,
         VRCA_SERVER_SERVICE_PGWEB_PORT_EXTERNAL:
-            VircadiaConfig.SERVER.SERVICE.PGWEB.PORT_EXTERNAL.toString(),
+            VircadiaConfig.SERVER_ENV.VRCA_SERVER_SERVICE_PGWEB_PORT_EXTERNAL.toString(),
     };
 
     // Construct the command
@@ -659,7 +658,7 @@ export async function invalidateDbSystemTokens(): Promise<number> {
 }
 
 export async function generateDbConnectionString(): Promise<string> {
-    return `postgres://${VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER}:${VircadiaConfig.SERVER.SERVICE.POSTGRES.PASSWORD}@${VircadiaConfig.SERVER.SERVICE.POSTGRES.HOST_EXTERNAL}:${VircadiaConfig.SERVER.SERVICE.POSTGRES.PORT_EXTERNAL}/${VircadiaConfig.SERVER.SERVICE.POSTGRES.DATABASE}`;
+    return `postgres://${VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER}:${VircadiaConfig.SERVER.SERVICE.POSTGRES.PASSWORD}@${VircadiaConfig.SERVER.SERVICE.POSTGRES.HOST_CONTAINER_EXTERNAL}:${VircadiaConfig.SERVER.SERVICE.POSTGRES.PORT_CONTAINER_EXTERNAL}/${VircadiaConfig.SERVER.SERVICE.POSTGRES.DATABASE}`;
 }
 
 export async function generatePgwebAccessURL(): Promise<string> {
@@ -682,7 +681,7 @@ function printValidCommands() {
     log({
         message: `Valid commands: 
 
-        // Container commands - updated format
+        // Container commands
         container:up:all, 
         container:up:[service], 
         container:down:all, 

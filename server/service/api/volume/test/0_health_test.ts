@@ -7,7 +7,7 @@ import { fetch } from "bun";
 describe("World API Manager - HEALTH", () => {
     test("Health Check - Stats Endpoint", async () => {
         // Construct the stats endpoint URL
-        const statsEndpoint = `http://${VircadiaConfig.SERVER.SERVICE.API.HOST_BIND}:${VircadiaConfig.SERVER.SERVICE.API.PORT_BIND}${Communication.REST.Endpoint.STATS.path}`;
+        const statsEndpoint = `http://${VircadiaConfig.SERVER.SERVICE.API.HOST_PUBLIC}:${VircadiaConfig.SERVER.SERVICE.API.PORT_PUBLIC}${Communication.REST.Endpoint.STATS.path}`;
 
         // Send request to the stats endpoint
         const response = await fetch(statsEndpoint, {
@@ -34,6 +34,7 @@ describe("World API Manager - HEALTH", () => {
             message: "Stats endpoint health check successful",
             debug: VircadiaConfig.SERVER.DEBUG,
             type: "debug",
+            suppress: VircadiaConfig.SERVER.SUPPRESS,
             data: { responseData },
         });
     });

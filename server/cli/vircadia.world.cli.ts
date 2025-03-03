@@ -82,7 +82,7 @@ async function runDockerCommand(data: {
     let dockerArgs = ["docker", "compose", "-f", DOCKER_COMPOSE_FILE];
 
     // Add service name if specified
-    if (data.service && !data.args.includes("down")) {
+    if (data.service) {
         // For 'up' commands with a specific service
         dockerArgs = [...dockerArgs, ...data.args, data.service.toLowerCase()];
     } else {
@@ -155,19 +155,9 @@ export async function up(data: {
 export async function down(data: {
     service?: DOCKER_COMPOSE_SERVICE;
 }): Promise<void> {
-    let args: string[];
-
-    if (data.service) {
-        // For a specific service, just remove the container
-        args = ["rm", "-f", data.service.toLowerCase()];
-    } else {
-        // For all services, just down without -v
-        // Ignoring wipeVolumes parameter for safety
-        args = ["down"];
-    }
-
     await runDockerCommand({
-        args,
+        args: ["down"],
+        service: data.service,
     });
 }
 
@@ -685,7 +675,7 @@ export async function generatePgwebAccessURL(): Promise<string> {
 }
 
 // Add a new helper function to run operations on all services
-async function runForAllServices(
+export async function runForAllServices(
     operation: (service: DOCKER_COMPOSE_SERVICE) => Promise<void>,
 ) {
     for (const serviceKey of Object.keys(DOCKER_COMPOSE_SERVICE) as Array<

@@ -152,8 +152,18 @@ export class WorldApiManager {
         });
 
         try {
-            superUserSql = await PostgresClient.getInstance().getSuperClient();
-            proxyUserSql = await PostgresClient.getInstance().getProxyClient();
+            superUserSql = await PostgresClient.getInstance().getSuperClient({
+                postgres: {
+                    host: VircadiaConfig.SERVER.SERVICE.POSTGRES.HOST_CLUSTER,
+                    port: VircadiaConfig.SERVER.SERVICE.POSTGRES.PORT_CLUSTER,
+                },
+            });
+            proxyUserSql = await PostgresClient.getInstance().getProxyClient({
+                postgres: {
+                    host: VircadiaConfig.SERVER.SERVICE.POSTGRES.HOST_CLUSTER,
+                    port: VircadiaConfig.SERVER.SERVICE.POSTGRES.PORT_CLUSTER,
+                },
+            });
         } catch (error) {
             log({
                 message: "Failed to initialize DB connection",
@@ -216,8 +226,8 @@ export class WorldApiManager {
 
         // Start server
         this.server = Bun.serve({
-            port: VircadiaConfig.SERVER.SERVICE.API.PORT,
-            hostname: VircadiaConfig.SERVER.SERVICE.API.HOST,
+            port: VircadiaConfig.SERVER.SERVICE.API.PORT_BIND,
+            hostname: VircadiaConfig.SERVER.SERVICE.API.HOST_BIND,
             development: VircadiaConfig.SERVER.DEBUG,
 
             // #region API -> HTTP Routes
@@ -737,7 +747,10 @@ export class WorldApiManager {
         }, 1000);
 
         log({
-            message: `Bun HTTP+WS World API Server running at http://${VircadiaConfig.SERVER.SERVICE.API.HOST}:${VircadiaConfig.SERVER.SERVICE.API.PORT}`,
+            message: `Bun HTTP+WS World API Server running at
+            \nINTERNAL: [ ${VircadiaConfig.SERVER.SERVICE.API.HOST_BIND}:${VircadiaConfig.SERVER.SERVICE.API.PORT_BIND} ]
+            \nCLUSTER: [ ${VircadiaConfig.SERVER.SERVICE.API.HOST_CLUSTER}:${VircadiaConfig.SERVER.SERVICE.API.PORT_CLUSTER} ]
+            \nPUBLIC: [ ${VircadiaConfig.SERVER.SERVICE.API.HOST_PUBLIC}:${VircadiaConfig.SERVER.SERVICE.API.PORT_PUBLIC} ]`,
             type: "success",
             debug: VircadiaConfig.SERVER.DEBUG,
             suppress: VircadiaConfig.SERVER.SUPPRESS,
@@ -992,7 +1005,9 @@ if (import.meta.main) {
     } catch (error) {
         log({
             message: "Failed to start World API Manager.",
-            data: error as any,
+            data: {
+                error,
+            },
             type: "error",
             suppress: VircadiaConfig.SERVER.SUPPRESS,
             debug: true,

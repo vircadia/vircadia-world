@@ -33,17 +33,32 @@ async function runDockerCommand(data: {
             VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER,
         VRCA_GLOBAL_CONSTS_DB_AGENT_PROXY_USER:
             VircadiaConfig.GLOBAL_CONSTS.DB_AGENT_PROXY_USER,
+
         VRCA_SERVER_CONTAINER_NAME: VircadiaConfig.SERVER.CONTAINER_NAME,
         VRCA_SERVER_DEBUG: VircadiaConfig.SERVER.DEBUG.toString(),
         VRCA_SERVER_SUPPRESS: VircadiaConfig.SERVER.SUPPRESS.toString(),
-        VRCA_SERVER_SERVICE_API_PORT_INTERNAL:
-            VircadiaConfig.SERVER.SERVICE.API.PORT.toString(),
-        VRCA_SERVER_SERVICE_API_HOST_INTERNAL:
-            VircadiaConfig.SERVER.SERVICE.API.HOST,
-        VRCA_SERVER_SERVICE_POSTGRES_HOST_INTERNAL:
-            VircadiaConfig.SERVER.SERVICE.POSTGRES.HOST,
+
+        VRCA_SERVER_SERVICE_API_HOST_BIND:
+            VircadiaConfig.SERVER.SERVICE.API.HOST_BIND,
+        VRCA_SERVER_SERVICE_API_PORT_BIND:
+            VircadiaConfig.SERVER.SERVICE.API.HOST_BIND.toString(),
+        VRCA_SERVER_SERVICE_API_HOST_CLUSTER:
+            VircadiaConfig.SERVER.SERVICE.API.HOST_CLUSTER,
+        VRCA_SERVER_SERVICE_API_PORT_CLUSTER:
+            VircadiaConfig.SERVER.SERVICE.API.PORT_CLUSTER.toString(),
+        VRCA_SERVER_SERVICE_API_HOST_PUBLIC:
+            VircadiaConfig.SERVER.SERVICE.API.HOST_PUBLIC,
+        VRCA_SERVER_SERVICE_API_PORT_PUBLIC:
+            VircadiaConfig.SERVER.SERVICE.API.PORT_PUBLIC.toString(),
+
+        VRCA_SERVER_SERVICE_POSTGRES_HOST_EXTERNAL:
+            VircadiaConfig.SERVER.SERVICE.POSTGRES.HOST_EXTERNAL,
         VRCA_SERVER_SERVICE_POSTGRES_PORT_INTERNAL:
-            VircadiaConfig.SERVER.SERVICE.POSTGRES.PORT.toString(),
+            VircadiaConfig.SERVER.SERVICE.POSTGRES.PORT_EXTERNAL.toString(),
+        VRCA_SERVER_SERVICE_POSTGRES_HOST_CLUSTER:
+            VircadiaConfig.SERVER.SERVICE.POSTGRES.HOST_CLUSTER,
+        VRCA_SERVER_SERVICE_POSTGRES_PORT_CLUSTER:
+            VircadiaConfig.SERVER.SERVICE.POSTGRES.PORT_CLUSTER.toString(),
         VRCA_SERVER_SERVICE_POSTGRES_DATABASE:
             VircadiaConfig.SERVER.SERVICE.POSTGRES.DATABASE,
         VRCA_SERVER_SERVICE_POSTGRES_PASSWORD:
@@ -54,8 +69,11 @@ async function runDockerCommand(data: {
             VircadiaConfig.SERVER.SERVICE.POSTGRES.AGENT_PROXY_PASSWORD,
         VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS:
             VircadiaConfig.SERVER.SERVICE.POSTGRES.EXTENSIONS.join(","),
-        VRCA_SERVER_SERVICE_PGWEB_PORT:
-            VircadiaConfig.SERVER.SERVICE.PGWEB.PORT.toString(),
+
+        VRCA_SERVER_SERVICE_PGWEB_HOST_EXTERNAL:
+            VircadiaConfig.SERVER.SERVICE.PGWEB.HOST_EXTERNAL,
+        VRCA_SERVER_SERVICE_PGWEB_PORT_EXTERNAL:
+            VircadiaConfig.SERVER.SERVICE.PGWEB.PORT_EXTERNAL.toString(),
     };
 
     // Construct the command
@@ -182,7 +200,12 @@ export async function isHealthy(): Promise<{
         try {
             const db = PostgresClient.getInstance();
 
-            const sql = await db.getSuperClient();
+            const sql = await db.getSuperClient({
+                postgres: {
+                    host: VircadiaConfig.CLI.POSTGRES.HOST,
+                    port: VircadiaConfig.CLI.POSTGRES.PORT,
+                },
+            });
             await sql`SELECT 1`;
             return { isHealthy: true };
         } catch (error: unknown) {
@@ -195,9 +218,9 @@ export async function isHealthy(): Promise<{
         error?: Error;
     }> => {
         try {
-            const response = await fetch(
-                `http://localhost:${VircadiaConfig.SERVER.SERVICE.PGWEB.PORT}`,
-            );
+            const pgwebAccessURL = await generatePgwebAccessURL();
+
+            const response = await fetch(pgwebAccessURL);
             return { isHealthy: response.ok };
         } catch (error: unknown) {
             return { isHealthy: false, error: error as Error };
@@ -210,7 +233,7 @@ export async function isHealthy(): Promise<{
     }> => {
         try {
             const response = await fetch(
-                `http://localhost:${VircadiaConfig.SERVER.SERVICE.API.PORT}`,
+                `http://${VircadiaConfig.SERVER.SERVICE.API.HOST_PUBLIC}:${VircadiaConfig.SERVER.SERVICE.API.PORT_PUBLIC}`,
             );
             return { isHealthy: response.ok };
         } catch (error: unknown) {
@@ -273,7 +296,12 @@ export async function isHealthy(): Promise<{
 
 export async function wipeDatabase() {
     const db = PostgresClient.getInstance();
-    const sql = await db.getSuperClient();
+    const sql = await db.getSuperClient({
+        postgres: {
+            host: VircadiaConfig.CLI.POSTGRES.HOST,
+            port: VircadiaConfig.CLI.POSTGRES.PORT,
+        },
+    });
 
     // Get list of migration files
     const resets = await readdir(VircadiaConfig.CLI.POSTGRES.RESET_DIR);
@@ -313,7 +341,12 @@ export async function wipeDatabase() {
 
 export async function migrate(): Promise<boolean> {
     const db = PostgresClient.getInstance();
-    const sql = await db.getSuperClient();
+    const sql = await db.getSuperClient({
+        postgres: {
+            host: VircadiaConfig.CLI.POSTGRES.HOST,
+            port: VircadiaConfig.CLI.POSTGRES.PORT,
+        },
+    });
 
     let migrationsRan = false;
 
@@ -420,7 +453,12 @@ export async function seed(data: {
     seedPath?: string;
 }) {
     const db = PostgresClient.getInstance();
-    const sql = await db.getSuperClient();
+    const sql = await db.getSuperClient({
+        postgres: {
+            host: VircadiaConfig.CLI.POSTGRES.HOST,
+            port: VircadiaConfig.CLI.POSTGRES.PORT,
+        },
+    });
 
     // Ensure we resolve the seed path to absolute path
     const seedDir = data.seedPath
@@ -514,7 +552,12 @@ export async function generateDbSystemToken(): Promise<{
     agentId: string;
 }> {
     const db = PostgresClient.getInstance();
-    const sql = await db.getSuperClient();
+    const sql = await db.getSuperClient({
+        postgres: {
+            host: VircadiaConfig.CLI.POSTGRES.HOST,
+            port: VircadiaConfig.CLI.POSTGRES.PORT,
+        },
+    });
 
     // Get auth provider settings for the system provider
     const [providerConfig] = await sql<
@@ -589,7 +632,12 @@ export async function generateDbSystemToken(): Promise<{
 
 export async function invalidateDbSystemTokens(): Promise<number> {
     const db = PostgresClient.getInstance();
-    const sql = await db.getSuperClient();
+    const sql = await db.getSuperClient({
+        postgres: {
+            host: VircadiaConfig.CLI.POSTGRES.HOST,
+            port: VircadiaConfig.CLI.POSTGRES.PORT,
+        },
+    });
 
     // First update all active sessions for the system agent to inactive
     await sql`
@@ -611,7 +659,11 @@ export async function invalidateDbSystemTokens(): Promise<number> {
 }
 
 export async function generateDbConnectionString(): Promise<string> {
-    return `postgres://${VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER}:${VircadiaConfig.SERVER.SERVICE.POSTGRES.PASSWORD}@${VircadiaConfig.SERVER.SERVICE.POSTGRES.HOST}:${VircadiaConfig.SERVER.SERVICE.POSTGRES.PORT}/${VircadiaConfig.SERVER.SERVICE.POSTGRES.DATABASE}`;
+    return `postgres://${VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER}:${VircadiaConfig.SERVER.SERVICE.POSTGRES.PASSWORD}@${VircadiaConfig.SERVER.SERVICE.POSTGRES.HOST_EXTERNAL}:${VircadiaConfig.SERVER.SERVICE.POSTGRES.PORT_EXTERNAL}/${VircadiaConfig.SERVER.SERVICE.POSTGRES.DATABASE}`;
+}
+
+export async function generatePgwebAccessURL(): Promise<string> {
+    return `http://${VircadiaConfig.SERVER.SERVICE.PGWEB.HOST_EXTERNAL}:${VircadiaConfig.SERVER.SERVICE.PGWEB.PORT_EXTERNAL}`;
 }
 
 // Add a new helper function to run operations on all services
@@ -899,9 +951,7 @@ if (import.meta.main) {
                 break;
             }
 
-            // Keep the rest of your existing commands
             case "container:health": {
-                // Existing code for health check
                 const health = await isHealthy();
                 log({
                     message: `PostgreSQL: ${health.services.postgres.isHealthy ? "healthy" : "unhealthy"}`,
@@ -915,36 +965,120 @@ if (import.meta.main) {
                     data: health.services.pgweb,
                     type: health.services.pgweb.isHealthy ? "success" : "error",
                 });
-                // Add other services health checks here
+                log({
+                    message: `API Manager: ${health.services.api.isHealthy ? "healthy" : "unhealthy"}`,
+                    data: health.services.api,
+                    type: health.services.api.isHealthy ? "success" : "error",
+                });
+                log({
+                    message: `Script Web Manager: ${health.services.script_web.isHealthy ? "healthy" : "unhealthy"}`,
+                    data: health.services.script_web,
+                    type: health.services.script_web.isHealthy
+                        ? "success"
+                        : "error",
+                });
+                log({
+                    message: `Tick Manager: ${health.services.tick.isHealthy ? "healthy" : "unhealthy"}`,
+                    data: health.services.tick,
+                    type: health.services.tick.isHealthy ? "success" : "error",
+                });
                 break;
             }
 
-            // ...existing db commands stay the same...
             case "container:db:migrate":
-            case "container:db:wipe":
-            case "container:db:reset":
-            case "container:db:connection-string":
-            case "container:db:system-token":
-            case "container:db:seed":
-            case "container:pgweb:access-command":
-                // These remain unchanged - keep your existing implementation
-                // ...existing code...
-                break;
-
-            // Support for legacy command format (can be removed later)
-            case "container:up":
-            case "container:down":
-            case "container:rebuild":
-            case "container:restart":
                 log({
-                    message: `Warning: The command format "${command} [service]" is deprecated. Please use "${command}:all" or "${command}:[service]" instead.`,
-                    type: "warning",
-                    suppress: false,
+                    message: "Running migrations...",
+                    type: "info",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
                 });
-                // Execute the legacy command with the optional service argument
-                // ...existing code for these commands...
+                await migrate();
+                log({
+                    message: "Migrations ran successfully",
+                    type: "success",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
                 break;
-
+            case "container:db:wipe":
+                log({
+                    message: "Wiping database...",
+                    type: "info",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                await wipeDatabase();
+                log({
+                    message: "Database wiped",
+                    type: "success",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                break;
+            case "container:db:reset":
+                log({
+                    message: "Resetting database...",
+                    type: "info",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                await wipeDatabase();
+                await migrate();
+                await seed({});
+                log({
+                    message: "Database reset",
+                    type: "success",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                break;
+            case "container:db:connection-string": {
+                const connectionString = await generateDbConnectionString();
+                log({
+                    message: `Database connection string: ${connectionString}`,
+                    type: "info",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                break;
+            }
+            case "container:db:system-token": {
+                log({
+                    message: "Generating system agent token...",
+                    type: "info",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                const { token, sessionId, agentId } =
+                    await generateDbSystemToken();
+                log({
+                    message: `System agent token: ${token}`,
+                    data: { sessionId, agentId },
+                    type: "success",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                break;
+            }
+            case "container:db:seed":
+                log({
+                    message: "Seeding database...",
+                    type: "info",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                await seed({});
+                break;
+            case "container:pgweb:access-command": {
+                const pgwebAccessURL = await generatePgwebAccessURL();
+                log({
+                    message: `Access PGWEB at: ${pgwebAccessURL}`,
+                    type: "info",
+                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.DEBUG,
+                });
+                break;
+            }
             default:
                 printValidCommands();
                 process.exit(1);

@@ -50,6 +50,11 @@ async function runDockerCommand(data: {
             VircadiaConfig.SERVER_ENV.VRCA_SERVER_SERVICE_API_HOST_PUBLIC,
         VRCA_SERVER_SERVICE_API_PORT_PUBLIC:
             VircadiaConfig.SERVER_ENV.VRCA_SERVER_SERVICE_API_PORT_PUBLIC.toString(),
+        VRCA_SERVER_SERVICE_API_HOST_CONTAINER_EXTERNAL:
+            VircadiaConfig.SERVER_ENV
+                .VRCA_SERVER_SERVICE_API_HOST_CONTAINER_EXTERNAL,
+        VRCA_SERVER_SERVICE_API_PORT_CONTAINER_EXTERNAL:
+            VircadiaConfig.SERVER_ENV.VRCA_SERVER_SERVICE_API_PORT_CONTAINER_EXTERNAL.toString(),
 
         VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_EXTERNAL:
             VircadiaConfig.SERVER_ENV
@@ -69,10 +74,11 @@ async function runDockerCommand(data: {
         VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS:
             VircadiaConfig.SERVER.SERVICE.POSTGRES.EXTENSIONS.join(","),
 
-        VRCA_SERVER_SERVICE_PGWEB_HOST_EXTERNAL:
-            VircadiaConfig.SERVER_ENV.VRCA_SERVER_SERVICE_PGWEB_HOST_EXTERNAL,
-        VRCA_SERVER_SERVICE_PGWEB_PORT_EXTERNAL:
-            VircadiaConfig.SERVER_ENV.VRCA_SERVER_SERVICE_PGWEB_PORT_EXTERNAL.toString(),
+        VRCA_SERVER_SERVICE_PGWEB_HOST_CONTAINER_EXTERNAL:
+            VircadiaConfig.SERVER_ENV
+                .VRCA_SERVER_SERVICE_PGWEB_HOST_CONTAINER_EXTERNAL,
+        VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_EXTERNAL:
+            VircadiaConfig.SERVER_ENV.VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_EXTERNAL.toString(),
     };
 
     // Construct the command
@@ -662,7 +668,7 @@ export async function generateDbConnectionString(): Promise<string> {
 }
 
 export async function generatePgwebAccessURL(): Promise<string> {
-    return `http://${VircadiaConfig.SERVER.SERVICE.PGWEB.HOST_EXTERNAL}:${VircadiaConfig.SERVER.SERVICE.PGWEB.PORT_EXTERNAL}`;
+    return `http://${VircadiaConfig.SERVER.SERVICE.PGWEB.HOST_CONTAINER_EXTERNAL}:${VircadiaConfig.SERVER.SERVICE.PGWEB.PORT_CONTAINER_EXTERNAL}`;
 }
 
 // Add a new helper function to run operations on all services

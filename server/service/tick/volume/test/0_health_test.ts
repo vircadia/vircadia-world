@@ -20,7 +20,7 @@ describe("World Tick Manager - HEALTH", () => {
                 // Add localhost headers to ensure access is granted
                 "X-Forwarded-For": "127.0.0.1",
             },
-            body: Communication.REST.Endpoint.STATS.createRequest(),
+            body: Service.Tick.Stats_Endpoint.createRequest(),
         });
 
         // Check if the response was successful

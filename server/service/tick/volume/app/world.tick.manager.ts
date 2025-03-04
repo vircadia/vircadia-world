@@ -43,9 +43,9 @@ export class WorldTickManager {
                     // Handle stats
                     if (
                         url.pathname.startsWith(
-                            Service.Tick.Stats_Endpoint.STATS.path,
+                            Service.Tick.Stats_Endpoint.path,
                         ) &&
-                        req.method === Service.Tick.Stats_Endpoint.STATS.method
+                        req.method === Service.Tick.Stats_Endpoint.method
                     ) {
                         const requestIP =
                             req.headers.get("x-forwarded-for")?.split(",")[0] ||
@@ -59,7 +59,7 @@ export class WorldTickManager {
                             requestIP !== "localhost"
                         ) {
                             return Response.json(
-                                Service.Tick.Stats_Endpoint.STATS.createError(
+                                Service.Tick.Stats_Endpoint.createError(
                                     "Forbidden.",
                                 ),
                             );
@@ -67,7 +67,7 @@ export class WorldTickManager {
 
                         // Gather stats information
                         return Response.json(
-                            Service.Tick.Stats_Endpoint.STATS.createSuccess({
+                            Service.Tick.Stats_Endpoint.createSuccess({
                                 uptime: process.uptime(),
                                 database: {
                                     connected: !!this.superUserSql,

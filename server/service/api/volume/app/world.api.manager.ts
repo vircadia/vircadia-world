@@ -293,10 +293,8 @@ export class WorldApiManager {
 
                 // Handle stats
                 if (
-                    url.pathname.startsWith(
-                        Service.API.Stats_Endpoint.STATS.path,
-                    ) &&
-                    req.method === Service.API.Stats_Endpoint.STATS.method
+                    url.pathname.startsWith(Service.API.Stats_Endpoint.path) &&
+                    req.method === Service.API.Stats_Endpoint.method
                 ) {
                     const requestIP =
                         req.headers.get("x-forwarded-for")?.split(",")[0] ||
@@ -310,7 +308,7 @@ export class WorldApiManager {
                         requestIP !== "localhost"
                     ) {
                         return Response.json(
-                            Service.API.Stats_Endpoint.STATS.createError(
+                            Service.API.Stats_Endpoint.createError(
                                 "Forbidden.",
                             ),
                         );
@@ -318,7 +316,7 @@ export class WorldApiManager {
 
                     // Gather stats information
                     return Response.json(
-                        Service.API.Stats_Endpoint.STATS.createSuccess({
+                        Service.API.Stats_Endpoint.createSuccess({
                             uptime: process.uptime(),
                             connections: {
                                 active: this.activeSessions.size,

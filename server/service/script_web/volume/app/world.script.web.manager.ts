@@ -68,10 +68,9 @@ export class WorldWebScriptManager {
                     // Handle stats
                     if (
                         url.pathname.startsWith(
-                            Service.Script_Web.Stats_Endpoint.STATS.path,
+                            Service.Script_Web.Stats_Endpoint.path,
                         ) &&
-                        req.method ===
-                            Service.Script_Web.Stats_Endpoint.STATS.method
+                        req.method === Service.Script_Web.Stats_Endpoint.method
                     ) {
                         const requestIP =
                             req.headers.get("x-forwarded-for")?.split(",")[0] ||
@@ -85,7 +84,7 @@ export class WorldWebScriptManager {
                             requestIP !== "localhost"
                         ) {
                             return Response.json(
-                                Service.Script_Web.Stats_Endpoint.STATS.createError(
+                                Service.Script_Web.Stats_Endpoint.createError(
                                     "Forbidden.",
                                 ),
                             );
@@ -93,16 +92,14 @@ export class WorldWebScriptManager {
 
                         // Gather stats information
                         return Response.json(
-                            Service.Script_Web.Stats_Endpoint.STATS.createSuccess(
-                                {
-                                    uptime: process.uptime(),
-                                    database: {
-                                        connected: !!this.superUserSql,
-                                    },
-                                    memory: process.memoryUsage(),
-                                    cpu: process.cpuUsage(),
+                            Service.Script_Web.Stats_Endpoint.createSuccess({
+                                uptime: process.uptime(),
+                                database: {
+                                    connected: !!this.superUserSql,
                                 },
-                            ),
+                                memory: process.memoryUsage(),
+                                cpu: process.cpuUsage(),
+                            }),
                         );
                     }
                 },

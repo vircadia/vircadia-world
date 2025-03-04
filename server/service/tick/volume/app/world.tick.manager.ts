@@ -81,10 +81,10 @@ export class WorldTickManager {
             this.superUserSql =
                 await PostgresClient.getInstance().getSuperClient({
                     postgres: {
-                        host: VircadiaConfig.SERVER.SERVICE.POSTGRES
-                            .HOST_CLUSTER,
-                        port: VircadiaConfig.SERVER.SERVICE.POSTGRES
-                            .PORT_CLUSTER,
+                        host: VircadiaConfig.SERVER
+                            .VRCA_SERVER_SERVICE_POSTGRES_HOST_CLUSTER,
+                        port: VircadiaConfig.SERVER
+                            .VRCA_SERVER_SERVICE_POSTGRES_PORT_CLUSTER,
                     },
                 });
 

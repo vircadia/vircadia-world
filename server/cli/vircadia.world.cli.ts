@@ -243,10 +243,10 @@ export async function isHealthy(): Promise<{
         error?: Error;
     }> => {
         try {
-            const url = `http://${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_HOST_PUBLIC}:${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_PORT_PUBLIC}${Communication.REST.Endpoint.STATS.path}`;
+            const url = `http://${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_HOST_PUBLIC}:${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_PORT_PUBLIC}${Service.API.Stats_Endpoint.path}`;
             const response = await fetch(url, {
                 method: "POST",
-                body: Communication.REST.Endpoint.STATS.createRequest(),
+                body: Service.API.Stats_Endpoint.createRequest(),
             });
             return { isHealthy: response.ok };
         } catch (error: unknown) {
@@ -259,10 +259,10 @@ export async function isHealthy(): Promise<{
         error?: Error;
     }> => {
         try {
-            const url = `http://${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_SCRIPT_WEB_HOST_CONTAINER_EXTERNAL}:${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_SCRIPT_WEB_PORT_CONTAINER_EXTERNAL}${Communication.REST.Endpoint.STATS.path}`;
+            const url = `http://${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_SCRIPT_WEB_HOST_CONTAINER_EXTERNAL}:${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_SCRIPT_WEB_PORT_CONTAINER_EXTERNAL}${Service.Script_Web.Stats_Endpoint.path}`;
             const response = await fetch(url, {
                 method: "POST",
-                body: Communication.REST.Endpoint.STATS.createRequest(),
+                body: Service.Script_Web.Stats_Endpoint.createRequest(),
             });
             return { isHealthy: response.ok };
         } catch (error: unknown) {
@@ -275,10 +275,10 @@ export async function isHealthy(): Promise<{
         error?: Error;
     }> => {
         try {
-            const url = `http://${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_TICK_HOST_CONTAINER_EXTERNAL}:${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_TICK_PORT_CONTAINER_EXTERNAL}${Communication.REST.Endpoint.STATS.path}`;
+            const url = `http://${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_TICK_HOST_CONTAINER_EXTERNAL}:${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_TICK_PORT_CONTAINER_EXTERNAL}${Service.Tick.Stats_Endpoint.path}`;
             const response = await fetch(url, {
                 method: "POST",
-                body: Communication.REST.Endpoint.STATS.createRequest(),
+                body: Service.Tick.Stats_Endpoint.createRequest(),
             });
             return { isHealthy: response.ok };
         } catch (error: unknown) {

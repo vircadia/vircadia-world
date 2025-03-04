@@ -67,7 +67,9 @@ export class WorldWebScriptManager {
 
                     // Handle stats
                     if (
-                        url.pathname.startsWith("/stats") &&
+                        url.pathname.startsWith(
+                            Service.Script_Web.Stats_Endpoint.STATS.path,
+                        ) &&
                         req.method ===
                             Service.Script_Web.Stats_Endpoint.STATS.method
                     ) {

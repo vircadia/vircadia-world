@@ -293,7 +293,9 @@ export class WorldApiManager {
 
                 // Handle stats
                 if (
-                    url.pathname.startsWith("/stats") &&
+                    url.pathname.startsWith(
+                        Service.API.Stats_Endpoint.STATS.path,
+                    ) &&
                     req.method === Service.API.Stats_Endpoint.STATS.method
                 ) {
                     const requestIP =

@@ -42,7 +42,9 @@ export class WorldTickManager {
 
                     // Handle stats
                     if (
-                        url.pathname.startsWith("/stats") &&
+                        url.pathname.startsWith(
+                            Service.Tick.Stats_Endpoint.STATS.path,
+                        ) &&
                         req.method === Service.Tick.Stats_Endpoint.STATS.method
                     ) {
                         const requestIP =
@@ -70,8 +72,13 @@ export class WorldTickManager {
                                 database: {
                                     connected: !!this.superUserSql,
                                 },
-                                memory: process.memoryUsage(),
-                                cpu: process.cpuUsage(),
+                                memory: {
+                                    heapUsed: process.memoryUsage().heapUsed,
+                                },
+                                cpu: {
+                                    system: process.cpuUsage().system,
+                                    user: process.cpuUsage().user,
+                                },
                             }),
                         );
                     }

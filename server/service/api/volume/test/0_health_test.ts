@@ -1,13 +1,16 @@
 import { describe, test, expect } from "bun:test";
 import { VircadiaConfig } from "../vircadia-world-sdk-ts/config/vircadia.config";
 import { log } from "../vircadia-world-sdk-ts/module/general/log";
-import { Communication } from "../vircadia-world-sdk-ts/schema/schema.general";
+import {
+    Communication,
+    Service,
+} from "../vircadia-world-sdk-ts/schema/schema.general";
 import { fetch } from "bun";
 
 describe("World API Manager - HEALTH", () => {
     test("Health Check - Stats Endpoint", async () => {
         // Construct the stats endpoint URL
-        const statsEndpoint = `http://${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_HOST_PUBLIC}:${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_PORT_PUBLIC}${Communication.REST.Endpoint.STATS.path}`;
+        const statsEndpoint = `http://${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_HOST_PUBLIC}:${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_PORT_PUBLIC}${Service.API.Stats_Endpoint.path}`;
 
         // Send request to the stats endpoint
         const response = await fetch(statsEndpoint, {

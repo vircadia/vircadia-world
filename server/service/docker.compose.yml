@@ -97,7 +97,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "bun", "test", "/app/test"]
+      test: ["CMD-SHELL", "cd vircadia-world-sdk-ts && bun i && cd ../test && bun test"]
       interval: 30s
       timeout: 10s
       retries: 3

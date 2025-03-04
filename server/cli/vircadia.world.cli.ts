@@ -6,10 +6,7 @@ import { dirname } from "node:path";
 import { readdir, readFile } from "node:fs/promises";
 import { sign } from "jsonwebtoken";
 import { PostgresClient } from "../../sdk/vircadia-world-sdk-ts/module/server/postgres.client.ts";
-import {
-    Communication,
-    Service,
-} from "../../sdk/vircadia-world-sdk-ts/schema/schema.general.ts";
+import { Service } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general.ts";
 
 const DOCKER_COMPOSE_FILE = path.join(
     dirname(fileURLToPath(import.meta.url)),
@@ -41,10 +38,11 @@ async function runDockerCommand(data: {
                 .VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_EXTERNAL,
         VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_EXTERNAL:
             VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_EXTERNAL.toString(),
-        VRCA_SERVER_SERVICE_POSTGRES_HOST_CLUSTER:
-            VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_POSTGRES_HOST_CLUSTER,
-        VRCA_SERVER_SERVICE_POSTGRES_PORT_CLUSTER:
-            VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_POSTGRES_PORT_CLUSTER.toString(),
+        VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_CLUSTER:
+            VircadiaConfig.SERVER
+                .VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_CLUSTER,
+        VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_CLUSTER:
+            VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_CLUSTER.toString(),
         VRCA_SERVER_SERVICE_POSTGRES_DATABASE:
             VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
         VRCA_SERVER_SERVICE_POSTGRES_PASSWORD:
@@ -63,10 +61,11 @@ async function runDockerCommand(data: {
         VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_EXTERNAL:
             VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_EXTERNAL.toString(),
 
-        VRCA_SERVER_SERVICE_API_HOST_CLUSTER:
-            VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_HOST_CLUSTER,
-        VRCA_SERVER_SERVICE_API_PORT_CLUSTER:
-            VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_PORT_CLUSTER.toString(),
+        VRCA_SERVER_SERVICE_API_HOST_CONTAINER_CLUSTER:
+            VircadiaConfig.SERVER
+                .VRCA_SERVER_SERVICE_API_HOST_CONTAINER_CLUSTER,
+        VRCA_SERVER_SERVICE_API_PORT_CONTAINER_CLUSTER:
+            VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_PORT_CONTAINER_CLUSTER.toString(),
         VRCA_SERVER_SERVICE_API_HOST_PUBLIC:
             VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_HOST_PUBLIC,
         VRCA_SERVER_SERVICE_API_PORT_PUBLIC:

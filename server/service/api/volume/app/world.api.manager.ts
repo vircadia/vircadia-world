@@ -156,17 +156,17 @@ export class WorldApiManager {
             superUserSql = await PostgresClient.getInstance().getSuperClient({
                 postgres: {
                     host: VircadiaConfig.SERVER
-                        .VRCA_SERVER_SERVICE_POSTGRES_HOST_CLUSTER,
+                        .VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_CLUSTER,
                     port: VircadiaConfig.SERVER
-                        .VRCA_SERVER_SERVICE_POSTGRES_PORT_CLUSTER,
+                        .VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_CLUSTER,
                 },
             });
             proxyUserSql = await PostgresClient.getInstance().getProxyClient({
                 postgres: {
                     host: VircadiaConfig.SERVER
-                        .VRCA_SERVER_SERVICE_POSTGRES_HOST_CLUSTER,
+                        .VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_CLUSTER,
                     port: VircadiaConfig.SERVER
-                        .VRCA_SERVER_SERVICE_POSTGRES_PORT_CLUSTER,
+                        .VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_CLUSTER,
                 },
             });
         } catch (error) {

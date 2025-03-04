@@ -95,10 +95,10 @@ async function runDockerCommand(data: {
 
     // Add service name if specified
     if (data.service) {
-        // For 'up' commands with a specific service
+        // For commands with a specific service
         dockerArgs = [...dockerArgs, ...data.args, data.service.toLowerCase()];
     } else {
-        // For 'down' commands or when no specific service is provided
+        // For when no specific service is provided
         dockerArgs = [...dockerArgs, ...data.args];
     }
 
@@ -149,19 +149,20 @@ async function runDockerCommand(data: {
 // Update up function
 export async function up(data: {
     service?: Service.E_Service;
-    rebuild?: boolean;
 }): Promise<void> {
-    if (data.rebuild) {
-        await runDockerCommand({
-            service: data.service,
-            args: ["up", "-d", "--build"],
-        });
-    } else {
-        await runDockerCommand({
-            service: data.service,
-            args: ["up", "-d"],
-        });
-    }
+    await runDockerCommand({
+        service: data.service,
+        args: ["up", "-d"],
+    });
+}
+
+export async function upAndRebuild(data: {
+    service?: Service.E_Service;
+}): Promise<void> {
+    await runDockerCommand({
+        service: data.service,
+        args: ["up", "--build", "-d"],
+    });
 }
 
 export async function down(data: {
@@ -173,9 +174,12 @@ export async function down(data: {
     });
 }
 
-export async function downAndWipeAllServices(): Promise<void> {
+export async function downAndDestroy(data: {
+    service?: Service.E_Service;
+}): Promise<void> {
     await runDockerCommand({
         args: ["down", "-v"],
+        service: data.service,
     });
 }
 
@@ -774,7 +778,7 @@ if (import.meta.main) {
                         suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                         debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                     });
-                    await up({ service: svc, rebuild: false });
+                    await up({ service: svc });
                 });
                 break;
 
@@ -797,52 +801,74 @@ if (import.meta.main) {
                 break;
 
             case "container-rebuild-all": {
+                // First rebuild postgres only
                 log({
-                    message: "Rebuilding all services...",
+                    message: "Rebuilding postgres service first...",
                     type: "info",
                     suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                     debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 });
-                await downAndWipeAllServices();
-                await runForAllServices(async (svc) => {
+                await downAndDestroy({ service: Service.E_Service.POSTGRES });
+                await upAndRebuild({ service: Service.E_Service.POSTGRES });
+
+                // Wait for postgres to be healthy
+                let pgHealthy = false;
+                for (let i = 0; i < 10; i++) {
+                    log({
+                        message: "Waiting for postgres to be healthy...",
+                        type: "info",
+                    });
+                    await new Promise((resolve) => setTimeout(resolve, 5000)); // Wait 5 seconds
+                    const health = await isHealthy();
+                    if (health.services.postgres.isHealthy) {
+                        pgHealthy = true;
+                        break;
+                    }
+                }
+
+                if (!pgHealthy) {
+                    throw new Error(
+                        "Postgres failed to become healthy after rebuild",
+                    );
+                }
+
+                // Run migrations and seed data
+                log({
+                    message: "Running database migrations...",
+                    type: "info",
+                });
+                const migrationsRan = await migrate();
+                log({ message: "Running database seeds...", type: "info" });
+                await seed({});
+
+                // Now rebuild the remaining services
+                const otherServices = Object.values(Service.E_Service).filter(
+                    (svc) => svc !== Service.E_Service.POSTGRES,
+                );
+
+                for (const svc of otherServices) {
                     log({
                         message: `Rebuilding ${svc.toLowerCase()} service...`,
                         type: "info",
                         suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                         debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                     });
-                    await up({ service: svc, rebuild: true });
-                });
-
-                // After rebuilding all services, run migrations and seed
-                const health = await isHealthy();
-                if (health.services.postgres.isHealthy) {
-                    const migrationsRan = await migrate();
-                    if (migrationsRan) {
-                        log({
-                            message: "Migrations ran successfully",
-                            type: "success",
-                            suppress:
-                                VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
-                        });
-                        await seed({});
-                    }
-                    log({
-                        message: "All services rebuilt successfully",
-                        type: "success",
-                        suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                        debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
-                    });
+                    await down({ service: svc });
+                    await upAndRebuild({ service: svc });
                 }
 
-                if (!health.isHealthy) {
+                // Verify all services are healthy
+                const finalHealth = await isHealthy();
+                if (!finalHealth.isHealthy) {
                     log({
                         message: "Failed to start some services after rebuild",
                         type: "error",
-                        data: health.services,
-                        suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                        debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                        error: finalHealth.services,
+                    });
+                } else {
+                    log({
+                        message: "All services rebuilt successfully",
+                        type: "success",
                     });
                 }
                 break;
@@ -887,7 +913,6 @@ if (import.meta.main) {
                 });
                 await up({
                     service: Service.E_Service.POSTGRES,
-                    rebuild: false,
                 });
                 break;
 
@@ -911,9 +936,8 @@ if (import.meta.main) {
                 await down({
                     service: Service.E_Service.POSTGRES,
                 });
-                await up({
+                await upAndRebuild({
                     service: Service.E_Service.POSTGRES,
-                    rebuild: true,
                 });
 
                 // Run migrations and seed data after postgres rebuild
@@ -968,7 +992,6 @@ if (import.meta.main) {
                 });
                 await up({
                     service: Service.E_Service.PGWEB,
-                    rebuild: false,
                 });
                 break;
 
@@ -992,9 +1015,8 @@ if (import.meta.main) {
                 await down({
                     service: Service.E_Service.PGWEB,
                 });
-                await up({
+                await upAndRebuild({
                     service: Service.E_Service.PGWEB,
-                    rebuild: true,
                 });
                 log({
                     message: "PGWEB service rebuilt successfully",
@@ -1033,7 +1055,6 @@ if (import.meta.main) {
                 });
                 await up({
                     service: Service.E_Service.API,
-                    rebuild: false,
                 });
                 break;
 
@@ -1055,10 +1076,7 @@ if (import.meta.main) {
                     debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 });
                 await down({ service: Service.E_Service.API }); // No wipeVolumes here
-                await up({
-                    service: Service.E_Service.API,
-                    rebuild: true,
-                });
+                await upAndRebuild({ service: Service.E_Service.API });
                 log({
                     message: "API service rebuilt successfully",
                     type: "success",
@@ -1096,7 +1114,6 @@ if (import.meta.main) {
                 });
                 await up({
                     service: Service.E_Service.TICK,
-                    rebuild: false,
                 });
                 break;
 
@@ -1120,9 +1137,8 @@ if (import.meta.main) {
                 await down({
                     service: Service.E_Service.TICK,
                 });
-                await up({
+                await upAndRebuild({
                     service: Service.E_Service.TICK,
-                    rebuild: true,
                 });
                 log({
                     message: "Tick service rebuilt successfully",
@@ -1161,7 +1177,6 @@ if (import.meta.main) {
                 });
                 await up({
                     service: Service.E_Service.SCRIPT_WEB,
-                    rebuild: false,
                 });
                 break;
 
@@ -1185,9 +1200,8 @@ if (import.meta.main) {
                 await down({
                     service: Service.E_Service.SCRIPT_WEB,
                 });
-                await up({
+                await upAndRebuild({
                     service: Service.E_Service.SCRIPT_WEB,
-                    rebuild: true,
                 });
                 log({
                     message: "Script web service rebuilt successfully",

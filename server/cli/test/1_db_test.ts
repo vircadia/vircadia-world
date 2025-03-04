@@ -1,21 +1,21 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import type postgres from "postgres";
-import { PostgresClient } from "../database/postgres/postgres_client";
+import { PostgresClient } from "../../../sdk/vircadia-world-sdk-ts/module/server/postgres.client";
 import {
     Entity,
     type Tick,
-} from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+} from "../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import {
     TEST_SYNC_GROUP,
     DB_TEST_PREFIX,
     initTestAccounts,
     type TestAccount,
     cleanupTestAccounts,
-    initContainers,
     cleanupTestEntities,
     cleanupTestScripts,
     cleanupTestAssets,
 } from "./helper/helpers";
+import { VircadiaConfig } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
 
 let superUserSql: postgres.Sql;
 let proxyUserSql: postgres.Sql;
@@ -27,9 +27,18 @@ let anonAgent: TestAccount;
 
 describe("DB", () => {
     beforeAll(async () => {
-        await initContainers();
-        superUserSql = await PostgresClient.getInstance().getSuperClient();
-        proxyUserSql = await PostgresClient.getInstance().getProxyClient();
+        superUserSql = await PostgresClient.getInstance().getSuperClient({
+            postgres: {
+                host: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_HOST,
+                port: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_PORT,
+            },
+        });
+        proxyUserSql = await PostgresClient.getInstance().getProxyClient({
+            postgres: {
+                host: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_HOST,
+                port: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_PORT,
+            },
+        });
         await cleanupTestAccounts({
             superUserSql,
         });

@@ -111,6 +111,8 @@ services:
     container_name: ${VRCA_SERVER_CONTAINER_NAME}_script_web
     user: "1000:1000"  # Run as non-root user
     restart: always
+    ports:
+      - "${VRCA_SERVER_SERVICE_SCRIPT_WEB_HOST_CONTAINER_EXTERNAL}:${VRCA_SERVER_SERVICE_SCRIPT_WEB_PORT_CONTAINER_EXTERNAL}:3020"
     volumes:
       - ./script_web/volume:/app
     working_dir: /app
@@ -144,6 +146,8 @@ services:
     image: oven/bun:1.2.4-slim
     container_name: ${VRCA_SERVER_CONTAINER_NAME}_tick
     user: "1000:1000"  # Run as non-root user
+    ports:
+    - "${VRCA_SERVER_SERVICE_TICK_HOST_CONTAINER_EXTERNAL}:${VRCA_SERVER_SERVICE_TICK_PORT_CONTAINER_EXTERNAL}:3020"
     volumes:
       - ./tick/volume:/app
     working_dir: /app

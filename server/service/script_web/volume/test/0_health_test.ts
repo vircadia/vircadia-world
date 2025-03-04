@@ -4,10 +4,10 @@ import { log } from "../vircadia-world-sdk-ts/module/general/log";
 import { Communication } from "../vircadia-world-sdk-ts/schema/schema.general";
 import { fetch } from "bun";
 
-describe("World API Manager - HEALTH", () => {
+describe("World Script Web Manager - HEALTH", () => {
     test("Health Check - Stats Endpoint", async () => {
         // Construct the stats endpoint URL
-        const statsEndpoint = `http://${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_HOST_PUBLIC}:${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_PORT_PUBLIC}${Communication.REST.Endpoint.STATS.path}`;
+        const statsEndpoint = `http://${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_SCRIPT_WEB_HOST_CLUSTER}:${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_SCRIPT_WEB_PORT_CLUSTER}${Communication.REST.Endpoint.STATS.path}`;
 
         // Send request to the stats endpoint
         const response = await fetch(statsEndpoint, {

@@ -36,20 +36,6 @@ async function runDockerCommand(data: {
         VRCA_SERVER_SUPPRESS:
             VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS.toString(),
 
-        VRCA_SERVER_SERVICE_API_HOST_CLUSTER:
-            VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_HOST_CLUSTER,
-        VRCA_SERVER_SERVICE_API_PORT_CLUSTER:
-            VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_PORT_CLUSTER.toString(),
-        VRCA_SERVER_SERVICE_API_HOST_PUBLIC:
-            VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_HOST_PUBLIC,
-        VRCA_SERVER_SERVICE_API_PORT_PUBLIC:
-            VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_PORT_PUBLIC.toString(),
-        VRCA_SERVER_SERVICE_API_HOST_CONTAINER_EXTERNAL:
-            VircadiaConfig.SERVER
-                .VRCA_SERVER_SERVICE_API_HOST_CONTAINER_EXTERNAL,
-        VRCA_SERVER_SERVICE_API_PORT_CONTAINER_EXTERNAL:
-            VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_PORT_CONTAINER_EXTERNAL.toString(),
-
         VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_EXTERNAL:
             VircadiaConfig.SERVER
                 .VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_EXTERNAL,
@@ -76,6 +62,32 @@ async function runDockerCommand(data: {
                 .VRCA_SERVER_SERVICE_PGWEB_HOST_CONTAINER_EXTERNAL,
         VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_EXTERNAL:
             VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_EXTERNAL.toString(),
+
+        VRCA_SERVER_SERVICE_API_HOST_CLUSTER:
+            VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_HOST_CLUSTER,
+        VRCA_SERVER_SERVICE_API_PORT_CLUSTER:
+            VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_PORT_CLUSTER.toString(),
+        VRCA_SERVER_SERVICE_API_HOST_PUBLIC:
+            VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_HOST_PUBLIC,
+        VRCA_SERVER_SERVICE_API_PORT_PUBLIC:
+            VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_PORT_PUBLIC.toString(),
+        VRCA_SERVER_SERVICE_API_HOST_CONTAINER_EXTERNAL:
+            VircadiaConfig.SERVER
+                .VRCA_SERVER_SERVICE_API_HOST_CONTAINER_EXTERNAL,
+        VRCA_SERVER_SERVICE_API_PORT_CONTAINER_EXTERNAL:
+            VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_PORT_CONTAINER_EXTERNAL.toString(),
+
+        VRCA_SERVER_SERVICE_SCRIPT_WEB_HOST_CONTAINER_EXTERNAL:
+            VircadiaConfig.SERVER
+                .VRCA_SERVER_SERVICE_SCRIPT_WEB_HOST_CONTAINER_EXTERNAL,
+        VRCA_SERVER_SERVICE_SCRIPT_WEB_PORT_CONTAINER_EXTERNAL:
+            VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_SCRIPT_WEB_PORT_CONTAINER_EXTERNAL.toString(),
+
+        VRCA_SERVER_SERVICE_TICK_HOST_CONTAINER_EXTERNAL:
+            VircadiaConfig.SERVER
+                .VRCA_SERVER_SERVICE_TICK_HOST_CONTAINER_EXTERNAL,
+        VRCA_SERVER_SERVICE_TICK_PORT_CONTAINER_EXTERNAL:
+            VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_TICK_PORT_CONTAINER_EXTERNAL.toString(),
     };
 
     // Construct the command
@@ -263,7 +275,12 @@ export async function isHealthy(): Promise<{
         error?: Error;
     }> => {
         try {
-            return { isHealthy: true };
+            const url = `http://${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_TICK_HOST_CONTAINER_EXTERNAL}:${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_TICK_PORT_CONTAINER_EXTERNAL}${Communication.REST.Endpoint.STATS.path}`;
+            const response = await fetch(url, {
+                method: "POST",
+                body: Communication.REST.Endpoint.STATS.createRequest(),
+            });
+            return { isHealthy: response.ok };
         } catch (error: unknown) {
             return { isHealthy: false, error: error as Error };
         }

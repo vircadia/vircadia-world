@@ -1,11 +1,13 @@
 import { log } from "../vircadia-world-sdk-ts/module/general/log.ts";
 import type postgres from "postgres";
 import { VircadiaConfig } from "../vircadia-world-sdk-ts/config/vircadia.config.ts";
-import type {
-    Auth,
-    Tick,
+import {
+    Service,
+    type Auth,
+    type Tick,
 } from "../vircadia-world-sdk-ts/schema/schema.general.ts";
 import { PostgresClient } from "../vircadia-world-sdk-ts/module/server/postgres.client.ts";
+import type { Server } from "bun";
 
 export class WorldTickManager {
     private intervalIds: Map<string, Timer> = new Map();
@@ -19,10 +21,61 @@ export class WorldTickManager {
         try {
             log({
                 message: "Initializing World Tick Manager",
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "debug",
                 prefix: this.LOG_PREFIX,
+            });
+
+            Bun.serve({
+                hostname: "0.0.0.0",
+                port: 3020,
+                development: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+
+                websocket: {
+                    message(ws, message) {},
+                },
+
+                // #region API -> HTTP Routes
+                fetch: async (req: Request, server: Server) => {
+                    const url = new URL(req.url);
+
+                    // Handle stats
+                    if (
+                        url.pathname.startsWith("/stats") &&
+                        req.method === Service.Tick.Stats_Endpoint.STATS.method
+                    ) {
+                        const requestIP =
+                            req.headers.get("x-forwarded-for")?.split(",")[0] ||
+                            server.requestIP(req)?.address ||
+                            "";
+
+                        // Only allow access from localhost
+                        if (
+                            requestIP !== "127.0.0.1" &&
+                            requestIP !== "::1" &&
+                            requestIP !== "localhost"
+                        ) {
+                            return Response.json(
+                                Service.Tick.Stats_Endpoint.STATS.createError(
+                                    "Forbidden.",
+                                ),
+                            );
+                        }
+
+                        // Gather stats information
+                        return Response.json(
+                            Service.Tick.Stats_Endpoint.STATS.createSuccess({
+                                uptime: process.uptime(),
+                                database: {
+                                    connected: !!this.superUserSql,
+                                },
+                                memory: process.memoryUsage(),
+                                cpu: process.cpuUsage(),
+                            }),
+                        );
+                    }
+                },
             });
 
             this.superUserSql =
@@ -72,8 +125,9 @@ export class WorldTickManager {
                             message: `Error in tick processing for ${syncGroup}.`,
                             error: error,
                             prefix: this.LOG_PREFIX,
-                            suppress: VircadiaConfig.SERVER.SUPPRESS,
-                            debug: VircadiaConfig.SERVER.DEBUG,
+                            suppress:
+                                VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                             type: "error",
                         });
                     });
@@ -84,16 +138,16 @@ export class WorldTickManager {
 
             log({
                 message: `World Tick Manager initialized successfully with ${this.syncGroups.size} sync groups`,
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "success",
                 prefix: this.LOG_PREFIX,
             });
         } catch (error) {
             log({
                 message: `Failed to initialize tick manager: ${error}`,
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "error",
                 prefix: this.LOG_PREFIX,
             });
@@ -125,8 +179,8 @@ export class WorldTickManager {
             if (!tickData) {
                 log({
                     message: `No tick data returned for sync group: ${syncGroup}`,
-                    debug: VircadiaConfig.SERVER.DEBUG,
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                     type: "warning",
                     prefix: this.LOG_PREFIX,
                 });
@@ -135,8 +189,8 @@ export class WorldTickManager {
 
             log({
                 message: `Tick captured for sync group: ${syncGroup}`,
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "debug",
                 prefix: this.LOG_PREFIX,
                 data: {
@@ -172,8 +226,8 @@ export class WorldTickManager {
                     result?.tick_data.tick__script_states_processed,
                 "Asset Changes": result?.tick_data.tick__asset_states_processed,
             },
-            debug: VircadiaConfig.SERVER.DEBUG,
-            suppress: VircadiaConfig.SERVER.SUPPRESS,
+            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
             type: "debug",
             prefix: this.LOG_PREFIX,
         });
@@ -185,8 +239,8 @@ export class WorldTickManager {
         ) {
             log({
                 message: `Tick processing is delayed for ${syncGroup}\nLocally: ${isLocallyDbDelayed || isLocallyTotalDelayed}\nRemotely: ${isRemotelyDbDelayed}`,
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "warning",
                 prefix: this.LOG_PREFIX,
                 data: {
@@ -207,8 +261,8 @@ export class WorldTickManager {
 
         log({
             message: "World Tick Manager stopped",
-            debug: VircadiaConfig.SERVER.DEBUG,
-            suppress: VircadiaConfig.SERVER.SUPPRESS,
+            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
             type: "debug",
             prefix: this.LOG_PREFIX,
         });
@@ -230,8 +284,8 @@ if (import.meta.main) {
         process.on("SIGINT", () => {
             log({
                 message: "\nReceived SIGINT. Cleaning up tick manager...",
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "debug",
             });
             manager.cleanup();
@@ -241,8 +295,8 @@ if (import.meta.main) {
         process.on("SIGTERM", () => {
             log({
                 message: "\nReceived SIGTERM. Cleaning up tick manager...",
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "debug",
             });
             manager.cleanup();
@@ -251,15 +305,15 @@ if (import.meta.main) {
 
         log({
             message: "World Tick Manager running as standalone process",
-            debug: VircadiaConfig.SERVER.DEBUG,
-            suppress: VircadiaConfig.SERVER.SUPPRESS,
+            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
             type: "success",
         });
     } catch (error) {
         log({
             message: `Failed to start World Tick Manager: ${error}`,
             type: "error",
-            suppress: VircadiaConfig.SERVER.SUPPRESS,
+            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
             debug: true,
         });
         process.exit(1);

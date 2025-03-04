@@ -37,8 +37,8 @@ export class WorldWebScriptManager {
         try {
             log({
                 message: "Initializing world script manager",
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "info",
             });
 
@@ -46,16 +46,16 @@ export class WorldWebScriptManager {
             const resetScriptIds = await this.resetPendingScripts();
             log({
                 message: `Reset ${resetScriptIds.length} scripts`,
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "info",
             });
             await this.startHeartbeat();
 
             log({
                 message: "Initialized world web script manager",
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "success",
             });
 
@@ -272,8 +272,8 @@ export class WorldWebScriptManager {
 
             log({
                 message: `Starting compilation for script ${scriptId}`,
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "info",
             });
 
@@ -320,8 +320,8 @@ export class WorldWebScriptManager {
 
             log({
                 message: `Starting compilation for script at path: ${scriptPath}`,
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "info",
             });
 
@@ -334,8 +334,8 @@ export class WorldWebScriptManager {
             ) {
                 log({
                     message: `Compilation successful for script ${scriptId}`,
-                    debug: VircadiaConfig.SERVER.DEBUG,
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                     type: "success",
                 });
 
@@ -353,8 +353,8 @@ export class WorldWebScriptManager {
             } else {
                 log({
                     message: `Compilation failed for script ${scriptId}`,
-                    debug: VircadiaConfig.SERVER.DEBUG,
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                     type: "error",
                     data: {
                         error: compilationResult.error,
@@ -376,8 +376,8 @@ export class WorldWebScriptManager {
         } catch (error) {
             log({
                 message: `Error during script compilation: ${error}`,
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "error",
             });
 
@@ -426,8 +426,8 @@ export class WorldWebScriptManager {
         } catch (error) {
             log({
                 message: `Error during repo scripts compilation: ${error}`,
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "error",
             });
         }
@@ -452,7 +452,7 @@ if (import.meta.main) {
     process.on("SIGINT", async () => {
         log({
             message: "\nReceived SIGINT. Cleaning up...",
-            debug: VircadiaConfig.SERVER.DEBUG,
+            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
             type: "debug",
         });
         await manager.cleanup();
@@ -461,7 +461,7 @@ if (import.meta.main) {
     process.on("SIGTERM", async () => {
         log({
             message: "\nReceived SIGTERM. Cleaning up...",
-            debug: VircadiaConfig.SERVER.DEBUG,
+            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
             type: "debug",
         });
         await manager.cleanup();

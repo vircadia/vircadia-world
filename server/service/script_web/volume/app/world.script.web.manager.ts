@@ -1,7 +1,10 @@
 import { log } from "../vircadia-world-sdk-ts/module/general/log";
 import type postgres from "postgres";
-import { build, type Subprocess } from "bun";
-import { Entity } from "../vircadia-world-sdk-ts/schema/schema.general";
+import { build, type Server, type Subprocess } from "bun";
+import {
+    Entity,
+    Service,
+} from "../vircadia-world-sdk-ts/schema/schema.general";
 import { PostgresClient } from "../vircadia-world-sdk-ts/module/server/postgres.client";
 import { VircadiaConfig } from "../vircadia-world-sdk-ts/config/vircadia.config";
 import tmp from "tmp";
@@ -34,33 +37,89 @@ export class WorldWebScriptManager {
     async initialize() {
         this.superUserSql = await PostgresClient.getInstance().getSuperClient({
             postgres: {
-                host: VircadiaConfig.SERVER.SERVICE.POSTGRES.HOST_CLUSTER,
-                port: VircadiaConfig.SERVER.SERVICE.POSTGRES.PORT_CLUSTER,
+                host: VircadiaConfig.SERVER
+                    .VRCA_SERVER_SERVICE_POSTGRES_HOST_CLUSTER,
+                port: VircadiaConfig.SERVER
+                    .VRCA_SERVER_SERVICE_POSTGRES_PORT_CLUSTER,
             },
         });
 
         try {
             log({
                 message: "Initializing world script manager",
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "info",
+            });
+
+            Bun.serve({
+                hostname: "0.0.0.0",
+                port: 3020,
+                development: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+
+                websocket: {
+                    message(ws, message) {},
+                },
+
+                // #region API -> HTTP Routes
+                fetch: async (req: Request, server: Server) => {
+                    const url = new URL(req.url);
+
+                    // Handle stats
+                    if (
+                        url.pathname.startsWith("/stats") &&
+                        req.method ===
+                            Service.Script_Web.Stats_Endpoint.STATS.method
+                    ) {
+                        const requestIP =
+                            req.headers.get("x-forwarded-for")?.split(",")[0] ||
+                            server.requestIP(req)?.address ||
+                            "";
+
+                        // Only allow access from localhost
+                        if (
+                            requestIP !== "127.0.0.1" &&
+                            requestIP !== "::1" &&
+                            requestIP !== "localhost"
+                        ) {
+                            return Response.json(
+                                Service.Script_Web.Stats_Endpoint.STATS.createError(
+                                    "Forbidden.",
+                                ),
+                            );
+                        }
+
+                        // Gather stats information
+                        return Response.json(
+                            Service.Script_Web.Stats_Endpoint.STATS.createSuccess(
+                                {
+                                    uptime: process.uptime(),
+                                    database: {
+                                        connected: !!this.superUserSql,
+                                    },
+                                    memory: process.memoryUsage(),
+                                    cpu: process.cpuUsage(),
+                                },
+                            ),
+                        );
+                    }
+                },
             });
 
             // Reset all non-completed script statuses
             const resetScriptIds = await this.resetPendingScripts();
             log({
                 message: `Reset ${resetScriptIds.length} scripts`,
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "info",
             });
             await this.startHeartbeat();
 
             log({
                 message: "Initialized world web script manager",
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "success",
             });
 
@@ -278,8 +337,8 @@ export class WorldWebScriptManager {
 
             log({
                 message: `Starting compilation for script ${scriptId}`,
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "info",
             });
 
@@ -326,8 +385,8 @@ export class WorldWebScriptManager {
 
             log({
                 message: `Starting compilation for script at path: ${scriptPath}`,
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "info",
             });
 
@@ -340,8 +399,8 @@ export class WorldWebScriptManager {
             ) {
                 log({
                     message: `Compilation successful for script ${scriptId}`,
-                    debug: VircadiaConfig.SERVER.DEBUG,
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                     type: "success",
                 });
 
@@ -359,8 +418,8 @@ export class WorldWebScriptManager {
             } else {
                 log({
                     message: `Compilation failed for script ${scriptId}`,
-                    debug: VircadiaConfig.SERVER.DEBUG,
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                     type: "error",
                     data: {
                         error: compilationResult.error,
@@ -382,8 +441,8 @@ export class WorldWebScriptManager {
         } catch (error) {
             log({
                 message: `Error during script compilation: ${error}`,
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "error",
             });
 
@@ -432,8 +491,8 @@ export class WorldWebScriptManager {
         } catch (error) {
             log({
                 message: `Error during repo scripts compilation: ${error}`,
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "error",
             });
         }
@@ -458,7 +517,7 @@ if (import.meta.main) {
     process.on("SIGINT", async () => {
         log({
             message: "\nReceived SIGINT. Cleaning up...",
-            debug: VircadiaConfig.SERVER.DEBUG,
+            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
             type: "debug",
         });
         await manager.cleanup();
@@ -467,7 +526,7 @@ if (import.meta.main) {
     process.on("SIGTERM", async () => {
         log({
             message: "\nReceived SIGTERM. Cleaning up...",
-            debug: VircadiaConfig.SERVER.DEBUG,
+            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
             type: "debug",
         });
         await manager.cleanup();

@@ -100,8 +100,8 @@ describe("Docker Container and Database CLI Tests", () => {
     //     // Verify database is accessible after reset
     //     const sql = await PostgresClient.getInstance().getSuperClient({
     //         postgres: {
-    //             host: VircadiaConfig.CLI.POSTGRES.HOST,
-    //             port: VircadiaConfig.CLI.POSTGRES.PORT,
+    // host: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_HOST,
+    // port: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_PORT,
     //         },
     //     });
     //     const [result] = await sql`SELECT current_database()`;
@@ -141,7 +141,7 @@ describe("Docker Container and Database CLI Tests", () => {
 
     //     // Verify required extensions are installed
     //     const requiredExtensions =
-    //         VircadiaConfig.SERVER.SERVICE.POSTGRES.EXTENSIONS;
+    //         VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS;
     //     for (const ext of requiredExtensions) {
     //         expect(extensions.some((e) => e.extname === ext)).toBe(true);
     //     }

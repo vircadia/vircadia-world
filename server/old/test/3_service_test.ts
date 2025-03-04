@@ -49,9 +49,9 @@ describe("Service Tests", () => {
             ["bun", "run", "service:run:api"],
             {
                 cwd: process.cwd(),
-                ...(VircadiaConfig.SERVER.SUPPRESS
+                ...(VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS
                     ? { stdio: ["ignore", "ignore", "ignore"] }
-                    : VircadiaConfig.SERVER.DEBUG
+                    : VircadiaConfig.SERVER.VRCA_SERVER_DEBUG
                       ? { stdio: ["inherit", "inherit", "inherit"] }
                       : { stdio: ["ignore", "ignore", "ignore"] }),
                 killSignal: "SIGTERM",
@@ -68,9 +68,9 @@ describe("Service Tests", () => {
             ["bun", "run", "service:run:script"],
             {
                 cwd: process.cwd(),
-                ...(VircadiaConfig.SERVER.SUPPRESS
+                ...(VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS
                     ? { stdio: ["ignore", "ignore", "ignore"] }
-                    : VircadiaConfig.SERVER.DEBUG
+                    : VircadiaConfig.SERVER.VRCA_SERVER_DEBUG
                       ? { stdio: ["inherit", "inherit", "inherit"] }
                       : { stdio: ["ignore", "ignore", "ignore"] }),
                 killSignal: "SIGTERM",
@@ -87,9 +87,9 @@ describe("Service Tests", () => {
             ["bun", "run", "service:run:tick"],
             {
                 cwd: process.cwd(),
-                ...(VircadiaConfig.SERVER.SUPPRESS
+                ...(VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS
                     ? { stdio: ["ignore", "ignore", "ignore"] }
-                    : VircadiaConfig.SERVER.DEBUG
+                    : VircadiaConfig.SERVER.VRCA_SERVER_DEBUG
                       ? { stdio: ["inherit", "inherit", "inherit"] }
                       : { stdio: ["ignore", "ignore", "ignore"] }),
                 killSignal: "SIGTERM",
@@ -122,8 +122,8 @@ describe("Service Tests", () => {
                 log({
                     message: `Error killing process: ${error}`,
                     type: "error",
-                    debug: VircadiaConfig.SERVER.DEBUG,
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 });
             }
         }
@@ -261,8 +261,8 @@ describe("Service Tests", () => {
                 message: "Final compilation status",
                 type: "debug",
                 data: status,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
-                debug: VircadiaConfig.SERVER.DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
             });
 
             // Check compilation status for all platforms
@@ -299,8 +299,8 @@ describe("Service Tests", () => {
                     log({
                         message: "WebSocket connected",
                         type: "debug",
-                        debug: VircadiaConfig.SERVER.DEBUG,
-                        suppress: VircadiaConfig.SERVER.SUPPRESS,
+                        debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                        suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                     });
                     resolve(true);
                 };
@@ -308,8 +308,8 @@ describe("Service Tests", () => {
                     log({
                         message: "WebSocket connected",
                         type: "debug",
-                        debug: VircadiaConfig.SERVER.DEBUG,
-                        suppress: VircadiaConfig.SERVER.SUPPRESS,
+                        debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                        suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                     });
                     resolve(true);
                 };
@@ -317,8 +317,8 @@ describe("Service Tests", () => {
                     log({
                         message: "WebSocket connected",
                         type: "debug",
-                        debug: VircadiaConfig.SERVER.DEBUG,
-                        suppress: VircadiaConfig.SERVER.SUPPRESS,
+                        debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                        suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                     });
                     resolve(true);
                 };
@@ -327,8 +327,8 @@ describe("Service Tests", () => {
                     log({
                         message: `WebSocket connection error: ${error}`,
                         type: "error",
-                        debug: VircadiaConfig.SERVER.DEBUG,
-                        suppress: VircadiaConfig.SERVER.SUPPRESS,
+                        debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                        suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                     });
                     reject(error);
                 };
@@ -336,8 +336,8 @@ describe("Service Tests", () => {
                     log({
                         message: `WebSocket connection error: ${error}`,
                         type: "error",
-                        debug: VircadiaConfig.SERVER.DEBUG,
-                        suppress: VircadiaConfig.SERVER.SUPPRESS,
+                        debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                        suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                     });
                     reject(error);
                 };
@@ -345,8 +345,8 @@ describe("Service Tests", () => {
                     log({
                         message: `WebSocket connection error: ${error}`,
                         type: "error",
-                        debug: VircadiaConfig.SERVER.DEBUG,
-                        suppress: VircadiaConfig.SERVER.SUPPRESS,
+                        debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                        suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                     });
                     reject(error);
                 };
@@ -690,8 +690,8 @@ describe("Service Tests", () => {
                 const entityId = result[0]?.general__entity_id;
                 log({
                     message: `Created test entity with ID: ${entityId}`,
-                    debug: VircadiaConfig.SERVER.DEBUG,
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                     type: "debug",
                 });
             });

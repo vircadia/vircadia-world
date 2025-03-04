@@ -32,9 +32,9 @@ describe("World API Manager - HEALTH", () => {
         // Log success for debugging
         log({
             message: "Stats endpoint health check successful",
-            debug: VircadiaConfig.SERVER.DEBUG,
+            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
             type: "debug",
-            suppress: VircadiaConfig.SERVER.SUPPRESS,
+            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
             data: { responseData },
         });
     });

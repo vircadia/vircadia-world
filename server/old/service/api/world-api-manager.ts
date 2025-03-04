@@ -111,8 +111,8 @@ export class WorldApiManager {
 
             log({
                 message: "JWT validation result",
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "debug",
                 data: {
                     token,
@@ -128,8 +128,8 @@ export class WorldApiManager {
         } catch (error) {
             log({
                 message: `Internal JWT Session validation failed: ${error}`,
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "debug",
                 data: {
                     error:
@@ -148,8 +148,8 @@ export class WorldApiManager {
         try {
             log({
                 message: "Initializing World API Manager",
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "debug",
             });
 
@@ -173,8 +173,9 @@ export class WorldApiManager {
 
                         log({
                             message: `Received tick notification for sync group: ${syncGroup}`,
-                            debug: VircadiaConfig.SERVER.DEBUG,
-                            suppress: VircadiaConfig.SERVER.SUPPRESS,
+                            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                            suppress:
+                                VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                             type: "debug",
                             prefix: this.LOG_PREFIX,
                             data: {
@@ -196,8 +197,9 @@ export class WorldApiManager {
                         log({
                             message: "Error processing tick notification",
                             error: error,
-                            debug: VircadiaConfig.SERVER.DEBUG,
-                            suppress: VircadiaConfig.SERVER.SUPPRESS,
+                            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                            suppress:
+                                VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                             type: "error",
                             prefix: this.LOG_PREFIX,
                         });
@@ -209,7 +211,7 @@ export class WorldApiManager {
             this.server = Bun.serve({
                 port: VircadiaConfig.SERVER.SERVER_PORT,
                 hostname: VircadiaConfig.SERVER.SERVER_HOST,
-                development: VircadiaConfig.SERVER.DEBUG,
+                development: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
 
                 // #region API -> HTTP Routes
                 fetch: async (req: Request, server: Server) => {
@@ -218,7 +220,7 @@ export class WorldApiManager {
                     if (!superUserSql || !proxyUserSql) {
                         log({
                             message: "No database connection available",
-                            debug: VircadiaConfig.SERVER.DEBUG,
+                            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                             type: "error",
                         });
                         return new Response("Internal server error", {
@@ -239,7 +241,7 @@ export class WorldApiManager {
                             log({
                                 prefix: this.LOG_PREFIX,
                                 message: "No token found in query parameters",
-                                debug: VircadiaConfig.SERVER.DEBUG,
+                                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                                 type: "debug",
                             });
                             return new Response("Authentication required", {
@@ -253,7 +255,7 @@ export class WorldApiManager {
                                 prefix: this.LOG_PREFIX,
                                 message:
                                     "No provider found in query parameters",
-                                debug: VircadiaConfig.SERVER.DEBUG,
+                                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                                 type: "debug",
                             });
                             return new Response("Provider required", {
@@ -270,7 +272,7 @@ export class WorldApiManager {
                             log({
                                 prefix: this.LOG_PREFIX,
                                 message: "Token JWT validation failed",
-                                debug: VircadiaConfig.SERVER.DEBUG,
+                                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                                 type: "debug",
                             });
                             return new Response("Invalid token", {
@@ -288,8 +290,9 @@ export class WorldApiManager {
                             log({
                                 prefix: this.LOG_PREFIX,
                                 message: "WS Upgrade Session validation failed",
-                                debug: VircadiaConfig.SERVER.DEBUG,
-                                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                                suppress:
+                                    VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                                 type: "debug",
                             });
                             return new Response("Invalid session", {
@@ -310,7 +313,7 @@ export class WorldApiManager {
                             log({
                                 prefix: this.LOG_PREFIX,
                                 message: "WebSocket upgrade failed",
-                                debug: VircadiaConfig.SERVER.DEBUG,
+                                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                                 type: "error",
                             });
                             return new Response("WebSocket upgrade failed", {
@@ -429,9 +432,11 @@ export class WorldApiManager {
                                 } catch (error) {
                                     log({
                                         message: "Failed to validate session",
-                                        debug: VircadiaConfig.SERVER.DEBUG,
+                                        debug: VircadiaConfig.SERVER
+                                            .VRCA_SERVER_DEBUG,
                                         suppress:
-                                            VircadiaConfig.SERVER.SUPPRESS,
+                                            VircadiaConfig.SERVER
+                                                .VRCA_SERVER_SUPPRESS,
                                         type: "error",
                                         prefix: this.LOG_PREFIX,
                                         data: {
@@ -468,8 +473,9 @@ export class WorldApiManager {
                     ) => {
                         log({
                             message: "WebSocket message received",
-                            suppress: VircadiaConfig.SERVER.SUPPRESS,
-                            debug: VircadiaConfig.SERVER.DEBUG,
+                            suppress:
+                                VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                             type: "debug",
                         });
                         let data: Communication.WebSocket.Message | undefined;
@@ -477,8 +483,9 @@ export class WorldApiManager {
                         if (!superUserSql || !proxyUserSql) {
                             log({
                                 message: "No database connections available",
-                                suppress: VircadiaConfig.SERVER.SUPPRESS,
-                                debug: VircadiaConfig.SERVER.DEBUG,
+                                suppress:
+                                    VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                                 type: "error",
                             });
                             return;
@@ -510,9 +517,11 @@ export class WorldApiManager {
                                     log({
                                         message:
                                             "Failed to update session heartbeat",
-                                        debug: VircadiaConfig.SERVER.DEBUG,
+                                        debug: VircadiaConfig.SERVER
+                                            .VRCA_SERVER_DEBUG,
                                         suppress:
-                                            VircadiaConfig.SERVER.SUPPRESS,
+                                            VircadiaConfig.SERVER
+                                                .VRCA_SERVER_SUPPRESS,
                                         type: "error",
                                         prefix: this.LOG_PREFIX,
                                         data: { error, sessionId },
@@ -571,9 +580,11 @@ export class WorldApiManager {
 
                                         log({
                                             message: `Query failed: ${errorMessage}`,
-                                            debug: VircadiaConfig.SERVER.DEBUG,
+                                            debug: VircadiaConfig.SERVER
+                                                .VRCA_SERVER_DEBUG,
                                             suppress:
-                                                VircadiaConfig.SERVER.SUPPRESS,
+                                                VircadiaConfig.SERVER
+                                                    .VRCA_SERVER_SUPPRESS,
                                             type: "error",
                                             prefix: this.LOG_PREFIX,
                                             data: {
@@ -609,8 +620,9 @@ export class WorldApiManager {
                                 type: "error",
                                 message: "Received WS message handling failed.",
                                 error: error,
-                                suppress: VircadiaConfig.SERVER.SUPPRESS,
-                                debug: VircadiaConfig.SERVER.DEBUG,
+                                suppress:
+                                    VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                             });
                         }
                     },
@@ -620,8 +632,9 @@ export class WorldApiManager {
                         log({
                             prefix: this.LOG_PREFIX,
                             message: "New WebSocket connection attempt",
-                            debug: VircadiaConfig.SERVER.DEBUG,
-                            suppress: VircadiaConfig.SERVER.SUPPRESS,
+                            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                            suppress:
+                                VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                             type: "debug",
                             data: {
                                 agentId: sessionData.agentId,
@@ -652,8 +665,9 @@ export class WorldApiManager {
                         log({
                             prefix: this.LOG_PREFIX,
                             message: `Connection established with agent ${sessionData.agentId}`,
-                            suppress: VircadiaConfig.SERVER.SUPPRESS,
-                            debug: VircadiaConfig.SERVER.DEBUG,
+                            suppress:
+                                VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                             type: "debug",
                         });
                     },
@@ -664,8 +678,9 @@ export class WorldApiManager {
                     ) => {
                         log({
                             message: `WebSocket connection closed, code: ${code}, reason: ${reason}`,
-                            debug: VircadiaConfig.SERVER.DEBUG,
-                            suppress: VircadiaConfig.SERVER.SUPPRESS,
+                            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                            suppress:
+                                VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                             type: "debug",
                         });
                         const session = this.activeSessions.get(
@@ -683,8 +698,9 @@ export class WorldApiManager {
                             log({
                                 prefix: this.LOG_PREFIX,
                                 message: "WebSocket disconnection",
-                                debug: VircadiaConfig.SERVER.DEBUG,
-                                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                                suppress:
+                                    VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                                 type: "debug",
                                 data: {
                                     sessionId: session.sessionId,
@@ -730,8 +746,9 @@ export class WorldApiManager {
                                 prefix: this.LOG_PREFIX,
                                 message:
                                     "Session expired / invalid, closing WebSocket",
-                                debug: VircadiaConfig.SERVER.DEBUG,
-                                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                                suppress:
+                                    VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                                 type: "debug",
                                 data: {
                                     sessionId,
@@ -751,8 +768,8 @@ export class WorldApiManager {
             log({
                 message: `Bun HTTP+WS World API Server running at http://${VircadiaConfig.SERVER.SERVER_HOST}:${VircadiaConfig.SERVER.SERVER_PORT}`,
                 type: "success",
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
             });
 
             // #endregion
@@ -760,8 +777,8 @@ export class WorldApiManager {
             log({
                 message: `Failed to initialize World API Manager: ${error}`,
                 type: "error",
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
             });
             throw error;
         }
@@ -778,9 +795,9 @@ export class WorldApiManager {
         if (!superUserSql) {
             log({
                 message: "No database connection available",
-                debug: VircadiaConfig.SERVER.DEBUG,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 type: "error",
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
             });
             return null;
         }
@@ -858,8 +875,8 @@ export class WorldApiManager {
         } catch (error) {
             log({
                 message: `Error capturing world changes: ${error}`,
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "error",
             });
             return null;
@@ -876,9 +893,9 @@ export class WorldApiManager {
         if (!superUserSql) {
             log({
                 message: "No database connection available",
-                debug: VircadiaConfig.SERVER.DEBUG,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 type: "error",
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
             });
             return;
         }
@@ -918,16 +935,16 @@ export class WorldApiManager {
                 log({
                     message: "Error distributing world updates to clients",
                     error: error,
-                    debug: VircadiaConfig.SERVER.DEBUG,
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                     type: "error",
                 });
             });
         } catch (error) {
             log({
                 message: `Error fetching sessions for sync group ${data.syncGroup}: ${error}`,
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "error",
             });
         }
@@ -992,8 +1009,8 @@ if (import.meta.main) {
         process.on("SIGINT", () => {
             log({
                 message: "\nReceived SIGINT. Cleaning up...",
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "debug",
             });
             manager.cleanup();
@@ -1003,8 +1020,8 @@ if (import.meta.main) {
         process.on("SIGTERM", () => {
             log({
                 message: "\nReceived SIGTERM. Cleaning up...",
-                debug: VircadiaConfig.SERVER.DEBUG,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                 type: "debug",
             });
             manager.cleanup();
@@ -1014,7 +1031,7 @@ if (import.meta.main) {
         log({
             message: `Failed to start World API Manager: ${error}`,
             type: "error",
-            suppress: VircadiaConfig.SERVER.SUPPRESS,
+            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
             debug: true,
         });
         process.exit(1);

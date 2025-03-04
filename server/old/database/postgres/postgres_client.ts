@@ -23,8 +23,12 @@ export class PostgresClient {
                 database: VircadiaConfig.SERVER.POSTGRES.DATABASE,
                 username: VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER,
                 password: VircadiaConfig.SERVER.POSTGRES.PASSWORD,
-                onnotice: VircadiaConfig.SERVER.SUPPRESS ? () => {} : undefined,
-                onclose: VircadiaConfig.SERVER.SUPPRESS ? () => {} : undefined,
+                onnotice: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS
+                    ? () => {}
+                    : undefined,
+                onclose: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS
+                    ? () => {}
+                    : undefined,
             });
 
             // Test super user connection immediately
@@ -34,8 +38,8 @@ export class PostgresClient {
                 message:
                     "PostgreSQL super user connection established successfully.",
                 type: "debug",
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
-                debug: VircadiaConfig.SERVER.DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
             });
         }
         return this.superSql;
@@ -47,8 +51,8 @@ export class PostgresClient {
             log({
                 message: "Initializing PostgreSQL proxy account connection...",
                 type: "debug",
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
-                debug: VircadiaConfig.SERVER.DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
             });
 
             this.proxySql = postgres({
@@ -57,8 +61,12 @@ export class PostgresClient {
                 database: VircadiaConfig.SERVER.POSTGRES.DATABASE,
                 username: VircadiaConfig.GLOBAL_CONSTS.DB_AGENT_PROXY_USER,
                 password: VircadiaConfig.SERVER.POSTGRES.AGENT_PROXY_PASSWORD,
-                onnotice: VircadiaConfig.SERVER.SUPPRESS ? () => {} : undefined,
-                onclose: VircadiaConfig.SERVER.SUPPRESS ? () => {} : undefined,
+                onnotice: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS
+                    ? () => {}
+                    : undefined,
+                onclose: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS
+                    ? () => {}
+                    : undefined,
             });
 
             // Test proxy account connection immediately
@@ -68,8 +76,8 @@ export class PostgresClient {
                 message:
                     "PostgreSQL proxy account connection established successfully.",
                 type: "debug",
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
-                debug: VircadiaConfig.SERVER.DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
             });
         }
         return this.proxySql;
@@ -82,8 +90,8 @@ export class PostgresClient {
             log({
                 message: "PostgreSQL super user connection closed.",
                 type: "debug",
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
-                debug: VircadiaConfig.SERVER.DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
             });
         }
 
@@ -93,8 +101,8 @@ export class PostgresClient {
             log({
                 message: "PostgreSQL proxy account connection closed.",
                 type: "debug",
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
-                debug: VircadiaConfig.SERVER.DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
             });
         }
     }

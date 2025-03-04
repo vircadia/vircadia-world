@@ -49,8 +49,8 @@ async function runDockerCommand(args: string[]) {
     log({
         message: `[Docker Command] docker-compose -f ${DOCKER_COMPOSE_PATH} ${args.join(" ")}`,
         type: "debug",
-        suppress: VircadiaConfig.SERVER.SUPPRESS,
-        debug: VircadiaConfig.SERVER.DEBUG,
+        suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+        debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
     });
 
     const spawnedProcess = Bun.spawn(
@@ -69,16 +69,16 @@ async function runDockerCommand(args: string[]) {
         log({
             message: `[Docker Command Output]\n${stdout}`,
             type: "info",
-            suppress: VircadiaConfig.SERVER.SUPPRESS,
-            debug: VircadiaConfig.SERVER.DEBUG,
+            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
         });
     }
     if (stderr) {
         log({
             message: `[Docker Command Output]\n${stderr}`,
             type: "info",
-            suppress: VircadiaConfig.SERVER.SUPPRESS,
-            debug: VircadiaConfig.SERVER.DEBUG,
+            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
         });
     }
 
@@ -186,16 +186,16 @@ export async function wipeDatabase() {
             log({
                 message: `Reset ${file} executed successfully`,
                 type: "debug",
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
-                debug: VircadiaConfig.SERVER.DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
             });
         } catch (error) {
             log({
                 message: `Failed to run reset ${file}.`,
                 type: "error",
                 error: error,
-                suppress: VircadiaConfig.SERVER.SUPPRESS,
-                debug: VircadiaConfig.SERVER.DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
             });
             throw error;
         }
@@ -212,15 +212,15 @@ export async function migrate(): Promise<boolean> {
         log({
             message: `Installing PostgreSQL extension: ${name}...`,
             type: "debug",
-            suppress: VircadiaConfig.SERVER.SUPPRESS,
-            debug: VircadiaConfig.SERVER.DEBUG,
+            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
         });
         await sql`CREATE EXTENSION IF NOT EXISTS ${sql(name)};`;
         log({
             message: `PostgreSQL extension ${name} installed successfully`,
             type: "debug",
-            suppress: VircadiaConfig.SERVER.SUPPRESS,
-            debug: VircadiaConfig.SERVER.DEBUG,
+            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
         });
     }
 
@@ -245,8 +245,8 @@ export async function migrate(): Promise<boolean> {
         log({
             message: `Setting Postgres config for ${keyToUse}`,
             type: "debug",
-            suppress: VircadiaConfig.SERVER.SUPPRESS,
-            debug: VircadiaConfig.SERVER.DEBUG,
+            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
         });
         // Use parameterized SQL for safety. Use sql.raw for the key since parameters cannot be used for identifiers.
         await sql.unsafe(`SET ${keyToUse} = '${value}'`);
@@ -286,8 +286,8 @@ export async function migrate(): Promise<boolean> {
                 log({
                     message: `Executing migration ${file}...`,
                     type: "debug",
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 });
 
                 await sql.begin(async (sql) => {
@@ -301,16 +301,16 @@ export async function migrate(): Promise<boolean> {
                 log({
                     message: `Migration ${file} executed successfully`,
                     type: "debug",
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 });
             } catch (error) {
                 log({
                     message: `Failed to run migration ${file}.`,
                     type: "error",
                     error: error,
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 });
                 throw error;
             }
@@ -335,8 +335,8 @@ export async function seed(data: {
     log({
         message: `Attempting to read seed directory: ${seedDir}`,
         type: "info",
-        suppress: VircadiaConfig.SERVER.SUPPRESS,
-        debug: VircadiaConfig.SERVER.DEBUG,
+        suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+        debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
     });
 
     // Get list of seed files
@@ -346,21 +346,21 @@ export async function seed(data: {
         log({
             message: `Directory contents: ${files.length ? files.join(", ") : "(empty directory)"}`,
             type: "info",
-            suppress: VircadiaConfig.SERVER.SUPPRESS,
-            debug: VircadiaConfig.SERVER.DEBUG,
+            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
         });
     } catch (error) {
         log({
             message: `Error reading seed directory: ${error instanceof Error ? error.message : String(error)}`,
             type: "error",
-            suppress: VircadiaConfig.SERVER.SUPPRESS,
-            debug: VircadiaConfig.SERVER.DEBUG,
+            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
         });
         log({
             message: `No seed directory found at ${seedDir}`,
             type: "info",
-            suppress: VircadiaConfig.SERVER.SUPPRESS,
-            debug: VircadiaConfig.SERVER.DEBUG,
+            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
         });
         return;
     }
@@ -391,16 +391,16 @@ export async function seed(data: {
                 log({
                     message: `Seed ${file} executed successfully`,
                     type: "success",
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 });
             } catch (error) {
                 log({
                     message: `Failed to run seed ${file}`,
                     type: "error",
                     error: error,
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 });
                 throw error;
             }
@@ -534,15 +534,15 @@ if (import.meta.main) {
                 log({
                     message: `Rebuilding ${VircadiaConfig.SERVER.CONTAINER_NAME} container...`,
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 });
                 await down(true);
                 log({
                     message: "Container down complete",
                     type: "success",
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 });
                 await up(true);
                 const health = await isHealthy();
@@ -550,43 +550,47 @@ if (import.meta.main) {
                     log({
                         message: "Failed to start services",
                         type: "error",
-                        suppress: VircadiaConfig.SERVER.SUPPRESS,
-                        debug: VircadiaConfig.SERVER.DEBUG,
+                        suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                        debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                     });
                 } else {
                     log({
                         message: "Container rebuilt",
                         type: "success",
-                        suppress: VircadiaConfig.SERVER.SUPPRESS,
-                        debug: VircadiaConfig.SERVER.DEBUG,
+                        suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                        debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                     });
                     const migrationsRan = await migrate();
                     if (migrationsRan) {
                         log({
                             message: "Migrations ran successfully",
                             type: "success",
-                            suppress: VircadiaConfig.SERVER.SUPPRESS,
-                            debug: VircadiaConfig.SERVER.DEBUG,
+                            suppress:
+                                VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                         });
                         await seed({});
                         log({
                             message: "Seeding complete",
                             type: "success",
-                            suppress: VircadiaConfig.SERVER.SUPPRESS,
-                            debug: VircadiaConfig.SERVER.DEBUG,
+                            suppress:
+                                VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                         });
                         log({
                             message: "Container rebuild is complete",
                             type: "success",
-                            suppress: VircadiaConfig.SERVER.SUPPRESS,
-                            debug: VircadiaConfig.SERVER.DEBUG,
+                            suppress:
+                                VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                         });
                     } else {
                         log({
                             message: "No migrations ran!",
                             type: "info",
-                            suppress: VircadiaConfig.SERVER.SUPPRESS,
-                            debug: VircadiaConfig.SERVER.DEBUG,
+                            suppress:
+                                VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                         });
                     }
                 }
@@ -612,35 +616,35 @@ if (import.meta.main) {
                 log({
                     message: `Performing wipe of ${VircadiaConfig.SERVER.CONTAINER_NAME} database...`,
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 });
                 await wipeDatabase();
                 log({
                     message: "Database wiped, running migrations...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 });
                 await migrate();
                 log({
                     message: "Migrations ran, seeding...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 });
                 await seed({});
                 log({
                     message: "Seeding complete.",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 });
                 log({
                     message: `${VircadiaConfig.SERVER.CONTAINER_NAME} database reset complete.`,
                     type: "success",
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 });
                 break;
             }
@@ -648,30 +652,30 @@ if (import.meta.main) {
                 log({
                     message: `Performing wipe of ${VircadiaConfig.SERVER.CONTAINER_NAME} database...`,
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 });
                 await wipeDatabase();
                 log({
                     message: `${VircadiaConfig.SERVER.CONTAINER_NAME} database wiped.`,
                     type: "success",
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 });
                 break;
             case "container:db:migrate":
                 log({
                     message: `Running ${VircadiaConfig.SERVER.CONTAINER_NAME} database migrations...`,
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 });
                 await migrate();
                 log({
                     message: "Migrations ran successfully",
                     type: "success",
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 });
                 break;
             case "container:db:connection-string": {
@@ -679,8 +683,8 @@ if (import.meta.main) {
                 log({
                     message: `PostgreSQL Connection String:\n\n${connectionString}\n`,
                     type: "success",
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 });
                 break;
             }
@@ -688,16 +692,16 @@ if (import.meta.main) {
                 log({
                     message: `Restarting ${VircadiaConfig.SERVER.CONTAINER_NAME} container...`,
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 });
                 await down();
                 log({
                     message:
                         "Container down complete, restarting the container...",
                     type: "success",
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 });
                 await up();
                 const health = await isHealthy();
@@ -705,15 +709,15 @@ if (import.meta.main) {
                     log({
                         message: "Failed to start services",
                         type: "error",
-                        suppress: VircadiaConfig.SERVER.SUPPRESS,
-                        debug: VircadiaConfig.SERVER.DEBUG,
+                        suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                        debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                     });
                 } else {
                     log({
                         message: "Container restart is complete",
                         type: "success",
-                        suppress: VircadiaConfig.SERVER.SUPPRESS,
-                        debug: VircadiaConfig.SERVER.DEBUG,
+                        suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                        debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                     });
                 }
                 break;
@@ -723,8 +727,8 @@ if (import.meta.main) {
                 log({
                     message: `System token:\n${token.token}\n\nSession ID: ${token.sessionId}\nAgent ID: ${token.agentId}\n\nThis token has system privileges - use with caution!`,
                     type: "success",
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 });
                 break;
             }
@@ -733,8 +737,8 @@ if (import.meta.main) {
                 log({
                     message: `Invalidated system tokens, ${result} system sessions remain active`,
                     type: "success",
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 });
                 break;
             }
@@ -756,8 +760,8 @@ if (import.meta.main) {
                 log({
                     message: `${accessMessage}\nhttp://localhost:${VircadiaConfig.SERVER.PGWEB.PORT}\n`,
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.SUPPRESS,
-                    debug: VircadiaConfig.SERVER.DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 });
                 break;
             }

@@ -23,9 +23,9 @@ async function runDockerCommand(data: {
         PATH: process.env.PATH,
 
         VRCA_GLOBAL_CONSTS_DB_SUPER_USER:
-            VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER,
+            VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER_USERNAME,
         VRCA_GLOBAL_CONSTS_DB_AGENT_PROXY_USER:
-            VircadiaConfig.GLOBAL_CONSTS.DB_AGENT_PROXY_USER,
+            VircadiaConfig.GLOBAL_CONSTS.DB_AGENT_PROXY_USER_USERNAME,
 
         VRCA_SERVER_CONTAINER_NAME:
             VircadiaConfig.SERVER.VRCA_SERVER_CONTAINER_NAME,
@@ -104,8 +104,8 @@ async function runDockerCommand(data: {
     log({
         message: `[Docker Command]\n${dockerArgs.join(" ")}`,
         type: "debug",
-        suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-        debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
     });
 
     const spawnedProcess = Bun.spawn(dockerArgs, {
@@ -121,8 +121,8 @@ async function runDockerCommand(data: {
         log({
             message: `[Docker Command Output] INFO\n${stdout}`,
             type: "debug",
-            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
         });
     }
     if (stderr) {
@@ -136,8 +136,8 @@ async function runDockerCommand(data: {
         log({
             message: `[Docker Command Output] ${isActualError ? "ERROR" : "STATUS"}\n${stderr}`,
             type: isActualError ? "error" : "debug",
-            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
         });
     }
 
@@ -347,9 +347,9 @@ export async function wipeDatabase() {
         postgres: {
             host: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
             port: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
-            database: VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER,
-            username: VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER,
-            password: VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER,
+            database: VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER_USERNAME,
+            username: VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER_USERNAME,
+            password: VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER_USERNAME,
         },
     });
 
@@ -375,16 +375,16 @@ export async function wipeDatabase() {
             log({
                 message: `Reset ${file} executed successfully`,
                 type: "debug",
-                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
             });
         } catch (error) {
             log({
                 message: `Failed to run reset ${file}.`,
                 type: "error",
                 error: error,
-                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
             });
             throw error;
         }
@@ -417,15 +417,15 @@ export async function migrate(): Promise<boolean> {
         log({
             message: `Installing PostgreSQL extension: ${name}...`,
             type: "debug",
-            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
         });
         await sql`CREATE EXTENSION IF NOT EXISTS ${sql(name)};`;
         log({
             message: `PostgreSQL extension ${name} installed successfully`,
             type: "debug",
-            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
         });
     }
 
@@ -463,8 +463,8 @@ export async function migrate(): Promise<boolean> {
     log({
         message: `Attempting to read migrations directory: ${migrations}, found ${migrationSqlFiles.length} files`,
         type: "debug",
-        suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-        debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
     });
 
     // Get already executed migrations
@@ -486,8 +486,8 @@ export async function migrate(): Promise<boolean> {
                 log({
                     message: `Executing migration ${file}...`,
                     type: "debug",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
 
                 await sql.begin(async (sql) => {
@@ -501,16 +501,16 @@ export async function migrate(): Promise<boolean> {
                 log({
                     message: `Migration ${file} executed successfully`,
                     type: "debug",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
             } catch (error) {
                 log({
                     message: `Failed to run migration ${file}.`,
                     type: "error",
                     error: error,
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 throw error;
             }
@@ -550,8 +550,8 @@ export async function seed(data: {
     log({
         message: `Attempting to read seed directory: ${seedDir}`,
         type: "debug",
-        suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-        debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
     });
 
     // Get list of seed files
@@ -561,21 +561,21 @@ export async function seed(data: {
         log({
             message: `Directory contents: ${files.length ? files.join(", ") : "(empty directory)"}`,
             type: "debug",
-            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
         });
     } catch (error) {
         log({
             message: `Error reading seed directory: ${error instanceof Error ? error.message : String(error)}`,
             type: "error",
-            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
         });
         log({
             message: `No seed directory found at ${seedDir}`,
             type: "error",
-            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
         });
         return;
     }
@@ -606,16 +606,16 @@ export async function seed(data: {
                 log({
                     message: `Seed ${file} executed successfully`,
                     type: "debug",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
             } catch (error) {
                 log({
                     message: `Failed to run seed ${file}`,
                     type: "error",
                     error: error,
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 throw error;
             }
@@ -826,15 +826,15 @@ if (import.meta.main) {
                 log({
                     message: "Starting all services...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await runForAllServices(async (svc) => {
                     log({
                         message: `Starting ${svc.toLowerCase()} service...`,
                         type: "info",
-                        suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                        debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                     });
                     await up({ service: svc });
                 });
@@ -844,15 +844,15 @@ if (import.meta.main) {
                 log({
                     message: "Stopping all services...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await runForAllServices(async (svc) => {
                     log({
                         message: `Stopping ${svc.toLowerCase()} service...`,
                         type: "info",
-                        suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                        debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                     });
                     await down({ service: svc });
                 });
@@ -863,8 +863,8 @@ if (import.meta.main) {
                 log({
                     message: "Rebuilding postgres service first...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await downAndDestroy({ service: Service.E_Service.POSTGRES });
                 await upAndRebuild({ service: Service.E_Service.POSTGRES });
@@ -913,8 +913,8 @@ if (import.meta.main) {
                     log({
                         message: `Rebuilding ${svc.toLowerCase()} service...`,
                         type: "info",
-                        suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                        debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                     });
                     await down({ service: svc });
                     await upAndRebuild({ service: svc });
@@ -941,15 +941,15 @@ if (import.meta.main) {
                 log({
                     message: "Restarting all services...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await runForAllServices(async (svc) => {
                     log({
                         message: `Restarting ${svc.toLowerCase()} service...`,
                         type: "info",
-                        suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                        debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                     });
                     await down({ service: svc });
                     await up({ service: svc });
@@ -958,8 +958,8 @@ if (import.meta.main) {
                 log({
                     message: "All services restarted",
                     type: "success",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 break;
             }
@@ -971,8 +971,8 @@ if (import.meta.main) {
                 log({
                     message: "Starting postgres service...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await up({
                     service: Service.E_Service.POSTGRES,
@@ -983,8 +983,8 @@ if (import.meta.main) {
                 log({
                     message: "Stopping postgres service...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await down({ service: Service.E_Service.POSTGRES });
                 break;
@@ -993,8 +993,8 @@ if (import.meta.main) {
                 log({
                     message: "Rebuilding postgres service...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await down({
                     service: Service.E_Service.POSTGRES,
@@ -1011,9 +1011,8 @@ if (import.meta.main) {
                         log({
                             message: "Migrations ran successfully",
                             type: "success",
-                            suppress:
-                                VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                         });
                         await seed({});
                         log({
@@ -1025,8 +1024,8 @@ if (import.meta.main) {
                 log({
                     message: "Postgres service rebuilt successfully",
                     type: "success",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 break;
             }
@@ -1035,16 +1034,16 @@ if (import.meta.main) {
                 log({
                     message: "Restarting postgres service...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await down({ service: Service.E_Service.POSTGRES });
                 await up({ service: Service.E_Service.POSTGRES });
                 log({
                     message: "Postgres service restarted",
                     type: "success",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 break;
             }
@@ -1054,8 +1053,8 @@ if (import.meta.main) {
                 log({
                     message: "Starting pgweb service...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await up({
                     service: Service.E_Service.PGWEB,
@@ -1066,8 +1065,8 @@ if (import.meta.main) {
                 log({
                     message: "Stopping pgweb service...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await down({ service: Service.E_Service.PGWEB });
                 break;
@@ -1076,8 +1075,8 @@ if (import.meta.main) {
                 log({
                     message: "Rebuilding pgweb service...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await down({
                     service: Service.E_Service.PGWEB,
@@ -1088,8 +1087,8 @@ if (import.meta.main) {
                 log({
                     message: "PGWEB service rebuilt successfully",
                     type: "success",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 break;
             }
@@ -1098,16 +1097,16 @@ if (import.meta.main) {
                 log({
                     message: "Restarting pgweb service...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await down({ service: Service.E_Service.PGWEB });
                 await up({ service: Service.E_Service.PGWEB });
                 log({
                     message: "PGWEB service restarted",
                     type: "success",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 break;
             }
@@ -1117,8 +1116,8 @@ if (import.meta.main) {
                 log({
                     message: "Starting API service...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await up({
                     service: Service.E_Service.API,
@@ -1129,8 +1128,8 @@ if (import.meta.main) {
                 log({
                     message: "Stopping API service...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await down({ service: Service.E_Service.API });
                 break;
@@ -1139,16 +1138,16 @@ if (import.meta.main) {
                 log({
                     message: "Rebuilding API service...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await down({ service: Service.E_Service.API }); // No wipeVolumes here
                 await upAndRebuild({ service: Service.E_Service.API });
                 log({
                     message: "API service rebuilt successfully",
                     type: "success",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 break;
             }
@@ -1157,16 +1156,16 @@ if (import.meta.main) {
                 log({
                     message: "Restarting API service...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await down({ service: Service.E_Service.API });
                 await up({ service: Service.E_Service.API });
                 log({
                     message: "API service restarted",
                     type: "success",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 break;
             }
@@ -1176,8 +1175,8 @@ if (import.meta.main) {
                 log({
                     message: "Starting tick service...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await up({
                     service: Service.E_Service.TICK,
@@ -1188,8 +1187,8 @@ if (import.meta.main) {
                 log({
                     message: "Stopping tick service...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await down({ service: Service.E_Service.TICK });
                 break;
@@ -1198,8 +1197,8 @@ if (import.meta.main) {
                 log({
                     message: "Rebuilding tick service...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await down({
                     service: Service.E_Service.TICK,
@@ -1210,8 +1209,8 @@ if (import.meta.main) {
                 log({
                     message: "Tick service rebuilt successfully",
                     type: "success",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 break;
             }
@@ -1220,16 +1219,16 @@ if (import.meta.main) {
                 log({
                     message: "Restarting tick service...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await down({ service: Service.E_Service.TICK });
                 await up({ service: Service.E_Service.TICK });
                 log({
                     message: "Tick service restarted",
                     type: "success",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 break;
             }
@@ -1239,8 +1238,8 @@ if (import.meta.main) {
                 log({
                     message: "Starting script-web service...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await up({
                     service: Service.E_Service.SCRIPT_WEB,
@@ -1251,8 +1250,8 @@ if (import.meta.main) {
                 log({
                     message: "Stopping script-web service...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await down({ service: Service.E_Service.SCRIPT_WEB });
                 break;
@@ -1261,8 +1260,8 @@ if (import.meta.main) {
                 log({
                     message: "Rebuilding script-web service...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await down({
                     service: Service.E_Service.SCRIPT_WEB,
@@ -1273,8 +1272,8 @@ if (import.meta.main) {
                 log({
                     message: "Script web service rebuilt successfully",
                     type: "success",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 break;
             }
@@ -1283,16 +1282,16 @@ if (import.meta.main) {
                 log({
                     message: "Restarting script-web service...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await down({ service: Service.E_Service.SCRIPT_WEB });
                 await up({ service: Service.E_Service.SCRIPT_WEB });
                 log({
                     message: "Script web service restarted",
                     type: "success",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 break;
             }
@@ -1337,15 +1336,15 @@ if (import.meta.main) {
                 log({
                     message: "Running migrations...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await migrate();
                 log({
                     message: "Migrations ran successfully",
                     type: "success",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 break;
 
@@ -1353,15 +1352,15 @@ if (import.meta.main) {
                 log({
                     message: "Wiping database...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await wipeDatabase();
                 log({
                     message: "Database wiped",
                     type: "success",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 break;
 
@@ -1369,8 +1368,8 @@ if (import.meta.main) {
                 log({
                     message: "Resetting database...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await wipeDatabase();
                 await migrate();
@@ -1378,8 +1377,8 @@ if (import.meta.main) {
                 log({
                     message: "Database reset",
                     type: "success",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 break;
 
@@ -1388,8 +1387,8 @@ if (import.meta.main) {
                 log({
                     message: `Database connection string: ${connectionString}`,
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 break;
             }
@@ -1398,8 +1397,8 @@ if (import.meta.main) {
                 log({
                     message: "Generating system agent token...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 const { token, sessionId, agentId } =
                     await generateDbSystemToken();
@@ -1407,8 +1406,8 @@ if (import.meta.main) {
                     message: `System agent token: ${token}`,
                     data: { sessionId, agentId },
                     type: "success",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 break;
             }
@@ -1417,8 +1416,8 @@ if (import.meta.main) {
                 log({
                     message: "Seeding database...",
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 await seed({ seedPath: additionalArgs[0] });
                 log({
@@ -1433,8 +1432,8 @@ if (import.meta.main) {
                 log({
                     message: `Access PGWEB at: ${pgwebAccessURL}`,
                     type: "info",
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 break;
             }

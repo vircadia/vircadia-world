@@ -97,7 +97,8 @@ export class WorldTickManager {
                     database:
                         VircadiaConfig.SERVER
                             .VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
-                    username: VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER,
+                    username:
+                        VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER_USERNAME,
                     password:
                         VircadiaConfig.SERVER
                             .VRCA_SERVER_SERVICE_POSTGRES_PASSWORD,

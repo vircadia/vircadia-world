@@ -74,7 +74,7 @@ services:
 
   # API service
   api:
-    image: oven/bun:1.2.4-slim
+    image: oven/bun:1.2.4-alpine
     container_name: ${VRCA_SERVER_CONTAINER_NAME}_api
     user: "1000:1000"  # Run as non-root user
     restart: always
@@ -111,7 +111,9 @@ services:
 
   # Script Web service
   script_web:
-    image: oven/bun:1.2.4-slim
+    build:
+      context: ./script_web/image
+      dockerfile: dockerfile
     container_name: ${VRCA_SERVER_CONTAINER_NAME}_script_web
     user: "1000:1000"  # Run as non-root user
     restart: always
@@ -148,7 +150,7 @@ services:
 
   # Tick service
   tick:
-    image: oven/bun:1.2.4-slim
+    image: oven/bun:1.2.4-alpine
     container_name: ${VRCA_SERVER_CONTAINER_NAME}_tick
     user: "1000:1000"  # Run as non-root user
     restart: always

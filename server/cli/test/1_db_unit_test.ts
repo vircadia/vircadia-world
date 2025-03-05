@@ -64,13 +64,15 @@ describe("DB", () => {
             suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
         }).getSuperClient({
             postgres: {
-                host: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_HOST,
-                port: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_PORT,
-                database: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_DATABASE,
+                host: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                 username:
-                    VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_USERNAME,
+                    VircadiaConfig.CLI
+                        .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                 password:
-                    VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_PASSWORD,
+                    VircadiaConfig.CLI
+                        .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
             },
         });
         proxyUserSql = await PostgresClient.getInstance({
@@ -78,15 +80,15 @@ describe("DB", () => {
             suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
         }).getProxyClient({
             postgres: {
-                host: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_HOST,
-                port: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_PORT,
-                database: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_DATABASE,
+                host: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                 username:
                     VircadiaConfig.CLI
-                        .VRCA_CLI_POSTGRES_AGENT_PROXY_USER_USERNAME,
+                        .VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME,
                 password:
                     VircadiaConfig.CLI
-                        .VRCA_CLI_POSTGRES_AGENT_PROXY_USER_PASSWORD,
+                        .VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD,
             },
         });
         log({

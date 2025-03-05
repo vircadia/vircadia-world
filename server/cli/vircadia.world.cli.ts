@@ -226,15 +226,16 @@ export async function isHealthy(): Promise<{
 
             const sql = await db.getSuperClient({
                 postgres: {
-                    host: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_HOST,
-                    port: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_PORT,
-                    database: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_DATABASE,
+                    host: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                    port: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                    database:
+                        VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                     username:
                         VircadiaConfig.CLI
-                            .VRCA_CLI_POSTGRES_SUPER_USER_USERNAME,
+                            .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                     password:
                         VircadiaConfig.CLI
-                            .VRCA_CLI_POSTGRES_SUPER_USER_PASSWORD,
+                            .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
                 },
             });
             await sql`SELECT 1`;
@@ -344,8 +345,8 @@ export async function wipeDatabase() {
     });
     const sql = await db.getSuperClient({
         postgres: {
-            host: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_HOST,
-            port: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_PORT,
+            host: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
+            port: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
             database: VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER,
             username: VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER,
             password: VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER,
@@ -354,7 +355,7 @@ export async function wipeDatabase() {
 
     // Get list of migration files
     const resets = await readdir(
-        VircadiaConfig.CLI.VRCA_CLI_POSTGRES_RESET_DIR,
+        VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_RESET_DIR,
     );
     const resetSqlFiles = resets.filter((f) => f.endsWith(".sql")).sort();
 
@@ -362,7 +363,7 @@ export async function wipeDatabase() {
     for (const file of resetSqlFiles) {
         try {
             const filePath = path.join(
-                VircadiaConfig.CLI.VRCA_CLI_POSTGRES_RESET_DIR,
+                VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_RESET_DIR,
                 file,
             );
             const sqlContent = await readFile(filePath, "utf-8");
@@ -397,11 +398,15 @@ export async function migrate(): Promise<boolean> {
     });
     const sql = await db.getSuperClient({
         postgres: {
-            host: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_HOST,
-            port: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_PORT,
-            database: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_DATABASE,
-            username: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_USERNAME,
-            password: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_PASSWORD,
+            host: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
+            port: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
+            database: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+            username:
+                VircadiaConfig.CLI
+                    .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+            password:
+                VircadiaConfig.CLI
+                    .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
         },
     });
 
@@ -437,7 +442,7 @@ export async function migrate(): Promise<boolean> {
 
     // Get list of migration files
     const migrations = await readdir(
-        VircadiaConfig.CLI.VRCA_CLI_POSTGRES_MIGRATION_DIR,
+        VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_MIGRATION_DIR,
     );
     const migrationSqlFiles = migrations
         .filter((f) => f.endsWith(".sql"))
@@ -473,7 +478,7 @@ export async function migrate(): Promise<boolean> {
             migrationsRan = true;
             try {
                 const filePath = path.join(
-                    VircadiaConfig.CLI.VRCA_CLI_POSTGRES_MIGRATION_DIR,
+                    VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_MIGRATION_DIR,
                     file,
                 );
                 const sqlContent = await readFile(filePath, "utf-8");
@@ -525,18 +530,22 @@ export async function seed(data: {
     });
     const sql = await db.getSuperClient({
         postgres: {
-            host: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_HOST,
-            port: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_PORT,
-            database: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_DATABASE,
-            username: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_USERNAME,
-            password: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_PASSWORD,
+            host: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
+            port: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
+            database: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+            username:
+                VircadiaConfig.CLI
+                    .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+            password:
+                VircadiaConfig.CLI
+                    .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
         },
     });
 
     // Ensure we resolve the seed path to absolute path
     const seedDir = data.seedPath
         ? path.resolve(data.seedPath)
-        : VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SEED_DIR;
+        : VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_SEED_DIR;
 
     log({
         message: `Attempting to read seed directory: ${seedDir}`,
@@ -625,11 +634,15 @@ export async function generateDbSystemToken(): Promise<{
     });
     const sql = await db.getSuperClient({
         postgres: {
-            host: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_HOST,
-            port: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_PORT,
-            database: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_DATABASE,
-            username: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_USERNAME,
-            password: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_PASSWORD,
+            host: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
+            port: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
+            database: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+            username:
+                VircadiaConfig.CLI
+                    .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+            password:
+                VircadiaConfig.CLI
+                    .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
         },
     });
 
@@ -711,11 +724,15 @@ export async function invalidateDbSystemTokens(): Promise<number> {
     });
     const sql = await db.getSuperClient({
         postgres: {
-            host: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_HOST,
-            port: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_PORT,
-            database: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_DATABASE,
-            username: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_USERNAME,
-            password: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_PASSWORD,
+            host: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
+            port: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
+            database: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+            username:
+                VircadiaConfig.CLI
+                    .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+            password:
+                VircadiaConfig.CLI
+                    .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
         },
     });
 
@@ -739,7 +756,7 @@ export async function invalidateDbSystemTokens(): Promise<number> {
 }
 
 export async function generateDbConnectionString(): Promise<string> {
-    return `postgres://${VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_USERNAME}:${VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_PASSWORD}@${VircadiaConfig.CLI.VRCA_CLI_POSTGRES_HOST}:${VircadiaConfig.CLI.VRCA_CLI_POSTGRES_PORT}/${VircadiaConfig.CLI.VRCA_CLI_POSTGRES_DATABASE}`;
+    return `postgres://${VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME}:${VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD}@${VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_HOST}:${VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_PORT}/${VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE}`;
 }
 
 export async function generatePgwebAccessURL(): Promise<string> {

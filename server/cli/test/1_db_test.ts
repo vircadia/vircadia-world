@@ -3,6 +3,7 @@ import type postgres from "postgres";
 import { PostgresClient } from "../../../sdk/vircadia-world-sdk-ts/module/server/postgres.client";
 import {
     Entity,
+    Service,
     type Tick,
 } from "../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import {
@@ -16,6 +17,7 @@ import {
     cleanupTestAssets,
 } from "./helper/helpers";
 import { VircadiaConfig } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
+import { down, up } from "../vircadia.world.cli";
 
 let superUserSql: postgres.Sql;
 let proxyUserSql: postgres.Sql;
@@ -27,6 +29,17 @@ let anonAgent: TestAccount;
 
 describe("DB", () => {
     beforeAll(async () => {
+        // Turn off all services.
+        await down({
+            service: Service.E_Service.API,
+        });
+        await down({
+            service: Service.E_Service.SCRIPT_WEB,
+        });
+        await down({
+            service: Service.E_Service.TICK,
+        });
+
         superUserSql = await PostgresClient.getInstance().getSuperClient({
             postgres: {
                 host: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_HOST,
@@ -886,6 +899,61 @@ describe("DB", () => {
                 });
             });
 
+            test("should receive notification when a tick is captured", async () => {
+                let notificationReceived = false;
+                let notificationData = null;
+
+                // First register the JS callback handler
+                superUserSql.listen("tick_captured", (notification) => {
+                    notificationReceived = true;
+                    try {
+                        notificationData = JSON.parse(notification);
+                    } catch (e) {
+                        notificationData = notification;
+                    }
+                });
+
+                // Then set up PostgreSQL LISTEN in a separate transaction
+                await superUserSql.begin(async (tx) => {
+                    await tx`LISTEN tick_captured`;
+                });
+
+                // Add a small delay to ensure listener is fully established
+                await Bun.sleep(100);
+
+                // Create a promise that resolves when notification is received
+                const notificationPromise = new Promise((resolve) => {
+                    const checkInterval = setInterval(() => {
+                        if (notificationReceived) {
+                            clearInterval(checkInterval);
+                            resolve(notificationData);
+                        }
+                    }, 50);
+                });
+
+                // Capture a tick in a separate transaction
+                await superUserSql.begin(async (tx) => {
+                    await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
+                });
+
+                const result = await Promise.race([
+                    notificationPromise,
+                    Bun.sleep(2000), // Increase timeout to 2 seconds
+                ]);
+
+                // Clean up listener
+                await superUserSql.begin(async (tx) => {
+                    await tx`UNLISTEN tick_captured`;
+                });
+
+                // Verify notification was received
+                expect(notificationReceived).toBe(true);
+                expect(notificationData).toBeDefined();
+                expect(notificationData.syncGroup).toBe(TEST_SYNC_GROUP);
+                expect(notificationData.tickId).toBeDefined();
+                expect(notificationData.tickNumber).toBeDefined();
+            });
+
             describe("Script Operations", () => {
                 test("should create multiple test scripts and capture their tick states", async () => {
                     await superUserSql.begin(async (tx) => {
@@ -940,11 +1008,11 @@ describe("DB", () => {
                 });
                 test("should detect script changes between ticks and only include changed fields", async () => {
                     // First transaction - create initial script and capture first tick
-                    let script1: Entity.Script.I_Script;
-                    let tick1: any;
+                    let script1 = null;
+                    let tick1 = null;
 
+                    // Create initial script
                     await superUserSql.begin(async (tx) => {
-                        // Create initial script
                         [script1] = await tx<[Entity.Script.I_Script]>`
                             INSERT INTO entity.entity_scripts (
                                 general__script_name,
@@ -962,21 +1030,14 @@ describe("DB", () => {
                         `;
                     });
 
-                    // Force a small delay to ensure timestamps are different
-                    await new Promise((resolve) => setTimeout(resolve, 10));
-
-                    // Capture first tick in separate transaction
+                    // Capture first tick in a new transaction
                     await superUserSql.begin(async (tx) => {
                         [tick1] =
                             await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
                     });
 
-                    // Force another small delay
-                    await new Promise((resolve) => setTimeout(resolve, 10));
-
                     // Update the script in a separate transaction
                     await superUserSql.begin(async (tx) => {
-                        // Update script - only change name and status but not repo URL
                         await tx`
                             UPDATE entity.entity_scripts
                             SET 
@@ -987,26 +1048,15 @@ describe("DB", () => {
                         `;
                     });
 
-                    // Force another small delay
-                    await new Promise((resolve) => setTimeout(resolve, 10));
-
                     // Capture second tick in separate transaction
-                    let tick2: any;
                     await superUserSql.begin(async (tx) => {
-                        [tick2] =
-                            await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
+                        await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
                     });
 
                     // Verify changes in separate transaction
                     await superUserSql.begin(async (tx) => {
                         // Retrieve script changes between ticks and verify
-                        const scriptChanges = await tx<
-                            Array<{
-                                general__script_id: string;
-                                operation: string;
-                                changes: any;
-                            }>
-                        >`
+                        const scriptChanges = await tx`
                             SELECT * FROM tick.get_changed_script_states_between_latest_ticks(${TEST_SYNC_GROUP})
                         `;
 
@@ -1099,73 +1149,52 @@ describe("DB", () => {
                 // In the Asset Operations section, add this test after the existing one
 
                 test("should detect asset changes between ticks and only include changed fields", async () => {
-                    // First transaction - create initial asset and capture first tick
-                    let asset1: Entity.Asset.I_Asset;
-                    let tick1: any;
+                    let asset1 = null;
 
+                    // Create initial asset in its own transaction
                     await superUserSql.begin(async (tx) => {
-                        // Create initial asset
                         [asset1] = await tx<[Entity.Asset.I_Asset]>`
-        INSERT INTO entity.entity_assets (
-          general__asset_name,
-          meta__data,
-          asset__data,
-          group__sync
-        ) VALUES (
-          ${`${DB_TEST_PREFIX}Original Asset`},
-          ${tx.json({ type: "image", format: "png" })},
-          ${Buffer.from("initial asset data")},
-          ${TEST_SYNC_GROUP}
-        ) RETURNING *
-      `;
+                            INSERT INTO entity.entity_assets (
+                                general__asset_name,
+                                meta__data,
+                                asset__data,
+                                group__sync
+                            ) VALUES (
+                                ${`${DB_TEST_PREFIX}Original Asset`},
+                                ${tx.json({ type: "image", format: "png" })},
+                                ${Buffer.from("initial asset data")},
+                                ${TEST_SYNC_GROUP}
+                            ) RETURNING *
+                        `;
                     });
-
-                    // Force a small delay to ensure timestamps are different
-                    await new Promise((resolve) => setTimeout(resolve, 10));
 
                     // Capture first tick in separate transaction
                     await superUserSql.begin(async (tx) => {
-                        [tick1] =
-                            await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
+                        await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
                     });
-
-                    // Force another small delay
-                    await new Promise((resolve) => setTimeout(resolve, 10));
 
                     // Update the asset in a separate transaction
                     await superUserSql.begin(async (tx) => {
-                        // Update asset - change name and metadata but not actual asset data
                         await tx`
-        UPDATE entity.entity_assets
-        SET 
-          general__asset_name = ${`${DB_TEST_PREFIX}Updated Asset`},
-          meta__data = ${tx.json({ type: "image", format: "png", updated: true })}
-        WHERE general__asset_id = ${asset1.general__asset_id}
-      `;
+                            UPDATE entity.entity_assets
+                            SET 
+                                general__asset_name = ${`${DB_TEST_PREFIX}Updated Asset`},
+                                meta__data = ${tx.json({ type: "image", format: "png", updated: true })}
+                            WHERE general__asset_id = ${asset1.general__asset_id}
+                        `;
                     });
 
-                    // Force another small delay
-                    await new Promise((resolve) => setTimeout(resolve, 10));
-
                     // Capture second tick in separate transaction
-                    let tick2: any;
                     await superUserSql.begin(async (tx) => {
-                        [tick2] =
-                            await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
+                        await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
                     });
 
                     // Verify changes in separate transaction
                     await superUserSql.begin(async (tx) => {
                         // Retrieve asset changes between ticks and verify
-                        const assetChanges = await tx<
-                            Array<{
-                                general__asset_id: string;
-                                operation: string;
-                                changes: any;
-                            }>
-                        >`
-        SELECT * FROM tick.get_changed_asset_states_between_latest_ticks(${TEST_SYNC_GROUP})
-      `;
+                        const assetChanges = await tx`
+                            SELECT * FROM tick.get_changed_asset_states_between_latest_ticks(${TEST_SYNC_GROUP})
+                        `;
 
                         // Find our asset in the changes
                         const assetChange = assetChanges.find(
@@ -1367,5 +1396,16 @@ describe("DB", () => {
             superUserSql,
         });
         await PostgresClient.getInstance().disconnect();
+
+        // Turn on the services we turned off
+        await up({
+            service: Service.E_Service.API,
+        });
+        await up({
+            service: Service.E_Service.SCRIPT_WEB,
+        });
+        await up({
+            service: Service.E_Service.TICK,
+        });
     });
 });

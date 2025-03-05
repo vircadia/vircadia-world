@@ -665,10 +665,7 @@ export class WorldApiManager {
                                 try {
                                     await proxyUserSql?.begin(async (tx) => {
                                         // First set agent context
-
-                                        const [setAgentContext] = await tx`
-                                            SELECT auth.set_agent_context_from_agent_id(${session.agentId}::UUID)
-                                        `;
+                                        await tx`SELECT auth.set_agent_context_from_agent_id(${session.agentId}::UUID)`;
 
                                         const results = await tx.unsafe(
                                             typedRequest.query,
@@ -684,7 +681,7 @@ export class WorldApiManager {
                                         );
                                     });
                                 } catch (error) {
-                                    // Send detailed error information back to the client
+                                    // Improved error handling with more structured information
                                     const errorMessage =
                                         error instanceof Error
                                             ? error.message

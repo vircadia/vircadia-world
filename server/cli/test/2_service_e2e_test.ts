@@ -524,7 +524,7 @@ describe("Service Tests", () => {
             expect(initialResponse.type).toBe(
                 Communication.WebSocket.MessageType.QUERY_RESPONSE,
             );
-            expect(initialResponse.error).toBeNull();
+            expect(initialResponse.errorMessage).toBeNull();
             expect(initialResponse.result).toBeInstanceOf(Array);
 
             // Add explicit check to ensure result is defined before using it
@@ -558,7 +558,7 @@ describe("Service Tests", () => {
             expect(updateResponse.type).toBe(
                 Communication.WebSocket.MessageType.QUERY_RESPONSE,
             );
-            expect(updateResponse.error).toBeNull();
+            expect(updateResponse.errorMessage).toBeNull();
 
             // Query again to verify the timestamp was updated
             regularAgentWsConnection.send(

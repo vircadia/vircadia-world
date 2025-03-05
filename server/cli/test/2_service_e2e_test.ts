@@ -1,38 +1,29 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import type { Subprocess } from "bun";
 import type postgres from "postgres";
-import { PostgresClient } from "../database/postgres/postgres_client";
+import { PostgresClient } from "../../../sdk/vircadia-world-sdk-ts/module/server/postgres.server.client";
 import {
     Communication,
     Entity,
-} from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
-import { VircadiaConfig } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
+} from "../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+import { VircadiaConfig } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
 import {
     cleanupTestAccounts,
     cleanupTestAssets,
     cleanupTestEntities,
     cleanupTestScripts,
     DB_TEST_PREFIX,
-    initContainers,
     initTestAccounts,
     TEST_SYNC_GROUP,
     type TestAccount,
 } from "./helper/helpers";
-import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
-
-import { WorldApiManager } from "../service_old/api/world-api-manager";
-import { WorldWebScriptManager } from "../service_old/script/world-web-script-manager";
-import { WorldTickManager } from "../service_old/tick/world-tick-manager";
+import { log } from "../../../sdk/vircadia-world-sdk-ts/module/general/log";
+import { up } from "../vircadia.world.cli";
 
 // TODO: Add benchmarks.
 
 describe("Service Tests", () => {
     let superUserSql: postgres.Sql;
     let proxyUserSql: postgres.Sql;
-
-    let apiManagerProcess: Subprocess | null;
-    let webScriptManagerProcess: Subprocess | null;
-    let tickManagerProcess: Subprocess | null;
 
     let adminAgent: TestAccount;
     let regularAgent: TestAccount;
@@ -42,99 +33,42 @@ describe("Service Tests", () => {
     let regularAgentWsConnection: WebSocket | null;
     let anonAgentWsConnection: WebSocket | null;
 
-    // Add these helper functions near the top of your describe block
-
-    async function launchApiManager(): Promise<Subprocess> {
-        const launchedProcess: Subprocess = Bun.spawn(
-            ["bun", "run", "service:run:api"],
-            {
-                cwd: process.cwd(),
-                ...(VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS
-                    ? { stdio: ["ignore", "ignore", "ignore"] }
-                    : VircadiaConfig.SERVER.VRCA_SERVER_DEBUG
-                      ? { stdio: ["inherit", "inherit", "inherit"] }
-                      : { stdio: ["ignore", "ignore", "ignore"] }),
-                killSignal: "SIGTERM",
-            },
-        );
-
-        // Wait for service to start
-        await Bun.sleep(500);
-        return launchedProcess;
-    }
-
-    async function launchScriptManager(): Promise<Subprocess> {
-        const launchedProcess: Subprocess = Bun.spawn(
-            ["bun", "run", "service:run:script"],
-            {
-                cwd: process.cwd(),
-                ...(VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS
-                    ? { stdio: ["ignore", "ignore", "ignore"] }
-                    : VircadiaConfig.SERVER.VRCA_SERVER_DEBUG
-                      ? { stdio: ["inherit", "inherit", "inherit"] }
-                      : { stdio: ["ignore", "ignore", "ignore"] }),
-                killSignal: "SIGTERM",
-            },
-        );
-
-        // Wait for service to start
-        await Bun.sleep(500);
-        return launchedProcess;
-    }
-
-    async function launchTickManager(): Promise<Subprocess> {
-        const launchedProcess: Subprocess = Bun.spawn(
-            ["bun", "run", "service:run:tick"],
-            {
-                cwd: process.cwd(),
-                ...(VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS
-                    ? { stdio: ["ignore", "ignore", "ignore"] }
-                    : VircadiaConfig.SERVER.VRCA_SERVER_DEBUG
-                      ? { stdio: ["inherit", "inherit", "inherit"] }
-                      : { stdio: ["ignore", "ignore", "ignore"] }),
-                killSignal: "SIGTERM",
-            },
-        );
-
-        // Wait for service to start
-        await Bun.sleep(500);
-        return launchedProcess;
-    }
-
-    async function killProcess(
-        processToKill: Subprocess | null,
-    ): Promise<void> {
-        if (processToKill?.pid) {
-            try {
-                // First try to kill the process directly
-                process.kill(processToKill.pid, "SIGTERM");
-
-                // Then try to kill the process group as fallback
-                try {
-                    process.kill(-process.pid, "SIGTERM");
-                } catch (e) {
-                    // Ignore error if process group doesn't exist
-                }
-
-                // Wait for process to fully terminate
-                await Bun.sleep(200);
-            } catch (error) {
-                log({
-                    message: `Error killing process: ${error}`,
-                    type: "error",
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                });
-            }
-        }
-    }
-
     // Setup before all tests
     beforeAll(async () => {
-        await initContainers();
+        await up({});
 
-        superUserSql = await PostgresClient.getInstance().getSuperClient();
-        proxyUserSql = await PostgresClient.getInstance().getProxyClient();
+        superUserSql = await PostgresClient.getInstance({
+            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+        }).getSuperClient({
+            postgres: {
+                host: VircadiaConfig.SERVER
+                    .VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_CLUSTER,
+                port: VircadiaConfig.SERVER
+                    .VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_CLUSTER,
+                database:
+                    VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
+                username: VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER,
+                password:
+                    VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_POSTGRES_PASSWORD,
+            },
+        });
+        proxyUserSql = await PostgresClient.getInstance({
+            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+        }).getProxyClient({
+            postgres: {
+                host: VircadiaConfig.SERVER
+                    .VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_CLUSTER,
+                port: VircadiaConfig.SERVER
+                    .VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_CLUSTER,
+                database:
+                    VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
+                username: VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER,
+                password:
+                    VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_POSTGRES_PASSWORD,
+            },
+        });
 
         await cleanupTestAccounts({
             superUserSql,
@@ -154,16 +88,6 @@ describe("Service Tests", () => {
         adminAgent = testAccounts.adminAgent;
         regularAgent = testAccounts.regularAgent;
         anonAgent = testAccounts.anonAgent;
-
-        apiManagerProcess = await launchApiManager();
-        webScriptManagerProcess = await launchScriptManager();
-        tickManagerProcess = await launchTickManager();
-    });
-
-    test("services should launch and become available", async () => {
-        expect(apiManagerProcess?.pid).toBeGreaterThan(0);
-        expect(webScriptManagerProcess?.pid).toBeGreaterThan(0);
-        expect(tickManagerProcess?.pid).toBeGreaterThan(0);
     });
 
     describe("Web Script Manager", () => {
@@ -862,11 +786,6 @@ describe("Service Tests", () => {
     });
 
     afterAll(async () => {
-        // Kill the services processes and their children
-        await killProcess(apiManagerProcess);
-        await killProcess(webScriptManagerProcess);
-        await killProcess(tickManagerProcess);
-
         await cleanupTestAccounts({
             superUserSql,
         });

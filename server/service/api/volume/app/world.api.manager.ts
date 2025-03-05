@@ -57,6 +57,8 @@ export class WorldApiManager {
 
     private LOG_PREFIX = "World API Manager";
 
+    private CONNECTION_HEARTBEAT_INTERVAL = 500;
+
     // Add a method to expose events for testing
     getEventEmitter(): EventEmitter {
         return this.events;
@@ -169,7 +171,7 @@ export class WorldApiManager {
                         VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER_USERNAME,
                     password:
                         VircadiaConfig.SERVER
-                            .VRCA_SERVER_SERVICE_POSTGRES_PASSWORD,
+                            .VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
                 },
             });
             proxyUserSql = await PostgresClient.getInstance({
@@ -185,10 +187,11 @@ export class WorldApiManager {
                         VircadiaConfig.SERVER
                             .VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
                     username:
-                        VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER_USERNAME,
+                        VircadiaConfig.GLOBAL_CONSTS
+                            .DB_AGENT_PROXY_USER_USERNAME,
                     password:
                         VircadiaConfig.SERVER
-                            .VRCA_SERVER_SERVICE_POSTGRES_PASSWORD,
+                            .VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_PASSWORD,
                 },
             });
         } catch (error) {
@@ -660,27 +663,26 @@ export class WorldApiManager {
                                 const typedRequest =
                                     data as Communication.WebSocket.QueryRequestMessage;
                                 try {
-                                    const results = await proxyUserSql?.begin(
-                                        async (tx) => {
-                                            // First set agent context
-                                            const [setAgentContext] = await tx`
-                                                            SELECT auth.set_agent_context_from_agent_id(${session.agentId}::UUID)
-                                                        `;
+                                    await proxyUserSql?.begin(async (tx) => {
+                                        // First set agent context
 
-                                            return await tx.unsafe(
-                                                typedRequest.query,
-                                                typedRequest.parameters || [],
-                                            );
-                                        },
-                                    );
+                                        const [setAgentContext] = await tx`
+                                            SELECT auth.set_agent_context_from_agent_id(${session.agentId}::UUID)
+                                        `;
 
-                                    ws.send(
-                                        JSON.stringify(
-                                            new Communication.WebSocket.QueryResponseMessage(
-                                                results,
+                                        const results = await tx.unsafe(
+                                            typedRequest.query,
+                                            typedRequest.parameters || [],
+                                        );
+
+                                        ws.send(
+                                            JSON.stringify(
+                                                new Communication.WebSocket.QueryResponseMessage(
+                                                    results,
+                                                ),
                                             ),
-                                        ),
-                                    );
+                                        );
+                                    });
                                 } catch (error) {
                                     // Send detailed error information back to the client
                                     const errorMessage =
@@ -866,7 +868,7 @@ export class WorldApiManager {
                     }
                 }),
             );
-        }, 1000);
+        }, this.CONNECTION_HEARTBEAT_INTERVAL);
 
         log({
             message: "Bun HTTP+WS World API Server running.",

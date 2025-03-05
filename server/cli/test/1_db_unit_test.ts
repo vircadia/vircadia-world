@@ -1011,7 +1011,7 @@ describe("DB", () => {
 
                 const result = await Promise.race([
                     notificationPromise,
-                    Bun.sleep(2000), // Increase timeout to 2 seconds
+                    Bun.sleep(2000),
                 ]);
 
                 // Clean up listener

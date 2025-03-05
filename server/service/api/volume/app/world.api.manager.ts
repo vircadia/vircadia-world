@@ -11,7 +11,7 @@ import {
     type Tick,
 } from "../vircadia-world-sdk-ts/schema/schema.general.ts";
 import type { Server, ServerWebSocket } from "bun";
-import { PostgresClient } from "../vircadia-world-sdk-ts/module/server/postgres.client.ts";
+import { PostgresClient } from "../vircadia-world-sdk-ts/module/server/postgres.server.client.ts";
 import { verify } from "jsonwebtoken";
 import { EventEmitter } from "node:events";
 
@@ -153,20 +153,40 @@ export class WorldApiManager {
         });
 
         try {
-            superUserSql = await PostgresClient.getInstance().getSuperClient({
+            superUserSql = await PostgresClient.getInstance({
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+            }).getSuperClient({
                 postgres: {
                     host: VircadiaConfig.SERVER
                         .VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_CLUSTER,
                     port: VircadiaConfig.SERVER
                         .VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_CLUSTER,
+                    database:
+                        VircadiaConfig.SERVER
+                            .VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
+                    username: VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER,
+                    password:
+                        VircadiaConfig.SERVER
+                            .VRCA_SERVER_SERVICE_POSTGRES_PASSWORD,
                 },
             });
-            proxyUserSql = await PostgresClient.getInstance().getProxyClient({
+            proxyUserSql = await PostgresClient.getInstance({
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+            }).getProxyClient({
                 postgres: {
                     host: VircadiaConfig.SERVER
                         .VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_CLUSTER,
                     port: VircadiaConfig.SERVER
                         .VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_CLUSTER,
+                    database:
+                        VircadiaConfig.SERVER
+                            .VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
+                    username: VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER,
+                    password:
+                        VircadiaConfig.SERVER
+                            .VRCA_SERVER_SERVICE_POSTGRES_PASSWORD,
                 },
             });
         } catch (error) {
@@ -1065,7 +1085,10 @@ export class WorldApiManager {
             }
             this.activeSessions.clear();
         });
-        PostgresClient.getInstance().disconnect();
+        PostgresClient.getInstance({
+            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+        }).disconnect();
     }
 }
 

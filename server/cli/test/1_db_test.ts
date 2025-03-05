@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import type postgres from "postgres";
-import { PostgresClient } from "../../../sdk/vircadia-world-sdk-ts/module/server/postgres.client";
+import { PostgresClient } from "../../../sdk/vircadia-world-sdk-ts/module/server/postgres.server.client";
 import {
     Entity,
     Service,
@@ -18,6 +18,7 @@ import {
 } from "./helper/helpers";
 import { VircadiaConfig } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
 import { down, up } from "../vircadia.world.cli";
+import { log } from "../../../sdk/vircadia-world-sdk-ts/module/general/log";
 
 let superUserSql: postgres.Sql;
 let proxyUserSql: postgres.Sql;
@@ -30,6 +31,12 @@ let anonAgent: TestAccount;
 describe("DB", () => {
     beforeAll(async () => {
         // Turn off all services.
+        log({
+            message: "Turning off all services...",
+            type: "debug",
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+        });
         await down({
             service: Service.E_Service.API,
         });
@@ -39,18 +46,61 @@ describe("DB", () => {
         await down({
             service: Service.E_Service.TICK,
         });
+        log({
+            message: "All services turned off.",
+            type: "debug",
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+        });
 
-        superUserSql = await PostgresClient.getInstance().getSuperClient({
+        log({
+            message: "Getting super user client...",
+            type: "debug",
+            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+        });
+        superUserSql = await PostgresClient.getInstance({
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+        }).getSuperClient({
             postgres: {
                 host: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_HOST,
                 port: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_PORT,
+                database: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_DATABASE,
+                username:
+                    VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_USERNAME,
+                password:
+                    VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_PASSWORD,
             },
         });
-        proxyUserSql = await PostgresClient.getInstance().getProxyClient({
+        proxyUserSql = await PostgresClient.getInstance({
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+        }).getProxyClient({
             postgres: {
                 host: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_HOST,
                 port: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_PORT,
+                database: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_DATABASE,
+                username:
+                    VircadiaConfig.CLI
+                        .VRCA_CLI_POSTGRES_AGENT_PROXY_USER_USERNAME,
+                password:
+                    VircadiaConfig.CLI
+                        .VRCA_CLI_POSTGRES_AGENT_PROXY_USER_PASSWORD,
             },
+        });
+        log({
+            message: "Super user client and proxy user client obtained.",
+            type: "debug",
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+        });
+
+        log({
+            message: "Cleaning up test objects...",
+            type: "debug",
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
         });
         await cleanupTestAccounts({
             superUserSql,
@@ -64,12 +114,37 @@ describe("DB", () => {
         await cleanupTestAssets({
             superUserSql,
         });
+        log({
+            message: "Test objects cleaned up.",
+            type: "debug",
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+        });
+
+        log({
+            message: "Initializing test accounts...",
+            type: "debug",
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+        });
         const testAccounts = await initTestAccounts({
             superUserSql,
         });
         adminAgent = testAccounts.adminAgent;
         regularAgent = testAccounts.regularAgent;
         anonAgent = testAccounts.anonAgent;
+        log({
+            message: "All test accounts initialized.",
+            type: "debug",
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+        });
+        log({
+            message: "Starting DB tests...",
+            type: "debug",
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+        });
     });
 
     describe("Base Schema", () => {
@@ -901,16 +976,12 @@ describe("DB", () => {
 
             test("should receive notification when a tick is captured", async () => {
                 let notificationReceived = false;
-                let notificationData = null;
+                let notificationData: Tick.I_TickNotification | null = null;
 
                 // First register the JS callback handler
                 superUserSql.listen("tick_captured", (notification) => {
                     notificationReceived = true;
-                    try {
-                        notificationData = JSON.parse(notification);
-                    } catch (e) {
-                        notificationData = notification;
-                    }
+                    notificationData = JSON.parse(notification);
                 });
 
                 // Then set up PostgreSQL LISTEN in a separate transaction
@@ -946,12 +1017,14 @@ describe("DB", () => {
                     await tx`UNLISTEN tick_captured`;
                 });
 
+                const parsedNotification = result as Tick.I_TickNotification;
+
                 // Verify notification was received
                 expect(notificationReceived).toBe(true);
-                expect(notificationData).toBeDefined();
-                expect(notificationData.syncGroup).toBe(TEST_SYNC_GROUP);
-                expect(notificationData.tickId).toBeDefined();
-                expect(notificationData.tickNumber).toBeDefined();
+                expect(parsedNotification).toBeDefined();
+                expect(parsedNotification.syncGroup).toBe(TEST_SYNC_GROUP);
+                expect(parsedNotification.tickId).toBeDefined();
+                expect(parsedNotification.tickNumber).toBeDefined();
             });
 
             describe("Script Operations", () => {
@@ -1008,8 +1081,7 @@ describe("DB", () => {
                 });
                 test("should detect script changes between ticks and only include changed fields", async () => {
                     // First transaction - create initial script and capture first tick
-                    let script1 = null;
-                    let tick1 = null;
+                    let script1: Entity.Script.I_Script;
 
                     // Create initial script
                     await superUserSql.begin(async (tx) => {
@@ -1032,8 +1104,7 @@ describe("DB", () => {
 
                     // Capture first tick in a new transaction
                     await superUserSql.begin(async (tx) => {
-                        [tick1] =
-                            await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
+                        await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
                     });
 
                     // Update the script in a separate transaction
@@ -1149,7 +1220,7 @@ describe("DB", () => {
                 // In the Asset Operations section, add this test after the existing one
 
                 test("should detect asset changes between ticks and only include changed fields", async () => {
-                    let asset1 = null;
+                    let asset1: Entity.Asset.I_Asset;
 
                     // Create initial asset in its own transaction
                     await superUserSql.begin(async (tx) => {
@@ -1383,6 +1454,12 @@ describe("DB", () => {
     });
 
     afterAll(async () => {
+        log({
+            message: "Cleaning up test objects...",
+            type: "debug",
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+        });
         await cleanupTestEntities({
             superUserSql,
         });
@@ -1395,9 +1472,36 @@ describe("DB", () => {
         await cleanupTestAccounts({
             superUserSql,
         });
-        await PostgresClient.getInstance().disconnect();
+        log({
+            message: "Test objects cleaned up.",
+            type: "debug",
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+        });
+        log({
+            message: "Disconnecting from DB...",
+            type: "debug",
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+        });
+        await PostgresClient.getInstance({
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+        }).disconnect();
+        log({
+            message: "Disconnected from DB.",
+            type: "debug",
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+        });
 
         // Turn on the services we turned off
+        log({
+            message: "Turning on services...",
+            type: "debug",
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+        });
         await up({
             service: Service.E_Service.API,
         });
@@ -1406,6 +1510,12 @@ describe("DB", () => {
         });
         await up({
             service: Service.E_Service.TICK,
+        });
+        log({
+            message: "Services turned on.",
+            type: "debug",
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
         });
     });
 });

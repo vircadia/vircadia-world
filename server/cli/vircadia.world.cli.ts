@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import { readdir, readFile } from "node:fs/promises";
 import { sign } from "jsonwebtoken";
-import { PostgresClient } from "../../sdk/vircadia-world-sdk-ts/module/server/postgres.client.ts";
+import { PostgresClient } from "../../sdk/vircadia-world-sdk-ts/module/server/postgres.server.client.ts";
 import { Service } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general.ts";
 
 const DOCKER_COMPOSE_FILE = path.join(
@@ -120,21 +120,28 @@ async function runDockerCommand(data: {
     if (stdout) {
         log({
             message: `[Docker Command Output] INFO\n${stdout}`,
-            type: "info",
+            type: "debug",
             suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
             debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
         });
     }
     if (stderr) {
+        // Check if stderr actually contains error indicators or just status messages
+        const isActualError =
+            stderr.includes("Error:") ||
+            stderr.includes("error:") ||
+            stderr.includes("failed") ||
+            (spawnedProcess.exitCode !== 0 && spawnedProcess.exitCode !== null);
+
         log({
-            message: `[Docker Command Output] ERROR\n${stderr}`,
-            type: "info",
+            message: `[Docker Command Output] ${isActualError ? "ERROR" : "STATUS"}\n${stderr}`,
+            type: isActualError ? "error" : "debug",
             suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
             debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
         });
     }
 
-    const exitCode = await spawnedProcess.exitCode;
+    const exitCode = spawnedProcess.exitCode;
 
     const isExpectedOutput =
         data.args.includes("down") || data.args.includes("up");
@@ -212,12 +219,22 @@ export async function isHealthy(): Promise<{
         error?: Error;
     }> => {
         try {
-            const db = PostgresClient.getInstance();
+            const db = PostgresClient.getInstance({
+                debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            });
 
             const sql = await db.getSuperClient({
                 postgres: {
                     host: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_HOST,
                     port: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_PORT,
+                    database: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_DATABASE,
+                    username:
+                        VircadiaConfig.CLI
+                            .VRCA_CLI_POSTGRES_SUPER_USER_USERNAME,
+                    password:
+                        VircadiaConfig.CLI
+                            .VRCA_CLI_POSTGRES_SUPER_USER_PASSWORD,
                 },
             });
             await sql`SELECT 1`;
@@ -321,11 +338,17 @@ export async function isHealthy(): Promise<{
 }
 
 export async function wipeDatabase() {
-    const db = PostgresClient.getInstance();
+    const db = PostgresClient.getInstance({
+        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+    });
     const sql = await db.getSuperClient({
         postgres: {
             host: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_HOST,
             port: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_PORT,
+            database: VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER,
+            username: VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER,
+            password: VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER,
         },
     });
 
@@ -368,11 +391,17 @@ export async function wipeDatabase() {
 }
 
 export async function migrate(): Promise<boolean> {
-    const db = PostgresClient.getInstance();
+    const db = PostgresClient.getInstance({
+        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+    });
     const sql = await db.getSuperClient({
         postgres: {
             host: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_HOST,
             port: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_PORT,
+            database: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_DATABASE,
+            username: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_USERNAME,
+            password: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_PASSWORD,
         },
     });
 
@@ -428,7 +457,7 @@ export async function migrate(): Promise<boolean> {
 
     log({
         message: `Attempting to read migrations directory: ${migrations}, found ${migrationSqlFiles.length} files`,
-        type: "info",
+        type: "debug",
         suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
         debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
     });
@@ -490,11 +519,17 @@ export async function migrate(): Promise<boolean> {
 export async function seed(data: {
     seedPath?: string;
 }) {
-    const db = PostgresClient.getInstance();
+    const db = PostgresClient.getInstance({
+        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+    });
     const sql = await db.getSuperClient({
         postgres: {
             host: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_HOST,
             port: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_PORT,
+            database: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_DATABASE,
+            username: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_USERNAME,
+            password: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_PASSWORD,
         },
     });
 
@@ -505,7 +540,7 @@ export async function seed(data: {
 
     log({
         message: `Attempting to read seed directory: ${seedDir}`,
-        type: "info",
+        type: "debug",
         suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
         debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
     });
@@ -516,7 +551,7 @@ export async function seed(data: {
         files = await readdir(seedDir);
         log({
             message: `Directory contents: ${files.length ? files.join(", ") : "(empty directory)"}`,
-            type: "info",
+            type: "debug",
             suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
             debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
         });
@@ -529,7 +564,7 @@ export async function seed(data: {
         });
         log({
             message: `No seed directory found at ${seedDir}`,
-            type: "info",
+            type: "error",
             suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
             debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
         });
@@ -589,11 +624,17 @@ export async function generateDbSystemToken(): Promise<{
     sessionId: string;
     agentId: string;
 }> {
-    const db = PostgresClient.getInstance();
+    const db = PostgresClient.getInstance({
+        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+    });
     const sql = await db.getSuperClient({
         postgres: {
             host: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_HOST,
             port: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_PORT,
+            database: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_DATABASE,
+            username: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_USERNAME,
+            password: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_PASSWORD,
         },
     });
 
@@ -669,11 +710,17 @@ export async function generateDbSystemToken(): Promise<{
 }
 
 export async function invalidateDbSystemTokens(): Promise<number> {
-    const db = PostgresClient.getInstance();
+    const db = PostgresClient.getInstance({
+        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+    });
     const sql = await db.getSuperClient({
         postgres: {
             host: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_HOST,
             port: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_PORT,
+            database: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_DATABASE,
+            username: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_USERNAME,
+            password: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_PASSWORD,
         },
     });
 
@@ -697,11 +744,11 @@ export async function invalidateDbSystemTokens(): Promise<number> {
 }
 
 export async function generateDbConnectionString(): Promise<string> {
-    return `postgres://${VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER}:${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_POSTGRES_PASSWORD}@${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_EXTERNAL}:${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_EXTERNAL}/${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_POSTGRES_DATABASE}`;
+    return `postgres://${VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_USERNAME}:${VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_PASSWORD}@${VircadiaConfig.CLI.VRCA_CLI_POSTGRES_HOST}:${VircadiaConfig.CLI.VRCA_CLI_POSTGRES_PORT}/${VircadiaConfig.CLI.VRCA_CLI_POSTGRES_DATABASE}`;
 }
 
 export async function generatePgwebAccessURL(): Promise<string> {
-    return `http://${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_PGWEB_HOST_CONTAINER_EXTERNAL}:${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_EXTERNAL}`;
+    return `http://${VircadiaConfig.CLI.VRCA_CLI_SERVICE_PGWEB_HOST}:${VircadiaConfig.CLI.VRCA_CLI_SERVICE_PGWEB_PORT}`;
 }
 
 // Add a new helper function to run operations on all services
@@ -1373,7 +1420,10 @@ if (import.meta.main) {
         }
     } finally {
         // Clean up database connection if it was used
-        const db = PostgresClient.getInstance();
+        const db = PostgresClient.getInstance({
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+        });
         await db.disconnect();
     }
 }

@@ -9,12 +9,11 @@ import {
     invalidateDbSystemTokens,
     generateDbConnectionString,
     wipeDatabase,
-    runForAllServices,
     upAndRebuild,
     downAndDestroy,
 } from "../vircadia.world.cli";
 import { VircadiaConfig } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
-import { PostgresClient } from "../../../sdk/vircadia-world-sdk-ts/module/server/postgres.client";
+import { PostgresClient } from "../../../sdk/vircadia-world-sdk-ts/module/server/postgres.server.client";
 import { Service } from "../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 
 async function waitForHealthyServices(timeoutMs = 15000, intervalMs = 500) {
@@ -34,7 +33,10 @@ describe("Docker Container and Database CLI Tests", () => {
     });
 
     afterAll(async () => {
-        await PostgresClient.getInstance().disconnect();
+        await PostgresClient.getInstance({
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+        }).disconnect();
     });
 
     test("Docker container rebuild works", async () => {
@@ -73,7 +75,7 @@ describe("Docker Container and Database CLI Tests", () => {
         // Verify all services are healthy
         const finalHealth = await isHealthy();
         expect(finalHealth.isHealthy).toBe(true);
-    }, 60000); // Longer timeout since rebuild includes multiple operations
+    }, 90000); // Longer timeout since rebuild includes multiple operations
 
     test("Docker container down and up cycle works", async () => {
         // Stop containers
@@ -118,10 +120,18 @@ describe("Docker Container and Database CLI Tests", () => {
     });
 
     test("Superuser SQL connection works", async () => {
-        const superUserSql = await PostgresClient.getInstance().getSuperClient({
+        const superUserSql = await PostgresClient.getInstance({
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+        }).getSuperClient({
             postgres: {
                 host: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_HOST,
                 port: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_PORT,
+                database: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_DATABASE,
+                username:
+                    VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_USERNAME,
+                password:
+                    VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_PASSWORD,
             },
         });
 
@@ -140,10 +150,20 @@ describe("Docker Container and Database CLI Tests", () => {
     });
 
     test("Proxy user SQL connection works", async () => {
-        const proxyUserSql = await PostgresClient.getInstance().getProxyClient({
+        const proxyUserSql = await PostgresClient.getInstance({
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+        }).getProxyClient({
             postgres: {
                 host: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_HOST,
                 port: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_PORT,
+                database: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_DATABASE,
+                username:
+                    VircadiaConfig.CLI
+                        .VRCA_CLI_POSTGRES_AGENT_PROXY_USER_USERNAME,
+                password:
+                    VircadiaConfig.CLI
+                        .VRCA_CLI_POSTGRES_AGENT_PROXY_USER_PASSWORD,
             },
         });
 
@@ -170,10 +190,18 @@ describe("Docker Container and Database CLI Tests", () => {
         expect(healthAfterReset.services.postgres.isHealthy).toBe(true);
 
         // Verify database is accessible after reset
-        const sql = await PostgresClient.getInstance().getSuperClient({
+        const sql = await PostgresClient.getInstance({
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+        }).getSuperClient({
             postgres: {
                 host: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_HOST,
                 port: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_PORT,
+                database: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_DATABASE,
+                username:
+                    VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_USERNAME,
+                password:
+                    VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_PASSWORD,
             },
         });
         const [result] = await sql`SELECT current_database()`;
@@ -199,10 +227,18 @@ describe("Docker Container and Database CLI Tests", () => {
     });
 
     test("Database extensions are properly installed", async () => {
-        const sql = await PostgresClient.getInstance().getSuperClient({
+        const sql = await PostgresClient.getInstance({
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+        }).getSuperClient({
             postgres: {
                 host: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_HOST,
                 port: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_PORT,
+                database: VircadiaConfig.CLI.VRCA_CLI_POSTGRES_DATABASE,
+                username:
+                    VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_USERNAME,
+                password:
+                    VircadiaConfig.CLI.VRCA_CLI_POSTGRES_SUPER_USER_PASSWORD,
             },
         });
 

@@ -6,7 +6,7 @@ import {
     type Auth,
     type Tick,
 } from "../vircadia-world-sdk-ts/schema/schema.general.ts";
-import { PostgresClient } from "../vircadia-world-sdk-ts/module/server/postgres.client.ts";
+import { PostgresClient } from "../vircadia-world-sdk-ts/module/server/postgres.server.client.ts";
 import type { Server } from "bun";
 
 export class WorldTickManager {
@@ -85,15 +85,24 @@ export class WorldTickManager {
                 },
             });
 
-            this.superUserSql =
-                await PostgresClient.getInstance().getSuperClient({
-                    postgres: {
-                        host: VircadiaConfig.SERVER
-                            .VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_CLUSTER,
-                        port: VircadiaConfig.SERVER
-                            .VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_CLUSTER,
-                    },
-                });
+            this.superUserSql = await PostgresClient.getInstance({
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+            }).getSuperClient({
+                postgres: {
+                    host: VircadiaConfig.SERVER
+                        .VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_CLUSTER,
+                    port: VircadiaConfig.SERVER
+                        .VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_CLUSTER,
+                    database:
+                        VircadiaConfig.SERVER
+                            .VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
+                    username: VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER,
+                    password:
+                        VircadiaConfig.SERVER
+                            .VRCA_SERVER_SERVICE_POSTGRES_PASSWORD,
+                },
+            });
 
             // Get sync groups from the database
             const syncGroupsData = await this.superUserSql<
@@ -277,7 +286,10 @@ export class WorldTickManager {
 
     cleanup() {
         this.stop();
-        PostgresClient.getInstance().disconnect();
+        PostgresClient.getInstance({
+            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+        }).disconnect();
     }
 }
 

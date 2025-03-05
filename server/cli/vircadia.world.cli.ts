@@ -596,7 +596,7 @@ export async function seed(data: {
 
                 log({
                     message: `Seed ${file} executed successfully`,
-                    type: "success",
+                    type: "debug",
                     suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
                     debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 });
@@ -612,11 +612,6 @@ export async function seed(data: {
             }
         }
     }
-
-    log({
-        message: `${VircadiaConfig.SERVER.VRCA_SERVER_CONTAINER_NAME} container seeds applied.`,
-        type: "success",
-    });
 }
 
 export async function generateDbSystemToken(): Promise<{
@@ -887,6 +882,11 @@ if (import.meta.main) {
                 log({ message: "Running database seeds...", type: "info" });
                 await seed({});
 
+                log({
+                    message: `${VircadiaConfig.SERVER.VRCA_SERVER_CONTAINER_NAME} container seeds applied.`,
+                    type: "debug",
+                });
+
                 // Now rebuild the remaining services
                 const otherServices = Object.values(Service.E_Service).filter(
                     (svc) => svc !== Service.E_Service.POSTGRES,
@@ -999,6 +999,10 @@ if (import.meta.main) {
                             debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                         });
                         await seed({});
+                        log({
+                            message: `${VircadiaConfig.SERVER.VRCA_SERVER_CONTAINER_NAME} container seeds applied.`,
+                            type: "debug",
+                        });
                     }
                 }
                 log({
@@ -1400,6 +1404,10 @@ if (import.meta.main) {
                     debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
                 });
                 await seed({ seedPath: additionalArgs[0] });
+                log({
+                    message: `${VircadiaConfig.SERVER.VRCA_SERVER_CONTAINER_NAME} container seeds applied.`,
+                    type: "debug",
+                });
                 break;
 
             // PGWEB COMMANDS

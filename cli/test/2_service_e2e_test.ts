@@ -1,11 +1,11 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import type postgres from "postgres";
-import { PostgresClient } from "../../../sdk/vircadia-world-sdk-ts/module/server/postgres.server.client";
+import { PostgresClient } from "../../sdk/vircadia-world-sdk-ts/module/server/postgres.server.client";
 import {
     Communication,
     Entity,
-} from "../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
-import { VircadiaConfig } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
+} from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+import { VircadiaConfig } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
 import {
     cleanupTestAccounts,
     cleanupTestAssets,
@@ -16,7 +16,7 @@ import {
     TEST_SYNC_GROUP,
     type TestAccount,
 } from "./helper/helpers";
-import { log } from "../../../sdk/vircadia-world-sdk-ts/module/general/log";
+import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 import { up } from "../vircadia.world.cli";
 
 // TODO: Add benchmarks.

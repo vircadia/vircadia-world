@@ -1,11 +1,11 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import type postgres from "postgres";
-import { PostgresClient } from "../../../sdk/vircadia-world-sdk-ts/module/server/postgres.server.client";
+import { PostgresClient } from "../../sdk/vircadia-world-sdk-ts/module/server/postgres.server.client";
 import {
     Entity,
     Service,
     type Tick,
-} from "../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+} from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import {
     TEST_SYNC_GROUP,
     DB_TEST_PREFIX,
@@ -16,9 +16,9 @@ import {
     cleanupTestScripts,
     cleanupTestAssets,
 } from "./helper/helpers";
-import { VircadiaConfig } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
+import { VircadiaConfig } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
 import { down, up } from "../vircadia.world.cli";
-import { log } from "../../../sdk/vircadia-world-sdk-ts/module/general/log";
+import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 
 let superUserSql: postgres.Sql;
 let proxyUserSql: postgres.Sql;

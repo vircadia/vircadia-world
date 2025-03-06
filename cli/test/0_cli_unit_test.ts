@@ -12,9 +12,9 @@ import {
     upAndRebuild,
     downAndDestroy,
 } from "../vircadia.world.cli";
-import { VircadiaConfig } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
-import { PostgresClient } from "../../../sdk/vircadia-world-sdk-ts/module/server/postgres.server.client";
-import { Service } from "../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+import { VircadiaConfig } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
+import { PostgresClient } from "../../sdk/vircadia-world-sdk-ts/module/server/postgres.server.client";
+import { Service } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 
 async function waitForHealthyServices(timeoutMs = 15000, intervalMs = 500) {
     const startTime = Date.now();

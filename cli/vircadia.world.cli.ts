@@ -1,16 +1,16 @@
-import { VircadiaConfig } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config.ts";
-import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log.ts";
+import { VircadiaConfig } from "../sdk/vircadia-world-sdk-ts/config/vircadia.config.ts";
+import { log } from "../sdk/vircadia-world-sdk-ts/module/general/log.ts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import { readdir, readFile } from "node:fs/promises";
 import { sign } from "jsonwebtoken";
-import { PostgresClient } from "../../sdk/vircadia-world-sdk-ts/module/server/postgres.server.client.ts";
-import { Service } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general.ts";
+import { PostgresClient } from "../sdk/vircadia-world-sdk-ts/module/server/postgres.server.client.ts";
+import { Service } from "../sdk/vircadia-world-sdk-ts/schema/schema.general.ts";
 
 const DOCKER_COMPOSE_FILE = path.join(
     dirname(fileURLToPath(import.meta.url)),
-    "../service/docker.compose.yml",
+    "../server/service/docker.compose.yml",
 );
 
 // Update runDockerCommand to use the single compose file

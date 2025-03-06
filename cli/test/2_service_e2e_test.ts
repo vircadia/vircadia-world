@@ -319,14 +319,23 @@ describe("Service Tests", () => {
         const adminAgentMessageReceivedByType: Record<string, boolean> = {};
         const regularAgentMessageReceivedByType: Record<string, boolean> = {};
         const anonAgentMessageReceivedByType: Record<string, boolean> = {};
-        const adminAgentMessagesByType: Record<string, any> = {};
-        const regularAgentMessagesByType: Record<string, any> = {};
-        const anonAgentMessagesByType: Record<string, any> = {};
+        const adminAgentMessagesByType: Record<
+            string,
+            Communication.WebSocket.Message | null
+        > = {};
+        const regularAgentMessagesByType: Record<
+            string,
+            Communication.WebSocket.Message | null
+        > = {};
+        const anonAgentMessagesByType: Record<
+            string,
+            Communication.WebSocket.Message | null
+        > = {};
 
         const waitForMessage = async (
             messageType?: Communication.WebSocket.MessageType,
             timeoutMs = 1000,
-        ): Promise<any> => {
+        ): Promise<Communication.WebSocket.Message | null> => {
             // Reset flags
             if (messageType) {
                 regularAgentMessageReceivedByType[messageType] = false;
@@ -524,7 +533,7 @@ describe("Service Tests", () => {
             expect(initialResponse.type).toBe(
                 Communication.WebSocket.MessageType.QUERY_RESPONSE,
             );
-            expect(initialResponse.errorMessage).toBeNull();
+            expect(initialResponse.errorMessage).toBeUndefined();
             expect(initialResponse.result).toBeInstanceOf(Array);
 
             // Add explicit check to ensure result is defined before using it
@@ -558,7 +567,7 @@ describe("Service Tests", () => {
             expect(updateResponse.type).toBe(
                 Communication.WebSocket.MessageType.QUERY_RESPONSE,
             );
-            expect(updateResponse.errorMessage).toBeNull();
+            expect(updateResponse.errorMessage).toBeUndefined();
 
             // Query again to verify the timestamp was updated
             regularAgentWsConnection.send(
@@ -716,7 +725,7 @@ describe("Service Tests", () => {
                 Communication.WebSocket.MessageType.QUERY_RESPONSE,
             );
             expect(response).toBeDefined();
-            expect(response.type).toBe(
+            expect(response?.type).toBe(
                 Communication.WebSocket.MessageType.QUERY_RESPONSE,
             );
 

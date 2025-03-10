@@ -193,7 +193,7 @@ export class WorldApiManager {
                             .DB_AGENT_PROXY_USER_USERNAME,
                     password:
                         VircadiaConfig.SERVER
-                            .VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_PASSWORD,
+                            .VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD,
                 },
             });
         } catch (error) {

@@ -169,7 +169,7 @@ DECLARE
     v_is_delayed boolean;
     v_time_since_last_tick_ms double precision;
     v_tick_id uuid;
-    v_buffer_duration_ms integer;
+    v_max_tick_count_buffer integer;
     v_db_start_time timestamptz;
     v_db_end_time timestamptz;
     v_db_duration_ms double precision;
@@ -180,16 +180,21 @@ BEGIN
     v_start_time := clock_timestamp();
     v_db_start_time := v_start_time;  -- Database processing starts now
 
-    -- Get buffer duration from sync group config
-    SELECT server__tick__rate_ms 
-    INTO v_buffer_duration_ms
+    -- Get max tick count buffer from sync group config
+    SELECT server__tick__max_tick_count_buffer 
+    INTO v_max_tick_count_buffer
     FROM auth.sync_groups
     WHERE general__sync_group = p_sync_group;
 
-    -- Cleanup old ticks
+    -- Cleanup old ticks based on count
     DELETE FROM tick.world_ticks wt
-    WHERE wt.group__sync = p_sync_group
-      AND wt.tick__start_time < (v_start_time - (v_buffer_duration_ms || ' milliseconds')::interval);
+    WHERE wt.general__tick_id IN (
+        SELECT wt2.general__tick_id
+        FROM tick.world_ticks wt2
+        WHERE wt2.group__sync = p_sync_group
+        ORDER BY wt2.tick__number DESC
+        OFFSET v_max_tick_count_buffer
+    );
 
     -- Get last tick information (for tick number & metrics)
     SELECT 

@@ -156,7 +156,7 @@ CREATE TABLE auth.sync_groups (
     general__description TEXT,
     
     server__tick__rate_ms INTEGER NOT NULL,
-    server__tick__max_ticks_buffer INTEGER NOT NULL,
+    server__tick__max_tick_count_buffer INTEGER NOT NULL,
     
     client__render_delay_ms INTEGER NOT NULL,
     client__max_prediction_time_ms INTEGER NOT NULL,
@@ -566,22 +566,22 @@ INSERT INTO auth.sync_groups (
     general__sync_group,
     general__description,
     server__tick__rate_ms,
-    server__tick__max_ticks_buffer,
+    server__tick__max_tick_count_buffer,
     client__render_delay_ms,
     client__max_prediction_time_ms,
     network__packet_timing_variance_ms
 ) VALUES
     -- Public zone
-    ('public.REALTIME', 'Public realtime entities', 16, 2, 50, 100, 25),
-    ('public.NORMAL', 'Public normal-priority entities', 50, 1, 100, 150, 50),
-    ('public.BACKGROUND', 'Public background entities', 200, 1, 200, 300, 100),
-    ('public.STATIC', 'Public static entities', 2000, 1, 500, 1000, 200),
+    ('public.REALTIME', 'Public realtime entities', 16, 2000, 50, 100, 25),
+    ('public.NORMAL', 'Public normal-priority entities', 50, 1000, 100, 150, 50),
+    ('public.BACKGROUND', 'Public background entities', 200, 1000, 200, 300, 100),
+    ('public.STATIC', 'Public static entities', 2000, 1000, 500, 1000, 200),
     
     -- Admin zone (mirroring public zone structure)
-    ('admin.REALTIME', 'Admin-only realtime entities', 16, 2, 50, 100, 25),
-    ('admin.NORMAL', 'Admin-only normal-priority entities', 50, 1, 100, 150, 50),
-    ('admin.BACKGROUND', 'Admin-only background entities', 200, 1, 200, 300, 100),
-    ('admin.STATIC', 'Admin-only static entities', 2000, 1, 500, 1000, 200);
+    ('admin.REALTIME', 'Admin-only realtime entities', 16, 2000, 50, 100, 25),
+    ('admin.NORMAL', 'Admin-only normal-priority entities', 50, 1000, 100, 150, 50),
+    ('admin.BACKGROUND', 'Admin-only background entities', 200, 1000, 200, 300, 100),
+    ('admin.STATIC', 'Admin-only static entities', 2000, 1000, 500, 1000, 200);
 
 -- Add system provider to auth_providers table if not exists
 INSERT INTO auth.auth_providers (

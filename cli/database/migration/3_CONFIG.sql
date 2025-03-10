@@ -45,8 +45,8 @@ CREATE TABLE config.database_config (
 -- 4. SEED TRACKING
 -- ============================================================================
 CREATE TABLE config.seeds (
-    general__seed_id SERIAL PRIMARY KEY,
-    general__name TEXT NOT NULL,
+    general__hash TEXT PRIMARY KEY,  -- MD5 hash of the seed content
+    general__name TEXT NOT NULL,     -- Seed filename for reference
     general__executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

@@ -7,6 +7,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { sign } from "jsonwebtoken";
 import { PostgresClient } from "../sdk/vircadia-world-sdk-ts/module/server/postgres.server.client.ts";
 import { Service } from "../sdk/vircadia-world-sdk-ts/schema/schema.general.ts";
+import { createHash } from "node:crypto";
 
 const SERVER_DOCKER_COMPOSE_FILE = path.join(
     dirname(fileURLToPath(import.meta.url)),
@@ -588,24 +589,57 @@ export async function seed(data: {
 
     const sqlFiles = files.filter((f) => f.endsWith(".sql")).sort();
 
-    // Get already executed seeds - updated column names
+    // Get already executed seeds - querying by hash now
     const result =
-        await sql`SELECT general__name FROM config.seeds ORDER BY general__seed_id`;
-    const executedSeeds = result.map((r) => r.general__name);
+        await sql`SELECT general__hash, general__name FROM config.seeds`;
+    const executedHashes = new Set(result.map((r) => r.general__hash));
+    const executedNames = new Map(
+        result.map((r) => [r.general__name, r.general__hash]),
+    );
 
     // Run pending seeds
     for (const file of sqlFiles) {
-        if (!executedSeeds.includes(file)) {
-            try {
-                const filePath = path.join(seedDir, file);
-                const sqlContent = await readFile(filePath, "utf-8");
+        log({
+            message: `Found seed ${file}...`,
+            type: "debug",
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+        });
 
-                // Run the seed in a transaction - updated column names
+        const filePath = path.join(seedDir, file);
+        const sqlContent = await readFile(filePath, "utf-8");
+
+        // Calculate MD5 hash of the seed content
+        const contentHash = createHash("md5").update(sqlContent).digest("hex");
+
+        if (!executedHashes.has(contentHash)) {
+            // If the seed name exists but with a different hash, log a warning
+            if (
+                executedNames.has(file) &&
+                executedNames.get(file) !== contentHash
+            ) {
+                log({
+                    message: `Warning: Seed ${file} has changed since it was last executed`,
+                    type: "warn",
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                });
+            }
+
+            log({
+                message: `Executing seed ${file} (hash: ${contentHash})...`,
+                type: "debug",
+                suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            });
+
+            try {
+                // Run the seed in a transaction - updated to include hash
                 await sql.begin(async (sql) => {
                     await sql.unsafe(sqlContent);
                     await sql`
-                        INSERT INTO config.seeds (general__name)
-                        VALUES (${file})
+                        INSERT INTO config.seeds (general__hash, general__name)
+                        VALUES (${contentHash}, ${file})
                     `;
                 });
 
@@ -625,6 +659,13 @@ export async function seed(data: {
                 });
                 throw error;
             }
+        } else {
+            log({
+                message: `Seed ${file} already executed`,
+                type: "debug",
+                suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            });
         }
     }
 }

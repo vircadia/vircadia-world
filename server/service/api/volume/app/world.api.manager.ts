@@ -170,7 +170,8 @@ export class WorldApiManager {
                         VircadiaConfig.SERVER
                             .VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
                     username:
-                        VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER_USERNAME,
+                        VircadiaConfig.SERVER
+                            .VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                     password:
                         VircadiaConfig.SERVER
                             .VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
@@ -189,8 +190,8 @@ export class WorldApiManager {
                         VircadiaConfig.SERVER
                             .VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
                     username:
-                        VircadiaConfig.GLOBAL_CONSTS
-                            .DB_AGENT_PROXY_USER_USERNAME,
+                        VircadiaConfig.SERVER
+                            .VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME,
                     password:
                         VircadiaConfig.SERVER
                             .VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD,

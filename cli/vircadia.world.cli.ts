@@ -12,7 +12,9 @@ import {
 } from "../sdk/vircadia-world-sdk-ts/schema/schema.general.ts";
 import { createHash } from "node:crypto";
 
-namespace Client_CLI {
+// TODO: Optimize the commands, get up and down rebuilds including init to work well.
+
+export namespace Client_CLI {
     const CLIENT_DOCKER_COMPOSE_FILE = path.join(
         dirname(fileURLToPath(import.meta.url)),
         "../client/client.docker.compose.yml",
@@ -201,8 +203,6 @@ namespace Client_CLI {
             error?: Error;
         }> => {
             try {
-                // Implement client health check logic
-                // For example, check if the service is responding
                 const response = await fetch(
                     `http://${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_EXTERNAL}:${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_EXTERNAL}`,
                 );
@@ -235,7 +235,7 @@ namespace Client_CLI {
     }
 }
 
-namespace Server_CLI {
+export namespace Server_CLI {
     const SERVER_DOCKER_COMPOSE_FILE = path.join(
         dirname(fileURLToPath(import.meta.url)),
         "../server/service/server.docker.compose.yml",
@@ -1066,17 +1066,17 @@ function printValidCommands() {
             })
             .join("\n        ")}
 
-        // Database commands
-        database-reset
-        database-wipe
-        database-migrate
-        database-seed [seedPath]
-        database-connection-string
-        database-system-token
-        database-system-token-invalidate-all
+        // Server Postgres Database commands
+        server-postgres-database-reset
+        server-postgres-database-wipe
+        server-postgres-database-migrate
+        server-postgres-database-seed [seedPath]
+        server-postgres-database-connection-string
+        server-postgres-database-system-token
+        server-postgres-database-system-token-invalidate-all
 
-        // PGWEB commands
-        pgweb-access-command
+        // Server PGWEB commands
+        server-pgweb-access-command
         `,
         type: "info",
     });
@@ -1350,6 +1350,123 @@ if (import.meta.main) {
                 break;
             }
 
+            // SERVER POSTGRES DATABASE COMMANDS
+            case "server-postgres-database-migrate": {
+                log({
+                    message: "Running database migrations...",
+                    type: "info",
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                });
+                await Server_CLI.migrate();
+                log({
+                    message: "Migrations ran successfully",
+                    type: "success",
+                });
+                break;
+            }
+
+            case "server-postgres-database-wipe": {
+                log({
+                    message: "Wiping database...",
+                    type: "info",
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                });
+                await Server_CLI.wipeDatabase();
+                log({
+                    message: "Database wiped",
+                    type: "success",
+                });
+                break;
+            }
+
+            case "server-postgres-database-reset": {
+                log({
+                    message: "Resetting database...",
+                    type: "info",
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                });
+                await Server_CLI.wipeDatabase();
+                await Server_CLI.migrate();
+                await Server_CLI.seed({});
+                log({
+                    message: "Database reset",
+                    type: "success",
+                });
+                break;
+            }
+
+            case "server-postgres-database-connection-string": {
+                const connectionString =
+                    await Server_CLI.generateDbConnectionString();
+                log({
+                    message: `Database connection string: ${connectionString}`,
+                    type: "info",
+                });
+                break;
+            }
+
+            case "server-postgres-database-system-token": {
+                log({
+                    message: "Generating system token...",
+                    type: "info",
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                });
+                const { token, sessionId, agentId } =
+                    await Server_CLI.generateDbSystemToken();
+                log({
+                    message: `System agent token: ${token}`,
+                    data: { sessionId, agentId },
+                    type: "info",
+                });
+                break;
+            }
+
+            case "server-postgres-database-system-token-invalidate-all": {
+                log({
+                    message: "Invalidating all system tokens...",
+                    type: "info",
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                });
+                const invalidatedCount =
+                    await Server_CLI.invalidateDbSystemTokens();
+                log({
+                    message: `Invalidated ${invalidatedCount} system tokens`,
+                    type: "success",
+                });
+                break;
+            }
+
+            case "server-postgres-database-seed": {
+                log({
+                    message: "Running database seeds...",
+                    type: "info",
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                });
+                await Server_CLI.seed({ seedPath: additionalArgs[0] });
+                log({
+                    message: `${VircadiaConfig.SERVER.VRCA_SERVER_CONTAINER_NAME} container seeds applied.`,
+                    type: "debug",
+                });
+                break;
+            }
+
+            // SERVER PGWEB COMMANDS
+            case "server-pgweb-access-command": {
+                const pgwebAccessURL =
+                    await Server_CLI.generatePgwebAccessURL();
+                log({
+                    message: `Access PGWEB at: ${pgwebAccessURL}`,
+                    type: "info",
+                });
+                break;
+            }
+
             // CLIENT CONTAINER COMMANDS - ALL CLIENTS
             case "client-container-init":
             case "client-container-up-all":
@@ -1505,141 +1622,6 @@ if (import.meta.main) {
                 });
                 break;
             }
-
-            // DATABASE COMMANDS
-            case "database-migrate": {
-                log({
-                    message: "Running database migrations...",
-                    type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                await Server_CLI.migrate();
-                log({
-                    message: "Migrations ran successfully",
-                    type: "success",
-                });
-                break;
-            }
-
-            case "database-wipe": {
-                log({
-                    message: "Wiping database...",
-                    type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                await Server_CLI.wipeDatabase();
-                log({
-                    message: "Database wiped",
-                    type: "success",
-                });
-                break;
-            }
-
-            case "database-reset": {
-                log({
-                    message: "Resetting database...",
-                    type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                await Server_CLI.wipeDatabase();
-                await Server_CLI.migrate();
-                await Server_CLI.seed({});
-                log({
-                    message: "Database reset",
-                    type: "success",
-                });
-                break;
-            }
-
-            case "database-connection-string": {
-                const connectionString =
-                    await Server_CLI.generateDbConnectionString();
-                log({
-                    message: `Database connection string: ${connectionString}`,
-                    type: "info",
-                });
-                break;
-            }
-
-            case "database-system-token": {
-                log({
-                    message: "Generating system token...",
-                    type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                const { token, sessionId, agentId } =
-                    await Server_CLI.generateDbSystemToken();
-                log({
-                    message: `System agent token: ${token}`,
-                    data: { sessionId, agentId },
-                    type: "info",
-                });
-                break;
-            }
-
-            case "database-system-token-invalidate-all": {
-                log({
-                    message: "Invalidating all system tokens...",
-                    type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                const invalidatedCount =
-                    await Server_CLI.invalidateDbSystemTokens();
-                log({
-                    message: `Invalidated ${invalidatedCount} system tokens`,
-                    type: "success",
-                });
-                break;
-            }
-
-            case "database-seed": {
-                log({
-                    message: "Running database seeds...",
-                    type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                await Server_CLI.seed({ seedPath: additionalArgs[0] });
-                log({
-                    message: `${VircadiaConfig.SERVER.VRCA_SERVER_CONTAINER_NAME} container seeds applied.`,
-                    type: "debug",
-                });
-                break;
-            }
-
-            // PGWEB COMMANDS
-            case "pgweb-access-command": {
-                const pgwebAccessURL =
-                    await Server_CLI.generatePgwebAccessURL();
-                log({
-                    message: `Access PGWEB at: ${pgwebAccessURL}`,
-                    type: "info",
-                });
-                break;
-            }
-
-            // Support legacy commands by mapping them to the new names
-            case "container-up-all":
-                log({
-                    message:
-                        "Warning: Using deprecated command. Please use server-container-up-all instead.",
-                    type: "warning",
-                });
-                await Server_CLI.runForAllServices(async (svc) => {
-                    log({
-                        message: `Starting ${svc.toLowerCase()} service...`,
-                        type: "info",
-                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                    });
-                    await Server_CLI.up({ service: svc });
-                });
-                break;
 
             default:
                 log({

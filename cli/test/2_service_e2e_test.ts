@@ -45,7 +45,9 @@ describe("Service Tests", () => {
                 host: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
                 port: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
                 database: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
-                username: VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER_USERNAME,
+                username:
+                    VircadiaConfig.CLI
+                        .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                 password:
                     VircadiaConfig.CLI
                         .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
@@ -60,7 +62,8 @@ describe("Service Tests", () => {
                 port: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
                 database: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                 username:
-                    VircadiaConfig.GLOBAL_CONSTS.DB_AGENT_PROXY_USER_USERNAME,
+                    VircadiaConfig.CLI
+                        .VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME,
                 password:
                     VircadiaConfig.CLI
                         .VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD,
@@ -88,21 +91,24 @@ describe("Service Tests", () => {
     });
 
     describe("API Manager", () => {
-        const adminWsUrl = `${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI_USING_SSL ? "wss" : "ws"}://${
-            VircadiaConfig.CLIENT
-                .VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI
-        }${Communication.WS_UPGRADE_PATH}?token=${adminAgent.token}&provider=system`;
-        const regularWsUrl = `${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI_USING_SSL ? "wss" : "ws"}://${
-            VircadiaConfig.CLIENT
-                .VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI
-        }${Communication.WS_UPGRADE_PATH}?token=${regularAgent.token}&provider=system`;
-        const anonWsUrl = `${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI_USING_SSL ? "wss" : "ws"}://${
-            VircadiaConfig.CLIENT
-                .VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI
-        }${Communication.WS_UPGRADE_PATH}?token=${anonAgent.token}&provider=system`;
+        let adminWsUrl: string;
+        let regularWsUrl: string;
+        let anonWsUrl: string;
 
         beforeAll(async () => {
             return new Promise((resolve, reject) => {
+                adminWsUrl = `${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI_USING_SSL ? "wss" : "ws"}://${
+                    VircadiaConfig.CLIENT
+                        .VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI
+                }${Communication.WS_UPGRADE_PATH}?token=${adminAgent.token}&provider=system`;
+                regularWsUrl = `${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI_USING_SSL ? "wss" : "ws"}://${
+                    VircadiaConfig.CLIENT
+                        .VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI
+                }${Communication.WS_UPGRADE_PATH}?token=${regularAgent.token}&provider=system`;
+                anonWsUrl = `${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI_USING_SSL ? "wss" : "ws"}://${
+                    VircadiaConfig.CLIENT
+                        .VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI
+                }${Communication.WS_UPGRADE_PATH}?token=${anonAgent.token}&provider=system`;
                 adminAgentWsConnection = new WebSocket(adminWsUrl);
                 regularAgentWsConnection = new WebSocket(regularWsUrl);
                 anonAgentWsConnection = new WebSocket(anonWsUrl);
@@ -424,7 +430,7 @@ describe("Service Tests", () => {
             expect(initialResponse.type).toBe(
                 Communication.WebSocket.MessageType.QUERY_RESPONSE,
             );
-            expect(initialResponse.errorMessage).toBeUndefined();
+            expect(initialResponse.errorMessage).toBeNull();
             expect(initialResponse.result).toBeInstanceOf(Array);
 
             // Add explicit check to ensure result is defined before using it
@@ -458,7 +464,7 @@ describe("Service Tests", () => {
             expect(updateResponse.type).toBe(
                 Communication.WebSocket.MessageType.QUERY_RESPONSE,
             );
-            expect(updateResponse.errorMessage).toBeUndefined();
+            expect(updateResponse.errorMessage).toBeNull();
 
             // Query again to verify the timestamp was updated
             regularAgentWsConnection.send(

@@ -22,17 +22,24 @@ async function runDockerCommand(data: {
         ...process.env,
         PATH: process.env.PATH,
 
-        VRCA_GLOBAL_CONSTS_DB_SUPER_USER:
-            VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER_USERNAME,
-        VRCA_GLOBAL_CONSTS_DB_AGENT_PROXY_USER:
-            VircadiaConfig.GLOBAL_CONSTS.DB_AGENT_PROXY_USER_USERNAME,
-
         VRCA_SERVER_CONTAINER_NAME:
             VircadiaConfig.SERVER.VRCA_SERVER_CONTAINER_NAME,
         VRCA_SERVER_DEBUG: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG.toString(),
         VRCA_SERVER_SUPPRESS:
             VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS.toString(),
 
+        VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME:
+            VircadiaConfig.SERVER
+                .VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+        VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD:
+            VircadiaConfig.SERVER
+                .VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+        VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME:
+            VircadiaConfig.SERVER
+                .VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME,
+        VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD:
+            VircadiaConfig.SERVER
+                .VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD,
         VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_EXTERNAL:
             VircadiaConfig.SERVER
                 .VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_EXTERNAL,
@@ -45,12 +52,6 @@ async function runDockerCommand(data: {
             VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_CLUSTER.toString(),
         VRCA_SERVER_SERVICE_POSTGRES_DATABASE:
             VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
-        VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD:
-            VircadiaConfig.SERVER
-                .VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
-        VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_PASSWORD:
-            VircadiaConfig.SERVER
-                .VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_PASSWORD,
         VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS:
             VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS.join(
                 ",",
@@ -348,9 +349,13 @@ export async function wipeDatabase() {
         postgres: {
             host: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
             port: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
-            database: VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER_USERNAME,
-            username: VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER_USERNAME,
-            password: VircadiaConfig.GLOBAL_CONSTS.DB_SUPER_USER_USERNAME,
+            database: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+            username:
+                VircadiaConfig.CLI
+                    .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+            password:
+                VircadiaConfig.CLI
+                    .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
         },
     });
 

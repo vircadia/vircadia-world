@@ -173,6 +173,8 @@ export class WorldTickManager {
     }
 
     private async processTick(syncGroup: string) {
+        // Record manager start time
+        const managerStartTime = new Date();
         const localTotalStartTime = performance.now();
 
         const syncGroupConfig = this.syncGroups.get(syncGroup);
@@ -212,7 +214,7 @@ export class WorldTickManager {
                 prefix: this.LOG_PREFIX,
                 data: {
                     tickId: tickData.general__tick_id,
-                    tickNumber: tickData.general__tick_id,
+                    tickNumber: tickData.tick__number,
                     syncGroup: tickData.group__sync,
                 },
             });
@@ -232,7 +234,8 @@ export class WorldTickManager {
         const tickRate = syncGroupConfig.server__tick__rate_ms;
         const isLocallyTotalDelayed = localTotalProcessingTime > tickRate;
         const isLocallyDbDelayed = localDbProcessingTime > tickRate;
-        const isRemotelyDbDelayed = result?.tick_data.tick__is_delayed || false;
+        const isRemotelyDbDelayed =
+            result?.tick_data.tick__db__is_delayed || false;
 
         log({
             message: `Tick detected the following changes for sync group: ${syncGroup}`,
@@ -263,9 +266,67 @@ export class WorldTickManager {
                 data: {
                     localDbProcessingTime: `Local database processing time: ${localDbProcessingTime}ms`,
                     localTotalProcessingTime: `Local total processing time: ${localTotalProcessingTime}ms`,
-                    remoteDbProcessingTime: `Remote database processing time: ${result?.tick_data.tick__duration_ms}ms`,
+                    remoteDbProcessingTime: `Remote database processing time: ${result?.tick_data.tick__db__duration_ms}ms`,
                     tickRate: `Tick rate: ${tickRate}ms`,
                 },
+            });
+        }
+
+        // Record manager end time and update metrics asynchronously
+        const managerEndTime = new Date();
+        const managerDurationMs = localTotalProcessingTime;
+        const managerIsDelayed = isLocallyTotalDelayed;
+
+        if (result?.tick_data?.general__tick_id) {
+            this.updateTickManagerMetrics(
+                result.tick_data.general__tick_id,
+                managerStartTime,
+                managerEndTime,
+                managerDurationMs,
+                managerIsDelayed,
+            ).catch((error) => {
+                log({
+                    message: `Failed to update manager metrics: ${error}`,
+                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                    type: "error",
+                    prefix: this.LOG_PREFIX,
+                });
+            });
+        }
+    }
+
+    // Direct database update method instead of using a dedicated function
+    private async updateTickManagerMetrics(
+        tickId: string,
+        startTime: Date,
+        endTime: Date,
+        durationMs: number,
+        isDelayed: boolean,
+    ) {
+        // Only proceed if we have a database connection
+        if (!this.superUserSql) {
+            return;
+        }
+
+        try {
+            await this.superUserSql`
+                UPDATE tick.world_ticks
+                SET 
+                    tick__manager__start_time = ${startTime},
+                    tick__manager__end_time = ${endTime},
+                    tick__manager__duration_ms = ${durationMs},
+                    tick__manager__is_delayed = ${isDelayed}
+                WHERE general__tick_id = ${tickId}
+            `;
+        } catch (error) {
+            // Log but don't throw to avoid affecting tick processing
+            log({
+                message: `Error updating tick manager metrics: ${error}`,
+                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                type: "error",
+                prefix: this.LOG_PREFIX,
             });
         }
     }

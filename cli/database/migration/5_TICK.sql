@@ -26,6 +26,18 @@ CREATE TABLE tick.world_ticks (
     tick__headroom_ms double precision,
     tick__time_since_last_tick_ms double precision,
     
+    -- DB-specific metrics
+    tick__db__start_time timestamptz,
+    tick__db__end_time timestamptz,
+    tick__db__duration_ms double precision,
+    tick__db__is_delayed boolean,
+    
+    -- Manager-specific metrics
+    tick__manager__start_time timestamptz,
+    tick__manager__end_time timestamptz,
+    tick__manager__duration_ms double precision,
+    tick__manager__is_delayed boolean,
+    
     -- Add unique constraint for sync_group + tick number combination
     UNIQUE (group__sync, tick__number)
 );
@@ -138,7 +150,11 @@ CREATE OR REPLACE FUNCTION tick.capture_tick_state(
     tick__asset_states_processed int,
     tick__is_delayed boolean,
     tick__headroom_ms double precision,
-    tick__time_since_last_tick_ms double precision
+    tick__time_since_last_tick_ms double precision,
+    tick__db__start_time timestamptz,
+    tick__db__end_time timestamptz,
+    tick__db__duration_ms double precision,
+    tick__db__is_delayed boolean
 ) AS $$
 DECLARE
     v_start_time timestamptz;
@@ -154,13 +170,18 @@ DECLARE
     v_time_since_last_tick_ms double precision;
     v_tick_id uuid;
     v_buffer_duration_ms integer;
+    v_db_start_time timestamptz;
+    v_db_end_time timestamptz;
+    v_db_duration_ms double precision;
+    v_db_is_delayed boolean;
 BEGIN
     -- Acquire lock & initialize timing variables
     LOCK TABLE tick.world_ticks IN SHARE ROW EXCLUSIVE MODE;
     v_start_time := clock_timestamp();
+    v_db_start_time := v_start_time;  -- Database processing starts now
 
     -- Get buffer duration from sync group config
-    SELECT server__tick__max_ticks_buffer * server__tick__rate_ms 
+    SELECT server__tick__rate_ms 
     INTO v_buffer_duration_ms
     FROM auth.sync_groups
     WHERE general__sync_group = p_sync_group;
@@ -207,7 +228,11 @@ BEGIN
         tick__asset_states_processed,
         tick__is_delayed,
         tick__headroom_ms,
-        tick__time_since_last_tick_ms
+        tick__time_since_last_tick_ms,
+        tick__db__start_time,
+        tick__db__end_time,
+        tick__db__duration_ms,
+        tick__db__is_delayed
     ) VALUES (
         v_tick_id,
         v_tick_number,
@@ -220,7 +245,11 @@ BEGIN
         0,
         false,
         0,
-        v_time_since_last_tick_ms
+        v_time_since_last_tick_ms,
+        v_db_start_time,
+        null,  -- Will update at the end
+        0,
+        false
     );
 
     -- Capture entity states
@@ -354,17 +383,23 @@ BEGIN
     )
     SELECT COUNT(*) INTO v_asset_states_processed FROM asset_snapshot;
 
-    -- Calculate tick duration, delay & headroom, then update tick record
+    -- Calculate tick duration, delay & headroom
     v_end_time := clock_timestamp();
     v_duration_ms := EXTRACT(EPOCH FROM (v_end_time - v_start_time)) * 1000;
+    
+    -- Calculate DB-specific metrics
+    v_db_end_time := v_end_time;
+    v_db_duration_ms := EXTRACT(EPOCH FROM (v_db_end_time - v_db_start_time)) * 1000;
 
     SELECT 
         v_duration_ms > sg.server__tick__rate_ms AS is_delayed,
-        sg.server__tick__rate_ms - v_duration_ms AS headroom_ms
-    INTO v_is_delayed, v_headroom_ms
+        sg.server__tick__rate_ms - v_duration_ms AS headroom_ms,
+        v_db_duration_ms > sg.server__tick__rate_ms AS db_is_delayed
+    INTO v_is_delayed, v_headroom_ms, v_db_is_delayed
     FROM auth.sync_groups sg
     WHERE sg.general__sync_group = p_sync_group;
 
+    -- Update tick record with final metrics
     UPDATE tick.world_ticks wt
     SET 
         tick__end_time = v_end_time,
@@ -373,7 +408,10 @@ BEGIN
         tick__script_states_processed = v_script_states_processed,
         tick__asset_states_processed = v_asset_states_processed,
         tick__is_delayed = v_is_delayed,
-        tick__headroom_ms = v_headroom_ms
+        tick__headroom_ms = v_headroom_ms,
+        tick__db__end_time = v_db_end_time,
+        tick__db__duration_ms = v_db_duration_ms,
+        tick__db__is_delayed = v_db_is_delayed
     WHERE wt.general__tick_id = v_tick_id;
 
     -- Send notification that a tick has been captured
@@ -400,7 +438,11 @@ BEGIN
         v_asset_states_processed,
         v_is_delayed,
         v_headroom_ms,
-        v_time_since_last_tick_ms;
+        v_time_since_last_tick_ms,
+        v_db_start_time,
+        v_db_end_time,
+        v_db_duration_ms,
+        v_db_is_delayed;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 

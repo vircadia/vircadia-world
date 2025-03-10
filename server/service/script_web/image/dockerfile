@@ -1,2 +1,0 @@
-FROM oven/bun:1.2.4-alpine
-RUN apk update && apk add --no-cache git

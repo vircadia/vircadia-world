@@ -109,45 +109,6 @@ services:
     networks:
       - vircadia_network
 
-  # Script Web service
-  script_web:
-    build:
-      context: ./script_web/image
-      dockerfile: dockerfile
-    container_name: ${VRCA_SERVER_CONTAINER_NAME}_script_web
-    user: "1000:1000"  # Run as non-root user
-    restart: always
-    ports:
-      - "${VRCA_SERVER_SERVICE_SCRIPT_WEB_HOST_CONTAINER_EXTERNAL}:${VRCA_SERVER_SERVICE_SCRIPT_WEB_PORT_CONTAINER_EXTERNAL}:3020"
-    volumes:
-      - ./script_web/volume:/app
-    working_dir: /app
-    command: ["bun", "run", "--watch", "/app/app/world.script.web.manager.ts"]
-    environment:
-      VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME: ${VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME}
-      VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME: ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME}
-
-      VRCA_SERVER_DEBUG: ${VRCA_SERVER_DEBUG}
-      VRCA_SERVER_SUPPRESS: ${VRCA_SERVER_SUPPRESS}
-
-      VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_CLUSTER: ${VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_CLUSTER}
-      VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_CLUSTER: ${VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_CLUSTER}
-      VRCA_SERVER_SERVICE_POSTGRES_DATABASE: ${VRCA_SERVER_SERVICE_POSTGRES_DATABASE}
-      VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD: ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD}
-      VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_PASSWORD: ${VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_PASSWORD}
-    depends_on:
-      postgres:
-        condition: service_healthy
-        restart: true
-    healthcheck:
-      test: ["CMD-SHELL", "cd vircadia-world-sdk-ts && bun i && cd ../test && bun test"]
-      interval: 10s
-      timeout: 10s
-      retries: 3
-      start_period: 5s
-    networks:
-      - vircadia_network
-
   # Tick service
   tick:
     image: oven/bun:1.2.4-alpine

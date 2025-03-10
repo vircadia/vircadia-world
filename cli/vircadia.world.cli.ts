@@ -79,12 +79,6 @@ async function runDockerCommand(data: {
         VRCA_SERVER_SERVICE_API_PORT_CONTAINER_EXTERNAL:
             VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_PORT_CONTAINER_EXTERNAL.toString(),
 
-        VRCA_SERVER_SERVICE_SCRIPT_WEB_HOST_CONTAINER_EXTERNAL:
-            VircadiaConfig.SERVER
-                .VRCA_SERVER_SERVICE_SCRIPT_WEB_HOST_CONTAINER_EXTERNAL,
-        VRCA_SERVER_SERVICE_SCRIPT_WEB_PORT_CONTAINER_EXTERNAL:
-            VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_SCRIPT_WEB_PORT_CONTAINER_EXTERNAL.toString(),
-
         VRCA_SERVER_SERVICE_TICK_HOST_CONTAINER_EXTERNAL:
             VircadiaConfig.SERVER
                 .VRCA_SERVER_SERVICE_TICK_HOST_CONTAINER_EXTERNAL,
@@ -207,10 +201,6 @@ export async function isHealthy(): Promise<{
             isHealthy: boolean;
             error?: Error;
         };
-        script_web: {
-            isHealthy: boolean;
-            error?: Error;
-        };
         tick: {
             isHealthy: boolean;
             error?: Error;
@@ -278,22 +268,6 @@ export async function isHealthy(): Promise<{
         }
     };
 
-    const checkScriptWeb = async (): Promise<{
-        isHealthy: boolean;
-        error?: Error;
-    }> => {
-        try {
-            const url = `http://${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_SCRIPT_WEB_HOST_CONTAINER_EXTERNAL}:${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_SCRIPT_WEB_PORT_CONTAINER_EXTERNAL}${Service.Script_Web.Stats_Endpoint.path}`;
-            const response = await fetch(url, {
-                method: "POST",
-                body: Service.Script_Web.Stats_Endpoint.createRequest(),
-            });
-            return { isHealthy: response.ok };
-        } catch (error: unknown) {
-            return { isHealthy: false, error: error as Error };
-        }
-    };
-
     const checkTick = async (): Promise<{
         isHealthy: boolean;
         error?: Error;
@@ -310,32 +284,24 @@ export async function isHealthy(): Promise<{
         }
     };
 
-    const [
-        postgresHealth,
-        pgwebHealth,
-        apiHealth,
-        scriptWebHealth,
-        tickHealth,
-    ] = await Promise.all([
-        checkPostgres(),
-        checkPgweb(),
-        checkApi(),
-        checkScriptWeb(),
-        checkTick(),
-    ]);
+    const [postgresHealth, pgwebHealth, apiHealth, tickHealth] =
+        await Promise.all([
+            checkPostgres(),
+            checkPgweb(),
+            checkApi(),
+            checkTick(),
+        ]);
 
     return {
         isHealthy:
             postgresHealth.isHealthy &&
             pgwebHealth.isHealthy &&
             apiHealth.isHealthy &&
-            scriptWebHealth.isHealthy &&
             tickHealth.isHealthy,
         services: {
             postgres: postgresHealth,
             pgweb: pgwebHealth,
             api: apiHealth,
-            script_web: scriptWebHealth,
             tick: tickHealth,
         },
     };
@@ -1280,69 +1246,6 @@ if (import.meta.main) {
                 break;
             }
 
-            // SCRIPT_WEB COMMANDS
-            case "container-up-script-web":
-                log({
-                    message: "Starting script-web service...",
-                    type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                await up({
-                    service: Service.E_Service.SCRIPT_WEB,
-                });
-                break;
-
-            case "container-down-script-web":
-                log({
-                    message: "Stopping script-web service...",
-                    type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                await down({ service: Service.E_Service.SCRIPT_WEB });
-                break;
-
-            case "container-rebuild-script-web": {
-                log({
-                    message: "Rebuilding script-web service...",
-                    type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                await down({
-                    service: Service.E_Service.SCRIPT_WEB,
-                });
-                await upAndRebuild({
-                    service: Service.E_Service.SCRIPT_WEB,
-                });
-                log({
-                    message: "Script web service rebuilt successfully",
-                    type: "success",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                break;
-            }
-
-            case "container-restart-script-web": {
-                log({
-                    message: "Restarting script-web service...",
-                    type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                await down({ service: Service.E_Service.SCRIPT_WEB });
-                await up({ service: Service.E_Service.SCRIPT_WEB });
-                log({
-                    message: "Script web service restarted",
-                    type: "success",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                break;
-            }
-
             // CONTAINER HEALTH
             case "container-health": {
                 const health = await isHealthy();
@@ -1362,13 +1265,6 @@ if (import.meta.main) {
                     message: `API Manager: ${health.services.api.isHealthy ? "healthy" : "unhealthy"}`,
                     data: health.services.api,
                     type: health.services.api.isHealthy ? "success" : "error",
-                });
-                log({
-                    message: `Script Web Manager: ${health.services.script_web.isHealthy ? "healthy" : "unhealthy"}`,
-                    data: health.services.script_web,
-                    type: health.services.script_web.isHealthy
-                        ? "success"
-                        : "error",
                 });
                 log({
                     message: `Tick Manager: ${health.services.tick.isHealthy ? "healthy" : "unhealthy"}`,

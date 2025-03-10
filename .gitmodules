@@ -7,9 +7,6 @@
 [submodule "server/service/api/volume/vircadia-world-sdk-ts"]
 	path = server/service/api/volume/vircadia-world-sdk-ts
 	url = https://github.com/vircadia/vircadia-world-sdk-ts.git
-[submodule "server/service/script_web/volume/vircadia-world-sdk-ts"]
-	path = server/service/script_web/volume/vircadia-world-sdk-ts
-	url = https://github.com/vircadia/vircadia-world-sdk-ts.git
 [submodule "server/service/tick/volume/vircadia-world-sdk-ts"]
 	path = server/service/tick/volume/vircadia-world-sdk-ts
 	url = https://github.com/vircadia/vircadia-world-sdk-ts.git

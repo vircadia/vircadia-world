@@ -110,9 +110,17 @@ namespace Client_CLI {
             });
         }
         if (stderr) {
+            // Check if stderr actually contains error indicators or just status messages
+            const isActualError =
+                stderr.includes("Error:") ||
+                stderr.includes("error:") ||
+                stderr.includes("failed") ||
+                (spawnedProcess.exitCode !== 0 &&
+                    spawnedProcess.exitCode !== null);
+
             log({
-                message: `[Docker Command Output] ERROR\n${stderr}`,
-                type: "error",
+                message: `[Docker Command Output] ${isActualError ? "ERROR" : "STATUS"}\n${stderr}`,
+                type: isActualError ? "error" : "debug",
                 suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
                 debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
             });
@@ -1027,6 +1035,7 @@ function printValidCommands() {
         message: `Valid commands: 
 
         // Server Container commands - All services
+        server-container-init
         server-container-up-all
         server-container-down-all
         server-container-rebuild-all
@@ -1042,6 +1051,7 @@ function printValidCommands() {
             .join("\n        ")}
 
         // Client Container commands - All clients
+        client-container-init
         client-container-up-all
         client-container-down-all
         client-container-rebuild-all
@@ -1121,6 +1131,7 @@ if (import.meta.main) {
                 });
                 break;
 
+            case "server-container-init":
             case "server-container-rebuild-all": {
                 // First rebuild postgres only
                 log({
@@ -1340,6 +1351,7 @@ if (import.meta.main) {
             }
 
             // CLIENT CONTAINER COMMANDS - ALL CLIENTS
+            case "client-container-init":
             case "client-container-up-all":
                 log({
                     message: "Starting all client services...",
@@ -1390,7 +1402,7 @@ if (import.meta.main) {
                         suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
                         debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                     });
-                    await Client_CLI.down({ client });
+                    await Client_CLI.downAndDestroy({ client });
                     await Client_CLI.upAndRebuild({ client });
                 });
                 log({
@@ -1452,7 +1464,7 @@ if (import.meta.main) {
                     suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
                     debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
-                await Client_CLI.down({
+                await Client_CLI.downAndDestroy({
                     client: Client.E_Client.WEB_BABYLON_JS,
                 });
                 await Client_CLI.upAndRebuild({

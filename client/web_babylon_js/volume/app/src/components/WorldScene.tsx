@@ -16,11 +16,11 @@ import {
 } from "@babylonjs/core";
 import "@babylonjs/loaders";
 import HavokPhysics from "@babylonjs/havok";
-import { HavokPlugin } from "@babylonjs/core/Physics/v2/Plugins/havokPlugin";
+import type { HavokPlugin } from "@babylonjs/core/Physics/v2/Plugins/havokPlugin";
 import { GridMaterial } from "@babylonjs/materials/grid";
-import { VircadiaConfig_Client } from "../../../../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
-import { log } from "../../../../../sdk/vircadia-world-sdk-ts/module/general/log";
-import { Communication } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+import { VircadiaConfig } from "../../../vircadia-world-sdk-ts/config/vircadia.config";
+import { log } from "../../../vircadia-world-sdk-ts/module/general/log";
+import { Communication } from "../../../vircadia-world-sdk-ts/schema/schema.general";
 
 class WorldConnection {
     private ws: WebSocket | null = null;

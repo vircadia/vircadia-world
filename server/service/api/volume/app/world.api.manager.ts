@@ -18,6 +18,8 @@ import { EventEmitter } from "node:events";
 let superUserSql: postgres.Sql | null = null;
 let proxyUserSql: postgres.Sql | null = null;
 
+// TODO: Needs heavy optimization especially for pushing notifications to clients
+
 // ---------------------------------------------------------------------------------------------
 // ---------------------------------------------------------------------------------------------
 // ---------------------------------------------------------------------------------------------
@@ -250,50 +252,6 @@ export class WorldApiManager {
                 }
             }
         });
-
-        // Set up notification handler with event emission
-        // await superUserSql.subscribe("notification", async (notification) => {
-        //     if (
-        //         notification?.channel === "tick_captured" &&
-        //         notification.payload
-        //     ) {
-        //         try {
-        //             const payload = JSON.parse(notification.payload);
-        //             const syncGroup = payload.syncGroup;
-
-        //             log({
-        //                 message: `Received tick notification for sync group: ${syncGroup}`,
-        //                 debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
-        //                 suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-        //                 type: "debug",
-        //                 prefix: this.LOG_PREFIX,
-        //                 data: {
-        //                     tickId: payload.tickId,
-        //                     tickNumber: payload.tickNumber,
-        //                 },
-        //             });
-
-        //             // Emit event for tick notification received
-        //             this.events.emit("tick:notification", {
-        //                 syncGroup,
-        //                 tickId: payload.tickId,
-        //                 tickNumber: payload.tickNumber,
-        //             });
-
-        //             // Process world updates based on the notification
-        //             await this.sendWorldUpdatesToSyncGroup({ syncGroup });
-        //         } catch (error) {
-        //             log({
-        //                 message: "Error processing tick notification",
-        //                 error: error,
-        //                 debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
-        //                 suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-        //                 type: "error",
-        //                 prefix: this.LOG_PREFIX,
-        //             });
-        //         }
-        //     }
-        // });
 
         // Start server
         this.server = Bun.serve({

@@ -200,14 +200,17 @@ describe("Service Tests", () => {
     });
 
     describe("API Manager", () => {
-        const adminWsUrl = `${VircadiaConfig.CLIENT.VRCA_CLIENT_DEFAULT_WORLD_SERVER_URI_USING_SSL ? "wss" : "ws"}://${
-            VircadiaConfig.CLIENT.VRCA_CLIENT_DEFAULT_WORLD_SERVER_URI
+        const adminWsUrl = `${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI_USING_SSL ? "wss" : "ws"}://${
+            VircadiaConfig.CLIENT
+                .VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI
         }${Communication.WS_UPGRADE_PATH}?token=${adminAgent.token}&provider=system`;
-        const regularWsUrl = `${VircadiaConfig.CLIENT.VRCA_CLIENT_DEFAULT_WORLD_SERVER_URI_USING_SSL ? "wss" : "ws"}://${
-            VircadiaConfig.CLIENT.VRCA_CLIENT_DEFAULT_WORLD_SERVER_URI
+        const regularWsUrl = `${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI_USING_SSL ? "wss" : "ws"}://${
+            VircadiaConfig.CLIENT
+                .VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI
         }${Communication.WS_UPGRADE_PATH}?token=${regularAgent.token}&provider=system`;
-        const anonWsUrl = `${VircadiaConfig.CLIENT.VRCA_CLIENT_DEFAULT_WORLD_SERVER_URI_USING_SSL ? "wss" : "ws"}://${
-            VircadiaConfig.CLIENT.VRCA_CLIENT_DEFAULT_WORLD_SERVER_URI
+        const anonWsUrl = `${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI_USING_SSL ? "wss" : "ws"}://${
+            VircadiaConfig.CLIENT
+                .VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI
         }${Communication.WS_UPGRADE_PATH}?token=${anonAgent.token}&provider=system`;
 
         beforeAll(async () => {
@@ -403,7 +406,7 @@ describe("Service Tests", () => {
         });
 
         describe("Auth -> Login", () => {
-            const baseAuthUrl = `${VircadiaConfig.CLIENT.VRCA_CLIENT_DEFAULT_WORLD_SERVER_URI_USING_SSL ? "https" : "http"}://${VircadiaConfig.CLIENT.VRCA_CLIENT_DEFAULT_WORLD_SERVER_URI}`;
+            const baseAuthUrl = `${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI_USING_SSL ? "https" : "http"}://${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI}`;
 
             test("should validate valid session tokens", async () => {
                 const regularResponse = await fetch(

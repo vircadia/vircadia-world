@@ -1,0 +1,43 @@
+name: ${VRCA_CLIENT_CONTAINER_NAME}
+
+networks:
+  vircadia_network:
+    driver: bridge
+
+services:
+  # Web Babylon JS Client
+  web_babylon_js:
+    image: oven/bun:1.2.4-alpine
+    container_name: ${VRCA_CLIENT_CONTAINER_NAME}_web_babylon_js
+    user: "1000:1000"  # Run as non-root user
+    restart: always
+    ports:
+      - "${VRCA_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_EXTERNAL}:${VRCA_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_EXTERNAL}"
+    volumes:
+      - ./web_babylon_js/volume:/app
+    working_dir: /app
+    command: ["bun", "run", "--watch", "/app/app/world.web.babylon.js.manager.ts"]
+    environment:
+      VRCA_GLOBAL_CONSTS_DB_SUPER_USER: ${VRCA_GLOBAL_CONSTS_DB_SUPER_USER}
+      VRCA_GLOBAL_CONSTS_DB_AGENT_PROXY_USER: ${VRCA_GLOBAL_CONSTS_DB_AGENT_PROXY_USER}
+    
+      VRCA_SERVER_DEBUG: ${VRCA_SERVER_DEBUG}
+      VRCA_SERVER_SUPPRESS: ${VRCA_SERVER_SUPPRESS}
+
+      VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_CLUSTER: ${VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_CLUSTER}
+      VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_CLUSTER: ${VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_CLUSTER}
+      VRCA_SERVER_SERVICE_POSTGRES_DATABASE: ${VRCA_SERVER_SERVICE_POSTGRES_DATABASE}
+      VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD: ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD}
+      VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_PASSWORD: ${VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+        restart: true
+    healthcheck:
+      test: ["CMD-SHELL", "cd vircadia-world-sdk-ts && bun i && cd ../test && bun test"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    networks:
+      - vircadia_network

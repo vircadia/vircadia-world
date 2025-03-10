@@ -8,7 +8,7 @@ import { sign } from "jsonwebtoken";
 import { PostgresClient } from "../sdk/vircadia-world-sdk-ts/module/server/postgres.server.client.ts";
 import { Service } from "../sdk/vircadia-world-sdk-ts/schema/schema.general.ts";
 
-const DOCKER_COMPOSE_FILE = path.join(
+const SERVER_DOCKER_COMPOSE_FILE = path.join(
     dirname(fileURLToPath(import.meta.url)),
     "../server/service/docker.compose.yml",
 );
@@ -91,7 +91,7 @@ async function runDockerCommand(data: {
     };
 
     // Construct the command
-    let dockerArgs = ["docker", "compose", "-f", DOCKER_COMPOSE_FILE];
+    let dockerArgs = ["docker", "compose", "-f", SERVER_DOCKER_COMPOSE_FILE];
 
     // Add service name if specified
     if (data.service) {

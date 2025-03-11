@@ -601,41 +601,57 @@ export namespace Server_CLI {
             },
         });
 
-        // Get list of migration files
-        const resets = await readdir(
-            VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_RESET_DIR,
-        );
-        const resetSqlFiles = resets.filter((f) => f.endsWith(".sql")).sort();
+        try {
+            // Get list of migration files
+            const resets = await readdir(
+                VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_RESET_DIR,
+            );
+            const resetSqlFiles = resets
+                .filter((f) => f.endsWith(".sql"))
+                .sort();
 
-        // Run pending migrations
-        for (const file of resetSqlFiles) {
-            try {
-                const filePath = path.join(
-                    VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_RESET_DIR,
-                    file,
-                );
-                const sqlContent = await readFile(filePath, "utf-8");
+            // Run pending migrations
+            for (const file of resetSqlFiles) {
+                try {
+                    const filePath = path.join(
+                        VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_RESET_DIR,
+                        file,
+                    );
+                    const sqlContent = await readFile(filePath, "utf-8");
 
-                await sql.begin(async (sql) => {
-                    await sql.unsafe(sqlContent);
-                });
+                    await sql.begin(async (sql) => {
+                        // Set isolation level to SERIALIZABLE for the reset
+                        await sql.unsafe(
+                            "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE",
+                        );
+                        await sql.unsafe(sqlContent);
+                    });
 
-                log({
-                    message: `Reset ${file} executed successfully`,
-                    type: "debug",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-            } catch (error) {
-                log({
-                    message: `Failed to run reset ${file}.`,
-                    type: "error",
-                    error: error,
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                throw error;
+                    log({
+                        message: `Reset ${file} executed successfully`,
+                        type: "debug",
+                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                    });
+                } catch (error) {
+                    log({
+                        message: `Failed to run reset ${file}.`,
+                        type: "error",
+                        error: error,
+                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                    });
+                    throw error;
+                }
             }
+        } catch (error) {
+            log({
+                message: `Database reset failed: ${error}`,
+                type: "error",
+                suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            });
+            throw error;
         }
     }
 

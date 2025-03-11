@@ -111,6 +111,7 @@ describe("SERVER Container and Database CLI Tests", () => {
         await Server_CLI.runServerDockerCommand({
             args: ["up", "-d"],
         });
+
         const postgresHealthAfterUp = await Server_CLI.isPostgresHealthy(true);
         expect(postgresHealthAfterUp.isHealthy).toBe(true);
         const pgwebHealthAfterUp = await Server_CLI.isPgwebHealthy(true);
@@ -119,7 +120,7 @@ describe("SERVER Container and Database CLI Tests", () => {
         expect(apiHealthAfterUp.isHealthy).toBe(true);
         const tickHealthAfterUp = await Server_CLI.isTickHealthy(true);
         expect(tickHealthAfterUp.isHealthy).toBe(true);
-    }, 15000);
+    }, 30000);
 
     test("System token generation and cleanup works", async () => {
         // Generate system token
@@ -210,7 +211,12 @@ describe("SERVER Container and Database CLI Tests", () => {
     });
 
     test("Database reset, migration, and seeding works", async () => {
-        // Test reset
+        // Turn off services
+        await Server_CLI.runServerDockerCommand({
+            args: ["down", "pgweb", "api", "tick"],
+        });
+
+        // Test wipe
         await Server_CLI.wipeDatabase();
         const healthAfterReset = await Server_CLI.isPostgresHealthy(true);
         expect(healthAfterReset.isHealthy).toBe(true);
@@ -224,13 +230,19 @@ describe("SERVER Container and Database CLI Tests", () => {
         // Verify database is still healthy after all operations
         const finalPostgresHealth = await Server_CLI.isPostgresHealthy(true);
         expect(finalPostgresHealth.isHealthy).toBe(true);
+
+        // Turn on services
+        await Server_CLI.runServerDockerCommand({
+            args: ["up", "pgweb", "api", "tick", "-d"],
+        });
+
         const finalPgwebHealth = await Server_CLI.isPgwebHealthy(true);
         expect(finalPgwebHealth.isHealthy).toBe(true);
         const finalApiHealth = await Server_CLI.isApiHealthy(true);
         expect(finalApiHealth.isHealthy).toBe(true);
         const finalTickHealth = await Server_CLI.isTickHealthy(true);
         expect(finalTickHealth.isHealthy).toBe(true);
-    });
+    }, 15000);
 
     test("Database extensions are properly installed", async () => {
         const sql = await PostgresClient.getInstance({

@@ -263,7 +263,7 @@ BEGIN
             general__entity_id,
             general__entity_name,
             general__semantic_version,
-            general__load_priority,
+            group__load_priority,
             general__initialized_at,
             general__initialized_by,
             meta__data,
@@ -282,7 +282,7 @@ BEGIN
             e.general__entity_id,
             e.general__entity_name,
             e.general__semantic_version,
-            e.general__load_priority,
+            e.group__load_priority,
             e.general__initialized_at,
             e.general__initialized_by,
             e.meta__data,
@@ -501,7 +501,7 @@ BEGIN
                     'general__entity_id', cs.general__entity_id,
                     'general__entity_name', cs.general__entity_name,
                     'general__semantic_version', cs.general__semantic_version,
-                    'general__load_priority', cs.general__load_priority,
+                    'group__load_priority', cs.group__load_priority,
                     'general__initialized_at', cs.general__initialized_at,
                     'general__initialized_by', cs.general__initialized_by,
                     'meta__data', cs.meta__data,
@@ -523,9 +523,9 @@ BEGIN
                 'general__semantic_version', 
                     CASE WHEN cs.general__semantic_version IS DISTINCT FROM ps.general__semantic_version 
                     THEN cs.general__semantic_version END,
-                'general__load_priority', 
-                    CASE WHEN cs.general__load_priority IS DISTINCT FROM ps.general__load_priority 
-                    THEN cs.general__load_priority END,
+                'group__load_priority', 
+                    CASE WHEN cs.group__load_priority IS DISTINCT FROM ps.group__load_priority 
+                    THEN cs.group__load_priority END,
                 'general__initialized_at', 
                     CASE WHEN cs.general__initialized_at IS DISTINCT FROM ps.general__initialized_at 
                     THEN cs.general__initialized_at END,

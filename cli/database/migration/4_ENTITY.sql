@@ -87,7 +87,6 @@ CREATE TABLE entity.entities (
     general__entity_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     general__entity_name TEXT NOT NULL,
     general__semantic_version TEXT NOT NULL DEFAULT '1.0.0',
-    general__load_priority INTEGER,
     general__initialized_at TIMESTAMPTZ DEFAULT NULL,
     general__initialized_by UUID DEFAULT NULL,
     meta__data JSONB DEFAULT '{}'::jsonb,
@@ -96,11 +95,12 @@ CREATE TABLE entity.entities (
     assets__ids UUID[] DEFAULT '{}',
     validation__log JSONB DEFAULT '[]'::jsonb,
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
+    group__load_priority INTEGER,
 
     CONSTRAINT fk_entities_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group)
 ) INHERITS (entity._template);
 
-CREATE UNIQUE INDEX unique_seed_order_idx ON entity.entities(general__load_priority) WHERE general__load_priority IS NOT NULL;
+CREATE UNIQUE INDEX unique_seed_order_idx ON entity.entities(group__load_priority) WHERE group__load_priority IS NOT NULL;
 CREATE INDEX idx_entities_created_at ON entity.entities(general__created_at);
 CREATE INDEX idx_entities_updated_at ON entity.entities(general__updated_at);
 CREATE INDEX idx_entities_semantic_version ON entity.entities(general__semantic_version);

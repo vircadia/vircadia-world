@@ -134,15 +134,26 @@ export namespace Client_CLI {
     }
 
     // Client health check function
-    export async function isHealthy(): Promise<{
+    export async function isWebBabylonJsHealthy(
+        wait?:
+            | {
+                  interval: number;
+                  timeout: number;
+              }
+            | boolean,
+    ): Promise<{
         isHealthy: boolean;
-        clients: {
-            web_babylon_js: {
-                isHealthy: boolean;
-                error?: Error;
-            };
-        };
+        error?: Error;
     }> {
+        const defaultWait = { interval: 100, timeout: 2000 };
+
+        const waitConfig =
+            wait === true
+                ? defaultWait
+                : wait && typeof wait !== "boolean"
+                  ? wait
+                  : null;
+
         const checkWebBabylonJs = async (): Promise<{
             isHealthy: boolean;
             error?: Error;
@@ -169,14 +180,25 @@ export namespace Client_CLI {
             }
         };
 
-        const [webBabylonJs] = await Promise.all([checkWebBabylonJs()]);
+        // If waiting is not enabled, just check once
+        if (!waitConfig) {
+            return await checkWebBabylonJs();
+        }
 
-        return {
-            isHealthy: webBabylonJs.isHealthy,
-            clients: {
-                web_babylon_js: webBabylonJs,
-            },
-        };
+        // With waiting enabled, retry until timeout
+        const startTime = Date.now();
+        let lastError: Error | undefined;
+
+        while (Date.now() - startTime < waitConfig.timeout) {
+            const result = await checkWebBabylonJs();
+            if (result.isHealthy) {
+                return result;
+            }
+            lastError = result.error;
+            await Bun.sleep(waitConfig.interval);
+        }
+
+        return { isHealthy: false, error: lastError };
     }
 }
 
@@ -392,13 +414,26 @@ export namespace Server_CLI {
         return { isHealthy: false, error: lastError };
     }
 
-    export async function isPgwebHealthy(wait?: {
-        interval: number;
-        timeout: number;
-    }): Promise<{
+    export async function isPgwebHealthy(
+        wait?:
+            | {
+                  interval: number;
+                  timeout: number;
+              }
+            | boolean,
+    ): Promise<{
         isHealthy: boolean;
         error?: Error;
     }> {
+        const defaultWait = { interval: 100, timeout: 2000 };
+
+        const waitConfig =
+            wait === true
+                ? defaultWait
+                : wait && typeof wait !== "boolean"
+                  ? wait
+                  : null;
+
         const checkPgweb = async (): Promise<{
             isHealthy: boolean;
             error?: Error;
@@ -413,7 +448,7 @@ export namespace Server_CLI {
         };
 
         // If waiting is not enabled, just check once
-        if (!wait) {
+        if (!waitConfig) {
             return await checkPgweb();
         }
 
@@ -421,25 +456,38 @@ export namespace Server_CLI {
         const startTime = Date.now();
         let lastError: Error | undefined;
 
-        while (Date.now() - startTime < wait.timeout) {
+        while (Date.now() - startTime < waitConfig.timeout) {
             const result = await checkPgweb();
             if (result.isHealthy) {
                 return result;
             }
             lastError = result.error;
-            await Bun.sleep(wait.interval);
+            await Bun.sleep(waitConfig.interval);
         }
 
         return { isHealthy: false, error: lastError };
     }
 
-    export async function isApiHealthy(wait?: {
-        interval: number;
-        timeout: number;
-    }): Promise<{
+    export async function isApiHealthy(
+        wait?:
+            | {
+                  interval: number;
+                  timeout: number;
+              }
+            | boolean,
+    ): Promise<{
         isHealthy: boolean;
         error?: Error;
     }> {
+        const defaultWait = { interval: 100, timeout: 2000 };
+
+        const waitConfig =
+            wait === true
+                ? defaultWait
+                : wait && typeof wait !== "boolean"
+                  ? wait
+                  : null;
+
         const checkApi = async (): Promise<{
             isHealthy: boolean;
             error?: Error;
@@ -457,7 +505,7 @@ export namespace Server_CLI {
         };
 
         // If waiting is not enabled, just check once
-        if (!wait) {
+        if (!waitConfig) {
             return await checkApi();
         }
 
@@ -465,25 +513,38 @@ export namespace Server_CLI {
         const startTime = Date.now();
         let lastError: Error | undefined;
 
-        while (Date.now() - startTime < wait.timeout) {
+        while (Date.now() - startTime < waitConfig.timeout) {
             const result = await checkApi();
             if (result.isHealthy) {
                 return result;
             }
             lastError = result.error;
-            await Bun.sleep(wait.interval);
+            await Bun.sleep(waitConfig.interval);
         }
 
         return { isHealthy: false, error: lastError };
     }
 
-    export async function isTickHealthy(wait?: {
-        interval: number;
-        timeout: number;
-    }): Promise<{
+    export async function isTickHealthy(
+        wait?:
+            | {
+                  interval: number;
+                  timeout: number;
+              }
+            | boolean,
+    ): Promise<{
         isHealthy: boolean;
         error?: Error;
     }> {
+        const defaultWait = { interval: 100, timeout: 2000 };
+
+        const waitConfig =
+            wait === true
+                ? defaultWait
+                : wait && typeof wait !== "boolean"
+                  ? wait
+                  : null;
+
         const checkTick = async (): Promise<{
             isHealthy: boolean;
             error?: Error;
@@ -501,7 +562,7 @@ export namespace Server_CLI {
         };
 
         // If waiting is not enabled, just check once
-        if (!wait) {
+        if (!waitConfig) {
             return await checkTick();
         }
 
@@ -509,64 +570,16 @@ export namespace Server_CLI {
         const startTime = Date.now();
         let lastError: Error | undefined;
 
-        while (Date.now() - startTime < wait.timeout) {
+        while (Date.now() - startTime < waitConfig.timeout) {
             const result = await checkTick();
             if (result.isHealthy) {
                 return result;
             }
             lastError = result.error;
-            await Bun.sleep(wait.interval);
+            await Bun.sleep(waitConfig.interval);
         }
 
         return { isHealthy: false, error: lastError };
-    }
-
-    export async function isHealthy(wait?: {
-        interval: number;
-        timeout: number;
-    }): Promise<{
-        isHealthy: boolean;
-        services: {
-            postgres: {
-                isHealthy: boolean;
-                error?: Error;
-            };
-            pgweb: {
-                isHealthy: boolean;
-                error?: Error;
-            };
-            api: {
-                isHealthy: boolean;
-                error?: Error;
-            };
-            tick: {
-                isHealthy: boolean;
-                error?: Error;
-            };
-        };
-    }> {
-        // Use the individual health check functions
-        const [postgresHealth, pgwebHealth, apiHealth, tickHealth] =
-            await Promise.all([
-                isPostgresHealthy(wait),
-                isPgwebHealthy(wait),
-                isApiHealthy(wait),
-                isTickHealthy(wait),
-            ]);
-
-        return {
-            isHealthy:
-                postgresHealth.isHealthy &&
-                pgwebHealth.isHealthy &&
-                apiHealth.isHealthy &&
-                tickHealth.isHealthy,
-            services: {
-                postgres: postgresHealth,
-                pgweb: pgwebHealth,
-                api: apiHealth,
-                tick: tickHealth,
-            },
-        };
     }
 
     export async function wipeDatabase() {
@@ -1060,38 +1073,6 @@ if (import.meta.main) {
     try {
         switch (command) {
             // SERVER CONTAINER HEALTH
-            case "server:container:health": {
-                const health = await Server_CLI.isHealthy();
-                log({
-                    message: `PostgreSQL: ${health.services.postgres.isHealthy ? "healthy" : "unhealthy"}`,
-                    data: health.services.postgres,
-                    type: health.services.postgres.isHealthy
-                        ? "success"
-                        : "error",
-                });
-                log({
-                    message: `PGWEB: ${health.services.pgweb.isHealthy ? "healthy" : "unhealthy"}`,
-                    data: health.services.pgweb,
-                    type: health.services.pgweb.isHealthy ? "success" : "error",
-                });
-                log({
-                    message: `API: ${health.services.api.isHealthy ? "healthy" : "unhealthy"}`,
-                    data: health.services.api,
-                    type: health.services.api.isHealthy ? "success" : "error",
-                });
-                log({
-                    message: `Tick: ${health.services.tick.isHealthy ? "healthy" : "unhealthy"}`,
-                    data: health.services.tick,
-                    type: health.services.tick.isHealthy ? "success" : "error",
-                });
-                if (!health.isHealthy) {
-                    process.exit(1);
-                } else {
-                    process.exit(0);
-                }
-                break;
-            }
-
             case "server:container:postgres:health": {
                 let waitInterval: number | undefined;
                 let waitTimeout: number | undefined;
@@ -1335,17 +1316,35 @@ if (import.meta.main) {
             }
 
             // CLIENT CONTAINER HEALTH
-            case "client:container:health": {
-                const health = await Client_CLI.isHealthy();
+            case "client:container:web-babylon-js:health": {
+                let waitInterval: number | undefined;
+                let waitTimeout: number | undefined;
+
+                if (additionalArgs.length > 0) {
+                    waitInterval = Number.parseInt(additionalArgs[0]);
+                    waitTimeout = Number.parseInt(additionalArgs[1]);
+                }
+
+                const health = await Client_CLI.isWebBabylonJsHealthy(
+                    waitInterval && waitTimeout
+                        ? {
+                              interval: waitInterval,
+                              timeout: waitTimeout,
+                          }
+                        : undefined,
+                );
                 log({
-                    message: `Web Babylon JS: ${health.clients.web_babylon_js.isHealthy ? "healthy" : "unhealthy"}`,
-                    data: health.clients.web_babylon_js,
+                    message: `Web Babylon JS: ${health.isHealthy ? "healthy" : "unhealthy"}`,
+                    data: health,
+                    type: health.isHealthy ? "success" : "error",
                     suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
                     debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                    type: health.clients.web_babylon_js.isHealthy
-                        ? "success"
-                        : "error",
                 });
+                if (!health.isHealthy) {
+                    process.exit(1);
+                } else {
+                    process.exit(0);
+                }
                 break;
             }
 

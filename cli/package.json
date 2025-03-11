@@ -2,7 +2,29 @@
     "name": "vircadia-world-cli",
     "version": "1.0.0",
     "type": "module",
-    "scripts": {},
+    "scripts": {
+        "server:container:run-command": "bun vircadia.world.cli.ts server:container:run-command",
+        "server:container:health": "bun vircadia.world.cli.ts server:container:health",
+        "server:container:rebuild-all": "bun run server:container:run-command down -v && bun run server:container:run-command up postgres -d && bun run server:container:postgres:health && bun run server:container:postgres:migrate && bun run server:container:postgres:seed && bun run server:container:run-command up -d",
+
+        "server:container:postgres:health": "bun vircadia.world.cli.ts server:container:postgres:health",
+        "server:container:postgres:migrate": "bun vircadia.world.cli.ts server:container:postgres:migrate",
+        "server:container:postgres:wipe": "bun vircadia.world.cli.ts server:container:postgres:wipe",
+        "server:container:postgres:connection-string": "bun vircadia.world.cli.ts server:container:postgres:connection-string",
+        "server:container:postgres:system-token": "bun vircadia.world.cli.ts server:container:postgres:system-token",
+        "server:container:postgres:system-token:invalidate-all": "bun vircadia.world.cli.ts server:container:postgres:system-token:invalidate-all",
+        "server:container:postgres:seed": "bun vircadia.world.cli.ts server:container:postgres:seed",
+
+        "server:container:api:health": "bun vircadia.world.cli.ts server:container:api:health",
+
+        "server:container:tick:health": "bun vircadia.world.cli.ts server:container:tick:health",
+
+        "server:container:pgweb:health": "bun vircadia.world.cli.ts server:container:pgweb:health",
+        "server:container:pgweb:access-command": "bun vircadia.world.cli.ts server:container:pgweb:access-command",
+
+        "client:container:run-command": "bun vircadia.world.cli.ts client:container:run-command",
+        "client:container:health": "bun vircadia.world.cli.ts client:container:health"
+    },
     "dependencies": {
         "jsonwebtoken": "^9.0.2",
         "postgres": "^3.4.5"

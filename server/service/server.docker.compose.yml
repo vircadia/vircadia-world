@@ -5,7 +5,8 @@ networks:
     driver: bridge
 
 volumes:
-  vircadia_world_postgres_data:
+  postgres_data:
+    name: "${VRCA_SERVER_CONTAINER_NAME}_postgres_data"
 
 services:
   # Postgres service
@@ -26,7 +27,7 @@ services:
       - /tmp
       - /var/run/postgresql:uid=70,gid=70,exec
     volumes:
-      - vircadia_world_postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: [
         "CMD-SHELL", 

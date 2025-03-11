@@ -2,57 +2,47 @@ import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { Server_CLI, Client_CLI } from "../vircadia.world.cli";
 import { VircadiaConfig } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
 import { PostgresClient } from "../../sdk/vircadia-world-sdk-ts/module/server/postgres.server.client";
-import {
-    Client,
-    Service,
-} from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 
-async function waitForHealthyServices(timeoutMs = 15000, intervalMs = 500) {
-    const startTime = Date.now();
-    while (Date.now() - startTime < timeoutMs) {
-        const health = await Server_CLI.isHealthy();
-        if (health.isHealthy) return health;
-        await Bun.sleep(intervalMs);
-    }
-    return await Server_CLI.isHealthy(); // Return final status
-}
+describe("CLIENT Container and Database CLI Tests", () => {
+    beforeAll(async () => {
+        await Client_CLI.runClientDockerCommand({
+            args: ["up", "-d"],
+        });
+        Bun.sleep(1000);
+    });
 
-// describe("CLIENT Container and Database CLI Tests", () => {
-//     beforeAll(async () => {
-//         await Client_CLI.up({ client: Client.E_Client.WEB_BABYLON_JS });
-//         Bun.sleep(1000);
-//     });
+    test("Client container rebuild works", async () => {
+        await Client_CLI.runClientDockerCommand({
+            args: ["down", "-v"],
+        });
+        await Client_CLI.runClientDockerCommand({
+            args: ["up", "-d"],
+        });
+        const healthAfterUp = await Client_CLI.isHealthy();
+        expect(healthAfterUp.clients.web_babylon_js.isHealthy).toBe(true);
+    });
 
-//     test("Client container up works", async () => {
-//         const health = await Client_CLI.isHealthy();
-//         expect(health.clients.web_babylon_js.isHealthy).toBe(true);
-//     });
+    test("Client container down and up cycle works", async () => {
+        await Client_CLI.runClientDockerCommand({
+            args: ["down"],
+        });
 
-//     test("Client container down works", async () => {
-//         await Client_CLI.down({ client: Client.E_Client.WEB_BABYLON_JS });
-//         const health = await Client_CLI.isHealthy();
-//         expect(health.clients.web_babylon_js.isHealthy).toBe(false);
-//     });
+        const healthAfterDown = await Client_CLI.isHealthy();
+        expect(healthAfterDown.clients.web_babylon_js.isHealthy).toBe(false);
 
-//     test("Client container down and up works", async () => {
-//         await Client_CLI.down({ client: Client.E_Client.WEB_BABYLON_JS });
-//         await Client_CLI.up({ client: Client.E_Client.WEB_BABYLON_JS });
-//         const health = await Client_CLI.isHealthy();
-//         expect(health.clients.web_babylon_js.isHealthy).toBe(true);
-//     });
-
-//     test("Client container down and destroy works", async () => {
-//         await Client_CLI.downAndDestroy({
-//             client: Client.E_Client.WEB_BABYLON_JS,
-//         });
-//         const health = await Client_CLI.isHealthy();
-//         expect(health.clients.web_babylon_js.isHealthy).toBe(false);
-//     });
-// });
+        await Client_CLI.runClientDockerCommand({
+            args: ["up", "-d"],
+        });
+        const healthAfterUp = await Client_CLI.isHealthy();
+        expect(healthAfterUp.clients.web_babylon_js.isHealthy).toBe(true);
+    });
+});
 
 describe("SERVER Container and Database CLI Tests", () => {
     beforeAll(async () => {
-        await Server_CLI.up({});
+        await Server_CLI.runServerDockerCommand({
+            args: ["up", "-d"],
+        });
         Bun.sleep(1000);
     });
 
@@ -63,51 +53,41 @@ describe("SERVER Container and Database CLI Tests", () => {
         }).disconnect();
     });
 
-    // test("Docker container rebuild works", async () => {
-    //     await Server_CLI.downAndDestroy({});
-    //     await Server_CLI.up({});
+    test("Docker container rebuild works", async () => {
+        await Server_CLI.runServerDockerCommand({
+            args: ["down", "-v"],
+        });
+        await Server_CLI.runServerDockerCommand({
+            args: ["up", "postgres", "-d"],
+        });
 
-    //     // Wait for postgres to be healthy
-    //     let pgHealthy = false;
-    //     for (let i = 0; i < 10; i++) {
-    //         await new Promise((resolve) => setTimeout(resolve, 5000)); // Wait 5 seconds
-    //         const health = await Server_CLI.isHealthy();
-    //         if (health.services.postgres.isHealthy) {
-    //             pgHealthy = true;
-    //             break;
-    //         }
-    //     }
+        const isPostgresHealthy = await Server_CLI.isPostgresHealthy(true);
+        expect(isPostgresHealthy.isHealthy).toBe(true);
+        // Run migrations and seed data
+        const migrationsRan = await Server_CLI.migrate();
+        expect(migrationsRan).toBe(true);
+        await Server_CLI.seed({});
 
-    //     if (!pgHealthy) {
-    //         throw new Error("Postgres failed to become healthy after rebuild");
-    //     }
+        await Server_CLI.runServerDockerCommand({
+            args: ["up", "-d"],
+        });
 
-    //     // Run migrations and seed data
-    //     const migrationsRan = await Server_CLI.migrate();
-    //     expect(migrationsRan).toBe(true);
-    //     await Server_CLI.seed({});
-
-    //     // Now rebuild the remaining services
-    //     const otherServices = Object.values(Service.E_Service).filter(
-    //         (svc) => svc !== Service.E_Service.POSTGRES,
-    //     );
-
-    //     for (const svc of otherServices) {
-    //         await Server_CLI.down({ service: svc });
-    //         await Server_CLI.upAndRebuild({ service: svc });
-    //     }
-
-    //     // Verify all services are healthy
-    //     const finalHealth = await Server_CLI.isHealthy();
-    //     expect(finalHealth.services.api.isHealthy).toBe(true);
-    //     expect(finalHealth.services.pgweb.isHealthy).toBe(true);
-    //     expect(finalHealth.services.tick.isHealthy).toBe(true);
-    //     expect(finalHealth.services.postgres.isHealthy).toBe(true);
-    // }, 90000); // Longer timeout since rebuild includes multiple operations
+        // Verify all services are healthy
+        const finalHealth = await Server_CLI.isHealthy({
+            timeout: 2000,
+            interval: 100,
+        });
+        expect(finalHealth.services.api.isHealthy).toBe(true);
+        expect(finalHealth.services.pgweb.isHealthy).toBe(true);
+        expect(finalHealth.services.tick.isHealthy).toBe(true);
+        expect(finalHealth.services.postgres.isHealthy).toBe(true);
+    }, 30000); // Longer timeout since rebuild includes multiple operations
 
     test("Docker container down and up cycle works", async () => {
         // Stop containers
-        await Server_CLI.down({});
+        await Server_CLI.runServerDockerCommand({
+            args: ["down"],
+        });
         const healthAfterDown = await Server_CLI.isHealthy();
         expect(healthAfterDown.services.postgres.isHealthy).toBe(false);
         expect(healthAfterDown.services.pgweb.isHealthy).toBe(false);
@@ -115,13 +95,18 @@ describe("SERVER Container and Database CLI Tests", () => {
         expect(healthAfterDown.services.tick.isHealthy).toBe(false);
 
         // Start containers again
-        await Server_CLI.up({});
-        const healthAfterUp = await waitForHealthyServices();
+        await Server_CLI.runServerDockerCommand({
+            args: ["up", "-d"],
+        });
+        const healthAfterUp = await Server_CLI.isHealthy({
+            timeout: 2000,
+            interval: 100,
+        });
         expect(healthAfterUp.services.postgres.isHealthy).toBe(true);
         expect(healthAfterUp.services.pgweb.isHealthy).toBe(true);
         expect(healthAfterUp.services.api.isHealthy).toBe(true);
         expect(healthAfterUp.services.tick.isHealthy).toBe(true);
-    }, 30000);
+    }, 15000);
 
     test("System token generation and cleanup works", async () => {
         // Generate system token

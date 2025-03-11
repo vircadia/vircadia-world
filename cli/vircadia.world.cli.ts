@@ -20,8 +20,7 @@ export namespace Client_CLI {
         "../client/client.docker.compose.yml",
     );
 
-    async function runClientDockerCommand(data: {
-        client?: Client.E_Client;
+    export async function runClientDockerCommand(data: {
         args: string[];
     }) {
         const processEnv = {
@@ -77,18 +76,11 @@ export namespace Client_CLI {
             CLIENT_DOCKER_COMPOSE_FILE,
         ];
 
-        if (data.client) {
-            dockerArgs = [
-                ...dockerArgs,
-                ...data.args,
-                data.client.toLowerCase(),
-            ];
-        } else {
-            dockerArgs = [...dockerArgs, ...data.args];
-        }
+        dockerArgs = [...dockerArgs, ...data.args];
 
         log({
-            message: `[Docker Command]\n${dockerArgs.join(" ")}`,
+            prefix: "Docker Command",
+            message: dockerArgs.join(" "),
             type: "debug",
             suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
             debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
@@ -105,7 +97,8 @@ export namespace Client_CLI {
 
         if (stdout) {
             log({
-                message: `[Docker Command Output] INFO\n${stdout}`,
+                prefix: "Docker Command Output",
+                message: stdout,
                 type: "debug",
                 suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
                 debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
@@ -121,7 +114,8 @@ export namespace Client_CLI {
                     spawnedProcess.exitCode !== null);
 
             log({
-                message: `[Docker Command Output] ${isActualError ? "ERROR" : "STATUS"}\n${stderr}`,
+                prefix: "Docker Command Output",
+                message: stderr,
                 type: isActualError ? "error" : "debug",
                 suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
                 debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
@@ -136,55 +130,6 @@ export namespace Client_CLI {
             throw new Error(
                 `CLIENT Docker command failed with exit code ${exitCode}.\nStdout: ${stdout}\nStderr: ${stderr}`,
             );
-        }
-    }
-
-    // Client functions similar to Server_CLI
-    export async function up(data: {
-        client?: Client.E_Client;
-    }): Promise<void> {
-        await runClientDockerCommand({
-            client: data.client,
-            args: ["up", "-d"],
-        });
-    }
-
-    export async function upAndRebuild(data: {
-        client?: Client.E_Client;
-    }): Promise<void> {
-        await runClientDockerCommand({
-            client: data.client,
-            args: ["up", "-d", "--build"],
-        });
-    }
-
-    export async function down(data: {
-        client?: Client.E_Client;
-    }): Promise<void> {
-        await runClientDockerCommand({
-            client: data.client,
-            args: ["down"],
-        });
-    }
-
-    export async function downAndDestroy(data: {
-        client?: Client.E_Client;
-    }): Promise<void> {
-        await runClientDockerCommand({
-            client: data.client,
-            args: ["down", "-v"],
-        });
-    }
-
-    // Add a function to run operations on all clients
-    export async function runForAllClients(
-        operation: (client: Client.E_Client) => Promise<void>,
-    ) {
-        for (const clientKey of Object.keys(Client.E_Client) as Array<
-            keyof typeof Client.E_Client
-        >) {
-            const client = Client.E_Client[clientKey];
-            await operation(client);
         }
     }
 
@@ -241,8 +186,7 @@ export namespace Server_CLI {
         "../server/service/server.docker.compose.yml",
     );
 
-    async function runServerDockerCommand(data: {
-        service?: Service.E_Service;
+    export async function runServerDockerCommand(data: {
         args: string[];
     }) {
         const processEnv = {
@@ -321,21 +265,11 @@ export namespace Server_CLI {
             SERVER_DOCKER_COMPOSE_FILE,
         ];
 
-        // Add service name if specified
-        if (data.service) {
-            // For commands with a specific service
-            dockerArgs = [
-                ...dockerArgs,
-                ...data.args,
-                data.service.toLowerCase(),
-            ];
-        } else {
-            // For when no specific service is provided
-            dockerArgs = [...dockerArgs, ...data.args];
-        }
+        dockerArgs = [...dockerArgs, ...data.args];
 
         log({
-            message: `[Docker Command]\n${dockerArgs.join(" ")}`,
+            prefix: "Docker Command",
+            message: dockerArgs.join(" "),
             type: "debug",
             suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
             debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
@@ -352,7 +286,8 @@ export namespace Server_CLI {
 
         if (stdout) {
             log({
-                message: `[Docker Command Output] INFO\n${stdout}`,
+                prefix: "Docker Command Output",
+                message: stdout,
                 type: "debug",
                 suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
                 debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
@@ -368,7 +303,8 @@ export namespace Server_CLI {
                     spawnedProcess.exitCode !== null);
 
             log({
-                message: `[Docker Command Output] ${isActualError ? "ERROR" : "STATUS"}\n${stderr}`,
+                prefix: "Docker Command Output",
+                message: stderr,
                 type: isActualError ? "error" : "debug",
                 suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
                 debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
@@ -386,64 +322,23 @@ export namespace Server_CLI {
         }
     }
 
-    // Update up function
-    export async function up(data: {
-        service?: Service.E_Service;
-    }): Promise<void> {
-        await runServerDockerCommand({
-            service: data.service,
-            args: ["up", "-d"],
-        });
-    }
-
-    export async function upAndRebuild(data: {
-        service?: Service.E_Service;
-    }): Promise<void> {
-        await runServerDockerCommand({
-            service: data.service,
-            args: ["up", "--build", "-d"],
-        });
-    }
-
-    export async function down(data: {
-        service?: Service.E_Service;
-    }): Promise<void> {
-        await runServerDockerCommand({
-            args: ["down"],
-            service: data.service,
-        });
-    }
-
-    export async function downAndDestroy(data: {
-        service?: Service.E_Service;
-    }): Promise<void> {
-        await runServerDockerCommand({
-            args: ["down", "-v"],
-            service: data.service,
-        });
-    }
-
-    export async function isHealthy(): Promise<{
+    export async function isPostgresHealthy(
+        wait?: { interval: number; timeout: number } | boolean,
+    ): Promise<{
         isHealthy: boolean;
-        services: {
-            postgres: {
-                isHealthy: boolean;
-                error?: Error;
-            };
-            pgweb: {
-                isHealthy: boolean;
-                error?: Error;
-            };
-            api: {
-                isHealthy: boolean;
-                error?: Error;
-            };
-            tick: {
-                isHealthy: boolean;
-                error?: Error;
-            };
-        };
+        error?: Error;
     }> {
+        // Default wait settings for postgres
+        const defaultWait = { interval: 100, timeout: 2000 };
+
+        // If wait is true, use default wait settings
+        const waitConfig =
+            wait === true
+                ? defaultWait
+                : wait && typeof wait !== "boolean"
+                  ? wait
+                  : null;
+
         const checkPostgres = async (): Promise<{
             isHealthy: boolean;
             error?: Error;
@@ -476,13 +371,40 @@ export namespace Server_CLI {
             }
         };
 
+        // If waiting is not enabled, just check once
+        if (!waitConfig) {
+            return await checkPostgres();
+        }
+
+        // With waiting enabled, retry until timeout
+        const startTime = Date.now();
+        let lastError: Error | undefined;
+
+        while (Date.now() - startTime < waitConfig.timeout) {
+            const result = await checkPostgres();
+            if (result.isHealthy) {
+                return result;
+            }
+            lastError = result.error;
+            await Bun.sleep(waitConfig.interval);
+        }
+
+        return { isHealthy: false, error: lastError };
+    }
+
+    export async function isPgwebHealthy(wait?: {
+        interval: number;
+        timeout: number;
+    }): Promise<{
+        isHealthy: boolean;
+        error?: Error;
+    }> {
         const checkPgweb = async (): Promise<{
             isHealthy: boolean;
             error?: Error;
         }> => {
             try {
                 const pgwebAccessURL = await generatePgwebAccessURL();
-
                 const response = await fetch(pgwebAccessURL);
                 return { isHealthy: response.ok };
             } catch (error: unknown) {
@@ -490,6 +412,34 @@ export namespace Server_CLI {
             }
         };
 
+        // If waiting is not enabled, just check once
+        if (!wait) {
+            return await checkPgweb();
+        }
+
+        // With waiting enabled, retry until timeout
+        const startTime = Date.now();
+        let lastError: Error | undefined;
+
+        while (Date.now() - startTime < wait.timeout) {
+            const result = await checkPgweb();
+            if (result.isHealthy) {
+                return result;
+            }
+            lastError = result.error;
+            await Bun.sleep(wait.interval);
+        }
+
+        return { isHealthy: false, error: lastError };
+    }
+
+    export async function isApiHealthy(wait?: {
+        interval: number;
+        timeout: number;
+    }): Promise<{
+        isHealthy: boolean;
+        error?: Error;
+    }> {
         const checkApi = async (): Promise<{
             isHealthy: boolean;
             error?: Error;
@@ -506,6 +456,34 @@ export namespace Server_CLI {
             }
         };
 
+        // If waiting is not enabled, just check once
+        if (!wait) {
+            return await checkApi();
+        }
+
+        // With waiting enabled, retry until timeout
+        const startTime = Date.now();
+        let lastError: Error | undefined;
+
+        while (Date.now() - startTime < wait.timeout) {
+            const result = await checkApi();
+            if (result.isHealthy) {
+                return result;
+            }
+            lastError = result.error;
+            await Bun.sleep(wait.interval);
+        }
+
+        return { isHealthy: false, error: lastError };
+    }
+
+    export async function isTickHealthy(wait?: {
+        interval: number;
+        timeout: number;
+    }): Promise<{
+        isHealthy: boolean;
+        error?: Error;
+    }> {
         const checkTick = async (): Promise<{
             isHealthy: boolean;
             error?: Error;
@@ -522,12 +500,58 @@ export namespace Server_CLI {
             }
         };
 
+        // If waiting is not enabled, just check once
+        if (!wait) {
+            return await checkTick();
+        }
+
+        // With waiting enabled, retry until timeout
+        const startTime = Date.now();
+        let lastError: Error | undefined;
+
+        while (Date.now() - startTime < wait.timeout) {
+            const result = await checkTick();
+            if (result.isHealthy) {
+                return result;
+            }
+            lastError = result.error;
+            await Bun.sleep(wait.interval);
+        }
+
+        return { isHealthy: false, error: lastError };
+    }
+
+    export async function isHealthy(wait?: {
+        interval: number;
+        timeout: number;
+    }): Promise<{
+        isHealthy: boolean;
+        services: {
+            postgres: {
+                isHealthy: boolean;
+                error?: Error;
+            };
+            pgweb: {
+                isHealthy: boolean;
+                error?: Error;
+            };
+            api: {
+                isHealthy: boolean;
+                error?: Error;
+            };
+            tick: {
+                isHealthy: boolean;
+                error?: Error;
+            };
+        };
+    }> {
+        // Use the individual health check functions
         const [postgresHealth, pgwebHealth, apiHealth, tickHealth] =
             await Promise.all([
-                checkPostgres(),
-                checkPgweb(),
-                checkApi(),
-                checkTick(),
+                isPostgresHealthy(wait),
+                isPgwebHealthy(wait),
+                isApiHealthy(wait),
+                isTickHealthy(wait),
             ]);
 
         return {
@@ -1016,70 +1040,6 @@ export namespace Server_CLI {
     export async function generatePgwebAccessURL(): Promise<string> {
         return `http://${VircadiaConfig.CLI.VRCA_CLI_SERVICE_PGWEB_HOST}:${VircadiaConfig.CLI.VRCA_CLI_SERVICE_PGWEB_PORT}`;
     }
-
-    // Add a new helper function to run operations on all services
-    export async function runForAllServices(
-        operation: (service: Service.E_Service) => Promise<void>,
-    ) {
-        for (const serviceKey of Object.keys(Service.E_Service) as Array<
-            keyof typeof Service.E_Service
-        >) {
-            const service = Service.E_Service[serviceKey];
-            await operation(service);
-        }
-    }
-}
-
-function printValidCommands() {
-    log({
-        message: `Valid commands: 
-
-        // Server Container commands - All services
-        server-container-init
-        server-container-up-all
-        server-container-down-all
-        server-container-rebuild-all
-        server-container-restart-all
-        server-container-health
-
-        // Server Container commands - Individual services
-        ${Object.keys(Service.E_Service)
-            .map((k) => {
-                const service = k.toLowerCase().replace(/_/g, "-");
-                return `server-container-up-${service}\n        server-container-down-${service}\n        server-container-rebuild-${service}\n        server-container-restart-${service}\n        server-container-wipe-${service}`;
-            })
-            .join("\n        ")}
-
-        // Client Container commands - All clients
-        client-container-init
-        client-container-up-all
-        client-container-down-all
-        client-container-rebuild-all
-        client-container-restart-all
-        client-container-health
-
-        // Client Container commands - Individual clients
-        ${Object.keys(Client.E_Client)
-            .map((k) => {
-                const client = k.toLowerCase().replace(/_/g, "-");
-                return `client-container-up-${client}\n        client-container-down-${client}\n        client-container-rebuild-${client}\n        client-container-restart-${client}`;
-            })
-            .join("\n        ")}
-
-        // Server Postgres Database commands
-        server-postgres-database-reset
-        server-postgres-database-wipe
-        server-postgres-database-migrate
-        server-postgres-database-seed [seedPath]
-        server-postgres-database-connection-string
-        server-postgres-database-system-token
-        server-postgres-database-system-token-invalidate-all
-
-        // Server PGWEB commands
-        server-pgweb-access-command
-        `,
-        type: "info",
-    });
 }
 
 // If this file is run directly
@@ -1088,242 +1048,19 @@ if (import.meta.main) {
     const additionalArgs = Bun.argv.slice(3);
 
     if (!command) {
-        printValidCommands();
+        log({
+            message: "No command provided",
+            type: "error",
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+        });
         process.exit(1);
     }
 
     try {
         switch (command) {
-            // SERVER CONTAINER COMMANDS - ALL SERVICES
-            case "server-container-up-all":
-                log({
-                    message: "Starting all server services...",
-                    type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                await Server_CLI.runForAllServices(async (svc) => {
-                    log({
-                        message: `Starting ${svc.toLowerCase()} service...`,
-                        type: "info",
-                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                    });
-                    await Server_CLI.up({ service: svc });
-                });
-                break;
-
-            case "server-container-down-all":
-                log({
-                    message: "Stopping all server services...",
-                    type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                await Server_CLI.runForAllServices(async (svc) => {
-                    log({
-                        message: `Stopping ${svc.toLowerCase()} service...`,
-                        type: "info",
-                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                    });
-                    await Server_CLI.down({ service: svc });
-                });
-                break;
-
-            case "server-container-init":
-            case "server-container-rebuild-all": {
-                // First rebuild postgres only
-                log({
-                    message: "Rebuilding postgres service first...",
-                    type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                await Server_CLI.downAndDestroy({
-                    service: Service.E_Service.POSTGRES,
-                });
-                await Server_CLI.upAndRebuild({
-                    service: Service.E_Service.POSTGRES,
-                });
-
-                // Wait for postgres to be healthy
-                let pgHealthy = false;
-                for (let i = 0; i < 10; i++) {
-                    log({
-                        message: "Waiting for postgres to be healthy...",
-                        type: "info",
-                    });
-                    await new Promise((resolve) => setTimeout(resolve, 5000)); // Wait 5 seconds
-                    const health = await Server_CLI.isHealthy();
-                    if (health.services.postgres.isHealthy) {
-                        pgHealthy = true;
-                        break;
-                    }
-                }
-
-                if (!pgHealthy) {
-                    throw new Error(
-                        "Postgres failed to become healthy after rebuild",
-                    );
-                }
-
-                // Run migrations and seed data
-                log({
-                    message: "Running database migrations...",
-                    type: "info",
-                });
-                const migrationsRan = await Server_CLI.migrate();
-                log({ message: "Running database seeds...", type: "info" });
-                await Server_CLI.seed({});
-
-                log({
-                    message: `${VircadiaConfig.SERVER.VRCA_SERVER_CONTAINER_NAME} container seeds applied.`,
-                    type: "debug",
-                });
-
-                // Now rebuild the remaining services
-                const otherServices = Object.values(Service.E_Service).filter(
-                    (svc) => svc !== Service.E_Service.POSTGRES,
-                );
-
-                for (const svc of otherServices) {
-                    log({
-                        message: `Rebuilding ${svc.toLowerCase()} service...`,
-                        type: "info",
-                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                    });
-                    await Server_CLI.down({ service: svc });
-                    await Server_CLI.upAndRebuild({ service: svc });
-                }
-
-                // Verify all services are healthy
-                const finalHealth = await Server_CLI.isHealthy();
-                if (!finalHealth.isHealthy) {
-                    log({
-                        message: "Failed to start some services after rebuild",
-                        type: "error",
-                        error: finalHealth.services,
-                    });
-                } else {
-                    log({
-                        message: "All server services rebuilt successfully",
-                        type: "success",
-                    });
-                }
-                break;
-            }
-
-            case "server-container-restart-all":
-                log({
-                    message: "Restarting all server services...",
-                    type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                await Server_CLI.runForAllServices(async (svc) => {
-                    log({
-                        message: `Restarting ${svc.toLowerCase()} service...`,
-                        type: "info",
-                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                    });
-                    await Server_CLI.down({ service: svc });
-                    await Server_CLI.up({ service: svc });
-                });
-
-                log({
-                    message: "All server services restarted",
-                    type: "success",
-                });
-                break;
-
-            // SERVER CONTAINER COMMANDS - POSTGRES
-            case "server-container-up-postgres":
-                log({
-                    message: "Starting postgres service...",
-                    type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                await Server_CLI.up({
-                    service: Service.E_Service.POSTGRES,
-                });
-                break;
-
-            case "server-container-down-postgres":
-                log({
-                    message: "Stopping postgres service...",
-                    type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                await Server_CLI.down({ service: Service.E_Service.POSTGRES });
-                break;
-
-            case "server-container-rebuild-postgres": {
-                log({
-                    message: "Rebuilding postgres service...",
-                    type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                await Server_CLI.down({
-                    service: Service.E_Service.POSTGRES,
-                });
-                await Server_CLI.upAndRebuild({
-                    service: Service.E_Service.POSTGRES,
-                });
-
-                // Run migrations and seed data after postgres rebuild
-                const health = await Server_CLI.isHealthy();
-                if (health.services.postgres.isHealthy) {
-                    const migrationsRan = await Server_CLI.migrate();
-                    if (migrationsRan) {
-                        log({
-                            message: "Migrations ran successfully",
-                            type: "success",
-                            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                        });
-                        await Server_CLI.seed({});
-                        log({
-                            message: `${VircadiaConfig.SERVER.VRCA_SERVER_CONTAINER_NAME} container seeds applied.`,
-                            type: "debug",
-                            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                        });
-                    }
-                }
-                log({
-                    message: "Postgres service rebuilt successfully",
-                    type: "success",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                break;
-            }
-
-            case "server-container-restart-postgres":
-                log({
-                    message: "Restarting postgres service...",
-                    type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                await Server_CLI.down({ service: Service.E_Service.POSTGRES });
-                await Server_CLI.up({ service: Service.E_Service.POSTGRES });
-                log({
-                    message: "Postgres service restarted",
-                    type: "success",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                break;
-
             // SERVER CONTAINER HEALTH
-            case "server-container-health": {
+            case "server:container:health": {
                 const health = await Server_CLI.isHealthy();
                 log({
                     message: `PostgreSQL: ${health.services.postgres.isHealthy ? "healthy" : "unhealthy"}`,
@@ -1347,11 +1084,143 @@ if (import.meta.main) {
                     data: health.services.tick,
                     type: health.services.tick.isHealthy ? "success" : "error",
                 });
+                if (!health.isHealthy) {
+                    process.exit(1);
+                } else {
+                    process.exit(0);
+                }
+                break;
+            }
+
+            case "server:container:postgres:health": {
+                let waitInterval: number | undefined;
+                let waitTimeout: number | undefined;
+
+                if (additionalArgs.length > 0) {
+                    waitInterval = Number.parseInt(additionalArgs[0]);
+                    waitTimeout = Number.parseInt(additionalArgs[1]);
+                }
+
+                const health = await Server_CLI.isPostgresHealthy(
+                    waitInterval && waitTimeout
+                        ? {
+                              interval: waitInterval,
+                              timeout: waitTimeout,
+                          }
+                        : true,
+                );
+                log({
+                    message: `PostgreSQL: ${health.isHealthy ? "healthy" : "unhealthy"}`,
+                    data: health,
+                    type: health.isHealthy ? "success" : "error",
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                });
+                if (!health.isHealthy) {
+                    process.exit(1);
+                } else {
+                    process.exit(0);
+                }
+                break;
+            }
+
+            case "server:container:pgweb:health": {
+                let waitInterval: number | undefined;
+                let waitTimeout: number | undefined;
+
+                if (additionalArgs.length > 0) {
+                    waitInterval = Number.parseInt(additionalArgs[0]);
+                    waitTimeout = Number.parseInt(additionalArgs[1]);
+                }
+                const health = await Server_CLI.isPgwebHealthy(
+                    waitInterval && waitTimeout
+                        ? {
+                              interval: waitInterval,
+                              timeout: waitTimeout,
+                          }
+                        : undefined,
+                );
+                log({
+                    message: `PGWEB: ${health.isHealthy ? "healthy" : "unhealthy"}`,
+                    data: health,
+                    type: health.isHealthy ? "success" : "error",
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                });
+                if (!health.isHealthy) {
+                    process.exit(1);
+                } else {
+                    process.exit(0);
+                }
+                break;
+            }
+
+            case "server:container:api:health": {
+                let waitInterval: number | undefined;
+                let waitTimeout: number | undefined;
+
+                if (additionalArgs.length > 0) {
+                    waitInterval = Number.parseInt(additionalArgs[0]);
+                    waitTimeout = Number.parseInt(additionalArgs[1]);
+                }
+
+                const health = await Server_CLI.isApiHealthy(
+                    waitInterval && waitTimeout
+                        ? {
+                              interval: waitInterval,
+                              timeout: waitTimeout,
+                          }
+                        : undefined,
+                );
+                log({
+                    message: `API: ${health.isHealthy ? "healthy" : "unhealthy"}`,
+                    data: health,
+                    type: health.isHealthy ? "success" : "error",
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                });
+                if (!health.isHealthy) {
+                    process.exit(1);
+                } else {
+                    process.exit(0);
+                }
+                break;
+            }
+
+            case "server:container:tick:health": {
+                let waitInterval: number | undefined;
+                let waitTimeout: number | undefined;
+
+                if (additionalArgs.length > 0) {
+                    waitInterval = Number.parseInt(additionalArgs[0]);
+                    waitTimeout = Number.parseInt(additionalArgs[1]);
+                }
+
+                const health = await Server_CLI.isTickHealthy(
+                    waitInterval && waitTimeout
+                        ? {
+                              interval: waitInterval,
+                              timeout: waitTimeout,
+                          }
+                        : undefined,
+                );
+                log({
+                    message: `Tick: ${health.isHealthy ? "healthy" : "unhealthy"}`,
+                    data: health,
+                    type: health.isHealthy ? "success" : "error",
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                });
+                if (!health.isHealthy) {
+                    process.exit(1);
+                } else {
+                    process.exit(0);
+                }
                 break;
             }
 
             // SERVER POSTGRES DATABASE COMMANDS
-            case "server-postgres-database-migrate": {
+            case "server:container:postgres:migrate": {
                 log({
                     message: "Running database migrations...",
                     type: "info",
@@ -1362,11 +1231,13 @@ if (import.meta.main) {
                 log({
                     message: "Migrations ran successfully",
                     type: "success",
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 break;
             }
 
-            case "server-postgres-database-wipe": {
+            case "server:container:postgres:wipe": {
                 log({
                     message: "Wiping database...",
                     type: "info",
@@ -1377,38 +1248,25 @@ if (import.meta.main) {
                 log({
                     message: "Database wiped",
                     type: "success",
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 break;
             }
 
-            case "server-postgres-database-reset": {
+            case "server:container:postgres:connection-string": {
+                const connectionString =
+                    await Server_CLI.generateDbConnectionString();
                 log({
-                    message: "Resetting database...",
+                    message: `Database connection string:\n[ ${connectionString} ]`,
                     type: "info",
                     suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
                     debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
-                await Server_CLI.wipeDatabase();
-                await Server_CLI.migrate();
-                await Server_CLI.seed({});
-                log({
-                    message: "Database reset",
-                    type: "success",
-                });
                 break;
             }
 
-            case "server-postgres-database-connection-string": {
-                const connectionString =
-                    await Server_CLI.generateDbConnectionString();
-                log({
-                    message: `Database connection string: ${connectionString}`,
-                    type: "info",
-                });
-                break;
-            }
-
-            case "server-postgres-database-system-token": {
+            case "server:container:postgres:system-token": {
                 log({
                     message: "Generating system token...",
                     type: "info",
@@ -1420,12 +1278,14 @@ if (import.meta.main) {
                 log({
                     message: `System agent token: ${token}`,
                     data: { sessionId, agentId },
-                    type: "info",
+                    type: "success",
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 break;
             }
 
-            case "server-postgres-database-system-token-invalidate-all": {
+            case "server:container:postgres:system-token:invalidate-all": {
                 log({
                     message: "Invalidating all system tokens...",
                     type: "info",
@@ -1437,11 +1297,13 @@ if (import.meta.main) {
                 log({
                     message: `Invalidated ${invalidatedCount} system tokens`,
                     type: "success",
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 break;
             }
 
-            case "server-postgres-database-seed": {
+            case "server:container:postgres:seed": {
                 log({
                     message: "Running database seeds...",
                     type: "info",
@@ -1451,171 +1313,35 @@ if (import.meta.main) {
                 await Server_CLI.seed({ seedPath: additionalArgs[0] });
                 log({
                     message: `${VircadiaConfig.SERVER.VRCA_SERVER_CONTAINER_NAME} container seeds applied.`,
-                    type: "debug",
+                    type: "success",
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 break;
             }
 
             // SERVER PGWEB COMMANDS
-            case "server-pgweb-access-command": {
+            case "server:container:pgweb:access-command": {
                 const pgwebAccessURL =
                     await Server_CLI.generatePgwebAccessURL();
                 log({
-                    message: `Access PGWEB at: ${pgwebAccessURL}`,
-                    type: "info",
+                    message: `Access PGWEB at:\n[ ${pgwebAccessURL} ]`,
+                    data: { pgwebAccessURL },
+                    type: "success",
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
                 break;
             }
 
-            // CLIENT CONTAINER COMMANDS - ALL CLIENTS
-            case "client-container-init":
-            case "client-container-up-all":
-                log({
-                    message: "Starting all client services...",
-                    type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                await Client_CLI.runForAllClients(async (client) => {
-                    log({
-                        message: `Starting ${client.toLowerCase()} client...`,
-                        type: "info",
-                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                    });
-                    await Client_CLI.up({ client });
-                });
-                break;
-
-            case "client-container-down-all":
-                log({
-                    message: "Stopping all client services...",
-                    type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                await Client_CLI.runForAllClients(async (client) => {
-                    log({
-                        message: `Stopping ${client.toLowerCase()} client...`,
-                        type: "info",
-                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                    });
-                    await Client_CLI.down({ client });
-                });
-                break;
-
-            case "client-container-rebuild-all":
-                log({
-                    message: "Rebuilding all client services...",
-                    type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                await Client_CLI.runForAllClients(async (client) => {
-                    log({
-                        message: `Rebuilding ${client.toLowerCase()} client...`,
-                        type: "info",
-                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                    });
-                    await Client_CLI.downAndDestroy({ client });
-                    await Client_CLI.upAndRebuild({ client });
-                });
-                log({
-                    message: "All client services rebuilt successfully",
-                    type: "success",
-                });
-                break;
-
-            case "client-container-restart-all":
-                log({
-                    message: "Restarting all client services...",
-                    type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                await Client_CLI.runForAllClients(async (client) => {
-                    log({
-                        message: `Restarting ${client.toLowerCase()} client...`,
-                        type: "info",
-                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                    });
-                    await Client_CLI.down({ client });
-                    await Client_CLI.up({ client });
-                });
-                log({
-                    message: "All client services restarted",
-                    type: "success",
-                });
-                break;
-
-            // CLIENT CONTAINER COMMANDS - INDIVIDUAL CLIENTS
-            case "client-container-up-web-babylon-js":
-                log({
-                    message: "Starting web_babylon_js client...",
-                    type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                await Client_CLI.up({ client: Client.E_Client.WEB_BABYLON_JS });
-                break;
-
-            case "client-container-down-web-babylon-js":
-                log({
-                    message: "Stopping web_babylon_js client...",
-                    type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                await Client_CLI.down({
-                    client: Client.E_Client.WEB_BABYLON_JS,
-                });
-                break;
-
-            case "client-container-rebuild-web-babylon-js":
-                log({
-                    message: "Rebuilding web_babylon_js client...",
-                    type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                await Client_CLI.downAndDestroy({
-                    client: Client.E_Client.WEB_BABYLON_JS,
-                });
-                await Client_CLI.upAndRebuild({
-                    client: Client.E_Client.WEB_BABYLON_JS,
-                });
-                log({
-                    message: "Web Babylon JS client rebuilt successfully",
-                    type: "success",
-                });
-                break;
-
-            case "client-container-restart-web-babylon-js":
-                log({
-                    message: "Restarting web_babylon_js client...",
-                    type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                });
-                await Client_CLI.down({
-                    client: Client.E_Client.WEB_BABYLON_JS,
-                });
-                await Client_CLI.up({ client: Client.E_Client.WEB_BABYLON_JS });
-                log({
-                    message: "Web Babylon JS client restarted",
-                    type: "success",
-                });
-                break;
-
             // CLIENT CONTAINER HEALTH
-            case "client-container-health": {
+            case "client:container:health": {
                 const health = await Client_CLI.isHealthy();
                 log({
                     message: `Web Babylon JS: ${health.clients.web_babylon_js.isHealthy ? "healthy" : "unhealthy"}`,
                     data: health.clients.web_babylon_js,
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                     type: health.clients.web_babylon_js.isHealthy
                         ? "success"
                         : "error",
@@ -1623,15 +1349,37 @@ if (import.meta.main) {
                 break;
             }
 
+            // New generic docker command support
+            case "server:container:run-command":
+                await Server_CLI.runServerDockerCommand({
+                    args: additionalArgs,
+                });
+                break;
+
+            case "client:container:run-command":
+                await Client_CLI.runClientDockerCommand({
+                    args: additionalArgs,
+                });
+                break;
+
             default:
                 log({
                     message: `Unknown command: ${command}`,
                     type: "error",
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
                 });
-                printValidCommands();
                 process.exit(1);
         }
+
+        process.exit(0);
     } catch (error) {
-        // ... existing error handling code ...
+        log({
+            message: `Error: ${error}`,
+            type: "error",
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+        });
+        process.exit(1);
     }
 }

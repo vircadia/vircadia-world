@@ -7,7 +7,7 @@ networks:
 services:
   # Web Babylon JS Client
   web_babylon_js:
-    image: oven/bun:1.2.4-alpine
+    image: oven/bun:1.2.5-alpine
     container_name: ${VRCA_CLIENT_CONTAINER_NAME}_web_babylon_js
     user: "1000:1000"  # Run as non-root user
     restart: always

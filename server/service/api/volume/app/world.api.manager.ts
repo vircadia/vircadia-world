@@ -215,32 +215,21 @@ export class WorldApiManager {
 
         await superUserSql.listen("tick_captured", async (notification) => {
             const payload = JSON.parse(notification);
-
             if (payload) {
                 try {
                     const syncGroup = payload.syncGroup;
 
-                    log({
-                        message: `Received tick notification for sync group: ${syncGroup}`,
-                        debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
-                        suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-                        type: "debug",
-                        prefix: this.LOG_PREFIX,
-                        data: {
-                            tickId: payload.tickId,
-                            tickNumber: payload.tickNumber,
-                        },
-                    });
-
-                    // Emit event for tick notification received
-                    this.events.emit("tick:notification", {
+                    // Always send tick notification
+                    await this.sendTickNotificationToSyncGroup({
                         syncGroup,
                         tickId: payload.tickId,
                         tickNumber: payload.tickNumber,
                     });
 
-                    // Process world updates based on the notification
-                    await this.sendWorldUpdatesToSyncGroup({ syncGroup });
+                    // Process entity updates
+                    await this.sendWorldUpdateNotificationsToSyncGroup({
+                        syncGroup,
+                    });
                 } catch (error) {
                     log({
                         message: "Error processing tick notification",
@@ -843,7 +832,7 @@ export class WorldApiManager {
      */
     private async captureWorldChanges(data: {
         syncGroup: string;
-    }): Promise<Communication.WebSocket.SyncGroupUpdatesResponseMessage | null> {
+    }): Promise<Communication.WebSocket.SyncGroupUpdatesNotificationMessage | null> {
         if (!superUserSql) {
             log({
                 message: "No database connection available",
@@ -856,7 +845,7 @@ export class WorldApiManager {
 
         // Create an empty update package
         const updatePackage =
-            new Communication.WebSocket.SyncGroupUpdatesResponseMessage(
+            new Communication.WebSocket.SyncGroupUpdatesNotificationMessage(
                 [],
                 [],
                 [],
@@ -940,7 +929,7 @@ export class WorldApiManager {
      */
     private async distributeWorldUpdates(data: {
         syncGroup: string;
-        updatePackage: Communication.WebSocket.SyncGroupUpdatesResponseMessage;
+        updatePackage: Communication.WebSocket.SyncGroupUpdatesNotificationMessage;
     }): Promise<void> {
         if (!superUserSql) {
             log({
@@ -1005,7 +994,7 @@ export class WorldApiManager {
     /**
      * Main function called by the tick system to update the world
      */
-    public async sendWorldUpdatesToSyncGroup(data: {
+    public async sendWorldUpdateNotificationsToSyncGroup(data: {
         syncGroup: string;
     }): Promise<void> {
         // Step 1: Capture changes from the database
@@ -1030,6 +1019,53 @@ export class WorldApiManager {
             // Emit event for no changes found
             this.events.emit("updates:empty", {
                 syncGroup: data.syncGroup,
+            });
+        }
+    }
+
+    private async sendTickNotificationToSyncGroup(data: {
+        syncGroup: string;
+        tickId: string;
+        tickNumber: number;
+    }): Promise<void> {
+        if (!superUserSql) return;
+
+        try {
+            // Fetch the complete tick info
+            const [tickInfo] = await superUserSql<[Tick.I_Tick]>`
+                SELECT * FROM tick.world_ticks 
+                WHERE general__tick_id = ${data.tickId}::UUID
+            `;
+
+            if (!tickInfo) return;
+
+            // Create tick notification message
+            const tickMessage =
+                new Communication.WebSocket.TickNotificationMessage(tickInfo);
+            const tickJson = JSON.stringify(tickMessage);
+
+            // Send to all sessions in this sync group
+            const sessionRecords = await superUserSql<
+                { general__session_id: string }[]
+            >`
+                SELECT general__session_id
+                FROM auth.active_sync_group_sessions
+                WHERE group__sync = ${data.syncGroup}
+            `;
+
+            for (const record of sessionRecords) {
+                const session = this.activeSessions.get(
+                    record.general__session_id,
+                );
+                if (session?.ws) {
+                    session.ws.send(tickJson);
+                }
+            }
+        } catch (error) {
+            log({
+                message: "Error sending tick notification",
+                error,
+                type: "error",
             });
         }
     }

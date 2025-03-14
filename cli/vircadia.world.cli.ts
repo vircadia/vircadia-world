@@ -145,7 +145,7 @@ export namespace Client_CLI {
         isHealthy: boolean;
         error?: Error;
     }> {
-        const defaultWait = { interval: 100, timeout: 2000 };
+        const defaultWait = { interval: 100, timeout: 10000 };
 
         const waitConfig =
             wait === true
@@ -351,7 +351,7 @@ export namespace Server_CLI {
         error?: Error;
     }> {
         // Default wait settings for postgres
-        const defaultWait = { interval: 100, timeout: 2000 };
+        const defaultWait = { interval: 100, timeout: 10000 };
 
         // If wait is true, use default wait settings
         const waitConfig =
@@ -425,7 +425,7 @@ export namespace Server_CLI {
         isHealthy: boolean;
         error?: Error;
     }> {
-        const defaultWait = { interval: 100, timeout: 2000 };
+        const defaultWait = { interval: 100, timeout: 10000 };
 
         const waitConfig =
             wait === true
@@ -479,7 +479,7 @@ export namespace Server_CLI {
         isHealthy: boolean;
         error?: Error;
     }> {
-        const defaultWait = { interval: 100, timeout: 2000 };
+        const defaultWait = { interval: 100, timeout: 10000 };
 
         const waitConfig =
             wait === true
@@ -536,7 +536,7 @@ export namespace Server_CLI {
         isHealthy: boolean;
         error?: Error;
     }> {
-        const defaultWait = { interval: 100, timeout: 2000 };
+        const defaultWait = { interval: 100, timeout: 10000 };
 
         const waitConfig =
             wait === true

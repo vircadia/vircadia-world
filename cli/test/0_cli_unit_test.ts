@@ -63,6 +63,11 @@ describe("SERVER Container and Database CLI Tests", () => {
     });
 
     test("Docker container rebuild works", async () => {
+        await PostgresClient.getInstance({
+            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+        }).disconnect();
+
         await Server_CLI.runServerDockerCommand({
             args: ["down", "-v"],
         });
@@ -90,7 +95,7 @@ describe("SERVER Container and Database CLI Tests", () => {
         expect(finalApiHealth.isHealthy).toBe(true);
         const finalTickHealth = await Server_CLI.isTickHealthy(true);
         expect(finalTickHealth.isHealthy).toBe(true);
-    }, 30000); // Longer timeout since rebuild includes multiple operations
+    }, 60000); // Longer timeout since rebuild includes multiple operations
 
     test("Docker container down and up cycle works", async () => {
         // Stop containers
@@ -120,7 +125,7 @@ describe("SERVER Container and Database CLI Tests", () => {
         expect(apiHealthAfterUp.isHealthy).toBe(true);
         const tickHealthAfterUp = await Server_CLI.isTickHealthy(true);
         expect(tickHealthAfterUp.isHealthy).toBe(true);
-    }, 30000);
+    }, 60000);
 
     test("System token generation and cleanup works", async () => {
         // Generate system token

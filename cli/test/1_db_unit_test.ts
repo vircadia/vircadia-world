@@ -1499,7 +1499,7 @@ describe("DB", () => {
             debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
         });
         await Server_CLI.runServerDockerCommand({
-            args: ["up", Service.E_Service.API, Service.E_Service.TICK],
+            args: ["up", Service.E_Service.API, Service.E_Service.TICK, "-d"],
         });
         log({
             message: "Services turned on.",

@@ -584,7 +584,7 @@ describe("Service Tests", () => {
 
             // Wait for the update to be received
             const typedResponse =
-                (await updatesPromise) as Communication.WebSocket.SyncGroupUpdatesResponseMessage;
+                (await updatesPromise) as Communication.WebSocket.SyncGroupUpdatesNotificationMessage;
 
             // Validate the response
             expect(typedResponse.type).toBe(

@@ -17,7 +17,7 @@ import {
     cleanupTestAssets,
 } from "./helper/helpers";
 import { VircadiaConfig } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
-import { down, up } from "../vircadia.world.cli";
+import { Server_CLI } from "../vircadia.world.cli";
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 
 let superUserSql: postgres.Sql;
@@ -37,14 +37,8 @@ describe("DB", () => {
             suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
             debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
         });
-        await down({
-            service: Service.E_Service.API,
-        });
-        await down({
-            service: Service.E_Service.SCRIPT_WEB,
-        });
-        await down({
-            service: Service.E_Service.TICK,
+        await Server_CLI.runServerDockerCommand({
+            args: ["down", Service.E_Service.API, Service.E_Service.TICK],
         });
         log({
             message: "All services turned off.",
@@ -1504,14 +1498,8 @@ describe("DB", () => {
             suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
             debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
         });
-        await up({
-            service: Service.E_Service.API,
-        });
-        await up({
-            service: Service.E_Service.SCRIPT_WEB,
-        });
-        await up({
-            service: Service.E_Service.TICK,
+        await Server_CLI.runServerDockerCommand({
+            args: ["up", Service.E_Service.API, Service.E_Service.TICK],
         });
         log({
             message: "Services turned on.",

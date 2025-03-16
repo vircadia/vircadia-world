@@ -4,7 +4,7 @@
     "type": "module",
     "scripts": {
         "server:container:run-command": "bun vircadia.world.cli.ts server:container:run-command",
-        "server:container:rebuild-all": "bun run server:container:run-command down -v && bun run server:container:run-command up postgres -d && bun run server:container:postgres:health && bun run server:container:postgres:migrate && bun run server:container:postgres:seed && bun run server:container:run-command up -d",
+        "server:container:rebuild-all": "bun run server:container:run-command down -v && bun run server:container:run-command up --build postgres -d && bun run server:container:postgres:health && bun run server:container:postgres:migrate && bun run server:container:postgres:seed && bun run server:container:run-command up --build api -d && bun run server:container:run-command up --build tick -d && bun run server:container:run-command up --build pgweb -d",
 
         "server:container:postgres:health": "bun vircadia.world.cli.ts server:container:postgres:health",
         "server:container:postgres:migrate": "bun vircadia.world.cli.ts server:container:postgres:migrate",
@@ -22,8 +22,10 @@
         "server:container:pgweb:access-command": "bun vircadia.world.cli.ts server:container:pgweb:access-command",
 
         "client:container:run-command": "bun vircadia.world.cli.ts client:container:run-command",
+        "client:container:rebuild-all": "bun run client:container:run-command down -v && bun run client:container:run-command up --build -d",
 
-        "client:container:web-babylon-js:health": "bun vircadia.world.cli.ts client:container:web-babylon-js:health"
+        "client:container:web_babylon_js_prod:health": "bun vircadia.world.cli.ts client:container:web_babylon_js_prod:health",
+        "client:container:web_babylon_js_dev:health": "bun vircadia.world.cli.ts client:container:web_babylon_js_dev:health"
     },
     "dependencies": {
         "jsonwebtoken": "^9.0.2",

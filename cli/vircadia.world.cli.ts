@@ -42,6 +42,14 @@ export namespace Client_CLI {
             VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_PORT_CONTAINER_INTERNAL:
                 VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_PORT_CONTAINER_INTERNAL.toString(),
 
+            VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST_CONTAINER_EXTERNAL:
+                VircadiaConfig.CLIENT
+                    .VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST_CONTAINER_EXTERNAL,
+            VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT_CONTAINER_EXTERNAL:
+                VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT_CONTAINER_EXTERNAL.toString(),
+            VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT_CONTAINER_INTERNAL:
+                VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT_CONTAINER_INTERNAL.toString(),
+
             VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN:
                 VircadiaConfig.CLIENT
                     .VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
@@ -134,24 +142,25 @@ export namespace Client_CLI {
     }
 
     // Client health check function
-    export async function isWebBabylonJsHealthy(
+    export async function isWebBabylonJsHealthy(data: {
+        type: "prod" | "dev";
         wait?:
             | {
                   interval: number;
                   timeout: number;
               }
-            | boolean,
-    ): Promise<{
+            | boolean;
+    }): Promise<{
         isHealthy: boolean;
         error?: Error;
     }> {
         const defaultWait = { interval: 100, timeout: 10000 };
 
         const waitConfig =
-            wait === true
+            data.wait === true
                 ? defaultWait
-                : wait && typeof wait !== "boolean"
-                  ? wait
+                : data.wait && typeof data.wait !== "boolean"
+                  ? data.wait
                   : null;
 
         const checkWebBabylonJs = async (): Promise<{
@@ -160,7 +169,9 @@ export namespace Client_CLI {
         }> => {
             try {
                 const response = await fetch(
-                    `http://${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_HOST_CONTAINER_EXTERNAL}:${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_PORT_CONTAINER_EXTERNAL}`,
+                    data.type === "prod"
+                        ? `http://${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_HOST_CONTAINER_EXTERNAL}:${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_PORT_CONTAINER_EXTERNAL}`
+                        : `http://${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST_CONTAINER_EXTERNAL}:${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT_CONTAINER_EXTERNAL}`,
                 );
                 const isHealthy = response.ok;
                 return {
@@ -1309,7 +1320,7 @@ if (import.meta.main) {
                 });
                 await Server_CLI.seed({ seedPath: additionalArgs[0] });
                 log({
-                    message: `${VircadiaConfig.SERVER.VRCA_SERVER_CONTAINER_NAME} container seeds applied.`,
+                    message: "Seeds applied.",
                     type: "success",
                     suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
                     debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
@@ -1332,7 +1343,7 @@ if (import.meta.main) {
             }
 
             // CLIENT CONTAINER HEALTH
-            case "client:container:web-babylon-js:health": {
+            case "client:container:web_babylon_js_prod:health": {
                 let waitInterval: number | undefined;
                 let waitTimeout: number | undefined;
 
@@ -1341,16 +1352,52 @@ if (import.meta.main) {
                     waitTimeout = Number.parseInt(additionalArgs[1]);
                 }
 
-                const health = await Client_CLI.isWebBabylonJsHealthy(
-                    waitInterval && waitTimeout
-                        ? {
-                              interval: waitInterval,
-                              timeout: waitTimeout,
-                          }
-                        : undefined,
-                );
+                const health = await Client_CLI.isWebBabylonJsHealthy({
+                    type: "prod",
+                    wait:
+                        waitInterval && waitTimeout
+                            ? {
+                                  interval: waitInterval,
+                                  timeout: waitTimeout,
+                              }
+                            : undefined,
+                });
                 log({
-                    message: `Web Babylon JS: ${health.isHealthy ? "healthy" : "unhealthy"}`,
+                    message: `Web Babylon JS (Production): ${health.isHealthy ? "healthy" : "unhealthy"}`,
+                    data: health,
+                    type: health.isHealthy ? "success" : "error",
+                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                });
+                if (!health.isHealthy) {
+                    process.exit(1);
+                } else {
+                    process.exit(0);
+                }
+                break;
+            }
+
+            case "client:container:web_babylon_js_dev:health": {
+                let waitInterval: number | undefined;
+                let waitTimeout: number | undefined;
+
+                if (additionalArgs.length > 0) {
+                    waitInterval = Number.parseInt(additionalArgs[0]);
+                    waitTimeout = Number.parseInt(additionalArgs[1]);
+                }
+
+                const health = await Client_CLI.isWebBabylonJsHealthy({
+                    type: "dev",
+                    wait:
+                        waitInterval && waitTimeout
+                            ? {
+                                  interval: waitInterval,
+                                  timeout: waitTimeout,
+                              }
+                            : undefined,
+                });
+                log({
+                    message: `Web Babylon JS (Development): ${health.isHealthy ? "healthy" : "unhealthy"}`,
                     data: health,
                     type: health.isHealthy ? "success" : "error",
                     suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,

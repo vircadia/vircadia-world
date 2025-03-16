@@ -2,7 +2,7 @@ import type postgres from "postgres";
 import { sign } from "jsonwebtoken";
 import { expect } from "bun:test";
 import { log } from "../../../sdk/vircadia-world-sdk-ts/module/general/log";
-import { VircadiaConfig } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
+import { VircadiaConfig } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.cli.config";
 import type { Auth } from "../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 
 export const TEST_SYNC_GROUP = "public.REALTIME";

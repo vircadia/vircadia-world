@@ -16,7 +16,8 @@ import {
     cleanupTestScripts,
     cleanupTestAssets,
 } from "./helper/helpers";
-import { VircadiaConfig } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
+import { VircadiaConfig_CLI } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.cli.config";
+import { VircadiaConfig_SERVER } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.server.config";
 import { Server_CLI } from "../vircadia.world.cli";
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 
@@ -34,8 +35,8 @@ describe("DB", () => {
         log({
             message: "Turning off all services...",
             type: "debug",
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
         });
         await Server_CLI.runServerDockerCommand({
             args: ["down", Service.E_Service.API, Service.E_Service.TICK],
@@ -43,60 +44,56 @@ describe("DB", () => {
         log({
             message: "All services turned off.",
             type: "debug",
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
         });
 
         log({
             message: "Getting super user client...",
             type: "debug",
-            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
-            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+            suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+            debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
         });
         superUserSql = await PostgresClient.getInstance({
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
         }).getSuperClient({
             postgres: {
-                host: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                port: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                database: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                 username:
-                    VircadiaConfig.CLI
-                        .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                 password:
-                    VircadiaConfig.CLI
-                        .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
             },
         });
         proxyUserSql = await PostgresClient.getInstance({
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
         }).getProxyClient({
             postgres: {
-                host: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                port: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                database: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                 username:
-                    VircadiaConfig.CLI
-                        .VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME,
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME,
                 password:
-                    VircadiaConfig.CLI
-                        .VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD,
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD,
             },
         });
         log({
             message: "Super user client and proxy user client obtained.",
             type: "debug",
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
         });
 
         log({
             message: "Cleaning up test objects...",
             type: "debug",
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
         });
         await cleanupTestAccounts({
             superUserSql,
@@ -113,15 +110,15 @@ describe("DB", () => {
         log({
             message: "Test objects cleaned up.",
             type: "debug",
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
         });
 
         log({
             message: "Initializing test accounts...",
             type: "debug",
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
         });
         const testAccounts = await initTestAccounts({
             superUserSql,
@@ -132,14 +129,14 @@ describe("DB", () => {
         log({
             message: "All test accounts initialized.",
             type: "debug",
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
         });
         log({
             message: "Starting DB tests...",
             type: "debug",
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
         });
     });
 
@@ -1453,8 +1450,8 @@ describe("DB", () => {
         log({
             message: "Cleaning up test objects...",
             type: "debug",
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
         });
         await cleanupTestEntities({
             superUserSql,
@@ -1471,32 +1468,32 @@ describe("DB", () => {
         log({
             message: "Test objects cleaned up.",
             type: "debug",
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
         });
         log({
             message: "Disconnecting from DB...",
             type: "debug",
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
         });
         await PostgresClient.getInstance({
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
         }).disconnect();
         log({
             message: "Disconnected from DB.",
             type: "debug",
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
         });
 
         // Turn on the services we turned off
         log({
             message: "Turning on services...",
             type: "debug",
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
         });
         await Server_CLI.runServerDockerCommand({
             args: ["up", Service.E_Service.API, Service.E_Service.TICK, "-d"],
@@ -1504,8 +1501,8 @@ describe("DB", () => {
         log({
             message: "Services turned on.",
             type: "debug",
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
         });
     });
 });

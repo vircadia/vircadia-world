@@ -4,8 +4,11 @@ import { PostgresClient } from "../../sdk/vircadia-world-sdk-ts/module/server/po
 import {
     Communication,
     Entity,
+    Service,
 } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
-import { VircadiaConfig } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
+import { VircadiaConfig_CLI } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.cli.config";
+import { VircadiaConfig_BROWSER_CLIENT } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.browser.client.config";
+import { VircadiaConfig_SERVER } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.server.config";
 import {
     cleanupTestAccounts,
     cleanupTestAssets,
@@ -17,7 +20,7 @@ import {
     type TestAccount,
 } from "./helper/helpers";
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
-import { up } from "../vircadia.world.cli";
+import { Server_CLI } from "../vircadia.world.cli";
 
 // TODO: Add benchmarks.
 
@@ -35,38 +38,36 @@ describe("Service Tests", () => {
 
     // Setup before all tests
     beforeAll(async () => {
-        await up({});
+        await Server_CLI.runServerDockerCommand({
+            args: ["up", Service.E_Service.API, Service.E_Service.TICK, "-d"],
+        });
 
         superUserSql = await PostgresClient.getInstance({
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
         }).getSuperClient({
             postgres: {
-                host: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                port: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                database: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                 username:
-                    VircadiaConfig.CLI
-                        .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                 password:
-                    VircadiaConfig.CLI
-                        .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
             },
         });
         proxyUserSql = await PostgresClient.getInstance({
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
         }).getProxyClient({
             postgres: {
-                host: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                port: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                database: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                 username:
-                    VircadiaConfig.CLI
-                        .VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME,
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME,
                 password:
-                    VircadiaConfig.CLI
-                        .VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD,
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD,
             },
         });
 
@@ -97,17 +98,14 @@ describe("Service Tests", () => {
 
         beforeAll(async () => {
             return new Promise((resolve, reject) => {
-                adminWsUrl = `${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI_USING_SSL ? "wss" : "ws"}://${
-                    VircadiaConfig.CLIENT
-                        .VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI
+                adminWsUrl = `${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI_USING_SSL ? "wss" : "ws"}://${
+                    VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI
                 }${Communication.WS_UPGRADE_PATH}?token=${adminAgent.token}&provider=system`;
-                regularWsUrl = `${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI_USING_SSL ? "wss" : "ws"}://${
-                    VircadiaConfig.CLIENT
-                        .VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI
+                regularWsUrl = `${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI_USING_SSL ? "wss" : "ws"}://${
+                    VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI
                 }${Communication.WS_UPGRADE_PATH}?token=${regularAgent.token}&provider=system`;
-                anonWsUrl = `${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI_USING_SSL ? "wss" : "ws"}://${
-                    VircadiaConfig.CLIENT
-                        .VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI
+                anonWsUrl = `${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI_USING_SSL ? "wss" : "ws"}://${
+                    VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI
                 }${Communication.WS_UPGRADE_PATH}?token=${anonAgent.token}&provider=system`;
                 adminAgentWsConnection = new WebSocket(adminWsUrl);
                 regularAgentWsConnection = new WebSocket(regularWsUrl);
@@ -117,8 +115,8 @@ describe("Service Tests", () => {
                     log({
                         message: "WebSocket connected",
                         type: "debug",
-                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                     });
                     resolve(true);
                 };
@@ -126,8 +124,8 @@ describe("Service Tests", () => {
                     log({
                         message: "WebSocket connected",
                         type: "debug",
-                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                     });
                     resolve(true);
                 };
@@ -135,8 +133,8 @@ describe("Service Tests", () => {
                     log({
                         message: "WebSocket connected",
                         type: "debug",
-                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                     });
                     resolve(true);
                 };
@@ -145,8 +143,8 @@ describe("Service Tests", () => {
                     log({
                         message: `WebSocket connection error: ${error}`,
                         type: "error",
-                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                     });
                     reject(error);
                 };
@@ -154,8 +152,8 @@ describe("Service Tests", () => {
                     log({
                         message: `WebSocket connection error: ${error}`,
                         type: "error",
-                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                     });
                     reject(error);
                 };
@@ -163,8 +161,8 @@ describe("Service Tests", () => {
                     log({
                         message: `WebSocket connection error: ${error}`,
                         type: "error",
-                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                     });
                     reject(error);
                 };
@@ -300,7 +298,7 @@ describe("Service Tests", () => {
         });
 
         describe("Auth -> Login", () => {
-            const baseAuthUrl = `${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI_USING_SSL ? "https" : "http"}://${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI}`;
+            const baseAuthUrl = `${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI_USING_SSL ? "https" : "http"}://${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI}`;
 
             test("should validate valid session tokens", async () => {
                 const regularResponse = await fetch(
@@ -530,8 +528,8 @@ describe("Service Tests", () => {
                 const entityId = result[0]?.general__entity_id;
                 log({
                     message: `Created test entity with ID: ${entityId}`,
-                    debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
-                    suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                    debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
                     type: "debug",
                 });
             });
@@ -673,8 +671,8 @@ describe("Service Tests", () => {
         });
 
         await PostgresClient.getInstance({
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
         }).disconnect();
     });
 });

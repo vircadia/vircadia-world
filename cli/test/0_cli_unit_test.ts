@@ -1,7 +1,8 @@
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { Server_CLI, Client_CLI } from "../vircadia.world.cli";
-import { VircadiaConfig } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.config";
+import { VircadiaConfig_CLI } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.cli.config";
 import { PostgresClient } from "../../sdk/vircadia-world-sdk-ts/module/server/postgres.server.client";
+import { VircadiaConfig_SERVER } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.server.config";
 
 // describe("CLIENT Container and Database CLI Tests", () => {
 //     beforeAll(async () => {
@@ -57,15 +58,15 @@ describe("SERVER Container and Database CLI Tests", () => {
 
     afterAll(async () => {
         await PostgresClient.getInstance({
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
         }).disconnect();
     });
 
     test("Docker container rebuild works", async () => {
         await PostgresClient.getInstance({
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
         }).disconnect();
 
         await Server_CLI.runServerDockerCommand({
@@ -151,19 +152,17 @@ describe("SERVER Container and Database CLI Tests", () => {
 
     test("Superuser SQL connection works", async () => {
         const superUserSql = await PostgresClient.getInstance({
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
         }).getSuperClient({
             postgres: {
-                host: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                port: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                database: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                 username:
-                    VircadiaConfig.CLI
-                        .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                 password:
-                    VircadiaConfig.CLI
-                        .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
             },
         });
 
@@ -183,19 +182,17 @@ describe("SERVER Container and Database CLI Tests", () => {
 
     test("Proxy user SQL connection works", async () => {
         const proxyUserSql = await PostgresClient.getInstance({
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
         }).getProxyClient({
             postgres: {
-                host: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                port: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                database: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                 username:
-                    VircadiaConfig.CLI
-                        .VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME,
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME,
                 password:
-                    VircadiaConfig.CLI
-                        .VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD,
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD,
             },
         });
 
@@ -251,19 +248,17 @@ describe("SERVER Container and Database CLI Tests", () => {
 
     test("Database extensions are properly installed", async () => {
         const sql = await PostgresClient.getInstance({
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
         }).getSuperClient({
             postgres: {
-                host: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                port: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                database: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                 username:
-                    VircadiaConfig.CLI
-                        .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                 password:
-                    VircadiaConfig.CLI
-                        .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
             },
         });
 
@@ -274,7 +269,7 @@ describe("SERVER Container and Database CLI Tests", () => {
 
         // Verify required extensions are installed
         const requiredExtensions =
-            VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS;
+            VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS;
         for (const ext of requiredExtensions) {
             expect(extensions.some((e) => e.extname === ext)).toBe(true);
         }

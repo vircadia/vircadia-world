@@ -1,7 +1,10 @@
 import { type Component, onCleanup, onMount } from "solid-js";
 import { Scene, WebGPUEngine } from "@babylonjs/core";
 import { VircadiaBabylonCore } from "../../vircadia-world-sdk-ts/module/client/core/vircadia.babylon.core";
-import { VircadiaConfig } from "../../vircadia-world-sdk-ts/config/vircadia.config";
+import {
+    VircadiaConfig,
+    VircadiaConfig_CLIENT,
+} from "../../vircadia-world-sdk-ts/config/vircadia.config";
 
 const App: Component = () => {
     let canvasRef: HTMLCanvasElement | undefined;
@@ -20,21 +23,20 @@ const App: Component = () => {
         scene = new Scene(engine);
 
         // Initialize Vircadia client
-        const serverUrl = VircadiaConfig.CLIENT
-            .VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI_USING_SSL
-            ? `https://${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI}`
-            : `http://${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI}`;
+        const serverUrl =
+            VircadiaConfig_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI_USING_SSL
+                ? `https://${VircadiaConfig_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI}`
+                : `http://${VircadiaConfig_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI}`;
 
         vircadiaClient = new VircadiaBabylonCore({
             serverUrl,
             authToken:
-                VircadiaConfig.CLIENT
-                    .VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
+                VircadiaConfig_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
             authProvider: "local", // Using local auth provider
             engine,
             scene,
-            debug: VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
-            suppress: VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
+            debug: VircadiaConfig_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
+            suppress: VircadiaConfig_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
         });
 
         // Connect to Vircadia server

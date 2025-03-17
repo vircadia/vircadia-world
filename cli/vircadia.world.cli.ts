@@ -1,4 +1,6 @@
-import { VircadiaConfig } from "../sdk/vircadia-world-sdk-ts/config/vircadia.cli.config.ts";
+import { VircadiaConfig_CLI } from "../sdk/vircadia-world-sdk-ts/config/vircadia.cli.config.ts";
+import { VircadiaConfig_BROWSER_CLIENT } from "../sdk/vircadia-world-sdk-ts/config/vircadia.browser.client.config.ts";
+import { VircadiaConfig_SERVER } from "../sdk/vircadia-world-sdk-ts/config/vircadia.server.config.ts";
 import { log } from "../sdk/vircadia-world-sdk-ts/module/general/log.ts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,53 +30,47 @@ export namespace Client_CLI {
             PATH: process.env.PATH,
 
             VRCA_CLIENT_CONTAINER_NAME:
-                VircadiaConfig.CLIENT.VRCA_CLIENT_CONTAINER_NAME,
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_CONTAINER_NAME,
             VRCA_CLIENT_WEB_BABYLON_JS_DEBUG:
-                VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG.toString(),
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG.toString(),
             VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS:
-                VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS.toString(),
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS.toString(),
 
             VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_HOST_CONTAINER_EXTERNAL:
-                VircadiaConfig.CLIENT
-                    .VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_HOST_CONTAINER_EXTERNAL,
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_HOST_CONTAINER_EXTERNAL,
             VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_PORT_CONTAINER_EXTERNAL:
-                VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_PORT_CONTAINER_EXTERNAL.toString(),
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_PORT_CONTAINER_EXTERNAL.toString(),
             VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_PORT_CONTAINER_INTERNAL:
-                VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_PORT_CONTAINER_INTERNAL.toString(),
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_PORT_CONTAINER_INTERNAL.toString(),
 
             VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST_CONTAINER_EXTERNAL:
-                VircadiaConfig.CLIENT
-                    .VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST_CONTAINER_EXTERNAL,
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST_CONTAINER_EXTERNAL,
             VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT_CONTAINER_EXTERNAL:
-                VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT_CONTAINER_EXTERNAL.toString(),
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT_CONTAINER_EXTERNAL.toString(),
             VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT_CONTAINER_INTERNAL:
-                VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT_CONTAINER_INTERNAL.toString(),
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT_CONTAINER_INTERNAL.toString(),
 
             VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN:
-                VircadiaConfig.CLIENT
-                    .VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
 
             VRCA_CLIENT_WEB_BABYLON_JS_META_TITLE_BASE:
-                VircadiaConfig.CLIENT
-                    .VRCA_CLIENT_WEB_BABYLON_JS_META_TITLE_BASE,
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_META_TITLE_BASE,
             VRCA_CLIENT_WEB_BABYLON_JS_META_DESCRIPTION:
-                VircadiaConfig.CLIENT
-                    .VRCA_CLIENT_WEB_BABYLON_JS_META_DESCRIPTION,
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_META_DESCRIPTION,
             VRCA_CLIENT_WEB_BABYLON_JS_META_OG_IMAGE:
-                VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_META_OG_IMAGE,
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_META_OG_IMAGE,
             VRCA_CLIENT_WEB_BABYLON_JS_META_OG_TYPE:
-                VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_META_OG_TYPE,
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_META_OG_TYPE,
             VRCA_CLIENT_WEB_BABYLON_JS_META_FAVICON:
-                VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_META_FAVICON,
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_META_FAVICON,
 
             VRCA_CLIENT_WEB_BABYLON_JS_APP_URL:
-                VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_APP_URL,
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_APP_URL,
 
             VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI:
-                VircadiaConfig.CLIENT
-                    .VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI,
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI,
             VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI_USING_SSL:
-                VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI_USING_SSL.toString(),
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI_USING_SSL.toString(),
         };
 
         let dockerArgs = [
@@ -90,8 +86,8 @@ export namespace Client_CLI {
             prefix: "Docker Command",
             message: dockerArgs.join(" "),
             type: "debug",
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
         });
 
         const spawnedProcess = Bun.spawn(dockerArgs, {
@@ -108,8 +104,8 @@ export namespace Client_CLI {
                 prefix: "Docker Command Output",
                 message: stdout,
                 type: "debug",
-                suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
             });
         }
         if (stderr) {
@@ -125,8 +121,8 @@ export namespace Client_CLI {
                 prefix: "Docker Command Output",
                 message: stderr,
                 type: isActualError ? "error" : "debug",
-                suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
             });
         }
 
@@ -170,8 +166,8 @@ export namespace Client_CLI {
             try {
                 const response = await fetch(
                     data.type === "prod"
-                        ? `http://${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_HOST_CONTAINER_EXTERNAL}:${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_PORT_CONTAINER_EXTERNAL}`
-                        : `http://${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST_CONTAINER_EXTERNAL}:${VircadiaConfig.CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT_CONTAINER_EXTERNAL}`,
+                        ? `http://${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_HOST_CONTAINER_EXTERNAL}:${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_PORT_CONTAINER_EXTERNAL}`
+                        : `http://${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST_CONTAINER_EXTERNAL}:${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT_CONTAINER_EXTERNAL}`,
                 );
                 const isHealthy = response.ok;
                 return {
@@ -227,67 +223,57 @@ export namespace Server_CLI {
             PATH: process.env.PATH,
 
             VRCA_SERVER_CONTAINER_NAME:
-                VircadiaConfig.SERVER.VRCA_SERVER_CONTAINER_NAME,
+                VircadiaConfig_SERVER.VRCA_SERVER_CONTAINER_NAME,
             VRCA_SERVER_DEBUG:
-                VircadiaConfig.SERVER.VRCA_SERVER_DEBUG.toString(),
+                VircadiaConfig_SERVER.VRCA_SERVER_DEBUG.toString(),
             VRCA_SERVER_SUPPRESS:
-                VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS.toString(),
+                VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS.toString(),
 
             VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME:
-                VircadiaConfig.SERVER
-                    .VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME,
             VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD:
-                VircadiaConfig.SERVER
-                    .VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
             VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME:
-                VircadiaConfig.SERVER
-                    .VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME,
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME,
             VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD:
-                VircadiaConfig.SERVER
-                    .VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD,
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD,
             VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_EXTERNAL:
-                VircadiaConfig.SERVER
-                    .VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_EXTERNAL,
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_EXTERNAL,
             VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_EXTERNAL:
-                VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_EXTERNAL.toString(),
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_EXTERNAL.toString(),
             VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_CLUSTER:
-                VircadiaConfig.SERVER
-                    .VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_CLUSTER,
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_CLUSTER,
             VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_CLUSTER:
-                VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_CLUSTER.toString(),
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_CLUSTER.toString(),
             VRCA_SERVER_SERVICE_POSTGRES_DATABASE:
-                VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
             VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS:
-                VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS.join(
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS.join(
                     ",",
                 ),
 
             VRCA_SERVER_SERVICE_PGWEB_HOST_CONTAINER_EXTERNAL:
-                VircadiaConfig.SERVER
-                    .VRCA_SERVER_SERVICE_PGWEB_HOST_CONTAINER_EXTERNAL,
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_PGWEB_HOST_CONTAINER_EXTERNAL,
             VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_EXTERNAL:
-                VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_EXTERNAL.toString(),
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_EXTERNAL.toString(),
 
             VRCA_SERVER_SERVICE_API_HOST_CONTAINER_CLUSTER:
-                VircadiaConfig.SERVER
-                    .VRCA_SERVER_SERVICE_API_HOST_CONTAINER_CLUSTER,
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_API_HOST_CONTAINER_CLUSTER,
             VRCA_SERVER_SERVICE_API_PORT_CONTAINER_CLUSTER:
-                VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_PORT_CONTAINER_CLUSTER.toString(),
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_API_PORT_CONTAINER_CLUSTER.toString(),
             VRCA_SERVER_SERVICE_API_HOST_PUBLIC:
-                VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_HOST_PUBLIC,
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_API_HOST_PUBLIC,
             VRCA_SERVER_SERVICE_API_PORT_PUBLIC:
-                VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_PORT_PUBLIC.toString(),
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_API_PORT_PUBLIC.toString(),
             VRCA_SERVER_SERVICE_API_HOST_CONTAINER_EXTERNAL:
-                VircadiaConfig.SERVER
-                    .VRCA_SERVER_SERVICE_API_HOST_CONTAINER_EXTERNAL,
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_API_HOST_CONTAINER_EXTERNAL,
             VRCA_SERVER_SERVICE_API_PORT_CONTAINER_EXTERNAL:
-                VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_PORT_CONTAINER_EXTERNAL.toString(),
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_API_PORT_CONTAINER_EXTERNAL.toString(),
 
             VRCA_SERVER_SERVICE_TICK_HOST_CONTAINER_EXTERNAL:
-                VircadiaConfig.SERVER
-                    .VRCA_SERVER_SERVICE_TICK_HOST_CONTAINER_EXTERNAL,
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_TICK_HOST_CONTAINER_EXTERNAL,
             VRCA_SERVER_SERVICE_TICK_PORT_CONTAINER_EXTERNAL:
-                VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_TICK_PORT_CONTAINER_EXTERNAL.toString(),
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_TICK_PORT_CONTAINER_EXTERNAL.toString(),
         };
 
         // Construct the command
@@ -304,8 +290,8 @@ export namespace Server_CLI {
             prefix: "Docker Command",
             message: dockerArgs.join(" "),
             type: "debug",
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
         });
 
         const spawnedProcess = Bun.spawn(dockerArgs, {
@@ -322,8 +308,8 @@ export namespace Server_CLI {
                 prefix: "Docker Command Output",
                 message: stdout,
                 type: "debug",
-                suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
             });
         }
         if (stderr) {
@@ -339,8 +325,8 @@ export namespace Server_CLI {
                 prefix: "Docker Command Output",
                 message: stderr,
                 type: isActualError ? "error" : "debug",
-                suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
             });
         }
 
@@ -378,23 +364,20 @@ export namespace Server_CLI {
         }> => {
             try {
                 const db = PostgresClient.getInstance({
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                 });
 
                 const sql = await db.getSuperClient({
                     postgres: {
-                        host: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                        port: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                        host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                        port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
                         database:
-                            VircadiaConfig.CLI
-                                .VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                         username:
-                            VircadiaConfig.CLI
-                                .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                         password:
-                            VircadiaConfig.CLI
-                                .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
                     },
                 });
                 await sql`SELECT 1`;
@@ -504,7 +487,7 @@ export namespace Server_CLI {
             error?: Error;
         }> => {
             try {
-                const url = `http://${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_HOST_PUBLIC}:${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_PORT_PUBLIC}${Service.API.Stats_Endpoint.path}`;
+                const url = `http://${VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_API_HOST_PUBLIC}:${VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_API_PORT_PUBLIC}${Service.API.Stats_Endpoint.path}`;
                 const response = await fetch(url, {
                     method: "POST",
                     body: Service.API.Stats_Endpoint.createRequest(),
@@ -561,7 +544,7 @@ export namespace Server_CLI {
             error?: Error;
         }> => {
             try {
-                const url = `http://${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_TICK_HOST_CONTAINER_EXTERNAL}:${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_TICK_PORT_CONTAINER_EXTERNAL}${Service.Tick.Stats_Endpoint.path}`;
+                const url = `http://${VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_TICK_HOST_CONTAINER_EXTERNAL}:${VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_TICK_PORT_CONTAINER_EXTERNAL}${Service.Tick.Stats_Endpoint.path}`;
                 const response = await fetch(url, {
                     method: "POST",
                     body: Service.Tick.Stats_Endpoint.createRequest(),
@@ -595,27 +578,25 @@ export namespace Server_CLI {
 
     export async function wipeDatabase() {
         const db = PostgresClient.getInstance({
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
         });
         const sql = await db.getSuperClient({
             postgres: {
-                host: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                port: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                database: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                 username:
-                    VircadiaConfig.CLI
-                        .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                 password:
-                    VircadiaConfig.CLI
-                        .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
             },
         });
 
         try {
             // Get list of migration files
             const resets = await readdir(
-                VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_RESET_DIR,
+                VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_RESET_DIR,
             );
             const resetSqlFiles = resets
                 .filter((f) => f.endsWith(".sql"))
@@ -625,7 +606,7 @@ export namespace Server_CLI {
             for (const file of resetSqlFiles) {
                 try {
                     const filePath = path.join(
-                        VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_RESET_DIR,
+                        VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_RESET_DIR,
                         file,
                     );
                     const sqlContent = await readFile(filePath, "utf-8");
@@ -641,16 +622,16 @@ export namespace Server_CLI {
                     log({
                         message: `Reset ${file} executed successfully`,
                         type: "debug",
-                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                     });
                 } catch (error) {
                     log({
                         message: `Failed to run reset ${file}.`,
                         type: "error",
                         error: error,
-                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                     });
                     throw error;
                 }
@@ -659,8 +640,8 @@ export namespace Server_CLI {
             log({
                 message: `Database reset failed: ${error}`,
                 type: "error",
-                suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
             });
             throw error;
         }
@@ -668,39 +649,36 @@ export namespace Server_CLI {
 
     export async function migrate(): Promise<boolean> {
         const db = PostgresClient.getInstance({
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
         });
         const sql = await db.getSuperClient({
             postgres: {
-                host: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                port: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                database: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                 username:
-                    VircadiaConfig.CLI
-                        .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                 password:
-                    VircadiaConfig.CLI
-                        .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
             },
         });
 
         let migrationsRan = false;
 
-        for (const name of VircadiaConfig.SERVER
-            .VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS) {
+        for (const name of VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS) {
             log({
                 message: `Installing PostgreSQL extension: ${name}...`,
                 type: "debug",
-                suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
             });
             await sql`CREATE EXTENSION IF NOT EXISTS ${sql(name)};`;
             log({
                 message: `PostgreSQL extension ${name} installed successfully`,
                 type: "debug",
-                suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
             });
         }
 
@@ -717,7 +695,7 @@ export namespace Server_CLI {
 
         // Get list of migration files
         const migrations = await readdir(
-            VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_MIGRATION_DIR,
+            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_MIGRATION_DIR,
         );
         const migrationSqlFiles = migrations
             .filter((f) => f.endsWith(".sql"))
@@ -730,7 +708,6 @@ export namespace Server_CLI {
                 if (!Number.isNaN(numA) && !Number.isNaN(numB)) {
                     return numA - numB;
                 }
-
                 // Fall back to lexicographic sorting
                 return a.localeCompare(b);
             });
@@ -738,8 +715,8 @@ export namespace Server_CLI {
         log({
             message: `Attempting to read migrations directory: ${migrations}, found ${migrationSqlFiles.length} files`,
             type: "debug",
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
         });
 
         // Get already executed migrations
@@ -753,8 +730,7 @@ export namespace Server_CLI {
                 migrationsRan = true;
                 try {
                     const filePath = path.join(
-                        VircadiaConfig.CLI
-                            .VRCA_CLI_SERVICE_POSTGRES_MIGRATION_DIR,
+                        VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_MIGRATION_DIR,
                         file,
                     );
                     const sqlContent = await readFile(filePath, "utf-8");
@@ -762,8 +738,8 @@ export namespace Server_CLI {
                     log({
                         message: `Executing migration ${file}...`,
                         type: "debug",
-                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                     });
 
                     await sql.begin(async (sql) => {
@@ -777,16 +753,16 @@ export namespace Server_CLI {
                     log({
                         message: `Migration ${file} executed successfully`,
                         type: "debug",
-                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                     });
                 } catch (error) {
                     log({
                         message: `Failed to run migration ${file}.`,
                         type: "error",
                         error: error,
-                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                     });
                     throw error;
                 }
@@ -801,33 +777,31 @@ export namespace Server_CLI {
         seedPath?: string;
     }) {
         const db = PostgresClient.getInstance({
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
         });
         const sql = await db.getSuperClient({
             postgres: {
-                host: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                port: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                database: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                 username:
-                    VircadiaConfig.CLI
-                        .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                 password:
-                    VircadiaConfig.CLI
-                        .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
             },
         });
 
         // Ensure we resolve the seed path to absolute path
         const seedDir = data.seedPath
             ? path.resolve(data.seedPath)
-            : VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_SEED_DIR;
+            : VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SEED_DIR;
 
         log({
             message: `Attempting to read seed directory: ${seedDir}`,
             type: "debug",
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
         });
 
         // Get list of seed files
@@ -837,21 +811,21 @@ export namespace Server_CLI {
             log({
                 message: `Directory contents: ${files.length ? files.join(", ") : "(empty directory)"}`,
                 type: "debug",
-                suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
             });
         } catch (error) {
             log({
                 message: `Error reading seed directory: ${error instanceof Error ? error.message : String(error)}`,
                 type: "error",
-                suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
             });
             log({
                 message: `No seed directory found at ${seedDir}`,
                 type: "error",
-                suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
             });
             return;
         }
@@ -871,8 +845,8 @@ export namespace Server_CLI {
             log({
                 message: `Found seed ${file}...`,
                 type: "debug",
-                suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
             });
 
             const filePath = path.join(seedDir, file);
@@ -892,16 +866,16 @@ export namespace Server_CLI {
                     log({
                         message: `Warning: Seed ${file} has changed since it was last executed`,
                         type: "warn",
-                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                     });
                 }
 
                 log({
                     message: `Executing seed ${file} (hash: ${contentHash})...`,
                     type: "debug",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 });
 
                 try {
@@ -917,16 +891,16 @@ export namespace Server_CLI {
                     log({
                         message: `Seed ${file} executed successfully`,
                         type: "debug",
-                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                     });
                 } catch (error) {
                     log({
                         message: `Failed to run seed ${file}`,
                         type: "error",
                         error: error,
-                        suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                     });
                     throw error;
                 }
@@ -934,8 +908,8 @@ export namespace Server_CLI {
                 log({
                     message: `Seed ${file} already executed`,
                     type: "debug",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 });
             }
         }
@@ -947,20 +921,18 @@ export namespace Server_CLI {
         agentId: string;
     }> {
         const db = PostgresClient.getInstance({
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
         });
         const sql = await db.getSuperClient({
             postgres: {
-                host: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                port: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                database: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                 username:
-                    VircadiaConfig.CLI
-                        .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                 password:
-                    VircadiaConfig.CLI
-                        .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
             },
         });
 
@@ -1037,20 +1009,18 @@ export namespace Server_CLI {
 
     export async function invalidateDbSystemTokens(): Promise<number> {
         const db = PostgresClient.getInstance({
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
         });
         const sql = await db.getSuperClient({
             postgres: {
-                host: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                port: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                database: VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                 username:
-                    VircadiaConfig.CLI
-                        .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                 password:
-                    VircadiaConfig.CLI
-                        .VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
             },
         });
 
@@ -1074,11 +1044,11 @@ export namespace Server_CLI {
     }
 
     export async function generateDbConnectionString(): Promise<string> {
-        return `postgres://${VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME}:${VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD}@${VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_HOST}:${VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_PORT}/${VircadiaConfig.CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE}`;
+        return `postgres://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD}@${VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT}/${VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE}`;
     }
 
     export async function generatePgwebAccessURL(): Promise<string> {
-        return `http://${VircadiaConfig.CLI.VRCA_CLI_SERVICE_PGWEB_HOST}:${VircadiaConfig.CLI.VRCA_CLI_SERVICE_PGWEB_PORT}`;
+        return `http://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_PGWEB_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_PGWEB_PORT}`;
     }
 }
 
@@ -1091,8 +1061,8 @@ if (import.meta.main) {
         log({
             message: "No command provided",
             type: "error",
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
         });
         process.exit(1);
     }
@@ -1121,8 +1091,8 @@ if (import.meta.main) {
                     message: `PostgreSQL: ${health.isHealthy ? "healthy" : "unhealthy"}`,
                     data: health,
                     type: health.isHealthy ? "success" : "error",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 });
                 if (!health.isHealthy) {
                     process.exit(1);
@@ -1152,8 +1122,8 @@ if (import.meta.main) {
                     message: `PGWEB: ${health.isHealthy ? "healthy" : "unhealthy"}`,
                     data: health,
                     type: health.isHealthy ? "success" : "error",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 });
                 if (!health.isHealthy) {
                     process.exit(1);
@@ -1184,8 +1154,8 @@ if (import.meta.main) {
                     message: `API: ${health.isHealthy ? "healthy" : "unhealthy"}`,
                     data: health,
                     type: health.isHealthy ? "success" : "error",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 });
                 if (!health.isHealthy) {
                     process.exit(1);
@@ -1216,8 +1186,8 @@ if (import.meta.main) {
                     message: `Tick: ${health.isHealthy ? "healthy" : "unhealthy"}`,
                     data: health,
                     type: health.isHealthy ? "success" : "error",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 });
                 if (!health.isHealthy) {
                     process.exit(1);
@@ -1232,15 +1202,15 @@ if (import.meta.main) {
                 log({
                     message: "Running database migrations...",
                     type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 });
                 await Server_CLI.migrate();
                 log({
                     message: "Migrations ran successfully",
                     type: "success",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 });
                 break;
             }
@@ -1249,15 +1219,15 @@ if (import.meta.main) {
                 log({
                     message: "Wiping database...",
                     type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 });
                 await Server_CLI.wipeDatabase();
                 log({
                     message: "Database wiped",
                     type: "success",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 });
                 break;
             }
@@ -1268,8 +1238,8 @@ if (import.meta.main) {
                 log({
                     message: `Database connection string:\n[ ${connectionString} ]`,
                     type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 });
                 break;
             }
@@ -1278,8 +1248,8 @@ if (import.meta.main) {
                 log({
                     message: "Generating system token...",
                     type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 });
                 const { token, sessionId, agentId } =
                     await Server_CLI.generateDbSystemToken();
@@ -1287,8 +1257,8 @@ if (import.meta.main) {
                     message: `System agent token: ${token}`,
                     data: { sessionId, agentId },
                     type: "success",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 });
                 break;
             }
@@ -1297,16 +1267,16 @@ if (import.meta.main) {
                 log({
                     message: "Invalidating all system tokens...",
                     type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 });
                 const invalidatedCount =
                     await Server_CLI.invalidateDbSystemTokens();
                 log({
                     message: `Invalidated ${invalidatedCount} system tokens`,
                     type: "success",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 });
                 break;
             }
@@ -1315,15 +1285,15 @@ if (import.meta.main) {
                 log({
                     message: "Running database seeds...",
                     type: "info",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 });
                 await Server_CLI.seed({ seedPath: additionalArgs[0] });
                 log({
                     message: "Seeds applied.",
                     type: "success",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 });
                 break;
             }
@@ -1336,8 +1306,8 @@ if (import.meta.main) {
                     message: `Access PGWEB at:\n[ ${pgwebAccessURL} ]`,
                     data: { pgwebAccessURL },
                     type: "success",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 });
                 break;
             }
@@ -1366,8 +1336,8 @@ if (import.meta.main) {
                     message: `Web Babylon JS (Production): ${health.isHealthy ? "healthy" : "unhealthy"}`,
                     data: health,
                     type: health.isHealthy ? "success" : "error",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 });
                 if (!health.isHealthy) {
                     process.exit(1);
@@ -1400,8 +1370,8 @@ if (import.meta.main) {
                     message: `Web Babylon JS (Development): ${health.isHealthy ? "healthy" : "unhealthy"}`,
                     data: health,
                     type: health.isHealthy ? "success" : "error",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 });
                 if (!health.isHealthy) {
                     process.exit(1);
@@ -1428,8 +1398,8 @@ if (import.meta.main) {
                 log({
                     message: `Unknown command: ${command}`,
                     type: "error",
-                    suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 });
                 process.exit(1);
         }
@@ -1439,8 +1409,8 @@ if (import.meta.main) {
         log({
             message: `Error: ${error}`,
             type: "error",
-            suppress: VircadiaConfig.CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig.CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
         });
         process.exit(1);
     }

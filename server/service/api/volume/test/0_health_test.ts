@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { VircadiaConfig } from "../vircadia-world-sdk-ts/config/vircadia.config";
+import { VircadiaConfig_SERVER } from "../vircadia-world-sdk-ts/config/vircadia.server.config";
 import { log } from "../vircadia-world-sdk-ts/module/general/log";
 import {
     Communication,
@@ -10,7 +10,7 @@ import { fetch } from "bun";
 describe("World API Manager - HEALTH", () => {
     test("Health Check - Stats Endpoint", async () => {
         // Construct the stats endpoint URL
-        const statsEndpoint = `http://${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_HOST_PUBLIC}:${VircadiaConfig.SERVER.VRCA_SERVER_SERVICE_API_PORT_PUBLIC}${Service.API.Stats_Endpoint.path}`;
+        const statsEndpoint = `http://${VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_API_HOST_PUBLIC}:${VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_API_PORT_PUBLIC}${Service.API.Stats_Endpoint.path}`;
 
         // Send request to the stats endpoint
         const response = await fetch(statsEndpoint, {
@@ -35,9 +35,9 @@ describe("World API Manager - HEALTH", () => {
         // Log success for debugging
         log({
             message: "Stats endpoint health check successful",
-            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
+            debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
             type: "debug",
-            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+            suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
             data: { responseData },
         });
     });

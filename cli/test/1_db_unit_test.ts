@@ -703,21 +703,19 @@ describe("DB", () => {
                 await proxyUserSql.begin(async (tx) => {
                     await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
                     // Insert an asset record.
-                    const [asset] = await tx`
+                    const [asset] = await tx<[Entity.Asset.I_Asset]>`
                         INSERT INTO entity.entity_assets (
                             general__asset_name,
                             group__sync,
-                            meta__data,
                             asset__data
                         ) VALUES (
                             ${"Test Asset"},
                             ${"public.NORMAL"},
-                            ${tx.json({ type: "texture", description: "Test asset" })},
                             decode('deadbeef', 'hex')
                         ) RETURNING *
                     `;
                     // Insert a script record.
-                    const [script] = await tx`
+                    const [script] = await tx<[Entity.Script.I_Script]>`
                         INSERT INTO entity.entity_scripts (
                             general__script_name,
                             group__sync,
@@ -731,7 +729,7 @@ describe("DB", () => {
                         ) RETURNING *
                     `;
                     // Insert an entity that references the created script (and asset via metadata).
-                    const [entity] = await tx`
+                    const [entity] = await tx<[Entity.I_Entity]>`
                         INSERT INTO entity.entities (
                             general__entity_name,
                             asset__names,
@@ -739,7 +737,7 @@ describe("DB", () => {
                             group__sync
                         ) VALUES (
                             ${"Entity with asset and script"},
-                            ${[asset.general__asset_id]},
+                            ${[asset.general__asset_name]},
                             ${[script.general__script_id]},
                             ${"public.NORMAL"}
                         ) RETURNING *
@@ -749,7 +747,7 @@ describe("DB", () => {
                         "Entity with asset and script",
                     );
                     expect(entity.asset__names).toContain(
-                        asset.general__asset_id,
+                        asset.general__asset_name,
                     );
                     expect(entity.script__ids).toContain(
                         script.general__script_id,
@@ -757,48 +755,46 @@ describe("DB", () => {
                     // Delete the entity record after all checks.
                     await tx`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
                     // Optionally clean up asset and script records.
-                    await tx`DELETE FROM entity.entity_assets WHERE general__asset_id = ${asset.general__asset_id}`;
+                    await tx`DELETE FROM entity.entity_assets WHERE general__asset_name = ${asset.general__asset_name}`;
                     await tx`DELETE FROM entity.entity_scripts WHERE general__script_id = ${script.general__script_id}`;
                 });
             });
-            test("should remove asset id from entity when corresponding asset is deleted", async () => {
+            test("should remove asset name from entity when corresponding asset is deleted", async () => {
                 await proxyUserSql.begin(async (tx) => {
                     await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
 
                     // Insert an asset record.
-                    const [asset] = await tx`
+                    const [asset] = await tx<[Entity.Asset.I_Asset]>`
         			INSERT INTO entity.entity_assets (
         				general__asset_name,
         				group__sync,
-        				meta__data,
         				asset__data
         			) VALUES (
         				${"Asset to delete"},
         				${"public.NORMAL"},
-        				${tx.json({ type: "texture", description: "Asset for deletion" })},
         				decode('deadbeef', 'hex')
         			) RETURNING *
         		`;
                     // Insert an entity referencing the asset.
-                    const [entity] = await tx`
+                    const [entity] = await tx<[Entity.I_Entity]>`
         			INSERT INTO entity.entities (
         				general__entity_name,
         				asset__names,
         				group__sync
         			) VALUES (
         				${"Entity with asset"},
-        				${[asset.general__asset_id]},
+        				${[asset.general__asset_name]},
         				${"public.NORMAL"}
         			) RETURNING *
         		`;
                     // Delete the asset.
-                    await tx`DELETE FROM entity.entity_assets WHERE general__asset_id = ${asset.general__asset_id}`;
+                    await tx`DELETE FROM entity.entity_assets WHERE general__asset_name = ${asset.general__asset_name}`;
                     // Re-read the entity to ensure the asset id is removed.
                     const [updatedEntity] = await tx`
         			SELECT * FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}
         		`;
                     expect(updatedEntity.asset__names).not.toContain(
-                        asset.general__asset_id,
+                        asset.general__asset_name,
                     );
                     // Clean up
                     await tx`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
@@ -809,7 +805,7 @@ describe("DB", () => {
                     await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
 
                     // Insert a script record.
-                    const [script] = await tx`
+                    const [script] = await tx<[Entity.Script.I_Script]>`
         			INSERT INTO entity.entity_scripts (
         				general__script_name,
         				group__sync,
@@ -829,7 +825,7 @@ describe("DB", () => {
         			) RETURNING *
         		`;
                     // Insert an entity referencing the script.
-                    const [entity] = await tx`
+                    const [entity] = await tx<[Entity.I_Entity]>`
         			INSERT INTO entity.entities (
         				general__entity_name,
         				script__ids,
@@ -858,7 +854,7 @@ describe("DB", () => {
                     await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
 
                     // Insert a script record with compiled statuses
-                    const [script] = await tx`
+                    const [script] = await tx<[Entity.Script.I_Script]>`
         			INSERT INTO entity.entity_scripts (
         				general__script_name,
         				group__sync,
@@ -878,7 +874,7 @@ describe("DB", () => {
         			) RETURNING *
         		`;
                     // Insert an entity referencing the script.
-                    const [entity] = await tx`
+                    const [entity] = await tx<[Entity.I_Entity]>`
         			INSERT INTO entity.entities (
         				general__entity_name,
         				script__ids,
@@ -1156,57 +1152,47 @@ describe("DB", () => {
                     await superUserSql.begin(async (tx) => {
                         // Create two test asset records
                         const [asset1] = await tx<
-                            [{ general__asset_id: string }]
+                            [{ general__asset_name: string }]
                         >`
                     INSERT INTO entity.entity_assets (
                         general__asset_name,
                         group__sync,
-                        asset__data,
-                        meta__data
+                        asset__data
                     ) VALUES (
                         ${`${DB_TEST_PREFIX}Test Asset 1`},
                         ${TEST_SYNC_GROUP},
-                        ${Buffer.from("asset data 1")},
-                        ${tx.json({ info: "asset 1 meta" })}
-                    ) RETURNING general__asset_id
+                        ${Buffer.from("asset data 1")}
+                    ) RETURNING general__asset_name
                 `;
                         const [asset2] = await tx<
-                            [{ general__asset_id: string }]
+                            [{ general__asset_name: string }]
                         >`
                     INSERT INTO entity.entity_assets (
                         general__asset_name,
                         group__sync,
-                        asset__data,
-                        meta__data
+                        asset__data
                     ) VALUES (
                         ${`${DB_TEST_PREFIX}Test Asset 2`},
                         ${TEST_SYNC_GROUP},
-                        ${Buffer.from("asset data 2")},
-                        ${tx.json({ info: "asset 2 meta" })}
-                    ) RETURNING general__asset_id
+                        ${Buffer.from("asset data 2")}
+                    ) RETURNING general__asset_name
                 `;
                         // Capture a tick so that the asset changes are processed
                         await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
 
                         // Retrieve all assets and verify they are present
-                        const assets = await tx<
-                            Array<{
-                                general__asset_id: string;
-                                group__sync: string;
-                                general__asset_name: string;
-                            }>
-                        >`
-                    SELECT * FROM entity.entity_assets WHERE group__sync = ${TEST_SYNC_GROUP}
-                `;
+                        const assets = await tx<Array<Entity.Asset.I_Asset>>`
+                                SELECT * FROM entity.entity_assets WHERE group__sync = ${TEST_SYNC_GROUP}
+                            `;
 
-                        const retrievedAssetIds = assets.map(
-                            (a) => a.general__asset_id,
+                        const retrievedAssetNames = assets.map(
+                            (a) => a.general__asset_name,
                         );
-                        expect(retrievedAssetIds).toContain(
-                            asset1.general__asset_id,
+                        expect(retrievedAssetNames).toContain(
+                            asset1.general__asset_name,
                         );
-                        expect(retrievedAssetIds).toContain(
-                            asset2.general__asset_id,
+                        expect(retrievedAssetNames).toContain(
+                            asset2.general__asset_name,
                         );
                     });
                 });
@@ -1241,7 +1227,7 @@ describe("DB", () => {
                         await tx`
                             UPDATE entity.entity_assets
                             SET 
-                                general__asset_name = ${`${DB_TEST_PREFIX}Updated Asset`},
+                                asset__data = ${Buffer.from("updated asset data")}
                             WHERE general__asset_name = ${asset1.general__asset_name}
                         `;
                     });
@@ -1269,14 +1255,7 @@ describe("DB", () => {
                         expect(assetChange?.operation).toBe("UPDATE");
 
                         // Check that only changed fields are included
-                        expect(assetChange?.changes.general__asset_name).toBe(
-                            `${DB_TEST_PREFIX}Updated Asset`,
-                        );
-
-                        // The binary data wasn't changed, so asset__data indicator should be undefined
-                        expect(
-                            assetChange?.changes.asset__data,
-                        ).toBeUndefined();
+                        expect(assetChange?.changes.asset__data).toBeDefined();
                     });
                 });
             });

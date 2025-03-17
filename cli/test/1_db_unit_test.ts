@@ -686,18 +686,15 @@ describe("DB", () => {
         			INSERT INTO entity.entity_assets (
         				general__asset_name,
         				asset__data,
-        				meta__data,
         				group__sync
         			) VALUES (
         				${"Test Asset"},
         				${Buffer.from("sample asset binary data")},
-        				${tx.json(assetData)},
         				${"public.NORMAL"}
         			) RETURNING *
         		`;
                     expect(asset.general__asset_name).toBe("Test Asset");
-                    expect(asset.meta__data).toMatchObject(assetData);
-                    await tx`DELETE FROM entity.entity_assets WHERE general__asset_id = ${asset.general__asset_id}`;
+                    await tx`DELETE FROM entity.entity_assets WHERE general__asset_name = ${asset.general__asset_name}`;
                 });
             });
         });
@@ -1224,12 +1221,10 @@ describe("DB", () => {
                         [asset1] = await tx<[Entity.Asset.I_Asset]>`
                             INSERT INTO entity.entity_assets (
                                 general__asset_name,
-                                meta__data,
                                 asset__data,
                                 group__sync
                             ) VALUES (
                                 ${`${DB_TEST_PREFIX}Original Asset`},
-                                ${tx.json({ type: "image", format: "png" })},
                                 ${Buffer.from("initial asset data")},
                                 ${TEST_SYNC_GROUP}
                             ) RETURNING *
@@ -1247,8 +1242,7 @@ describe("DB", () => {
                             UPDATE entity.entity_assets
                             SET 
                                 general__asset_name = ${`${DB_TEST_PREFIX}Updated Asset`},
-                                meta__data = ${tx.json({ type: "image", format: "png", updated: true })}
-                            WHERE general__asset_id = ${asset1.general__asset_id}
+                            WHERE general__asset_name = ${asset1.general__asset_name}
                         `;
                     });
 
@@ -1260,15 +1254,15 @@ describe("DB", () => {
                     // Verify changes in separate transaction
                     await superUserSql.begin(async (tx) => {
                         // Retrieve asset changes between ticks and verify
-                        const assetChanges = await tx`
+                        const assetChanges = await tx<Tick.I_AssetUpdate[]>`
                             SELECT * FROM tick.get_changed_asset_states_between_latest_ticks(${TEST_SYNC_GROUP})
                         `;
 
                         // Find our asset in the changes
                         const assetChange = assetChanges.find(
                             (c) =>
-                                c.general__asset_id ===
-                                asset1.general__asset_id,
+                                c.general__asset_name ===
+                                asset1.general__asset_name,
                         );
 
                         expect(assetChange).toBeDefined();
@@ -1277,10 +1271,6 @@ describe("DB", () => {
                         // Check that only changed fields are included
                         expect(assetChange?.changes.general__asset_name).toBe(
                             `${DB_TEST_PREFIX}Updated Asset`,
-                        );
-                        expect(assetChange?.changes.meta__data).toHaveProperty(
-                            "updated",
-                            true,
                         );
 
                         // The binary data wasn't changed, so asset__data indicator should be undefined
@@ -1404,25 +1394,25 @@ describe("DB", () => {
 
                         // Update both entities
                         await tx`
-                    UPDATE entity.entities
-                    SET general__entity_name = ${`${DB_TEST_PREFIX}Updated Entity 1`},
-                        meta__data = ${tx.json({ test_script_1: { position: { x: 5, y: 5, z: 5 } } })}
-                    WHERE general__entity_id = ${entity1.general__entity_id}
-                `;
+                            UPDATE entity.entities
+                            SET general__entity_name = ${`${DB_TEST_PREFIX}Updated Entity 1`},
+                                meta__data = ${tx.json({ test_script_1: { position: { x: 5, y: 5, z: 5 } } })}
+                            WHERE general__entity_id = ${entity1.general__entity_id}
+                        `;
                         await tx`
-                    UPDATE entity.entities
-                    SET general__entity_name = ${`${DB_TEST_PREFIX}Updated Entity 2`},
-                        meta__data = ${tx.json({ test_script_1: { position: { x: 15, y: 15, z: 15 } } })}
-                    WHERE general__entity_id = ${entity2.general__entity_id}
-                `;
+                            UPDATE entity.entities
+                            SET general__entity_name = ${`${DB_TEST_PREFIX}Updated Entity 2`},
+                                meta__data = ${tx.json({ test_script_1: { position: { x: 15, y: 15, z: 15 } } })}
+                            WHERE general__entity_id = ${entity2.general__entity_id}
+                        `;
 
                         // Capture second tick
                         await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
 
                         // Retrieve changed entity states between latest ticks and verify
                         const changes = await tx<Array<Tick.I_EntityUpdate>>`
-                    SELECT * FROM tick.get_changed_entity_states_between_latest_ticks(${TEST_SYNC_GROUP})
-                `;
+                            SELECT * FROM tick.get_changed_entity_states_between_latest_ticks(${TEST_SYNC_GROUP})
+                        `;
                         const changeIds = changes.map(
                             (c) => c.general__entity_id,
                         );

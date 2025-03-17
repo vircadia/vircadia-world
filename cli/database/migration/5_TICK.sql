@@ -363,7 +363,6 @@ BEGIN
             general__asset_name,
             group__sync,
             asset__data,
-            meta__data,
             general__created_at,
             general__created_by,
             general__updated_at,
@@ -374,7 +373,6 @@ BEGIN
             a.general__asset_name,
             a.group__sync,
             a.asset__data,
-            a.meta__data,
             a.general__created_at,
             a.general__created_by,
             a.general__updated_at,
@@ -731,7 +729,6 @@ BEGIN
                 jsonb_build_object(
                     'general__asset_name', cs.general__asset_name,
                     'group__sync', cs.group__sync,
-                    'meta__data', cs.meta__data,
                     'asset__data', CASE WHEN cs.asset__data IS NOT NULL THEN true ELSE false END,
                     'general__created_at', cs.general__created_at,
                     'general__updated_at', cs.general__updated_at
@@ -741,9 +738,6 @@ BEGIN
                 'group__sync', 
                     CASE WHEN cs.group__sync IS DISTINCT FROM ps.group__sync 
                     THEN cs.group__sync END,
-                'meta__data', 
-                    CASE WHEN cs.meta__data IS DISTINCT FROM ps.meta__data 
-                    THEN cs.meta__data END,
                 'asset__data', 
                     CASE WHEN cs.asset__data IS DISTINCT FROM ps.asset__data 
                     THEN true END,

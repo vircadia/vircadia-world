@@ -72,7 +72,6 @@ CREATE TABLE entity.entity_assets (
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
     
     asset__data BYTEA,  -- Store asset binaries (GLBs, textures, etc.)
-    meta__data JSONB DEFAULT '{}'::jsonb,
     
     CONSTRAINT fk_entity_assets_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group)
 ) INHERITS (entity._template);
@@ -235,30 +234,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Function to validate entity metadata structure
-CREATE OR REPLACE FUNCTION entity.validate_entity_metadata()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF NEW.meta__data IS NULL OR NEW.meta__data = '{}'::jsonb THEN
-        RETURN NEW;
-    END IF;
-
-    IF jsonb_typeof(NEW.meta__data) != 'object' THEN
-        RAISE EXCEPTION 'meta__data must be a JSONB object';
-    END IF;
-
-    IF EXISTS (
-        SELECT 1
-        FROM jsonb_each(NEW.meta__data) AS entry
-        WHERE jsonb_typeof(entry.value) != 'object'
-    ) THEN
-        RAISE EXCEPTION 'All values in meta__data must be objects';
-    END IF;
-
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
 -- Function to remove deleted script references from entities
 CREATE OR REPLACE FUNCTION entity.remove_deleted_script_references()
 RETURNS TRIGGER AS $$
@@ -340,12 +315,6 @@ CREATE TRIGGER update_audit_columns
     BEFORE UPDATE ON entity.entities
     FOR EACH ROW
     EXECUTE FUNCTION entity.update_audit_columns();
-
--- Trigger for enforcing entity metadata structure
-CREATE TRIGGER enforce_script_metadata_structure
-    BEFORE INSERT OR UPDATE OF meta__data ON entity.entities
-    FOR EACH ROW
-    EXECUTE FUNCTION entity.validate_entity_metadata();
 
 -- Trigger to remove deleted script references from entities
 CREATE TRIGGER remove_deleted_script_references

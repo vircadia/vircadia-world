@@ -257,23 +257,27 @@ export namespace Server_CLI {
             VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_EXTERNAL:
                 VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_EXTERNAL.toString(),
 
-            VRCA_SERVER_SERVICE_API_HOST_CONTAINER_CLUSTER:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_API_HOST_CONTAINER_CLUSTER,
-            VRCA_SERVER_SERVICE_API_PORT_CONTAINER_CLUSTER:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_API_PORT_CONTAINER_CLUSTER.toString(),
-            VRCA_SERVER_SERVICE_API_HOST_PUBLIC:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_API_HOST_PUBLIC,
-            VRCA_SERVER_SERVICE_API_PORT_PUBLIC:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_API_PORT_PUBLIC.toString(),
-            VRCA_SERVER_SERVICE_API_HOST_CONTAINER_EXTERNAL:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_API_HOST_CONTAINER_EXTERNAL,
-            VRCA_SERVER_SERVICE_API_PORT_CONTAINER_EXTERNAL:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_API_PORT_CONTAINER_EXTERNAL.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_CLUSTER:
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_CLUSTER,
+            VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_CLUSTER:
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_CLUSTER.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_PUBLIC:
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_PUBLIC,
+            VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_PUBLIC:
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_PUBLIC.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_EXTERNAL:
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_EXTERNAL,
+            VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_EXTERNAL:
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_EXTERNAL.toString(),
 
-            VRCA_SERVER_SERVICE_TICK_HOST_CONTAINER_EXTERNAL:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_TICK_HOST_CONTAINER_EXTERNAL,
-            VRCA_SERVER_SERVICE_TICK_PORT_CONTAINER_EXTERNAL:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_TICK_PORT_CONTAINER_EXTERNAL.toString(),
+            VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_CLUSTER:
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_CLUSTER,
+            VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_CLUSTER:
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_CLUSTER.toString(),
+            VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_EXTERNAL:
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_EXTERNAL,
+            VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_EXTERNAL:
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_EXTERNAL.toString(),
         };
 
         // Construct the command
@@ -462,7 +466,7 @@ export namespace Server_CLI {
         return { isHealthy: false, error: lastError };
     }
 
-    export async function isApiHealthy(
+    export async function isWorldApiManagerHealthy(
         wait?:
             | {
                   interval: number;
@@ -482,12 +486,12 @@ export namespace Server_CLI {
                   ? wait
                   : null;
 
-        const checkApi = async (): Promise<{
+        const checkWorldApiManager = async (): Promise<{
             isHealthy: boolean;
             error?: Error;
         }> => {
             try {
-                const url = `http://${VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_API_HOST_PUBLIC}:${VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_API_PORT_PUBLIC}${Service.API.Stats_Endpoint.path}`;
+                const url = `http://${VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_PUBLIC}:${VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_PUBLIC}${Service.API.Stats_Endpoint.path}`;
                 const response = await fetch(url, {
                     method: "POST",
                     body: Service.API.Stats_Endpoint.createRequest(),
@@ -500,7 +504,7 @@ export namespace Server_CLI {
 
         // If waiting is not enabled, just check once
         if (!waitConfig) {
-            return await checkApi();
+            return await checkWorldApiManager();
         }
 
         // With waiting enabled, retry until timeout
@@ -508,7 +512,7 @@ export namespace Server_CLI {
         let lastError: Error | undefined;
 
         while (Date.now() - startTime < waitConfig.timeout) {
-            const result = await checkApi();
+            const result = await checkWorldApiManager();
             if (result.isHealthy) {
                 return result;
             }
@@ -519,7 +523,7 @@ export namespace Server_CLI {
         return { isHealthy: false, error: lastError };
     }
 
-    export async function isTickHealthy(
+    export async function isWorldTickManagerHealthy(
         wait?:
             | {
                   interval: number;
@@ -539,12 +543,12 @@ export namespace Server_CLI {
                   ? wait
                   : null;
 
-        const checkTick = async (): Promise<{
+        const checkWorldTickManager = async (): Promise<{
             isHealthy: boolean;
             error?: Error;
         }> => {
             try {
-                const url = `http://${VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_TICK_HOST_CONTAINER_EXTERNAL}:${VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_TICK_PORT_CONTAINER_EXTERNAL}${Service.Tick.Stats_Endpoint.path}`;
+                const url = `http://${VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_EXTERNAL}:${VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_EXTERNAL}${Service.Tick.Stats_Endpoint.path}`;
                 const response = await fetch(url, {
                     method: "POST",
                     body: Service.Tick.Stats_Endpoint.createRequest(),
@@ -557,7 +561,7 @@ export namespace Server_CLI {
 
         // If waiting is not enabled, just check once
         if (!waitConfig) {
-            return await checkTick();
+            return await checkWorldTickManager();
         }
 
         // With waiting enabled, retry until timeout
@@ -565,7 +569,7 @@ export namespace Server_CLI {
         let lastError: Error | undefined;
 
         while (Date.now() - startTime < waitConfig.timeout) {
-            const result = await checkTick();
+            const result = await checkWorldTickManager();
             if (result.isHealthy) {
                 return result;
             }
@@ -1133,7 +1137,7 @@ if (import.meta.main) {
                 break;
             }
 
-            case "server:container:api:health": {
+            case "server:container:world-api-manager:health": {
                 let waitInterval: number | undefined;
                 let waitTimeout: number | undefined;
 
@@ -1142,7 +1146,7 @@ if (import.meta.main) {
                     waitTimeout = Number.parseInt(additionalArgs[1]);
                 }
 
-                const health = await Server_CLI.isApiHealthy(
+                const health = await Server_CLI.isWorldApiManagerHealthy(
                     waitInterval && waitTimeout
                         ? {
                               interval: waitInterval,
@@ -1151,7 +1155,7 @@ if (import.meta.main) {
                         : undefined,
                 );
                 log({
-                    message: `API: ${health.isHealthy ? "healthy" : "unhealthy"}`,
+                    message: `World API Manager: ${health.isHealthy ? "healthy" : "unhealthy"}`,
                     data: health,
                     type: health.isHealthy ? "success" : "error",
                     suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
@@ -1165,7 +1169,7 @@ if (import.meta.main) {
                 break;
             }
 
-            case "server:container:tick:health": {
+            case "server:container:world-tick-manager:health": {
                 let waitInterval: number | undefined;
                 let waitTimeout: number | undefined;
 
@@ -1174,7 +1178,7 @@ if (import.meta.main) {
                     waitTimeout = Number.parseInt(additionalArgs[1]);
                 }
 
-                const health = await Server_CLI.isTickHealthy(
+                const health = await Server_CLI.isWorldTickManagerHealthy(
                     waitInterval && waitTimeout
                         ? {
                               interval: waitInterval,
@@ -1183,7 +1187,7 @@ if (import.meta.main) {
                         : undefined,
                 );
                 log({
-                    message: `Tick: ${health.isHealthy ? "healthy" : "unhealthy"}`,
+                    message: `World Tick Manager: ${health.isHealthy ? "healthy" : "unhealthy"}`,
                     data: health,
                     type: health.isHealthy ? "success" : "error",
                     suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,

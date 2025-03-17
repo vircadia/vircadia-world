@@ -4,7 +4,7 @@
     "type": "module",
     "scripts": {
         "server:container:run-command": "bun vircadia.world.cli.ts server:container:run-command",
-        "server:container:rebuild-all": "bun run server:container:run-command down -v && bun run server:container:run-command up --build postgres -d && bun run server:container:postgres:health && bun run server:container:postgres:migrate && bun run server:container:postgres:seed && bun run server:container:run-command up --build api -d && bun run server:container:run-command up --build tick -d && bun run server:container:run-command up --build pgweb -d",
+        "server:container:rebuild-all": "bun run server:container:run-command down -v && bun run server:container:run-command up --build postgres -d && bun run server:container:postgres:health && bun run server:container:postgres:migrate && bun run server:container:postgres:seed && bun run server:container:run-command up --build world_api_manager -d && bun run server:container:run-command up --build world_tick_manager -d && bun run server:container:run-command up --build pgweb -d",
 
         "server:container:postgres:health": "bun vircadia.world.cli.ts server:container:postgres:health",
         "server:container:postgres:migrate": "bun vircadia.world.cli.ts server:container:postgres:migrate",
@@ -14,9 +14,9 @@
         "server:container:postgres:system-token:invalidate-all": "bun vircadia.world.cli.ts server:container:postgres:system-token:invalidate-all",
         "server:container:postgres:seed": "bun vircadia.world.cli.ts server:container:postgres:seed",
 
-        "server:container:api:health": "bun vircadia.world.cli.ts server:container:api:health",
+        "server:container:world-api-manager:health": "bun vircadia.world.cli.ts server:container:world-api-manager:health",
 
-        "server:container:tick:health": "bun vircadia.world.cli.ts server:container:tick:health",
+        "server:container:world-tick-manager:health": "bun vircadia.world.cli.ts server:container:world-tick-manager:health",
 
         "server:container:pgweb:health": "bun vircadia.world.cli.ts server:container:pgweb:health",
         "server:container:pgweb:access-command": "bun vircadia.world.cli.ts server:container:pgweb:access-command",

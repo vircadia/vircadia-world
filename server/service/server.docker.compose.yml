@@ -74,13 +74,13 @@ services:
       - vircadia_network
 
   # API service
-  api:
+  world_api_manager:
     image: oven/bun:1.2.4-alpine
-    container_name: api
+    container_name: world_api_manager
     user: "1000:1000"  # Run as non-root user
     restart: always
     ports:
-      - "${VRCA_SERVER_SERVICE_API_HOST_CONTAINER_EXTERNAL}:${VRCA_SERVER_SERVICE_API_PORT_CONTAINER_EXTERNAL}:3020"
+      - "${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_EXTERNAL}:3020"
     volumes:
       - ./api/volume:/app
     working_dir: /app
@@ -111,13 +111,13 @@ services:
       - vircadia_network
 
   # Tick service
-  tick:
+  world_tick_manager:
     image: oven/bun:1.2.4-alpine
-    container_name: tick
+    container_name: world_tick_manager
     user: "1000:1000"  # Run as non-root user
     restart: always
     ports:
-      - "${VRCA_SERVER_SERVICE_TICK_HOST_CONTAINER_EXTERNAL}:${VRCA_SERVER_SERVICE_TICK_PORT_CONTAINER_EXTERNAL}:3020"
+      - "${VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_EXTERNAL}:3020"
     volumes:
       - ./tick/volume:/app
     working_dir: /app

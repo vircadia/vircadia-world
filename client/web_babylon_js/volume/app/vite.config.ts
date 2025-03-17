@@ -1,7 +1,7 @@
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 import solidPlugin from "vite-plugin-solid";
-import { VircadiaConfig_BROWSER_CLIENT } from "../../volume/vircadia-world-sdk-ts/config/vircadia.browser.client.config";
+import { VircadiaConfig_BROWSER_CLIENT } from "../vircadia-world-sdk-ts/config/vircadia.browser.client.config";
 
 export default defineConfig({
     plugins: [solidPlugin(), tailwindcss()],

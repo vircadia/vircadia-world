@@ -2,7 +2,7 @@ import type postgres from "postgres";
 import { sign } from "jsonwebtoken";
 import { expect } from "bun:test";
 import { log } from "../../../sdk/vircadia-world-sdk-ts/module/general/log";
-import { VircadiaConfig } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.cli.config";
+import { VircadiaConfig_CLI } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.cli.config";
 import type { Auth } from "../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 
 export const TEST_SYNC_GROUP = "public.REALTIME";
@@ -291,8 +291,8 @@ export async function initTestAccounts(data: {
         log({
             message: "Initialized test accounts",
             type: "debug",
-            debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
-            suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
         });
     });
 
@@ -328,16 +328,16 @@ export async function cleanupTestAccounts(data: {
             log({
                 message: "Cleaned up test accounts",
                 type: "debug",
-                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
-                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
             });
         } catch (error) {
             log({
                 message: "Failed to cleanup test accounts",
                 type: "error",
                 error,
-                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
-                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
             });
             throw error;
         }
@@ -364,16 +364,16 @@ export async function cleanupTestEntities(data: {
             log({
                 message: "Cleaned up test entities",
                 type: "debug",
-                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
-                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
             });
         } catch (error) {
             log({
                 message: "Failed to cleanup test entities",
                 type: "error",
                 error,
-                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
-                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
             });
             throw error;
         }
@@ -400,16 +400,16 @@ export async function cleanupTestScripts(data: {
             log({
                 message: "Cleaned up test scripts",
                 type: "debug",
-                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
-                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
             });
         } catch (error) {
             log({
                 message: "Failed to cleanup test scripts",
                 type: "error",
                 error,
-                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
-                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
             });
             throw error;
         }
@@ -436,16 +436,16 @@ export async function cleanupTestAssets(data: {
             log({
                 message: "Cleaned up test assets",
                 type: "debug",
-                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
-                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
             });
         } catch (error) {
             log({
                 message: "Failed to cleanup test assets",
                 type: "error",
                 error,
-                debug: VircadiaConfig.SERVER.VRCA_SERVER_DEBUG,
-                suppress: VircadiaConfig.SERVER.VRCA_SERVER_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
             });
             throw error;
         }

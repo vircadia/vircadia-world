@@ -3,29 +3,29 @@
     "version": "1.0.0",
     "type": "module",
     "scripts": {
-        "server:container:run-command": "bun vircadia.world.cli.ts server:container:run-command",
-        "server:container:rebuild-all": "bun run server:container:run-command down -v && bun run server:container:run-command up --build postgres -d && bun run server:container:postgres:health && bun run server:container:postgres:migrate && bun run server:container:postgres:seed && bun run server:container:run-command up --build world_api_manager -d && bun run server:container:run-command up --build world_tick_manager -d && bun run server:container:run-command up --build pgweb -d",
+        "server:run-command": "bun vircadia.world.cli.ts server:run-command",
+        "server:rebuild-all": "bun run server:run-command down -v && bun run server:run-command up --build postgres -d && bun run server:postgres:health && bun run server:postgres:migrate && bun run server:postgres:seed && bun run server:run-command up --build world_api_manager -d && bun run server:run-command up --build world_tick_manager -d && bun run server:run-command up --build pgweb -d",
 
-        "server:container:postgres:health": "bun vircadia.world.cli.ts server:container:postgres:health",
-        "server:container:postgres:migrate": "bun vircadia.world.cli.ts server:container:postgres:migrate",
-        "server:container:postgres:wipe": "bun vircadia.world.cli.ts server:container:postgres:wipe",
-        "server:container:postgres:connection-string": "bun vircadia.world.cli.ts server:container:postgres:connection-string",
-        "server:container:postgres:system-token": "bun vircadia.world.cli.ts server:container:postgres:system-token",
-        "server:container:postgres:system-token:invalidate-all": "bun vircadia.world.cli.ts server:container:postgres:system-token:invalidate-all",
-        "server:container:postgres:seed": "bun vircadia.world.cli.ts server:container:postgres:seed",
+        "server:postgres:health": "bun vircadia.world.cli.ts server:postgres:health",
+        "server:postgres:migrate": "bun vircadia.world.cli.ts server:postgres:migrate",
+        "server:postgres:wipe": "bun vircadia.world.cli.ts server:postgres:wipe",
+        "server:postgres:connection-string": "bun vircadia.world.cli.ts server:postgres:connection-string",
+        "server:postgres:system-token": "bun vircadia.world.cli.ts server:postgres:system-token",
+        "server:postgres:system-token:invalidate-all": "bun vircadia.world.cli.ts server:postgres:system-token:invalidate-all",
+        "server:postgres:seed": "bun vircadia.world.cli.ts server:postgres:seed",
 
-        "server:container:world-api-manager:health": "bun vircadia.world.cli.ts server:container:world-api-manager:health",
+        "server:world-api-manager:health": "bun vircadia.world.cli.ts server:world-api-manager:health",
 
-        "server:container:world-tick-manager:health": "bun vircadia.world.cli.ts server:container:world-tick-manager:health",
+        "server:world-tick-manager:health": "bun vircadia.world.cli.ts server:world-tick-manager:health",
 
-        "server:container:pgweb:health": "bun vircadia.world.cli.ts server:container:pgweb:health",
-        "server:container:pgweb:access-command": "bun vircadia.world.cli.ts server:container:pgweb:access-command",
+        "server:pgweb:health": "bun vircadia.world.cli.ts server:pgweb:health",
+        "server:pgweb:access-command": "bun vircadia.world.cli.ts server:pgweb:access-command",
 
-        "client:container:run-command": "bun vircadia.world.cli.ts client:container:run-command",
-        "client:container:rebuild-all": "bun run client:container:run-command down -v && bun run client:container:run-command up --build -d",
+        "client:run-command": "bun vircadia.world.cli.ts client:run-command",
+        "client:rebuild-all": "bun run client:run-command down -v && bun run client:run-command up --build -d",
 
-        "client:container:web_babylon_js_prod:health": "bun vircadia.world.cli.ts client:container:web_babylon_js_prod:health",
-        "client:container:web_babylon_js_dev:health": "bun vircadia.world.cli.ts client:container:web_babylon_js_dev:health"
+        "client:web_babylon_js_prod:health": "bun vircadia.world.cli.ts client:web_babylon_js_prod:health",
+        "client:web_babylon_js_dev:health": "bun vircadia.world.cli.ts client:web_babylon_js_dev:health"
     },
     "dependencies": {
         "jsonwebtoken": "^9.0.2",

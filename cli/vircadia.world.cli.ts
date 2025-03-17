@@ -1074,7 +1074,7 @@ if (import.meta.main) {
     try {
         switch (command) {
             // SERVER CONTAINER HEALTH
-            case "server:container:postgres:health": {
+            case "server:postgres:health": {
                 let waitInterval: number | undefined;
                 let waitTimeout: number | undefined;
 
@@ -1106,7 +1106,7 @@ if (import.meta.main) {
                 break;
             }
 
-            case "server:container:pgweb:health": {
+            case "server:pgweb:health": {
                 let waitInterval: number | undefined;
                 let waitTimeout: number | undefined;
 
@@ -1137,7 +1137,7 @@ if (import.meta.main) {
                 break;
             }
 
-            case "server:container:world-api-manager:health": {
+            case "server:world-api-manager:health": {
                 let waitInterval: number | undefined;
                 let waitTimeout: number | undefined;
 
@@ -1169,7 +1169,7 @@ if (import.meta.main) {
                 break;
             }
 
-            case "server:container:world-tick-manager:health": {
+            case "server:world-tick-manager:health": {
                 let waitInterval: number | undefined;
                 let waitTimeout: number | undefined;
 
@@ -1202,7 +1202,7 @@ if (import.meta.main) {
             }
 
             // SERVER POSTGRES DATABASE COMMANDS
-            case "server:container:postgres:migrate": {
+            case "server:postgres:migrate": {
                 log({
                     message: "Running database migrations...",
                     type: "info",
@@ -1219,7 +1219,7 @@ if (import.meta.main) {
                 break;
             }
 
-            case "server:container:postgres:wipe": {
+            case "server:postgres:wipe": {
                 log({
                     message: "Wiping database...",
                     type: "info",
@@ -1236,7 +1236,7 @@ if (import.meta.main) {
                 break;
             }
 
-            case "server:container:postgres:connection-string": {
+            case "server:postgres:connection-string": {
                 const connectionString =
                     await Server_CLI.generateDbConnectionString();
                 log({
@@ -1248,7 +1248,7 @@ if (import.meta.main) {
                 break;
             }
 
-            case "server:container:postgres:system-token": {
+            case "server:postgres:system-token": {
                 log({
                     message: "Generating system token...",
                     type: "info",
@@ -1267,7 +1267,7 @@ if (import.meta.main) {
                 break;
             }
 
-            case "server:container:postgres:system-token:invalidate-all": {
+            case "server:postgres:system-token:invalidate-all": {
                 log({
                     message: "Invalidating all system tokens...",
                     type: "info",
@@ -1285,7 +1285,7 @@ if (import.meta.main) {
                 break;
             }
 
-            case "server:container:postgres:seed": {
+            case "server:postgres:seed": {
                 log({
                     message: "Running database seeds...",
                     type: "info",
@@ -1303,7 +1303,7 @@ if (import.meta.main) {
             }
 
             // SERVER PGWEB COMMANDS
-            case "server:container:pgweb:access-command": {
+            case "server:pgweb:access-command": {
                 const pgwebAccessURL =
                     await Server_CLI.generatePgwebAccessURL();
                 log({
@@ -1317,7 +1317,7 @@ if (import.meta.main) {
             }
 
             // CLIENT CONTAINER HEALTH
-            case "client:container:web_babylon_js_prod:health": {
+            case "client:web_babylon_js_prod:health": {
                 let waitInterval: number | undefined;
                 let waitTimeout: number | undefined;
 
@@ -1351,7 +1351,7 @@ if (import.meta.main) {
                 break;
             }
 
-            case "client:container:web_babylon_js_dev:health": {
+            case "client:web_babylon_js_dev:health": {
                 let waitInterval: number | undefined;
                 let waitTimeout: number | undefined;
 
@@ -1386,13 +1386,13 @@ if (import.meta.main) {
             }
 
             // New generic docker command support
-            case "server:container:run-command":
+            case "server:run-command":
                 await Server_CLI.runServerDockerCommand({
                     args: additionalArgs,
                 });
                 break;
 
-            case "client:container:run-command":
+            case "client:run-command":
                 await Client_CLI.runClientDockerCommand({
                     args: additionalArgs,
                 });

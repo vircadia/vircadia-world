@@ -68,8 +68,7 @@ ALTER TABLE entity.entity_scripts ENABLE ROW LEVEL SECURITY;
 -- 4.2 ENTITY ASSETS TABLE
 -- ============================================================================
 CREATE TABLE entity.entity_assets (
-    general__asset_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    general__asset_name TEXT NOT NULL DEFAULT 'UNNAMED_ASSET',
+    general__asset_name TEXT PRIMARY KEY,
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
     
     asset__data BYTEA,  -- Store asset binaries (GLBs, textures, etc.)
@@ -90,9 +89,9 @@ CREATE TABLE entity.entities (
     general__initialized_at TIMESTAMPTZ DEFAULT NULL,
     general__initialized_by UUID DEFAULT NULL,
     meta__data JSONB DEFAULT '{}'::jsonb,
-    scripts__ids UUID[] DEFAULT '{}',
-    scripts__status entity.script_status_enum DEFAULT 'ACTIVE'::entity.script_status_enum NOT NULL,
-    assets__ids UUID[] DEFAULT '{}',
+    script__ids UUID[] DEFAULT '{}',
+    script__statuses entity.script_status_enum DEFAULT 'ACTIVE'::entity.script_status_enum NOT NULL,
+    asset__names TEXT[] DEFAULT '{}',
     validation__log JSONB DEFAULT '[]'::jsonb,
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
     group__load_priority INTEGER,
@@ -104,8 +103,8 @@ CREATE UNIQUE INDEX unique_seed_order_idx ON entity.entities(group__load_priorit
 CREATE INDEX idx_entities_created_at ON entity.entities(general__created_at);
 CREATE INDEX idx_entities_updated_at ON entity.entities(general__updated_at);
 CREATE INDEX idx_entities_semantic_version ON entity.entities(general__semantic_version);
-CREATE INDEX idx_entities_scripts_ids ON entity.entities USING GIN (scripts__ids);
-CREATE INDEX idx_entities_assets_ids ON entity.entities USING GIN (assets__ids);
+CREATE INDEX idx_entities_scripts_ids ON entity.entities USING GIN (script__ids);
+CREATE INDEX idx_entities_assets_ids ON entity.entities USING GIN (asset__names);
 CREATE INDEX idx_entities_validation_log ON entity.entities USING GIN (validation__log);
 
 ALTER TABLE entity.entities ENABLE ROW LEVEL SECURITY;
@@ -193,22 +192,22 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION entity.update_entity_status_based_on_scripts()
 RETURNS TRIGGER AS $$
 BEGIN
-    IF NEW.scripts__ids IS NULL OR NEW.scripts__ids = '{}' THEN
-        NEW.scripts__status = 'ACTIVE'::entity.script_status_enum;
+    IF NEW.script__ids IS NULL OR NEW.script__ids = '{}' THEN
+        NEW.script__statuses = 'ACTIVE'::entity.script_status_enum;
     ELSE
         IF EXISTS (
             SELECT 1 
             FROM entity.entity_scripts es
-            WHERE es.general__script_id = ANY(NEW.scripts__ids)
+            WHERE es.general__script_id = ANY(NEW.script__ids)
               AND (
                   es.compiled__node__status = 'PENDING' OR
                   es.compiled__bun__status = 'PENDING' OR
                   es.compiled__browser__status = 'PENDING'
               )
         ) THEN
-            NEW.scripts__status = 'AWAITING_SCRIPTS'::entity.script_status_enum;
+            NEW.script__statuses = 'AWAITING_SCRIPTS'::entity.script_status_enum;
         ELSE
-            NEW.scripts__status = 'ACTIVE'::entity.script_status_enum;
+            NEW.script__statuses = 'ACTIVE'::entity.script_status_enum;
         END IF;
     END IF;
     
@@ -227,10 +226,10 @@ BEGIN
     ) THEN
         UPDATE entity.entities
         SET general__updated_at = general__updated_at
-        WHERE NEW.general__script_id = ANY(scripts__ids);
+        WHERE NEW.general__script_id = ANY(script__ids);
         UPDATE entity.entities
-        SET scripts__ids = scripts__ids
-        WHERE NEW.general__script_id = ANY(scripts__ids);
+        SET script__ids = script__ids
+        WHERE NEW.general__script_id = ANY(script__ids);
     END IF;
     RETURN NEW;
 END;
@@ -265,8 +264,8 @@ CREATE OR REPLACE FUNCTION entity.remove_deleted_script_references()
 RETURNS TRIGGER AS $$
 BEGIN
     UPDATE entity.entities
-    SET scripts__ids = array_remove(scripts__ids, OLD.general__script_id)
-    WHERE OLD.general__script_id = ANY(scripts__ids);
+    SET script__ids = array_remove(script__ids, OLD.general__script_id)
+    WHERE OLD.general__script_id = ANY(script__ids);
     
     RETURN OLD;
 END;
@@ -277,8 +276,8 @@ CREATE OR REPLACE FUNCTION entity.remove_deleted_asset_references()
 RETURNS TRIGGER AS $$
 BEGIN
     UPDATE entity.entities
-    SET assets__ids = array_remove(assets__ids, OLD.general__asset_id)
-    WHERE OLD.general__asset_id = ANY(assets__ids);
+    SET asset__names = array_remove(asset__names, OLD.general__asset_name)
+    WHERE OLD.general__asset_name = ANY(asset__names);
     
     RETURN OLD;
 END;
@@ -332,7 +331,7 @@ CREATE TRIGGER propagate_script_changes_to_entities
 
 -- Trigger for updating entity status based on script references
 CREATE TRIGGER update_entity_status_based_on_scripts
-    BEFORE INSERT OR UPDATE OF scripts__ids ON entity.entities
+    BEFORE INSERT OR UPDATE OF script__ids ON entity.entities
     FOR EACH ROW
     EXECUTE FUNCTION entity.update_entity_status_based_on_scripts();
 

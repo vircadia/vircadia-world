@@ -872,14 +872,14 @@ export class WorldApiManager {
                 // Fetch asset changes
                 const assetChanges = await tx<Tick.I_AssetUpdate[]>`
                 SELECT 
-                    general__asset_id,
+                    general__asset_name,
                     operation,
                     changes
                 FROM tick.get_changed_asset_states_between_latest_ticks(${data.syncGroup})
             `;
 
                 updatePackage.assets = assetChanges.map((a) => ({
-                    assetId: a.general__asset_id,
+                    assetId: a.general__asset_name,
                     operation: a.operation,
                     changes: a.changes,
                     error: null,

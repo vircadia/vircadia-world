@@ -125,10 +125,10 @@ CREATE INDEX idx_script_states_sync_tick_lookup ON tick.script_states (group__sy
 CREATE INDEX idx_script_states_sync_tick ON tick.script_states (group__sync, general__tick_id);
 
 -- 3.4 ASSET STATES INDEXES
-CREATE INDEX asset_states_lookup_idx ON tick.asset_states (general__asset_id, general__tick_id);
+CREATE INDEX asset_states_lookup_idx ON tick.asset_states (general__asset_name, general__tick_id);
 CREATE INDEX asset_states_tick_idx ON tick.asset_states (general__tick_id);
 CREATE INDEX asset_states_sync_group_tick_idx ON tick.asset_states (group__sync, general__tick_id DESC);
-CREATE INDEX idx_asset_states_sync_tick_lookup ON tick.asset_states (group__sync, general__tick_id, general__asset_id);
+CREATE INDEX idx_asset_states_sync_tick_lookup ON tick.asset_states (group__sync, general__tick_id, general__asset_name);
 CREATE INDEX idx_asset_states_sync_tick ON tick.asset_states (group__sync, general__tick_id);
 
 -- ============================================================================
@@ -267,9 +267,9 @@ BEGIN
             general__initialized_at,
             general__initialized_by,
             meta__data,
-            scripts__ids,
-            scripts__status,
-            assets__ids,
+            script__ids,
+            script__statuses,
+            asset__names,
             validation__log,
             group__sync,
             general__created_at,
@@ -286,9 +286,9 @@ BEGIN
             e.general__initialized_at,
             e.general__initialized_by,
             e.meta__data,
-            e.scripts__ids,
-            e.scripts__status,
-            e.assets__ids,
+            e.script__ids,
+            e.script__statuses,
+            e.asset__names,
             e.validation__log,
             e.group__sync,
             e.general__created_at,
@@ -360,7 +360,6 @@ BEGIN
     -- Capture asset states
     WITH asset_snapshot AS (
         INSERT INTO tick.asset_states (
-            general__asset_id,
             general__asset_name,
             group__sync,
             asset__data,
@@ -372,7 +371,6 @@ BEGIN
             general__tick_id
         )
         SELECT 
-            a.general__asset_id,
             a.general__asset_name,
             a.group__sync,
             a.asset__data,
@@ -505,9 +503,9 @@ BEGIN
                     'general__initialized_at', cs.general__initialized_at,
                     'general__initialized_by', cs.general__initialized_by,
                     'meta__data', cs.meta__data,
-                    'scripts__ids', cs.scripts__ids,
-                    'scripts__status', cs.scripts__status,
-                    'assets__ids', cs.assets__ids,
+                    'script__ids', cs.script__ids,
+                    'script__statuses', cs.script__statuses,
+                    'asset__names', cs.asset__names,
                     'validation__log', cs.validation__log,
                     'group__sync', cs.group__sync,
                     'general__created_at', cs.general__created_at,
@@ -535,15 +533,15 @@ BEGIN
                 'meta__data', 
                     CASE WHEN cs.meta__data IS DISTINCT FROM ps.meta__data 
                     THEN cs.meta__data END,
-                'scripts__ids', 
-                    CASE WHEN cs.scripts__ids IS DISTINCT FROM ps.scripts__ids 
-                    THEN cs.scripts__ids END,
-                'scripts__status', 
-                    CASE WHEN cs.scripts__status IS DISTINCT FROM ps.scripts__status 
-                    THEN cs.scripts__status END,
-                'assets__ids',
-                    CASE WHEN cs.assets__ids IS DISTINCT FROM ps.assets__ids 
-                    THEN cs.assets__ids END,
+                'script__ids', 
+                    CASE WHEN cs.script__ids IS DISTINCT FROM ps.script__ids 
+                    THEN cs.script__ids END,
+                'script__statuses', 
+                    CASE WHEN cs.script__statuses IS DISTINCT FROM ps.script__statuses 
+                    THEN cs.script__statuses END,
+                'asset__names',
+                    CASE WHEN cs.asset__names IS DISTINCT FROM ps.asset__names 
+                    THEN cs.asset__names END,
                 'validation__log', 
                     CASE WHEN cs.validation__log IS DISTINCT FROM ps.validation__log 
                     THEN cs.validation__log END,
@@ -683,7 +681,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE OR REPLACE FUNCTION tick.get_changed_asset_states_between_latest_ticks(
     p_sync_group text
 ) RETURNS TABLE (
-    general__asset_id uuid,
+    general__asset_name text,
     operation config.operation_enum,
     changes jsonb
 ) AS $$
@@ -722,16 +720,15 @@ BEGIN
         WHERE ast.general__tick_id = v_previous_tick_id
     )
     SELECT 
-        COALESCE(cs.general__asset_id, ps.general__asset_id),
+        COALESCE(cs.general__asset_name, ps.general__asset_name),
         CASE 
-            WHEN ps.general__asset_id IS NULL THEN 'INSERT'::config.operation_enum
-            WHEN cs.general__asset_id IS NULL THEN 'DELETE'::config.operation_enum
+            WHEN ps.general__asset_name IS NULL THEN 'INSERT'::config.operation_enum
+            WHEN cs.general__asset_name IS NULL THEN 'DELETE'::config.operation_enum
             ELSE 'UPDATE'::config.operation_enum
         END,
         CASE 
-            WHEN ps.general__asset_id IS NULL THEN 
+            WHEN ps.general__asset_name IS NULL THEN 
                 jsonb_build_object(
-                    'general__asset_id', cs.general__asset_id,
                     'general__asset_name', cs.general__asset_name,
                     'group__sync', cs.group__sync,
                     'meta__data', cs.meta__data,
@@ -739,11 +736,8 @@ BEGIN
                     'general__created_at', cs.general__created_at,
                     'general__updated_at', cs.general__updated_at
                 )
-            WHEN cs.general__asset_id IS NULL THEN NULL::jsonb
+            WHEN cs.general__asset_name IS NULL THEN NULL::jsonb
             ELSE jsonb_strip_nulls(jsonb_build_object(
-                'general__asset_name', 
-                    CASE WHEN cs.general__asset_name IS DISTINCT FROM ps.general__asset_name 
-                    THEN cs.general__asset_name END,
                 'group__sync', 
                     CASE WHEN cs.group__sync IS DISTINCT FROM ps.group__sync 
                     THEN cs.group__sync END,
@@ -759,7 +753,7 @@ BEGIN
             ))
         END
     FROM current_states cs
-    FULL OUTER JOIN previous_states ps ON cs.general__asset_id = ps.general__asset_id
+    FULL OUTER JOIN previous_states ps ON cs.general__asset_name = ps.general__asset_name
     WHERE cs IS DISTINCT FROM ps;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

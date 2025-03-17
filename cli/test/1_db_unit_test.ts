@@ -39,7 +39,11 @@ describe("DB", () => {
             debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
         });
         await Server_CLI.runServerDockerCommand({
-            args: ["down", Service.E_Service.API, Service.E_Service.TICK],
+            args: [
+                "down",
+                Service.E_Service.WORLD_API_MANAGER,
+                Service.E_Service.WORLD_TICK_MANAGER,
+            ],
         });
         log({
             message: "All services turned off.",
@@ -643,7 +647,7 @@ describe("DB", () => {
                     const [entity] = await tx<[Entity.I_Entity]>`
         			INSERT INTO entity.entities (
         				general__entity_name,
-        				scripts__ids,
+        				script__ids,
         				meta__data,
         				group__sync
         			) VALUES (
@@ -658,7 +662,7 @@ describe("DB", () => {
         				${"public.NORMAL"}
         			) RETURNING *
         		`;
-                    expect(entity.scripts__ids).toContain(
+                    expect(entity.script__ids).toContain(
                         script.general__script_id,
                     );
                     expect(entity.meta__data[scriptNamespace]).toMatchObject({
@@ -733,8 +737,8 @@ describe("DB", () => {
                     const [entity] = await tx`
                         INSERT INTO entity.entities (
                             general__entity_name,
-                            assets__ids,
-                            scripts__ids,
+                            asset__names,
+                            script__ids,
                             group__sync
                         ) VALUES (
                             ${"Entity with asset and script"},
@@ -747,10 +751,10 @@ describe("DB", () => {
                     expect(entity.general__entity_name).toBe(
                         "Entity with asset and script",
                     );
-                    expect(entity.assets__ids).toContain(
+                    expect(entity.asset__names).toContain(
                         asset.general__asset_id,
                     );
-                    expect(entity.scripts__ids).toContain(
+                    expect(entity.script__ids).toContain(
                         script.general__script_id,
                     );
                     // Delete the entity record after all checks.
@@ -782,7 +786,7 @@ describe("DB", () => {
                     const [entity] = await tx`
         			INSERT INTO entity.entities (
         				general__entity_name,
-        				assets__ids,
+        				asset__names,
         				group__sync
         			) VALUES (
         				${"Entity with asset"},
@@ -796,7 +800,7 @@ describe("DB", () => {
                     const [updatedEntity] = await tx`
         			SELECT * FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}
         		`;
-                    expect(updatedEntity.assets__ids).not.toContain(
+                    expect(updatedEntity.asset__names).not.toContain(
                         asset.general__asset_id,
                     );
                     // Clean up
@@ -831,7 +835,7 @@ describe("DB", () => {
                     const [entity] = await tx`
         			INSERT INTO entity.entities (
         				general__entity_name,
-        				scripts__ids,
+        				script__ids,
         				group__sync
         			) VALUES (
         				${"Entity with script"},
@@ -845,14 +849,14 @@ describe("DB", () => {
                     const [updatedEntity] = await tx`
         			SELECT * FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}
         		`;
-                    expect(updatedEntity.scripts__ids).not.toContain(
+                    expect(updatedEntity.script__ids).not.toContain(
                         script.general__script_id,
                     );
                     // Clean up
                     await tx`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
                 });
             });
-            test("should propagate script status changes to update entity scripts__status", async () => {
+            test("should propagate script status changes to update entity script__statuses", async () => {
                 await proxyUserSql.begin(async (tx) => {
                     await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
 
@@ -880,8 +884,8 @@ describe("DB", () => {
                     const [entity] = await tx`
         			INSERT INTO entity.entities (
         				general__entity_name,
-        				scripts__ids,
-        				scripts__status,
+        				script__ids,
+        				script__statuses,
         				group__sync
         			) VALUES (
         				${"Entity for script status propagation"},
@@ -901,8 +905,8 @@ describe("DB", () => {
                     const [updatedEntity] = await tx`
         			SELECT * FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}
         		`;
-                    // Expect the entity's scripts__status to be updated to 'AWAITING_SCRIPTS'
-                    expect(updatedEntity.scripts__status).toBe(
+                    // Expect the entity's script__statuses to be updated to 'AWAITING_SCRIPTS'
+                    expect(updatedEntity.script__statuses).toBe(
                         "AWAITING_SCRIPTS",
                     );
                     // Clean up
@@ -1303,9 +1307,9 @@ describe("DB", () => {
                             general__entity_name,
                             meta__data,
                             group__sync,
-                            scripts__ids,
-                            scripts__status,
-                            assets__ids
+                            script__ids,
+                            script__statuses,
+                            asset__names
                         ) VALUES (
                             ${name},
                             ${tx.json({
@@ -1358,9 +1362,9 @@ describe("DB", () => {
                         general__entity_name,
                         meta__data,
                         group__sync,
-                        scripts__ids,
-                        scripts__status,
-                        assets__ids
+                        script__ids,
+                        script__statuses,
+                        asset__names
                     ) VALUES (
                         ${`${DB_TEST_PREFIX}Original Entity 1`},
                         ${tx.json({
@@ -1383,9 +1387,9 @@ describe("DB", () => {
                         general__entity_name,
                         meta__data,
                         group__sync,
-                        scripts__ids,
-                        scripts__status,
-                        assets__ids
+                        script__ids,
+                        script__statuses,
+                        asset__names
                     ) VALUES (
                         ${`${DB_TEST_PREFIX}Original Entity 2`},
                         ${tx.json({ test_script_1: { position: { x: 10, y: 10, z: 10 } } })},
@@ -1496,7 +1500,12 @@ describe("DB", () => {
             debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
         });
         await Server_CLI.runServerDockerCommand({
-            args: ["up", Service.E_Service.API, Service.E_Service.TICK, "-d"],
+            args: [
+                "up",
+                Service.E_Service.WORLD_API_MANAGER,
+                Service.E_Service.WORLD_TICK_MANAGER,
+                "-d",
+            ],
         });
         log({
             message: "Services turned on.",

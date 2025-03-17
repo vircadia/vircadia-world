@@ -92,9 +92,10 @@ describe("SERVER Container and Database CLI Tests", () => {
         expect(finalPostgresHealth.isHealthy).toBe(true);
         const finalPgwebHealth = await Server_CLI.isPgwebHealthy(true);
         expect(finalPgwebHealth.isHealthy).toBe(true);
-        const finalApiHealth = await Server_CLI.isApiHealthy(true);
+        const finalApiHealth = await Server_CLI.isWorldApiManagerHealthy(true);
         expect(finalApiHealth.isHealthy).toBe(true);
-        const finalTickHealth = await Server_CLI.isTickHealthy(true);
+        const finalTickHealth =
+            await Server_CLI.isWorldTickManagerHealthy(true);
         expect(finalTickHealth.isHealthy).toBe(true);
     }, 60000); // Longer timeout since rebuild includes multiple operations
 
@@ -108,9 +109,11 @@ describe("SERVER Container and Database CLI Tests", () => {
         expect(postgresHealthAfterDown.isHealthy).toBe(false);
         const pgwebHealthAfterDown = await Server_CLI.isPgwebHealthy(true);
         expect(pgwebHealthAfterDown.isHealthy).toBe(false);
-        const apiHealthAfterDown = await Server_CLI.isApiHealthy(true);
+        const apiHealthAfterDown =
+            await Server_CLI.isWorldApiManagerHealthy(true);
         expect(apiHealthAfterDown.isHealthy).toBe(false);
-        const tickHealthAfterDown = await Server_CLI.isTickHealthy(true);
+        const tickHealthAfterDown =
+            await Server_CLI.isWorldTickManagerHealthy(true);
         expect(tickHealthAfterDown.isHealthy).toBe(false);
 
         // Start containers again
@@ -122,9 +125,11 @@ describe("SERVER Container and Database CLI Tests", () => {
         expect(postgresHealthAfterUp.isHealthy).toBe(true);
         const pgwebHealthAfterUp = await Server_CLI.isPgwebHealthy(true);
         expect(pgwebHealthAfterUp.isHealthy).toBe(true);
-        const apiHealthAfterUp = await Server_CLI.isApiHealthy(true);
+        const apiHealthAfterUp =
+            await Server_CLI.isWorldApiManagerHealthy(true);
         expect(apiHealthAfterUp.isHealthy).toBe(true);
-        const tickHealthAfterUp = await Server_CLI.isTickHealthy(true);
+        const tickHealthAfterUp =
+            await Server_CLI.isWorldTickManagerHealthy(true);
         expect(tickHealthAfterUp.isHealthy).toBe(true);
     }, 60000);
 
@@ -240,9 +245,10 @@ describe("SERVER Container and Database CLI Tests", () => {
 
         const finalPgwebHealth = await Server_CLI.isPgwebHealthy(true);
         expect(finalPgwebHealth.isHealthy).toBe(true);
-        const finalApiHealth = await Server_CLI.isApiHealthy(true);
+        const finalApiHealth = await Server_CLI.isWorldApiManagerHealthy(true);
         expect(finalApiHealth.isHealthy).toBe(true);
-        const finalTickHealth = await Server_CLI.isTickHealthy(true);
+        const finalTickHealth =
+            await Server_CLI.isWorldTickManagerHealthy(true);
         expect(finalTickHealth.isHealthy).toBe(true);
     }, 15000);
 

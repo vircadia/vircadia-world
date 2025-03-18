@@ -162,8 +162,8 @@ export class WorldApiManager {
                 suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
             }).getSuperClient({
                 postgres: {
-                    host: VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_CLUSTER,
-                    port: VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_CLUSTER,
+                    host: VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
+                    port: VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL,
                     database:
                         VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
                     username:
@@ -177,8 +177,8 @@ export class WorldApiManager {
                 suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
             }).getProxyClient({
                 postgres: {
-                    host: VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_CLUSTER,
-                    port: VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_CLUSTER,
+                    host: VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
+                    port: VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL,
                     database:
                         VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
                     username:
@@ -235,8 +235,9 @@ export class WorldApiManager {
 
         // Start server
         this.server = Bun.serve({
-            hostname: "0.0.0.0",
-            port: 3020,
+            hostname:
+                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_INTERNAL,
+            port: VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_INTERNAL,
             development: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
 
             // #region API -> HTTP Routes
@@ -247,6 +248,7 @@ export class WorldApiManager {
                     log({
                         message: "No database connection available",
                         debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
+                        suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
                         type: "error",
                     });
                     return new Response("Internal server error", {
@@ -305,6 +307,8 @@ export class WorldApiManager {
                             prefix: this.LOG_PREFIX,
                             message: "No token found in query parameters",
                             debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
+                            suppress:
+                                VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
                             type: "debug",
                         });
                         return new Response("Authentication required", {
@@ -318,6 +322,8 @@ export class WorldApiManager {
                             prefix: this.LOG_PREFIX,
                             message: "No provider found in query parameters",
                             debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
+                            suppress:
+                                VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
                             type: "debug",
                         });
                         return new Response("Provider required", {
@@ -335,6 +341,8 @@ export class WorldApiManager {
                             prefix: this.LOG_PREFIX,
                             message: "Token JWT validation failed",
                             debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
+                            suppress:
+                                VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
                             type: "debug",
                         });
                         return new Response("Invalid token", {
@@ -376,6 +384,8 @@ export class WorldApiManager {
                             prefix: this.LOG_PREFIX,
                             message: "WebSocket upgrade failed",
                             debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
+                            suppress:
+                                VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
                             type: "error",
                         });
                         return new Response("WebSocket upgrade failed", {

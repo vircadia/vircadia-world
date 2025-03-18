@@ -28,8 +28,9 @@ export class WorldTickManager {
             });
 
             Bun.serve({
-                hostname: "0.0.0.0",
-                port: 3020,
+                hostname:
+                    VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
+                port: VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_EXTERNAL,
                 development: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
 
                 websocket: {
@@ -90,8 +91,8 @@ export class WorldTickManager {
                 suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
             }).getSuperClient({
                 postgres: {
-                    host: VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_CLUSTER,
-                    port: VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_CLUSTER,
+                    host: VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
+                    port: VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL,
                     database:
                         VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
                     username:
@@ -354,6 +355,7 @@ export class WorldTickManager {
 // Add command line entry point
 if (import.meta.main) {
     try {
+        console.info("Starting World Tick Manager");
         const manager = new WorldTickManager();
         await manager.initialize();
 

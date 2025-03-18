@@ -303,8 +303,8 @@ BEGIN
         INSERT INTO tick.script_states (
             general__script_name,
             group__sync,
-            source__repo__entry_path,
-            source__repo__url,
+            script__source__repo__entry_path,
+            script__source__repo__url,
             script__compiled__data,
             script__compiled__sha256,
             script__compiled__status,
@@ -318,8 +318,8 @@ BEGIN
         SELECT 
             s.general__script_name,
             s.group__sync,
-            s.source__repo__entry_path,
-            s.source__repo__url,
+            s.script__source__repo__entry_path,
+            s.script__source__repo__url,
             s.script__compiled__data,
             s.script__compiled__sha256,
             s.script__compiled__status,
@@ -590,8 +590,8 @@ BEGIN
                 jsonb_build_object(
                     'general__script_name', cs.general__script_name,
                     'group__sync', cs.group__sync,
-                    'source__repo__entry_path', cs.source__repo__entry_path,
-                    'source__repo__url', cs.source__repo__url,
+                    'script__source__repo__entry_path', cs.script__source__repo__entry_path,
+                    'script__source__repo__url', cs.script__source__repo__url,
                     'script__compiled__data', cs.script__compiled__data,
                     'script__compiled__sha256', cs.script__compiled__sha256,
                     'script__compiled__status', cs.script__compiled__status,
@@ -607,12 +607,12 @@ BEGIN
                 'group__sync', 
                     CASE WHEN cs.group__sync IS DISTINCT FROM ps.group__sync 
                     THEN cs.group__sync END,
-                'source__repo__entry_path', 
-                    CASE WHEN cs.source__repo__entry_path IS DISTINCT FROM ps.source__repo__entry_path 
-                    THEN cs.source__repo__entry_path END,
-                'source__repo__url', 
-                    CASE WHEN cs.source__repo__url IS DISTINCT FROM ps.source__repo__url 
-                    THEN cs.source__repo__url END,
+                'script__source__repo__entry_path', 
+                    CASE WHEN cs.script__source__repo__entry_path IS DISTINCT FROM ps.script__source__repo__entry_path 
+                    THEN cs.script__source__repo__entry_path END,
+                'script__source__repo__url', 
+                    CASE WHEN cs.script__source__repo__url IS DISTINCT FROM ps.script__source__repo__url 
+                    THEN cs.script__source__repo__url END,
                 'script__compiled__data', 
                     CASE WHEN cs.script__compiled__data IS DISTINCT FROM ps.script__compiled__data 
                     THEN cs.script__compiled__data END,

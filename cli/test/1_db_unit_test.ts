@@ -721,8 +721,8 @@ describe("DB", () => {
                         INSERT INTO entity.entity_scripts (
                             general__script_name,
                             group__sync,
-                            source__repo__entry_path,
-                            source__repo__url
+                            script__source__repo__entry_path,
+                            script__source__repo__url
                         ) VALUES (
                             ${"Test Script"},
                             ${"public.NORMAL"},
@@ -811,8 +811,8 @@ describe("DB", () => {
         			INSERT INTO entity.entity_scripts (
         				general__script_name,
         				group__sync,
-        				source__repo__entry_path,
-        				source__repo__url,
+        				script__source__repo__entry_path,
+        				script__source__repo__url,
         				script__type,
                         script__compiled__data,   
                         script__compiled__sha256,
@@ -1018,7 +1018,7 @@ describe("DB", () => {
                                 general__script_name,
                                 script__compiled__data,
                                 script__compiled__status,
-                                source__repo__url,
+                                script__source__repo__url,
                                 group__sync
                             ) VALUES (
                                 ${`${DB_TEST_PREFIX}Initial Script`},
@@ -1078,7 +1078,7 @@ describe("DB", () => {
 
                         // The URL field wasn't changed, so it shouldn't be included
                         expect(
-                            scriptChange?.changes.source__repo__url,
+                            scriptChange?.changes.script__source__repo__url,
                         ).toBeUndefined();
                     });
                 });

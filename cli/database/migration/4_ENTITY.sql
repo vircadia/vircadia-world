@@ -28,13 +28,17 @@ CREATE TABLE entity.entity_scripts (
     general__script_name TEXT PRIMARY KEY,
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
     CONSTRAINT fk_entity_scripts_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group),
-    
-    -- Source fields
-    source__repo__entry_path TEXT,
-    source__repo__url TEXT,
 
     script__type TEXT NOT NULL DEFAULT 'BABYLON_BROWSER',
     CONSTRAINT chk_script_type CHECK (script__type IN ('BABYLON_NODE', 'BABYLON_BUN', 'BABYLON_BROWSER')),
+
+    -- Source fields
+    script__source__repo__entry_path TEXT,
+    script__source__repo__url TEXT,
+
+    script__source__data TEXT,
+    script__source__sha256 TEXT,
+    script__source__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
 
     script__compiled__data TEXT,
     script__compiled__sha256 TEXT,

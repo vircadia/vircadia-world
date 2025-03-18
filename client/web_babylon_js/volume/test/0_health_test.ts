@@ -6,7 +6,7 @@ import { fetch } from "bun";
 describe(`${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_CONTAINER_NAME} - HEALTH`, () => {
     test("Health Check", async () => {
         // Construct the stats endpoint URL
-        const clientAppUrl = `http://localhost:${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_PORT_CONTAINER_INTERNAL}`;
+        const clientAppUrl = `http://localhost:${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_PORT_CONTAINER_BIND_INTERNAL}`;
 
         // Send request to the stats endpoint
         const response = await fetch(clientAppUrl, {

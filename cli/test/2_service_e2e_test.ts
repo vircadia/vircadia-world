@@ -98,14 +98,14 @@ describe("Service Tests", () => {
 
         beforeAll(async () => {
             return new Promise((resolve, reject) => {
-                adminWsUrl = `${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI_USING_SSL ? "wss" : "ws"}://${
-                    VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI
+                adminWsUrl = `${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL ? "wss" : "ws"}://${
+                    VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI
                 }${Communication.WS_UPGRADE_PATH}?token=${adminAgent.token}&provider=system`;
-                regularWsUrl = `${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI_USING_SSL ? "wss" : "ws"}://${
-                    VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI
+                regularWsUrl = `${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL ? "wss" : "ws"}://${
+                    VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI
                 }${Communication.WS_UPGRADE_PATH}?token=${regularAgent.token}&provider=system`;
-                anonWsUrl = `${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI_USING_SSL ? "wss" : "ws"}://${
-                    VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI
+                anonWsUrl = `${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL ? "wss" : "ws"}://${
+                    VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI
                 }${Communication.WS_UPGRADE_PATH}?token=${anonAgent.token}&provider=system`;
                 adminAgentWsConnection = new WebSocket(adminWsUrl);
                 regularAgentWsConnection = new WebSocket(regularWsUrl);
@@ -298,7 +298,7 @@ describe("Service Tests", () => {
         });
 
         describe("Auth -> Login", () => {
-            const baseAuthUrl = `${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI_USING_SSL ? "https" : "http"}://${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_SERVER_URI}`;
+            const baseAuthUrl = `${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL ? "https" : "http"}://${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}`;
 
             test("should validate valid session tokens", async () => {
                 const regularResponse = await fetch(

@@ -15,7 +15,7 @@ volumes:
 
 services:
   # Postgres service
-  postgres:
+  vircadia_world_postgres:
     image: postgres:17.3-alpine3.21
     container_name: ${VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME}
     user: "70:70"  # Alpine postgres user (UID:GID)
@@ -46,7 +46,7 @@ services:
       - vircadia_public_network
 
   # PGWEB service
-  pgweb:
+  vircadia_world_pgweb:
     image: sosedoff/pgweb:0.16.2
     container_name: ${VRCA_SERVER_SERVICE_PGWEB_CONTAINER_NAME}
     user: "1000:1000"  # Run as non-root user (typical first user UID/GID)
@@ -56,7 +56,7 @@ services:
     environment:
       - PGWEB_DATABASE_URL=postgres://${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME}:${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD}@${VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME}:${VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL}/${VRCA_SERVER_SERVICE_POSTGRES_DATABASE}?sslmode=disable
     depends_on:
-      postgres:
+      vircadia_world_postgres:
         condition: service_healthy
         restart: true
     healthcheck:
@@ -81,7 +81,7 @@ services:
       - vircadia_public_network
 
   # API service
-  world_api_manager:
+  vircadia_world_api_manager:
     image: oven/bun:1.2.5-alpine
     container_name: ${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_CONTAINER_NAME}
     user: "1000:1000"  # Run as non-root user
@@ -109,7 +109,7 @@ services:
       VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_PUBLIC_AVAILABLE_AT: ${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_PUBLIC_AVAILABLE_AT}
       VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_PUBLIC_AVAILABLE_AT: ${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_PUBLIC_AVAILABLE_AT}
     depends_on:
-      postgres:
+      vircadia_world_postgres:
         condition: service_healthy
         restart: true
     healthcheck:
@@ -123,7 +123,7 @@ services:
       - vircadia_public_network
 
   # Tick service
-  world_tick_manager:
+  vircadia_world_tick_manager:
     image: oven/bun:1.2.5-alpine
     container_name: ${VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_CONTAINER_NAME}
     user: "1000:1000"  # Run as non-root user
@@ -149,7 +149,7 @@ services:
       VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_INTERNAL: ${VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_INTERNAL}
       VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_INTERNAL: ${VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_INTERNAL}
     depends_on:
-      postgres:
+      vircadia_world_postgres:
         condition: service_healthy
         restart: true
     healthcheck:

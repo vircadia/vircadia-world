@@ -77,38 +77,66 @@ describe("SERVER Container and Database CLI Tests", () => {
             args: ["up", Service.E_Service.POSTGRES, "-d"],
         });
 
-        const isPostgresHealthy = await Server_CLI.isPostgresHealthy(true);
+        const isPostgresHealthy = await Server_CLI.isPostgresHealthy({
+            timeout: 20000,
+            interval: 1000,
+        });
         expect(isPostgresHealthy.isHealthy).toBe(true);
-        // Run migrations and seed data
+
         const migrationsRan = await Server_CLI.migrate();
         expect(migrationsRan).toBe(true);
         await Server_CLI.seed({});
 
         await Server_CLI.runServerDockerCommand({
-            args: [
-                "up",
-                Service.E_Service.PGWEB,
-                Service.E_Service.WORLD_API_MANAGER,
-                Service.E_Service.WORLD_TICK_MANAGER,
-                "--build",
-                "-d",
-            ],
+            args: ["up", Service.E_Service.PGWEB, "-d"],
         });
 
-        // Verify all services are healthy
-        const finalPostgresHealth = await Server_CLI.isPostgresHealthy(true);
+        const pgwebHealth = await Server_CLI.isPgwebHealthy({
+            timeout: 20000,
+            interval: 1000,
+        });
+        expect(pgwebHealth.isHealthy).toBe(true);
+
+        await Server_CLI.runServerDockerCommand({
+            args: ["up", Service.E_Service.WORLD_API_MANAGER, "--build", "-d"],
+        });
+
+        const apiHealth = await Server_CLI.isWorldApiManagerHealthy({
+            timeout: 30000,
+            interval: 2000,
+        });
+        expect(apiHealth.isHealthy).toBe(true);
+
+        await Server_CLI.runServerDockerCommand({
+            args: ["up", Service.E_Service.WORLD_TICK_MANAGER, "--build", "-d"],
+        });
+
+        const finalPostgresHealth = await Server_CLI.isPostgresHealthy({
+            timeout: 10000,
+            interval: 1000,
+        });
         expect(finalPostgresHealth.isHealthy).toBe(true);
-        const finalPgwebHealth = await Server_CLI.isPgwebHealthy(true);
+
+        const finalPgwebHealth = await Server_CLI.isPgwebHealthy({
+            timeout: 10000,
+            interval: 1000,
+        });
         expect(finalPgwebHealth.isHealthy).toBe(true);
-        const finalApiHealth = await Server_CLI.isWorldApiManagerHealthy(true);
+
+        const finalApiHealth = await Server_CLI.isWorldApiManagerHealthy({
+            timeout: 20000,
+            interval: 2000,
+        });
         expect(finalApiHealth.isHealthy).toBe(true);
-        const finalTickHealth =
-            await Server_CLI.isWorldTickManagerHealthy(true);
+
+        const finalTickHealth = await Server_CLI.isWorldTickManagerHealthy({
+            timeout: 20000,
+            interval: 2000,
+        });
         expect(finalTickHealth.isHealthy).toBe(true);
-    }, 60000); // Longer timeout since rebuild includes multiple operations
+    }, 120000);
 
     test("Docker container down and up cycle works", async () => {
-        // Stop containers
         await Server_CLI.runServerDockerCommand({
             args: ["down"],
         });
@@ -124,32 +152,55 @@ describe("SERVER Container and Database CLI Tests", () => {
             await Server_CLI.isWorldTickManagerHealthy(true);
         expect(tickHealthAfterDown.isHealthy).toBe(false);
 
-        // Start containers again
         await Server_CLI.runServerDockerCommand({
-            args: ["up", "-d"],
+            args: ["up", Service.E_Service.POSTGRES, "-d"],
         });
 
-        const postgresHealthAfterUp = await Server_CLI.isPostgresHealthy(true);
+        const postgresHealthAfterUp = await Server_CLI.isPostgresHealthy({
+            timeout: 20000,
+            interval: 1000,
+        });
         expect(postgresHealthAfterUp.isHealthy).toBe(true);
-        const pgwebHealthAfterUp = await Server_CLI.isPgwebHealthy(true);
+
+        await Server_CLI.runServerDockerCommand({
+            args: ["up", Service.E_Service.PGWEB, "-d"],
+        });
+
+        const pgwebHealthAfterUp = await Server_CLI.isPgwebHealthy({
+            timeout: 15000,
+            interval: 1000,
+        });
         expect(pgwebHealthAfterUp.isHealthy).toBe(true);
-        const apiHealthAfterUp =
-            await Server_CLI.isWorldApiManagerHealthy(true);
+
+        await Server_CLI.runServerDockerCommand({
+            args: [
+                "up",
+                Service.E_Service.WORLD_API_MANAGER,
+                Service.E_Service.WORLD_TICK_MANAGER,
+                "-d",
+            ],
+        });
+
+        const apiHealthAfterUp = await Server_CLI.isWorldApiManagerHealthy({
+            timeout: 30000,
+            interval: 2000,
+        });
         expect(apiHealthAfterUp.isHealthy).toBe(true);
-        const tickHealthAfterUp =
-            await Server_CLI.isWorldTickManagerHealthy(true);
+
+        const tickHealthAfterUp = await Server_CLI.isWorldTickManagerHealthy({
+            timeout: 30000,
+            interval: 2000,
+        });
         expect(tickHealthAfterUp.isHealthy).toBe(true);
-    }, 60000);
+    }, 120000);
 
     test("System token generation and cleanup works", async () => {
-        // Generate system token
         const token = await Server_CLI.generateDbSystemToken();
         expect(token).toBeDefined();
         expect(token.token).toBeDefined();
         expect(token.sessionId).toBeDefined();
         expect(token.agentId).toBeDefined();
 
-        // Clean up expired system tokens
         const cleanupResult = await Server_CLI.invalidateDbSystemTokens();
         expect(cleanupResult).toBe(0);
     });
@@ -183,11 +234,9 @@ describe("SERVER Container and Database CLI Tests", () => {
             const [result] = await tx`SELECT current_database()`;
             expect(result.current_database).toBeDefined();
 
-            // Verify superuser status
             const [isSuperUser] = await tx`SELECT auth.is_system_agent()`;
             expect(isSuperUser.is_system_agent).toBe(true);
 
-            // Verify proxy agent status
             const [isProxyAgent] = await tx`SELECT auth.is_proxy_agent()`;
             expect(isProxyAgent.is_proxy_agent).toBe(false);
         });
@@ -213,20 +262,17 @@ describe("SERVER Container and Database CLI Tests", () => {
             const [result] = await tx`SELECT current_database()`;
             expect(result.current_database).toBeDefined();
 
-            // First verify we can call function through proxy user
             const [isSystemAgent] = await tx`
                 SELECT auth.is_system_agent() as is_system_agent
             `;
             expect(isSystemAgent.is_system_agent).toBe(false);
 
-            // Verify proxy agent status
             const [isProxyAgent] = await tx`SELECT auth.is_proxy_agent()`;
             expect(isProxyAgent.is_proxy_agent).toBe(true);
         });
     });
 
     test("Database reset, migration, and seeding works", async () => {
-        // Turn off services
         await Server_CLI.runServerDockerCommand({
             args: [
                 "down",
@@ -236,40 +282,48 @@ describe("SERVER Container and Database CLI Tests", () => {
             ],
         });
 
-        // Test wipe
         await Server_CLI.wipeDatabase();
         const healthAfterReset = await Server_CLI.isPostgresHealthy(true);
         expect(healthAfterReset.isHealthy).toBe(true);
 
-        // Run migrations and seed
         const migrationsRan = await Server_CLI.migrate();
         expect(migrationsRan).toBe(true);
 
         await Server_CLI.seed({});
 
-        // Verify database is still healthy after all operations
         const finalPostgresHealth = await Server_CLI.isPostgresHealthy(true);
         expect(finalPostgresHealth.isHealthy).toBe(true);
 
-        // Turn on services
         await Server_CLI.runServerDockerCommand({
-            args: [
-                "up",
-                Service.E_Service.PGWEB,
-                Service.E_Service.WORLD_API_MANAGER,
-                Service.E_Service.WORLD_TICK_MANAGER,
-                "-d",
-            ],
+            args: ["up", Service.E_Service.PGWEB, "-d"],
         });
 
-        const finalPgwebHealth = await Server_CLI.isPgwebHealthy(true);
+        const finalPgwebHealth = await Server_CLI.isPgwebHealthy({
+            timeout: 15000,
+            interval: 1000,
+        });
         expect(finalPgwebHealth.isHealthy).toBe(true);
-        const finalApiHealth = await Server_CLI.isWorldApiManagerHealthy(true);
+
+        await Server_CLI.runServerDockerCommand({
+            args: ["up", Service.E_Service.WORLD_API_MANAGER, "-d"],
+        });
+
+        const finalApiHealth = await Server_CLI.isWorldApiManagerHealthy({
+            timeout: 30000,
+            interval: 2000,
+        });
         expect(finalApiHealth.isHealthy).toBe(true);
-        const finalTickHealth =
-            await Server_CLI.isWorldTickManagerHealthy(true);
+
+        await Server_CLI.runServerDockerCommand({
+            args: ["up", Service.E_Service.WORLD_TICK_MANAGER, "-d"],
+        });
+
+        const finalTickHealth = await Server_CLI.isWorldTickManagerHealthy({
+            timeout: 30000,
+            interval: 2000,
+        });
         expect(finalTickHealth.isHealthy).toBe(true);
-    }, 15000);
+    }, 120000);
 
     test("Database extensions are properly installed", async () => {
         const sql = await PostgresClient.getInstance({
@@ -287,12 +341,10 @@ describe("SERVER Container and Database CLI Tests", () => {
             },
         });
 
-        // Get list of installed extensions
         const extensions = await sql`
             SELECT extname FROM pg_extension
         `;
 
-        // Verify required extensions are installed
         const requiredExtensions =
             VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS;
         for (const ext of requiredExtensions) {

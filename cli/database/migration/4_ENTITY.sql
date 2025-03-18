@@ -33,8 +33,8 @@ CREATE TABLE entity.entity_scripts (
     source__repo__entry_path TEXT,
     source__repo__url TEXT,
 
-    script__type TEXT NOT NULL DEFAULT 'BROWSER',
-    CONSTRAINT chk_script_type CHECK (script__type IN ('NODE', 'BUN', 'BROWSER')),
+    script__type TEXT NOT NULL DEFAULT 'BABYLON_BROWSER',
+    CONSTRAINT chk_script_type CHECK (script__type IN ('BABYLON_NODE', 'BABYLON_BUN', 'BABYLON_BROWSER')),
 
     script__compiled TEXT,
     script__compiled__sha256 TEXT,

@@ -36,7 +36,7 @@ CREATE TABLE entity.entity_scripts (
     script__type TEXT NOT NULL DEFAULT 'BABYLON_BROWSER',
     CONSTRAINT chk_script_type CHECK (script__type IN ('BABYLON_NODE', 'BABYLON_BUN', 'BABYLON_BROWSER')),
 
-    script__compiled TEXT,
+    script__compiled__data TEXT,
     script__compiled__sha256 TEXT,
     script__compiled__status TEXT NOT NULL DEFAULT 'PENDING',
     CONSTRAINT chk_script_compiled_status CHECK (script__compiled__status IN ('PENDING', 'COMPILING', 'COMPILED', 'FAILED')),
@@ -51,14 +51,24 @@ ALTER TABLE entity.entity_scripts ENABLE ROW LEVEL SECURITY;
 CREATE TABLE entity.entity_assets (
     general__asset_name TEXT PRIMARY KEY,
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
+    CONSTRAINT fk_entity_assets_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group),
     
     asset__data BYTEA,  -- Store asset binaries (GLBs, textures, etc.)
     asset__type TEXT,
-    
-    CONSTRAINT fk_entity_assets_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group),
-    
-    -- Add CHECK constraint to replace ENUM
-    CONSTRAINT chk_asset_type CHECK (asset__type IN ('GLB', 'PNG', 'JPEG', 'WEBM', 'MP4', 'MP3', 'WAV'))
+    CONSTRAINT chk_asset_type CHECK (asset__type IN (
+        -- 3D Models
+        'GLB', 'GLTF', 'OBJ', 'FBX', 'DAE', 'STL', 'STEP', 'IGES', 'BLEND', 'X3D', 'VRML', 'BVH',
+        -- Textures
+        'PNG', 'JPEG', 'JPG', 'TIFF', 'TIF', 'GIF', 'WEBP', 'BMP', 'TGA', 'HDR', 'EXR', 'KTX2',
+        -- Video
+        'WEBM', 'MP4', 'MOV', 'AVI',
+        -- Audio
+        'MP3', 'WAV', 'OGG', 'AAC', 'FLAC',
+        -- Material
+        'MTL', 'MAT', 
+        -- Shaders
+        'GLSL', 'HLSL', 'WGSL', 'SPIRV', 'COMP', 'FRAG', 'VERT', 'SHADERPAK'
+    ))
 ) INHERITS (entity._template);
 
 ALTER TABLE entity.entity_assets ENABLE ROW LEVEL SECURITY;

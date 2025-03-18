@@ -305,7 +305,7 @@ BEGIN
             group__sync,
             source__repo__entry_path,
             source__repo__url,
-            script__compiled,
+            script__compiled__data,
             script__compiled__sha256,
             script__compiled__status,
             script__compiled__updated_at,
@@ -320,7 +320,7 @@ BEGIN
             s.group__sync,
             s.source__repo__entry_path,
             s.source__repo__url,
-            s.script__compiled,
+            s.script__compiled__data,
             s.script__compiled__sha256,
             s.script__compiled__status,
             s.script__compiled__updated_at,
@@ -592,7 +592,7 @@ BEGIN
                     'group__sync', cs.group__sync,
                     'source__repo__entry_path', cs.source__repo__entry_path,
                     'source__repo__url', cs.source__repo__url,
-                    'script__compiled', cs.script__compiled,
+                    'script__compiled__data', cs.script__compiled__data,
                     'script__compiled__sha256', cs.script__compiled__sha256,
                     'script__compiled__status', cs.script__compiled__status,
                     'script__compiled__updated_at', cs.script__compiled__updated_at,
@@ -613,9 +613,9 @@ BEGIN
                 'source__repo__url', 
                     CASE WHEN cs.source__repo__url IS DISTINCT FROM ps.source__repo__url 
                     THEN cs.source__repo__url END,
-                'script__compiled', 
-                    CASE WHEN cs.script__compiled IS DISTINCT FROM ps.script__compiled 
-                    THEN cs.script__compiled END,
+                'script__compiled__data', 
+                    CASE WHEN cs.script__compiled__data IS DISTINCT FROM ps.script__compiled__data 
+                    THEN cs.script__compiled__data END,
                 'script__compiled__sha256', 
                     CASE WHEN cs.script__compiled__sha256 IS DISTINCT FROM ps.script__compiled__sha256 
                     THEN cs.script__compiled__sha256 END,

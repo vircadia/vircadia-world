@@ -635,7 +635,7 @@ describe("DB", () => {
                     const [script] = await tx<[Entity.Script.I_Script]>`
         			INSERT INTO entity.entity_scripts (
                         general__script_name,
-        				script__compiled,
+        				script__compiled__data,
         				script__compiled__status,
         				group__sync
         			) VALUES (
@@ -814,7 +814,7 @@ describe("DB", () => {
         				source__repo__entry_path,
         				source__repo__url,
         				script__type,
-                        script__compiled,   
+                        script__compiled__data,   
                         script__compiled__sha256,
                         script__compiled__status,
                         script__compiled__updated_at
@@ -1016,7 +1016,7 @@ describe("DB", () => {
                         [script1] = await tx<[Entity.Script.I_Script]>`
                             INSERT INTO entity.entity_scripts (
                                 general__script_name,
-                                script__compiled,
+                                script__compiled__data,
                                 script__compiled__status,
                                 source__repo__url,
                                 group__sync
@@ -1040,7 +1040,7 @@ describe("DB", () => {
                         await tx`
                             UPDATE entity.entity_scripts
                             SET 
-                                script__compiled = ${'console.log("updated version")'},
+                                script__compiled__data = ${'console.log("updated version")'},
                                 script__compiled__status = ${Entity.Script.E_CompilationStatus.PENDING}
                             WHERE general__script_name = ${script1.general__script_name}
                         `;
@@ -1069,9 +1069,9 @@ describe("DB", () => {
                         expect(scriptChange?.operation).toBe("UPDATE");
 
                         // Check that only changed fields are included
-                        expect(scriptChange?.changes.script__compiled).toBe(
-                            'console.log("updated version")',
-                        );
+                        expect(
+                            scriptChange?.changes.script__compiled__data,
+                        ).toBe('console.log("updated version")');
                         expect(
                             scriptChange?.changes.script__compiled__status,
                         ).toBe(Entity.Script.E_CompilationStatus.PENDING);

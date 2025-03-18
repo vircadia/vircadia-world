@@ -3,6 +3,7 @@ import { Server_CLI, Client_CLI } from "../vircadia.world.cli";
 import { VircadiaConfig_CLI } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.cli.config";
 import { PostgresClient } from "../../sdk/vircadia-world-sdk-ts/module/server/postgres.server.client";
 import { VircadiaConfig_SERVER } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.server.config";
+import { Service } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 
 // describe("CLIENT Container and Database CLI Tests", () => {
 //     beforeAll(async () => {
@@ -73,7 +74,7 @@ describe("SERVER Container and Database CLI Tests", () => {
             args: ["down", "-v"],
         });
         await Server_CLI.runServerDockerCommand({
-            args: ["up", "postgres", "-d"],
+            args: ["up", Service.E_Service.POSTGRES, "-d"],
         });
 
         const isPostgresHealthy = await Server_CLI.isPostgresHealthy(true);
@@ -84,7 +85,14 @@ describe("SERVER Container and Database CLI Tests", () => {
         await Server_CLI.seed({});
 
         await Server_CLI.runServerDockerCommand({
-            args: ["up", "-d"],
+            args: [
+                "up",
+                Service.E_Service.PGWEB,
+                Service.E_Service.WORLD_API_MANAGER,
+                Service.E_Service.WORLD_TICK_MANAGER,
+                "--build",
+                "-d",
+            ],
         });
 
         // Verify all services are healthy
@@ -220,7 +228,12 @@ describe("SERVER Container and Database CLI Tests", () => {
     test("Database reset, migration, and seeding works", async () => {
         // Turn off services
         await Server_CLI.runServerDockerCommand({
-            args: ["down", "pgweb", "api", "tick"],
+            args: [
+                "down",
+                Service.E_Service.PGWEB,
+                Service.E_Service.WORLD_API_MANAGER,
+                Service.E_Service.WORLD_TICK_MANAGER,
+            ],
         });
 
         // Test wipe
@@ -240,7 +253,13 @@ describe("SERVER Container and Database CLI Tests", () => {
 
         // Turn on services
         await Server_CLI.runServerDockerCommand({
-            args: ["up", "pgweb", "api", "tick", "-d"],
+            args: [
+                "up",
+                Service.E_Service.PGWEB,
+                Service.E_Service.WORLD_API_MANAGER,
+                Service.E_Service.WORLD_TICK_MANAGER,
+                "-d",
+            ],
         });
 
         const finalPgwebHealth = await Server_CLI.isPgwebHealthy(true);

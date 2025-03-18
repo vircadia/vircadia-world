@@ -10,7 +10,7 @@ import { fetch } from "bun";
 describe("World API Manager - HEALTH", () => {
     test("Health Check - Stats Endpoint", async () => {
         // Construct the stats endpoint URL
-        const statsEndpoint = `http://${VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_API_HOST_PUBLIC}:${VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_API_PORT_PUBLIC}${Service.API.Stats_Endpoint.path}`;
+        const statsEndpoint = `http://${VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_CLUSTER}:${VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_CLUSTER}${Service.API.Stats_Endpoint.path}`;
 
         // Send request to the stats endpoint
         const response = await fetch(statsEndpoint, {

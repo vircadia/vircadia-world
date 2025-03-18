@@ -847,7 +847,7 @@ export class WorldApiManager {
             `;
 
                 updatePackage.entities = entityChanges.map((e) => ({
-                    entityId: e.general__entity_id,
+                    general__entity_id: e.general__entity_id,
                     operation: e.operation,
                     changes: e.changes,
                     error: null,
@@ -856,14 +856,14 @@ export class WorldApiManager {
                 // Fetch script changes
                 const scriptChanges = await tx<Tick.I_ScriptUpdate[]>`
                 SELECT 
-                    general__script_id,
+                    general__script_name,
                     operation,
                     changes
                 FROM tick.get_changed_script_states_between_latest_ticks(${data.syncGroup})
             `;
 
                 updatePackage.scripts = scriptChanges.map((s) => ({
-                    scriptId: s.general__script_id,
+                    general__script_name: s.general__script_name,
                     operation: s.operation,
                     changes: s.changes,
                     error: null,
@@ -879,7 +879,7 @@ export class WorldApiManager {
             `;
 
                 updatePackage.assets = assetChanges.map((a) => ({
-                    assetId: a.general__asset_name,
+                    general__asset_name: a.general__asset_name,
                     operation: a.operation,
                     changes: a.changes,
                     error: null,

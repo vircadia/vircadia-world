@@ -118,10 +118,10 @@ CREATE INDEX idx_entity_states_sync_tick_lookup ON tick.entity_states (group__sy
 CREATE INDEX idx_entity_states_sync_tick ON tick.entity_states (group__sync, general__tick_id);
 
 -- 3.3 SCRIPT STATES INDEXES
-CREATE INDEX script_states_lookup_idx ON tick.script_states (general__script_id, general__tick_id);
+CREATE INDEX script_states_lookup_idx ON tick.script_states (general__script_name, general__tick_id);
 CREATE INDEX script_states_tick_idx ON tick.script_states (general__tick_id);
 CREATE INDEX script_states_sync_group_tick_idx ON tick.script_states (group__sync, general__tick_id DESC);
-CREATE INDEX idx_script_states_sync_tick_lookup ON tick.script_states (group__sync, general__tick_id, general__script_id);
+CREATE INDEX idx_script_states_sync_tick_lookup ON tick.script_states (group__sync, general__tick_id, general__script_name);
 CREATE INDEX idx_script_states_sync_tick ON tick.script_states (group__sync, general__tick_id);
 
 -- 3.4 ASSET STATES INDEXES
@@ -267,10 +267,8 @@ BEGIN
             general__initialized_at,
             general__initialized_by,
             meta__data,
-            script__ids,
-            script__statuses,
+            script__names,
             asset__names,
-            validation__log,
             group__sync,
             general__created_at,
             general__created_by,
@@ -286,10 +284,8 @@ BEGIN
             e.general__initialized_at,
             e.general__initialized_by,
             e.meta__data,
-            e.script__ids,
-            e.script__statuses,
+            e.script__names,
             e.asset__names,
-            e.validation__log,
             e.group__sync,
             e.general__created_at,
             e.general__created_by,
@@ -305,23 +301,14 @@ BEGIN
     -- Capture script states
     WITH script_snapshot AS (
         INSERT INTO tick.script_states (
-            general__script_id,
             general__script_name,
             group__sync,
             source__repo__entry_path,
             source__repo__url,
-            compiled__node__script,
-            compiled__node__script_sha256,
-            compiled__node__status,
-            compiled__node__updated_at,
-            compiled__bun__script,
-            compiled__bun__script_sha256,
-            compiled__bun__status,
-            compiled__bun__updated_at,
-            compiled__browser__script,
-            compiled__browser__script_sha256,
-            compiled__browser__status,
-            compiled__browser__updated_at,
+            script__compiled,
+            script__compiled__sha256,
+            script__compiled__status,
+            script__compiled__updated_at,
             general__created_at,
             general__created_by,
             general__updated_at,
@@ -329,23 +316,14 @@ BEGIN
             general__tick_id
         )
         SELECT 
-            s.general__script_id,
             s.general__script_name,
             s.group__sync,
             s.source__repo__entry_path,
             s.source__repo__url,
-            s.compiled__node__script,
-            s.compiled__node__script_sha256,
-            s.compiled__node__status,
-            s.compiled__node__updated_at,
-            s.compiled__bun__script,
-            s.compiled__bun__script_sha256,
-            s.compiled__bun__status,
-            s.compiled__bun__updated_at,
-            s.compiled__browser__script,
-            s.compiled__browser__script_sha256,
-            s.compiled__browser__status,
-            s.compiled__browser__updated_at,
+            s.script__compiled,
+            s.script__compiled__sha256,
+            s.script__compiled__status,
+            s.script__compiled__updated_at,
             s.general__created_at,
             s.general__created_by,
             s.general__updated_at,
@@ -501,10 +479,8 @@ BEGIN
                     'general__initialized_at', cs.general__initialized_at,
                     'general__initialized_by', cs.general__initialized_by,
                     'meta__data', cs.meta__data,
-                    'script__ids', cs.script__ids,
-                    'script__statuses', cs.script__statuses,
+                    'script__names', cs.script__names,
                     'asset__names', cs.asset__names,
-                    'validation__log', cs.validation__log,
                     'group__sync', cs.group__sync,
                     'general__created_at', cs.general__created_at,
                     'general__created_by', cs.general__created_by,
@@ -531,18 +507,12 @@ BEGIN
                 'meta__data', 
                     CASE WHEN cs.meta__data IS DISTINCT FROM ps.meta__data 
                     THEN cs.meta__data END,
-                'script__ids', 
-                    CASE WHEN cs.script__ids IS DISTINCT FROM ps.script__ids 
-                    THEN cs.script__ids END,
-                'script__statuses', 
-                    CASE WHEN cs.script__statuses IS DISTINCT FROM ps.script__statuses 
-                    THEN cs.script__statuses END,
+                'script__names', 
+                    CASE WHEN cs.script__names IS DISTINCT FROM ps.script__names 
+                    THEN cs.script__names END,
                 'asset__names',
                     CASE WHEN cs.asset__names IS DISTINCT FROM ps.asset__names 
                     THEN cs.asset__names END,
-                'validation__log', 
-                    CASE WHEN cs.validation__log IS DISTINCT FROM ps.validation__log 
-                    THEN cs.validation__log END,
                 'group__sync', 
                     CASE WHEN cs.group__sync IS DISTINCT FROM ps.group__sync 
                     THEN cs.group__sync END,
@@ -570,7 +540,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE OR REPLACE FUNCTION tick.get_changed_script_states_between_latest_ticks(
     p_sync_group text
 ) RETURNS TABLE (
-    general__script_id uuid,
+    general__script_name text,
     operation config.operation_enum,
     changes jsonb
 ) AS $$
@@ -609,30 +579,27 @@ BEGIN
         WHERE ss.general__tick_id = v_previous_tick_id
     )
     SELECT 
-        COALESCE(cs.general__script_id, ps.general__script_id),
+        COALESCE(cs.general__script_name, ps.general__script_name),
         CASE 
-            WHEN ps.general__script_id IS NULL THEN 'INSERT'::config.operation_enum
-            WHEN cs.general__script_id IS NULL THEN 'DELETE'::config.operation_enum
+            WHEN ps.general__script_name IS NULL THEN 'INSERT'::config.operation_enum
+            WHEN cs.general__script_name IS NULL THEN 'DELETE'::config.operation_enum
             ELSE 'UPDATE'::config.operation_enum
         END,
         CASE 
-            WHEN ps.general__script_id IS NULL THEN 
+            WHEN ps.general__script_name IS NULL THEN 
                 jsonb_build_object(
-                    'general__script_id', cs.general__script_id,
                     'general__script_name', cs.general__script_name,
                     'group__sync', cs.group__sync,
                     'source__repo__entry_path', cs.source__repo__entry_path,
                     'source__repo__url', cs.source__repo__url,
-                    'compiled__node__status', cs.compiled__node__status,
-                    'compiled__node__updated_at', cs.compiled__node__updated_at,
-                    'compiled__bun__status', cs.compiled__bun__status,
-                    'compiled__bun__updated_at', cs.compiled__bun__updated_at,
-                    'compiled__browser__status', cs.compiled__browser__status,
-                    'compiled__browser__updated_at', cs.compiled__browser__updated_at,
+                    'script__compiled', cs.script__compiled,
+                    'script__compiled__sha256', cs.script__compiled__sha256,
+                    'script__compiled__status', cs.script__compiled__status,
+                    'script__compiled__updated_at', cs.script__compiled__updated_at,
                     'general__created_at', cs.general__created_at,
                     'general__updated_at', cs.general__updated_at
                 )
-            WHEN cs.general__script_id IS NULL THEN NULL::jsonb
+            WHEN cs.general__script_name IS NULL THEN NULL::jsonb
             ELSE jsonb_strip_nulls(jsonb_build_object(
                 'general__script_name', 
                     CASE WHEN cs.general__script_name IS DISTINCT FROM ps.general__script_name 
@@ -646,31 +613,28 @@ BEGIN
                 'source__repo__url', 
                     CASE WHEN cs.source__repo__url IS DISTINCT FROM ps.source__repo__url 
                     THEN cs.source__repo__url END,
-                'compiled__node__status', 
-                    CASE WHEN cs.compiled__node__status IS DISTINCT FROM ps.compiled__node__status 
-                    THEN cs.compiled__node__status END,
-                'compiled__node__updated_at', 
-                    CASE WHEN cs.compiled__node__updated_at IS DISTINCT FROM ps.compiled__node__updated_at 
-                    THEN cs.compiled__node__updated_at END,
-                'compiled__bun__status', 
-                    CASE WHEN cs.compiled__bun__status IS DISTINCT FROM ps.compiled__bun__status 
-                    THEN cs.compiled__bun__status END,
-                'compiled__bun__updated_at', 
-                    CASE WHEN cs.compiled__bun__updated_at IS DISTINCT FROM ps.compiled__bun__updated_at 
-                    THEN cs.compiled__bun__updated_at END,
-                'compiled__browser__status', 
-                    CASE WHEN cs.compiled__browser__status IS DISTINCT FROM ps.compiled__browser__status 
-                    THEN cs.compiled__browser__status END,
-                'compiled__browser__updated_at', 
-                    CASE WHEN cs.compiled__browser__updated_at IS DISTINCT FROM ps.compiled__browser__updated_at 
-                    THEN cs.compiled__browser__updated_at END,
+                'script__compiled', 
+                    CASE WHEN cs.script__compiled IS DISTINCT FROM ps.script__compiled 
+                    THEN cs.script__compiled END,
+                'script__compiled__sha256', 
+                    CASE WHEN cs.script__compiled__sha256 IS DISTINCT FROM ps.script__compiled__sha256 
+                    THEN cs.script__compiled__sha256 END,
+                'script__compiled__status', 
+                    CASE WHEN cs.script__compiled__status IS DISTINCT FROM ps.script__compiled__status 
+                    THEN cs.script__compiled__status END,
+                'script__compiled__updated_at', 
+                    CASE WHEN cs.script__compiled__updated_at IS DISTINCT FROM ps.script__compiled__updated_at 
+                    THEN cs.script__compiled__updated_at END,
+                'general__created_at', 
+                    CASE WHEN cs.general__created_at IS DISTINCT FROM ps.general__created_at 
+                    THEN cs.general__created_at END,
                 'general__updated_at', 
                     CASE WHEN cs.general__updated_at IS DISTINCT FROM ps.general__updated_at 
                     THEN cs.general__updated_at END
             ))
         END
     FROM current_states cs
-    FULL OUTER JOIN previous_states ps ON cs.general__script_id = ps.general__script_id
+    FULL OUTER JOIN previous_states ps ON cs.general__script_name = ps.general__script_name
     WHERE cs IS DISTINCT FROM ps;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

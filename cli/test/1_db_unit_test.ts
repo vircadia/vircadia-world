@@ -643,16 +643,16 @@ describe("DB", () => {
         				${TEST_SYNC_GROUP}
         			) RETURNING *
         		`;
-                    const scriptNamespace = `script_${script.general__script_id}`;
+                    const scriptNamespace = `script_${script.general__script_name}`;
                     const [entity] = await tx<[Entity.I_Entity]>`
         			INSERT INTO entity.entities (
         				general__entity_name,
-        				script__ids,
+        				script__names,
         				meta__data,
         				group__sync
         			) VALUES (
         				${"Scripted Entity"},
-        				ARRAY[${script.general__script_id}]::UUID[],
+        				ARRAY[${script.general__script_name}],
         				${tx.json({
                             [scriptNamespace]: {
                                 initialized: true,
@@ -662,14 +662,14 @@ describe("DB", () => {
         				${"public.NORMAL"}
         			) RETURNING *
         		`;
-                    expect(entity.script__ids).toContain(
-                        script.general__script_id,
+                    expect(entity.script__names).toContain(
+                        script.general__script_name,
                     );
                     expect(entity.meta__data[scriptNamespace]).toMatchObject({
                         initialized: true,
                     });
                     await tx`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
-                    await tx`DELETE FROM entity.entity_scripts WHERE general__script_id = ${script.general__script_id}`;
+                    await tx`DELETE FROM entity.entity_scripts WHERE general__script_name = ${script.general__script_name}`;
                 });
             });
         });
@@ -733,12 +733,12 @@ describe("DB", () => {
                         INSERT INTO entity.entities (
                             general__entity_name,
                             asset__names,
-                            script__ids,
+                            script__names,
                             group__sync
                         ) VALUES (
                             ${"Entity with asset and script"},
                             ${[asset.general__asset_name]},
-                            ${[script.general__script_id]},
+                            ${[script.general__script_name]},
                             ${"public.NORMAL"}
                         ) RETURNING *
                     `;
@@ -749,14 +749,14 @@ describe("DB", () => {
                     expect(entity.asset__names).toContain(
                         asset.general__asset_name,
                     );
-                    expect(entity.script__ids).toContain(
-                        script.general__script_id,
+                    expect(entity.script__names).toContain(
+                        script.general__script_name,
                     );
                     // Delete the entity record after all checks.
                     await tx`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
                     // Optionally clean up asset and script records.
                     await tx`DELETE FROM entity.entity_assets WHERE general__asset_name = ${asset.general__asset_name}`;
-                    await tx`DELETE FROM entity.entity_scripts WHERE general__script_id = ${script.general__script_id}`;
+                    await tx`DELETE FROM entity.entity_scripts WHERE general__script_name = ${script.general__script_name}`;
                 });
             });
             test("should remove asset name from entity when corresponding asset is deleted", async () => {
@@ -828,22 +828,22 @@ describe("DB", () => {
                     const [entity] = await tx<[Entity.I_Entity]>`
         			INSERT INTO entity.entities (
         				general__entity_name,
-        				script__ids,
+        				script__names,
         				group__sync
         			) VALUES (
         				${"Entity with script"},
-        				${[script.general__script_id]},
+        				${[script.general__script_name]},
         				${"public.NORMAL"}
         			) RETURNING *
         		`;
                     // Delete the script.
-                    await tx`DELETE FROM entity.entity_scripts WHERE general__script_id = ${script.general__script_id}`;
+                    await tx`DELETE FROM entity.entity_scripts WHERE general__script_name = ${script.general__script_name}`;
                     // Re-read the entity to ensure the script id is removed.
                     const [updatedEntity] = await tx`
         			SELECT * FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}
         		`;
-                    expect(updatedEntity.script__ids).not.toContain(
-                        script.general__script_id,
+                    expect(updatedEntity.script__names).not.toContain(
+                        script.general__script_name,
                     );
                     // Clean up
                     await tx`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
@@ -877,12 +877,12 @@ describe("DB", () => {
                     const [entity] = await tx<[Entity.I_Entity]>`
         			INSERT INTO entity.entities (
         				general__entity_name,
-        				script__ids,
+        				script__names,
         				script__statuses,
         				group__sync
         			) VALUES (
         				${"Entity for script status propagation"},
-        				${[script.general__script_id]},
+        				${[script.general__script_name]},
         				${"ACTIVE"},
         				${"public.NORMAL"}
         			) RETURNING *
@@ -891,7 +891,7 @@ describe("DB", () => {
                     await tx`
         			UPDATE entity.entity_scripts
         			SET compiled__node__status = ${"PENDING"}
-        			WHERE general__script_id = ${script.general__script_id}
+        			WHERE general__script_name = ${script.general__script_name}
         		`;
                     // The trigger on entity.entity_scripts should update affected entities.
                     // Re-read the entity to check the updated status.
@@ -904,7 +904,7 @@ describe("DB", () => {
                     );
                     // Clean up
                     await tx`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
-                    await tx`DELETE FROM entity.entity_scripts WHERE general__script_id = ${script.general__script_id}`;
+                    await tx`DELETE FROM entity.entity_scripts WHERE general__script_name = ${script.general__script_name}`;
                 });
             });
         });
@@ -1021,51 +1021,41 @@ describe("DB", () => {
                 test("should create multiple test scripts and capture their tick states", async () => {
                     await superUserSql.begin(async (tx) => {
                         // Create two test script records
-                        const [script1] = await tx<
-                            [{ general__script_id: string }]
-                        >`
+                        const [script1] = await tx<[Entity.Script.I_Script]>`
                     INSERT INTO entity.entity_scripts (
                         general__script_name,
                         group__sync
                     ) VALUES (
                         ${`${DB_TEST_PREFIX}Test Script 1`},
                         ${TEST_SYNC_GROUP}
-                    ) RETURNING general__script_id
+                    ) RETURNING *
                 `;
-                        const [script2] = await tx<
-                            [{ general__script_id: string }]
-                        >`
+                        const [script2] = await tx<[Entity.Script.I_Script]>`
                     INSERT INTO entity.entity_scripts (
                         general__script_name,
                         group__sync
                     ) VALUES (
                         ${`${DB_TEST_PREFIX}Test Script 2`},
                         ${TEST_SYNC_GROUP}
-                    ) RETURNING general__script_id
+                    ) RETURNING *
                 `;
 
                         // Capture a tick so that the scripts are processed
                         await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
 
                         // Retrieve all script states at latest tick and verify the scripts are present
-                        const scripts = await tx<
-                            Array<{
-                                general__script_id: string;
-                                general__script_name: string;
-                                group__sync: string;
-                            }>
-                        >`
+                        const scripts = await tx<Array<Entity.Script.I_Script>>`
                     SELECT * FROM entity.entity_scripts WHERE group__sync = ${TEST_SYNC_GROUP}
                 `;
 
-                        const retrievedIds = scripts.map(
-                            (s) => s.general__script_id,
+                        const retrievedNames = scripts.map(
+                            (s) => s.general__script_name,
                         );
-                        expect(retrievedIds).toContain(
-                            script1.general__script_id,
+                        expect(retrievedNames).toContain(
+                            script1.general__script_name,
                         );
-                        expect(retrievedIds).toContain(
-                            script2.general__script_id,
+                        expect(retrievedNames).toContain(
+                            script2.general__script_name,
                         );
                     });
                 });
@@ -1078,8 +1068,8 @@ describe("DB", () => {
                         [script1] = await tx<[Entity.Script.I_Script]>`
                             INSERT INTO entity.entity_scripts (
                                 general__script_name,
-                                compiled__browser__script,
-                                compiled__browser__status,
+                                script__compiled,
+                                script__compiled__status,
                                 source__repo__url,
                                 group__sync
                             ) VALUES (
@@ -1097,15 +1087,14 @@ describe("DB", () => {
                         await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
                     });
 
-                    // Update the script in a separate transaction
+                    // Update the script in a separate transaction - don't change primary key
                     await superUserSql.begin(async (tx) => {
                         await tx`
                             UPDATE entity.entity_scripts
                             SET 
-                                general__script_name = ${`${DB_TEST_PREFIX}Updated Script`},
-                                compiled__browser__script = ${'console.log("updated version")'},
-                                compiled__browser__status = ${"PENDING"}
-                            WHERE general__script_id = ${script1.general__script_id}
+                                script__compiled = ${'console.log("updated version")'},
+                                script__compiled__status = ${"PENDING"}
+                            WHERE general__script_name = ${script1.general__script_name}
                         `;
                     });
 
@@ -1124,19 +1113,19 @@ describe("DB", () => {
                         // Find our script in the changes
                         const scriptChange = scriptChanges.find(
                             (c) =>
-                                c.general__script_id ===
-                                script1.general__script_id,
+                                c.general__script_name ===
+                                script1.general__script_name,
                         );
 
                         expect(scriptChange).toBeDefined();
                         expect(scriptChange?.operation).toBe("UPDATE");
 
                         // Check that only changed fields are included
-                        expect(scriptChange?.changes.general__script_name).toBe(
-                            `${DB_TEST_PREFIX}Updated Script`,
+                        expect(scriptChange?.changes.script__compiled).toBe(
+                            'console.log("updated version")',
                         );
                         expect(
-                            scriptChange?.changes.compiled__browser__status,
+                            scriptChange?.changes.script__compiled__status,
                         ).toBe("PENDING");
 
                         // The URL field wasn't changed, so it shouldn't be included
@@ -1276,8 +1265,7 @@ describe("DB", () => {
                             general__entity_name,
                             meta__data,
                             group__sync,
-                            script__ids,
-                            script__statuses,
+                            script__names,
                             asset__names
                         ) VALUES (
                             ${name},
@@ -1292,7 +1280,6 @@ describe("DB", () => {
                             })},
                             ${TEST_SYNC_GROUP},
                             ${tx.array([])},
-                            ${"ACTIVE"},
                             ${tx.array([])}
                         ) RETURNING *
                     `;
@@ -1327,47 +1314,43 @@ describe("DB", () => {
                 test("should detect entity changes between ticks for multiple entities", async () => {
                     await superUserSql.begin(async (tx) => {
                         const [entity1] = await tx<[Entity.I_Entity]>`
-                    INSERT INTO entity.entities (
-                        general__entity_name,
-                        meta__data,
-                        group__sync,
-                        script__ids,
-                        script__statuses,
-                        asset__names
-                    ) VALUES (
-                        ${`${DB_TEST_PREFIX}Original Entity 1`},
-                        ${tx.json({
-                            test_script_1: {
-                                position: {
-                                    x: 0,
-                                    y: 0,
-                                    z: 0,
-                                },
-                            },
-                        })},
-                        ${TEST_SYNC_GROUP},
-                        ${tx.array([])},
-                        ${"ACTIVE"},
-                        ${tx.array([])}
-                    ) RETURNING *
-                `;
+                            INSERT INTO entity.entities (
+                                general__entity_name,
+                                meta__data,
+                                group__sync,
+                                script__names,
+                                asset__names
+                            ) VALUES (
+                                ${`${DB_TEST_PREFIX}Original Entity 1`},
+                                ${tx.json({
+                                    test_script_1: {
+                                        position: {
+                                            x: 0,
+                                            y: 0,
+                                            z: 0,
+                                        },
+                                    },
+                                })},
+                                ${TEST_SYNC_GROUP},
+                                ${tx.array([])},
+                                ${tx.array([])}
+                            ) RETURNING *
+                        `;
                         const [entity2] = await tx<[Entity.I_Entity]>`
-                    INSERT INTO entity.entities (
-                        general__entity_name,
-                        meta__data,
-                        group__sync,
-                        script__ids,
-                        script__statuses,
-                        asset__names
-                    ) VALUES (
-                        ${`${DB_TEST_PREFIX}Original Entity 2`},
-                        ${tx.json({ test_script_1: { position: { x: 10, y: 10, z: 10 } } })},
-                        ${TEST_SYNC_GROUP},
-                        ${tx.array([])},
-                        ${"ACTIVE"},
-                        ${tx.array([])}
-                    ) RETURNING *
-                `;
+                           INSERT INTO entity.entities (
+                                general__entity_name,
+                                meta__data,
+                                group__sync,
+                                script__names,
+                                asset__names
+                            ) VALUES (
+                                ${`${DB_TEST_PREFIX}Original Entity 2`},
+                                ${tx.json({ test_script_1: { position: { x: 10, y: 10, z: 10 } } })},
+                                ${TEST_SYNC_GROUP},
+                                ${tx.array([])},
+                                ${tx.array([])}
+                            ) RETURNING *
+                        `;
                         // Capture first tick
                         await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
 

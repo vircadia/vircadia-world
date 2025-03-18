@@ -10,7 +10,7 @@ import { fetch } from "bun";
 describe("World Tick Manager - HEALTH", () => {
     test("Health Check - Stats Endpoint", async () => {
         // Construct the stats endpoint URL
-        const statsEndpoint = `http://${VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_TICK_HOST_CONTAINER_CLUSTER}:${VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_TICK_PORT_CONTAINER_CLUSTER}${Service.Tick.Stats_Endpoint.path}`;
+        const statsEndpoint = `http://${VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_CLUSTER}:${VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_CLUSTER}${Service.Tick.Stats_Endpoint.path}`;
 
         // Send request to the stats endpoint
         const response = await fetch(statsEndpoint, {

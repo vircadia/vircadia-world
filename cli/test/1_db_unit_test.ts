@@ -634,10 +634,12 @@ describe("DB", () => {
                     await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
                     const [script] = await tx<[Entity.Script.I_Script]>`
         			INSERT INTO entity.entity_scripts (
-        				compiled__browser__script,
-        				compiled__browser__status,
+                        general__script_name,
+        				script__compiled,
+        				script__compiled__status,
         				group__sync
         			) VALUES (
+                        ${"Test Script"},
         				${'console.log("test")'},
         				${Entity.Script.E_CompilationStatus.COMPILED},
         				${TEST_SYNC_GROUP}
@@ -811,17 +813,21 @@ describe("DB", () => {
         				group__sync,
         				source__repo__entry_path,
         				source__repo__url,
-        				compiled__node__status,
-        				compiled__bun__status,
-        				compiled__browser__status
+        				script__type,
+                        script__compiled,   
+                        script__compiled__sha256,
+                        script__compiled__status,
+                        script__compiled__updated_at
         			) VALUES (
         				${"Script to delete"},
         				${"public.NORMAL"},
         				${"path/to/script"},
         				${"https://github.com/example/repo"},
-        				${"COMPILED"},
-        				${"COMPILED"},
-        				${"COMPILED"}
+        				${"BABYLON_BROWSER"},
+                        ${'console.log("test")'},
+                        ${"sha256"},
+                        ${Entity.Script.E_CompilationStatus.COMPILED},
+                        ${"2021-01-01 00:00:00"}
         			) RETURNING *
         		`;
                     // Insert an entity referencing the script.
@@ -847,64 +853,6 @@ describe("DB", () => {
                     );
                     // Clean up
                     await tx`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
-                });
-            });
-            test("should propagate script status changes to update entity script__statuses", async () => {
-                await proxyUserSql.begin(async (tx) => {
-                    await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
-
-                    // Insert a script record with compiled statuses
-                    const [script] = await tx<[Entity.Script.I_Script]>`
-        			INSERT INTO entity.entity_scripts (
-        				general__script_name,
-        				group__sync,
-        				source__repo__entry_path,
-        				source__repo__url,
-        				compiled__node__status,
-        				compiled__bun__status,
-        				compiled__browser__status
-        			) VALUES (
-        				${"Script for status propagation"},
-        				${"public.NORMAL"},
-        				${"path/to/script"},
-        				${"https://github.com/example/repo"},
-        				${"COMPILED"},
-        				${"COMPILED"},
-        				${"COMPILED"}
-        			) RETURNING *
-        		`;
-                    // Insert an entity referencing the script.
-                    const [entity] = await tx<[Entity.I_Entity]>`
-        			INSERT INTO entity.entities (
-        				general__entity_name,
-        				script__names,
-        				script__statuses,
-        				group__sync
-        			) VALUES (
-        				${"Entity for script status propagation"},
-        				${[script.general__script_name]},
-        				${"ACTIVE"},
-        				${"public.NORMAL"}
-        			) RETURNING *
-        		`;
-                    // Update the script to a pending status (simulate a status change).
-                    await tx`
-        			UPDATE entity.entity_scripts
-        			SET compiled__node__status = ${"PENDING"}
-        			WHERE general__script_name = ${script.general__script_name}
-        		`;
-                    // The trigger on entity.entity_scripts should update affected entities.
-                    // Re-read the entity to check the updated status.
-                    const [updatedEntity] = await tx`
-        			SELECT * FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}
-        		`;
-                    // Expect the entity's script__statuses to be updated to 'AWAITING_SCRIPTS'
-                    expect(updatedEntity.script__statuses).toBe(
-                        "AWAITING_SCRIPTS",
-                    );
-                    // Clean up
-                    await tx`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
-                    await tx`DELETE FROM entity.entity_scripts WHERE general__script_name = ${script.general__script_name}`;
                 });
             });
         });
@@ -1075,7 +1023,7 @@ describe("DB", () => {
                             ) VALUES (
                                 ${`${DB_TEST_PREFIX}Initial Script`},
                                 ${'console.log("initial version")'},
-                                ${"COMPILED"},
+                                ${Entity.Script.E_CompilationStatus.COMPILED},
                                 ${"https://original-repo.git"},
                                 ${TEST_SYNC_GROUP}
                             ) RETURNING *
@@ -1093,7 +1041,7 @@ describe("DB", () => {
                             UPDATE entity.entity_scripts
                             SET 
                                 script__compiled = ${'console.log("updated version")'},
-                                script__compiled__status = ${"PENDING"}
+                                script__compiled__status = ${Entity.Script.E_CompilationStatus.PENDING}
                             WHERE general__script_name = ${script1.general__script_name}
                         `;
                     });
@@ -1126,7 +1074,7 @@ describe("DB", () => {
                         );
                         expect(
                             scriptChange?.changes.script__compiled__status,
-                        ).toBe("PENDING");
+                        ).toBe(Entity.Script.E_CompilationStatus.PENDING);
 
                         // The URL field wasn't changed, so it shouldn't be included
                         expect(

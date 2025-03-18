@@ -4,16 +4,18 @@
     "type": "module",
     "scripts": {
         "server:run-command": "VRCA_CLI_DEBUG=1 bun vircadia.world.cli.ts server:run-command",
-        "server:rebuild-all": "bun run server:run-command down -v && bun run server:run-command up --build vircadia_world_postgres -d && bun run server:postgres:health && bun run server:postgres:migrate && bun run server:postgres:seed && bun run server:run-command up --build vircadia_world_api_manager -d && bun run server:run-command up --build vircadia_world_tick_manager -d && bun run server:run-command up --build vircadia_world_pgweb -d",
+        "server:rebuild-all": "bun run server:run-command down -v && bun run server:run-command up --build vircadia_world_postgres -d && bun run server:postgres:health && bun run server:postgres:migrate && bun run server:postgres:seed:sql && bun run server:postgres:seed:assets && bun run server:postgres:seed:scripts && bun run server:run-command up --build vircadia_world_api_manager -d && bun run server:run-command up --build vircadia_world_tick_manager -d && bun run server:run-command up --build vircadia_world_pgweb -d",
 
-        "server:postgres:reset": "bun run server:run-command down vircadia_world_api_manager vircadia_world_tick_manager vircadia_world_pgweb && bun run server:postgres:wipe && bun run server:postgres:migrate && bun run server:postgres:seed && bun run server:run-command up -d",
+        "server:postgres:reset": "bun run server:run-command down vircadia_world_api_manager vircadia_world_tick_manager vircadia_world_pgweb && bun run server:postgres:wipe && bun run server:postgres:migrate && bun run server:postgres:seed:sql && bun run server:postgres:seed:assets && bun run server:postgres:seed:scripts && bun run server:run-command up -d",
         "server:postgres:health": "bun vircadia.world.cli.ts server:postgres:health",
         "server:postgres:migrate": "bun vircadia.world.cli.ts server:postgres:migrate",
         "server:postgres:wipe": "bun vircadia.world.cli.ts server:postgres:wipe",
         "server:postgres:connection-string": "bun vircadia.world.cli.ts server:postgres:connection-string",
         "server:postgres:system-token": "bun vircadia.world.cli.ts server:postgres:system-token",
         "server:postgres:system-token:invalidate-all": "bun vircadia.world.cli.ts server:postgres:system-token:invalidate-all",
-        "server:postgres:seed": "bun vircadia.world.cli.ts server:postgres:seed",
+        "server:postgres:seed:sql": "bun vircadia.world.cli.ts server:postgres:seed:sql",
+        "server:postgres:seed:assets": "bun vircadia.world.cli.ts server:postgres:seed:assets",
+        "server:postgres:seed:scripts": "bun vircadia.world.cli.ts server:postgres:seed:scripts",
 
         "server:world-api-manager:health": "bun vircadia.world.cli.ts server:world-api-manager:health",
 

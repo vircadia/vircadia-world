@@ -699,8 +699,7 @@ export namespace Server_CLI {
 
         await sql.unsafe(`
         CREATE TABLE IF NOT EXISTS config.migrations (
-            general__id SERIAL PRIMARY KEY,
-            general__name VARCHAR(255) NOT NULL,
+            general__name VARCHAR(255) UNIQUE PRIMARY KEY NOT NULL,
             general__executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     `);
@@ -732,9 +731,12 @@ export namespace Server_CLI {
         });
 
         // Get already executed migrations
-        const result =
-            await sql`SELECT general__name FROM config.migrations ORDER BY general__id`;
-        const executedMigrations = result.map((r) => r.name);
+        const result = await sql<
+            {
+                general__name: string;
+            }[]
+        >`SELECT general__name FROM config.migrations ORDER BY general__name`;
+        const executedMigrations = result.map((r) => r.general__name);
 
         // Run pending migrations
         for (const file of migrationSqlFiles) {
@@ -784,10 +786,8 @@ export namespace Server_CLI {
         return migrationsRan;
     }
 
-    // Update seed function signature
-    export async function seed(data: {
-        seedPath?: string;
-    }) {
+    // Separate seed functions for SQL, assets, and scripts
+    export async function seedSql() {
         const db = PostgresClient.getInstance({
             debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
             suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
@@ -805,125 +805,448 @@ export namespace Server_CLI {
         });
 
         // Ensure we resolve the seed path to absolute path
-        const seedDir = data.seedPath
-            ? path.resolve(data.seedPath)
-            : VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SEED_DIR;
+        const sqlDir =
+            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SEED_SQL_DIR;
 
-        log({
-            message: `Attempting to read seed directory: ${seedDir}`,
-            type: "debug",
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-        });
-
-        // Get list of seed files
-        let files: string[] = [];
         try {
-            files = await readdir(seedDir);
-            log({
-                message: `Directory contents: ${files.length ? files.join(", ") : "(empty directory)"}`,
-                type: "debug",
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-            });
-        } catch (error) {
-            log({
-                message: `Error reading seed directory: ${error instanceof Error ? error.message : String(error)}`,
-                type: "error",
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-            });
-            log({
-                message: `No seed directory found at ${seedDir}`,
-                type: "error",
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-            });
-            return;
-        }
+            const filesInSqlDir = await readdir(sqlDir);
+            const sqlFiles = filesInSqlDir
+                .filter((f) => f.endsWith(".sql"))
+                .sort();
 
-        const sqlFiles = files.filter((f) => f.endsWith(".sql")).sort();
-
-        // Get already executed seeds - querying by hash now
-        const result =
-            await sql`SELECT general__hash, general__name FROM config.seeds`;
-        const executedHashes = new Set(result.map((r) => r.general__hash));
-        const executedNames = new Map(
-            result.map((r) => [r.general__name, r.general__hash]),
-        );
-
-        // Run pending seeds
-        for (const file of sqlFiles) {
-            log({
-                message: `Found seed ${file}...`,
-                type: "debug",
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-            });
-
-            const filePath = path.join(seedDir, file);
-            const sqlContent = await readFile(filePath, "utf-8");
-
-            // Calculate MD5 hash of the seed content
-            const contentHash = createHash("md5")
-                .update(sqlContent)
-                .digest("hex");
-
-            if (!executedHashes.has(contentHash)) {
-                // If the seed name exists but with a different hash, log a warning
-                if (
-                    executedNames.has(file) &&
-                    executedNames.get(file) !== contentHash
-                ) {
-                    log({
-                        message: `Warning: Seed ${file} has changed since it was last executed`,
-                        type: "warn",
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-                    });
-                }
-
+            if (sqlFiles.length === 0) {
                 log({
-                    message: `Executing seed ${file} (hash: ${contentHash})...`,
+                    message: `No SQL seed files found in ${sqlDir}`,
+                    type: "info",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+                return;
+            }
+
+            log({
+                message: `Found ${sqlFiles.length} SQL seed files in ${sqlDir}`,
+                type: "debug",
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            });
+
+            // Get already executed seeds - querying by hash
+            const result =
+                await sql`SELECT general__hash, general__name FROM config.seeds`;
+            const executedHashes = new Set(result.map((r) => r.general__hash));
+            const executedNames = new Map(
+                result.map((r) => [r.general__name, r.general__hash]),
+            );
+
+            // Process SQL files sequentially (required for SQL)
+            for (const sqlFile of sqlFiles) {
+                log({
+                    message: `Found seed ${sqlFile}...`,
                     type: "debug",
                     suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                     debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 });
 
+                const filePath = path.join(sqlDir, sqlFile);
+                const sqlContent = await readFile(filePath, "utf-8");
+
+                // Calculate MD5 hash of the seed content
+                const contentHash = createHash("md5")
+                    .update(sqlContent)
+                    .digest("hex");
+
+                if (!executedHashes.has(contentHash)) {
+                    // If the seed name exists but with a different hash, log a warning
+                    if (
+                        executedNames.has(sqlFile) &&
+                        executedNames.get(sqlFile) !== contentHash
+                    ) {
+                        log({
+                            message: `Warning: Seed ${sqlFile} has changed since it was last executed`,
+                            type: "warn",
+                            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        });
+                    }
+
+                    log({
+                        message: `Executing seed ${sqlFile} (hash: ${contentHash})...`,
+                        type: "debug",
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+
+                    try {
+                        // Run the seed in a transaction
+                        await sql.begin(async (sql) => {
+                            await sql.unsafe(sqlContent);
+                            await sql`
+                                INSERT INTO config.seeds (general__hash, general__name)
+                                VALUES (${contentHash}, ${sqlFile})
+                            `;
+                        });
+
+                        log({
+                            message: `Seed ${sqlFile} executed successfully`,
+                            type: "debug",
+                            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        });
+                    } catch (error) {
+                        log({
+                            message: `Failed to run seed ${sqlFile}`,
+                            type: "error",
+                            error: error,
+                            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        });
+                        throw error;
+                    }
+                } else {
+                    log({
+                        message: `Seed ${sqlFile} already executed`,
+                        type: "debug",
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                }
+            }
+
+            log({
+                message: "SQL seeding completed successfully",
+                type: "success",
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            });
+        } catch (error) {
+            log({
+                message: `Error processing SQL seed files: ${error instanceof Error ? error.message : String(error)}`,
+                type: "error",
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            });
+            throw error;
+        }
+    }
+
+    export async function seedAssets(data: {
+        options?: {
+            parallelProcessing?: boolean;
+            batchSize?: number;
+        };
+    }) {
+        const options = {
+            parallelProcessing: true,
+            batchSize: 10,
+            ...data.options,
+        };
+
+        const db = PostgresClient.getInstance({
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+        });
+        const sql = await db.getSuperClient({
+            postgres: {
+                host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                username:
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                password:
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+            },
+        });
+
+        const assetDir =
+            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SEED_ASSET_DIR;
+
+        try {
+            const assetFiles = await readdir(assetDir);
+
+            if (assetFiles.length === 0) {
+                log({
+                    message: `No asset files found in ${assetDir}`,
+                    type: "info",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+                return;
+            }
+
+            log({
+                message: `Found ${assetFiles.length} asset files in ${assetDir}`,
+                type: "debug",
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            });
+
+            // Prepare for efficient matching
+            const assetFileNames = assetFiles.map((file) => {
+                const parsedName = path.parse(file);
+                return {
+                    fileName: file,
+                    searchName: parsedName.name + parsedName.ext,
+                };
+            });
+
+            // Get all assets from the database with one query
+            const dbAssets = await sql<{ general__asset_name: string }[]>`
+                SELECT general__asset_name FROM entity.entity_assets
+            `;
+
+            log({
+                message: `Found ${dbAssets.length} assets in database`,
+                type: "debug",
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            });
+
+            // Function to process a single asset file
+            const processAssetFile = async ({
+                fileName,
+                searchName,
+            }: { fileName: string; searchName: string }) => {
+                const assetPath = path.join(assetDir, fileName);
+
+                // Find matches
+                const matchingAssets = dbAssets.filter((dbAsset) =>
+                    dbAsset.general__asset_name.includes(searchName),
+                );
+
+                if (matchingAssets.length === 0) {
+                    log({
+                        message: `No matching asset found in database for file: ${fileName}`,
+                        type: "warn",
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                    return;
+                }
+
+                // Read asset file content as buffer - only read once
+                const assetData = await Bun.file(assetPath).arrayBuffer();
+                const assetBuffer = Buffer.from(assetData);
+
+                // Update all matching assets in a single transaction
                 try {
-                    // Run the seed in a transaction - updated to include hash
                     await sql.begin(async (sql) => {
-                        await sql.unsafe(sqlContent);
-                        await sql`
-                        INSERT INTO config.seeds (general__hash, general__name)
-                        VALUES (${contentHash}, ${file})
-                    `;
+                        for (const dbAsset of matchingAssets) {
+                            await sql`
+                                UPDATE entity.entity_assets 
+                                SET asset__data = ${assetBuffer}
+                                WHERE general__asset_name = ${dbAsset.general__asset_name}
+                            `;
+                        }
                     });
 
                     log({
-                        message: `Seed ${file} executed successfully`,
+                        message: `Updated ${matchingAssets.length} assets from file ${fileName}`,
                         type: "debug",
                         suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                         debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                     });
                 } catch (error) {
                     log({
-                        message: `Failed to run seed ${file}`,
+                        message: `Failed to update assets from file ${fileName}`,
                         type: "error",
                         error: error,
                         suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                         debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                     });
-                    throw error;
+                }
+            };
+
+            // Process assets in parallel or sequentially
+            if (options.parallelProcessing) {
+                // Process in batches
+                for (
+                    let i = 0;
+                    i < assetFileNames.length;
+                    i += options.batchSize
+                ) {
+                    const batch = assetFileNames.slice(
+                        i,
+                        i + options.batchSize,
+                    );
+                    await Promise.all(batch.map(processAssetFile));
                 }
             } else {
+                for (const assetFile of assetFileNames) {
+                    await processAssetFile(assetFile);
+                }
+            }
+
+            log({
+                message: "Asset seeding completed successfully",
+                type: "success",
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            });
+        } catch (error) {
+            log({
+                message: `Error processing asset files: ${error instanceof Error ? error.message : String(error)}`,
+                type: "error",
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            });
+            throw error;
+        }
+    }
+
+    export async function seedScripts(data: {
+        options?: {
+            parallelProcessing?: boolean;
+            batchSize?: number;
+        };
+    }) {
+        const options = {
+            parallelProcessing: true,
+            batchSize: 10,
+            ...data.options,
+        };
+
+        const db = PostgresClient.getInstance({
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+        });
+        const sql = await db.getSuperClient({
+            postgres: {
+                host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                username:
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                password:
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+            },
+        });
+
+        const scriptDir =
+            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SEED_SCRIPT_DIR;
+
+        try {
+            const scriptFiles = await readdir(scriptDir);
+
+            if (scriptFiles.length === 0) {
                 log({
-                    message: `Seed ${file} already executed`,
-                    type: "debug",
+                    message: `No script files found in ${scriptDir}`,
+                    type: "info",
                     suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                     debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 });
+                return;
             }
+
+            log({
+                message: `Found ${scriptFiles.length} script files in ${scriptDir}`,
+                type: "debug",
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            });
+
+            // Prepare for efficient matching
+            const scriptFileNames = scriptFiles.map((file) => {
+                const parsedName = path.parse(file);
+                return {
+                    fileName: file,
+                    searchName: parsedName.name + parsedName.ext,
+                };
+            });
+
+            // Get all scripts from the database with one query
+            const dbScripts = await sql<{ general__script_name: string }[]>`
+                SELECT general__script_name FROM entity.entity_scripts
+            `;
+
+            // Function to process a single script file
+            const processScriptFile = async ({
+                fileName,
+                searchName,
+            }: { fileName: string; searchName: string }) => {
+                const scriptPath = path.join(scriptDir, fileName);
+
+                // Find matches
+                const matchingScripts = dbScripts.filter((dbScript) =>
+                    dbScript.general__script_name.includes(searchName),
+                );
+
+                if (matchingScripts.length === 0) {
+                    log({
+                        message: `No matching script found in database for file: ${fileName}`,
+                        type: "warn",
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                    return;
+                }
+
+                // Read script file content - only read once
+                const scriptData = await Bun.file(scriptPath).text();
+
+                // Update all matching scripts in a single transaction
+                try {
+                    await sql.begin(async (sql) => {
+                        for (const dbScript of matchingScripts) {
+                            await sql`
+                                UPDATE entity.entity_scripts 
+                                SET script__compiled__data = ${scriptData}
+                                WHERE general__script_name = ${dbScript.general__script_name}
+                            `;
+                        }
+                    });
+
+                    log({
+                        message: `Updated ${matchingScripts.length} scripts from file ${fileName}`,
+                        type: "debug",
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                } catch (error) {
+                    log({
+                        message: `Failed to update scripts from file ${fileName}`,
+                        type: "error",
+                        error: error,
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                }
+            };
+
+            // Process scripts in parallel or sequentially
+            if (options.parallelProcessing) {
+                // Process in batches
+                for (
+                    let i = 0;
+                    i < scriptFileNames.length;
+                    i += options.batchSize
+                ) {
+                    const batch = scriptFileNames.slice(
+                        i,
+                        i + options.batchSize,
+                    );
+                    await Promise.all(batch.map(processScriptFile));
+                }
+            } else {
+                for (const scriptFile of scriptFileNames) {
+                    await processScriptFile(scriptFile);
+                }
+            }
+
+            log({
+                message: "Script seeding completed successfully",
+                type: "success",
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            });
+        } catch (error) {
+            log({
+                message: `Error processing script files: ${error instanceof Error ? error.message : String(error)}`,
+                type: "error",
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            });
+            throw error;
         }
     }
 
@@ -1293,16 +1616,72 @@ if (import.meta.main) {
                 break;
             }
 
-            case "server:postgres:seed": {
+            case "server:postgres:seed:sql": {
                 log({
-                    message: "Running database seeds...",
+                    message: "Running database SQL seeds...",
                     type: "info",
                     suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                     debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 });
-                await Server_CLI.seed({ seedPath: additionalArgs[0] });
+                await Server_CLI.seedSql();
                 log({
-                    message: "Seeds applied.",
+                    message: "SQL seeds applied.",
+                    type: "success",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+                break;
+            }
+
+            case "server:postgres:seed:assets": {
+                log({
+                    message: "Running database asset seeds...",
+                    type: "info",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+                await Server_CLI.seedAssets({
+                    options: {
+                        parallelProcessing:
+                            additionalArgs.length > 0
+                                ? Boolean(additionalArgs[0])
+                                : true,
+                        batchSize:
+                            additionalArgs.length > 1
+                                ? Number.parseInt(additionalArgs[1])
+                                : 10,
+                    },
+                });
+                log({
+                    message: "Asset seeds applied.",
+                    type: "success",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+                break;
+            }
+
+            case "server:postgres:seed:scripts": {
+                log({
+                    message: "Running database script seeds...",
+                    type: "info",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+                await Server_CLI.seedScripts({
+                    options: {
+                        parallelProcessing:
+                            additionalArgs.length > 0
+                                ? Boolean(additionalArgs[0])
+                                : true,
+                        batchSize:
+                            additionalArgs.length > 1
+                                ? Number.parseInt(additionalArgs[1])
+                                : 10,
+                    },
+                });
+                log({
+                    message: "Script seeds applied.",
                     type: "success",
                     suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                     debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,

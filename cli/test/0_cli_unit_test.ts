@@ -173,12 +173,7 @@ describe("SERVER Container and Database CLI Tests", () => {
         expect(pgwebHealthAfterUp.isHealthy).toBe(true);
 
         await Server_CLI.runServerDockerCommand({
-            args: [
-                "up",
-                Service.E_Service.WORLD_API_MANAGER,
-                Service.E_Service.WORLD_TICK_MANAGER,
-                "-d",
-            ],
+            args: ["up", Service.E_Service.WORLD_API_MANAGER, "-d"],
         });
 
         const apiHealthAfterUp = await Server_CLI.isWorldApiManagerHealthy({
@@ -186,6 +181,10 @@ describe("SERVER Container and Database CLI Tests", () => {
             interval: 2000,
         });
         expect(apiHealthAfterUp.isHealthy).toBe(true);
+
+        await Server_CLI.runServerDockerCommand({
+            args: ["up", Service.E_Service.WORLD_TICK_MANAGER, "-d"],
+        });
 
         const tickHealthAfterUp = await Server_CLI.isWorldTickManagerHealthy({
             timeout: 30000,

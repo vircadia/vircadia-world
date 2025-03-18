@@ -1,14 +1,11 @@
 import { describe, test, expect } from "bun:test";
 import { VircadiaConfig_SERVER } from "../vircadia-world-sdk-ts/config/vircadia.server.config";
 import { log } from "../vircadia-world-sdk-ts/module/general/log";
-import {
-    Communication,
-    Service,
-} from "../vircadia-world-sdk-ts/schema/schema.general";
+import { Service } from "../vircadia-world-sdk-ts/schema/schema.general";
 import { fetch } from "bun";
 
 describe("World Tick Manager - HEALTH", () => {
-    test("Health Check - Stats Endpoint", async () => {
+    test("Health Check - Internal Stats Endpoint", async () => {
         // Construct the stats endpoint URL
         const statsEndpoint = `http://${VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_INTERNAL}:${VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_INTERNAL}${Service.Tick.Stats_Endpoint.path}`;
 

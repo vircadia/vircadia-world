@@ -31,7 +31,7 @@ export namespace WebScriptHotSync {
     async function compileScript(
         source: string,
         type: string,
-        debug?: boolean,
+        filePath: string,
     ): Promise<{ data: string; hash: string; status: string }> {
         try {
             let compiledData: string;
@@ -39,18 +39,14 @@ export namespace WebScriptHotSync {
             switch (type) {
                 case Entity.Script.E_ScriptType.BABYLON_NODE: {
                     // For Node/Bun scripts, use Bun's transpiler
-                    const result = await Bun.build({
-                        entrypoints: [
-                            new URL(
-                                `data:application/javascript;base64,${btoa(source)}`,
-                            ).toString(),
-                        ],
+                    const nodeResult = await Bun.build({
+                        entrypoints: [filePath],
                         format: "esm",
                         target: "node",
                         minify: true,
                     });
 
-                    if (!result.success) {
+                    if (!nodeResult.success) {
                         return {
                             data: source, // Return source on compilation failure
                             hash: calculateHash(source),
@@ -58,23 +54,19 @@ export namespace WebScriptHotSync {
                         };
                     }
 
-                    compiledData = await result.outputs[0].text();
+                    compiledData = await nodeResult.outputs[0].text();
                     break;
                 }
                 case Entity.Script.E_ScriptType.BABYLON_BUN: {
                     // For Bun scripts, use Bun's transpiler
-                    const result = await Bun.build({
-                        entrypoints: [
-                            new URL(
-                                `data:application/javascript;base64,${btoa(source)}`,
-                            ).toString(),
-                        ],
+                    const bunResult = await Bun.build({
+                        entrypoints: [filePath],
                         format: "esm",
                         target: "bun",
                         minify: true,
                     });
 
-                    if (!result.success) {
+                    if (!bunResult.success) {
                         return {
                             data: source, // Return source on compilation failure
                             hash: calculateHash(source),
@@ -82,17 +74,13 @@ export namespace WebScriptHotSync {
                         };
                     }
 
-                    compiledData = await result.outputs[0].text();
+                    compiledData = await bunResult.outputs[0].text();
                     break;
                 }
                 case Entity.Script.E_ScriptType.BABYLON_BROWSER: {
                     // For browser scripts, use browser target
                     const browserResult = await Bun.build({
-                        entrypoints: [
-                            new URL(
-                                `data:application/javascript;base64,${btoa(source)}`,
-                            ).toString(),
-                        ],
+                        entrypoints: [filePath],
                         format: "esm",
                         target: "browser",
                         minify: true,
@@ -122,7 +110,7 @@ export namespace WebScriptHotSync {
                 type: "error",
                 error,
                 suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
             });
 
             return {
@@ -258,7 +246,11 @@ export namespace WebScriptHotSync {
                 });
 
                 // Compile the script
-                const compiledResult = await compileScript(content, scriptType);
+                const compiledResult = await compileScript(
+                    content,
+                    scriptType,
+                    filePath,
+                );
 
                 // Update the database with compiled result
                 await sql`
@@ -326,7 +318,7 @@ export namespace WebScriptHotSync {
                         general__script_file_name, 
                         script__type, 
                         script__source__data, 
-                        script__source__sha256,
+                        script__source__sha256
                     FROM entity.entity_scripts
                     WHERE script__type = ANY(${VALID_SCRIPT_TYPES})
                 `;

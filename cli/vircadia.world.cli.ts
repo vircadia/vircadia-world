@@ -13,6 +13,7 @@ import {
     Service,
 } from "../sdk/vircadia-world-sdk-ts/schema/schema.general.ts";
 import { createHash } from "node:crypto";
+import { WebScriptHotSync } from "./module/hot-sync.ts";
 
 // TODO: Optimize the commands, get up and down rebuilds including init to work well.
 
@@ -991,8 +992,8 @@ export namespace Server_CLI {
             });
 
             // Get all assets from the database with one query
-            const dbAssets = await sql<{ general__asset_name: string }[]>`
-                SELECT general__asset_name FROM entity.entity_assets
+            const dbAssets = await sql<{ general__asset_file_name: string }[]>`
+                SELECT general__asset_file_name FROM entity.entity_assets
             `;
 
             log({
@@ -1011,7 +1012,7 @@ export namespace Server_CLI {
 
                 // Find matches
                 const matchingAssets = dbAssets.filter((dbAsset) =>
-                    dbAsset.general__asset_name.includes(searchName),
+                    dbAsset.general__asset_file_name.includes(searchName),
                 );
 
                 if (matchingAssets.length === 0) {
@@ -1035,7 +1036,7 @@ export namespace Server_CLI {
                             await sql`
                                 UPDATE entity.entity_assets 
                                 SET asset__data = ${assetBuffer}
-                                WHERE general__asset_name = ${dbAsset.general__asset_name}
+                                WHERE general__asset_file_name = ${dbAsset.general__asset_file_name}
                             `;
                         }
                     });
@@ -1155,8 +1156,10 @@ export namespace Server_CLI {
             });
 
             // Get all scripts from the database with one query
-            const dbScripts = await sql<{ general__script_name: string }[]>`
-                SELECT general__script_name FROM entity.entity_scripts
+            const dbScripts = await sql<
+                { general__script_file_name: string }[]
+            >`
+                SELECT general__script_file_name FROM entity.entity_scripts
             `;
 
             // Function to process a single script file
@@ -1168,7 +1171,7 @@ export namespace Server_CLI {
 
                 // Find matches
                 const matchingScripts = dbScripts.filter((dbScript) =>
-                    dbScript.general__script_name.includes(searchName),
+                    dbScript.general__script_file_name.includes(searchName),
                 );
 
                 if (matchingScripts.length === 0) {
@@ -1191,7 +1194,7 @@ export namespace Server_CLI {
                             await sql`
                                 UPDATE entity.entity_scripts 
                                 SET script__compiled__data = ${scriptData}
-                                WHERE general__script_name = ${dbScript.general__script_name}
+                                WHERE general__script_file_name = ${dbScript.general__script_file_name}
                             `;
                         }
                     });
@@ -1784,6 +1787,22 @@ if (import.meta.main) {
                     args: additionalArgs,
                 });
                 break;
+
+            // HOT SYNC MODULE
+
+            case "hot-sync:web-scripts": {
+                await WebScriptHotSync.startSync();
+                break;
+            }
+
+            case "hot-sync:assets": {
+                // await AssetHotSync.hotSyncAssets({
+                //     pollIntervalMs: 5000,
+                //     debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                //     compileForce: true,
+                // });
+                break;
+            }
 
             default:
                 log({

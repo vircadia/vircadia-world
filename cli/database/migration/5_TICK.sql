@@ -118,17 +118,17 @@ CREATE INDEX idx_entity_states_sync_tick_lookup ON tick.entity_states (group__sy
 CREATE INDEX idx_entity_states_sync_tick ON tick.entity_states (group__sync, general__tick_id);
 
 -- 3.3 SCRIPT STATES INDEXES
-CREATE INDEX script_states_lookup_idx ON tick.script_states (general__script_name, general__tick_id);
+CREATE INDEX script_states_lookup_idx ON tick.script_states (general__script_file_name, general__tick_id);
 CREATE INDEX script_states_tick_idx ON tick.script_states (general__tick_id);
 CREATE INDEX script_states_sync_group_tick_idx ON tick.script_states (group__sync, general__tick_id DESC);
-CREATE INDEX idx_script_states_sync_tick_lookup ON tick.script_states (group__sync, general__tick_id, general__script_name);
+CREATE INDEX idx_script_states_sync_tick_lookup ON tick.script_states (group__sync, general__tick_id, general__script_file_name);
 CREATE INDEX idx_script_states_sync_tick ON tick.script_states (group__sync, general__tick_id);
 
 -- 3.4 ASSET STATES INDEXES
-CREATE INDEX asset_states_lookup_idx ON tick.asset_states (general__asset_name, general__tick_id);
+CREATE INDEX asset_states_lookup_idx ON tick.asset_states (general__asset_file_name, general__tick_id);
 CREATE INDEX asset_states_tick_idx ON tick.asset_states (general__tick_id);
 CREATE INDEX asset_states_sync_group_tick_idx ON tick.asset_states (group__sync, general__tick_id DESC);
-CREATE INDEX idx_asset_states_sync_tick_lookup ON tick.asset_states (group__sync, general__tick_id, general__asset_name);
+CREATE INDEX idx_asset_states_sync_tick_lookup ON tick.asset_states (group__sync, general__tick_id, general__asset_file_name);
 CREATE INDEX idx_asset_states_sync_tick ON tick.asset_states (group__sync, general__tick_id);
 
 -- ============================================================================
@@ -301,7 +301,7 @@ BEGIN
     -- Capture script states
     WITH script_snapshot AS (
         INSERT INTO tick.script_states (
-            general__script_name,
+            general__script_file_name,
             group__sync,
             script__source__repo__entry_path,
             script__source__repo__url,
@@ -316,7 +316,7 @@ BEGIN
             general__tick_id
         )
         SELECT 
-            s.general__script_name,
+            s.general__script_file_name,
             s.group__sync,
             s.script__source__repo__entry_path,
             s.script__source__repo__url,
@@ -338,7 +338,7 @@ BEGIN
     -- Capture asset states
     WITH asset_snapshot AS (
         INSERT INTO tick.asset_states (
-            general__asset_name,
+            general__asset_file_name,
             group__sync,
             asset__data,
             general__created_at,
@@ -348,7 +348,7 @@ BEGIN
             general__tick_id
         )
         SELECT 
-            a.general__asset_name,
+            a.general__asset_file_name,
             a.group__sync,
             a.asset__data,
             a.general__created_at,
@@ -540,7 +540,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE OR REPLACE FUNCTION tick.get_changed_script_states_between_latest_ticks(
     p_sync_group text
 ) RETURNS TABLE (
-    general__script_name text,
+    general__script_file_name text,
     operation config.operation_enum,
     changes jsonb
 ) AS $$
@@ -579,16 +579,16 @@ BEGIN
         WHERE ss.general__tick_id = v_previous_tick_id
     )
     SELECT 
-        COALESCE(cs.general__script_name, ps.general__script_name),
+        COALESCE(cs.general__script_file_name, ps.general__script_file_name),
         CASE 
-            WHEN ps.general__script_name IS NULL THEN 'INSERT'::config.operation_enum
-            WHEN cs.general__script_name IS NULL THEN 'DELETE'::config.operation_enum
+            WHEN ps.general__script_file_name IS NULL THEN 'INSERT'::config.operation_enum
+            WHEN cs.general__script_file_name IS NULL THEN 'DELETE'::config.operation_enum
             ELSE 'UPDATE'::config.operation_enum
         END,
         CASE 
-            WHEN ps.general__script_name IS NULL THEN 
+            WHEN ps.general__script_file_name IS NULL THEN 
                 jsonb_build_object(
-                    'general__script_name', cs.general__script_name,
+                    'general__script_file_name', cs.general__script_file_name,
                     'group__sync', cs.group__sync,
                     'script__source__repo__entry_path', cs.script__source__repo__entry_path,
                     'script__source__repo__url', cs.script__source__repo__url,
@@ -599,11 +599,11 @@ BEGIN
                     'general__created_at', cs.general__created_at,
                     'general__updated_at', cs.general__updated_at
                 )
-            WHEN cs.general__script_name IS NULL THEN NULL::jsonb
+            WHEN cs.general__script_file_name IS NULL THEN NULL::jsonb
             ELSE jsonb_strip_nulls(jsonb_build_object(
-                'general__script_name', 
-                    CASE WHEN cs.general__script_name IS DISTINCT FROM ps.general__script_name 
-                    THEN cs.general__script_name END,
+                'general__script_file_name', 
+                    CASE WHEN cs.general__script_file_name IS DISTINCT FROM ps.general__script_file_name 
+                    THEN cs.general__script_file_name END,
                 'group__sync', 
                     CASE WHEN cs.group__sync IS DISTINCT FROM ps.group__sync 
                     THEN cs.group__sync END,
@@ -634,7 +634,7 @@ BEGIN
             ))
         END
     FROM current_states cs
-    FULL OUTER JOIN previous_states ps ON cs.general__script_name = ps.general__script_name
+    FULL OUTER JOIN previous_states ps ON cs.general__script_file_name = ps.general__script_file_name
     WHERE cs IS DISTINCT FROM ps;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -643,7 +643,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE OR REPLACE FUNCTION tick.get_changed_asset_states_between_latest_ticks(
     p_sync_group text
 ) RETURNS TABLE (
-    general__asset_name text,
+    general__asset_file_name text,
     operation config.operation_enum,
     changes jsonb
 ) AS $$
@@ -682,22 +682,22 @@ BEGIN
         WHERE ast.general__tick_id = v_previous_tick_id
     )
     SELECT 
-        COALESCE(cs.general__asset_name, ps.general__asset_name),
+        COALESCE(cs.general__asset_file_name, ps.general__asset_file_name),
         CASE 
-            WHEN ps.general__asset_name IS NULL THEN 'INSERT'::config.operation_enum
-            WHEN cs.general__asset_name IS NULL THEN 'DELETE'::config.operation_enum
+            WHEN ps.general__asset_file_name IS NULL THEN 'INSERT'::config.operation_enum
+            WHEN cs.general__asset_file_name IS NULL THEN 'DELETE'::config.operation_enum
             ELSE 'UPDATE'::config.operation_enum
         END,
         CASE 
-            WHEN ps.general__asset_name IS NULL THEN 
+            WHEN ps.general__asset_file_name IS NULL THEN 
                 jsonb_build_object(
-                    'general__asset_name', cs.general__asset_name,
+                    'general__asset_file_name', cs.general__asset_file_name,
                     'group__sync', cs.group__sync,
                     'asset__data', CASE WHEN cs.asset__data IS NOT NULL THEN true ELSE false END,
                     'general__created_at', cs.general__created_at,
                     'general__updated_at', cs.general__updated_at
                 )
-            WHEN cs.general__asset_name IS NULL THEN NULL::jsonb
+            WHEN cs.general__asset_file_name IS NULL THEN NULL::jsonb
             ELSE jsonb_strip_nulls(jsonb_build_object(
                 'group__sync', 
                     CASE WHEN cs.group__sync IS DISTINCT FROM ps.group__sync 
@@ -711,7 +711,7 @@ BEGIN
             ))
         END
     FROM current_states cs
-    FULL OUTER JOIN previous_states ps ON cs.general__asset_name = ps.general__asset_name
+    FULL OUTER JOIN previous_states ps ON cs.general__asset_file_name = ps.general__asset_file_name
     WHERE cs IS DISTINCT FROM ps;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

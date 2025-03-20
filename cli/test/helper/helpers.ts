@@ -387,13 +387,13 @@ export async function cleanupTestScripts(data: {
         try {
             await tx`
                 DELETE FROM entity.entity_scripts 
-                WHERE general__script_name LIKE ${`%${DB_TEST_PREFIX}%`}
+                WHERE general__script_file_name LIKE ${`%${DB_TEST_PREFIX}%`}
             `;
 
             // Verify no test scripts remain
             const remainingScripts = await tx`
                 SELECT * FROM entity.entity_scripts 
-                WHERE general__script_name LIKE ${`%${DB_TEST_PREFIX}%`}
+                WHERE general__script_file_name LIKE ${`%${DB_TEST_PREFIX}%`}
             `;
             expect(remainingScripts).toHaveLength(0);
 
@@ -423,13 +423,13 @@ export async function cleanupTestAssets(data: {
         try {
             await tx`
                 DELETE FROM entity.entity_assets 
-                WHERE general__asset_name LIKE ${`%${DB_TEST_PREFIX}%`}
+                WHERE general__asset_file_name LIKE ${`%${DB_TEST_PREFIX}%`}
             `;
 
             // Verify no test assets remain
             const remainingAssets = await tx`
                 SELECT * FROM entity.entity_assets 
-                WHERE general__asset_name LIKE ${`%${DB_TEST_PREFIX}%`}
+                WHERE general__asset_file_name LIKE ${`%${DB_TEST_PREFIX}%`}
             `;
             expect(remainingAssets).toHaveLength(0);
 

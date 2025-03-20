@@ -25,7 +25,7 @@ CREATE TABLE entity._template (
 -- 4.1 ENTITY SCRIPTS TABLE
 -- ============================================================================
 CREATE TABLE entity.entity_scripts (
-    general__script_name TEXT PRIMARY KEY,
+    general__script_file_name TEXT PRIMARY KEY,
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
     CONSTRAINT fk_entity_scripts_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group),
 
@@ -33,15 +33,14 @@ CREATE TABLE entity.entity_scripts (
     CONSTRAINT chk_script_type CHECK (script__type IN ('BABYLON_NODE', 'BABYLON_BUN', 'BABYLON_BROWSER')),
 
     -- Source fields
-    script__source__repo__entry_path TEXT,
-    script__source__repo__url TEXT,
-
-    script__source__data TEXT,
-    script__source__sha256 TEXT,
+    script__source__repo__entry_path TEXT NOT NULL DEFAULT '',
+    script__source__repo__url TEXT NOT NULL DEFAULT '',
+    script__source__data TEXT NOT NULL DEFAULT '',
+    script__source__sha256 TEXT NOT NULL DEFAULT '',
     script__source__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
 
-    script__compiled__data TEXT,
-    script__compiled__sha256 TEXT,
+    script__compiled__data TEXT NOT NULL DEFAULT '',
+    script__compiled__sha256 TEXT NOT NULL DEFAULT '',
     script__compiled__status TEXT NOT NULL DEFAULT 'PENDING',
     CONSTRAINT chk_script_compiled_status CHECK (script__compiled__status IN ('PENDING', 'COMPILING', 'COMPILED', 'FAILED')),
     script__compiled__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
@@ -53,12 +52,12 @@ ALTER TABLE entity.entity_scripts ENABLE ROW LEVEL SECURITY;
 -- 4.2 ENTITY ASSETS TABLE
 -- ============================================================================
 CREATE TABLE entity.entity_assets (
-    general__asset_name TEXT PRIMARY KEY,
+    general__asset_file_name TEXT PRIMARY KEY,
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
     CONSTRAINT fk_entity_assets_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group),
     
-    asset__data BYTEA,  -- Store asset binaries (GLBs, textures, etc.)
-    asset__type TEXT,
+    asset__data BYTEA NOT NULL DEFAULT '',  -- Store asset binaries (GLBs, textures, etc.)
+    asset__type TEXT DEFAULT NULL,
     CONSTRAINT chk_asset_type CHECK (asset__type IN (
         -- 3D Models
         'GLB', 'GLTF', 'OBJ', 'FBX', 'DAE', 'STL', 'STEP', 'IGES', 'BLEND', 'X3D', 'VRML', 'BVH',
@@ -131,8 +130,8 @@ CREATE OR REPLACE FUNCTION entity.remove_deleted_script_references()
 RETURNS TRIGGER AS $$
 BEGIN
     UPDATE entity.entities
-    SET script__names = array_remove(script__names, OLD.general__script_name)
-    WHERE OLD.general__script_name = ANY(script__names);
+    SET script__names = array_remove(script__names, OLD.general__script_file_name)
+    WHERE OLD.general__script_file_name = ANY(script__names);
     
     RETURN OLD;
 END;
@@ -143,8 +142,8 @@ CREATE OR REPLACE FUNCTION entity.remove_deleted_asset_references()
 RETURNS TRIGGER AS $$
 BEGIN
     UPDATE entity.entities
-    SET asset__names = array_remove(asset__names, OLD.general__asset_name)
-    WHERE OLD.general__asset_name = ANY(asset__names);
+    SET asset__names = array_remove(asset__names, OLD.general__asset_file_name)
+    WHERE OLD.general__asset_file_name = ANY(asset__names);
     
     RETURN OLD;
 END;

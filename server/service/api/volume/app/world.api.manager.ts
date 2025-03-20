@@ -866,14 +866,14 @@ export class WorldApiManager {
                 // Fetch script changes
                 const scriptChanges = await tx<Tick.I_ScriptUpdate[]>`
                 SELECT 
-                    general__script_name,
+                    general__script_file_name,
                     operation,
                     changes
                 FROM tick.get_changed_script_states_between_latest_ticks(${data.syncGroup})
             `;
 
                 updatePackage.scripts = scriptChanges.map((s) => ({
-                    general__script_name: s.general__script_name,
+                    general__script_file_name: s.general__script_file_name,
                     operation: s.operation,
                     changes: s.changes,
                     error: null,
@@ -882,14 +882,14 @@ export class WorldApiManager {
                 // Fetch asset changes
                 const assetChanges = await tx<Tick.I_AssetUpdate[]>`
                 SELECT 
-                    general__asset_name,
+                    general__asset_file_name,
                     operation,
                     changes
                 FROM tick.get_changed_asset_states_between_latest_ticks(${data.syncGroup})
             `;
 
                 updatePackage.assets = assetChanges.map((a) => ({
-                    general__asset_name: a.general__asset_name,
+                    general__asset_file_name: a.general__asset_file_name,
                     operation: a.operation,
                     changes: a.changes,
                     error: null,

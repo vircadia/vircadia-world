@@ -634,7 +634,7 @@ describe("DB", () => {
                     await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
                     const [script] = await tx<[Entity.Script.I_Script]>`
         			INSERT INTO entity.entity_scripts (
-                        general__script_name,
+                        general__script_file_name,
         				script__compiled__data,
         				script__compiled__status,
         				group__sync
@@ -645,7 +645,7 @@ describe("DB", () => {
         				${TEST_SYNC_GROUP}
         			) RETURNING *
         		`;
-                    const scriptNamespace = `script_${script.general__script_name}`;
+                    const scriptNamespace = `script_${script.general__script_file_name}`;
                     const [entity] = await tx<[Entity.I_Entity]>`
         			INSERT INTO entity.entities (
         				general__entity_name,
@@ -654,7 +654,7 @@ describe("DB", () => {
         				group__sync
         			) VALUES (
         				${"Scripted Entity"},
-        				ARRAY[${script.general__script_name}],
+        				ARRAY[${script.general__script_file_name}],
         				${tx.json({
                             [scriptNamespace]: {
                                 initialized: true,
@@ -665,13 +665,13 @@ describe("DB", () => {
         			) RETURNING *
         		`;
                     expect(entity.script__names).toContain(
-                        script.general__script_name,
+                        script.general__script_file_name,
                     );
                     expect(entity.meta__data[scriptNamespace]).toMatchObject({
                         initialized: true,
                     });
                     await tx`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
-                    await tx`DELETE FROM entity.entity_scripts WHERE general__script_name = ${script.general__script_name}`;
+                    await tx`DELETE FROM entity.entity_scripts WHERE general__script_file_name = ${script.general__script_file_name}`;
                 });
             });
         });
@@ -686,7 +686,7 @@ describe("DB", () => {
                     };
                     const [asset] = await tx<[Entity.Asset.I_Asset]>`
         			INSERT INTO entity.entity_assets (
-        				general__asset_name,
+        				general__asset_file_name,
         				asset__data,
         				group__sync
         			) VALUES (
@@ -695,8 +695,8 @@ describe("DB", () => {
         				${"public.NORMAL"}
         			) RETURNING *
         		`;
-                    expect(asset.general__asset_name).toBe("Test Asset");
-                    await tx`DELETE FROM entity.entity_assets WHERE general__asset_name = ${asset.general__asset_name}`;
+                    expect(asset.general__asset_file_name).toBe("Test Asset");
+                    await tx`DELETE FROM entity.entity_assets WHERE general__asset_file_name = ${asset.general__asset_file_name}`;
                 });
             });
         });
@@ -707,7 +707,7 @@ describe("DB", () => {
                     // Insert an asset record.
                     const [asset] = await tx<[Entity.Asset.I_Asset]>`
                         INSERT INTO entity.entity_assets (
-                            general__asset_name,
+                            general__asset_file_name,
                             group__sync,
                             asset__data
                         ) VALUES (
@@ -719,7 +719,7 @@ describe("DB", () => {
                     // Insert a script record.
                     const [script] = await tx<[Entity.Script.I_Script]>`
                         INSERT INTO entity.entity_scripts (
-                            general__script_name,
+                            general__script_file_name,
                             group__sync,
                             script__source__repo__entry_path,
                             script__source__repo__url
@@ -739,8 +739,8 @@ describe("DB", () => {
                             group__sync
                         ) VALUES (
                             ${"Entity with asset and script"},
-                            ${[asset.general__asset_name]},
-                            ${[script.general__script_name]},
+                            ${[asset.general__asset_file_name]},
+                            ${[script.general__script_file_name]},
                             ${"public.NORMAL"}
                         ) RETURNING *
                     `;
@@ -749,16 +749,16 @@ describe("DB", () => {
                         "Entity with asset and script",
                     );
                     expect(entity.asset__names).toContain(
-                        asset.general__asset_name,
+                        asset.general__asset_file_name,
                     );
                     expect(entity.script__names).toContain(
-                        script.general__script_name,
+                        script.general__script_file_name,
                     );
                     // Delete the entity record after all checks.
                     await tx`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
                     // Optionally clean up asset and script records.
-                    await tx`DELETE FROM entity.entity_assets WHERE general__asset_name = ${asset.general__asset_name}`;
-                    await tx`DELETE FROM entity.entity_scripts WHERE general__script_name = ${script.general__script_name}`;
+                    await tx`DELETE FROM entity.entity_assets WHERE general__asset_file_name = ${asset.general__asset_file_name}`;
+                    await tx`DELETE FROM entity.entity_scripts WHERE general__script_file_name = ${script.general__script_file_name}`;
                 });
             });
             test("should remove asset name from entity when corresponding asset is deleted", async () => {
@@ -768,7 +768,7 @@ describe("DB", () => {
                     // Insert an asset record.
                     const [asset] = await tx<[Entity.Asset.I_Asset]>`
         			INSERT INTO entity.entity_assets (
-        				general__asset_name,
+        				general__asset_file_name,
         				group__sync,
         				asset__data
         			) VALUES (
@@ -785,18 +785,18 @@ describe("DB", () => {
         				group__sync
         			) VALUES (
         				${"Entity with asset"},
-        				${[asset.general__asset_name]},
+        				${[asset.general__asset_file_name]},
         				${"public.NORMAL"}
         			) RETURNING *
         		`;
                     // Delete the asset.
-                    await tx`DELETE FROM entity.entity_assets WHERE general__asset_name = ${asset.general__asset_name}`;
+                    await tx`DELETE FROM entity.entity_assets WHERE general__asset_file_name = ${asset.general__asset_file_name}`;
                     // Re-read the entity to ensure the asset id is removed.
                     const [updatedEntity] = await tx`
         			SELECT * FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}
         		`;
                     expect(updatedEntity.asset__names).not.toContain(
-                        asset.general__asset_name,
+                        asset.general__asset_file_name,
                     );
                     // Clean up
                     await tx`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
@@ -809,7 +809,7 @@ describe("DB", () => {
                     // Insert a script record.
                     const [script] = await tx<[Entity.Script.I_Script]>`
         			INSERT INTO entity.entity_scripts (
-        				general__script_name,
+        				general__script_file_name,
         				group__sync,
         				script__source__repo__entry_path,
         				script__source__repo__url,
@@ -838,18 +838,18 @@ describe("DB", () => {
         				group__sync
         			) VALUES (
         				${"Entity with script"},
-        				${[script.general__script_name]},
+        				${[script.general__script_file_name]},
         				${"public.NORMAL"}
         			) RETURNING *
         		`;
                     // Delete the script.
-                    await tx`DELETE FROM entity.entity_scripts WHERE general__script_name = ${script.general__script_name}`;
+                    await tx`DELETE FROM entity.entity_scripts WHERE general__script_file_name = ${script.general__script_file_name}`;
                     // Re-read the entity to ensure the script id is removed.
                     const [updatedEntity] = await tx`
         			SELECT * FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}
         		`;
                     expect(updatedEntity.script__names).not.toContain(
-                        script.general__script_name,
+                        script.general__script_file_name,
                     );
                     // Clean up
                     await tx`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
@@ -971,7 +971,7 @@ describe("DB", () => {
                         // Create two test script records
                         const [script1] = await tx<[Entity.Script.I_Script]>`
                     INSERT INTO entity.entity_scripts (
-                        general__script_name,
+                        general__script_file_name,
                         group__sync
                     ) VALUES (
                         ${`${DB_TEST_PREFIX}Test Script 1`},
@@ -980,7 +980,7 @@ describe("DB", () => {
                 `;
                         const [script2] = await tx<[Entity.Script.I_Script]>`
                     INSERT INTO entity.entity_scripts (
-                        general__script_name,
+                        general__script_file_name,
                         group__sync
                     ) VALUES (
                         ${`${DB_TEST_PREFIX}Test Script 2`},
@@ -997,13 +997,13 @@ describe("DB", () => {
                 `;
 
                         const retrievedNames = scripts.map(
-                            (s) => s.general__script_name,
+                            (s) => s.general__script_file_name,
                         );
                         expect(retrievedNames).toContain(
-                            script1.general__script_name,
+                            script1.general__script_file_name,
                         );
                         expect(retrievedNames).toContain(
-                            script2.general__script_name,
+                            script2.general__script_file_name,
                         );
                     });
                 });
@@ -1015,7 +1015,7 @@ describe("DB", () => {
                     await superUserSql.begin(async (tx) => {
                         [script1] = await tx<[Entity.Script.I_Script]>`
                             INSERT INTO entity.entity_scripts (
-                                general__script_name,
+                                general__script_file_name,
                                 script__compiled__data,
                                 script__compiled__status,
                                 script__source__repo__url,
@@ -1042,7 +1042,7 @@ describe("DB", () => {
                             SET 
                                 script__compiled__data = ${'console.log("updated version")'},
                                 script__compiled__status = ${Entity.Script.E_CompilationStatus.PENDING}
-                            WHERE general__script_name = ${script1.general__script_name}
+                            WHERE general__script_file_name = ${script1.general__script_file_name}
                         `;
                     });
 
@@ -1061,8 +1061,8 @@ describe("DB", () => {
                         // Find our script in the changes
                         const scriptChange = scriptChanges.find(
                             (c) =>
-                                c.general__script_name ===
-                                script1.general__script_name,
+                                c.general__script_file_name ===
+                                script1.general__script_file_name,
                         );
 
                         expect(scriptChange).toBeDefined();
@@ -1089,30 +1089,30 @@ describe("DB", () => {
                     await superUserSql.begin(async (tx) => {
                         // Create two test asset records
                         const [asset1] = await tx<
-                            [{ general__asset_name: string }]
+                            [{ general__asset_file_name: string }]
                         >`
                     INSERT INTO entity.entity_assets (
-                        general__asset_name,
+                        general__asset_file_name,
                         group__sync,
                         asset__data
                     ) VALUES (
                         ${`${DB_TEST_PREFIX}Test Asset 1`},
                         ${TEST_SYNC_GROUP},
                         ${Buffer.from("asset data 1")}
-                    ) RETURNING general__asset_name
+                    ) RETURNING general__asset_file_name
                 `;
                         const [asset2] = await tx<
-                            [{ general__asset_name: string }]
+                            [{ general__asset_file_name: string }]
                         >`
                     INSERT INTO entity.entity_assets (
-                        general__asset_name,
+                        general__asset_file_name,
                         group__sync,
                         asset__data
                     ) VALUES (
                         ${`${DB_TEST_PREFIX}Test Asset 2`},
                         ${TEST_SYNC_GROUP},
                         ${Buffer.from("asset data 2")}
-                    ) RETURNING general__asset_name
+                    ) RETURNING general__asset_file_name
                 `;
                         // Capture a tick so that the asset changes are processed
                         await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
@@ -1123,13 +1123,13 @@ describe("DB", () => {
                             `;
 
                         const retrievedAssetNames = assets.map(
-                            (a) => a.general__asset_name,
+                            (a) => a.general__asset_file_name,
                         );
                         expect(retrievedAssetNames).toContain(
-                            asset1.general__asset_name,
+                            asset1.general__asset_file_name,
                         );
                         expect(retrievedAssetNames).toContain(
-                            asset2.general__asset_name,
+                            asset2.general__asset_file_name,
                         );
                     });
                 });
@@ -1143,7 +1143,7 @@ describe("DB", () => {
                     await superUserSql.begin(async (tx) => {
                         [asset1] = await tx<[Entity.Asset.I_Asset]>`
                             INSERT INTO entity.entity_assets (
-                                general__asset_name,
+                                general__asset_file_name,
                                 asset__data,
                                 group__sync
                             ) VALUES (
@@ -1165,7 +1165,7 @@ describe("DB", () => {
                             UPDATE entity.entity_assets
                             SET 
                                 asset__data = ${Buffer.from("updated asset data")}
-                            WHERE general__asset_name = ${asset1.general__asset_name}
+                            WHERE general__asset_file_name = ${asset1.general__asset_file_name}
                         `;
                     });
 
@@ -1184,8 +1184,8 @@ describe("DB", () => {
                         // Find our asset in the changes
                         const assetChange = assetChanges.find(
                             (c) =>
-                                c.general__asset_name ===
-                                asset1.general__asset_name,
+                                c.general__asset_file_name ===
+                                asset1.general__asset_file_name,
                         );
 
                         expect(assetChange).toBeDefined();

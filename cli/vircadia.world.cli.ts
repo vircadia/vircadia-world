@@ -133,7 +133,7 @@ export namespace WebScript_CLI {
 
     // Main function to handle hot sync of scripts
     export async function startSync(): Promise<void> {
-        const RETRIEVE_NEW_SCRIPTS_INTERVAL = 5000; // Default to 5 seconds
+        const RETRIEVE_NEW_SCRIPTS_INTERVAL = 500;
         const COMPILE_FORCE = false;
 
         // Map to track local script info
@@ -225,7 +225,8 @@ export namespace WebScript_CLI {
                 `;
 
                 const scriptType =
-                    scriptRecord?.script__type || "BABYLON_BROWSER";
+                    scriptRecord?.script__type ||
+                    Entity.Script.E_ScriptType.BABYLON_BROWSER;
 
                 // Only process valid script types
                 if (!VALID_SCRIPT_TYPES.includes(scriptType)) {
@@ -241,7 +242,7 @@ export namespace WebScript_CLI {
                 // Set status to COMPILING
                 await sql`
                     UPDATE entity.entity_scripts
-                    SET script__compiled__status = 'COMPILING',
+                    SET script__compiled__status = ${Entity.Script.E_CompilationStatus.COMPILING},
                         script__source__data = ${content},
                         script__source__sha256 = ${sourceHash},
                         script__source__updated_at = CURRENT_TIMESTAMP
@@ -249,7 +250,7 @@ export namespace WebScript_CLI {
                 `;
 
                 log({
-                    message: `Compiling script: ${fileName} (${scriptType})`,
+                    message: `Compiling script: ${fileName} (${scriptType}) (${Entity.Script.E_CompilationStatus.COMPILING})`,
                     type: "info",
                     suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                     debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
@@ -284,7 +285,8 @@ export namespace WebScript_CLI {
                 log({
                     message: `Updated script in database: ${fileName} (${compiledResult.status})`,
                     type:
-                        compiledResult.status === "COMPILED"
+                        compiledResult.status ===
+                        Entity.Script.E_CompilationStatus.COMPILED
                             ? "success"
                             : "warn",
                     suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
@@ -294,13 +296,13 @@ export namespace WebScript_CLI {
                 // Set script compilation to failed.
                 await sql`
                     UPDATE entity.entity_scripts
-                    SET script__compiled__status = 'FAILED',
+                    SET script__compiled__status = ${Entity.Script.E_CompilationStatus.FAILED},
                         script__compiled__updated_at = CURRENT_TIMESTAMP
                     WHERE general__script_file_name = ${fileName}
                 `;
 
                 log({
-                    message: `Error updating script in database: ${fileName}`,
+                    message: `Error updating script in database: ${fileName} (${Entity.Script.E_CompilationStatus.FAILED})`,
                     type: "error",
                     error,
                     suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
@@ -512,10 +514,7 @@ export namespace WebScript_CLI {
         return new Promise<void>(() => {
             // This promise intentionally never resolves to keep the process running
             log({
-                message: "Hot web script sync running.",
-                data: {
-                    syncDir,
-                },
+                message: `Hot web script sync running.\n    Sync directory: ${syncDir}\n    Retrieve new scripts interval: ${RETRIEVE_NEW_SCRIPTS_INTERVAL}ms`,
                 type: "success",
                 suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                 debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,

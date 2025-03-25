@@ -12,7 +12,6 @@ import {
 import type { Server, ServerWebSocket } from "bun";
 import { PostgresClient } from "../vircadia-world-sdk-ts/module/server/postgres.server.client.ts";
 import { verify } from "jsonwebtoken";
-import { EventEmitter } from "node:events";
 
 let superUserSql: postgres.Sql | null = null;
 let proxyUserSql: postgres.Sql | null = null;
@@ -43,7 +42,6 @@ export interface WebSocketData {
 
 export class WorldApiManager {
     private server: Server | undefined;
-    public events: EventEmitter = new EventEmitter();
 
     public activeSessions: Map<string, WorldSession<unknown>> = new Map();
     private heartbeatInterval: Timer | null = null;
@@ -59,11 +57,6 @@ export class WorldApiManager {
     private LOG_PREFIX = "World API Manager";
 
     private CONNECTION_HEARTBEAT_INTERVAL = 500;
-
-    // Add a method to expose events for testing
-    getEventEmitter(): EventEmitter {
-        return this.events;
-    }
 
     async validateJWT(data: {
         provider: string;
@@ -523,11 +516,19 @@ export class WorldApiManager {
                             ? this.activeSessions.get(sessionId)
                             : undefined;
 
+                        // Parse message
+                        data = JSON.parse(
+                            message,
+                        ) as Communication.WebSocket.Message;
+
                         if (!sessionToken || !sessionId || !session) {
                             ws.send(
                                 JSON.stringify(
                                     new Communication.WebSocket.GeneralErrorResponseMessage(
-                                        "Invalid session",
+                                        {
+                                            error: "Invalid session",
+                                            requestId: data.requestId,
+                                        },
                                     ),
                                 ),
                             );
@@ -551,17 +552,6 @@ export class WorldApiManager {
                             },
                         );
 
-                        // Parse message
-                        data = JSON.parse(
-                            message,
-                        ) as Communication.WebSocket.Message;
-
-                        // Emit event for message received (optional, might be too verbose)
-                        this.events.emit("message:received", {
-                            sessionId: session?.sessionId,
-                            messageType: data?.type,
-                        });
-
                         // Handle different message types
                         switch (data.type) {
                             case Communication.WebSocket.MessageType
@@ -581,7 +571,13 @@ export class WorldApiManager {
                                         ws.send(
                                             JSON.stringify(
                                                 new Communication.WebSocket.QueryResponseMessage(
-                                                    results,
+                                                    {
+                                                        result: results,
+                                                        requestId:
+                                                            typedRequest.requestId,
+                                                        errorMessage:
+                                                            typedRequest.errorMessage,
+                                                    },
                                                 ),
                                             ),
                                         );
@@ -609,8 +605,11 @@ export class WorldApiManager {
                                     ws.send(
                                         JSON.stringify(
                                             new Communication.WebSocket.QueryResponseMessage(
-                                                undefined,
-                                                errorMessage,
+                                                {
+                                                    requestId:
+                                                        typedRequest.requestId,
+                                                    errorMessage,
+                                                },
                                             ),
                                         ),
                                     );
@@ -622,7 +621,10 @@ export class WorldApiManager {
                                 session.ws.send(
                                     JSON.stringify(
                                         new Communication.WebSocket.GeneralErrorResponseMessage(
-                                            `Unsupported message type: ${data.type}`,
+                                            {
+                                                error: `Unsupported message type: ${data.type}`,
+                                                requestId: data.requestId,
+                                            },
                                         ),
                                     ),
                                 );
@@ -668,12 +670,6 @@ export class WorldApiManager {
                         (ws as ServerWebSocket<WebSocketData>).data.token,
                     );
 
-                    // Emit client connected event
-                    this.events.emit("client:connected", {
-                        sessionId: sessionData.sessionId,
-                        agentId: sessionData.agentId,
-                    });
-
                     log({
                         prefix: this.LOG_PREFIX,
                         message: `Connection established with agent ${sessionData.agentId}`,
@@ -695,14 +691,6 @@ export class WorldApiManager {
                     });
                     const session = this.activeSessions.get(ws.data.sessionId);
                     if (session) {
-                        // Emit client disconnected event
-                        this.events.emit("client:disconnected", {
-                            sessionId: session.sessionId,
-                            agentId: session.agentId,
-                            reason,
-                            code,
-                        });
-
                         log({
                             prefix: this.LOG_PREFIX,
                             message: "WebSocket disconnection",

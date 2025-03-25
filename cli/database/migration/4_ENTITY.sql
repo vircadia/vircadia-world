@@ -36,11 +36,9 @@ CREATE TABLE entity.entity_scripts (
     script__source__repo__entry_path TEXT NOT NULL DEFAULT '',
     script__source__repo__url TEXT NOT NULL DEFAULT '',
     script__source__data TEXT NOT NULL DEFAULT '',
-    script__source__sha256 TEXT NOT NULL DEFAULT '',
     script__source__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
 
     script__compiled__data TEXT NOT NULL DEFAULT '',
-    script__compiled__sha256 TEXT NOT NULL DEFAULT '',
     script__compiled__status TEXT NOT NULL DEFAULT 'PENDING',
     CONSTRAINT chk_script_compiled_status CHECK (script__compiled__status IN ('PENDING', 'COMPILING', 'COMPILED', 'FAILED')),
     script__compiled__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP

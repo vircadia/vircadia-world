@@ -305,8 +305,9 @@ BEGIN
             group__sync,
             script__source__repo__entry_path,
             script__source__repo__url,
+            script__source__data,
+            script__source__updated_at,
             script__compiled__data,
-            script__compiled__sha256,
             script__compiled__status,
             script__compiled__updated_at,
             general__created_at,
@@ -320,8 +321,9 @@ BEGIN
             s.group__sync,
             s.script__source__repo__entry_path,
             s.script__source__repo__url,
+            s.script__source__data,
+            s.script__source__updated_at,
             s.script__compiled__data,
-            s.script__compiled__sha256,
             s.script__compiled__status,
             s.script__compiled__updated_at,
             s.general__created_at,
@@ -592,8 +594,9 @@ BEGIN
                     'group__sync', cs.group__sync,
                     'script__source__repo__entry_path', cs.script__source__repo__entry_path,
                     'script__source__repo__url', cs.script__source__repo__url,
+                    'script__source__data', cs.script__source__data,
+                    'script__source__updated_at', cs.script__source__updated_at,
                     'script__compiled__data', cs.script__compiled__data,
-                    'script__compiled__sha256', cs.script__compiled__sha256,
                     'script__compiled__status', cs.script__compiled__status,
                     'script__compiled__updated_at', cs.script__compiled__updated_at,
                     'general__created_at', cs.general__created_at,
@@ -613,12 +616,15 @@ BEGIN
                 'script__source__repo__url', 
                     CASE WHEN cs.script__source__repo__url IS DISTINCT FROM ps.script__source__repo__url 
                     THEN cs.script__source__repo__url END,
+                'script__source__data', 
+                    CASE WHEN cs.script__source__data IS DISTINCT FROM ps.script__source__data 
+                    THEN cs.script__source__data END,
+                'script__source__updated_at', 
+                    CASE WHEN cs.script__source__updated_at IS DISTINCT FROM ps.script__source__updated_at 
+                    THEN cs.script__source__updated_at END,
                 'script__compiled__data', 
                     CASE WHEN cs.script__compiled__data IS DISTINCT FROM ps.script__compiled__data 
                     THEN cs.script__compiled__data END,
-                'script__compiled__sha256', 
-                    CASE WHEN cs.script__compiled__sha256 IS DISTINCT FROM ps.script__compiled__sha256 
-                    THEN cs.script__compiled__sha256 END,
                 'script__compiled__status', 
                     CASE WHEN cs.script__compiled__status IS DISTINCT FROM ps.script__compiled__status 
                     THEN cs.script__compiled__status END,

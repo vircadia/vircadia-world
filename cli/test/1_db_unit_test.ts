@@ -815,7 +815,6 @@ describe("DB", () => {
         				script__source__repo__url,
         				script__type,
                         script__compiled__data,   
-                        script__compiled__sha256,
                         script__compiled__status,
                         script__compiled__updated_at
         			) VALUES (
@@ -825,7 +824,6 @@ describe("DB", () => {
         				${"https://github.com/example/repo"},
         				${"BABYLON_BROWSER"},
                         ${'console.log("test")'},
-                        ${"sha256"},
                         ${Entity.Script.E_CompilationStatus.COMPILED},
                         ${"2021-01-01 00:00:00"}
         			) RETURNING *

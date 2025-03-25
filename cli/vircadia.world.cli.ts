@@ -244,7 +244,6 @@ export namespace WebScript_CLI {
                     UPDATE entity.entity_scripts
                     SET script__compiled__status = ${Entity.Script.E_CompilationStatus.COMPILING},
                         script__source__data = ${content},
-                        script__source__sha256 = ${sourceHash},
                         script__source__updated_at = CURRENT_TIMESTAMP
                     WHERE general__script_file_name = ${fileName}
                 `;
@@ -267,7 +266,6 @@ export namespace WebScript_CLI {
                 await sql`
                     UPDATE entity.entity_scripts
                     SET script__compiled__data = ${compiledResult.data},
-                        script__compiled__sha256 = ${compiledResult.hash},
                         script__compiled__status = ${compiledResult.status},
                         script__compiled__updated_at = CURRENT_TIMESTAMP
                     WHERE general__script_file_name = ${fileName}
@@ -322,15 +320,14 @@ export namespace WebScript_CLI {
                             | "general__script_file_name"
                             | "script__type"
                             | "script__source__data"
-                            | "script__source__sha256"
-                        >
+                        > & { script__source__sha256: string }
                     >
                 >`
                     SELECT 
                         general__script_file_name, 
                         script__type, 
                         script__source__data, 
-                        script__source__sha256
+                        sha256(script__source__data) as script__source__sha256
                     FROM entity.entity_scripts
                     WHERE script__type = ANY(${VALID_SCRIPT_TYPES})
                 `;

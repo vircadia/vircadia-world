@@ -47,7 +47,7 @@ services:
     image: oven/bun:1.2.6-alpine
     container_name: ${VRCA_CLIENT_WEB_BABYLON_JS_DEV_CONTAINER_NAME}
     user: "1000:1000"  # Run as non-root user
-    restart: "no"  # Don't auto-restart in development
+    restart: always
     ports:
       - "${VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT_CONTAINER_BIND_EXTERNAL}:${VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT_CONTAINER_BIND_INTERNAL}"
     volumes:
@@ -67,6 +67,12 @@ services:
       VRCA_CLIENT_WEB_BABYLON_JS_APP_URL: ${VRCA_CLIENT_WEB_BABYLON_JS_APP_URL}
       VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI: ${VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}
       VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL: ${VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL}
+    healthcheck:
+      test: ["CMD-SHELL", "cd ../vircadia-world-sdk-ts && bun i && cd ../test && bun test"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
     networks:
       - vircadia_internal_network
       - vircadia_public_network

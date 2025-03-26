@@ -1,53 +1,9 @@
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
-import { Server_CLI, Client_CLI } from "../vircadia.world.cli";
+import { Server_CLI } from "../vircadia.world.cli";
 import { VircadiaConfig_CLI } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.cli.config";
 import { PostgresClient } from "../../sdk/vircadia-world-sdk-ts/module/server/postgres.server.client";
 import { VircadiaConfig_SERVER } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.server.config";
 import { Service } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
-
-// describe("CLIENT Container and Database CLI Tests", () => {
-//     beforeAll(async () => {
-//         await Client_CLI.runClientDockerCommand({
-//             args: ["up", "-d"],
-//         });
-//         Bun.sleep(1000);
-//     });
-
-//     test("Client container rebuild works", async () => {
-//         await Client_CLI.runClientDockerCommand({
-//             args: ["down", "-v"],
-//         });
-//         await Client_CLI.runClientDockerCommand({
-//             args: ["up", "-d"],
-//         });
-//         const healthAfterUp = await Client_CLI.isWebBabylonJsHealthy({
-//             timeout: 2000,
-//             interval: 100,
-//         });
-//         expect(healthAfterUp.isHealthy).toBe(true);
-//     });
-
-//     test("Client container down and up cycle works", async () => {
-//         await Client_CLI.runClientDockerCommand({
-//             args: ["down"],
-//         });
-
-//         const healthAfterDown = await Client_CLI.isWebBabylonJsHealthy({
-//             timeout: 2000,
-//             interval: 100,
-//         });
-//         expect(healthAfterDown.isHealthy).toBe(false);
-
-//         await Client_CLI.runClientDockerCommand({
-//             args: ["up", "-d"],
-//         });
-//         const healthAfterUp = await Client_CLI.isWebBabylonJsHealthy({
-//             timeout: 2000,
-//             interval: 100,
-//         });
-//         expect(healthAfterUp.isHealthy).toBe(true);
-//     });
-// });
 
 describe("SERVER Container and Database CLI Tests", () => {
     beforeAll(async () => {

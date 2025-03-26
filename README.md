@@ -1,10 +1,6 @@
-# Vircadia
+# Vircadia World - REALTIME DECLARATIVE MMOs
 
-REALTIME DECLARATIVE WORLDS.
-
-Build worlds faster, ship more features, scale to infinity.
-
-This is the React moment for game development.
+Build MMO worlds with SQL, integrated directly with decentralized networks (Ethereum, Solana, etc.) for finance, identity, smart contracts, and more.
 
 Be sure to clone recursively:
 
@@ -14,7 +10,7 @@ git submodule update --init --recursive
 
 ## Core features
 
-Vircadia is designed for scale, so you can build games as small as a room, or scale to full open world MMORPGs, using the very same core functionality.
+Vircadia is designed for scale, so you can build MMOs as small or large as you want, using the very same core functionality.
 
 * **PostgreSQL**: Define your world in SQL
 * **PostgreSQL**: Get all the features of modern, enterprise databases: transactions, rollbacks, triggers, sub-ms functions, and more, all natively within your game

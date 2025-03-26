@@ -6,6 +6,11 @@
         "dev:hot-sync:web-scripts": "bun vircadia.world.cli.ts dev:hot-sync:web-scripts",
         "dev:client:restart-with-token": "bun run client:run-command down vircadia_world_client_web_babylon_js_dev && bun vircadia.world.cli.ts dev:client:generate-dev-token && bun run client:run-command up vircadia_world_client_web_babylon_js_dev -d",
 
+        "test:cli_server_unit_test": "bun test ./test/0_test_cli_server_unit.ts",
+        "test:cli_client_unit_test": "bun test ./test/1_test_cli_client_unit.ts",
+        "test:cli_db_unit_test": "bun run server:run-command down vircadia_world_api_manager vircadia_world_tick_manager && bun test ./test/2_test_db_unit.ts && bun run server:run-command up vircadia_world_api_manager vircadia_world_tick_manager -d",
+        "test:cli_client_babylon_js_core_test": "bun run server:run-command up vircadia_world_api_manager vircadia_world_tick_manager -d && bun test ./test/3_test_cli_client_babylon_js_core.ts",
+
         "server:run-command": "VRCA_CLI_DEBUG=1 bun vircadia.world.cli.ts server:run-command",
         "server:rebuild-all": "bun run server:run-command down -v && bun run server:run-command up --build vircadia_world_postgres -d && bun run server:postgres:health && bun run server:postgres:migrate && bun run server:postgres:seed:sql && bun run server:postgres:seed:assets && bun run server:postgres:seed:scripts && bun run server:run-command up --build vircadia_world_api_manager -d && bun run server:run-command up --build vircadia_world_tick_manager -d && bun run server:run-command up --build vircadia_world_pgweb -d",
 
@@ -35,7 +40,8 @@
     },
     "dependencies": {
         "jsonwebtoken": "^9.0.2",
-        "postgres": "^3.4.5"
+        "postgres": "^3.4.5",
+        "@babylonjs/core": "^7.54.2"
     },
     "devDependencies": {
         "@types/bun": "latest",

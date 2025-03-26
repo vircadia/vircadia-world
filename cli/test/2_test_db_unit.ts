@@ -31,27 +31,6 @@ let anonAgent: TestAccount;
 
 describe("DB", () => {
     beforeAll(async () => {
-        // Turn off all services.
-        log({
-            message: "Turning off all services...",
-            type: "debug",
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-        });
-        await Server_CLI.runServerDockerCommand({
-            args: [
-                "down",
-                Service.E_Service.WORLD_API_MANAGER,
-                Service.E_Service.WORLD_TICK_MANAGER,
-            ],
-        });
-        log({
-            message: "All services turned off.",
-            type: "debug",
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-        });
-
         log({
             message: "Getting super user client...",
             type: "debug",
@@ -1532,28 +1511,6 @@ describe("DB", () => {
         }).disconnect();
         log({
             message: "Disconnected from DB.",
-            type: "debug",
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-        });
-
-        // Turn on the services we turned off
-        log({
-            message: "Turning on services...",
-            type: "debug",
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-        });
-        await Server_CLI.runServerDockerCommand({
-            args: [
-                "up",
-                Service.E_Service.WORLD_API_MANAGER,
-                Service.E_Service.WORLD_TICK_MANAGER,
-                "-d",
-            ],
-        });
-        log({
-            message: "Services turned on.",
             type: "debug",
             suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
             debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,

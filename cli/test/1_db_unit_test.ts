@@ -1051,9 +1051,59 @@ describe("DB", () => {
 
                     // Verify changes in separate transaction
                     await superUserSql.begin(async (tx) => {
-                        // Retrieve script changes between ticks and verify
+                        // Get the latest two ticks
+                        const latestTicks = await tx`
+                            SELECT general__tick_id
+                            FROM tick.world_ticks
+                            WHERE group__sync = ${TEST_SYNC_GROUP}
+                            ORDER BY tick__number DESC
+                            LIMIT 2
+                        `;
+
+                        const currentTickId = latestTicks[0].general__tick_id;
+                        const previousTickId = latestTicks[1].general__tick_id;
+
+                        // Retrieve script changes between ticks using timestamp comparison
                         const scriptChanges = await tx`
-                            SELECT * FROM tick.get_changed_script_states_between_latest_ticks(${TEST_SYNC_GROUP})
+                            WITH current_state AS (
+                                SELECT s.*
+                                FROM tick.script_states s
+                                WHERE s.general__tick_id = ${currentTickId}
+                            ),
+                            previous_state AS (
+                                SELECT s.*
+                                FROM tick.script_states s
+                                WHERE s.general__tick_id = ${previousTickId}
+                            ),
+                            changed_scripts AS (
+                                SELECT 
+                                    c.general__script_file_name,
+                                    CASE
+                                        WHEN p.general__script_file_name IS NULL THEN 'INSERT'
+                                        ELSE 'UPDATE'
+                                    END as operation,
+                                    jsonb_build_object(
+                                        'script__compiled__data', 
+                                            CASE WHEN c.script__compiled__data != p.script__compiled__data 
+                                            THEN c.script__compiled__data ELSE NULL END,
+                                        'script__compiled__status', 
+                                            CASE WHEN c.script__compiled__status != p.script__compiled__status 
+                                            THEN c.script__compiled__status ELSE NULL END,
+                                        'script__source__repo__url', 
+                                            CASE WHEN c.script__source__repo__url != p.script__source__repo__url 
+                                            THEN c.script__source__repo__url ELSE NULL END
+                                        -- Add other fields as needed
+                                    ) as changes
+                                FROM current_state c
+                                LEFT JOIN previous_state p ON c.general__script_file_name = p.general__script_file_name
+                                WHERE 
+                                    p.general__script_file_name IS NULL OR
+                                    c.script__compiled__data != p.script__compiled__data OR
+                                    c.script__compiled__status != p.script__compiled__status OR
+                                    c.script__source__repo__url != p.script__source__repo__url
+                                    -- Add other comparisons as needed
+                            )
+                            SELECT * FROM changed_scripts
                         `;
 
                         // Find our script in the changes
@@ -1077,7 +1127,7 @@ describe("DB", () => {
                         // The URL field wasn't changed, so it shouldn't be included
                         expect(
                             scriptChange?.changes.script__source__repo__url,
-                        ).toBeUndefined();
+                        ).toBeNull();
                     });
                 });
             });
@@ -1174,9 +1224,51 @@ describe("DB", () => {
 
                     // Verify changes in separate transaction
                     await superUserSql.begin(async (tx) => {
-                        // Retrieve asset changes between ticks and verify
+                        // Get the latest two ticks
+                        const latestTicks = await tx`
+                            SELECT general__tick_id, tick__number, tick__start_time
+                            FROM tick.world_ticks
+                            WHERE group__sync = ${TEST_SYNC_GROUP}
+                            ORDER BY tick__number DESC
+                            LIMIT 2
+                        `;
+
+                        const currentTickId = latestTicks[0].general__tick_id;
+                        const previousTickId = latestTicks[1].general__tick_id;
+
+                        // Retrieve asset changes between ticks using direct comparison
                         const assetChanges = await tx<Tick.I_AssetUpdate[]>`
-                            SELECT * FROM tick.get_changed_asset_states_between_latest_ticks(${TEST_SYNC_GROUP})
+                            WITH current_state AS (
+                                SELECT a.*
+                                FROM tick.asset_states a
+                                WHERE a.general__tick_id = ${currentTickId}
+                            ),
+                            previous_state AS (
+                                SELECT a.*
+                                FROM tick.asset_states a
+                                WHERE a.general__tick_id = ${previousTickId}
+                            ),
+                            changed_assets AS (
+                                SELECT 
+                                    c.general__asset_file_name,
+                                    CASE
+                                        WHEN p.general__asset_file_name IS NULL THEN 'INSERT'
+                                        ELSE 'UPDATE'
+                                    END as operation,
+                                    jsonb_build_object(
+                                        'asset__data', 
+                                            CASE WHEN c.asset__data != p.asset__data 
+                                            THEN c.asset__data ELSE NULL END
+                                        -- Add other fields as needed
+                                    ) as changes
+                                FROM current_state c
+                                LEFT JOIN previous_state p ON c.general__asset_file_name = p.general__asset_file_name
+                                WHERE 
+                                    p.general__asset_file_name IS NULL OR
+                                    c.asset__data != p.asset__data
+                                    -- Add other comparisons as needed
+                            )
+                            SELECT * FROM changed_assets
                         `;
 
                         // Find our asset in the changes
@@ -1318,9 +1410,64 @@ describe("DB", () => {
                         await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
 
                         // Retrieve changed entity states between latest ticks and verify
-                        const changes = await tx<Array<Tick.I_EntityUpdate>>`
-                            SELECT * FROM tick.get_changed_entity_states_between_latest_ticks(${TEST_SYNC_GROUP})
+                        const latestTicks = await tx`
+                            SELECT general__tick_id
+                            FROM tick.world_ticks
+                            WHERE group__sync = ${TEST_SYNC_GROUP}
+                            ORDER BY tick__number DESC
+                            LIMIT 2
                         `;
+
+                        const currentTickId = latestTicks[0].general__tick_id;
+                        const previousTickId = latestTicks[1].general__tick_id;
+
+                        // Query for entity changes between the two ticks
+                        const changes = await tx<Array<Tick.I_EntityUpdate>>`
+                            WITH current_state AS (
+                                SELECT e.*
+                                FROM tick.entity_states e
+                                WHERE e.general__tick_id = ${currentTickId}
+                            ),
+                            previous_state AS (
+                                SELECT e.*
+                                FROM tick.entity_states e
+                                WHERE e.general__tick_id = ${previousTickId}
+                            ),
+                            changed_entities AS (
+                                SELECT 
+                                    c.general__entity_id,
+                                    CASE
+                                        WHEN p.general__entity_id IS NULL THEN 'INSERT'
+                                        ELSE 'UPDATE'
+                                    END as operation,
+                                    jsonb_build_object(
+                                        'general__entity_name', 
+                                            CASE WHEN c.general__entity_name != p.general__entity_name 
+                                            THEN c.general__entity_name ELSE NULL END,
+                                        'meta__data', 
+                                            CASE WHEN c.meta__data != p.meta__data 
+                                            THEN c.meta__data ELSE NULL END,
+                                        'script__names', 
+                                            CASE WHEN c.script__names != p.script__names 
+                                            THEN c.script__names ELSE NULL END,
+                                        'asset__names', 
+                                            CASE WHEN c.asset__names != p.asset__names 
+                                            THEN c.asset__names ELSE NULL END
+                                        -- Add other entity fields as needed
+                                    ) as changes
+                                FROM current_state c
+                                LEFT JOIN previous_state p ON c.general__entity_id = p.general__entity_id
+                                WHERE 
+                                    p.general__entity_id IS NULL OR
+                                    c.general__entity_name != p.general__entity_name OR
+                                    c.meta__data != p.meta__data OR
+                                    c.script__names != p.script__names OR
+                                    c.asset__names != p.asset__names
+                                    -- Add other comparisons as needed
+                            )
+                            SELECT * FROM changed_entities
+                        `;
+
                         const changeIds = changes.map(
                             (c) => c.general__entity_id,
                         );

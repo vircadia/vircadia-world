@@ -41,7 +41,13 @@ CREATE TABLE entity.entity_scripts (
     script__compiled__data TEXT NOT NULL DEFAULT '',
     script__compiled__status TEXT NOT NULL DEFAULT 'PENDING',
     CONSTRAINT chk_script_compiled_status CHECK (script__compiled__status IN ('PENDING', 'COMPILING', 'COMPILED', 'FAILED')),
-    script__compiled__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    script__compiled__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+
+    script__source__data_updated_at timestamptz DEFAULT now(),
+    script__compiled__data_updated_at timestamptz DEFAULT now(),
+    script__compiled__status_updated_at timestamptz DEFAULT now(),
+    script__source__repo__url_updated_at timestamptz DEFAULT now(),
+    script__source__repo__entry_path_updated_at timestamptz DEFAULT now()
 ) INHERITS (entity._template);
 
 ALTER TABLE entity.entity_scripts ENABLE ROW LEVEL SECURITY;
@@ -69,7 +75,9 @@ CREATE TABLE entity.entity_assets (
         'MTL', 'MAT', 
         -- Shaders
         'GLSL', 'HLSL', 'WGSL', 'SPIRV', 'COMP', 'FRAG', 'VERT', 'SHADERPAK'
-    ))
+    )),
+
+    asset__data_updated_at timestamptz DEFAULT now()
 ) INHERITS (entity._template);
 
 ALTER TABLE entity.entity_assets ENABLE ROW LEVEL SECURITY;
@@ -89,7 +97,12 @@ CREATE TABLE entity.entities (
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
     group__load_priority INTEGER,
 
-    CONSTRAINT fk_entities_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group)
+    CONSTRAINT fk_entities_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group),
+
+    meta_data_updated_at timestamptz DEFAULT now(),
+    script_names_updated_at timestamptz DEFAULT now(),
+    asset_names_updated_at timestamptz DEFAULT now(),
+    position_updated_at timestamptz DEFAULT now()
 ) INHERITS (entity._template);
 
 CREATE UNIQUE INDEX unique_seed_order_idx ON entity.entities(group__load_priority) WHERE group__load_priority IS NOT NULL;
@@ -381,3 +394,114 @@ CREATE POLICY "entities_delete_policy" ON entity.entities
               AND sess.permissions__can_delete = true
         )
     );
+
+-- ============================================================================
+-- TRIGGERS TO UPDATE TIMESTAMPS WHEN SPECIFIC COLUMNS CHANGE
+-- ============================================================================
+
+-- 1. Trigger for entity.entities
+CREATE OR REPLACE FUNCTION entity.update_entity_timestamps()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'UPDATE' THEN
+        IF NEW.meta__data IS DISTINCT FROM OLD.meta__data THEN
+            NEW.meta_data_updated_at = now();
+        END IF;
+        IF NEW.script__names IS DISTINCT FROM OLD.script__names THEN
+            NEW.script_names_updated_at = now();
+        END IF;
+        IF NEW.asset__names IS DISTINCT FROM OLD.asset__names THEN
+            NEW.asset_names_updated_at = now();
+        END IF;
+        -- Add position_updated_at if you have position columns
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER update_entity_timestamps
+BEFORE UPDATE ON entity.entities
+FOR EACH ROW EXECUTE FUNCTION entity.update_entity_timestamps();
+
+-- 2. Trigger for entity.entity_scripts
+CREATE OR REPLACE FUNCTION entity.update_script_timestamps()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'UPDATE' THEN
+        IF NEW.script__source__data IS DISTINCT FROM OLD.script__source__data THEN
+            NEW.script__source__data_updated_at = now();
+        END IF;
+        IF NEW.script__compiled__data IS DISTINCT FROM OLD.script__compiled__data THEN
+            NEW.script__compiled__data_updated_at = now();
+        END IF;
+        IF NEW.script__compiled__status IS DISTINCT FROM OLD.script__compiled__status THEN
+            NEW.script__compiled__status_updated_at = now();
+        END IF;
+        IF NEW.script__source__repo__url IS DISTINCT FROM OLD.script__source__repo__url THEN
+            NEW.script__source__repo__url_updated_at = now();
+        END IF;
+        IF NEW.script__source__repo__entry_path IS DISTINCT FROM OLD.script__source__repo__entry_path THEN
+            NEW.script__source__repo__entry_path_updated_at = now();
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER update_script_timestamps
+BEFORE UPDATE ON entity.entity_scripts
+FOR EACH ROW EXECUTE FUNCTION entity.update_script_timestamps();
+
+-- 3. Trigger for entity.entity_assets
+CREATE OR REPLACE FUNCTION entity.update_asset_timestamps()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'UPDATE' THEN
+        IF NEW.asset__data IS DISTINCT FROM OLD.asset__data THEN
+            NEW.asset__data_updated_at = now();
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER update_asset_timestamps
+BEFORE UPDATE ON entity.entity_assets
+FOR EACH ROW EXECUTE FUNCTION entity.update_asset_timestamps();
+
+-- ============================================================================
+-- INDEXES FOR TIMESTAMP-BASED QUERIES
+-- ============================================================================
+
+-- 1. Composite index for entity changes
+CREATE INDEX idx_entity_timestamp_changes ON entity.entities 
+    (group__sync, 
+     GREATEST(
+        meta_data_updated_at, 
+        script_names_updated_at, 
+        asset_names_updated_at, 
+        general__updated_at
+     ))
+    INCLUDE (general__entity_id, general__entity_name);
+
+-- 2. Composite index for script changes
+CREATE INDEX idx_script_timestamp_changes ON entity.entity_scripts
+    (group__sync,
+     GREATEST(
+        script__source__data_updated_at,
+        script__compiled__data_updated_at,
+        script__compiled__status_updated_at,
+        script__source__repo__url_updated_at,
+        script__source__repo__entry_path_updated_at,
+        general__updated_at
+     ))
+    INCLUDE (general__script_file_name);
+
+-- 3. Composite index for asset changes
+CREATE INDEX idx_asset_timestamp_changes ON entity.entity_assets
+    (group__sync,
+     GREATEST(
+        asset__data_updated_at,
+        general__updated_at
+     ))
+    INCLUDE (general__asset_file_name);

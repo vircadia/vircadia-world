@@ -131,11 +131,58 @@ CREATE INDEX asset_states_sync_group_tick_idx ON tick.asset_states (group__sync,
 CREATE INDEX idx_asset_states_sync_tick_lookup ON tick.asset_states (group__sync, general__tick_id, general__asset_file_name);
 CREATE INDEX idx_asset_states_sync_tick ON tick.asset_states (group__sync, general__tick_id);
 
+-- Fast lookups of entity states by tick and entity ID
+CREATE INDEX idx_entity_states_tick_entity_id ON tick.entity_states (general__tick_id, general__entity_id);
+
+-- Fast lookups of script states by tick and script name
+CREATE INDEX idx_script_states_tick_script_name ON tick.script_states (general__tick_id, general__script_file_name);
+
+-- Fast lookups of asset states by tick and asset name
+CREATE INDEX idx_asset_states_tick_asset_name ON tick.asset_states (general__tick_id, general__asset_file_name);
+
+-- Optimized index for finding latest ticks by sync group with covering columns
+CREATE INDEX idx_world_ticks_sync_number_covering ON tick.world_ticks 
+    (group__sync, tick__number DESC) 
+    INCLUDE (general__tick_id, tick__start_time);
+
+-- Fast timestamp comparisons for entity changes
+CREATE INDEX idx_entity_states_updated_at ON tick.entity_states 
+    (group__sync, general__updated_at DESC) 
+    INCLUDE (general__entity_id);
+
+-- Fast timestamp comparisons for script changes
+CREATE INDEX idx_script_states_updated_at ON tick.script_states 
+    (group__sync, general__updated_at DESC) 
+    INCLUDE (general__script_file_name);
+    
+-- Fast timestamp comparisons for asset changes
+CREATE INDEX idx_asset_states_updated_at ON tick.asset_states 
+    (group__sync, general__updated_at DESC) 
+    INCLUDE (general__asset_file_name);
+
+-- Space-efficient BRIN index for time-series data
+CREATE INDEX idx_world_ticks_time_brin ON tick.world_ticks USING BRIN (tick__start_time);
+
+-- Composite index for tick + sync group lookup patterns
+CREATE INDEX idx_entity_states_sync_tick_composite ON tick.entity_states 
+    (group__sync, general__tick_id) 
+    INCLUDE (general__entity_id, general__entity_name, meta__data);
+
+-- Composite index for tick + sync group lookup patterns for scripts
+CREATE INDEX idx_script_states_sync_tick_composite ON tick.script_states 
+    (group__sync, general__tick_id) 
+    INCLUDE (general__script_file_name, script__compiled__data, script__compiled__status);
+
+-- Composite index for tick + sync group lookup patterns for assets
+CREATE INDEX idx_asset_states_sync_tick_composite ON tick.asset_states 
+    (group__sync, general__tick_id) 
+    INCLUDE (general__asset_file_name, asset__data);
+
 -- ============================================================================
 -- 4. FUNCTIONS
 -- ============================================================================
 
--- 4.1 TICK CAPTURE FUNCTION - Updated to include script and asset states
+-- 4.1 TICK CAPTURE FUNCTION - Updated to include timestamp tracking columns
 CREATE OR REPLACE FUNCTION tick.capture_tick_state(
     p_sync_group text
 ) RETURNS TABLE (
@@ -186,14 +233,18 @@ BEGIN
     FROM auth.sync_groups
     WHERE general__sync_group = p_sync_group;
 
-    -- Cleanup old ticks based on count
+    -- Cleanup old ticks based on count (modified to handle all sync groups)
     DELETE FROM tick.world_ticks wt
     WHERE wt.general__tick_id IN (
         SELECT wt2.general__tick_id
         FROM tick.world_ticks wt2
-        WHERE wt2.group__sync = p_sync_group
-        ORDER BY wt2.tick__number DESC
-        OFFSET v_max_tick_count_buffer
+        JOIN auth.sync_groups sg ON sg.general__sync_group = wt2.group__sync
+        WHERE (
+            SELECT COUNT(*)
+            FROM tick.world_ticks wt3
+            WHERE wt3.group__sync = wt2.group__sync
+              AND wt3.tick__number > wt2.tick__number
+        ) >= sg.server__tick__max_tick_count_buffer
     );
 
     -- Get last tick information (for tick number & metrics)
@@ -257,7 +308,7 @@ BEGIN
         false
     );
 
-    -- Capture entity states
+    -- Capture entity states (now including timestamp columns)
     WITH entity_snapshot AS (
         INSERT INTO tick.entity_states (
             general__entity_id,
@@ -274,7 +325,12 @@ BEGIN
             general__created_by,
             general__updated_at,
             general__updated_by,
-            general__tick_id
+            general__tick_id,
+            -- Include the timestamp columns from the source table if they exist
+            meta_data_updated_at,
+            script_names_updated_at,
+            asset_names_updated_at,
+            position_updated_at
         )
         SELECT 
             e.general__entity_id,
@@ -291,14 +347,19 @@ BEGIN
             e.general__created_by,
             e.general__updated_at,
             e.general__updated_by,
-            v_tick_id
+            v_tick_id,
+            -- Copy timestamp columns if they exist in the source table
+            e.meta_data_updated_at,
+            e.script_names_updated_at,
+            e.asset_names_updated_at,
+            e.position_updated_at
         FROM entity.entities e
         WHERE e.group__sync = p_sync_group
         RETURNING 1
     )
     SELECT COUNT(*) INTO v_entity_states_processed FROM entity_snapshot;
 
-    -- Capture script states
+    -- Capture script states (now including timestamp columns)
     WITH script_snapshot AS (
         INSERT INTO tick.script_states (
             general__script_file_name,
@@ -314,7 +375,13 @@ BEGIN
             general__created_by,
             general__updated_at,
             general__updated_by,
-            general__tick_id
+            general__tick_id,
+            -- Include timestamp columns
+            script__source__data_updated_at,
+            script__compiled__data_updated_at,
+            script__compiled__status_updated_at,
+            script__source__repo__url_updated_at,
+            script__source__repo__entry_path_updated_at
         )
         SELECT 
             s.general__script_file_name,
@@ -330,14 +397,20 @@ BEGIN
             s.general__created_by,
             s.general__updated_at,
             s.general__updated_by,
-            v_tick_id
+            v_tick_id,
+            -- Copy timestamp columns
+            s.script__source__data_updated_at,
+            s.script__compiled__data_updated_at,
+            s.script__compiled__status_updated_at,
+            s.script__source__repo__url_updated_at,
+            s.script__source__repo__entry_path_updated_at
         FROM entity.entity_scripts s
         WHERE s.group__sync = p_sync_group
         RETURNING 1
     )
     SELECT COUNT(*) INTO v_script_states_processed FROM script_snapshot;
 
-    -- Capture asset states
+    -- Capture asset states (now including timestamp columns)
     WITH asset_snapshot AS (
         INSERT INTO tick.asset_states (
             general__asset_file_name,
@@ -347,7 +420,9 @@ BEGIN
             general__created_by,
             general__updated_at,
             general__updated_by,
-            general__tick_id
+            general__tick_id,
+            -- Include timestamp column
+            asset__data_updated_at
         )
         SELECT 
             a.general__asset_file_name,
@@ -357,7 +432,9 @@ BEGIN
             a.general__created_by,
             a.general__updated_at,
             a.general__updated_by,
-            v_tick_id
+            v_tick_id,
+            -- Copy timestamp column
+            a.asset__data_updated_at
         FROM entity.entity_assets a
         WHERE a.group__sync = p_sync_group
         RETURNING 1
@@ -424,301 +501,6 @@ BEGIN
         v_db_end_time,
         v_db_duration_ms,
         v_db_is_delayed;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- 4.2 ENTITY STATE FUNCTIONS
-CREATE OR REPLACE FUNCTION tick.get_changed_entity_states_between_latest_ticks(
-    p_sync_group text
-) RETURNS TABLE (
-    general__entity_id uuid,
-    operation config.operation_enum,
-    changes jsonb
-) AS $$
-DECLARE
-    v_current_tick_id uuid;
-    v_previous_tick_id uuid;
-BEGIN
-    -- Get the latest two tick IDs
-    WITH ordered_ticks AS (
-        SELECT general__tick_id
-        FROM tick.world_ticks wt
-        WHERE wt.group__sync = p_sync_group
-        ORDER BY tick__number DESC
-        LIMIT 2
-    )
-    SELECT
-        (SELECT general__tick_id FROM ordered_ticks LIMIT 1),
-        (SELECT general__tick_id FROM ordered_ticks OFFSET 1 LIMIT 1)
-    INTO v_current_tick_id, v_previous_tick_id;
-
-    -- Return changes between these ticks
-    RETURN QUERY
-    WITH current_states AS (
-        SELECT es.*
-        FROM tick.entity_states es
-        WHERE es.general__tick_id = v_current_tick_id
-    ),
-    previous_states AS (
-        SELECT es.*
-        FROM tick.entity_states es
-        WHERE es.general__tick_id = v_previous_tick_id
-    )
-    SELECT 
-        COALESCE(cs.general__entity_id, ps.general__entity_id),
-        CASE 
-            WHEN ps.general__entity_id IS NULL THEN 'INSERT'::config.operation_enum
-            WHEN cs.general__entity_id IS NULL THEN 'DELETE'::config.operation_enum
-            ELSE 'UPDATE'::config.operation_enum
-        END,
-        CASE 
-            WHEN ps.general__entity_id IS NULL THEN 
-                jsonb_build_object(
-                    'general__entity_id', cs.general__entity_id,
-                    'general__entity_name', cs.general__entity_name,
-                    'general__semantic_version', cs.general__semantic_version,
-                    'group__load_priority', cs.group__load_priority,
-                    'general__initialized_at', cs.general__initialized_at,
-                    'general__initialized_by', cs.general__initialized_by,
-                    'meta__data', cs.meta__data,
-                    'script__names', cs.script__names,
-                    'asset__names', cs.asset__names,
-                    'group__sync', cs.group__sync,
-                    'general__created_at', cs.general__created_at,
-                    'general__created_by', cs.general__created_by,
-                    'general__updated_at', cs.general__updated_at,
-                    'general__updated_by', cs.general__updated_by
-                )
-            WHEN cs.general__entity_id IS NULL THEN NULL::jsonb
-            ELSE jsonb_strip_nulls(jsonb_build_object(
-                'general__entity_name', 
-                    CASE WHEN cs.general__entity_name IS DISTINCT FROM ps.general__entity_name 
-                    THEN cs.general__entity_name END,
-                'general__semantic_version', 
-                    CASE WHEN cs.general__semantic_version IS DISTINCT FROM ps.general__semantic_version 
-                    THEN cs.general__semantic_version END,
-                'group__load_priority', 
-                    CASE WHEN cs.group__load_priority IS DISTINCT FROM ps.group__load_priority 
-                    THEN cs.group__load_priority END,
-                'general__initialized_at', 
-                    CASE WHEN cs.general__initialized_at IS DISTINCT FROM ps.general__initialized_at 
-                    THEN cs.general__initialized_at END,
-                'general__initialized_by', 
-                    CASE WHEN cs.general__initialized_by IS DISTINCT FROM ps.general__initialized_by 
-                    THEN cs.general__initialized_by END,
-                'meta__data', 
-                    CASE WHEN cs.meta__data IS DISTINCT FROM ps.meta__data 
-                    THEN cs.meta__data END,
-                'script__names', 
-                    CASE WHEN cs.script__names IS DISTINCT FROM ps.script__names 
-                    THEN cs.script__names END,
-                'asset__names',
-                    CASE WHEN cs.asset__names IS DISTINCT FROM ps.asset__names 
-                    THEN cs.asset__names END,
-                'group__sync', 
-                    CASE WHEN cs.group__sync IS DISTINCT FROM ps.group__sync 
-                    THEN cs.group__sync END,
-                'general__created_at', 
-                    CASE WHEN cs.general__created_at IS DISTINCT FROM ps.general__created_at 
-                    THEN cs.general__created_at END,
-                'general__created_by', 
-                    CASE WHEN cs.general__created_by IS DISTINCT FROM ps.general__created_by 
-                    THEN cs.general__created_by END,
-                'general__updated_at', 
-                    CASE WHEN cs.general__updated_at IS DISTINCT FROM ps.general__updated_at 
-                    THEN cs.general__updated_at END,
-                'general__updated_by', 
-                    CASE WHEN cs.general__updated_by IS DISTINCT FROM ps.general__updated_by 
-                    THEN cs.general__updated_by END
-            ))
-        END
-    FROM current_states cs
-    FULL OUTER JOIN previous_states ps ON cs.general__entity_id = ps.general__entity_id
-    WHERE cs IS DISTINCT FROM ps;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- 4.3 SCRIPT STATE FUNCTIONS - Updated to use state comparison instead of audit logs
-CREATE OR REPLACE FUNCTION tick.get_changed_script_states_between_latest_ticks(
-    p_sync_group text
-) RETURNS TABLE (
-    general__script_file_name text,
-    operation config.operation_enum,
-    changes jsonb
-) AS $$
-DECLARE
-    v_current_tick_id uuid;
-    v_previous_tick_id uuid;
-BEGIN
-    -- Get the latest two tick IDs
-    WITH ordered_ticks AS (
-        SELECT general__tick_id
-        FROM tick.world_ticks wt
-        WHERE wt.group__sync = p_sync_group
-        ORDER BY tick__number DESC
-        LIMIT 2
-    )
-    SELECT
-        (SELECT general__tick_id FROM ordered_ticks LIMIT 1),
-        (SELECT general__tick_id FROM ordered_ticks OFFSET 1 LIMIT 1)
-    INTO v_current_tick_id, v_previous_tick_id;
-
-    -- If we don't have enough ticks, return empty result
-    IF v_previous_tick_id IS NULL THEN
-        RETURN;
-    END IF;
-
-    -- Return changes between these ticks
-    RETURN QUERY
-    WITH current_states AS (
-        SELECT ss.*
-        FROM tick.script_states ss
-        WHERE ss.general__tick_id = v_current_tick_id
-    ),
-    previous_states AS (
-        SELECT ss.*
-        FROM tick.script_states ss
-        WHERE ss.general__tick_id = v_previous_tick_id
-    )
-    SELECT 
-        COALESCE(cs.general__script_file_name, ps.general__script_file_name),
-        CASE 
-            WHEN ps.general__script_file_name IS NULL THEN 'INSERT'::config.operation_enum
-            WHEN cs.general__script_file_name IS NULL THEN 'DELETE'::config.operation_enum
-            ELSE 'UPDATE'::config.operation_enum
-        END,
-        CASE 
-            WHEN ps.general__script_file_name IS NULL THEN 
-                jsonb_build_object(
-                    'general__script_file_name', cs.general__script_file_name,
-                    'group__sync', cs.group__sync,
-                    'script__source__repo__entry_path', cs.script__source__repo__entry_path,
-                    'script__source__repo__url', cs.script__source__repo__url,
-                    'script__source__data', cs.script__source__data,
-                    'script__source__updated_at', cs.script__source__updated_at,
-                    'script__compiled__data', cs.script__compiled__data,
-                    'script__compiled__status', cs.script__compiled__status,
-                    'script__compiled__updated_at', cs.script__compiled__updated_at,
-                    'general__created_at', cs.general__created_at,
-                    'general__updated_at', cs.general__updated_at
-                )
-            WHEN cs.general__script_file_name IS NULL THEN NULL::jsonb
-            ELSE jsonb_strip_nulls(jsonb_build_object(
-                'general__script_file_name', 
-                    CASE WHEN cs.general__script_file_name IS DISTINCT FROM ps.general__script_file_name 
-                    THEN cs.general__script_file_name END,
-                'group__sync', 
-                    CASE WHEN cs.group__sync IS DISTINCT FROM ps.group__sync 
-                    THEN cs.group__sync END,
-                'script__source__repo__entry_path', 
-                    CASE WHEN cs.script__source__repo__entry_path IS DISTINCT FROM ps.script__source__repo__entry_path 
-                    THEN cs.script__source__repo__entry_path END,
-                'script__source__repo__url', 
-                    CASE WHEN cs.script__source__repo__url IS DISTINCT FROM ps.script__source__repo__url 
-                    THEN cs.script__source__repo__url END,
-                'script__source__data', 
-                    CASE WHEN cs.script__source__data IS DISTINCT FROM ps.script__source__data 
-                    THEN cs.script__source__data END,
-                'script__source__updated_at', 
-                    CASE WHEN cs.script__source__updated_at IS DISTINCT FROM ps.script__source__updated_at 
-                    THEN cs.script__source__updated_at END,
-                'script__compiled__data', 
-                    CASE WHEN cs.script__compiled__data IS DISTINCT FROM ps.script__compiled__data 
-                    THEN cs.script__compiled__data END,
-                'script__compiled__status', 
-                    CASE WHEN cs.script__compiled__status IS DISTINCT FROM ps.script__compiled__status 
-                    THEN cs.script__compiled__status END,
-                'script__compiled__updated_at', 
-                    CASE WHEN cs.script__compiled__updated_at IS DISTINCT FROM ps.script__compiled__updated_at 
-                    THEN cs.script__compiled__updated_at END,
-                'general__created_at', 
-                    CASE WHEN cs.general__created_at IS DISTINCT FROM ps.general__created_at 
-                    THEN cs.general__created_at END,
-                'general__updated_at', 
-                    CASE WHEN cs.general__updated_at IS DISTINCT FROM ps.general__updated_at 
-                    THEN cs.general__updated_at END
-            ))
-        END
-    FROM current_states cs
-    FULL OUTER JOIN previous_states ps ON cs.general__script_file_name = ps.general__script_file_name
-    WHERE cs IS DISTINCT FROM ps;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- 4.4 ASSET STATE FUNCTIONS - Updated to use state comparison instead of audit logs
-CREATE OR REPLACE FUNCTION tick.get_changed_asset_states_between_latest_ticks(
-    p_sync_group text
-) RETURNS TABLE (
-    general__asset_file_name text,
-    operation config.operation_enum,
-    changes jsonb
-) AS $$
-DECLARE
-    v_current_tick_id uuid;
-    v_previous_tick_id uuid;
-BEGIN
-    -- Get the latest two tick IDs
-    WITH ordered_ticks AS (
-        SELECT general__tick_id
-        FROM tick.world_ticks wt
-        WHERE wt.group__sync = p_sync_group
-        ORDER BY tick__number DESC
-        LIMIT 2
-    )
-    SELECT
-        (SELECT general__tick_id FROM ordered_ticks LIMIT 1),
-        (SELECT general__tick_id FROM ordered_ticks OFFSET 1 LIMIT 1)
-    INTO v_current_tick_id, v_previous_tick_id;
-
-    -- If we don't have enough ticks, return empty result
-    IF v_previous_tick_id IS NULL THEN
-        RETURN;
-    END IF;
-
-    -- Return changes between these ticks
-    RETURN QUERY
-    WITH current_states AS (
-        SELECT ast.*
-        FROM tick.asset_states ast
-        WHERE ast.general__tick_id = v_current_tick_id
-    ),
-    previous_states AS (
-        SELECT ast.*
-        FROM tick.asset_states ast
-        WHERE ast.general__tick_id = v_previous_tick_id
-    )
-    SELECT 
-        COALESCE(cs.general__asset_file_name, ps.general__asset_file_name),
-        CASE 
-            WHEN ps.general__asset_file_name IS NULL THEN 'INSERT'::config.operation_enum
-            WHEN cs.general__asset_file_name IS NULL THEN 'DELETE'::config.operation_enum
-            ELSE 'UPDATE'::config.operation_enum
-        END,
-        CASE 
-            WHEN ps.general__asset_file_name IS NULL THEN 
-                jsonb_build_object(
-                    'general__asset_file_name', cs.general__asset_file_name,
-                    'group__sync', cs.group__sync,
-                    'asset__data', CASE WHEN cs.asset__data IS NOT NULL THEN true ELSE false END,
-                    'general__created_at', cs.general__created_at,
-                    'general__updated_at', cs.general__updated_at
-                )
-            WHEN cs.general__asset_file_name IS NULL THEN NULL::jsonb
-            ELSE jsonb_strip_nulls(jsonb_build_object(
-                'group__sync', 
-                    CASE WHEN cs.group__sync IS DISTINCT FROM ps.group__sync 
-                    THEN cs.group__sync END,
-                'asset__data', 
-                    CASE WHEN cs.asset__data IS DISTINCT FROM ps.asset__data 
-                    THEN true END,
-                'general__updated_at', 
-                    CASE WHEN cs.general__updated_at IS DISTINCT FROM ps.general__updated_at 
-                    THEN cs.general__updated_at END
-            ))
-        END
-    FROM current_states cs
-    FULL OUTER JOIN previous_states ps ON cs.general__asset_file_name = ps.general__asset_file_name
-    WHERE cs IS DISTINCT FROM ps;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 

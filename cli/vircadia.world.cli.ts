@@ -715,6 +715,32 @@ export namespace Client_CLI {
 
         return { isHealthy: false, error: lastError };
     }
+
+    /**
+     * Generates a system token and returns it without restarting the container
+     */
+    export async function generateDevToken(): Promise<string> {
+        // Generate a new system token
+        const { token, sessionId, agentId } =
+            await Server_CLI.generateDbSystemToken();
+
+        log({
+            message: "System token generated successfully",
+            type: "success",
+            data: { token, sessionId, agentId },
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+        });
+
+        // Update the browser client config with the new token
+        VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN =
+            token;
+
+        // Set token in environment variable so it's accessible to other processes
+        process.env.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN = token;
+
+        return token;
+    }
 }
 
 export namespace Server_CLI {
@@ -2304,6 +2330,11 @@ if (import.meta.main) {
                 //     debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 //     compileForce: true,
                 // });
+                break;
+            }
+
+            case "dev:client:generate-dev-token": {
+                await Client_CLI.generateDevToken();
                 break;
             }
 

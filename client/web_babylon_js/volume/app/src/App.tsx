@@ -1,4 +1,10 @@
-import { type Component, onCleanup, onMount } from "solid-js";
+import {
+    type Component,
+    onCleanup,
+    onMount,
+    createSignal,
+    createEffect,
+} from "solid-js";
 import { Scene, WebGPUEngine } from "@babylonjs/core";
 import { VircadiaBabylonCore } from "../../vircadia-world-sdk-ts/module/client/core/vircadia.babylon.core";
 import { VircadiaConfig_BROWSER_CLIENT } from "../../vircadia-world-sdk-ts/config/vircadia.browser.client.config";
@@ -8,6 +14,14 @@ const App: Component = () => {
     let engine: WebGPUEngine;
     let scene: Scene;
     let vircadiaClient: VircadiaBabylonCore;
+    const [isConnected, setIsConnected] = createSignal(false);
+
+    // Define handleResize outside to make it accessible in onCleanup
+    const handleResize = () => {
+        if (engine) {
+            engine.resize();
+        }
+    };
 
     onMount(async () => {
         if (!canvasRef) return;
@@ -39,11 +53,31 @@ const App: Component = () => {
 
         // Connect to Vircadia server
         try {
-            const connected = await vircadiaClient.connect();
-            console.log(
-                "Connection status:",
-                connected ? "Connected" : "Failed to connect",
-            );
+            await vircadiaClient.initialize();
+            const connection = vircadiaClient.getConnection();
+
+            // Set up connection state tracker
+            const checkConnectionStatus = () => {
+                const connected = connection.isClientConnected();
+                setIsConnected(connected);
+
+                if (connected) {
+                    console.log("Connected to Vircadia server");
+                } else {
+                    console.log("Disconnected from Vircadia server");
+                }
+            };
+
+            // Initial check
+            checkConnectionStatus();
+
+            // Periodically check connection status
+            const connectionInterval = setInterval(checkConnectionStatus, 2000);
+
+            // Make sure to clear the interval on cleanup
+            onCleanup(() => {
+                clearInterval(connectionInterval);
+            });
         } catch (error) {
             console.error("Error connecting to Vircadia server:", error);
         }
@@ -54,24 +88,31 @@ const App: Component = () => {
         });
 
         // Handle window resize
-        window.addEventListener("resize", () => {
-            engine.resize();
-        });
+        window.addEventListener("resize", handleResize);
+    });
+
+    // Create effect to respond to connection state changes
+    createEffect(() => {
+        // You can use isConnected() value here to trigger UI updates or other actions
+        console.log(
+            "Connection state changed:",
+            isConnected() ? "connected" : "disconnected",
+        );
     });
 
     onCleanup(() => {
         // Clean up resources
         if (vircadiaClient) {
+            // Use the proper dispose method now that it's implemented
             vircadiaClient.dispose();
+            setIsConnected(false);
         }
 
         if (engine) {
             engine.dispose();
         }
 
-        window.removeEventListener("resize", () => {
-            engine.resize();
-        });
+        window.removeEventListener("resize", handleResize);
     });
 
     return (
@@ -85,6 +126,24 @@ const App: Component = () => {
                     "touch-action": "none",
                 }}
             />
+            <div
+                style={{
+                    position: "absolute",
+                    top: "10px",
+                    right: "10px",
+                    padding: "8px 12px",
+                    "border-radius": "4px",
+                    background: isConnected()
+                        ? "rgba(0, 128, 0, 0.7)"
+                        : "rgba(255, 0, 0, 0.7)",
+                    color: "white",
+                    "font-size": "12px",
+                    "font-weight": "bold",
+                    transition: "background 0.3s ease",
+                }}
+            >
+                {isConnected() ? "Connected" : "Disconnected"}
+            </div>
         </div>
     );
 };

@@ -4,7 +4,7 @@ import { PostgresClient } from "../../sdk/vircadia-world-sdk-ts/module/server/po
 import { VircadiaBabylonCore } from "../../sdk/vircadia-world-sdk-ts/module/client/core/vircadia.babylon.core";
 import {
     Communication,
-    type Entity,
+    Entity,
 } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import {
     cleanupTestAccounts,
@@ -30,6 +30,7 @@ let anonAgent: TestAccount;
 
 let superUserSql: postgres.Sql;
 const testEntityIds: string[] = [];
+const testScriptIds: string[] = [];
 
 describe("Babylon.js Client Core Integration", () => {
     beforeAll(async () => {
@@ -128,6 +129,190 @@ describe("Babylon.js Client Core Integration", () => {
 
             expect(testEntityIds.length).toBeGreaterThan(0);
         });
+
+        test("should create test scripts for script tests", async () => {
+            // Clean up any existing test scripts first
+            await cleanupTestScripts({ superUserSql });
+
+            // Create a test script
+            await superUserSql.begin(async (tx: postgres.TransactionSql) => {
+                const [script] = await tx<[Entity.Script.I_Script]>`
+                    INSERT INTO entity.entity_scripts (
+                        general__script_file_name,
+                        script__type,
+                        script__source__data,
+                        script__compiled__data,
+                        script__compiled__status,
+                        group__sync
+                    ) VALUES (
+                        ${`${DB_TEST_PREFIX}TestScript`},
+                        ${Entity.Script.E_ScriptType.BABYLON_BROWSER},
+                        ${`
+                        function main(context) {
+                            // Store received events for testing
+                            const receivedEvents = {
+                                onScriptInitialize: false,
+                                onEntityUpdate: false,
+                                onAssetUpdate: false,
+                                onScriptUpdate: false,
+                                initializeData: null,
+                                updateData: null
+                            };
+                            
+                            // Define hooks
+                            context.Vircadia.v1.Hook.onScriptInitialize = function(entityData, entityAssets) {
+                                receivedEvents.onScriptInitialize = true;
+                                receivedEvents.initializeData = { entityData, entityAssets };
+                            };
+                            
+                            context.Vircadia.v1.Hook.onEntityUpdate = function(entityData) {
+                                receivedEvents.onEntityUpdate = true;
+                                receivedEvents.updateData = entityData;
+                            };
+                            
+                            context.Vircadia.v1.Hook.onAssetUpdate = function(assetData) {
+                                receivedEvents.onAssetUpdate = true;
+                            };
+                            
+                            context.Vircadia.v1.Hook.onScriptUpdate = function(scriptData) {
+                                receivedEvents.onScriptUpdate = true;
+                            };
+                            
+                            return {
+                                getReceivedEvents: function() {
+                                    return receivedEvents;
+                                }
+                            };
+                        }
+                        `},
+                        ${`
+                        function main(context) {
+                            // Store received events for testing
+                            const receivedEvents = {
+                                onScriptInitialize: false,
+                                onEntityUpdate: false,
+                                onAssetUpdate: false,
+                                onScriptUpdate: false,
+                                initializeData: null,
+                                updateData: null
+                            };
+                            
+                            // Define hooks
+                            context.Vircadia.v1.Hook.onScriptInitialize = function(entityData, entityAssets) {
+                                receivedEvents.onScriptInitialize = true;
+                                receivedEvents.initializeData = { entityData, entityAssets };
+                            };
+                            
+                            context.Vircadia.v1.Hook.onEntityUpdate = function(entityData) {
+                                receivedEvents.onEntityUpdate = true;
+                                receivedEvents.updateData = entityData;
+                            };
+                            
+                            context.Vircadia.v1.Hook.onAssetUpdate = function(assetData) {
+                                receivedEvents.onAssetUpdate = true;
+                            };
+                            
+                            context.Vircadia.v1.Hook.onScriptUpdate = function(scriptData) {
+                                receivedEvents.onScriptUpdate = true;
+                            };
+                            
+                            return {
+                                getReceivedEvents: function() {
+                                    return receivedEvents;
+                                }
+                            };
+                        }
+                        `},
+                        ${Entity.Script.E_CompilationStatus.COMPILED},
+                        ${TEST_SYNC_GROUP}
+                    ) RETURNING *
+                `;
+
+                testScriptIds.push(script.general__script_file_name);
+
+                log({
+                    message: `Created test script with name: ${script.general__script_file_name}`,
+                    type: "debug",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+            });
+
+            // Create another script with the asset update hook
+            await superUserSql.begin(async (tx: postgres.TransactionSql) => {
+                const [script] = await tx<[Entity.Script.I_Script]>`
+                    INSERT INTO entity.entity_scripts (
+                        general__script_file_name,
+                        script__type,
+                        script__source__data,
+                        script__compiled__data,
+                        script__compiled__status,
+                        group__sync
+                    ) VALUES (
+                        ${`${DB_TEST_PREFIX}AssetTestScript`},
+                        ${Entity.Script.E_ScriptType.BABYLON_BROWSER},
+                        ${`
+                        function main(context) {
+                            // Track asset updates
+                            const assetUpdates = [];
+                            
+                            context.Vircadia.v1.Hook.onAssetUpdate = function(assetData) {
+                                assetUpdates.push(assetData);
+                            };
+                            
+                            return {
+                                getAssetUpdates: function() {
+                                    return assetUpdates;
+                                }
+                            };
+                        }
+                        `},
+                        ${`
+                        function main(context) {
+                            // Track asset updates
+                            const assetUpdates = [];
+                            
+                            context.Vircadia.v1.Hook.onAssetUpdate = function(assetData) {
+                                assetUpdates.push(assetData);
+                            };
+                            
+                            return {
+                                getAssetUpdates: function() {
+                                    return assetUpdates;
+                                }
+                            };
+                        }
+                        `},
+                        ${Entity.Script.E_CompilationStatus.COMPILED},
+                        ${TEST_SYNC_GROUP}
+                    ) RETURNING *
+                `;
+
+                testScriptIds.push(script.general__script_file_name);
+            });
+
+            expect(testScriptIds.length).toBeGreaterThan(0);
+        });
+
+        test("should associate scripts with test entities", async () => {
+            // Update our test entity to include the script reference
+            await superUserSql.begin(async (tx: postgres.TransactionSql) => {
+                await tx`
+                    UPDATE entity.entities
+                    SET 
+                        script__names = ${tx.array([testScriptIds[0]])},
+                        meta__data = jsonb_set(meta__data, '{test_script}', '{"state": "initialized", "config": {"enabled": true}}')
+                    WHERE general__entity_id = ${testEntityIds[0]}
+                `;
+            });
+
+            // Verify the update
+            const [entity] = await superUserSql<[Entity.I_Entity]>`
+                SELECT * FROM entity.entities WHERE general__entity_id = ${testEntityIds[0]}
+            `;
+
+            expect(entity.script__names).toContain(testScriptIds[0]);
+        });
     });
 
     describe("Core functionality", () => {
@@ -154,14 +339,18 @@ describe("Babylon.js Client Core Integration", () => {
                 suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                 debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 data: {
-                    isConnecting: core.getConnection().isConnecting(),
-                    isClientConnected: core.getConnection().isClientConnected(),
-                    isReconnecting: core.getConnection().isReconnecting(),
+                    isConnecting: core.getConnectionManager().isConnecting(),
+                    isClientConnected: core
+                        .getConnectionManager()
+                        .isClientConnected(),
+                    isReconnecting: core
+                        .getConnectionManager()
+                        .isReconnecting(),
                 },
             });
 
             // Verify connection was established
-            expect(core.getConnection().isClientConnected()).toBe(true);
+            expect(core.getConnectionManager().isClientConnected()).toBe(true);
 
             // Verify scene was set up correctly
             expect(core.getEntityManager().getScene()).toBeDefined();
@@ -182,12 +371,12 @@ describe("Babylon.js Client Core Integration", () => {
 
             await core.initialize();
 
-            expect(core.getConnection().isConnecting()).toBe(false);
-            expect(core.getConnection().isClientConnected()).toBe(true);
+            expect(core.getConnectionManager().isConnecting()).toBe(false);
+            expect(core.getConnectionManager().isClientConnected()).toBe(true);
 
             // Test querying the database through the connection
             const queryResponse = await core
-                .getConnection()
+                .getConnectionManager()
                 .sendQueryAsync<Entity.I_Entity[]>(
                     "SELECT * FROM entity.entities",
                 );
@@ -220,7 +409,7 @@ describe("Babylon.js Client Core Integration", () => {
             await core.initialize();
 
             // Verify connection was established
-            expect(core.getConnection().isClientConnected()).toBe(true);
+            expect(core.getConnectionManager().isClientConnected()).toBe(true);
 
             // Clean up
             core.dispose();
@@ -241,7 +430,7 @@ describe("Babylon.js Client Core Integration", () => {
 
             await core.initialize();
 
-            expect(core.getConnection().isClientConnected()).toBe(true);
+            expect(core.getConnectionManager().isClientConnected()).toBe(true);
 
             core.dispose();
         });
@@ -261,145 +450,214 @@ describe("Babylon.js Client Core Integration", () => {
 
             await core.initialize();
 
-            expect(core.getConnection().isClientConnected()).toBe(true);
+            expect(core.getConnectionManager().isClientConnected()).toBe(true);
 
             core.dispose();
         });
     });
 
-    /*
-    describe("Entity interaction", () => {
-        test("should be able to create and update entities", async () => {
-            // Create a NullEngine and Scene for testing
-            const engine = new NullEngine();
-            const scene = new Scene(engine);
+    // describe("Script functionality", () => {
+    //     test("should load and execute scripts", async () => {
+    //         // Create a NullEngine and Scene for testing
+    //         const engine = new NullEngine();
+    //         const scene = new Scene(engine);
 
-            // Initialize VircadiaBabylonCore
-            const core = new VircadiaBabylonCore({
-                serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
-                authToken: systemTestAccount.sessionId,
-                authProvider: "system",
-                engine: engine,
-                scene: scene,
-                debug: true,
-            });
+    //         // Initialize VircadiaBabylonCore with admin token
+    //         const core = new VircadiaBabylonCore({
+    //             serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
+    //             authToken: adminAgent.token,
+    //             authProvider: SYSTEM_AUTH_PROVIDER_NAME,
+    //             engine: engine,
+    //             scene: scene,
+    //             debug: true,
+    //         });
 
-            await core.initialize();
+    //         await core.initialize();
 
-            // Create a new entity through the client
-            const newEntityData = {
-                general__entity_name: "Client Created Entity",
-                meta__data: {
-                    test_property: "test_value",
-                    counter: 0,
-                },
-                group__sync: TEST_SYNC_GROUP,
-                position__x: 10,
-                position__y: 5,
-                position__z: 10,
-            };
+    //         // Verify connection was established
+    //         expect(core.getConnection().isClientConnected()).toBe(true);
 
-            const createdEntity = await core.createEntity(newEntityData);
-            expect(createdEntity).toBeDefined();
-            expect(createdEntity.general__entity_name).toBe(
-                "Client Created Entity",
-            );
+    //         // Load the test script directly
+    //         const scriptManager = core.getEntityManager().getScriptManager();
+    //         const script = await scriptManager.loadScript(testScriptIds[0]);
 
-            // Verify the entity exists and has the correct properties
-            const entityFromCore = core.getEntity(
-                createdEntity.general__entity_id,
-            );
-            expect(entityFromCore).toBeDefined();
-            expect(entityFromCore?.general__entity_name).toBe(
-                "Client Created Entity",
-            );
-            expect(entityFromCore?.position__x).toBe(10);
+    //         // Verify the script was loaded
+    //         expect(script).toBeDefined();
+    //         expect(script.general__script_file_name).toBe(testScriptIds[0]);
+    //         expect(script.script__type).toBe(
+    //             Entity.Script.E_ScriptType.BABYLON_BROWSER,
+    //         );
 
-            // Update the entity
-            const updateResult = await core.updateEntity({
-                general__entity_id: createdEntity.general__entity_id,
-                general__entity_name: "Updated Entity Name",
-                meta__data: {
-                    test_property: "updated_value",
-                    counter: 1,
-                },
-            });
+    //         // Get the test entity to use with the script
+    //         const entity = core.getEntityManager().getEntity(testEntityIds[0]);
+    //         expect(entity).toBeDefined();
 
-            expect(updateResult).toBeTruthy();
+    //         // Execute the script with the entity
+    //         if (entity) {
+    //             await scriptManager.executeScript(script, entity, [], scene);
+    //         }
 
-            // Verify the update was applied
-            const updatedEntity = core.getEntity(
-                createdEntity.general__entity_id,
-            );
-            expect(updatedEntity?.general__entity_name).toBe(
-                "Updated Entity Name",
-            );
-            expect(updatedEntity?.meta__data.test_property).toBe(
-                "updated_value",
-            );
-            expect(updatedEntity?.meta__data.counter).toBe(1);
+    //         // Verify the script instance exists
+    //         const scriptInstance = scriptManager.scriptInstances.get(
+    //             testScriptIds[0],
+    //         );
+    //         expect(scriptInstance).toBeDefined();
 
-            // Clean up
-            await core.deleteEntity(createdEntity.general__entity_id);
-            core.dispose();
-        });
+    //         // Verify hooks were registered
+    //         if (scriptInstance) {
+    //             expect(typeof scriptInstance.hooks.onScriptInitialize).toBe(
+    //                 "function",
+    //             );
+    //             expect(typeof scriptInstance.hooks.onEntityUpdate).toBe(
+    //                 "function",
+    //             );
+    //             expect(typeof scriptInstance.hooks.onAssetUpdate).toBe(
+    //                 "function",
+    //             );
+    //             expect(typeof scriptInstance.hooks.onScriptUpdate).toBe(
+    //                 "function",
+    //             );
+    //         }
 
-        test("should receive entity updates from the server", async () => {
-            // Create a NullEngine and Scene for testing
-            const engine = new NullEngine();
-            const scene = new Scene(engine);
+    //         // Clean up
+    //         core.dispose();
+    //     });
 
-            // Initialize VircadiaBabylonCore
-            const core = new VircadiaBabylonCore({
-                serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
-                authToken: systemTestAccount.sessionId,
-                authProvider: "system",
-                engine: engine,
-                scene: scene,
-                debug: true,
-            });
+    //     test("should trigger script hooks on entity updates", async () => {
+    //         // Create a NullEngine and Scene for testing
+    //         const engine = new NullEngine();
+    //         const scene = new Scene(engine);
 
-            await core.initialize();
+    //         // Initialize VircadiaBabylonCore with admin token
+    //         const core = new VircadiaBabylonCore({
+    //             serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
+    //             authToken: adminAgent.token,
+    //             authProvider: SYSTEM_AUTH_PROVIDER_NAME,
+    //             engine: engine,
+    //             scene: scene,
+    //             debug: true,
+    //         });
 
-            // Save the current position of our test entity
-            const entityBefore = core.getEntity(testEntityIds[0]);
-            expect(entityBefore).toBeDefined();
+    //         await core.initialize();
 
-            // Update the entity directly in the database
-            await superUserSql.begin(async (tx: postgres.TransactionSql) => {
-                await tx`
-                    UPDATE entity.entities
-                    SET 
-                        position__x = ${20},
-                        position__y = ${30},
-                        position__z = ${40},
-                        meta__data = ${tx.json({
-                            test_script: {
-                                state: "updated",
-                                lastUpdate: new Date().toISOString(),
-                                config: { enabled: true },
-                            },
-                        })}
-                    WHERE general__entity_id = ${testEntityIds[0]}
-                `;
-            });
+    //         // Get the test entity
+    //         const entity = core.getEntityManager().getEntity(testEntityIds[0]);
+    //         expect(entity).toBeDefined();
 
-            // Wait for a tick to process the update
-            await Bun.sleep(500);
+    //         // Get the script instance
+    //         const scriptManager = core.getEntityManager().getScriptManager();
+    //         const scriptInstance = scriptManager.scriptInstances.get(
+    //             testScriptIds[0],
+    //         );
+    //         expect(scriptInstance).toBeDefined();
 
-            // Verify the client received the update
-            const entityAfter = core.getEntity(testEntityIds[0]);
-            expect(entityAfter).toBeDefined();
-            expect(entityAfter?.position__x).toBe(20);
-            expect(entityAfter?.position__y).toBe(30);
-            expect(entityAfter?.position__z).toBe(40);
-            expect(entityAfter?.meta__data.test_script.state).toBe("updated");
+    //         // Set up a spy on the onEntityUpdate hook
+    //         let hookCalled = false;
+    //         let updateData: Entity.I_Entity | null = null;
 
-            // Clean up
-            core.dispose();
-        });
-    });
-    */
+    //         if (scriptInstance) {
+    //             const originalHook = scriptInstance.hooks.onEntityUpdate;
+    //             scriptInstance.hooks.onEntityUpdate = (
+    //                 entityData: Entity.I_Entity,
+    //             ) => {
+    //                 hookCalled = true;
+    //                 updateData = entityData;
+    //                 if (originalHook) originalHook(entityData);
+    //             };
+    //         }
+
+    //         // Update the entity
+    //         if (entity) {
+    //             const updatedEntity = {
+    //                 ...entity,
+    //                 general__entity_name: "Updated for script test",
+    //                 meta__data: {
+    //                     ...entity.meta__data,
+    //                     scriptTest: { value: "test_value" },
+    //                 },
+    //             };
+
+    //             // Simulate an entity update event
+    //             core.getEntityManager().updateEntityAndNotifyScripts(
+    //                 updatedEntity,
+    //             );
+    //         }
+
+    //         // Verify the hook was called with the right data
+    //         expect(hookCalled).toBe(true);
+    //         expect(updateData).toBeDefined();
+    //         if (entity && updateData) {
+    //             const typedUpdateData = updateData as Entity.I_Entity;
+    //             expect(typedUpdateData.general__entity_id).toBe(
+    //                 entity.general__entity_id,
+    //             );
+    //             expect(typedUpdateData.general__entity_name).toBe(
+    //                 "Updated for script test",
+    //             );
+    //             expect(
+    //                 (typedUpdateData.meta__data.scriptTest as { value: string })
+    //                     .value,
+    //             ).toBe("test_value");
+    //         }
+
+    //         // Clean up
+    //         core.dispose();
+    //     });
+
+    //     test("should support script reloading", async () => {
+    //         // Create a NullEngine and Scene for testing
+    //         const engine = new NullEngine();
+    //         const scene = new Scene(engine);
+
+    //         // Initialize VircadiaBabylonCore with admin token
+    //         const core = new VircadiaBabylonCore({
+    //             serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
+    //             authToken: adminAgent.token,
+    //             authProvider: SYSTEM_AUTH_PROVIDER_NAME,
+    //             engine: engine,
+    //             scene: scene,
+    //             debug: true,
+    //         });
+
+    //         await core.initialize();
+
+    //         // Get script manager
+    //         const scriptManager = core.getEntityManager().getScriptManager();
+
+    //         // Get the first script instance
+    //         const initialScriptInstance = scriptManager.scriptInstances.get(
+    //             testScriptIds[0],
+    //         );
+    //         expect(initialScriptInstance).toBeDefined();
+
+    //         // Set a flag to check teardown gets called
+    //         let teardownCalled = false;
+    //         if (initialScriptInstance) {
+    //             initialScriptInstance.hooks.onScriptTeardown = () => {
+    //                 teardownCalled = true;
+    //             };
+    //         }
+
+    //         // Reload the script
+    //         await scriptManager.reloadScript(
+    //             testScriptIds[0],
+    //             core.getEntityManager(),
+    //         );
+
+    //         // Verify teardown was called
+    //         expect(teardownCalled).toBe(true);
+
+    //         // Get the new instance and verify it's different
+    //         const newScriptInstance = scriptManager.scriptInstances.get(
+    //             testScriptIds[0],
+    //         );
+    //         expect(newScriptInstance).toBeDefined();
+    //         expect(newScriptInstance).not.toBe(initialScriptInstance);
+
+    //         // Clean up
+    //         core.dispose();
+    //     });
+    // });
 
     // Additional test scenarios could include:
     // - Testing script execution

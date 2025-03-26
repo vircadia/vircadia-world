@@ -61,7 +61,12 @@ export class WorldApiManager {
     async validateJWT(data: {
         provider: string;
         token: string;
-    }): Promise<{ agentId: string; sessionId: string; isValid: boolean }> {
+    }): Promise<{
+        agentId: string;
+        sessionId: string;
+        isValid: boolean;
+        errorReason?: string;
+    }> {
         const { provider, token } = data;
 
         if (!superUserSql) {
@@ -70,7 +75,12 @@ export class WorldApiManager {
 
         try {
             if (!provider) {
-                throw new Error("Provider is not set.");
+                return {
+                    agentId: "",
+                    sessionId: "",
+                    isValid: false,
+                    errorReason: "Provider is not set.",
+                };
             }
 
             // Check for empty or malformed token first
@@ -79,6 +89,7 @@ export class WorldApiManager {
                     agentId: "",
                     sessionId: "",
                     isValid: false,
+                    errorReason: "Token is empty or malformed.",
                 };
             }
 
@@ -93,49 +104,104 @@ export class WorldApiManager {
             `;
 
             if (!providerConfig) {
-                throw new Error(
-                    `Provider ${provider} not found or not enabled.`,
-                );
+                return {
+                    agentId: "",
+                    sessionId: "",
+                    isValid: false,
+                    errorReason: `Provider '${provider}' not found or not enabled.`,
+                };
             }
 
             const jwtSecret = providerConfig.provider__jwt_secret;
 
-            const decoded = verify(token, jwtSecret) as {
-                sessionId: string;
-                agentId: string;
-            };
+            try {
+                const decoded = verify(token, jwtSecret) as {
+                    sessionId: string;
+                    agentId: string;
+                    exp?: number;
+                };
 
-            log({
-                message: "JWT validation result",
-                debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
-                suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
-                type: "debug",
-                data: {
-                    token,
-                    decoded,
-                },
-            });
+                // Check for missing required fields
+                if (!decoded.sessionId) {
+                    return {
+                        agentId: decoded.agentId || "",
+                        sessionId: "",
+                        isValid: false,
+                        errorReason: "Token is missing sessionId claim.",
+                    };
+                }
 
-            return {
-                agentId: decoded.agentId,
-                sessionId: decoded.sessionId,
-                isValid: !!decoded.sessionId && !!decoded.agentId,
-            };
+                if (!decoded.agentId) {
+                    return {
+                        agentId: "",
+                        sessionId: decoded.sessionId || "",
+                        isValid: false,
+                        errorReason: "Token is missing agentId claim.",
+                    };
+                }
+
+                log({
+                    message: "JWT validation result",
+                    debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+                    type: "debug",
+                    data: {
+                        token,
+                        decoded,
+                    },
+                });
+
+                return {
+                    agentId: decoded.agentId,
+                    sessionId: decoded.sessionId,
+                    isValid: true,
+                };
+            } catch (verifyError) {
+                // Handle specific jsonwebtoken errors
+                if (verifyError instanceof Error) {
+                    let errorReason: string;
+
+                    if (verifyError.name === "TokenExpiredError") {
+                        errorReason = "Token has expired.";
+                    } else if (verifyError.name === "JsonWebTokenError") {
+                        errorReason = `JWT error: ${verifyError.message}`;
+                    } else if (verifyError.name === "NotBeforeError") {
+                        errorReason = "Token is not yet valid.";
+                    } else {
+                        errorReason = `Token verification failed: ${verifyError.message}`;
+                    }
+
+                    return {
+                        agentId: "",
+                        sessionId: "",
+                        isValid: false,
+                        errorReason,
+                    };
+                }
+
+                return {
+                    agentId: "",
+                    sessionId: "",
+                    isValid: false,
+                    errorReason: "Unknown token verification error.",
+                };
+            }
         } catch (error) {
+            const errorMessage =
+                error instanceof Error ? error.message : String(error);
             log({
-                message: `Internal JWT Session validation failed: ${error}`,
+                message: `Internal JWT Session validation failed: ${errorMessage}`,
                 debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
                 suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
                 type: "debug",
-                data: {
-                    error:
-                        error instanceof Error ? error.message : String(error),
-                },
+                data: { error: errorMessage },
             });
+
             return {
                 agentId: "",
                 sessionId: "",
                 isValid: false,
+                errorReason: `Internal validation error: ${errorMessage}`,
             };
         }
     }
@@ -268,9 +334,12 @@ export class WorldApiManager {
                                 VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
                             type: "debug",
                         });
-                        return new Response("Authentication required", {
-                            status: 401,
-                        });
+                        return new Response(
+                            "Authentication required: No token provided",
+                            {
+                                status: 401,
+                            },
+                        );
                     }
 
                     // Handle missing provider
@@ -296,15 +365,18 @@ export class WorldApiManager {
                     if (!jwtValidationResult.isValid) {
                         log({
                             prefix: this.LOG_PREFIX,
-                            message: "Token JWT validation failed",
+                            message: `Token JWT validation failed: ${jwtValidationResult.errorReason}`,
                             debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
                             suppress:
                                 VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
                             type: "debug",
                         });
-                        return new Response("Invalid token", {
-                            status: 401,
-                        });
+                        return new Response(
+                            `Invalid token: ${jwtValidationResult.errorReason}`,
+                            {
+                                status: 401,
+                            },
+                        );
                     }
 
                     const sessionValidationResult = await superUserSql<
@@ -405,7 +477,7 @@ export class WorldApiManager {
                             if (!jwtValidationResult.isValid) {
                                 return Response.json(
                                     Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
-                                        "Invalid token",
+                                        `Invalid token: ${jwtValidationResult.errorReason}`,
                                     ),
                                     { status: 401 },
                                 );
@@ -609,6 +681,7 @@ export class WorldApiManager {
                                                     requestId:
                                                         typedRequest.requestId,
                                                     errorMessage,
+                                                    result: [],
                                                 },
                                             ),
                                         ),

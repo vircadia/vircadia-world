@@ -552,7 +552,7 @@ describe("DB", () => {
                             meta__data,
                             group__sync
                         ) VALUES (
-                            ${"Test Entity"},
+                            ${`${DB_TEST_PREFIX}Test Entity`},
                             ${tx.json(entityData)},
                             ${"public.NORMAL"}
                         ) RETURNING *
@@ -576,7 +576,7 @@ describe("DB", () => {
                             meta__data,
                             group__sync
                         ) VALUES (
-                            ${"Test Entity"},
+                            ${`${DB_TEST_PREFIX}Test Entity`},
                             ${tx.json({
                                 script1: { status: "init" },
                                 script2: { counter: 0 },
@@ -587,7 +587,7 @@ describe("DB", () => {
                     await tx`
                         UPDATE entity.entities
                         SET
-                            general__entity_name = ${"Updated Entity"},
+                            general__entity_name = ${`${DB_TEST_PREFIX}Updated Entity`},
                             meta__data = ${tx.json({
                                 script1: { status: "ready" },
                                 script2: { counter: 1 },
@@ -618,7 +618,7 @@ describe("DB", () => {
         				script__compiled__status,
         				group__sync
         			) VALUES (
-                        ${"Test Script"},
+                        ${`${DB_TEST_PREFIX}Test Script`},
         				${'console.log("test")'},
         				${Entity.Script.E_CompilationStatus.COMPILED},
         				${TEST_SYNC_GROUP}
@@ -669,7 +669,7 @@ describe("DB", () => {
         				asset__data,
         				group__sync
         			) VALUES (
-        				${"Test Asset"},
+        				${`${DB_TEST_PREFIX}Test Asset`},
         				${Buffer.from("sample asset binary data")},
         				${"public.NORMAL"}
         			) RETURNING *
@@ -690,7 +690,7 @@ describe("DB", () => {
                             group__sync,
                             asset__data
                         ) VALUES (
-                            ${"Test Asset"},
+                            ${`${DB_TEST_PREFIX}Test Asset`},
                             ${"public.NORMAL"},
                             decode('deadbeef', 'hex')
                         ) RETURNING *
@@ -703,7 +703,7 @@ describe("DB", () => {
                             script__source__repo__entry_path,
                             script__source__repo__url
                         ) VALUES (
-                            ${"Test Script"},
+                            ${`${DB_TEST_PREFIX}Test Script`},
                             ${"public.NORMAL"},
                             ${"path/to/script"},
                             ${"https://github.com/example/repo"}
@@ -717,7 +717,7 @@ describe("DB", () => {
                             script__names,
                             group__sync
                         ) VALUES (
-                            ${"Entity with asset and script"},
+                            ${`${DB_TEST_PREFIX}Entity with asset and script`},
                             ${[asset.general__asset_file_name]},
                             ${[script.general__script_file_name]},
                             ${"public.NORMAL"}
@@ -751,7 +751,7 @@ describe("DB", () => {
         				group__sync,
         				asset__data
         			) VALUES (
-        				${"Asset to delete"},
+        				${`${DB_TEST_PREFIX}Asset to delete`},
         				${"public.NORMAL"},
         				decode('deadbeef', 'hex')
         			) RETURNING *
@@ -763,7 +763,7 @@ describe("DB", () => {
         				asset__names,
         				group__sync
         			) VALUES (
-        				${"Entity with asset"},
+        				${`${DB_TEST_PREFIX}Entity with asset`},
         				${[asset.general__asset_file_name]},
         				${"public.NORMAL"}
         			) RETURNING *
@@ -797,7 +797,7 @@ describe("DB", () => {
                         script__compiled__status,
                         script__compiled__updated_at
         			) VALUES (
-        				${"Script to delete"},
+        				${`${DB_TEST_PREFIX}Script to delete`},
         				${"public.NORMAL"},
         				${"path/to/script"},
         				${"https://github.com/example/repo"},
@@ -814,7 +814,7 @@ describe("DB", () => {
         				script__names,
         				group__sync
         			) VALUES (
-        				${"Entity with script"},
+        				${`${DB_TEST_PREFIX}Entity with script`},
         				${[script.general__script_file_name]},
         				${"public.NORMAL"}
         			) RETURNING *

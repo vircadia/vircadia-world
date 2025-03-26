@@ -5,42 +5,34 @@ import { VircadiaBabylonCore } from "../../sdk/vircadia-world-sdk-ts/module/clie
 import {
     Communication,
     type Entity,
-    Service,
 } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import {
     cleanupTestAccounts,
     cleanupTestAssets,
     cleanupTestEntities,
     cleanupTestScripts,
+    DB_TEST_PREFIX,
     TEST_SYNC_GROUP,
+    initTestAccounts,
+    type TestAccount,
+    SYSTEM_AUTH_PROVIDER_NAME,
+    ANON_AUTH_PROVIDER_NAME,
 } from "./helper/helpers";
 import { VircadiaConfig_CLI } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.cli.config";
 import { VircadiaConfig_SERVER } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.server.config";
-import { Server_CLI } from "../vircadia.world.cli";
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 import type postgres from "postgres";
 
-let systemTestAccount: {
-    sessionId: string;
-    agentId: string;
-    token: string;
-};
+// Add these variables to hold test accounts
+let adminAgent: TestAccount;
+let regularAgent: TestAccount;
+let anonAgent: TestAccount;
 
 let superUserSql: postgres.Sql;
 const testEntityIds: string[] = [];
 
 describe("Babylon.js Client Core Integration", () => {
     beforeAll(async () => {
-        // Generate system token for tests
-        systemTestAccount = await Server_CLI.generateDbSystemToken();
-
-        log({
-            message: "System token generated for tests",
-            type: "debug",
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-        });
-
         // Get database super user client
         log({
             message: "Getting super user client...",
@@ -63,61 +55,80 @@ describe("Babylon.js Client Core Integration", () => {
                     VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
             },
         });
+
+        // Initialize test accounts
+        log({
+            message: "Initializing test accounts...",
+            type: "debug",
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+        });
+
+        // Clean up any existing test accounts first
+        await cleanupTestAccounts({ superUserSql });
+
+        // Initialize test accounts
+        const testAccounts = await initTestAccounts({ superUserSql });
+        adminAgent = testAccounts.adminAgent;
+        regularAgent = testAccounts.regularAgent;
+        anonAgent = testAccounts.anonAgent;
+
+        log({
+            message: "All test accounts initialized.",
+            type: "debug",
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+        });
     });
 
-    // describe("Setup Test Resources", () => {
-    //     test("should create test entities for interaction tests", async () => {
-    //         // Clean up any existing test entities first
-    //         await cleanupTestEntities({ superUserSql });
+    describe("Setup Test Resources", () => {
+        test("should create test entities for interaction tests", async () => {
+            // Clean up any existing test entities first
+            await cleanupTestEntities({ superUserSql });
 
-    //         // Create a test entity
-    //         await superUserSql.begin(async (tx: postgres.TransactionSql) => {
-    //             const [entity] = await tx<[Entity.I_Entity]>`
-    //                 INSERT INTO entity.entities (
-    //                     general__entity_name,
-    //                     meta__data,
-    //                     group__sync,
-    //                     position__x,
-    //                     position__y,
-    //                     position__z,
-    //                     rotation__x,
-    //                     rotation__y,
-    //                     rotation__z,
-    //                     rotation__w
-    //                 ) VALUES (
-    //                     ${"Test Babylon Entity"},
-    //                     ${tx.json({
-    //                         test_script: {
-    //                             state: "initialized",
-    //                             config: { enabled: true },
-    //                         },
-    //                     })},
-    //                     ${TEST_SYNC_GROUP},
-    //                     ${0},
-    //                     ${1},
-    //                     ${0},
-    //                     ${0},
-    //                     ${0},
-    //                     ${0},
-    //                     ${1}
-    //                 ) RETURNING *
-    //             `;
+            // Create a test entity
+            await superUserSql.begin(async (tx: postgres.TransactionSql) => {
+                const [entity] = await tx<[Entity.I_Entity]>`
+                    INSERT INTO entity.entities (
+                        general__entity_name,
+                        meta__data,
+                        group__sync
+                    ) VALUES (
+                        ${`${DB_TEST_PREFIX}Test Babylon Entity`},
+                        ${tx.json({
+                            test_script: {
+                                state: "initialized",
+                                config: { enabled: true },
+                            },
+                            position: {
+                                x: 0,
+                                y: 1,
+                                z: 0,
+                            },
+                            rotation: {
+                                x: 0,
+                                y: 0,
+                                z: 0,
+                                w: 1,
+                            },
+                        })},
+                        ${TEST_SYNC_GROUP}
+                    ) RETURNING *
+                `;
 
-    //             testEntityIds.push(entity.general__entity_id);
+                testEntityIds.push(entity.general__entity_id);
 
-    //             log({
-    //                 message: `Created test entity with ID: ${entity.general__entity_id}`,
-    //                 type: "debug",
-    //                 suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-    //                 debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-    //             });
-    //         });
+                log({
+                    message: `Created test entity with ID: ${entity.general__entity_id}`,
+                    type: "debug",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+            });
 
-    //         expect(testEntityIds.length).toBeGreaterThan(0);
-    //     });
-
-    //     // Additional test setup could be added here for scripts and assets
-    // });
+            expect(testEntityIds.length).toBeGreaterThan(0);
+        });
+    });
 
     describe("Core functionality", () => {
         test("should initialize VircadiaBabylonCore and connect to server", async () => {
@@ -128,14 +139,14 @@ describe("Babylon.js Client Core Integration", () => {
             // Initialize VircadiaBabylonCore with admin token
             const core = new VircadiaBabylonCore({
                 serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
-                authToken: systemTestAccount.sessionId,
-                authProvider: "system",
+                authToken: adminAgent.token,
+                authProvider: SYSTEM_AUTH_PROVIDER_NAME,
                 engine: engine,
                 scene: scene,
                 debug: true,
             });
 
-            Bun.sleep(1000);
+            await core.initialize();
 
             log({
                 message: "Connection status:",
@@ -159,36 +170,101 @@ describe("Babylon.js Client Core Integration", () => {
             core.dispose();
         });
 
-        // test("should execute database queries through the connection", async () => {
-        //     const engine = new NullEngine();
-        //     const serverUrl = `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`;
-        //     console.log(serverUrl);
-        //     const core = new VircadiaBabylonCore({
-        //         serverUrl: serverUrl,
-        //         authToken: systemTestAccount.sessionId,
-        //         authProvider: "system",
-        //         engine: engine,
-        //         debug: true,
-        //     });
+        test("should execute database queries through the connection", async () => {
+            const engine = new NullEngine();
+            const core = new VircadiaBabylonCore({
+                serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
+                authToken: adminAgent.token,
+                authProvider: SYSTEM_AUTH_PROVIDER_NAME,
+                engine: engine,
+                debug: true,
+            });
 
-        //     Bun.sleep(1000);
+            await core.initialize();
 
-        //     expect(core.getConnection().isConnecting()).toBe(false);
-        //     expect(core.getConnection().isClientConnected()).toBe(true);
+            expect(core.getConnection().isConnecting()).toBe(false);
+            expect(core.getConnection().isClientConnected()).toBe(true);
 
-        //     // Test querying the database through the connection
-        //     const result = await core
-        //         .getConnection()
-        //         .sendQueryAsync<Entity.>(
-        //             "SELECT * FROM entity.entities",
-        //         );
+            // Test querying the database through the connection
+            const queryResponse = await core
+                .getConnection()
+                .sendQueryAsync<Entity.I_Entity[]>(
+                    "SELECT * FROM entity.entities",
+                );
 
-        //     expect(result).toBeDefined();
-        //     expect(result.errorMessage).toBeNull();
+            expect(queryResponse.result).toBeDefined();
+            expect(queryResponse.errorMessage).toBeNull();
+            expect(queryResponse.result.length).toBeGreaterThan(0);
+            // Clean up
+            core.dispose();
+        });
+    });
 
-        //     // Clean up
-        //     core.dispose();
-        // });
+    // Example of using the admin account in tests:
+    describe("Core functionality with various account types", () => {
+        test("should initialize VircadiaBabylonCore with admin account", async () => {
+            // Create a NullEngine and Scene for testing
+            const engine = new NullEngine();
+            const scene = new Scene(engine);
+
+            // Initialize VircadiaBabylonCore with admin token
+            const core = new VircadiaBabylonCore({
+                serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
+                authToken: adminAgent.token,
+                authProvider: SYSTEM_AUTH_PROVIDER_NAME,
+                engine: engine,
+                scene: scene,
+                debug: true,
+            });
+
+            await core.initialize();
+
+            // Verify connection was established
+            expect(core.getConnection().isClientConnected()).toBe(true);
+
+            // Clean up
+            core.dispose();
+        });
+
+        test("should initialize VircadiaBabylonCore with regular account", async () => {
+            const engine = new NullEngine();
+            const scene = new Scene(engine);
+
+            const core = new VircadiaBabylonCore({
+                serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
+                authToken: regularAgent.token,
+                authProvider: "system",
+                engine: engine,
+                scene: scene,
+                debug: true,
+            });
+
+            await core.initialize();
+
+            expect(core.getConnection().isClientConnected()).toBe(true);
+
+            core.dispose();
+        });
+
+        test("should initialize VircadiaBabylonCore with anonymous account", async () => {
+            const engine = new NullEngine();
+            const scene = new Scene(engine);
+
+            const core = new VircadiaBabylonCore({
+                serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
+                authToken: anonAgent.token,
+                authProvider: ANON_AUTH_PROVIDER_NAME,
+                engine: engine,
+                scene: scene,
+                debug: true,
+            });
+
+            await core.initialize();
+
+            expect(core.getConnection().isClientConnected()).toBe(true);
+
+            core.dispose();
+        });
     });
 
     /*

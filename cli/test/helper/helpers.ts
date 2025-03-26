@@ -10,6 +10,8 @@ export const DB_TEST_PREFIX = "RESERVED_vtw908ncjw98t3t8kgr8y9ngv3w8b_db_test_";
 export const ADMIN_AGENT_USERNAME = "admin";
 export const REGULAR_AGENT_USERNAME = "agent";
 export const ANON_AGENT_USERNAME = "anon";
+export const SYSTEM_AUTH_PROVIDER_NAME = "system";
+export const ANON_AUTH_PROVIDER_NAME = "anon";
 
 export interface TestAccount {
     id: string;
@@ -40,7 +42,7 @@ export async function initTestAccounts(data: {
         >`
                 SELECT provider__jwt_secret, provider__session_duration_ms
                 FROM auth.auth_providers 
-                WHERE provider__name = 'system'
+                WHERE provider__name = ${SYSTEM_AUTH_PROVIDER_NAME}
             `;
         expect(systemAuthProviderConfig.provider__jwt_secret).toBeDefined();
         expect(
@@ -57,7 +59,7 @@ export async function initTestAccounts(data: {
         >`
                 SELECT provider__jwt_secret, provider__session_duration_ms
                 FROM auth.auth_providers 
-                WHERE provider__name = 'anon'
+                WHERE provider__name = ${ANON_AUTH_PROVIDER_NAME}
             `;
         expect(anonAuthProviderConfig.provider__jwt_secret).toBeDefined();
         expect(
@@ -100,7 +102,7 @@ export async function initTestAccounts(data: {
                 )
                 VALUES (
                     ${adminAgentId},
-                    'system',
+                    ${SYSTEM_AUTH_PROVIDER_NAME},
                     (NOW() + (${systemAuthProviderConfig.provider__session_duration_ms} || ' milliseconds')::INTERVAL)
                 )
                 RETURNING *
@@ -118,7 +120,7 @@ export async function initTestAccounts(data: {
                 )
                 VALUES (
                     ${regularAgentId},
-                    'system',
+                    ${SYSTEM_AUTH_PROVIDER_NAME},
                     (NOW() + (${systemAuthProviderConfig.provider__session_duration_ms} || ' milliseconds')::INTERVAL)
                 )
                 RETURNING *
@@ -136,7 +138,7 @@ export async function initTestAccounts(data: {
                 )
                 VALUES (
                     ${anonAgentId},
-                    'anon',
+                    ${ANON_AUTH_PROVIDER_NAME},
                     (NOW() + (${anonAuthProviderConfig.provider__session_duration_ms} || ' milliseconds')::INTERVAL)
                 )
                 RETURNING *

@@ -11,10 +11,10 @@ GRANT USAGE ON SCHEMA entity TO vircadia_agent_proxy;
 -- ============================================================================
 -- Audit Template Table
 CREATE TABLE entity._template (
-    general__created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    general__created_by UUID DEFAULT auth.current_agent_id(),
-    general__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    general__updated_by UUID DEFAULT auth.current_agent_id()
+    general__created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    general__created_by UUID NOT NULL DEFAULT auth.current_agent_id(),
+    general__updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    general__updated_by UUID NOT NULL DEFAULT auth.current_agent_id()
 );
 
 
@@ -36,18 +36,18 @@ CREATE TABLE entity.entity_scripts (
     script__source__repo__entry_path TEXT NOT NULL DEFAULT '',
     script__source__repo__url TEXT NOT NULL DEFAULT '',
     script__source__data TEXT NOT NULL DEFAULT '',
-    script__source__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    script__source__updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     script__compiled__data TEXT NOT NULL DEFAULT '',
     script__compiled__status TEXT NOT NULL DEFAULT 'PENDING',
     CONSTRAINT chk_script_compiled_status CHECK (script__compiled__status IN ('PENDING', 'COMPILING', 'COMPILED', 'FAILED')),
-    script__compiled__updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    script__compiled__updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    script__source__data_updated_at timestamptz DEFAULT now(),
-    script__compiled__data_updated_at timestamptz DEFAULT now(),
-    script__compiled__status_updated_at timestamptz DEFAULT now(),
-    script__source__repo__url_updated_at timestamptz DEFAULT now(),
-    script__source__repo__entry_path_updated_at timestamptz DEFAULT now()
+    script__source__data_updated_at timestamptz NOT NULL DEFAULT now(),
+    script__compiled__data_updated_at timestamptz NOT NULL DEFAULT now(),
+    script__compiled__status_updated_at timestamptz NOT NULL DEFAULT now(),
+    script__source__repo__url_updated_at timestamptz NOT NULL DEFAULT now(),
+    script__source__repo__entry_path_updated_at timestamptz NOT NULL DEFAULT now()
 ) INHERITS (entity._template);
 
 ALTER TABLE entity.entity_scripts ENABLE ROW LEVEL SECURITY;
@@ -60,7 +60,7 @@ CREATE TABLE entity.entity_assets (
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
     CONSTRAINT fk_entity_assets_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group),
     
-    asset__data BYTEA NOT NULL DEFAULT '',  -- Store asset binaries (GLBs, textures, etc.)
+    asset__data BYTEA,  -- Store asset binaries (GLBs, textures, etc.)
     asset__type TEXT DEFAULT NULL,
     CONSTRAINT chk_asset_type CHECK (asset__type IN (
         -- 3D Models
@@ -91,21 +91,21 @@ CREATE TABLE entity.entities (
     general__semantic_version TEXT NOT NULL DEFAULT '1.0.0',
     general__initialized_at TIMESTAMPTZ DEFAULT NULL,
     general__initialized_by UUID DEFAULT NULL,
-    meta__data JSONB DEFAULT '{}'::jsonb,
-    script__names TEXT[] DEFAULT '{}',
-    asset__names TEXT[] DEFAULT '{}',
+    meta__data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    script__names TEXT[] NOT NULL DEFAULT '{}',
+    asset__names TEXT[] NOT NULL DEFAULT '{}',
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
-    group__load_priority INTEGER,
+    group__load_priority INTEGER NOT NULL DEFAULT 1,
 
     CONSTRAINT fk_entities_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group),
 
-    meta_data_updated_at timestamptz DEFAULT now(),
-    script_names_updated_at timestamptz DEFAULT now(),
-    asset_names_updated_at timestamptz DEFAULT now(),
-    position_updated_at timestamptz DEFAULT now()
+    meta_data_updated_at timestamptz NOT NULL DEFAULT now(),
+    script_names_updated_at timestamptz NOT NULL DEFAULT now(),
+    asset_names_updated_at timestamptz NOT NULL DEFAULT now(),
+    position_updated_at timestamptz NOT NULL DEFAULT now()
 ) INHERITS (entity._template);
 
-CREATE UNIQUE INDEX unique_seed_order_idx ON entity.entities(group__load_priority) WHERE group__load_priority IS NOT NULL;
+CREATE INDEX idx_entities_load_priority ON entity.entities(group__load_priority) WHERE group__load_priority IS NOT NULL;
 CREATE INDEX idx_entities_created_at ON entity.entities(general__created_at);
 CREATE INDEX idx_entities_updated_at ON entity.entities(general__updated_at);
 CREATE INDEX idx_entities_semantic_version ON entity.entities(general__semantic_version);

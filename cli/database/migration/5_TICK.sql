@@ -171,12 +171,12 @@ CREATE INDEX idx_entity_states_sync_tick_composite ON tick.entity_states
 -- Composite index for tick + sync group lookup patterns for scripts
 CREATE INDEX idx_script_states_sync_tick_composite ON tick.script_states 
     (group__sync, general__tick_id) 
-    INCLUDE (general__script_file_name, script__compiled__data, script__compiled__status);
+    INCLUDE (general__script_file_name, script__compiled__status);
 
 -- Composite index for tick + sync group lookup patterns for assets
 CREATE INDEX idx_asset_states_sync_tick_composite ON tick.asset_states 
     (group__sync, general__tick_id) 
-    INCLUDE (general__asset_file_name, asset__data);
+    INCLUDE (general__asset_file_name);
 
 -- ============================================================================
 -- 4. FUNCTIONS

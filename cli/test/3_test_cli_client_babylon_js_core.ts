@@ -456,208 +456,205 @@ describe("Babylon.js Client Core Integration", () => {
         });
     });
 
-    // describe("Script functionality", () => {
-    //     test("should load and execute scripts", async () => {
-    //         // Create a NullEngine and Scene for testing
-    //         const engine = new NullEngine();
-    //         const scene = new Scene(engine);
+    describe("Script functionality", () => {
+        test("should load and execute scripts", async () => {
+            // Create a NullEngine and Scene for testing
+            const engine = new NullEngine();
+            const scene = new Scene(engine);
 
-    //         // Initialize VircadiaBabylonCore with admin token
-    //         const core = new VircadiaBabylonCore({
-    //             serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
-    //             authToken: adminAgent.token,
-    //             authProvider: SYSTEM_AUTH_PROVIDER_NAME,
-    //             engine: engine,
-    //             scene: scene,
-    //             debug: true,
-    //         });
+            // Initialize VircadiaBabylonCore with admin token
+            const core = new VircadiaBabylonCore({
+                serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
+                authToken: adminAgent.token,
+                authProvider: SYSTEM_AUTH_PROVIDER_NAME,
+                engine: engine,
+                scene: scene,
+                debug: true,
+            });
 
-    //         await core.initialize();
+            await core.initialize();
 
-    //         // Verify connection was established
-    //         expect(core.getConnection().isClientConnected()).toBe(true);
+            // Verify connection was established
+            expect(core.getConnectionManager().isClientConnected()).toBe(true);
 
-    //         // Load the test script directly
-    //         const scriptManager = core.getEntityManager().getScriptManager();
-    //         const script = await scriptManager.loadScript(testScriptIds[0]);
+            // Load the test script directly
+            const scriptManager = core.getScriptManager();
+            const script = await scriptManager.loadScript(testScriptIds[0]);
 
-    //         // Verify the script was loaded
-    //         expect(script).toBeDefined();
-    //         expect(script.general__script_file_name).toBe(testScriptIds[0]);
-    //         expect(script.script__type).toBe(
-    //             Entity.Script.E_ScriptType.BABYLON_BROWSER,
-    //         );
+            // Verify the script was loaded
+            expect(script).toBeDefined();
+            expect(script.general__script_file_name).toBe(testScriptIds[0]);
+            expect(script.script__type).toBe(
+                Entity.Script.E_ScriptType.BABYLON_BROWSER,
+            );
 
-    //         // Get the test entity to use with the script
-    //         const entity = core.getEntityManager().getEntity(testEntityIds[0]);
-    //         expect(entity).toBeDefined();
+            // Get the test entity to use with the script
+            const entity = core.getEntityManager().getEntity(testEntityIds[0]);
+            expect(entity).toBeDefined();
 
-    //         // Execute the script with the entity
-    //         if (entity) {
-    //             await scriptManager.executeScript(script, entity, [], scene);
-    //         }
+            // Execute the script with the entity
+            if (entity) {
+                await scriptManager.executeScript(script, entity, []);
+            }
 
-    //         // Verify the script instance exists
-    //         const scriptInstance = scriptManager.scriptInstances.get(
-    //             testScriptIds[0],
-    //         );
-    //         expect(scriptInstance).toBeDefined();
+            // Verify the script instance exists
+            const scriptInstance = scriptManager
+                .getScriptInstances()
+                .get(testScriptIds[0]);
+            expect(scriptInstance).toBeDefined();
 
-    //         // Verify hooks were registered
-    //         if (scriptInstance) {
-    //             expect(typeof scriptInstance.hooks.onScriptInitialize).toBe(
-    //                 "function",
-    //             );
-    //             expect(typeof scriptInstance.hooks.onEntityUpdate).toBe(
-    //                 "function",
-    //             );
-    //             expect(typeof scriptInstance.hooks.onAssetUpdate).toBe(
-    //                 "function",
-    //             );
-    //             expect(typeof scriptInstance.hooks.onScriptUpdate).toBe(
-    //                 "function",
-    //             );
-    //         }
+            // Verify hooks were registered
+            if (scriptInstance) {
+                expect(typeof scriptInstance.hooks.onScriptInitialize).toBe(
+                    "function",
+                );
+                expect(typeof scriptInstance.hooks.onEntityUpdate).toBe(
+                    "function",
+                );
+                expect(typeof scriptInstance.hooks.onAssetUpdate).toBe(
+                    "function",
+                );
+                expect(typeof scriptInstance.hooks.onScriptUpdate).toBe(
+                    "function",
+                );
+            }
 
-    //         // Clean up
-    //         core.dispose();
-    //     });
+            // Clean up
+            core.dispose();
+        });
 
-    //     test("should trigger script hooks on entity updates", async () => {
-    //         // Create a NullEngine and Scene for testing
-    //         const engine = new NullEngine();
-    //         const scene = new Scene(engine);
+        test("should trigger script hooks on entity updates", async () => {
+            // Create a NullEngine and Scene for testing
+            const engine = new NullEngine();
+            const scene = new Scene(engine);
 
-    //         // Initialize VircadiaBabylonCore with admin token
-    //         const core = new VircadiaBabylonCore({
-    //             serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
-    //             authToken: adminAgent.token,
-    //             authProvider: SYSTEM_AUTH_PROVIDER_NAME,
-    //             engine: engine,
-    //             scene: scene,
-    //             debug: true,
-    //         });
+            // Initialize VircadiaBabylonCore with admin token
+            const core = new VircadiaBabylonCore({
+                serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
+                authToken: adminAgent.token,
+                authProvider: SYSTEM_AUTH_PROVIDER_NAME,
+                engine: engine,
+                scene: scene,
+                debug: true,
+            });
 
-    //         await core.initialize();
+            await core.initialize();
 
-    //         // Get the test entity
-    //         const entity = core.getEntityManager().getEntity(testEntityIds[0]);
-    //         expect(entity).toBeDefined();
+            // Get the test entity
+            const entity = core.getEntityManager().getEntity(testEntityIds[0]);
+            expect(entity).toBeDefined();
 
-    //         // Get the script instance
-    //         const scriptManager = core.getEntityManager().getScriptManager();
-    //         const scriptInstance = scriptManager.scriptInstances.get(
-    //             testScriptIds[0],
-    //         );
-    //         expect(scriptInstance).toBeDefined();
+            // Get the script instance
+            const scriptManager = core.getScriptManager();
+            const scriptInstance = scriptManager
+                .getScriptInstances()
+                .get(testScriptIds[0]);
+            expect(scriptInstance).toBeDefined();
 
-    //         // Set up a spy on the onEntityUpdate hook
-    //         let hookCalled = false;
-    //         let updateData: Entity.I_Entity | null = null;
+            // Set up a spy on the onEntityUpdate hook
+            let hookCalled = false;
+            let updateData: Entity.I_Entity | null = null;
 
-    //         if (scriptInstance) {
-    //             const originalHook = scriptInstance.hooks.onEntityUpdate;
-    //             scriptInstance.hooks.onEntityUpdate = (
-    //                 entityData: Entity.I_Entity,
-    //             ) => {
-    //                 hookCalled = true;
-    //                 updateData = entityData;
-    //                 if (originalHook) originalHook(entityData);
-    //             };
-    //         }
+            if (scriptInstance) {
+                const originalHook = scriptInstance.hooks.onEntityUpdate;
+                scriptInstance.hooks.onEntityUpdate = (
+                    entityData: Entity.I_Entity,
+                ) => {
+                    hookCalled = true;
+                    updateData = entityData;
+                    if (originalHook) originalHook(entityData);
+                };
+            }
 
-    //         // Update the entity
-    //         if (entity) {
-    //             const updatedEntity = {
-    //                 ...entity,
-    //                 general__entity_name: "Updated for script test",
-    //                 meta__data: {
-    //                     ...entity.meta__data,
-    //                     scriptTest: { value: "test_value" },
-    //                 },
-    //             };
+            // Update the entity
+            if (entity) {
+                const updatedEntity = {
+                    ...entity,
+                    general__entity_name: "Updated for script test",
+                    meta__data: {
+                        ...entity.meta__data,
+                        scriptTest: { value: "test_value" },
+                    },
+                };
 
-    //             // Simulate an entity update event
-    //             core.getEntityManager().updateEntityAndNotifyScripts(
-    //                 updatedEntity,
-    //             );
-    //         }
+                // Simulate an entity update event
+                core.getEntityManager().updateEntityAndNotifyScripts(
+                    updatedEntity,
+                );
+            }
 
-    //         // Verify the hook was called with the right data
-    //         expect(hookCalled).toBe(true);
-    //         expect(updateData).toBeDefined();
-    //         if (entity && updateData) {
-    //             const typedUpdateData = updateData as Entity.I_Entity;
-    //             expect(typedUpdateData.general__entity_id).toBe(
-    //                 entity.general__entity_id,
-    //             );
-    //             expect(typedUpdateData.general__entity_name).toBe(
-    //                 "Updated for script test",
-    //             );
-    //             expect(
-    //                 (typedUpdateData.meta__data.scriptTest as { value: string })
-    //                     .value,
-    //             ).toBe("test_value");
-    //         }
+            // Verify the hook was called with the right data
+            expect(hookCalled).toBe(true);
+            expect(updateData).toBeDefined();
+            if (entity && updateData) {
+                const typedUpdateData = updateData as Entity.I_Entity;
+                expect(typedUpdateData.general__entity_id).toBe(
+                    entity.general__entity_id,
+                );
+                expect(typedUpdateData.general__entity_name).toBe(
+                    "Updated for script test",
+                );
+                expect(
+                    (typedUpdateData.meta__data.scriptTest as { value: string })
+                        .value,
+                ).toBe("test_value");
+            }
 
-    //         // Clean up
-    //         core.dispose();
-    //     });
+            // Clean up
+            core.dispose();
+        });
 
-    //     test("should support script reloading", async () => {
-    //         // Create a NullEngine and Scene for testing
-    //         const engine = new NullEngine();
-    //         const scene = new Scene(engine);
+        test("should support script reloading", async () => {
+            // Create a NullEngine and Scene for testing
+            const engine = new NullEngine();
+            const scene = new Scene(engine);
 
-    //         // Initialize VircadiaBabylonCore with admin token
-    //         const core = new VircadiaBabylonCore({
-    //             serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
-    //             authToken: adminAgent.token,
-    //             authProvider: SYSTEM_AUTH_PROVIDER_NAME,
-    //             engine: engine,
-    //             scene: scene,
-    //             debug: true,
-    //         });
+            // Initialize VircadiaBabylonCore with admin token
+            const core = new VircadiaBabylonCore({
+                serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
+                authToken: adminAgent.token,
+                authProvider: SYSTEM_AUTH_PROVIDER_NAME,
+                engine: engine,
+                scene: scene,
+                debug: true,
+            });
 
-    //         await core.initialize();
+            await core.initialize();
 
-    //         // Get script manager
-    //         const scriptManager = core.getEntityManager().getScriptManager();
+            // Get script manager
+            const scriptManager = core.getScriptManager();
 
-    //         // Get the first script instance
-    //         const initialScriptInstance = scriptManager.scriptInstances.get(
-    //             testScriptIds[0],
-    //         );
-    //         expect(initialScriptInstance).toBeDefined();
+            // Get the first script instance
+            const initialScriptInstance = scriptManager
+                .getScriptInstances()
+                .get(testScriptIds[0]);
+            expect(initialScriptInstance).toBeDefined();
 
-    //         // Set a flag to check teardown gets called
-    //         let teardownCalled = false;
-    //         if (initialScriptInstance) {
-    //             initialScriptInstance.hooks.onScriptTeardown = () => {
-    //                 teardownCalled = true;
-    //             };
-    //         }
+            // Set a flag to check teardown gets called
+            let teardownCalled = false;
+            if (initialScriptInstance) {
+                initialScriptInstance.hooks.onScriptTeardown = () => {
+                    teardownCalled = true;
+                };
+            }
 
-    //         // Reload the script
-    //         await scriptManager.reloadScript(
-    //             testScriptIds[0],
-    //             core.getEntityManager(),
-    //         );
+            // Reload the script
+            await scriptManager.reloadScript(testScriptIds[0]);
 
-    //         // Verify teardown was called
-    //         expect(teardownCalled).toBe(true);
+            // Verify teardown was called
+            expect(teardownCalled).toBe(true);
 
-    //         // Get the new instance and verify it's different
-    //         const newScriptInstance = scriptManager.scriptInstances.get(
-    //             testScriptIds[0],
-    //         );
-    //         expect(newScriptInstance).toBeDefined();
-    //         expect(newScriptInstance).not.toBe(initialScriptInstance);
+            // Get the new instance and verify it's different
+            const newScriptInstance = scriptManager
+                .getScriptInstances()
+                .get(testScriptIds[0]);
+            expect(newScriptInstance).toBeDefined();
+            expect(newScriptInstance).not.toBe(initialScriptInstance);
 
-    //         // Clean up
-    //         core.dispose();
-    //     });
-    // });
+            // Clean up
+            core.dispose();
+        });
+    });
 
     // Additional test scenarios could include:
     // - Testing script execution

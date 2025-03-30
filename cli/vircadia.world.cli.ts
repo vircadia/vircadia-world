@@ -38,7 +38,7 @@ export namespace WebScript_CLI {
     }
 
     // Function to compile script based on type
-    async function compileScript(
+    export async function compileScript(
         source: string,
         type: string,
         filePath: string,
@@ -1335,32 +1335,13 @@ export namespace Server_CLI {
         });
 
         // Ensure we resolve the seed path to absolute path
-        const sqlDir =
-            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SEED_SQL_DIR;
+        const systemSqlDir =
+            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SEED_SYSTEM_SQL_DIR;
+
+        const userSqlDir =
+            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SEED_USER_SQL_DIR;
 
         try {
-            const filesInSqlDir = await readdir(sqlDir);
-            const sqlFiles = filesInSqlDir
-                .filter((f) => f.endsWith(".sql"))
-                .sort();
-
-            if (sqlFiles.length === 0) {
-                log({
-                    message: `No SQL seed files found in ${sqlDir}`,
-                    type: "info",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-                });
-                return;
-            }
-
-            log({
-                message: `Found ${sqlFiles.length} SQL seed files in ${sqlDir}`,
-                type: "debug",
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-            });
-
             // Get already executed seeds - querying by hash
             const result =
                 await sql`SELECT general__hash, general__name FROM config.seeds`;
@@ -1369,8 +1350,97 @@ export namespace Server_CLI {
                 result.map((r) => [r.general__name, r.general__hash]),
             );
 
+            // Process system SQL files
+            let systemSqlFiles: string[] = [];
+            if (systemSqlDir) {
+                try {
+                    const filesInSystemSqlDir = await readdir(systemSqlDir);
+                    systemSqlFiles = filesInSystemSqlDir
+                        .filter((f) => f.endsWith(".sql"))
+                        .sort();
+
+                    log({
+                        message: `Found ${systemSqlFiles.length} system SQL seed files in ${systemSqlDir}`,
+                        type: "debug",
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                } catch (error) {
+                    log({
+                        message: `No system SQL seed files found or error accessing directory: ${systemSqlDir}`,
+                        type: "warn",
+                        error,
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                }
+            } else {
+                log({
+                    message: "System SQL directory not configured",
+                    type: "warn",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+            }
+
+            // Process user SQL files if directory exists
+            let userSqlFiles: string[] = [];
+            if (userSqlDir) {
+                try {
+                    const filesInUserSqlDir = await readdir(userSqlDir);
+                    userSqlFiles = filesInUserSqlDir
+                        .filter((f) => f.endsWith(".sql"))
+                        .sort();
+
+                    log({
+                        message: `Found ${userSqlFiles.length} user SQL seed files in ${userSqlDir}`,
+                        type: "debug",
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                } catch (error) {
+                    log({
+                        message: `No user SQL seed files found or error accessing directory: ${userSqlDir}`,
+                        type: "warn",
+                        error,
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                }
+            } else {
+                log({
+                    message: "User SQL directory not configured",
+                    type: "warn",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+            }
+
+            if (systemSqlFiles.length === 0 && userSqlFiles.length === 0) {
+                log({
+                    message: `No SQL seed files found in either ${systemSqlDir || "undefined"} or ${userSqlDir || "undefined"}`,
+                    type: "info",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+                return;
+            }
+
             // Process SQL files sequentially (required for SQL)
-            for (const sqlFile of sqlFiles) {
+            for (const sqlFile of systemSqlFiles) {
+                if (systemSqlDir) {
+                    await processSqlFile(sqlFile, systemSqlDir);
+                }
+            }
+
+            for (const sqlFile of userSqlFiles) {
+                if (userSqlDir) {
+                    await processSqlFile(sqlFile, userSqlDir);
+                }
+            }
+
+            // Helper function to process a single SQL file
+            async function processSqlFile(sqlFile: string, directory: string) {
                 log({
                     message: `Found seed ${sqlFile}...`,
                     type: "debug",
@@ -1378,7 +1448,7 @@ export namespace Server_CLI {
                     debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 });
 
-                const filePath = path.join(sqlDir, sqlFile);
+                const filePath = path.join(directory, sqlFile);
                 const sqlContent = await readFile(filePath, "utf-8");
 
                 // Calculate MD5 hash of the seed content
@@ -1426,6 +1496,9 @@ export namespace Server_CLI {
                     } catch (error) {
                         log({
                             message: `Failed to run seed ${sqlFile}`,
+                            data: {
+                                directory,
+                            },
                             type: "error",
                             error: error,
                             suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
@@ -1488,38 +1561,13 @@ export namespace Server_CLI {
             },
         });
 
-        const assetDir =
-            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SEED_ASSET_DIR;
+        // Get paths for both system and user asset directories
+        const systemAssetDir =
+            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SEED_SYSTEM_ASSET_DIR;
+        const userAssetDir =
+            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SEED_USER_ASSET_DIR;
 
         try {
-            const assetFiles = await readdir(assetDir);
-
-            if (assetFiles.length === 0) {
-                log({
-                    message: `No asset files found in ${assetDir}`,
-                    type: "info",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-                });
-                return;
-            }
-
-            log({
-                message: `Found ${assetFiles.length} asset files in ${assetDir}`,
-                type: "debug",
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-            });
-
-            // Prepare for efficient matching
-            const assetFileNames = assetFiles.map((file) => {
-                const parsedName = path.parse(file);
-                return {
-                    fileName: file,
-                    searchName: parsedName.name + parsedName.ext,
-                };
-            });
-
             // Get all assets from the database with one query
             const dbAssets = await sql<{ general__asset_file_name: string }[]>`
                 SELECT general__asset_file_name FROM entity.entity_assets
@@ -1532,12 +1580,166 @@ export namespace Server_CLI {
                 debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
             });
 
+            // Process system asset files
+            let systemAssetFiles: string[] = [];
+            if (systemAssetDir) {
+                try {
+                    const filesInSystemAssetDir = await readdir(systemAssetDir);
+                    systemAssetFiles = filesInSystemAssetDir.filter((file) => {
+                        const ext = path.extname(file).toLowerCase();
+                        return [
+                            ".jpg",
+                            ".jpeg",
+                            ".png",
+                            ".gif",
+                            ".webp",
+                            ".svg",
+                            ".glb",
+                            ".gltf",
+                            ".bin",
+                            ".mp3",
+                            ".wav",
+                            ".ogg",
+                        ].includes(ext);
+                    });
+
+                    log({
+                        message: `Found ${systemAssetFiles.length} system asset files in ${systemAssetDir}`,
+                        type: "debug",
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                } catch (error) {
+                    log({
+                        message: `No system asset files found or error accessing directory: ${systemAssetDir}`,
+                        type: "warn",
+                        error,
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                }
+            } else {
+                log({
+                    message: "System asset directory not configured",
+                    type: "warn",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+            }
+
+            // Process user asset files
+            let userAssetFiles: string[] = [];
+            if (userAssetDir) {
+                try {
+                    const filesInUserAssetDir = await readdir(userAssetDir);
+                    userAssetFiles = filesInUserAssetDir.filter((file) => {
+                        const ext = path.extname(file).toLowerCase();
+                        return [
+                            ".jpg",
+                            ".jpeg",
+                            ".png",
+                            ".gif",
+                            ".webp",
+                            ".svg",
+                            ".glb",
+                            ".gltf",
+                            ".bin",
+                            ".mp3",
+                            ".wav",
+                            ".ogg",
+                        ].includes(ext);
+                    });
+
+                    log({
+                        message: `Found ${userAssetFiles.length} user asset files in ${userAssetDir}`,
+                        type: "debug",
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                } catch (error) {
+                    log({
+                        message: `No user asset files found or error accessing directory: ${userAssetDir}`,
+                        type: "warn",
+                        error,
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                }
+            } else {
+                log({
+                    message: "User asset directory not configured",
+                    type: "warn",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+            }
+
+            if (systemAssetFiles.length === 0 && userAssetFiles.length === 0) {
+                log({
+                    message: `No asset files found in either ${systemAssetDir || "undefined"} or ${userAssetDir || "undefined"}`,
+                    type: "info",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+                return;
+            }
+
+            // Prepare system asset files for processing
+            const systemAssetFileNames = systemAssetDir
+                ? systemAssetFiles.map((file) => {
+                      const parsedName = path.parse(file);
+                      return {
+                          fileName: file,
+                          searchName: parsedName.name + parsedName.ext,
+                          directory: systemAssetDir,
+                      };
+                  })
+                : [];
+
+            // Prepare user asset files for processing
+            const userAssetFileNames = userAssetDir
+                ? userAssetFiles.map((file) => {
+                      const parsedName = path.parse(file);
+                      return {
+                          fileName: file,
+                          searchName: parsedName.name + parsedName.ext,
+                          directory: userAssetDir,
+                      };
+                  })
+                : [];
+
+            // Combine all asset files, with user assets taking precedence
+            // over system assets with the same name
+            const allAssetFileNames = [...systemAssetFileNames];
+
+            // Add user assets, overriding any system assets with the same searchName
+            for (const userAsset of userAssetFileNames) {
+                const systemAssetIndex = allAssetFileNames.findIndex(
+                    (asset) => asset.searchName === userAsset.searchName,
+                );
+
+                if (systemAssetIndex >= 0) {
+                    // Replace the system asset with the user asset
+                    allAssetFileNames[systemAssetIndex] = userAsset;
+                    log({
+                        message: `User asset '${userAsset.fileName}' overrides system asset with the same name`,
+                        type: "debug",
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                } else {
+                    // Add the user asset
+                    allAssetFileNames.push(userAsset);
+                }
+            }
+
             // Function to process a single asset file
             const processAssetFile = async ({
                 fileName,
                 searchName,
-            }: { fileName: string; searchName: string }) => {
-                const assetPath = path.join(assetDir, fileName);
+                directory,
+            }: { fileName: string; searchName: string; directory: string }) => {
+                const assetPath = path.join(directory, fileName);
 
                 // Find matches
                 const matchingAssets = dbAssets.filter((dbAsset) =>
@@ -1592,17 +1794,17 @@ export namespace Server_CLI {
                 // Process in batches
                 for (
                     let i = 0;
-                    i < assetFileNames.length;
+                    i < allAssetFileNames.length;
                     i += options.batchSize
                 ) {
-                    const batch = assetFileNames.slice(
+                    const batch = allAssetFileNames.slice(
                         i,
                         i + options.batchSize,
                     );
                     await Promise.all(batch.map(processAssetFile));
                 }
             } else {
-                for (const assetFile of assetFileNames) {
+                for (const assetFile of allAssetFileNames) {
                     await processAssetFile(assetFile);
                 }
             }
@@ -1616,164 +1818,6 @@ export namespace Server_CLI {
         } catch (error) {
             log({
                 message: `Error processing asset files: ${error instanceof Error ? error.message : String(error)}`,
-                type: "error",
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-            });
-            throw error;
-        }
-    }
-
-    export async function seedScripts(data: {
-        options?: {
-            parallelProcessing?: boolean;
-            batchSize?: number;
-        };
-    }) {
-        const options = {
-            parallelProcessing: true,
-            batchSize: 10,
-            ...data.options,
-        };
-
-        const db = PostgresClient.getInstance({
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-        });
-        const sql = await db.getSuperClient({
-            postgres: {
-                host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                database: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
-                username:
-                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
-                password:
-                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
-            },
-        });
-
-        const scriptDir =
-            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SEED_SCRIPT_DIR;
-
-        try {
-            const scriptFiles = await readdir(scriptDir);
-
-            if (scriptFiles.length === 0) {
-                log({
-                    message: `No script files found in ${scriptDir}`,
-                    type: "info",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-                });
-                return;
-            }
-
-            log({
-                message: `Found ${scriptFiles.length} script files in ${scriptDir}`,
-                type: "debug",
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-            });
-
-            // Prepare for efficient matching
-            const scriptFileNames = scriptFiles.map((file) => {
-                const parsedName = path.parse(file);
-                return {
-                    fileName: file,
-                    searchName: parsedName.name + parsedName.ext,
-                };
-            });
-
-            // Get all scripts from the database with one query
-            const dbScripts = await sql<
-                { general__script_file_name: string }[]
-            >`
-                SELECT general__script_file_name FROM entity.entity_scripts
-            `;
-
-            // Function to process a single script file
-            const processScriptFile = async ({
-                fileName,
-                searchName,
-            }: { fileName: string; searchName: string }) => {
-                const scriptPath = path.join(scriptDir, fileName);
-
-                // Find matches
-                const matchingScripts = dbScripts.filter((dbScript) =>
-                    dbScript.general__script_file_name.includes(searchName),
-                );
-
-                if (matchingScripts.length === 0) {
-                    log({
-                        message: `No matching script found in database for file: ${fileName}`,
-                        type: "warn",
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-                    });
-                    return;
-                }
-
-                // Read script file content - only read once
-                const scriptData = await Bun.file(scriptPath).text();
-
-                // Update all matching scripts in a single transaction
-                try {
-                    await sql.begin(async (sql) => {
-                        for (const dbScript of matchingScripts) {
-                            await sql`
-                                UPDATE entity.entity_scripts 
-                                SET script__compiled__data = ${scriptData}
-                                WHERE general__script_file_name = ${dbScript.general__script_file_name}
-                            `;
-                        }
-                    });
-
-                    log({
-                        message: `Updated ${matchingScripts.length} scripts from file ${fileName}`,
-                        type: "debug",
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-                    });
-                } catch (error) {
-                    log({
-                        message: `Failed to update scripts from file ${fileName}`,
-                        type: "error",
-                        error: error,
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-                    });
-                }
-            };
-
-            // Process scripts in parallel or sequentially
-            if (options.parallelProcessing) {
-                // Process in batches
-                for (
-                    let i = 0;
-                    i < scriptFileNames.length;
-                    i += options.batchSize
-                ) {
-                    const batch = scriptFileNames.slice(
-                        i,
-                        i + options.batchSize,
-                    );
-                    await Promise.all(batch.map(processScriptFile));
-                }
-            } else {
-                for (const scriptFile of scriptFileNames) {
-                    await processScriptFile(scriptFile);
-                }
-            }
-
-            log({
-                message: "Script seeding completed successfully",
-                type: "success",
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-            });
-        } catch (error) {
-            log({
-                message: `Error processing script files: ${error instanceof Error ? error.message : String(error)}`,
                 type: "error",
                 suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                 debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
@@ -1916,6 +1960,319 @@ export namespace Server_CLI {
 
     export async function generatePgwebAccessURL(): Promise<string> {
         return `http://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_PGWEB_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_PGWEB_PORT}`;
+    }
+
+    export async function seedScripts(data: {
+        options?: {
+            parallelProcessing?: boolean;
+            batchSize?: number;
+        };
+    }) {
+        const options = {
+            parallelProcessing: true,
+            batchSize: 10,
+            ...data.options,
+        };
+
+        const db = PostgresClient.getInstance({
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+        });
+        const sql = await db.getSuperClient({
+            postgres: {
+                host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                username:
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                password:
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+            },
+        });
+
+        // Get paths for both system and user script directories
+        const systemScriptDir =
+            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SEED_SYSTEM_SCRIPT_DIR;
+        const userScriptDir =
+            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SEED_USER_SCRIPT_DIR;
+
+        try {
+            // Get all scripts from the database with one query
+            const dbScripts = await sql<
+                Array<
+                    Pick<
+                        Entity.Script.I_Script,
+                        "general__script_file_name" | "script__type"
+                    >
+                >
+            >`
+                SELECT general__script_file_name, script__type FROM entity.entity_scripts
+            `;
+
+            log({
+                message: `Found ${dbScripts.length} scripts in database`,
+                type: "debug",
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            });
+
+            // Process system script files
+            let systemScriptFiles: string[] = [];
+            if (systemScriptDir) {
+                try {
+                    const filesInSystemScriptDir =
+                        await readdir(systemScriptDir);
+                    systemScriptFiles = filesInSystemScriptDir.filter((f) =>
+                        /\.(js|ts|jsx|tsx)$/.test(f),
+                    );
+
+                    log({
+                        message: `Found ${systemScriptFiles.length} system script files in ${systemScriptDir}`,
+                        type: "debug",
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                } catch (error) {
+                    log({
+                        message: `No system script files found or error accessing directory: ${systemScriptDir}`,
+                        type: "warn",
+                        error,
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                }
+            } else {
+                log({
+                    message: "System script directory not configured",
+                    type: "warn",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+            }
+
+            // Process user script files
+            let userScriptFiles: string[] = [];
+            if (userScriptDir) {
+                try {
+                    const filesInUserScriptDir = await readdir(userScriptDir);
+                    userScriptFiles = filesInUserScriptDir.filter((f) =>
+                        /\.(js|ts|jsx|tsx)$/.test(f),
+                    );
+
+                    log({
+                        message: `Found ${userScriptFiles.length} user script files in ${userScriptDir}`,
+                        type: "debug",
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                } catch (error) {
+                    log({
+                        message: `No user script files found or error accessing directory: ${userScriptDir}`,
+                        type: "warn",
+                        error,
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                }
+            } else {
+                log({
+                    message: "User script directory not configured",
+                    type: "warn",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+            }
+
+            if (
+                systemScriptFiles.length === 0 &&
+                userScriptFiles.length === 0
+            ) {
+                log({
+                    message: `No script files found in either ${systemScriptDir || "undefined"} or ${userScriptDir || "undefined"}`,
+                    type: "info",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+                return;
+            }
+
+            // Prepare system script files for processing
+            const systemScriptFileNames = systemScriptDir
+                ? systemScriptFiles.map((file) => {
+                      const parsedName = path.parse(file);
+                      return {
+                          fileName: file,
+                          searchName: parsedName.name + parsedName.ext,
+                          directory: systemScriptDir,
+                      };
+                  })
+                : [];
+
+            // Prepare user script files for processing
+            const userScriptFileNames = userScriptDir
+                ? userScriptFiles.map((file) => {
+                      const parsedName = path.parse(file);
+                      return {
+                          fileName: file,
+                          searchName: parsedName.name + parsedName.ext,
+                          directory: userScriptDir,
+                      };
+                  })
+                : [];
+
+            // Combine all script files, with user scripts taking precedence
+            // over system scripts with the same name
+            const allScriptFileNames = [...systemScriptFileNames];
+
+            // Add user scripts, overriding any system scripts with the same searchName
+            for (const userScript of userScriptFileNames) {
+                const systemScriptIndex = allScriptFileNames.findIndex(
+                    (script) => script.searchName === userScript.searchName,
+                );
+
+                if (systemScriptIndex >= 0) {
+                    // Replace the system script with the user script
+                    allScriptFileNames[systemScriptIndex] = userScript;
+                    log({
+                        message: `User script '${userScript.fileName}' overrides system script with the same name`,
+                        type: "debug",
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                } else {
+                    // Add the user script
+                    allScriptFileNames.push(userScript);
+                }
+            }
+
+            // Function to process a single script file
+            const processScriptFile = async ({
+                fileName,
+                searchName,
+                directory,
+            }: { fileName: string; searchName: string; directory: string }) => {
+                const scriptPath = path.join(directory, fileName);
+
+                // Find matches
+                const matchingScripts = dbScripts.filter((dbScript) =>
+                    dbScript.general__script_file_name.includes(searchName),
+                );
+
+                if (matchingScripts.length === 0) {
+                    log({
+                        message: `No matching script found in database for file: ${fileName}`,
+                        type: "warn",
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                    return;
+                }
+
+                // Read script file content - only read once
+                const scriptData = await Bun.file(scriptPath).text();
+
+                // Update all matching scripts in a single transaction
+                try {
+                    await sql.begin(async (sql) => {
+                        for (const dbScript of matchingScripts) {
+                            // Set status to COMPILING
+                            await sql`
+                                UPDATE entity.entity_scripts
+                                SET script__compiled__status = ${Entity.Script.E_CompilationStatus.COMPILING},
+                                    script__source__data = ${scriptData},
+                                    script__source__updated_at = CURRENT_TIMESTAMP
+                                WHERE general__script_file_name = ${dbScript.general__script_file_name}
+                            `;
+
+                            log({
+                                message: `Compiling script: ${dbScript.general__script_file_name} (${dbScript.script__type}) (${Entity.Script.E_CompilationStatus.COMPILING})`,
+                                type: "info",
+                                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                            });
+
+                            // Compile the script using WebScript_CLI.compileScript
+                            const compiledResult =
+                                await WebScript_CLI.compileScript(
+                                    scriptData,
+                                    dbScript.script__type,
+                                    scriptPath,
+                                );
+
+                            // Update with compiled result
+                            await sql`
+                                UPDATE entity.entity_scripts
+                                SET script__compiled__data = ${compiledResult.data},
+                                    script__compiled__status = ${compiledResult.status},
+                                    script__compiled__updated_at = CURRENT_TIMESTAMP
+                                WHERE general__script_file_name = ${dbScript.general__script_file_name}
+                            `;
+
+                            log({
+                                message: `Updated script: ${dbScript.general__script_file_name} (${compiledResult.status})`,
+                                type:
+                                    compiledResult.status ===
+                                    Entity.Script.E_CompilationStatus.COMPILED
+                                        ? "success"
+                                        : "warn",
+                                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    });
+
+                    log({
+                        message: `Processed ${matchingScripts.length} scripts from file ${fileName}`,
+                        type: "debug",
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                } catch (error) {
+                    log({
+                        message: `Failed to update scripts from file ${fileName}`,
+                        type: "error",
+                        error: error,
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                }
+            };
+
+            // Process scripts in parallel or sequentially
+            if (options.parallelProcessing) {
+                // Process in batches
+                for (
+                    let i = 0;
+                    i < allScriptFileNames.length;
+                    i += options.batchSize
+                ) {
+                    const batch = allScriptFileNames.slice(
+                        i,
+                        i + options.batchSize,
+                    );
+                    await Promise.all(batch.map(processScriptFile));
+                }
+            } else {
+                for (const scriptFile of allScriptFileNames) {
+                    await processScriptFile(scriptFile);
+                }
+            }
+
+            log({
+                message: "Script seeding completed successfully",
+                type: "success",
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            });
+        } catch (error) {
+            log({
+                message: `Error processing script files: ${error instanceof Error ? error.message : String(error)}`,
+                type: "error",
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            });
+            throw error;
+        }
     }
 }
 

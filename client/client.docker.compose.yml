@@ -10,7 +10,7 @@ networks:
 services:
   # Production Web Babylon JS Client (Optimized Build)
   vircadia_world_client_web_babylon_js_prod:
-    image: oven/bun:1.2.6-alpine
+    image: oven/bun:1.2.7-alpine
     container_name: ${VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_CONTAINER_NAME}
     user: "1000:1000"  # Run as non-root user
     restart: always
@@ -44,7 +44,7 @@ services:
       - vircadia_public_network
   # Development Web Babylon JS Client (Hot Reloading)
   vircadia_world_client_web_babylon_js_dev:
-    image: oven/bun:1.2.6-alpine
+    image: oven/bun:1.2.7-alpine
     container_name: ${VRCA_CLIENT_WEB_BABYLON_JS_DEV_CONTAINER_NAME}
     user: "1000:1000"  # Run as non-root user
     restart: always

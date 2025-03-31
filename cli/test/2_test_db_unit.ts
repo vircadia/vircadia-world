@@ -792,7 +792,7 @@ describe("DB", () => {
         				group__sync,
         				script__source__repo__entry_path,
         				script__source__repo__url,
-        				script__type,
+        				script__platform,
                         script__compiled__data,   
                         script__compiled__status,
                         script__compiled__updated_at

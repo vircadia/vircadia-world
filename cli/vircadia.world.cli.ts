@@ -27,8 +27,6 @@ export namespace WebScript_CLI {
         "BABYLON_BROWSER",
     ];
 
-    const hasher = new Bun.CryptoHasher("sha256");
-
     interface ScriptInfo {
         name: string;
         type: string;
@@ -59,7 +57,7 @@ export namespace WebScript_CLI {
                     if (!nodeResult.success) {
                         return {
                             data: source, // Return source on compilation failure
-                            hash: hasher.update(source).digest("hex"),
+                            hash: "", // We'll calculate this in the database
                             status: "FAILED",
                         };
                     }
@@ -79,7 +77,7 @@ export namespace WebScript_CLI {
                     if (!bunResult.success) {
                         return {
                             data: source, // Return source on compilation failure
-                            hash: hasher.update(source).digest("hex"),
+                            hash: "", // We'll calculate this in the database
                             status: "FAILED",
                         };
                     }
@@ -99,7 +97,7 @@ export namespace WebScript_CLI {
                     if (!browserResult.success) {
                         return {
                             data: source, // Return source on compilation failure
-                            hash: hasher.update(source).digest("hex"),
+                            hash: "", // We'll calculate this in the database
                             status: "FAILED",
                         };
                     }
@@ -112,8 +110,11 @@ export namespace WebScript_CLI {
                     compiledData = source;
             }
 
-            const hash = hasher.update(compiledData).digest("hex");
-            return { data: compiledData, hash, status: "COMPILED" };
+            return {
+                data: compiledData || source,
+                hash: "", // We'll calculate this in the database
+                status: compiledData ? "COMPILED" : "FAILED",
+            };
         } catch (error) {
             log({
                 message: `Compilation error: ${error}`,
@@ -124,8 +125,8 @@ export namespace WebScript_CLI {
             });
 
             return {
-                data: source, // Return source on compilation error
-                hash: hasher.update(source).digest("hex"),
+                data: source,
+                hash: "", // We'll calculate this in the database
                 status: "FAILED",
             };
         }
@@ -185,7 +186,6 @@ export namespace WebScript_CLI {
         ): Promise<void> => {
             try {
                 const content = await readFile(filePath, "utf-8");
-                const sourceHash = hasher.update(content).digest("hex");
 
                 // Check if script exists in database
                 const [scriptExists] = await sql<[{ count: number }]>`
@@ -204,12 +204,22 @@ export namespace WebScript_CLI {
                     return;
                 }
 
+                // Get current hash from database using pgcrypto
+                const [currentHash] = await sql<[{ source_hash: string }]>`
+                    SELECT encode(digest(script__source__data, 'sha256'), 'hex') as source_hash
+                    FROM entity.entity_scripts
+                    WHERE general__script_file_name = ${fileName}
+                `;
+
+                // Calculate new hash using pgcrypto
+                const [newHash] = await sql<[{ source_hash: string }]>`
+                    SELECT encode(digest(${content}, 'sha256'), 'hex') as source_hash
+                `;
+
                 // Check if we need to update
-                const existingInfo = localScriptInfoMap.get(fileName);
                 if (
-                    existingInfo &&
-                    existingInfo.sourceHash === sourceHash &&
-                    !COMPILE_FORCE
+                    !COMPILE_FORCE &&
+                    currentHash?.source_hash === newHash?.source_hash
                 ) {
                     // No changes detected
                     return;
@@ -217,15 +227,15 @@ export namespace WebScript_CLI {
 
                 // Get script type from database
                 const [scriptRecord] = await sql<
-                    Array<Pick<Entity.Script.I_Script, "script__type">>
+                    Array<Pick<Entity.Script.I_Script, "script__platform">>
                 >`
-                    SELECT script__type 
+                    SELECT script__platform 
                     FROM entity.entity_scripts 
                     WHERE general__script_file_name = ${fileName}
                 `;
 
                 const scriptType =
-                    scriptRecord?.script__type ||
+                    scriptRecord?.script__platform ||
                     Entity.Script.E_ScriptType.BABYLON_BROWSER;
 
                 // Only process valid script types
@@ -275,7 +285,7 @@ export namespace WebScript_CLI {
                 localScriptInfoMap.set(fileName, {
                     name: fileName,
                     type: scriptType,
-                    sourceHash,
+                    sourceHash: compiledResult.hash,
                     compiledHash: compiledResult.hash,
                     lastChecked: new Date(),
                 });
@@ -318,18 +328,18 @@ export namespace WebScript_CLI {
                         Pick<
                             Entity.Script.I_Script,
                             | "general__script_file_name"
-                            | "script__type"
+                            | "script__platform"
                             | "script__source__data"
                         > & { script__source__sha256: string }
                     >
                 >`
                     SELECT 
                         general__script_file_name, 
-                        script__type, 
+                        script__platform, 
                         script__source__data, 
-                        sha256(script__source__data) as script__source__sha256
+                        encode(digest(script__source__data, 'sha256'), 'hex') as script__source__sha256
                     FROM entity.entity_scripts
-                    WHERE script__type = ANY(${VALID_SCRIPT_TYPES})
+                    WHERE script__platform = ANY(${VALID_SCRIPT_TYPES})
                 `;
 
                 for (const script of dbScripts) {
@@ -339,17 +349,19 @@ export namespace WebScript_CLI {
                     // Check if file already exists locally
                     try {
                         if (existsSync(filePath)) {
-                            // File exists, get its content and hash
+                            // File exists, get its content and calculate hash using pgcrypto
                             const localContent = await readFile(
                                 filePath,
                                 "utf-8",
                             );
-                            const localHash = hasher
-                                .update(localContent)
-                                .digest("hex");
+                            const [{ local_hash }] = await sql<
+                                [{ local_hash: string }]
+                            >`
+                                SELECT encode(digest(${localContent}, 'sha256'), 'hex') as local_hash
+                            `;
 
                             // Skip if local file exists and we're not supposed to overwrite
-                            if (localHash !== script.script__source__sha256) {
+                            if (local_hash !== script.script__source__sha256) {
                                 log({
                                     message: `Skipping download of ${fileName} - local file exists with different hash`,
                                     type: "info",
@@ -368,7 +380,7 @@ export namespace WebScript_CLI {
                             // Update local tracking map
                             localScriptInfoMap.set(fileName, {
                                 name: fileName,
-                                type: script.script__type,
+                                type: script.script__platform,
                                 sourceHash: script.script__source__sha256,
                                 compiledHash: "", // Will be updated later
                                 lastChecked: new Date(),
@@ -1451,16 +1463,18 @@ export namespace Server_CLI {
                 const filePath = path.join(directory, sqlFile);
                 const sqlContent = await readFile(filePath, "utf-8");
 
-                // Calculate MD5 hash of the seed content
-                const contentHash = new Bun.CryptoHasher("md5")
-                    .update(sqlContent)
-                    .digest("hex");
+                // Calculate hash using pgcrypto instead of MD5
+                const [{ content_hash }] = await sql<
+                    [{ content_hash: string }]
+                >`
+                    SELECT encode(digest(${sqlContent}, 'sha256'), 'hex') as content_hash
+                `;
 
-                if (!executedHashes.has(contentHash)) {
+                if (!executedHashes.has(content_hash)) {
                     // If the seed name exists but with a different hash, log a warning
                     if (
                         executedNames.has(sqlFile) &&
-                        executedNames.get(sqlFile) !== contentHash
+                        executedNames.get(sqlFile) !== content_hash
                     ) {
                         log({
                             message: `Warning: Seed ${sqlFile} has changed since it was last executed`,
@@ -1471,7 +1485,7 @@ export namespace Server_CLI {
                     }
 
                     log({
-                        message: `Executing seed ${sqlFile} (hash: ${contentHash})...`,
+                        message: `Executing seed ${sqlFile} (hash: ${content_hash})...`,
                         type: "debug",
                         suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                         debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
@@ -1483,7 +1497,7 @@ export namespace Server_CLI {
                             await sql.unsafe(sqlContent);
                             await sql`
                                 INSERT INTO config.seeds (general__hash, general__name)
-                                VALUES (${contentHash}, ${sqlFile})
+                                VALUES (${content_hash}, ${sqlFile})
                             `;
                         });
 
@@ -2002,11 +2016,11 @@ export namespace Server_CLI {
                 Array<
                     Pick<
                         Entity.Script.I_Script,
-                        "general__script_file_name" | "script__type"
+                        "general__script_file_name" | "script__platform"
                     >
                 >
             >`
-                SELECT general__script_file_name, script__type FROM entity.entity_scripts
+                SELECT general__script_file_name, script__platform FROM entity.entity_scripts
             `;
 
             log({
@@ -2175,17 +2189,18 @@ export namespace Server_CLI {
                 try {
                     await sql.begin(async (sql) => {
                         for (const dbScript of matchingScripts) {
-                            // Set status to COMPILING
+                            // Set status to COMPILING and update source
                             await sql`
                                 UPDATE entity.entity_scripts
                                 SET script__compiled__status = ${Entity.Script.E_CompilationStatus.COMPILING},
                                     script__source__data = ${scriptData},
+                                    script__source__hash = encode(digest(${scriptData}, 'sha256'), 'hex'),
                                     script__source__updated_at = CURRENT_TIMESTAMP
                                 WHERE general__script_file_name = ${dbScript.general__script_file_name}
                             `;
 
                             log({
-                                message: `Compiling script: ${dbScript.general__script_file_name} (${dbScript.script__type}) (${Entity.Script.E_CompilationStatus.COMPILING})`,
+                                message: `Compiling script: ${dbScript.general__script_file_name} (${dbScript.script__platform}) (${Entity.Script.E_CompilationStatus.COMPILING})`,
                                 type: "info",
                                 suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                                 debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
@@ -2195,7 +2210,7 @@ export namespace Server_CLI {
                             const compiledResult =
                                 await WebScript_CLI.compileScript(
                                     scriptData,
-                                    dbScript.script__type,
+                                    dbScript.script__platform,
                                     scriptPath,
                                 );
 
@@ -2203,6 +2218,7 @@ export namespace Server_CLI {
                             await sql`
                                 UPDATE entity.entity_scripts
                                 SET script__compiled__data = ${compiledResult.data},
+                                    script__compiled__hash = encode(digest(${compiledResult.data}, 'sha256'), 'hex'),
                                     script__compiled__status = ${compiledResult.status},
                                     script__compiled__updated_at = CURRENT_TIMESTAMP
                                 WHERE general__script_file_name = ${dbScript.general__script_file_name}

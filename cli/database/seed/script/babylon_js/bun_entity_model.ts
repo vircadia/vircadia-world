@@ -1,7 +1,7 @@
 import type { Entity } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import { MeshBuilder, type Mesh } from "@babylonjs/core";
 
-export default function main(context: Entity.Script.Babylon.I_Context) {
+function main(context: Entity.Script.Babylon.I_Context) {
     // Access the API and scene
     const vircadia = context.Vircadia.v1;
     const scene = vircadia.Babylon.Scene;

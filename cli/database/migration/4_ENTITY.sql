@@ -29,8 +29,8 @@ CREATE TABLE entity.entity_scripts (
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
     CONSTRAINT fk_entity_scripts_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group),
 
-    script__type TEXT NOT NULL DEFAULT 'BABYLON_BROWSER',
-    CONSTRAINT chk_script_type CHECK (script__type IN ('BABYLON_NODE', 'BABYLON_BUN', 'BABYLON_BROWSER')),
+    script__platform TEXT NOT NULL DEFAULT 'BABYLON_BROWSER',
+    CONSTRAINT chk_script_platform CHECK (script__platform IN ('BABYLON_NODE', 'BABYLON_BUN', 'BABYLON_BROWSER')),
 
     -- Source fields
     script__source__repo__entry_path TEXT NOT NULL DEFAULT '',

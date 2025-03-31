@@ -575,7 +575,8 @@ INSERT INTO auth.sync_groups (
     ('public.REALTIME', 'Public realtime entities', 16, 50, 50, 100, 25),
     ('public.NORMAL', 'Public normal-priority entities', 50, 50, 100, 150, 50),
     ('public.BACKGROUND', 'Public background entities', 200, 50, 200, 300, 100),
-    ('public.STATIC', 'Public static entities', 2000, 50, 500, 1000, 200);
+    ('public.STATIC', 'Public static entities', 2000, 50, 500, 1000, 200),
+    ('public.SYSTEM.SCRIPTS', 'System static scripts', 2000, 50, 500, 1000, 200);
 
 -- Add system provider to auth_providers table if not exists
 INSERT INTO auth.auth_providers (

@@ -4,6 +4,7 @@
     "type": "module",
     "scripts": {
         "dev:hot-sync:web-scripts": "bun vircadia.world.cli.ts dev:hot-sync:web-scripts",
+        "dev:hot-sync:web-scripts:by-group": "bun vircadia.world.cli.ts dev:hot-sync:web-scripts --sync-group",
         "dev:client:restart-with-token": "bun run client:run-command down vircadia_world_client_web_babylon_js_dev && bun vircadia.world.cli.ts dev:client:generate-dev-token && bun run client:run-command up vircadia_world_client_web_babylon_js_dev -d",
 
         "test:cli_server_unit_test": "bun test ./test/0_test_cli_server_unit.ts",
@@ -23,7 +24,9 @@
         "server:postgres:system-token:invalidate-all": "bun vircadia.world.cli.ts server:postgres:system-token:invalidate-all",
         "server:postgres:seed:sql": "bun vircadia.world.cli.ts server:postgres:seed:sql",
         "server:postgres:seed:assets": "bun vircadia.world.cli.ts server:postgres:seed:assets",
+        "server:postgres:seed:assets:by-group": "bun vircadia.world.cli.ts server:postgres:seed:assets --sync-group",
         "server:postgres:seed:scripts": "bun vircadia.world.cli.ts server:postgres:seed:scripts",
+        "server:postgres:seed:scripts:by-group": "bun vircadia.world.cli.ts server:postgres:seed:scripts --sync-group",
 
         "server:world-api-manager:health": "bun vircadia.world.cli.ts server:world-api-manager:health",
 

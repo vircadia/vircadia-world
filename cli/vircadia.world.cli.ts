@@ -14,6 +14,7 @@ import {
 } from "../sdk/vircadia-world-sdk-ts/schema/schema.general.ts";
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
+import { basename } from "node:path";
 
 // TODO: Optimize the commands, get up and down rebuilds including init to work well.
 
@@ -133,9 +134,12 @@ export namespace WebScript_CLI {
     }
 
     // Main function to handle hot sync of scripts
-    export async function startSync(): Promise<void> {
+    export async function startSync(options?: {
+        syncGroup?: string;
+    }): Promise<void> {
         const RETRIEVE_NEW_SCRIPTS_INTERVAL = 500;
         const COMPILE_FORCE = false;
+        const syncGroup = options?.syncGroup;
 
         // Map to track local script info
         const localScriptInfoMap = new Map<string, ScriptInfo>();
@@ -187,16 +191,27 @@ export namespace WebScript_CLI {
             try {
                 const content = await readFile(filePath, "utf-8");
 
-                // Check if script exists in database
-                const [scriptExists] = await sql<[{ count: number }]>`
-                    SELECT COUNT(*) as count 
-                    FROM entity.entity_scripts 
-                    WHERE general__script_file_name = ${fileName}
-                `;
+                // Check if script exists in database and belongs to specified sync group
+                const scriptQuery = syncGroup
+                    ? sql`
+                        SELECT COUNT(*) as count 
+                        FROM entity.entity_scripts 
+                        WHERE general__script_file_name = ${fileName}
+                        AND group__sync = ${syncGroup}
+                      `
+                    : sql`
+                        SELECT COUNT(*) as count 
+                        FROM entity.entity_scripts 
+                        WHERE general__script_file_name = ${fileName}
+                      `;
+
+                const [scriptExists] = await scriptQuery;
 
                 if (!scriptExists || scriptExists.count === 0) {
                     log({
-                        message: `Skipping script: ${fileName} - does not exist in database`,
+                        message: syncGroup
+                            ? `Skipping script: ${fileName} - does not exist in database or not in sync group '${syncGroup}'`
+                            : `Skipping script: ${fileName} - does not exist in database`,
                         type: "info",
                         suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                         debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
@@ -272,6 +287,13 @@ export namespace WebScript_CLI {
                     filePath,
                 );
 
+                log({
+                    message: `Successfully compiled script: ${fileName}`,
+                    type: "info",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+
                 // Update the database with compiled result
                 await sql`
                     UPDATE entity.entity_scripts
@@ -322,27 +344,29 @@ export namespace WebScript_CLI {
         // Function to download scripts from database to local sync directory
         const downloadScriptsFromDatabase = async (): Promise<void> => {
             try {
-                // Get all scripts from database
-                const dbScripts = await sql<
-                    Array<
-                        Pick<
-                            Entity.Script.I_Script,
-                            | "general__script_file_name"
-                            | "script__platform"
-                            | "script__source__data"
-                        > & { script__source__sha256: string }
-                    >
-                >`
-                    SELECT 
-                        general__script_file_name, 
-                        script__platform, 
-                        script__source__data, 
-                        encode(digest(script__source__data, 'sha256'), 'hex') as script__source__sha256
-                    FROM entity.entity_scripts
-                    WHERE script__platform = ANY(${VALID_SCRIPT_TYPES})
-                `;
+                // Filter scripts by sync group if specified
+                const scriptsQuery = syncGroup
+                    ? sql`
+                        SELECT * FROM entity.entity_scripts 
+                        WHERE group__sync = ${syncGroup}
+                      `
+                    : sql`
+                        SELECT * FROM entity.entity_scripts
+                      `;
 
-                for (const script of dbScripts) {
+                const scripts = await scriptsQuery;
+
+                // Log the filtering status
+                log({
+                    message: syncGroup
+                        ? `Retrieved ${scripts.length} scripts with sync group: ${syncGroup}`
+                        : `Retrieved ${scripts.length} scripts from database`,
+                    type: "debug",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+
+                for (const script of scripts) {
                     const fileName = script.general__script_file_name;
                     const filePath = path.join(syncDir, fileName);
 
@@ -364,13 +388,20 @@ export namespace WebScript_CLI {
                             if (local_hash !== script.script__source__sha256) {
                                 log({
                                     message: `Skipping download of ${fileName} - local file exists with different hash`,
-                                    type: "info",
+                                    type: "debug",
                                     suppress:
                                         VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                                     debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                                 });
                             }
                         } else {
+                            log({
+                                message: `Downloading new script from database: ${fileName}`,
+                                type: "info",
+                                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                            });
+
                             // File doesn't exist locally, download it
                             await writeFile(
                                 filePath,
@@ -416,23 +447,39 @@ export namespace WebScript_CLI {
 
         // Handle file change event
         const handleFileChange = async (filePath: string): Promise<void> => {
-            if (!filePath) return;
-
-            const fileName = path.basename(filePath);
-            if (!fileName) return;
+            const fileName = basename(filePath);
 
             try {
-                // Check if file exists
-                if (existsSync(filePath)) {
-                    log({
-                        message: `Detected change in script: ${fileName}`,
-                        type: "info",
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-                    });
+                // Check if file belongs to specified sync group before processing
+                if (syncGroup) {
+                    // Query to check if file belongs to the specified sync group
+                    const [fileInSyncGroup] = await sql<[{ count: number }]>`
+                        SELECT COUNT(*) as count 
+                        FROM entity.entity_scripts 
+                        WHERE general__script_file_name = ${fileName}
+                        AND group__sync = ${syncGroup}
+                    `;
 
-                    await updateScriptInDatabase(filePath, fileName);
+                    if (!fileInSyncGroup || fileInSyncGroup.count === 0) {
+                        log({
+                            message: `Skipping file change for ${fileName} - not in sync group '${syncGroup}'`,
+                            type: "info",
+                            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        });
+                        return;
+                    }
                 }
+
+                // Proceed with normal file change handling
+                log({
+                    message: `Detected change in script: ${fileName}`,
+                    type: "info",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+
+                await updateScriptInDatabase(filePath, fileName);
             } catch (error) {
                 log({
                     message: `Error handling file change: ${fileName}`,
@@ -1551,8 +1598,10 @@ export namespace Server_CLI {
         options?: {
             parallelProcessing?: boolean;
             batchSize?: number;
+            syncGroup?: string;
         };
     }) {
+        const syncGroup = data.options?.syncGroup;
         const options = {
             parallelProcessing: true,
             batchSize: 10,
@@ -1803,22 +1852,45 @@ export namespace Server_CLI {
                 }
             };
 
+            // When processing assets, filter by sync group
+            let assetsToProcess = allAssetFileNames;
+
+            if (syncGroup) {
+                // Get all assets in the specified sync group
+                const syncGroupAssets = await sql<
+                    { general__asset_file_name: string }[]
+                >`
+                    SELECT general__asset_file_name 
+                    FROM entity.entity_assets 
+                    WHERE group__sync = ${syncGroup}
+                `;
+
+                // Only process assets that belong to this sync group
+                assetsToProcess = allAssetFileNames.filter((asset) =>
+                    syncGroupAssets.some((dbAsset) =>
+                        dbAsset.general__asset_file_name.includes(
+                            asset.searchName,
+                        ),
+                    ),
+                );
+            }
+
             // Process assets in parallel or sequentially
             if (options.parallelProcessing) {
                 // Process in batches
                 for (
                     let i = 0;
-                    i < allAssetFileNames.length;
+                    i < assetsToProcess.length;
                     i += options.batchSize
                 ) {
-                    const batch = allAssetFileNames.slice(
+                    const batch = assetsToProcess.slice(
                         i,
                         i + options.batchSize,
                     );
                     await Promise.all(batch.map(processAssetFile));
                 }
             } else {
-                for (const assetFile of allAssetFileNames) {
+                for (const assetFile of assetsToProcess) {
                     await processAssetFile(assetFile);
                 }
             }
@@ -1980,8 +2052,10 @@ export namespace Server_CLI {
         options?: {
             parallelProcessing?: boolean;
             batchSize?: number;
+            syncGroup?: string;
         };
     }) {
+        const syncGroup = data.options?.syncGroup;
         const options = {
             parallelProcessing: true,
             batchSize: 10,
@@ -2194,7 +2268,6 @@ export namespace Server_CLI {
                                 UPDATE entity.entity_scripts
                                 SET script__compiled__status = ${Entity.Script.E_CompilationStatus.COMPILING},
                                     script__source__data = ${scriptData},
-                                    script__source__hash = encode(digest(${scriptData}, 'sha256'), 'hex'),
                                     script__source__updated_at = CURRENT_TIMESTAMP
                                 WHERE general__script_file_name = ${dbScript.general__script_file_name}
                             `;
@@ -2218,7 +2291,6 @@ export namespace Server_CLI {
                             await sql`
                                 UPDATE entity.entity_scripts
                                 SET script__compiled__data = ${compiledResult.data},
-                                    script__compiled__hash = encode(digest(${compiledResult.data}, 'sha256'), 'hex'),
                                     script__compiled__status = ${compiledResult.status},
                                     script__compiled__updated_at = CURRENT_TIMESTAMP
                                 WHERE general__script_file_name = ${dbScript.general__script_file_name}
@@ -2254,22 +2326,59 @@ export namespace Server_CLI {
                 }
             };
 
-            // Process scripts in parallel or sequentially
+            // Filter scripts by sync group if specified
+            let scriptsToProcess = allScriptFileNames;
+
+            if (syncGroup) {
+                // Get all scripts in the specified sync group
+                const syncGroupScripts = await sql<
+                    { general__script_file_name: string }[]
+                >`
+                    SELECT general__script_file_name 
+                    FROM entity.entity_scripts 
+                    WHERE group__sync = ${syncGroup}
+                `;
+
+                log({
+                    message: `Found ${syncGroupScripts.length} scripts in sync group: ${syncGroup}`,
+                    type: "info",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+
+                // Only process scripts that belong to this sync group
+                scriptsToProcess = allScriptFileNames.filter((script) =>
+                    syncGroupScripts.some((dbScript) =>
+                        dbScript.general__script_file_name.includes(
+                            script.searchName,
+                        ),
+                    ),
+                );
+
+                log({
+                    message: `Will process ${scriptsToProcess.length} script files for sync group: ${syncGroup}`,
+                    type: "info",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+            }
+
+            // Then update the processing loops to use scriptsToProcess instead of allScriptFileNames:
             if (options.parallelProcessing) {
                 // Process in batches
                 for (
                     let i = 0;
-                    i < allScriptFileNames.length;
+                    i < scriptsToProcess.length;
                     i += options.batchSize
                 ) {
-                    const batch = allScriptFileNames.slice(
+                    const batch = scriptsToProcess.slice(
                         i,
                         i + options.batchSize,
                     );
                     await Promise.all(batch.map(processScriptFile));
                 }
             } else {
-                for (const scriptFile of allScriptFileNames) {
+                for (const scriptFile of scriptsToProcess) {
                     await processScriptFile(scriptFile);
                 }
             }
@@ -2693,7 +2802,13 @@ if (import.meta.main) {
             // HOT SYNC MODULE
 
             case "dev:hot-sync:web-scripts": {
-                await WebScript_CLI.startSync();
+                const syncGroupIndex = additionalArgs.indexOf("--sync-group");
+                const syncGroup =
+                    syncGroupIndex > -1
+                        ? additionalArgs[syncGroupIndex + 1]
+                        : undefined;
+
+                await WebScript_CLI.startSync({ syncGroup });
                 break;
             }
 

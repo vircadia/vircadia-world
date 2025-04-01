@@ -41,7 +41,11 @@ export namespace WebScript_CLI {
         source: string,
         type: string,
         filePath: string,
-    ): Promise<{ data: string; hash: string; status: string }> {
+    ): Promise<{
+        data: string;
+        hash: string;
+        status: Entity.Script.E_CompilationStatus;
+    }> {
         try {
             let compiledData: string;
 
@@ -59,7 +63,21 @@ export namespace WebScript_CLI {
                         return {
                             data: source, // Return source on compilation failure
                             hash: "", // We'll calculate this in the database
-                            status: "FAILED",
+                            status: Entity.Script.E_CompilationStatus.FAILED,
+                        };
+                    }
+
+                    if (nodeResult.outputs.length > 1) {
+                        log({
+                            message: `Node compilation produced multiple outputs: ${nodeResult.outputs.length}`,
+                            type: "error",
+                            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        });
+                        return {
+                            data: source, // Return source on compilation failure
+                            hash: "", // We'll calculate this in the database
+                            status: Entity.Script.E_CompilationStatus.FAILED,
                         };
                     }
 
@@ -67,7 +85,7 @@ export namespace WebScript_CLI {
                     break;
                 }
                 case Entity.Script.E_ScriptType.BABYLON_BUN: {
-                    // For Bun scripts, use Bun's transpiler
+                    // For Bun scripts, use Bun's transpiler with IIFE format
                     const bunResult = await Bun.build({
                         entrypoints: [filePath],
                         format: "esm",
@@ -79,7 +97,21 @@ export namespace WebScript_CLI {
                         return {
                             data: source, // Return source on compilation failure
                             hash: "", // We'll calculate this in the database
-                            status: "FAILED",
+                            status: Entity.Script.E_CompilationStatus.FAILED,
+                        };
+                    }
+
+                    if (bunResult.outputs.length > 1) {
+                        log({
+                            message: `Bun compilation produced multiple outputs: ${bunResult.outputs.length}`,
+                            type: "error",
+                            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        });
+                        return {
+                            data: source, // Return source on compilation failure
+                            hash: "", // We'll calculate this in the database
+                            status: Entity.Script.E_CompilationStatus.FAILED,
                         };
                     }
 
@@ -99,7 +131,21 @@ export namespace WebScript_CLI {
                         return {
                             data: source, // Return source on compilation failure
                             hash: "", // We'll calculate this in the database
-                            status: "FAILED",
+                            status: Entity.Script.E_CompilationStatus.FAILED,
+                        };
+                    }
+
+                    if (browserResult.outputs.length > 1) {
+                        log({
+                            message: `Browser compilation produced multiple outputs: ${browserResult.outputs.length}`,
+                            type: "error",
+                            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        });
+                        return {
+                            data: source, // Return source on compilation failure
+                            hash: "", // We'll calculate this in the database
+                            status: Entity.Script.E_CompilationStatus.FAILED,
                         };
                     }
 
@@ -114,7 +160,9 @@ export namespace WebScript_CLI {
             return {
                 data: compiledData || source,
                 hash: "", // We'll calculate this in the database
-                status: compiledData ? "COMPILED" : "FAILED",
+                status: compiledData
+                    ? Entity.Script.E_CompilationStatus.COMPILED
+                    : Entity.Script.E_CompilationStatus.FAILED,
             };
         } catch (error) {
             log({
@@ -128,7 +176,7 @@ export namespace WebScript_CLI {
             return {
                 data: source,
                 hash: "", // We'll calculate this in the database
-                status: "FAILED",
+                status: Entity.Script.E_CompilationStatus.FAILED,
             };
         }
     }

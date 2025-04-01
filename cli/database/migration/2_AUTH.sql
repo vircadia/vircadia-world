@@ -572,11 +572,11 @@ INSERT INTO auth.sync_groups (
     network__packet_timing_variance_ms
 ) VALUES
     -- Public zone
-    ('public.REALTIME', 'Public realtime entities', 16, 50, 50, 100, 25),
-    ('public.NORMAL', 'Public normal-priority entities', 50, 50, 100, 150, 50),
-    ('public.BACKGROUND', 'Public background entities', 200, 50, 200, 300, 100),
-    ('public.STATIC', 'Public static entities', 2000, 50, 500, 1000, 200),
-    ('public.SYSTEM.SCRIPTS', 'System static scripts', 2000, 50, 500, 1000, 200);
+    ('public.REALTIME', 'Public realtime entities', 100, 50, 50, 100, 25),
+    ('public.NORMAL', 'Public normal-priority entities', 200, 20, 100, 150, 50),
+    ('public.BACKGROUND', 'Public background entities', 1000, 10, 200, 300, 100),
+    ('public.STATIC', 'Public static entities', 5000, 5, 500, 1000, 200),
+    ('public.SYSTEM.SCRIPTS', 'System static scripts', 5000, 55, 500, 1000, 200);
 
 -- Add system provider to auth_providers table if not exists
 INSERT INTO auth.auth_providers (

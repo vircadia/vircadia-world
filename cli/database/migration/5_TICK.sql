@@ -222,8 +222,7 @@ DECLARE
     v_db_duration_ms double precision;
     v_db_is_delayed boolean;
 BEGIN
-    -- Acquire lock & initialize timing variables
-    LOCK TABLE tick.world_ticks IN SHARE ROW EXCLUSIVE MODE;
+    -- Initialize timing variables (no global lock)
     v_start_time := clock_timestamp();
     v_db_start_time := v_start_time;  -- Database processing starts now
 
@@ -233,42 +232,49 @@ BEGIN
     FROM auth.sync_groups
     WHERE general__sync_group = p_sync_group;
 
-    -- Cleanup old ticks based on count (modified to handle all sync groups)
-    DELETE FROM tick.world_ticks wt
-    WHERE wt.general__tick_id IN (
-        SELECT wt2.general__tick_id
-        FROM tick.world_ticks wt2
-        JOIN auth.sync_groups sg ON sg.general__sync_group = wt2.group__sync
-        WHERE (
-            SELECT COUNT(*)
-            FROM tick.world_ticks wt3
-            WHERE wt3.group__sync = wt2.group__sync
-              AND wt3.tick__number > wt2.tick__number
-        ) >= sg.server__tick__max_tick_count_buffer
-    );
+    -- Shorter transaction for tick number acquisition
+    BEGIN
+        -- Get last tick information - lock only what we need
+        SELECT 
+            wt.tick__start_time,
+            wt.tick__number
+        INTO 
+            v_last_tick_time,
+            v_tick_number
+        FROM tick.world_ticks wt
+        WHERE wt.group__sync = p_sync_group
+        ORDER BY wt.tick__number DESC
+        LIMIT 1
+        FOR UPDATE;
 
-    -- Get last tick information (for tick number & metrics)
-    SELECT 
-        wt.tick__start_time,
-        wt.tick__number
-    INTO 
-        v_last_tick_time,
-        v_tick_number
-    FROM tick.world_ticks wt
-    WHERE wt.group__sync = p_sync_group
-    ORDER BY wt.tick__number DESC
-    LIMIT 1
-    FOR UPDATE;
+        IF v_tick_number IS NULL THEN
+            v_tick_number := 1;
+        ELSE
+            v_tick_number := v_tick_number + 1;
+        END IF;
+    END;
 
-    IF v_tick_number IS NULL THEN
-        v_tick_number := 1;
-    ELSE
-        v_tick_number := v_tick_number + 1;
-    END IF;
-
+    -- Calculate time since last tick
     IF v_last_tick_time IS NOT NULL THEN
         v_time_since_last_tick_ms := EXTRACT(EPOCH FROM (v_start_time - v_last_tick_time)) * 1000;
     END IF;
+
+    -- Clean up in a separate transaction using a more targeted approach
+    BEGIN
+        DELETE FROM tick.world_ticks wt
+        WHERE wt.group__sync = p_sync_group
+        AND wt.general__tick_id IN (
+            SELECT wt2.general__tick_id
+            FROM tick.world_ticks wt2
+            WHERE wt2.group__sync = p_sync_group
+            AND (
+                SELECT COUNT(*)
+                FROM tick.world_ticks wt3
+                WHERE wt3.group__sync = wt2.group__sync
+                  AND wt3.tick__number > wt2.tick__number
+            ) >= v_max_tick_count_buffer
+        );
+    END;
 
     -- Insert new tick record (initial)
     v_tick_id := uuid_generate_v4();

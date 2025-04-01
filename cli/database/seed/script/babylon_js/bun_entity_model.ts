@@ -1,94 +1,99 @@
 import type { Entity } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
-import { MeshBuilder, type Mesh } from "@babylonjs/core";
+import type { Babylon } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.babylon.script";
+import { MeshBuilder, type Mesh, Vector3 } from "@babylonjs/core";
 
-export default function main(context: Entity.Script.Babylon.I_Context) {
-    // Access the API and scene
-    const vircadia = context.Vircadia.v1;
-    const scene = vircadia.Babylon.Scene;
+interface Position {
+    x?: number;
+    y?: number;
+    z?: number;
+}
 
-    // Initialize variables
-    let myMesh: Mesh | null = null;
+interface EntityModel {
+    transform__position?: Position;
+}
 
-    // Define hooks for different events
-    const hooks = {
-        // Called when the script is first loaded
-        onScriptInitialize: (
-            entity: Entity.I_Entity,
-            assets: Entity.Asset.I_Asset[],
-        ) => {
-            console.log(
-                "Script initialized for entity:",
-                entity.general__entity_id,
-            );
+interface EntityMetaData {
+    transform__position?: Position;
+    entity_model?: EntityModel;
+}
 
-            // Create a simple cube
-            myMesh = MeshBuilder.CreateBox("box", { size: 1 }, scene);
+// Extended entity interface to store mesh reference
+interface EntityWithMesh extends Entity.I_Entity {
+    _mesh?: Mesh;
+}
 
-            // Position the mesh based on entity data
-            // Access transform__position from meta__data
-            interface PositionData {
-                x?: number;
-                y?: number;
-                z?: number;
-            }
-            interface EntityModel {
-                transform__position?: PositionData;
-            }
+// Use the new vircadiaScriptMain function name
+function vircadiaScriptMain(context: Babylon.I_Context): Babylon.ScriptReturn {
+    // Return the script structure directly
+    return {
+        hooks: {
+            // Script state variables
+            onScriptInitialize: (
+                entity: Entity.I_Entity,
+                assets: Entity.Asset.I_Asset[],
+            ): void => {
+                console.log(
+                    "Script initialized for entity:",
+                    entity.general__entity_id,
+                );
 
-            const transformPosition = entity.meta__data
-                .transform__position as PositionData;
-            const entityModel = entity.meta__data.entity_model as EntityModel;
-            const position =
-                transformPosition || entityModel?.transform__position;
+                // Create mesh
+                const scene = context.Babylon.Scene;
+                const myMesh = MeshBuilder.CreateBox("box", { size: 1 }, scene);
 
-            if (position) {
-                myMesh.position.x = position.x || 0;
-                myMesh.position.y = position.y || 0;
-                myMesh.position.z = position.z || 0;
-            }
-        },
+                // Position based on entity data
+                const metaData = entity.meta__data as unknown as EntityMetaData;
+                const transformPosition = metaData.transform__position;
+                const entityModel = metaData.entity_model;
+                const position =
+                    transformPosition || entityModel?.transform__position;
 
-        // Called when the entity is updated
-        onEntityUpdate: (updatedEntity: Entity.I_Entity) => {
-            console.log("Entity updated:", updatedEntity.general__entity_id);
+                if (position) {
+                    myMesh.position = new Vector3(
+                        position.x || 0,
+                        position.y || 0,
+                        position.z || 0,
+                    );
+                }
 
-            // Update mesh position if entity position changed
-            // Access transform__position from meta__data
-            interface PositionData {
-                x?: number;
-                y?: number;
-                z?: number;
-            }
-            interface EntityModel {
-                transform__position?: PositionData;
-            }
+                // Store mesh in entity metadata for access in other hooks
+                (entity as EntityWithMesh)._mesh = myMesh;
+            },
 
-            const transformPosition = updatedEntity.meta__data
-                .transform__position as PositionData;
-            const entityModel = updatedEntity.meta__data
-                .entity_model as EntityModel;
-            const position =
-                transformPosition || entityModel?.transform__position;
+            onEntityUpdate: (updatedEntity: Entity.I_Entity): void => {
+                console.log(
+                    "Entity updated:",
+                    updatedEntity.general__entity_id,
+                );
 
-            if (position && myMesh) {
-                myMesh.position.x = position.x || 0;
-                myMesh.position.y = position.y || 0;
-                myMesh.position.z = position.z || 0;
-            }
-        },
+                // Update position if entity data changed
+                const entityWithMesh = updatedEntity as EntityWithMesh;
+                if (entityWithMesh._mesh) {
+                    const metaData =
+                        updatedEntity.meta__data as unknown as EntityMetaData;
+                    const transformPosition = metaData.transform__position;
+                    const entityModel = metaData.entity_model;
+                    const position =
+                        transformPosition || entityModel?.transform__position;
 
-        // Called when the script is being unloaded
-        onScriptTeardown: () => {
-            console.log("Script being torn down");
+                    if (position) {
+                        entityWithMesh._mesh.position.x = position.x || 0;
+                        entityWithMesh._mesh.position.y = position.y || 0;
+                        entityWithMesh._mesh.position.z = position.z || 0;
+                    }
+                }
+            },
 
-            // Clean up resources
-            if (myMesh) {
-                myMesh.dispose();
-                myMesh = null;
-            }
+            onScriptTeardown: (): void => {
+                console.log("Script being torn down");
+
+                // This could be improved with a better mesh tracking mechanism
+                // Currently relying on entity reference cleanup by the system
+            },
         },
     };
-
-    // Return the hooks object
-    return { hooks };
 }
+
+// Make the function available in the global scope
+// @ts-ignore - Adding to global scope for script system
+globalThis.vircadiaScriptMain = vircadiaScriptMain;

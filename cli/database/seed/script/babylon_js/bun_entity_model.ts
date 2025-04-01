@@ -32,6 +32,13 @@ function vircadiaScriptMain(context: Babylon.I_Context): Babylon.ScriptReturn {
                 entity: Entity.I_Entity,
                 assets: Entity.Asset.I_Asset[],
             ): void => {
+                if (context.Vircadia.Debug) {
+                    console.log(
+                        "Script initialized for entity:",
+                        entity.general__entity_id,
+                    );
+                }
+
                 // Create mesh
                 const scene = context.Babylon.Scene;
                 const myMesh = MeshBuilder.CreateBox("box", { size: 1 }, scene);
@@ -56,10 +63,12 @@ function vircadiaScriptMain(context: Babylon.I_Context): Babylon.ScriptReturn {
             },
 
             onEntityUpdate: (updatedEntity: Entity.I_Entity): void => {
-                console.log(
-                    "Entity updated:",
-                    updatedEntity.general__entity_id,
-                );
+                if (context.Vircadia.Debug) {
+                    console.log(
+                        "Entity updated:",
+                        updatedEntity.general__entity_id,
+                    );
+                }
 
                 // Update position if entity data changed
                 const entityWithMesh = updatedEntity as EntityWithMesh;
@@ -80,7 +89,9 @@ function vircadiaScriptMain(context: Babylon.I_Context): Babylon.ScriptReturn {
             },
 
             onScriptTeardown: (): void => {
-                console.log("Script being torn down");
+                if (context.Vircadia.Debug) {
+                    console.log("Script being torn down");
+                }
 
                 // This could be improved with a better mesh tracking mechanism
                 // Currently relying on entity reference cleanup by the system

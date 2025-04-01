@@ -141,9 +141,10 @@ describe("Babylon.js Client Core Integration", () => {
                 serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
                 authToken: adminAgent.token,
                 authProvider: SYSTEM_AUTH_PROVIDER_NAME,
-                engine: engine,
+
                 scene: scene,
-                debug: true,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
             });
 
             await core.initialize();
@@ -176,12 +177,14 @@ describe("Babylon.js Client Core Integration", () => {
 
         test("should execute database queries through the connection", async () => {
             const engine = new NullEngine();
+            const scene = new Scene(engine);
             const core = new VircadiaBabylonCore({
                 serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
                 authToken: adminAgent.token,
                 authProvider: SYSTEM_AUTH_PROVIDER_NAME,
-                engine: engine,
-                debug: true,
+                scene: scene,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
             });
 
             await core.initialize();
@@ -216,9 +219,10 @@ describe("Babylon.js Client Core Integration", () => {
                 serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
                 authToken: adminAgent.token,
                 authProvider: SYSTEM_AUTH_PROVIDER_NAME,
-                engine: engine,
+
                 scene: scene,
-                debug: true,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
             });
 
             await core.initialize();
@@ -238,9 +242,10 @@ describe("Babylon.js Client Core Integration", () => {
                 serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
                 authToken: regularAgent.token,
                 authProvider: "system",
-                engine: engine,
+
                 scene: scene,
-                debug: true,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
             });
 
             await core.initialize();
@@ -258,9 +263,10 @@ describe("Babylon.js Client Core Integration", () => {
                 serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
                 authToken: anonAgent.token,
                 authProvider: ANON_AUTH_PROVIDER_NAME,
-                engine: engine,
+
                 scene: scene,
-                debug: true,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
             });
 
             await core.initialize();
@@ -297,12 +303,14 @@ describe("Babylon.js Client Core Integration", () => {
 
             // Initialize VircadiaBabylonCore
             const engine = new NullEngine();
+            const scene = new Scene(engine);
             const core = new VircadiaBabylonCore({
                 serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
                 authToken: adminAgent.token,
                 authProvider: SYSTEM_AUTH_PROVIDER_NAME,
-                engine: engine,
-                debug: true,
+                scene: scene,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
             });
 
             await core.initialize();
@@ -396,9 +404,10 @@ describe("Babylon.js Client Core Integration", () => {
                 serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
                 authToken: adminAgent.token,
                 authProvider: SYSTEM_AUTH_PROVIDER_NAME,
-                engine: engine,
+
                 scene: scene,
-                debug: true,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
             });
 
             await core.initialize();
@@ -504,12 +513,15 @@ describe("Babylon.js Client Core Integration", () => {
 
             // Initialize VircadiaBabylonCore
             const engine = new NullEngine();
+            const scene = new Scene(engine);
+
             const core = new VircadiaBabylonCore({
                 serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
                 authToken: adminAgent.token,
                 authProvider: SYSTEM_AUTH_PROVIDER_NAME,
-                engine: engine,
-                debug: true,
+                scene: scene,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
             });
 
             await core.initialize();
@@ -547,12 +559,14 @@ describe("Babylon.js Client Core Integration", () => {
         test("should handle connection errors gracefully", async () => {
             // Create a core instance with an invalid server URL
             const engine = new NullEngine();
+            const scene = new Scene(engine);
+
             const core = new VircadiaBabylonCore({
                 serverUrl: "ws://invalid-server-url:12345/invalid",
                 authToken: adminAgent.token,
                 authProvider: SYSTEM_AUTH_PROVIDER_NAME,
-                engine: engine,
-                debug: true,
+                scene: scene,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 // Set a low reconnect delay for faster test execution
                 reconnectDelay: 100,
                 reconnectAttempts: 2,
@@ -583,12 +597,15 @@ describe("Babylon.js Client Core Integration", () => {
         test("should handle database query errors", async () => {
             // Initialize VircadiaBabylonCore with valid connection
             const engine = new NullEngine();
+            const scene = new Scene(engine);
+
             const core = new VircadiaBabylonCore({
                 serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
                 authToken: adminAgent.token,
                 authProvider: SYSTEM_AUTH_PROVIDER_NAME,
-                engine: engine,
-                debug: true,
+                scene: scene,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
             });
 
             await core.initialize();
@@ -641,9 +658,10 @@ describe("Babylon.js Client Core Integration", () => {
                 serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
                 authToken: adminAgent.token,
                 authProvider: SYSTEM_AUTH_PROVIDER_NAME,
-                engine: engine,
+
                 scene: scene,
-                debug: true,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
             });
 
             // This will load all entities including our test entity
@@ -709,12 +727,14 @@ describe("Babylon.js Client Core Integration", () => {
         test("should detect platform correctly", async () => {
             // Initialize VircadiaBabylonCore
             const engine = new NullEngine();
+            const scene = new Scene(engine);
             const core = new VircadiaBabylonCore({
                 serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
                 authToken: adminAgent.token,
                 authProvider: SYSTEM_AUTH_PROVIDER_NAME,
-                engine: engine,
-                debug: true,
+                scene: scene,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
             });
 
             await core.initialize();
@@ -734,12 +754,15 @@ describe("Babylon.js Client Core Integration", () => {
         test("should properly dispose resources", async () => {
             // Initialize VircadiaBabylonCore
             const engine = new NullEngine();
+            const scene = new Scene(engine);
+
             const core = new VircadiaBabylonCore({
                 serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
                 authToken: adminAgent.token,
                 authProvider: SYSTEM_AUTH_PROVIDER_NAME,
-                engine: engine,
-                debug: true,
+                scene: scene,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
             });
 
             await core.initialize();

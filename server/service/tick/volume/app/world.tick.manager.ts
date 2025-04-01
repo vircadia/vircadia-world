@@ -9,13 +9,15 @@ import {
 import { PostgresClient } from "../vircadia-world-sdk-ts/module/server/postgres.server.client.ts";
 import type { Server } from "bun";
 
+const LOG_PREFIX = "World Tick Manager";
+
 export class WorldTickManager {
     private intervalIds: Map<string, Timer> = new Map();
     private syncGroups: Map<string, Auth.SyncGroup.I_SyncGroup> = new Map();
     private tickCounts: Map<string, number> = new Map();
     private superUserSql: postgres.Sql | null = null;
-
-    private readonly LOG_PREFIX = "World Tick Manager";
+    private processingTicks: Set<string> = new Set(); // Track which sync groups are currently processing
+    private pendingTicks: Map<string, boolean> = new Map(); // Track pending ticks for sync groups
 
     async initialize() {
         try {
@@ -24,7 +26,7 @@ export class WorldTickManager {
                 debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
                 suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
                 type: "debug",
-                prefix: this.LOG_PREFIX,
+                prefix: LOG_PREFIX,
             });
 
             Bun.serve({
@@ -66,22 +68,32 @@ export class WorldTickManager {
                             );
                         }
 
-                        // Gather stats information
-                        return Response.json(
-                            Service.Tick.Stats_Endpoint.createSuccess({
-                                uptime: process.uptime(),
-                                database: {
-                                    connected: !!this.superUserSql,
-                                },
-                                memory: {
-                                    heapUsed: process.memoryUsage().heapUsed,
-                                },
-                                cpu: {
-                                    system: process.cpuUsage().system,
-                                    user: process.cpuUsage().user,
-                                },
-                            }),
-                        );
+                        // Define standard stats data
+                        const standardStatsData = {
+                            uptime: process.uptime(),
+                            database: {
+                                connected: !!this.superUserSql,
+                            },
+                            ticks: {
+                                processing: Array.from(this.processingTicks),
+                                pending: Object.fromEntries(this.pendingTicks),
+                            },
+                            memory: {
+                                heapUsed: process.memoryUsage().heapUsed,
+                            },
+                            cpu: {
+                                system: process.cpuUsage().system,
+                                user: process.cpuUsage().user,
+                            },
+                        };
+
+                        // Create response with additional data and return
+                        const responseData =
+                            Service.Tick.Stats_Endpoint.createSuccess(
+                                standardStatsData,
+                            );
+
+                        return Response.json(responseData);
                     }
                 },
             });
@@ -113,41 +125,19 @@ export class WorldTickManager {
                 this.syncGroups.set(group.general__sync_group, group);
             }
 
+            await this.superUserSql`LISTEN tick_captured`;
+            this.superUserSql.listen("tick_captured", (payload) => {
+                this.handleTickCapturedNotification(payload);
+            });
+
             // Start tick loops for each sync group
             for (const [syncGroup, config] of this.syncGroups.entries()) {
                 if (this.intervalIds.has(syncGroup)) {
                     continue;
                 }
 
-                // Use performance.now() for precise timing
-                let nextTickTime = performance.now();
-
-                const tickLoop = () => {
-                    const now = performance.now();
-                    const delay = Math.max(0, nextTickTime - now);
-
-                    // Schedule next tick
-                    nextTickTime += config.server__tick__rate_ms;
-                    this.intervalIds.set(
-                        syncGroup,
-                        setTimeout(tickLoop, delay),
-                    );
-
-                    // Process tick asynchronously
-                    this.processTick(syncGroup).catch((error) => {
-                        log({
-                            message: `Error in tick processing for ${syncGroup}.`,
-                            error: error,
-                            prefix: this.LOG_PREFIX,
-                            suppress:
-                                VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
-                            debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
-                            type: "error",
-                        });
-                    });
-                };
-
-                tickLoop();
+                // Initialize first tick for each sync group
+                this.scheduleTick(syncGroup);
             }
 
             log({
@@ -155,7 +145,7 @@ export class WorldTickManager {
                 debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
                 suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
                 type: "success",
-                prefix: this.LOG_PREFIX,
+                prefix: LOG_PREFIX,
             });
         } catch (error) {
             log({
@@ -163,10 +153,111 @@ export class WorldTickManager {
                 debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
                 suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
                 type: "error",
-                prefix: this.LOG_PREFIX,
+                prefix: LOG_PREFIX,
             });
             throw error;
         }
+    }
+
+    // Handle postgres notifications with proper error handling
+    private async handleTickCapturedNotification(
+        notification: string,
+    ): Promise<void> {
+        try {
+            const data = JSON.parse(notification);
+            const syncGroup = data.syncGroup;
+
+            log({
+                message: `Received tick completion notification for sync group: ${syncGroup}, tick: ${data.tickNumber}`,
+                debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+                type: "debug",
+                prefix: LOG_PREFIX,
+            });
+
+            // Mark this sync group as no longer processing
+            this.processingTicks.delete(syncGroup);
+
+            // If there's a pending tick, process it immediately
+            if (this.pendingTicks.get(syncGroup)) {
+                this.pendingTicks.set(syncGroup, false);
+                this.scheduleTick(syncGroup);
+            }
+        } catch (error) {
+            log({
+                message: `Error processing tick notification: ${error}`,
+                debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+                type: "error",
+                prefix: LOG_PREFIX,
+            });
+        }
+    }
+
+    private scheduleTick(syncGroup: string) {
+        const config = this.syncGroups.get(syncGroup);
+        if (!config) {
+            log({
+                message: `Cannot schedule tick for unknown sync group: ${syncGroup}`,
+                debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+                type: "error",
+                prefix: LOG_PREFIX,
+            });
+            return;
+        }
+
+        // If this sync group is currently processing a tick, mark it as pending and return
+        if (this.processingTicks.has(syncGroup)) {
+            this.pendingTicks.set(syncGroup, true);
+            log({
+                message: `Sync group ${syncGroup} is still processing, marking tick as pending`,
+                debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
+                suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+                type: "debug",
+                prefix: LOG_PREFIX,
+            });
+            return;
+        }
+
+        // Clear any existing interval
+        if (this.intervalIds.has(syncGroup)) {
+            const intervalId = this.intervalIds.get(syncGroup);
+            if (intervalId) {
+                clearTimeout(intervalId);
+                this.intervalIds.delete(syncGroup);
+            }
+        }
+
+        // Schedule the next tick according to the configured rate
+        this.intervalIds.set(
+            syncGroup,
+            setTimeout(() => {
+                // Mark this sync group as processing
+                this.processingTicks.add(syncGroup);
+
+                // Process the tick
+                this.processTick(syncGroup).catch((error) => {
+                    // If there was an error, remove from processing
+                    this.processingTicks.delete(syncGroup);
+
+                    log({
+                        message: `Error in tick processing for ${syncGroup}.`,
+                        error: error,
+                        prefix: LOG_PREFIX,
+                        suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+                        debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
+                        type: "error",
+                    });
+
+                    // Reschedule the tick to try again after a short delay
+                    setTimeout(() => this.scheduleTick(syncGroup), 1000);
+                });
+
+                // Schedule the next tick
+                this.scheduleTick(syncGroup);
+            }, config.server__tick__rate_ms),
+        );
     }
 
     private async processTick(syncGroup: string) {
@@ -198,7 +289,7 @@ export class WorldTickManager {
                     debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
                     suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
                     type: "warning",
-                    prefix: this.LOG_PREFIX,
+                    prefix: LOG_PREFIX,
                 });
                 return null;
             }
@@ -208,7 +299,7 @@ export class WorldTickManager {
                 debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
                 suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
                 type: "debug",
-                prefix: this.LOG_PREFIX,
+                prefix: LOG_PREFIX,
                 data: {
                     tickId: tickData.general__tick_id,
                     tickNumber: tickData.tick__number,
@@ -246,7 +337,7 @@ export class WorldTickManager {
             debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
             suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
             type: "debug",
-            prefix: this.LOG_PREFIX,
+            prefix: LOG_PREFIX,
         });
 
         if (
@@ -259,7 +350,7 @@ export class WorldTickManager {
                 debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
                 suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
                 type: "warning",
-                prefix: this.LOG_PREFIX,
+                prefix: LOG_PREFIX,
                 data: {
                     localDbProcessingTime: `Local database processing time: ${localDbProcessingTime}ms`,
                     localTotalProcessingTime: `Local total processing time: ${localTotalProcessingTime}ms`,
@@ -287,7 +378,7 @@ export class WorldTickManager {
                     debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
                     suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
                     type: "error",
-                    prefix: this.LOG_PREFIX,
+                    prefix: LOG_PREFIX,
                 });
             });
         }
@@ -323,7 +414,7 @@ export class WorldTickManager {
                 debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
                 suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
                 type: "error",
-                prefix: this.LOG_PREFIX,
+                prefix: LOG_PREFIX,
             });
         }
     }
@@ -339,12 +430,39 @@ export class WorldTickManager {
             debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
             suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
             type: "debug",
-            prefix: this.LOG_PREFIX,
+            prefix: LOG_PREFIX,
         });
     }
 
     cleanup() {
         this.stop();
+
+        // Unlisten from notifications if possible
+        if (this.superUserSql) {
+            try {
+                this.superUserSql`UNLISTEN tick_captured`.catch(
+                    (error: unknown) => {
+                        log({
+                            message: `Error unlistening from tick notifications: ${error}`,
+                            debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
+                            suppress:
+                                VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+                            type: "error",
+                            prefix: LOG_PREFIX,
+                        });
+                    },
+                );
+            } catch (error) {
+                log({
+                    message: `Error attempting to unlisten: ${error}`,
+                    debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
+                    suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+                    type: "error",
+                    prefix: LOG_PREFIX,
+                });
+            }
+        }
+
         PostgresClient.getInstance({
             debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
             suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
@@ -355,7 +473,13 @@ export class WorldTickManager {
 // Add command line entry point
 if (import.meta.main) {
     try {
-        console.info("Starting World Tick Manager");
+        log({
+            message: "Starting World Tick Manager",
+            debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
+            suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+            type: "info",
+            prefix: LOG_PREFIX,
+        });
         const manager = new WorldTickManager();
         await manager.initialize();
 
@@ -366,6 +490,7 @@ if (import.meta.main) {
                 debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
                 suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
                 type: "debug",
+                prefix: LOG_PREFIX,
             });
             manager.cleanup();
             process.exit(0);
@@ -377,6 +502,7 @@ if (import.meta.main) {
                 debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
                 suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
                 type: "debug",
+                prefix: LOG_PREFIX,
             });
             manager.cleanup();
             process.exit(0);
@@ -387,6 +513,7 @@ if (import.meta.main) {
             debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
             suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
             type: "success",
+            prefix: LOG_PREFIX,
         });
     } catch (error) {
         log({
@@ -394,6 +521,7 @@ if (import.meta.main) {
             type: "error",
             suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
             debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
+            prefix: LOG_PREFIX,
         });
         process.exit(1);
     }

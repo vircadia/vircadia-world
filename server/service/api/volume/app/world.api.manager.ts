@@ -40,6 +40,8 @@ export interface WebSocketData {
     sessionId: string;
 }
 
+const LOG_PREFIX = "World API Manager";
+
 export class WorldApiManager {
     private server: Server | undefined;
 
@@ -53,8 +55,6 @@ export class WorldApiManager {
         WebSocket | ServerWebSocket<unknown>,
         string
     >();
-
-    private LOG_PREFIX = "World API Manager";
 
     private CONNECTION_HEARTBEAT_INTERVAL = 500;
 
@@ -327,7 +327,7 @@ export class WorldApiManager {
                     // Handle missing token first
                     if (!token) {
                         log({
-                            prefix: this.LOG_PREFIX,
+                            prefix: LOG_PREFIX,
                             message: "No token found in query parameters",
                             debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
                             suppress:
@@ -345,7 +345,7 @@ export class WorldApiManager {
                     // Handle missing provider
                     if (!provider) {
                         log({
-                            prefix: this.LOG_PREFIX,
+                            prefix: LOG_PREFIX,
                             message: "No provider found in query parameters",
                             debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
                             suppress:
@@ -364,7 +364,7 @@ export class WorldApiManager {
 
                     if (!jwtValidationResult.isValid) {
                         log({
-                            prefix: this.LOG_PREFIX,
+                            prefix: LOG_PREFIX,
                             message: `Token JWT validation failed: ${jwtValidationResult.errorReason}`,
                             debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
                             suppress:
@@ -387,7 +387,7 @@ export class WorldApiManager {
 
                     if (!sessionValidationResult[0].agent_id) {
                         log({
-                            prefix: this.LOG_PREFIX,
+                            prefix: LOG_PREFIX,
                             message: "WS Upgrade Session validation failed",
                             debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
                             suppress:
@@ -410,7 +410,7 @@ export class WorldApiManager {
 
                     if (!upgraded) {
                         log({
-                            prefix: this.LOG_PREFIX,
+                            prefix: LOG_PREFIX,
                             message: "WebSocket upgrade failed",
                             debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
                             suppress:
@@ -508,7 +508,7 @@ export class WorldApiManager {
                                         suppress:
                                             VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
                                         type: "debug",
-                                        prefix: this.LOG_PREFIX,
+                                        prefix: LOG_PREFIX,
                                         data: {
                                             jwtValidationResult,
                                         },
@@ -528,7 +528,7 @@ export class WorldApiManager {
                                     suppress:
                                         VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
                                     type: "error",
-                                    prefix: this.LOG_PREFIX,
+                                    prefix: LOG_PREFIX,
                                     data: {
                                         error:
                                             error instanceof Error
@@ -618,7 +618,7 @@ export class WorldApiManager {
                                     suppress:
                                         VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
                                     type: "error",
-                                    prefix: this.LOG_PREFIX,
+                                    prefix: LOG_PREFIX,
                                     data: { error, sessionId },
                                 });
                             },
@@ -667,7 +667,7 @@ export class WorldApiManager {
                                         suppress:
                                             VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
                                         type: "error",
-                                        prefix: this.LOG_PREFIX,
+                                        prefix: LOG_PREFIX,
                                         data: {
                                             error,
                                             query: typedRequest.query,
@@ -718,7 +718,7 @@ export class WorldApiManager {
                     const sessionData = ws.data;
 
                     log({
-                        prefix: this.LOG_PREFIX,
+                        prefix: LOG_PREFIX,
                         message: "New WebSocket connection attempt",
                         debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
                         suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
@@ -744,7 +744,7 @@ export class WorldApiManager {
                     );
 
                     log({
-                        prefix: this.LOG_PREFIX,
+                        prefix: LOG_PREFIX,
                         message: `Connection established with agent ${sessionData.agentId}`,
                         suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
                         debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
@@ -765,7 +765,7 @@ export class WorldApiManager {
                     const session = this.activeSessions.get(ws.data.sessionId);
                     if (session) {
                         log({
-                            prefix: this.LOG_PREFIX,
+                            prefix: LOG_PREFIX,
                             message: "WebSocket disconnection",
                             debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
                             suppress:
@@ -810,7 +810,7 @@ export class WorldApiManager {
                     } catch (error) {
                         // Session is invalid, close the connection
                         log({
-                            prefix: this.LOG_PREFIX,
+                            prefix: LOG_PREFIX,
                             message:
                                 "Session expired / invalid, closing WebSocket",
                             debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
@@ -865,6 +865,13 @@ export class WorldApiManager {
 // Add command line entry point
 if (import.meta.main) {
     try {
+        log({
+            message: "Starting World API Manager",
+            debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
+            suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+            type: "info",
+            prefix: LOG_PREFIX,
+        });
         const manager = new WorldApiManager();
         await manager.initialize();
 
@@ -875,6 +882,7 @@ if (import.meta.main) {
                 debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
                 suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
                 type: "debug",
+                prefix: LOG_PREFIX,
             });
             manager.cleanup();
             process.exit(0);
@@ -886,6 +894,7 @@ if (import.meta.main) {
                 debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
                 suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
                 type: "debug",
+                prefix: LOG_PREFIX,
             });
             manager.cleanup();
             process.exit(0);
@@ -899,6 +908,7 @@ if (import.meta.main) {
             type: "error",
             suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
             debug: true,
+            prefix: LOG_PREFIX,
         });
         process.exit(1);
     }

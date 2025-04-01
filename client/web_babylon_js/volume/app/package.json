@@ -20,7 +20,7 @@
     "vite-plugin-solid": "^2.11.6"
   },
   "dependencies": {
-    "@babylonjs/core": "^7.53.2",
+    "@babylonjs/core": "8.0.2",
     "solid-js": "^1.9.5"
   }
 }

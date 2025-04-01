@@ -4,7 +4,7 @@
     "": {
       "name": "vite-template-solid",
       "dependencies": {
-        "@babylonjs/core": "^7.53.2",
+        "@babylonjs/core": "8.0.2",
         "solid-js": "^1.9.5",
       },
       "devDependencies": {
@@ -54,7 +54,7 @@
 
     "@babel/types": ["@babel/types@7.26.10", "", { "dependencies": { "@babel/helper-string-parser": "^7.25.9", "@babel/helper-validator-identifier": "^7.25.9" } }, "sha512-emqcG3vHrpxUKTrxcblR36dcrcoRDvKmnL/dCL6ZsHaShW80qxCAcNhzQZrpeM765VzEos+xOi4s+r4IXzTwdQ=="],
 
-    "@babylonjs/core": ["@babylonjs/core@7.53.2", "", {}, "sha512-iSo8qtHJpyVzQbMrTgL0JywI1IDplJjLDV+FHIY674fxE1FkDlMl5lEHXY/kvzAGDGlwctJJD8fzJPKyRBWXxA=="],
+    "@babylonjs/core": ["@babylonjs/core@8.0.2", "", {}, "sha512-Bq6Ue2mu6N351AhPqoPNT0jLMm3n9igAqLs9CLb4RiWNR+VBylIf+L+lw/HJ6L2iOOzT1YfY7jD+vg6mW5wY2A=="],
 
     "@esbuild/aix-ppc64": ["@esbuild/aix-ppc64@0.25.1", "", { "os": "aix", "cpu": "ppc64" }, "sha512-kfYGy8IdzTGy+z0vFGvExZtxkFlA4zAxgKEahG9KE1ScBjpQnFsNOX8KTU5ojNru5ed5CVoJYXFtoxaq5nFbjQ=="],
 

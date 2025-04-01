@@ -4,7 +4,7 @@
     "": {
       "name": "vircadia-world-cli",
       "dependencies": {
-        "@babylonjs/core": "^7.54.2",
+        "@babylonjs/core": "8.0.2",
         "jsonwebtoken": "^9.0.2",
         "postgres": "^3.4.5",
       },
@@ -19,7 +19,7 @@
     },
   },
   "packages": {
-    "@babylonjs/core": ["@babylonjs/core@7.54.2", "", {}, "sha512-YL9eNAo3WUIRxcL8ggBtXwBLjgYozuJ7Zmt6/yP5x+U2aq1JmUiPKVEOFm+4EQRLCyvikjeftjSfqzUxCZkIdg=="],
+    "@babylonjs/core": ["@babylonjs/core@8.0.2", "", {}, "sha512-Bq6Ue2mu6N351AhPqoPNT0jLMm3n9igAqLs9CLb4RiWNR+VBylIf+L+lw/HJ6L2iOOzT1YfY7jD+vg6mW5wY2A=="],
 
     "@types/bun": ["@types/bun@1.2.4", "", { "dependencies": { "bun-types": "1.2.4" } }, "sha512-QtuV5OMR8/rdKJs213iwXDpfVvnskPXY/S0ZiFbsTjQZycuqPbMW8Gf/XhLfwE5njW8sxI2WjISURXPlHypMFA=="],
 

@@ -9,12 +9,20 @@ import { Scene, WebGPUEngine } from "@babylonjs/core";
 import { VircadiaBabylonCore } from "../../vircadia-world-sdk-ts/module/client/core/vircadia.babylon.core";
 import { VircadiaConfig_BROWSER_CLIENT } from "../../vircadia-world-sdk-ts/config/vircadia.browser.client.config";
 
+enum ConnectionState {
+    Disconnected = "disconnected",
+    Connecting = "connecting",
+    Connected = "connected",
+}
+
 const App: Component = () => {
     let canvasRef: HTMLCanvasElement | undefined;
     let engine: WebGPUEngine;
     let scene: Scene;
     let vircadiaClient: VircadiaBabylonCore;
-    const [isConnected, setIsConnected] = createSignal(false);
+    const [connectionState, setConnectionState] = createSignal<ConnectionState>(
+        ConnectionState.Disconnected,
+    );
 
     // Define handleResize outside to make it accessible in onCleanup
     const handleResize = () => {
@@ -44,7 +52,6 @@ const App: Component = () => {
             authToken:
                 VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
             authProvider: "local", // Using local auth provider
-            engine,
             scene,
             debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
             suppress:
@@ -53,13 +60,18 @@ const App: Component = () => {
 
         // Connect to Vircadia server
         try {
+            setConnectionState(ConnectionState.Connecting);
             await vircadiaClient.initialize();
-            const connection = vircadiaClient.getConnection();
+            const connection = vircadiaClient.getConnectionManager();
 
             // Set up connection state tracker
             const checkConnectionStatus = () => {
                 const connected = connection.isClientConnected();
-                setIsConnected(connected);
+                setConnectionState(
+                    connected
+                        ? ConnectionState.Connected
+                        : ConnectionState.Disconnected,
+                );
 
                 if (connected) {
                     console.log("Connected to Vircadia server");
@@ -80,6 +92,7 @@ const App: Component = () => {
             });
         } catch (error) {
             console.error("Error connecting to Vircadia server:", error);
+            setConnectionState(ConnectionState.Disconnected);
         }
 
         // Start the render loop
@@ -93,19 +106,14 @@ const App: Component = () => {
 
     // Create effect to respond to connection state changes
     createEffect(() => {
-        // You can use isConnected() value here to trigger UI updates or other actions
-        console.log(
-            "Connection state changed:",
-            isConnected() ? "connected" : "disconnected",
-        );
+        console.log("Connection state changed:", connectionState());
     });
 
     onCleanup(() => {
         // Clean up resources
         if (vircadiaClient) {
-            // Use the proper dispose method now that it's implemented
             vircadiaClient.dispose();
-            setIsConnected(false);
+            setConnectionState(ConnectionState.Disconnected);
         }
 
         if (engine) {
@@ -133,16 +141,23 @@ const App: Component = () => {
                     right: "10px",
                     padding: "8px 12px",
                     "border-radius": "4px",
-                    background: isConnected()
-                        ? "rgba(0, 128, 0, 0.7)"
-                        : "rgba(255, 0, 0, 0.7)",
+                    background:
+                        connectionState() === ConnectionState.Connecting
+                            ? "rgba(255, 165, 0, 0.7)"
+                            : connectionState() === ConnectionState.Connected
+                              ? "rgba(0, 128, 0, 0.7)"
+                              : "rgba(255, 0, 0, 0.7)",
                     color: "white",
                     "font-size": "12px",
                     "font-weight": "bold",
                     transition: "background 0.3s ease",
                 }}
             >
-                {isConnected() ? "Connected" : "Disconnected"}
+                {connectionState() === ConnectionState.Connecting
+                    ? "Connecting..."
+                    : connectionState() === ConnectionState.Connected
+                      ? "Connected"
+                      : "Disconnected"}
             </div>
         </div>
     );

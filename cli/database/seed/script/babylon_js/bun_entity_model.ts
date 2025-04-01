@@ -32,11 +32,6 @@ function vircadiaScriptMain(context: Babylon.I_Context): Babylon.ScriptReturn {
                 entity: Entity.I_Entity,
                 assets: Entity.Asset.I_Asset[],
             ): void => {
-                console.log(
-                    "Script initialized for entity:",
-                    entity.general__entity_id,
-                );
-
                 // Create mesh
                 const scene = context.Babylon.Scene;
                 const myMesh = MeshBuilder.CreateBox("box", { size: 1 }, scene);

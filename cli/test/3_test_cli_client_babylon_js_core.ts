@@ -4,7 +4,7 @@ import { PostgresClient } from "../../sdk/vircadia-world-sdk-ts/module/server/po
 import { VircadiaBabylonCore } from "../../sdk/vircadia-world-sdk-ts/module/client/core/vircadia.babylon.core";
 import {
     Communication,
-    type Entity,
+    Entity,
 } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import {
     cleanupTestAccounts,
@@ -30,7 +30,6 @@ let anonAgent: TestAccount;
 
 let superUserSql: postgres.Sql;
 const testEntityIds: string[] = [];
-const testScriptIds: string[] = [];
 
 describe("Babylon.js Client Core Integration", () => {
     beforeAll(async () => {
@@ -272,7 +271,344 @@ describe("Babylon.js Client Core Integration", () => {
         });
     });
 
-    describe("System Script Tests", () => {
+    describe("AssetManager Tests", () => {
+        test("should load and manage assets", async () => {
+            // Create a test asset in the database
+            const assetName = `${DB_TEST_PREFIX}test_asset.gltf`;
+
+            await superUserSql.begin(async (tx) => {
+                const [asset] = await tx<[Entity.Asset.I_Asset]>`
+                    INSERT INTO entity.entity_assets (
+                        general__asset_file_name,
+                        asset__data,
+                        group__sync
+                    ) VALUES (
+                        ${assetName},
+                        ${Buffer.from(
+                            JSON.stringify({
+                                test_data: "Sample asset data for testing",
+                                format: "gltf",
+                            }),
+                        )},
+                        ${TEST_SYNC_GROUP}
+                    ) RETURNING *
+                `;
+            });
+
+            // Initialize VircadiaBabylonCore
+            const engine = new NullEngine();
+            const core = new VircadiaBabylonCore({
+                serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
+                authToken: adminAgent.token,
+                authProvider: SYSTEM_AUTH_PROVIDER_NAME,
+                engine: engine,
+                debug: true,
+            });
+
+            await core.initialize();
+
+            // Test asset loading
+            const asset = await core.getAssetManager().loadAsset(assetName);
+            expect(asset).toBeDefined();
+            expect(asset.general__asset_file_name).toBe(assetName);
+
+            // Test asset retrieval from cache
+            const cachedAsset = core.getAssetManager().getAsset(assetName);
+            expect(cachedAsset).toBeDefined();
+            expect(cachedAsset?.general__asset_file_name).toBe(assetName);
+
+            // Test asset update notifications
+            let notificationReceived = false;
+            core.getAssetManager().addAssetUpdateListener((updatedAsset) => {
+                notificationReceived = true;
+                expect(updatedAsset.general__asset_file_name).toBe(assetName);
+            });
+
+            await core.getAssetManager().reloadAsset(assetName);
+            expect(notificationReceived).toBe(true);
+
+            // Clean up
+            core.dispose();
+        });
+    });
+
+    describe("EntityManager Tests", () => {
+        test("should update entities and notify scripts", async () => {
+            // Create a test entity with a script
+            const entityName = `${DB_TEST_PREFIX}Entity Update Test`;
+            let entityId: string;
+
+            // First create a system script for testing entity updates if it doesn't exist
+            const scriptName = `${DB_TEST_PREFIX}bun_entity_update_test.ts`;
+            let scriptExists = false;
+
+            const scriptCheckResult = await superUserSql<[{ count: number }]>`
+                SELECT COUNT(*) as count FROM entity.entity_scripts 
+                WHERE general__script_file_name = ${scriptName}
+            `;
+
+            scriptExists = scriptCheckResult[0].count > 0;
+
+            if (!scriptExists) {
+                await superUserSql.begin(async (tx) => {
+                    const [script] = await tx<[Entity.Script.I_Script]>`
+                        INSERT INTO entity.entity_scripts (
+                            general__script_file_name,
+                            script__source__data,
+                            script__platform,
+                            group__sync
+                        ) VALUES (
+                            ${scriptName},
+                            ${"function vircadiaScriptMain(context) { return { hooks: { onEntityUpdate: (entity) => { console.log('Entity updated:', entity.general__entity_id); } } }; }"},
+                            ${Entity.Script.E_ScriptType.BABYLON_BUN},
+                            ${TEST_SYNC_GROUP}
+                        ) RETURNING *
+                    `;
+                });
+            }
+
+            // Create the test entity
+            await superUserSql.begin(async (tx) => {
+                const [entity] = await tx<[Entity.I_Entity]>`
+                    INSERT INTO entity.entities (
+                        general__entity_name,
+                        script__names,
+                        meta__data,
+                        group__sync
+                    ) VALUES (
+                        ${entityName},
+                        ${tx.array([scriptName])},
+                        ${tx.json({
+                            transform__position: { x: 0, y: 1, z: 0 },
+                            test_property: "initial value",
+                        })},
+                        ${TEST_SYNC_GROUP}
+                    ) RETURNING *
+                `;
+                entityId = entity.general__entity_id;
+                testEntityIds.push(entityId);
+            });
+
+            // Initialize VircadiaBabylonCore
+            const engine = new NullEngine();
+            const scene = new Scene(engine);
+            const core = new VircadiaBabylonCore({
+                serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
+                authToken: adminAgent.token,
+                authProvider: SYSTEM_AUTH_PROVIDER_NAME,
+                engine: engine,
+                scene: scene,
+                debug: true,
+            });
+
+            await core.initialize();
+
+            // Get the entity from the manager
+            const entity = core.getEntityManager().getEntity(entityId);
+            expect(entity).toBeDefined();
+            expect(entity?.general__entity_name).toBe(entityName);
+
+            // Update the entity
+            if (entity) {
+                const updatedEntity: Entity.I_Entity = {
+                    ...entity,
+                    meta__data: {
+                        ...entity.meta__data,
+                        test_property: { value: "updated value" },
+                        transform__position: { x: 5, y: 5, z: 5 },
+                    },
+                };
+
+                // Update entity and notify scripts
+                core.getEntityManager().updateEntityAndNotifyScripts(
+                    updatedEntity,
+                );
+
+                // Verify the entity was updated in the manager
+                const retrievedEntity = core
+                    .getEntityManager()
+                    .getEntity(entityId);
+                expect(retrievedEntity?.meta__data.test_property.value).toBe(
+                    "updated value",
+                );
+                expect(retrievedEntity?.meta__data.transform__position.x).toBe(
+                    5,
+                );
+            }
+
+            // Clean up
+            core.dispose();
+        });
+
+        test("should load entities with priority ordering", async () => {
+            // Create test entities with different priorities
+            const highPriorityName = `${DB_TEST_PREFIX}High Priority Entity`;
+            const mediumPriorityName = `${DB_TEST_PREFIX}Medium Priority Entity`;
+            const lowPriorityName = `${DB_TEST_PREFIX}Low Priority Entity`;
+
+            await superUserSql.begin(async (tx) => {
+                // High priority entity (lower number = higher priority)
+                const [highPriority] = await tx<[Entity.I_Entity]>`
+                    INSERT INTO entity.entities (
+                        general__entity_name,
+                        group__load_priority,
+                        meta__data,
+                        group__sync
+                    ) VALUES (
+                        ${highPriorityName},
+                        ${10},
+                        ${tx.json({
+                            test_property: "high priority",
+                        })},
+                        ${TEST_SYNC_GROUP}
+                    ) RETURNING *
+                `;
+                testEntityIds.push(highPriority.general__entity_id);
+
+                // Medium priority entity
+                const [mediumPriority] = await tx<[Entity.I_Entity]>`
+                    INSERT INTO entity.entities (
+                        general__entity_name,
+                        group__load_priority,
+                        meta__data,
+                        group__sync
+                    ) VALUES (
+                        ${mediumPriorityName},
+                        ${50},
+                        ${tx.json({
+                            test_property: "medium priority",
+                        })},
+                        ${TEST_SYNC_GROUP}
+                    ) RETURNING *
+                `;
+                testEntityIds.push(mediumPriority.general__entity_id);
+
+                // Low priority entity
+                const [lowPriority] = await tx<[Entity.I_Entity]>`
+                    INSERT INTO entity.entities (
+                        general__entity_name,
+                        group__load_priority,
+                        meta__data,
+                        group__sync
+                    ) VALUES (
+                        ${lowPriorityName},
+                        ${100},
+                        ${tx.json({
+                            test_property: "low priority",
+                        })},
+                        ${TEST_SYNC_GROUP}
+                    ) RETURNING *
+                `;
+                testEntityIds.push(lowPriority.general__entity_id);
+            });
+
+            // Initialize VircadiaBabylonCore
+            const engine = new NullEngine();
+            const core = new VircadiaBabylonCore({
+                serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
+                authToken: adminAgent.token,
+                authProvider: SYSTEM_AUTH_PROVIDER_NAME,
+                engine: engine,
+                debug: true,
+            });
+
+            await core.initialize();
+
+            // Get all entities
+            const entities = core.getEntityManager().getEntities();
+
+            // Find our test entities
+            const highPriorityEntity = Array.from(entities.values()).find(
+                (e) => e.general__entity_name === highPriorityName,
+            );
+            const mediumPriorityEntity = Array.from(entities.values()).find(
+                (e) => e.general__entity_name === mediumPriorityName,
+            );
+            const lowPriorityEntity = Array.from(entities.values()).find(
+                (e) => e.general__entity_name === lowPriorityName,
+            );
+
+            // Verify the entities were loaded
+            expect(highPriorityEntity).toBeDefined();
+            expect(mediumPriorityEntity).toBeDefined();
+            expect(lowPriorityEntity).toBeDefined();
+
+            // Verify their priorities
+            expect(highPriorityEntity?.group__load_priority).toBe(10);
+            expect(mediumPriorityEntity?.group__load_priority).toBe(50);
+            expect(lowPriorityEntity?.group__load_priority).toBe(100);
+
+            // Clean up
+            core.dispose();
+        });
+    });
+
+    describe("ConnectionManager Tests", () => {
+        test("should handle connection errors gracefully", async () => {
+            // Create a core instance with an invalid server URL
+            const engine = new NullEngine();
+            const core = new VircadiaBabylonCore({
+                serverUrl: "ws://invalid-server-url:12345/invalid",
+                authToken: adminAgent.token,
+                authProvider: SYSTEM_AUTH_PROVIDER_NAME,
+                engine: engine,
+                debug: true,
+                // Set a low reconnect delay for faster test execution
+                reconnectDelay: 100,
+                reconnectAttempts: 2,
+            });
+
+            // Initialize should fail but not throw
+            try {
+                await core.initialize();
+                // If we get here, the connection somehow succeeded, which is unexpected
+                expect(core.getConnectionManager().isClientConnected()).toBe(
+                    false,
+                );
+            } catch (error) {
+                // Expected behavior - initialization fails with connection error
+                expect(error instanceof Error).toBe(true);
+            }
+
+            // Verify connection state
+            expect(core.getConnectionManager().isClientConnected()).toBe(false);
+
+            // Allow some time for reconnection attempts
+            await new Promise((resolve) => setTimeout(resolve, 300));
+
+            // Clean up
+            core.dispose();
+        });
+
+        test("should handle database query errors", async () => {
+            // Initialize VircadiaBabylonCore with valid connection
+            const engine = new NullEngine();
+            const core = new VircadiaBabylonCore({
+                serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
+                authToken: adminAgent.token,
+                authProvider: SYSTEM_AUTH_PROVIDER_NAME,
+                engine: engine,
+                debug: true,
+            });
+
+            await core.initialize();
+
+            // Execute an invalid query that should return an error
+            const queryResponse = await core
+                .getConnectionManager()
+                .sendQueryAsync<Entity.I_Entity[]>(
+                    "SELECT * FROM non_existent_table",
+                );
+
+            // Response should contain an error message
+            expect(queryResponse.errorMessage).not.toBeNull();
+
+            // Clean up
+            core.dispose();
+        });
+    });
+
+    describe("ScriptManager Tests", () => {
         test("should load and execute entity_model.ts system script", async () => {
             // Create a NullEngine and Scene for testing
             const engine = new NullEngine();
@@ -370,8 +706,55 @@ describe("Babylon.js Client Core Integration", () => {
             core.dispose();
         });
 
-        // Add more specific system script tests here as they're created
-        // Each system script should have its own dedicated test that verifies its specific functionality
+        test("should detect platform correctly", async () => {
+            // Initialize VircadiaBabylonCore
+            const engine = new NullEngine();
+            const core = new VircadiaBabylonCore({
+                serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
+                authToken: adminAgent.token,
+                authProvider: SYSTEM_AUTH_PROVIDER_NAME,
+                engine: engine,
+                debug: true,
+            });
+
+            await core.initialize();
+
+            // Check the detected platform type
+            const platform = core.getScriptManager().detectPlatform();
+
+            // In the test environment, platform should be BABYLON_BUN
+            expect(platform).toBe(Entity.Script.E_ScriptType.BABYLON_BUN);
+
+            // Clean up
+            core.dispose();
+        });
+    });
+
+    describe("Cleanup and Dispose Tests", () => {
+        test("should properly dispose resources", async () => {
+            // Initialize VircadiaBabylonCore
+            const engine = new NullEngine();
+            const core = new VircadiaBabylonCore({
+                serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
+                authToken: adminAgent.token,
+                authProvider: SYSTEM_AUTH_PROVIDER_NAME,
+                engine: engine,
+                debug: true,
+            });
+
+            await core.initialize();
+
+            // Verify core is initialized
+            expect(core.isInitialized()).toBe(true);
+            expect(core.getConnectionManager().isClientConnected()).toBe(true);
+
+            // Dispose the core
+            core.dispose();
+
+            // Verify disposed state
+            expect(core.isInitialized()).toBe(false);
+            expect(core.getConnectionManager().isClientConnected()).toBe(false);
+        });
     });
 
     // Additional test scenarios could include:

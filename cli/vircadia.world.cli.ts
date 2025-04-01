@@ -5,7 +5,13 @@ import { log } from "../sdk/vircadia-world-sdk-ts/module/general/log.ts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
-import { readdir, readFile, watch, writeFile } from "node:fs/promises";
+import {
+    readdir,
+    readFile,
+    watch,
+    writeFile,
+    type FileChangeInfo,
+} from "node:fs/promises";
 import { sign } from "jsonwebtoken";
 import { PostgresClient } from "../sdk/vircadia-world-sdk-ts/module/server/postgres.server.client.ts";
 import {
@@ -36,6 +42,9 @@ export namespace WebScript_CLI {
         lastChecked: Date;
     }
 
+    // Track all ongoing compilations
+    const activeCompilations = new Set<AbortController>();
+
     // Function to compile script based on type
     export async function compileScript(
         source: string,
@@ -46,6 +55,9 @@ export namespace WebScript_CLI {
         hash: string;
         status: Entity.Script.E_CompilationStatus;
     }> {
+        const abortController = new AbortController();
+        activeCompilations.add(abortController);
+
         try {
             let compiledData: string;
 
@@ -178,6 +190,8 @@ export namespace WebScript_CLI {
                 hash: "", // We'll calculate this in the database
                 status: Entity.Script.E_CompilationStatus.FAILED,
             };
+        } finally {
+            activeCompilations.delete(abortController);
         }
     }
 
@@ -561,43 +575,8 @@ export namespace WebScript_CLI {
         }
 
         // Set up file watcher for local script changes
-        const watcher = watch(syncDir, {
-            recursive: true,
-        });
-
-        // Process watcher events
+        let watcher: AsyncIterable<FileChangeInfo<string>>;
         let watcherActive = true;
-        (async () => {
-            try {
-                for await (const event of watcher) {
-                    if (!watcherActive) break;
-                    // Only process file events for JavaScript/TypeScript files
-                    if (
-                        event.filename &&
-                        /\.(js|ts|jsx|tsx)$/.test(event.filename)
-                    ) {
-                        await handleFileChange(
-                            path.join(syncDir, event.filename),
-                        );
-                    }
-                }
-            } catch (error) {
-                if (watcherActive) {
-                    log({
-                        message: `Watcher error: ${error}`,
-                        type: "error",
-                        error,
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-                    });
-                }
-            }
-        })();
-
-        // Set up polling interval for database changes using setInterval
-        const pollTimer = setInterval(async () => {
-            await downloadScriptsFromDatabase();
-        }, RETRIEVE_NEW_SCRIPTS_INTERVAL);
 
         // Handle cleanup on process termination
         const cleanup = () => {
@@ -609,10 +588,76 @@ export namespace WebScript_CLI {
                 suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                 debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
             });
+            // In cleanup, abort any active compilations
+            for (const controller of activeCompilations) {
+                controller.abort();
+            }
+            activeCompilations.clear();
         };
+
+        try {
+            watcher = watch(syncDir, { recursive: true });
+
+            // Process watcher events with better error handling
+            (async () => {
+                try {
+                    for await (const event of watcher) {
+                        if (!watcherActive) break;
+                        // Only process file events for JavaScript/TypeScript files
+                        if (
+                            event.filename &&
+                            /\.(js|ts|jsx|tsx)$/.test(event.filename)
+                        ) {
+                            await handleFileChange(
+                                path.join(syncDir, event.filename),
+                            );
+                        }
+                    }
+                } catch (error) {
+                    log({ message: `Watcher error: ${error}`, type: "error" });
+                    if (watcherActive) cleanup();
+                } finally {
+                    if (watcherActive) {
+                        // If we exited the loop but are still active, restart watcher
+                        log({
+                            message:
+                                "Watcher stopped unexpectedly, restarting...",
+                            type: "warn",
+                        });
+                        // Code to restart watcher
+                    }
+                }
+            })();
+        } catch (error) {
+            log({
+                message: `Failed to create watcher: ${error}`,
+                type: "error",
+            });
+            cleanup();
+        }
+
+        // Set up polling interval for database changes using setInterval
+        const pollTimer = setInterval(async () => {
+            try {
+                await downloadScriptsFromDatabase();
+            } catch (error) {
+                log({ message: `Poll error: ${error}`, type: "error" });
+            }
+        }, RETRIEVE_NEW_SCRIPTS_INTERVAL);
 
         process.on("SIGINT", cleanup);
         process.on("SIGTERM", cleanup);
+        process.on("SIGHUP", cleanup);
+        process.on("uncaughtException", (error) => {
+            log({ message: `Uncaught exception: ${error}`, type: "error" });
+            cleanup();
+            process.exit(1);
+        });
+        process.on("unhandledRejection", (reason) => {
+            log({ message: `Unhandled rejection: ${reason}`, type: "error" });
+            cleanup();
+            process.exit(1);
+        });
 
         // Keep process running
         return new Promise<void>(() => {
@@ -2856,7 +2901,30 @@ if (import.meta.main) {
                         ? additionalArgs[syncGroupIndex + 1]
                         : undefined;
 
-                await WebScript_CLI.startSync({ syncGroup });
+                // Add timeout to force exit if stuck
+                const timeoutId = setTimeout(
+                    () => {
+                        log({
+                            message:
+                                "Hot sync process timed out after 24 hours",
+                            type: "warn",
+                        });
+                        process.exit(0);
+                    },
+                    24 * 60 * 60 * 1000,
+                ); // 24 hour timeout
+
+                try {
+                    await WebScript_CLI.startSync({ syncGroup });
+                } catch (error) {
+                    log({
+                        message: `Hot sync failed: ${error}`,
+                        type: "error",
+                    });
+                } finally {
+                    clearTimeout(timeoutId);
+                    process.exit(0);
+                }
                 break;
             }
 

@@ -5,7 +5,7 @@
     "scripts": {
         "dev:hot-sync:web-scripts": "bun vircadia.world.cli.ts dev:hot-sync:web-scripts",
         "dev:hot-sync:web-scripts:by-group": "bun vircadia.world.cli.ts dev:hot-sync:web-scripts --sync-group",
-        "dev:client:restart-with-token": "bun run client:run-command down vircadia_world_client_web_babylon_js_dev && bun vircadia.world.cli.ts dev:client:generate-dev-token && bun run client:run-command up vircadia_world_client_web_babylon_js_dev -d",
+        "dev:client:serve-with-token": "bun vircadia.world.cli.ts dev:client:generate-dev-token && cd ../client/web_babylon_js/volume/app && bun run dev",
 
         "test:server:unit": "bun test ./test/0_test_cli_server_unit.ts",
         "test:client:unit": "bun test ./test/1_test_cli_client_unit.ts",
@@ -38,8 +38,7 @@
         "client:run-command": "VRCA_CLI_DEBUG=1 bun vircadia.world.cli.ts client:run-command",
         "client:rebuild-all": "bun run client:run-command down -v && bun run client:run-command up --build -d",
 
-        "client:web_babylon_js_prod:health": "bun vircadia.world.cli.ts client:web_babylon_js_prod:health",
-        "client:web_babylon_js_dev:health": "bun vircadia.world.cli.ts client:web_babylon_js_dev:health"
+        "client:web_babylon_js_prod:health": "bun vircadia.world.cli.ts client:web_babylon_js_prod:health"
     },
     "dependencies": {
         "jsonwebtoken": "^9.0.2",

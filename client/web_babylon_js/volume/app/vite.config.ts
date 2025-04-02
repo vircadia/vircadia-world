@@ -6,10 +6,12 @@ import { VircadiaConfig_BROWSER_CLIENT } from "../vircadia-world-sdk-ts/config/v
 export default defineConfig({
     plugins: [solidPlugin(), tailwindcss()],
     server: {
+        host: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST_CONTAINER_BIND_EXTERNAL,
         port: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT_CONTAINER_BIND_INTERNAL,
         strictPort: true,
     },
     preview: {
+        host: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_HOST_CONTAINER_BIND_EXTERNAL,
         port: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_PORT_CONTAINER_BIND_INTERNAL,
         strictPort: true,
     },

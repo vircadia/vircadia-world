@@ -6,6 +6,6 @@ INSERT INTO entity.entity_scripts (
 ) 
 VALUES 
     -- Model script
-    ('browser_entity_model.ts', 'public.SYSTEM.SCRIPTS', 'https://github.com/vircadia/vircadia-world', 'BABYLON_BROWSER'),
-    ('node_entity_model.ts', 'public.SYSTEM.SCRIPTS', 'https://github.com/vircadia/vircadia-world', 'BABYLON_NODE'),
-    ('bun_entity_model.ts', 'public.SYSTEM.SCRIPTS', 'https://github.com/vircadia/vircadia-world', 'BABYLON_BUN');
+    ('universal_entity_model.ts', 'public.SYSTEM.SCRIPTS', 'https://github.com/vircadia/vircadia-world', 'BABYLON_BROWSER'),
+    -- Character controller script
+    ('browser_character_controller.ts', 'public.SYSTEM.SCRIPTS', 'https://github.com/vircadia/vircadia-world', 'BABYLON_BROWSER');

@@ -8,7 +8,10 @@ import {
 import { Scene, WebGPUEngine } from "@babylonjs/core";
 import { VircadiaBabylonCore } from "../../vircadia-world-sdk-ts/module/client/core/vircadia.babylon.core";
 import { VircadiaConfig_BROWSER_CLIENT } from "../../vircadia-world-sdk-ts/config/vircadia.browser.client.config";
-import { Communication } from "../../vircadia-world-sdk-ts/schema/schema.general";
+import {
+    Communication,
+    type Entity,
+} from "../../vircadia-world-sdk-ts/schema/schema.general";
 import { log } from "../../vircadia-world-sdk-ts/module/general/log";
 
 enum ConnectionState {
@@ -66,12 +69,33 @@ const App: Component = () => {
 
         // Connect to Vircadia server
         try {
+            log({
+                message: "Connecting to Vircadia server",
+                type: "info",
+                suppress:
+                    VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
+                debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
+            });
             setConnectionState(ConnectionState.Connecting);
+            log({
+                message: "Initializing Vircadia client",
+                type: "info",
+                suppress:
+                    VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
+                debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
+            });
             await vircadiaClient.initialize();
+            log({
+                message: "Vircadia client initialized",
+                type: "info",
+                suppress:
+                    VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
+                debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
+            });
             const connection = vircadiaClient.getConnectionManager();
 
             // Set up connection state tracker
-            const checkConnectionStatus = () => {
+            const checkConnectionStatus = async () => {
                 const connected = connection.isClientConnected();
                 setConnectionState(
                     connected
@@ -84,6 +108,14 @@ const App: Component = () => {
                         message:
                             "Checked connection: Connected to Vircadia server",
                         type: "info",
+                        data: {
+                            entitiesCount: vircadiaClient
+                                .getEntityManager()
+                                .getEntities().size,
+                            scriptsCount: vircadiaClient
+                                .getScriptManager()
+                                .getScriptInstances().size,
+                        },
                         suppress:
                             VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
                         debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,

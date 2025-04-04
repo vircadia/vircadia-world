@@ -17,6 +17,7 @@ import { PostgresClient } from "../sdk/vircadia-world-sdk-ts/module/server/postg
 import {
     Entity,
     Service,
+    type Auth,
 } from "../sdk/vircadia-world-sdk-ts/schema/schema.general.ts";
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
@@ -1694,7 +1695,9 @@ export namespace Server_CLI {
 
         try {
             // Get all assets from the database with one query
-            const dbAssets = await sql<{ general__asset_file_name: string }[]>`
+            const dbAssets = await sql<
+                Pick<Entity.Asset.I_Asset, "general__asset_file_name">[]
+            >`
                 SELECT general__asset_file_name FROM entity.entity_assets
             `;
 
@@ -2023,27 +2026,28 @@ export namespace Server_CLI {
 
         // Get system agent ID
         const [systemId] = await sql`SELECT auth.get_system_agent_id()`;
+        const systemAgentId = systemId.get_system_agent_id;
 
         // Insert a new session for the system agent directly, computing expiration from the provider's duration
         const [sessionResult] = await sql`
-		INSERT INTO auth.agent_sessions (
-			auth__agent_id,
-			auth__provider_name,
-			session__expires_at
-		)
-		VALUES (
-			${systemId.get_system_agent_id},
-			'system',
-			(NOW() + (${jwtDuration} || ' milliseconds')::INTERVAL)
-		)
-		RETURNING *
-	`;
+            INSERT INTO auth.agent_sessions (
+                auth__agent_id,
+                auth__provider_name,
+                session__expires_at
+            )
+            VALUES (
+                ${systemAgentId},
+                'system',
+                (NOW() + (${jwtDuration} || ' milliseconds')::INTERVAL)
+            )
+            RETURNING *
+        `;
 
         // Generate JWT token using the provider config
         const token = sign(
             {
                 sessionId: sessionResult.general__session_id,
-                agentId: systemId.get_system_agent_id,
+                agentId: systemAgentId,
                 provider: "system",
             },
             jwtSecret,
@@ -2054,15 +2058,48 @@ export namespace Server_CLI {
 
         // Update the session with the JWT
         await sql`
-        UPDATE auth.agent_sessions 
-        SET session__jwt = ${token}
-        WHERE general__session_id = ${sessionResult.general__session_id}
-    `;
+            UPDATE auth.agent_sessions 
+            SET session__jwt = ${token}
+            WHERE general__session_id = ${sessionResult.general__session_id}
+        `;
+
+        // Get all available sync groups
+        const syncGroups = await sql<[Auth.SyncGroup.I_SyncGroup]>`
+            SELECT general__sync_group
+            FROM auth.sync_groups
+        `;
+
+        // Assign the system agent to all sync groups with full permissions
+        for (const group of syncGroups) {
+            await sql`
+                INSERT INTO auth.agent_sync_group_roles (
+                    auth__agent_id,
+                    group__sync,
+                    permissions__can_read,
+                    permissions__can_insert,
+                    permissions__can_update,
+                    permissions__can_delete
+                ) VALUES (
+                    ${systemAgentId},
+                    ${group.general__sync_group},
+                    true,
+                    true,
+                    true,
+                    true
+                )
+                ON CONFLICT (auth__agent_id, group__sync) 
+                DO UPDATE SET
+                    permissions__can_read = true,
+                    permissions__can_insert = true,
+                    permissions__can_update = true,
+                    permissions__can_delete = true
+            `;
+        }
 
         return {
             token,
             sessionId: sessionResult.general__session_id,
-            agentId: systemId.get_system_agent_id,
+            agentId: systemAgentId,
         };
     }
 

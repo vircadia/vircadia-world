@@ -56,6 +56,12 @@ describe("Babylon.js Client Core Integration", () => {
             },
         });
 
+        // Cleanup
+        await cleanupTestEntities({ superUserSql });
+        await cleanupTestScripts({ superUserSql });
+        await cleanupTestAssets({ superUserSql });
+        await cleanupTestAccounts({ superUserSql });
+
         // Initialize test accounts
         log({
             message: "Initializing test accounts...",
@@ -641,7 +647,7 @@ describe("Babylon.js Client Core Integration", () => {
                         group__sync
                     ) VALUES (
                         ${`${DB_TEST_PREFIX}Entity Model Test Entity`},
-                        ${tx.array(["bun_entity_model.ts"])},
+                        ${tx.array(["universal_entity_model.ts"])},
                         ${tx.json({
                             transform__position: { x: 0, y: 1, z: 0 },
                             entity_model: {

@@ -5,7 +5,7 @@
     "scripts": {
         "dev:hot-sync:web-scripts": "bun vircadia.world.cli.ts dev:hot-sync:web-scripts",
         "dev:hot-sync:web-scripts:by-group": "bun vircadia.world.cli.ts dev:hot-sync:web-scripts --sync-group",
-        "dev:client:serve-with-token": "bun vircadia.world.cli.ts dev:client:generate-dev-token && cd ../client/web_babylon_js/volume/app && bun run dev",
+        "dev:client:launch-with-dev-token": "export VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN=$(bun run server:postgres:system-token true) && cd ../client/web_babylon_js/volume/app && bun run dev",
 
         "test:server:unit": "bun test ./test/0_test_cli_server_unit.ts",
         "test:client:unit": "bun test ./test/1_test_cli_client_unit.ts",

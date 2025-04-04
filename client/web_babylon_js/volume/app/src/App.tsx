@@ -8,6 +8,8 @@ import {
 import { Scene, WebGPUEngine } from "@babylonjs/core";
 import { VircadiaBabylonCore } from "../../vircadia-world-sdk-ts/module/client/core/vircadia.babylon.core";
 import { VircadiaConfig_BROWSER_CLIENT } from "../../vircadia-world-sdk-ts/config/vircadia.browser.client.config";
+import { Communication } from "../../vircadia-world-sdk-ts/schema/schema.general";
+import { log } from "../../vircadia-world-sdk-ts/module/general/log";
 
 enum ConnectionState {
     Disconnected = "disconnected",
@@ -31,6 +33,9 @@ const App: Component = () => {
         }
     };
 
+    // Store interval reference at component level
+    let connectionInterval: ReturnType<typeof setInterval> | undefined;
+
     onMount(async () => {
         if (!canvasRef) return;
 
@@ -44,14 +49,15 @@ const App: Component = () => {
         // Initialize Vircadia client
         const serverUrl =
             VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL
-                ? `https://${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}`
-                : `http://${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}`;
+                ? `https://${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`
+                : `http://${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`;
 
         vircadiaClient = new VircadiaBabylonCore({
             serverUrl,
             authToken:
                 VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
-            authProvider: "local", // Using local auth provider
+            authProvider:
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER,
             scene,
             debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
             suppress:
@@ -74,9 +80,23 @@ const App: Component = () => {
                 );
 
                 if (connected) {
-                    console.log("Connected to Vircadia server");
+                    log({
+                        message:
+                            "Checked connection: Connected to Vircadia server",
+                        type: "info",
+                        suppress:
+                            VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
+                        debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
+                    });
                 } else {
-                    console.log("Disconnected from Vircadia server");
+                    log({
+                        message:
+                            "Checked connection: Disconnected from Vircadia server",
+                        type: "info",
+                        suppress:
+                            VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
+                        debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
+                    });
                 }
             };
 
@@ -84,14 +104,16 @@ const App: Component = () => {
             checkConnectionStatus();
 
             // Periodically check connection status
-            const connectionInterval = setInterval(checkConnectionStatus, 2000);
-
-            // Make sure to clear the interval on cleanup
-            onCleanup(() => {
-                clearInterval(connectionInterval);
-            });
+            connectionInterval = setInterval(checkConnectionStatus, 2000);
         } catch (error) {
-            console.error("Error connecting to Vircadia server:", error);
+            log({
+                message: "Error connecting to Vircadia server:",
+                data: error,
+                type: "error",
+                suppress:
+                    VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
+                debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
+            });
             setConnectionState(ConnectionState.Disconnected);
         }
 
@@ -111,6 +133,10 @@ const App: Component = () => {
 
     onCleanup(() => {
         // Clean up resources
+        if (connectionInterval) {
+            clearInterval(connectionInterval);
+        }
+
         if (vircadiaClient) {
             vircadiaClient.dispose();
             setConnectionState(ConnectionState.Disconnected);

@@ -701,8 +701,6 @@ export namespace Client_CLI {
             VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_PORT_CONTAINER_BIND_INTERNAL:
                 VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_PORT_CONTAINER_BIND_INTERNAL.toString(),
 
-            VRCA_CLIENT_WEB_BABYLON_JS_DEV_CONTAINER_NAME:
-                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEV_CONTAINER_NAME,
             VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST:
                 VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST,
             VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT:
@@ -710,6 +708,8 @@ export namespace Client_CLI {
 
             VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN:
                 VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
+            VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER:
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER,
 
             VRCA_CLIENT_WEB_BABYLON_JS_META_TITLE_BASE:
                 VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_META_TITLE_BASE,
@@ -822,7 +822,7 @@ export namespace Client_CLI {
         }> => {
             try {
                 const response = await fetch(
-                    `http://${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_HOST}:${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_PORT}`,
+                    `http://${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_HOST_CONTAINER_BIND_EXTERNAL}:${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_PORT_CONTAINER_BIND_EXTERNAL}`,
                 );
                 const isHealthy = response.ok;
                 return {
@@ -861,32 +861,6 @@ export namespace Client_CLI {
         }
 
         return { isHealthy: false, error: lastError };
-    }
-
-    /**
-     * Generates a system token and returns it without restarting the container
-     */
-    export async function generateDevToken(): Promise<string> {
-        // Generate a new system token
-        const { token, sessionId, agentId } =
-            await Server_CLI.generateDbSystemToken();
-
-        log({
-            message: "System token generated successfully",
-            type: "success",
-            data: { token, sessionId, agentId },
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-        });
-
-        // Update the browser client config with the new token
-        VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN =
-            token;
-
-        // Set token in environment variable so it's accessible to other processes
-        process.env.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN = token;
-
-        return token;
     }
 }
 
@@ -2030,11 +2004,11 @@ export namespace Server_CLI {
                 },
             ]
         >`
-        SELECT provider__jwt_secret, provider__session_duration_ms
-        FROM auth.auth_providers
-        WHERE provider__name = 'system'
-        AND provider__enabled = true
-    `;
+            SELECT provider__jwt_secret, provider__session_duration_ms
+            FROM auth.auth_providers
+            WHERE provider__name = 'system'
+            AND provider__enabled = true
+        `;
 
         if (!providerConfig) {
             throw new Error("System auth provider not found or disabled");
@@ -2682,21 +2656,34 @@ if (import.meta.main) {
             }
 
             case "server:postgres:system-token": {
-                log({
-                    message: "Generating system token...",
-                    type: "info",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-                });
+                let printOnlyToken = false;
+
+                if (additionalArgs.length > 0) {
+                    printOnlyToken = Boolean(additionalArgs[0]);
+                }
+
+                if (!printOnlyToken) {
+                    log({
+                        message: "Generating system token...",
+                        type: "info",
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                }
+
                 const { token, sessionId, agentId } =
                     await Server_CLI.generateDbSystemToken();
-                log({
-                    message: `System agent token: ${token}`,
-                    data: { sessionId, agentId },
-                    type: "success",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-                });
+                if (printOnlyToken) {
+                    console.log(token);
+                } else {
+                    log({
+                        message: `System agent token: ${token}`,
+                        data: { sessionId, agentId },
+                        type: "success",
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                }
                 break;
             }
 
@@ -2894,11 +2881,6 @@ if (import.meta.main) {
                 //     debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 //     compileForce: true,
                 // });
-                break;
-            }
-
-            case "dev:client:generate-dev-token": {
-                await Client_CLI.generateDevToken();
                 break;
             }
 

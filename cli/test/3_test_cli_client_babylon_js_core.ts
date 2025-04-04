@@ -301,7 +301,7 @@ describe("Babylon.js Client Core Integration", () => {
                                 test_data: "Sample asset data for testing",
                                 format: "gltf",
                             }),
-                        )},
+                        ).toString("base64")},
                         ${TEST_SYNC_GROUP}
                     ) RETURNING *
                 `;

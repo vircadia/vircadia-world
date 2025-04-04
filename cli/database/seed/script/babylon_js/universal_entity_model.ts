@@ -57,15 +57,22 @@ function vircadiaScriptMain(context: Babylon.I_Context): Babylon.ScriptReturn {
                 if (modelAssets.length > 0) {
                     for (const asset of modelAssets) {
                         if (asset.asset__data) {
-                            const importedMesh = await ImportMeshAsync(
+                            console.info(
+                                "asset.asset__data type",
+                                typeof asset.asset__data,
+                                // "asset.asset__data",
                                 asset.asset__data,
+                            );
+                            const importedMesh = await ImportMeshAsync(
+                                `${asset.asset__data}`,
                                 scene,
                             ).finally(() => {
                                 log({
                                     message: "Mesh imported for entity:",
                                     data: {
                                         entityId: entity.general__entity_id,
-                                        asset,
+                                        assetName:
+                                            asset.general__asset_file_name,
                                     },
                                 });
                             });

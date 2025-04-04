@@ -60,7 +60,7 @@ CREATE TABLE entity.entity_assets (
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
     CONSTRAINT fk_entity_assets_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group),
     
-    asset__data BYTEA,  -- Store asset binaries (GLBs, textures, etc.)
+    asset__data TEXT,  -- Store asset binaries (GLBs, textures, etc.) as base64 encoded string
     asset__type TEXT DEFAULT NULL,
     CONSTRAINT chk_asset_type CHECK (asset__type IN (
         -- 3D Models

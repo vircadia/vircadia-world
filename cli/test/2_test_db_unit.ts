@@ -557,7 +557,9 @@ describe("DB", () => {
                             ${"public.NORMAL"}
                         ) RETURNING *
                     `;
-                    expect(entity.general__entity_name).toBe("Test Entity");
+                    expect(entity.general__entity_name).toBe(
+                        `${DB_TEST_PREFIX}Test Entity`,
+                    );
                     expect(entity.group__sync).toBe("public.NORMAL");
                     const metaData =
                         typeof entity.meta__data === "string"
@@ -598,7 +600,9 @@ describe("DB", () => {
                         SELECT * FROM entity.entities
                         WHERE general__entity_id = ${entity.general__entity_id}
                     `;
-                    expect(updated.general__entity_name).toBe("Updated Entity");
+                    expect(updated.general__entity_name).toBe(
+                        `${DB_TEST_PREFIX}Updated Entity`,
+                    );
                     expect(updated.meta__data).toMatchObject({
                         script1: { status: "ready" },
                         script2: { counter: 1 },
@@ -670,11 +674,13 @@ describe("DB", () => {
         				group__sync
         			) VALUES (
         				${`${DB_TEST_PREFIX}Test Asset`},
-        				${Buffer.from("sample asset binary data")},
+        				${Buffer.from(JSON.stringify(assetData)).toString("base64")},
         				${"public.NORMAL"}
         			) RETURNING *
         		`;
-                    expect(asset.general__asset_file_name).toBe("Test Asset");
+                    expect(asset.general__asset_file_name).toBe(
+                        `${DB_TEST_PREFIX}Test Asset`,
+                    );
                     await tx`DELETE FROM entity.entity_assets WHERE general__asset_file_name = ${asset.general__asset_file_name}`;
                 });
             });
@@ -692,7 +698,7 @@ describe("DB", () => {
                         ) VALUES (
                             ${`${DB_TEST_PREFIX}Test Asset`},
                             ${"public.NORMAL"},
-                            decode('deadbeef', 'hex')
+                            ${Buffer.from("deadbeef").toString("base64")}
                         ) RETURNING *
                     `;
                     // Insert a script record.
@@ -725,7 +731,7 @@ describe("DB", () => {
                     `;
                     // Validate the entity data.
                     expect(entity.general__entity_name).toBe(
-                        "Entity with asset and script",
+                        `${DB_TEST_PREFIX}Entity with asset and script`,
                     );
                     expect(entity.asset__names).toContain(
                         asset.general__asset_file_name,
@@ -753,7 +759,7 @@ describe("DB", () => {
         			) VALUES (
         				${`${DB_TEST_PREFIX}Asset to delete`},
         				${"public.NORMAL"},
-        				decode('deadbeef', 'hex')
+        				${Buffer.from("deadbeef").toString("base64")}
         			) RETURNING *
         		`;
                     // Insert an entity referencing the asset.
@@ -1125,7 +1131,7 @@ describe("DB", () => {
                     ) VALUES (
                         ${`${DB_TEST_PREFIX}Test Asset 1`},
                         ${TEST_SYNC_GROUP},
-                        ${Buffer.from("asset data 1")}
+                        ${Buffer.from("asset data 1").toString("base64")}
                     ) RETURNING general__asset_file_name
                 `;
                         const [asset2] = await tx<
@@ -1138,7 +1144,7 @@ describe("DB", () => {
                     ) VALUES (
                         ${`${DB_TEST_PREFIX}Test Asset 2`},
                         ${TEST_SYNC_GROUP},
-                        ${Buffer.from("asset data 2")}
+                        ${Buffer.from("asset data 2").toString("base64")}
                     ) RETURNING general__asset_file_name
                 `;
                         // Capture a tick so that the asset changes are processed
@@ -1175,7 +1181,7 @@ describe("DB", () => {
                                 group__sync
                             ) VALUES (
                                 ${`${DB_TEST_PREFIX}Original Asset`},
-                                ${Buffer.from("initial asset data")},
+                                ${Buffer.from("initial asset data").toString("base64")},
                                 ${TEST_SYNC_GROUP}
                             ) RETURNING *
                         `;
@@ -1191,7 +1197,7 @@ describe("DB", () => {
                         await tx`
                             UPDATE entity.entity_assets
                             SET 
-                                asset__data = ${Buffer.from("updated asset data")}
+                                asset__data = ${Buffer.from("updated asset data").toString("base64")}
                             WHERE general__asset_file_name = ${asset1.general__asset_file_name}
                         `;
                     });

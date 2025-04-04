@@ -30,9 +30,9 @@ import { basename } from "node:path";
 
 export namespace WebScript_CLI {
     const VALID_SCRIPT_TYPES = [
-        "BABYLON_NODE",
-        "BABYLON_BUN",
-        "BABYLON_BROWSER",
+        Entity.Script.E_ScriptType.BABYLON_NODE,
+        Entity.Script.E_ScriptType.BABYLON_BUN,
+        Entity.Script.E_ScriptType.BABYLON_BROWSER,
     ];
 
     interface ScriptInfo {
@@ -69,7 +69,7 @@ export namespace WebScript_CLI {
                         entrypoints: [filePath],
                         format: "esm",
                         target: "node",
-                        minify: true,
+                        minify: false,
                     });
 
                     if (!nodeResult.success) {
@@ -103,7 +103,7 @@ export namespace WebScript_CLI {
                         entrypoints: [filePath],
                         format: "esm",
                         target: "bun",
-                        minify: true,
+                        minify: false,
                     });
 
                     if (!bunResult.success) {
@@ -137,7 +137,7 @@ export namespace WebScript_CLI {
                         entrypoints: [filePath],
                         format: "esm",
                         target: "browser",
-                        minify: true,
+                        minify: false,
                     });
 
                     if (!browserResult.success) {
@@ -1884,9 +1884,10 @@ export namespace Server_CLI {
                     return;
                 }
 
-                // Read asset file content as buffer - only read once
-                const assetData = await Bun.file(assetPath).arrayBuffer();
-                const assetBuffer = Buffer.from(assetData);
+                // Read asset file content as buffer and convert to base64
+                const file = Bun.file(assetPath);
+                const buffer = await file.arrayBuffer();
+                const assetData = Buffer.from(buffer).toString("base64");
 
                 // Update all matching assets in a single transaction
                 try {
@@ -1894,7 +1895,7 @@ export namespace Server_CLI {
                         for (const dbAsset of matchingAssets) {
                             await sql`
                                 UPDATE entity.entity_assets 
-                                SET asset__data = ${assetBuffer}
+                                SET asset__data = ${assetData}
                                 WHERE general__asset_file_name = ${dbAsset.general__asset_file_name}
                             `;
                         }

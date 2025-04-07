@@ -13,3 +13,6 @@
 [submodule "client/web_babylon_js/volume/vircadia-world-sdk-ts"]
 	path = client/web_babylon_js/volume/vircadia-world-sdk-ts
 	url = https://github.com/vircadia/vircadia-world-sdk-ts.git
+[submodule "cli/vircadia-world-sdk-ts"]
+	path = cli/vircadia-world-sdk-ts
+	url = https://github.com/vircadia/vircadia-world-sdk-ts.git

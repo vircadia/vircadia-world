@@ -5,8 +5,8 @@ import {
     Vector3,
     ImportMeshAsync,
     type AbstractMesh,
-    SceneLoader,
 } from "@babylonjs/core";
+import { registerBuiltInLoaders } from "@babylonjs/loaders/dynamic";
 import { log } from "../../../../../sdk/vircadia-world-sdk-ts/module/general/log";
 
 interface Position {
@@ -46,6 +46,8 @@ function vircadiaScriptMain(context: Babylon.I_Context): Babylon.ScriptReturn {
                     );
                 }
 
+                registerBuiltInLoaders();
+
                 const modelAssets = assets.filter(
                     (asset) =>
                         asset.asset__type?.toLocaleLowerCase() === "glb" ||
@@ -65,7 +67,7 @@ function vircadiaScriptMain(context: Babylon.I_Context): Babylon.ScriptReturn {
                                         asset__data__bytea: Buffer | null;
                                     }[]
                                 >(
-                                    "SELECT asset__data__bytea FROM entity_asset WHERE general__asset_file_name = $1",
+                                    "SELECT asset__data__bytea FROM entity.entity_assets WHERE general__asset_file_name = $1",
                                     [asset.general__asset_file_name],
                                 );
 
@@ -75,6 +77,7 @@ function vircadiaScriptMain(context: Babylon.I_Context): Babylon.ScriptReturn {
                                     data: {
                                         entityId: entity.general__entity_id,
                                         asset: asset.general__asset_file_name,
+                                        retrievedData: assetData,
                                     },
                                     type: "error",
                                     debug: context.Vircadia.Debug,
@@ -84,13 +87,155 @@ function vircadiaScriptMain(context: Babylon.I_Context): Babylon.ScriptReturn {
                             }
 
                             const assetResult = assetData.result[0];
-                            let meshData: Uint8Array | null = null;
+                            let meshData: ArrayBuffer | null = null;
 
-                            // Only use bytea data, throw error if not available
+                            // Check if asset data is available and properly format it
                             if (assetResult.asset__data__bytea) {
-                                meshData = new Uint8Array(
-                                    assetResult.asset__data__bytea,
-                                );
+                                try {
+                                    // Try to determine the type and convert to ArrayBuffer
+                                    if (
+                                        Array.isArray(
+                                            assetResult.asset__data__bytea,
+                                        )
+                                    ) {
+                                        // Array of numbers - convert to Uint8Array and then to ArrayBuffer
+                                        meshData = new Uint8Array(
+                                            assetResult.asset__data__bytea,
+                                        ).buffer;
+                                    } else if (
+                                        assetResult.asset__data__bytea instanceof
+                                        ArrayBuffer
+                                    ) {
+                                        // Use it directly if it's already an ArrayBuffer
+                                        meshData =
+                                            assetResult.asset__data__bytea;
+                                    } else if (
+                                        typeof assetResult.asset__data__bytea ===
+                                        "object"
+                                    ) {
+                                        // Check if it has a data property
+                                        const bytea =
+                                            assetResult.asset__data__bytea as unknown as {
+                                                data?: ArrayBuffer;
+                                                [key: string]: unknown;
+                                            };
+                                        if (bytea.data instanceof ArrayBuffer) {
+                                            meshData = bytea.data;
+                                        } else if (Array.isArray(bytea.data)) {
+                                            meshData = new Uint8Array(
+                                                bytea.data,
+                                            ).buffer;
+                                        } else if (
+                                            typeof assetResult.asset__data__bytea ===
+                                                "object" &&
+                                            assetResult.asset__data__bytea !==
+                                                null
+                                        ) {
+                                            // Handle array-like object with numeric indices
+                                            // This covers cases where the object acts like an array but isn't an actual Array instance
+                                            const objectData =
+                                                assetResult.asset__data__bytea as unknown as Record<
+                                                    string,
+                                                    unknown
+                                                >;
+                                            const isArrayLike = Object.keys(
+                                                objectData,
+                                            ).every(
+                                                (key) =>
+                                                    !Number.isNaN(Number(key)),
+                                            );
+
+                                            if (isArrayLike) {
+                                                const numericArray: number[] =
+                                                    [];
+                                                for (
+                                                    let i = 0;
+                                                    i <
+                                                    Object.keys(objectData)
+                                                        .length;
+                                                    i++
+                                                ) {
+                                                    if (
+                                                        typeof objectData[i] ===
+                                                        "number"
+                                                    ) {
+                                                        numericArray.push(
+                                                            objectData[
+                                                                i
+                                                            ] as number,
+                                                        );
+                                                    } else if (
+                                                        typeof objectData[i] ===
+                                                        "string"
+                                                    ) {
+                                                        numericArray.push(
+                                                            Number.parseInt(
+                                                                objectData[
+                                                                    i
+                                                                ] as string,
+                                                                10,
+                                                            ),
+                                                        );
+                                                    }
+                                                }
+                                                meshData = new Uint8Array(
+                                                    numericArray,
+                                                ).buffer;
+                                            } else {
+                                                // Last resort: try using Object.values
+                                                const values =
+                                                    Object.values(objectData);
+                                                if (
+                                                    values.every(
+                                                        (val) =>
+                                                            typeof val ===
+                                                                "number" ||
+                                                            (typeof val ===
+                                                                "string" &&
+                                                                !Number.isNaN(
+                                                                    Number(val),
+                                                                )),
+                                                    )
+                                                ) {
+                                                    const numericValues =
+                                                        values.map((v) =>
+                                                            typeof v ===
+                                                            "number"
+                                                                ? v
+                                                                : Number.parseInt(
+                                                                      v as string,
+                                                                      10,
+                                                                  ),
+                                                        );
+                                                    meshData = new Uint8Array(
+                                                        numericValues,
+                                                    ).buffer;
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Check if conversion was successful
+                                    if (!meshData) {
+                                        throw new Error(
+                                            "Failed to convert asset data to a usable format",
+                                        );
+                                    }
+                                } catch (err) {
+                                    console.error(
+                                        "Failed to process asset data:",
+                                        err,
+                                        "asset__data__bytea type:",
+                                        typeof assetResult.asset__data__bytea,
+                                        "isArray:",
+                                        Array.isArray(
+                                            assetResult.asset__data__bytea,
+                                        ),
+                                    );
+                                    throw new Error(
+                                        `Cannot convert asset data to usable format: ${asset.general__asset_file_name}`,
+                                    );
+                                }
                             } else {
                                 throw new Error(
                                     `Binary data not available for asset: ${asset.general__asset_file_name}`,
@@ -98,22 +243,23 @@ function vircadiaScriptMain(context: Babylon.I_Context): Babylon.ScriptReturn {
                             }
 
                             // Load the mesh from memory using file URL
-                            const blob = new Blob([meshData], {
-                                type:
-                                    asset.asset__type === "glb"
-                                        ? "model/gltf-binary"
-                                        : "model/gltf+json",
-                            });
-                            const url = URL.createObjectURL(blob);
+                            if (!meshData) {
+                                throw new Error(
+                                    `Failed to process binary data for asset: ${asset.general__asset_file_name}`,
+                                );
+                            }
 
-                            const result = await ImportMeshAsync(
-                                url,
-                                scene,
-                                {},
+                            const file = new File(
+                                [meshData],
+                                asset.general__asset_file_name,
+                                {
+                                    type: "model/glb",
+                                },
                             );
 
-                            // Clean up the URL to prevent memory leaks
-                            URL.revokeObjectURL(url);
+                            const result = await ImportMeshAsync(file, scene, {
+                                pluginExtension: ".glb",
+                            });
 
                             const myMesh = result.meshes[0];
 

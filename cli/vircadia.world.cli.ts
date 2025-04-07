@@ -171,7 +171,7 @@ export namespace WebScript_CLI {
             }
 
             return {
-                data: compiledData || source,
+                data: compiledData,
                 hash: "", // We'll calculate this in the database
                 status: compiledData
                     ? Entity.Script.E_CompilationStatus.COMPILED

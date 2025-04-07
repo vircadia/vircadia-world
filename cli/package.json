@@ -43,7 +43,8 @@
     "dependencies": {
         "jsonwebtoken": "^9.0.2",
         "postgres": "^3.4.5",
-        "@babylonjs/core": "8.0.2"
+        "@babylonjs/core": "8.0.2",
+        "@babylonjs/loaders": "8.0.2"
     },
     "devDependencies": {
         "@types/bun": "latest",

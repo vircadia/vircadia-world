@@ -421,26 +421,30 @@ BEGIN
         INSERT INTO tick.asset_states (
             general__asset_file_name,
             group__sync,
-            asset__data,
+            asset__data__base64,
+            asset__data__bytea,
             general__created_at,
             general__created_by,
             general__updated_at,
             general__updated_by,
             general__tick_id,
             -- Include timestamp column
-            asset__data_updated_at
+            asset__data__base64_updated_at,
+            asset__data__bytea_updated_at
         )
         SELECT 
             a.general__asset_file_name,
             a.group__sync,
-            a.asset__data,
+            a.asset__data__base64,
+            a.asset__data__bytea,
             a.general__created_at,
             a.general__created_by,
             a.general__updated_at,
             a.general__updated_by,
             v_tick_id,
             -- Copy timestamp column
-            a.asset__data_updated_at
+            a.asset__data__base64_updated_at,
+            a.asset__data__bytea_updated_at
         FROM entity.entity_assets a
         WHERE a.group__sync = p_sync_group
         RETURNING 1

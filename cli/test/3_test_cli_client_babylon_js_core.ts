@@ -304,7 +304,7 @@ describe("Babylon.js Client Core Integration", () => {
                 const [asset] = await tx<[Entity.Asset.I_Asset]>`
                     INSERT INTO entity.entity_assets (
                         general__asset_file_name,
-                        asset__data,
+                        asset__data__base64,
                         group__sync
                     ) VALUES (
                         ${assetName},
@@ -336,7 +336,7 @@ describe("Babylon.js Client Core Integration", () => {
             expect(asset.general__asset_file_name).toBe(assetName);
 
             // Test decoding the asset data
-            const assetDataBase64 = asset.asset__data;
+            const assetDataBase64 = asset.asset__data__base64;
             expect(assetDataBase64).toBeDefined();
 
             // Decode the base64 data
@@ -364,8 +364,8 @@ describe("Babylon.js Client Core Integration", () => {
             expect(cachedAsset?.general__asset_file_name).toBe(assetName);
 
             // Test that the cached asset also contains the correct decoded data
-            if (cachedAsset?.asset__data) {
-                const cachedDataBase64 = cachedAsset.asset__data;
+            if (cachedAsset?.asset__data__base64) {
+                const cachedDataBase64 = cachedAsset.asset__data__base64;
                 const cachedBuffer = Buffer.from(cachedDataBase64, "base64");
                 const cachedString = cachedBuffer.toString("utf-8");
                 const cachedDecodedData = JSON.parse(cachedString);
@@ -380,8 +380,8 @@ describe("Babylon.js Client Core Integration", () => {
                 expect(updatedAsset.general__asset_file_name).toBe(assetName);
 
                 // Test that the updated asset also contains the correct data
-                if (updatedAsset?.asset__data) {
-                    const updatedDataBase64 = updatedAsset.asset__data;
+                if (updatedAsset?.asset__data__base64) {
+                    const updatedDataBase64 = updatedAsset.asset__data__base64;
                     const updatedBuffer = Buffer.from(
                         updatedDataBase64,
                         "base64",

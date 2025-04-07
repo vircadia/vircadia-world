@@ -670,7 +670,7 @@ describe("DB", () => {
                     const [asset] = await tx<[Entity.Asset.I_Asset]>`
         			INSERT INTO entity.entity_assets (
         				general__asset_file_name,
-        				asset__data,
+        				asset__data__base64,
         				group__sync
         			) VALUES (
         				${`${DB_TEST_PREFIX}Test Asset`},
@@ -694,7 +694,7 @@ describe("DB", () => {
                         INSERT INTO entity.entity_assets (
                             general__asset_file_name,
                             group__sync,
-                            asset__data
+                            asset__data__base64
                         ) VALUES (
                             ${`${DB_TEST_PREFIX}Test Asset`},
                             ${"public.NORMAL"},
@@ -755,7 +755,7 @@ describe("DB", () => {
         			INSERT INTO entity.entity_assets (
         				general__asset_file_name,
         				group__sync,
-        				asset__data
+        				asset__data__base64
         			) VALUES (
         				${`${DB_TEST_PREFIX}Asset to delete`},
         				${"public.NORMAL"},
@@ -1127,7 +1127,7 @@ describe("DB", () => {
                     INSERT INTO entity.entity_assets (
                         general__asset_file_name,
                         group__sync,
-                        asset__data
+                        asset__data__base64
                     ) VALUES (
                         ${`${DB_TEST_PREFIX}Test Asset 1`},
                         ${TEST_SYNC_GROUP},
@@ -1140,7 +1140,7 @@ describe("DB", () => {
                     INSERT INTO entity.entity_assets (
                         general__asset_file_name,
                         group__sync,
-                        asset__data
+                        asset__data__base64
                     ) VALUES (
                         ${`${DB_TEST_PREFIX}Test Asset 2`},
                         ${TEST_SYNC_GROUP},
@@ -1177,7 +1177,7 @@ describe("DB", () => {
                         [asset1] = await tx<[Entity.Asset.I_Asset]>`
                             INSERT INTO entity.entity_assets (
                                 general__asset_file_name,
-                                asset__data,
+                                asset__data__base64,
                                 group__sync
                             ) VALUES (
                                 ${`${DB_TEST_PREFIX}Original Asset`},
@@ -1197,7 +1197,7 @@ describe("DB", () => {
                         await tx`
                             UPDATE entity.entity_assets
                             SET 
-                                asset__data = ${Buffer.from("updated asset data").toString("base64")}
+                                asset__data__base64 = ${Buffer.from("updated asset data").toString("base64")}
                             WHERE general__asset_file_name = ${asset1.general__asset_file_name}
                         `;
                     });
@@ -1241,16 +1241,16 @@ describe("DB", () => {
                                         ELSE 'UPDATE'
                                     END as operation,
                                     jsonb_build_object(
-                                        'asset__data', 
-                                            CASE WHEN c.asset__data != p.asset__data 
-                                            THEN c.asset__data ELSE NULL END
+                                        'asset__data__base64', 
+                                            CASE WHEN c.asset__data__base64 != p.asset__data__base64 
+                                            THEN c.asset__data__base64 ELSE NULL END
                                         -- Add other fields as needed
                                     ) as changes
                                 FROM current_state c
                                 LEFT JOIN previous_state p ON c.general__asset_file_name = p.general__asset_file_name
                                 WHERE 
                                     p.general__asset_file_name IS NULL OR
-                                    c.asset__data != p.asset__data
+                                    c.asset__data__base64 != p.asset__data__base64
                                     -- Add other comparisons as needed
                             )
                             SELECT * FROM changed_assets
@@ -1267,7 +1267,9 @@ describe("DB", () => {
                         expect(assetChange?.operation).toBe("UPDATE");
 
                         // Check that only changed fields are included
-                        expect(assetChange?.changes.asset__data).toBeDefined();
+                        expect(
+                            assetChange?.changes.asset__data__base64,
+                        ).toBeDefined();
                     });
                 });
             });

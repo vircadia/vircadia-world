@@ -60,7 +60,8 @@ CREATE TABLE entity.entity_assets (
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
     CONSTRAINT fk_entity_assets_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group),
     
-    asset__data TEXT,  -- Store asset binaries (GLBs, textures, etc.) as base64 encoded string
+    asset__data__base64 TEXT,  -- Store asset binaries (GLBs, textures, etc.) as base64 encoded string
+    asset__data__bytea BYTEA,  -- Store asset binaries (GLBs, textures, etc.) as bytea
     asset__type TEXT DEFAULT NULL,
     CONSTRAINT chk_asset_type CHECK (asset__type IN (
         -- 3D Models
@@ -77,7 +78,8 @@ CREATE TABLE entity.entity_assets (
         'GLSL', 'HLSL', 'WGSL', 'SPIRV', 'COMP', 'FRAG', 'VERT', 'SHADERPAK'
     )),
 
-    asset__data_updated_at timestamptz DEFAULT now()
+    asset__data__base64_updated_at timestamptz DEFAULT now(),
+    asset__data__bytea_updated_at timestamptz DEFAULT now()
 ) INHERITS (entity._template);
 
 ALTER TABLE entity.entity_assets ENABLE ROW LEVEL SECURITY;
@@ -457,8 +459,11 @@ CREATE OR REPLACE FUNCTION entity.update_asset_timestamps()
 RETURNS TRIGGER AS $$
 BEGIN
     IF TG_OP = 'UPDATE' THEN
-        IF NEW.asset__data IS DISTINCT FROM OLD.asset__data THEN
-            NEW.asset__data_updated_at = now();
+        IF NEW.asset__data__base64 IS DISTINCT FROM OLD.asset__data__base64 THEN
+            NEW.asset__data__base64_updated_at = now();
+        END IF;
+        IF NEW.asset__data__bytea IS DISTINCT FROM OLD.asset__data__bytea THEN
+            NEW.asset__data__bytea_updated_at = now();
         END IF;
     END IF;
     RETURN NEW;
@@ -501,7 +506,7 @@ CREATE INDEX idx_script_timestamp_changes ON entity.entity_scripts
 CREATE INDEX idx_asset_timestamp_changes ON entity.entity_assets
     (group__sync,
      GREATEST(
-        asset__data_updated_at,
+        asset__data__base64_updated_at,
         general__updated_at
      ))
     INCLUDE (general__asset_file_name);

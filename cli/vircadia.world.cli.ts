@@ -1895,7 +1895,7 @@ export namespace Server_CLI {
                         for (const dbAsset of matchingAssets) {
                             await sql`
                                 UPDATE entity.entity_assets 
-                                SET asset__data = ${assetData}
+                                SET asset__data__base64 = ${assetData}
                                 WHERE general__asset_file_name = ${dbAsset.general__asset_file_name}
                             `;
                         }

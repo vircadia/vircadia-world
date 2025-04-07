@@ -56,15 +56,15 @@ function vircadiaScriptMain(context: Babylon.I_Context): Babylon.ScriptReturn {
 
                 if (modelAssets.length > 0) {
                     for (const asset of modelAssets) {
-                        if (asset.asset__data) {
+                        if (asset.asset__data__base64) {
                             console.info(
-                                "asset.asset__data type",
-                                typeof asset.asset__data,
-                                // "asset.asset__data",
-                                asset.asset__data,
+                                "asset.asset__data__base64 type",
+                                typeof asset.asset__data__base64,
+                                // "asset.asset__data__base64",
+                                asset.asset__data__base64,
                             );
                             const importedMesh = await ImportMeshAsync(
-                                `${asset.asset__data}`,
+                                `${asset.asset__data__base64}`,
                                 scene,
                             ).finally(() => {
                                 log({

@@ -4,11 +4,20 @@ Build MMO worlds with SQL, integrated directly with decentralized networks (Ethe
 
 ## Get started
 
+### Prerequisites
+
+* [Bun](https://bun.sh/)
+* [Docker](https://www.docker.com/)
+
+### Clone the repository
+
 Be sure to clone recursively:
 
 ```sh
 git submodule update --init --recursive
 ```
+
+### Deploy
 
 Afterward, use the [CLI](./cli/README.md) to start the project.
 
@@ -34,4 +43,4 @@ The core Vircadia project is open source, permissively licensed under Apache 2.0
 
 ## Vircadia Quantum
 
-The fast track branch for testing the latest features.
+The fast track branch for testing the latest features. (coming soon...)

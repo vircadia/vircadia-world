@@ -5,6 +5,7 @@ import {
     Vector3,
     ImportMeshAsync,
     type AbstractMesh,
+    SceneLoader,
 } from "@babylonjs/core";
 import { log } from "../../../../../sdk/vircadia-world-sdk-ts/module/general/log";
 
@@ -47,64 +48,127 @@ function vircadiaScriptMain(context: Babylon.I_Context): Babylon.ScriptReturn {
 
                 const modelAssets = assets.filter(
                     (asset) =>
-                        asset.asset__type === Entity.Asset.E_AssetType.GLB ||
-                        asset.asset__type === Entity.Asset.E_AssetType.GLTF ||
-                        asset.asset__type === Entity.Asset.E_AssetType.OBJ,
+                        asset.asset__type?.toLocaleLowerCase() === "glb" ||
+                        asset.asset__type?.toLocaleLowerCase() === "gltf" ||
+                        asset.asset__type?.toLocaleLowerCase() === "obj",
                 );
 
                 const scene = context.Babylon.Scene;
 
                 if (modelAssets.length > 0) {
                     for (const asset of modelAssets) {
-                        if (asset.asset__data__base64) {
-                            console.info(
-                                "asset.asset__data__base64 type",
-                                typeof asset.asset__data__base64,
-                                // "asset.asset__data__base64",
-                                asset.asset__data__base64,
-                            );
-                            const importedMesh = await ImportMeshAsync(
-                                `${asset.asset__data__base64}`,
-                                scene,
-                            ).finally(() => {
+                        try {
+                            // Try to load from binary data first
+                            const binaryData =
+                                context.Vircadia.AssetManager.getBinaryData(
+                                    asset.general__asset_file_name,
+                                );
+
+                            if (binaryData) {
+                                // Load from binary data
+                                const result =
+                                    await SceneLoader.ImportMeshAsync(
+                                        "",
+                                        "data:",
+                                        new Uint8Array(binaryData),
+                                        scene,
+                                    );
+
+                                const myMesh = result.meshes[0];
+
+                                const metaData =
+                                    entity.meta__data as unknown as EntityMetaData;
+                                const transformPosition =
+                                    metaData.transform__position;
+                                const entityModel = metaData.entity_model;
+                                const position =
+                                    transformPosition ||
+                                    entityModel?.transform__position;
+
+                                if (position) {
+                                    myMesh.position = new Vector3(
+                                        position.x || 0,
+                                        position.y || 0,
+                                        position.z || 0,
+                                    );
+                                }
+
+                                // Store mesh in entity metadata for access in other hooks
+                                (entity as EntityWithMesh)._mesh = myMesh;
+
                                 log({
-                                    message: "Mesh imported for entity:",
+                                    message:
+                                        "Mesh imported from binary data for entity:",
                                     data: {
                                         entityId: entity.general__entity_id,
                                         assetName:
                                             asset.general__asset_file_name,
                                     },
                                 });
-                            });
-
-                            const myMesh = importedMesh.meshes[0];
-
-                            const metaData =
-                                entity.meta__data as unknown as EntityMetaData;
-                            const transformPosition =
-                                metaData.transform__position;
-                            const entityModel = metaData.entity_model;
-                            const position =
-                                transformPosition ||
-                                entityModel?.transform__position;
-
-                            if (position) {
-                                myMesh.position = new Vector3(
-                                    position.x || 0,
-                                    position.y || 0,
-                                    position.z || 0,
-                                );
                             }
+                            // Fall back to base64 if binary not available
+                            else if (asset.asset__data__base64) {
+                                console.info(
+                                    "Falling back to base64 data for asset:",
+                                    asset.general__asset_file_name,
+                                );
 
-                            // Store mesh in entity metadata for access in other hooks
-                            (entity as EntityWithMesh)._mesh = myMesh;
-                        } else {
+                                const importedMesh = await ImportMeshAsync(
+                                    `${asset.asset__data__base64}`,
+                                    scene,
+                                ).finally(() => {
+                                    log({
+                                        message:
+                                            "Mesh imported from base64 for entity:",
+                                        data: {
+                                            entityId: entity.general__entity_id,
+                                            assetName:
+                                                asset.general__asset_file_name,
+                                        },
+                                    });
+                                });
+
+                                // Existing position code remains the same
+                                const myMesh = importedMesh.meshes[0];
+
+                                const metaData =
+                                    entity.meta__data as unknown as EntityMetaData;
+                                const transformPosition =
+                                    metaData.transform__position;
+                                const entityModel = metaData.entity_model;
+                                const position =
+                                    transformPosition ||
+                                    entityModel?.transform__position;
+
+                                if (position) {
+                                    myMesh.position = new Vector3(
+                                        position.x || 0,
+                                        position.y || 0,
+                                        position.z || 0,
+                                    );
+                                }
+
+                                // Store mesh in entity metadata for access in other hooks
+                                (entity as EntityWithMesh)._mesh = myMesh;
+                            } else {
+                                log({
+                                    message: "No asset data found for entity:",
+                                    data: {
+                                        entityId: entity.general__entity_id,
+                                        asset,
+                                    },
+                                    type: "error",
+                                    debug: context.Vircadia.Debug,
+                                    suppress: context.Vircadia.Suppress,
+                                });
+                            }
+                        } catch (error) {
                             log({
-                                message:
-                                    "Model asset data not found for entity:",
+                                message: "Error importing model for entity:",
                                 data: {
                                     entityId: entity.general__entity_id,
-                                    asset,
+                                    asset: asset.general__asset_file_name,
+                                    error,
                                 },
                                 type: "error",
                                 debug: context.Vircadia.Debug,

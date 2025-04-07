@@ -63,20 +63,6 @@ CREATE TABLE entity.entity_assets (
     asset__data__base64 TEXT,  -- Store asset binaries (GLBs, textures, etc.) as base64 encoded string
     asset__data__bytea BYTEA,  -- Store asset binaries (GLBs, textures, etc.) as bytea
     asset__type TEXT DEFAULT NULL,
-    CONSTRAINT chk_asset_type CHECK (asset__type IN (
-        -- 3D Models
-        'GLB', 'GLTF', 'OBJ', 'FBX', 'DAE', 'STL', 'STEP', 'IGES', 'BLEND', 'X3D', 'VRML', 'BVH',
-        -- Textures
-        'PNG', 'JPEG', 'JPG', 'TIFF', 'TIF', 'GIF', 'WEBP', 'BMP', 'TGA', 'HDR', 'EXR', 'KTX2',
-        -- Video
-        'WEBM', 'MP4', 'MOV', 'AVI',
-        -- Audio
-        'MP3', 'WAV', 'OGG', 'AAC', 'FLAC',
-        -- Material
-        'MTL', 'MAT', 
-        -- Shaders
-        'GLSL', 'HLSL', 'WGSL', 'SPIRV', 'COMP', 'FRAG', 'VERT', 'SHADERPAK'
-    )),
 
     asset__data__base64_updated_at timestamptz DEFAULT now(),
     asset__data__bytea_updated_at timestamptz DEFAULT now()

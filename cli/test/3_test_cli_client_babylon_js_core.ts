@@ -288,6 +288,18 @@ describe("Babylon.js Client Core Integration", () => {
             // Create a test asset in the database
             const assetName = `${DB_TEST_PREFIX}test_asset.gltf`;
 
+            // Sample data that will be encoded and decoded
+            const originalData = {
+                test_data: "Sample asset data for testing",
+                format: "gltf",
+                metadata: {
+                    version: "2.0",
+                    author: "Test Author",
+                    description:
+                        "Test asset for encoding/decoding verification",
+                },
+            };
+
             await superUserSql.begin(async (tx) => {
                 const [asset] = await tx<[Entity.Asset.I_Asset]>`
                     INSERT INTO entity.entity_assets (
@@ -296,12 +308,9 @@ describe("Babylon.js Client Core Integration", () => {
                         group__sync
                     ) VALUES (
                         ${assetName},
-                        ${Buffer.from(
-                            JSON.stringify({
-                                test_data: "Sample asset data for testing",
-                                format: "gltf",
-                            }),
-                        ).toString("base64")},
+                        ${Buffer.from(JSON.stringify(originalData)).toString(
+                            "base64",
+                        )},
                         ${TEST_SYNC_GROUP}
                     ) RETURNING *
                 `;
@@ -326,16 +335,62 @@ describe("Babylon.js Client Core Integration", () => {
             expect(asset).toBeDefined();
             expect(asset.general__asset_file_name).toBe(assetName);
 
+            // Test decoding the asset data
+            const assetDataBase64 = asset.asset__data;
+            expect(assetDataBase64).toBeDefined();
+
+            // Decode the base64 data
+            const decodedBuffer = Buffer.from(assetDataBase64 || "", "base64");
+            const decodedString = decodedBuffer.toString("utf-8");
+            const decodedData = JSON.parse(decodedString);
+
+            // Verify the decoded data matches the original data
+            expect(decodedData).toEqual(originalData);
+            expect(decodedData.test_data).toBe(originalData.test_data);
+            expect(decodedData.format).toBe(originalData.format);
+            expect(decodedData.metadata.version).toBe(
+                originalData.metadata.version,
+            );
+            expect(decodedData.metadata.author).toBe(
+                originalData.metadata.author,
+            );
+            expect(decodedData.metadata.description).toBe(
+                originalData.metadata.description,
+            );
+
             // Test asset retrieval from cache
             const cachedAsset = core.getAssetManager().getAsset(assetName);
             expect(cachedAsset).toBeDefined();
             expect(cachedAsset?.general__asset_file_name).toBe(assetName);
+
+            // Test that the cached asset also contains the correct decoded data
+            if (cachedAsset?.asset__data) {
+                const cachedDataBase64 = cachedAsset.asset__data;
+                const cachedBuffer = Buffer.from(cachedDataBase64, "base64");
+                const cachedString = cachedBuffer.toString("utf-8");
+                const cachedDecodedData = JSON.parse(cachedString);
+
+                expect(cachedDecodedData).toEqual(originalData);
+            }
 
             // Test asset update notifications
             let notificationReceived = false;
             core.getAssetManager().addAssetUpdateListener((updatedAsset) => {
                 notificationReceived = true;
                 expect(updatedAsset.general__asset_file_name).toBe(assetName);
+
+                // Test that the updated asset also contains the correct data
+                if (updatedAsset?.asset__data) {
+                    const updatedDataBase64 = updatedAsset.asset__data;
+                    const updatedBuffer = Buffer.from(
+                        updatedDataBase64,
+                        "base64",
+                    );
+                    const updatedString = updatedBuffer.toString("utf-8");
+                    const updatedDecodedData = JSON.parse(updatedString);
+
+                    expect(updatedDecodedData).toEqual(originalData);
+                }
             });
 
             await core.getAssetManager().reloadAsset(assetName);

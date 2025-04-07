@@ -608,8 +608,8 @@ export class WorldApiManager {
                             return;
                         }
 
-                        // Update session heartbeat in database (don't await)
-                        superUserSql`SELECT auth.update_session_heartbeat_from_session_id(${sessionId}::UUID)`.catch(
+                        // Update session heartbeat in database (awaiting increases delay, but we need to fix this later as for now we need to await to prevent deadlocks.)
+                        await superUserSql`SELECT auth.update_session_heartbeat_from_session_id(${sessionId}::UUID)`.catch(
                             (error) => {
                                 log({
                                     message:

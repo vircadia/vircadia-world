@@ -2,11 +2,15 @@
 
 Build MMO worlds with SQL, integrated directly with decentralized networks (Ethereum, Solana, etc.) for finance, identity, smart contracts, and more.
 
+## Get started
+
 Be sure to clone recursively:
 
 ```sh
 git submodule update --init --recursive
 ```
+
+Afterward, use the [CLI](./cli/README.md) to start the project.
 
 ## Core features
 

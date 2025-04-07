@@ -304,13 +304,13 @@ describe("Babylon.js Client Core Integration", () => {
                 const [asset] = await tx<[Entity.Asset.I_Asset]>`
                     INSERT INTO entity.entity_assets (
                         general__asset_file_name,
-                        asset__data__base64,
+                        asset__type,
+                        asset__data__bytea,
                         group__sync
                     ) VALUES (
                         ${assetName},
-                        ${Buffer.from(JSON.stringify(originalData)).toString(
-                            "base64",
-                        )},
+                        ${"gltf"},
+                        ${Buffer.from(JSON.stringify(originalData))},
                         ${TEST_SYNC_GROUP}
                     ) RETURNING *
                 `;
@@ -330,18 +330,38 @@ describe("Babylon.js Client Core Integration", () => {
 
             await core.initialize();
 
-            // Test asset loading
-            const asset = await core.getAssetManager().loadAsset(assetName);
-            expect(asset).toBeDefined();
-            expect(asset.general__asset_file_name).toBe(assetName);
+            // Test asset metadata loading
+            const assetMetadata = await core
+                .getAssetManager()
+                .loadAssetMetadata(assetName);
+            expect(assetMetadata).toBeDefined();
+            expect(assetMetadata.general__asset_file_name).toBe(assetName);
+            expect(assetMetadata.asset__type).toBe("gltf");
 
-            // Test decoding the asset data
-            const assetDataBase64 = asset.asset__data__base64;
-            expect(assetDataBase64).toBeDefined();
+            // Separately query the asset data to verify content
+            const assetDataQuery = await core
+                .getConnectionManager()
+                .sendQueryAsync<[{ asset__data__bytea: Buffer }]>(
+                    "SELECT asset__data__bytea FROM entity.entity_assets WHERE general__asset_file_name = $1",
+                    [assetName],
+                );
 
-            // Decode the base64 data
-            const decodedBuffer = Buffer.from(assetDataBase64 || "", "base64");
-            const decodedString = decodedBuffer.toString("utf-8");
+            expect(assetDataQuery.result[0]).toBeDefined();
+
+            if (!assetDataQuery.result[0]) {
+                throw new Error("Asset data not found");
+            }
+
+            const byteaData = assetDataQuery.result[0].asset__data__bytea;
+            expect(byteaData).toBeDefined();
+
+            // Make sure we have valid data before proceeding
+            if (!byteaData) {
+                throw new Error("Asset data not found");
+            }
+
+            // Convert bytea data to string and parse as JSON
+            const decodedString = Buffer.from(byteaData).toString("utf-8");
             const decodedData = JSON.parse(decodedString);
 
             // Verify the decoded data matches the original data
@@ -358,42 +378,29 @@ describe("Babylon.js Client Core Integration", () => {
                 originalData.metadata.description,
             );
 
-            // Test asset retrieval from cache
-            const cachedAsset = core.getAssetManager().getAsset(assetName);
-            expect(cachedAsset).toBeDefined();
-            expect(cachedAsset?.general__asset_file_name).toBe(assetName);
-
-            // Test that the cached asset also contains the correct decoded data
-            if (cachedAsset?.asset__data__base64) {
-                const cachedDataBase64 = cachedAsset.asset__data__base64;
-                const cachedBuffer = Buffer.from(cachedDataBase64, "base64");
-                const cachedString = cachedBuffer.toString("utf-8");
-                const cachedDecodedData = JSON.parse(cachedString);
-
-                expect(cachedDecodedData).toEqual(originalData);
-            }
+            // Test asset metadata retrieval from cache
+            const cachedAssetMetadata = core
+                .getAssetManager()
+                .getAssetMetadata(assetName);
+            expect(cachedAssetMetadata).toBeDefined();
+            expect(cachedAssetMetadata?.general__asset_file_name).toBe(
+                assetName,
+            );
+            expect(cachedAssetMetadata?.asset__type).toBe("gltf");
 
             // Test asset update notifications
             let notificationReceived = false;
-            core.getAssetManager().addAssetUpdateListener((updatedAsset) => {
-                notificationReceived = true;
-                expect(updatedAsset.general__asset_file_name).toBe(assetName);
-
-                // Test that the updated asset also contains the correct data
-                if (updatedAsset?.asset__data__base64) {
-                    const updatedDataBase64 = updatedAsset.asset__data__base64;
-                    const updatedBuffer = Buffer.from(
-                        updatedDataBase64,
-                        "base64",
+            core.getAssetManager().addAssetUpdateListener(
+                (updatedAssetMetadata) => {
+                    notificationReceived = true;
+                    expect(updatedAssetMetadata.general__asset_file_name).toBe(
+                        assetName,
                     );
-                    const updatedString = updatedBuffer.toString("utf-8");
-                    const updatedDecodedData = JSON.parse(updatedString);
+                    expect(updatedAssetMetadata.asset__type).toBe("gltf");
+                },
+            );
 
-                    expect(updatedDecodedData).toEqual(originalData);
-                }
-            });
-
-            await core.getAssetManager().reloadAsset(assetName);
+            await core.getAssetManager().reloadAssetMetadata(assetName);
             expect(notificationReceived).toBe(true);
 
             // Clean up

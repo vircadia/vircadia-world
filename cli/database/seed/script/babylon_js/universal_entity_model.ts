@@ -1,4 +1,4 @@
-import { Entity } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+import type { Entity } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import type { Babylon } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.babylon.script";
 import {
     type Mesh,
@@ -58,110 +58,93 @@ function vircadiaScriptMain(context: Babylon.I_Context): Babylon.ScriptReturn {
                 if (modelAssets.length > 0) {
                     for (const asset of modelAssets) {
                         try {
-                            // Try to load from binary data first
-                            const binaryData =
-                                context.Vircadia.AssetManager.getBinaryData(
-                                    asset.general__asset_file_name,
+                            // Query the asset data from the server
+                            const assetData =
+                                await context.Vircadia.Query.execute<
+                                    {
+                                        asset__data__bytea: Buffer | null;
+                                    }[]
+                                >(
+                                    "SELECT asset__data__bytea FROM entity_asset WHERE general__asset_file_name = $1",
+                                    [asset.general__asset_file_name],
                                 );
 
-                            if (binaryData) {
-                                // Load from binary data
-                                const result =
-                                    await SceneLoader.ImportMeshAsync(
-                                        "",
-                                        "data:",
-                                        new Uint8Array(binaryData),
-                                        scene,
-                                    );
-
-                                const myMesh = result.meshes[0];
-
-                                const metaData =
-                                    entity.meta__data as unknown as EntityMetaData;
-                                const transformPosition =
-                                    metaData.transform__position;
-                                const entityModel = metaData.entity_model;
-                                const position =
-                                    transformPosition ||
-                                    entityModel?.transform__position;
-
-                                if (position) {
-                                    myMesh.position = new Vector3(
-                                        position.x || 0,
-                                        position.y || 0,
-                                        position.z || 0,
-                                    );
-                                }
-
-                                // Store mesh in entity metadata for access in other hooks
-                                (entity as EntityWithMesh)._mesh = myMesh;
-
-                                log({
-                                    message:
-                                        "Mesh imported from binary data for entity:",
-                                    data: {
-                                        entityId: entity.general__entity_id,
-                                        assetName:
-                                            asset.general__asset_file_name,
-                                    },
-                                });
-                            }
-                            // Fall back to base64 if binary not available
-                            else if (asset.asset__data__base64) {
-                                console.info(
-                                    "Falling back to base64 data for asset:",
-                                    asset.general__asset_file_name,
-                                );
-
-                                const importedMesh = await ImportMeshAsync(
-                                    `${asset.asset__data__base64}`,
-                                    scene,
-                                ).finally(() => {
-                                    log({
-                                        message:
-                                            "Mesh imported from base64 for entity:",
-                                        data: {
-                                            entityId: entity.general__entity_id,
-                                            assetName:
-                                                asset.general__asset_file_name,
-                                        },
-                                    });
-                                });
-
-                                // Existing position code remains the same
-                                const myMesh = importedMesh.meshes[0];
-
-                                const metaData =
-                                    entity.meta__data as unknown as EntityMetaData;
-                                const transformPosition =
-                                    metaData.transform__position;
-                                const entityModel = metaData.entity_model;
-                                const position =
-                                    transformPosition ||
-                                    entityModel?.transform__position;
-
-                                if (position) {
-                                    myMesh.position = new Vector3(
-                                        position.x || 0,
-                                        position.y || 0,
-                                        position.z || 0,
-                                    );
-                                }
-
-                                // Store mesh in entity metadata for access in other hooks
-                                (entity as EntityWithMesh)._mesh = myMesh;
-                            } else {
+                            if (!assetData?.result?.[0]) {
                                 log({
                                     message: "No asset data found for entity:",
                                     data: {
                                         entityId: entity.general__entity_id,
-                                        asset,
+                                        asset: asset.general__asset_file_name,
                                     },
                                     type: "error",
                                     debug: context.Vircadia.Debug,
                                     suppress: context.Vircadia.Suppress,
                                 });
+                                continue;
                             }
+
+                            const assetResult = assetData.result[0];
+                            let meshData: Uint8Array | null = null;
+
+                            // Only use bytea data, throw error if not available
+                            if (assetResult.asset__data__bytea) {
+                                meshData = new Uint8Array(
+                                    assetResult.asset__data__bytea,
+                                );
+                            } else {
+                                throw new Error(
+                                    `Binary data not available for asset: ${asset.general__asset_file_name}`,
+                                );
+                            }
+
+                            // Load the mesh from memory using file URL
+                            const blob = new Blob([meshData], {
+                                type:
+                                    asset.asset__type === "glb"
+                                        ? "model/gltf-binary"
+                                        : "model/gltf+json",
+                            });
+                            const url = URL.createObjectURL(blob);
+
+                            const result = await ImportMeshAsync(
+                                url,
+                                scene,
+                                {},
+                            );
+
+                            // Clean up the URL to prevent memory leaks
+                            URL.revokeObjectURL(url);
+
+                            const myMesh = result.meshes[0];
+
+                            const metaData =
+                                entity.meta__data as unknown as EntityMetaData;
+                            const transformPosition =
+                                metaData.transform__position;
+                            const entityModel = metaData.entity_model;
+                            const position =
+                                transformPosition ||
+                                entityModel?.transform__position;
+
+                            if (position) {
+                                myMesh.position = new Vector3(
+                                    position.x || 0,
+                                    position.y || 0,
+                                    position.z || 0,
+                                );
+                            }
+
+                            // Store mesh in entity metadata for access in other hooks
+                            (entity as EntityWithMesh)._mesh = myMesh;
+
+                            log({
+                                message:
+                                    "Mesh imported successfully for entity:",
+                                data: {
+                                    entityId: entity.general__entity_id,
+                                    assetName: asset.general__asset_file_name,
+                                },
+                            });
                         } catch (error) {
                             log({
                                 message: "Error importing model for entity:",
@@ -178,7 +161,7 @@ function vircadiaScriptMain(context: Babylon.I_Context): Babylon.ScriptReturn {
                     }
                 } else {
                     log({
-                        message: "Model assets found for entity:",
+                        message: "No model assets found for entity:",
                         data: {
                             entityId: entity.general__entity_id,
                             modelAssets,

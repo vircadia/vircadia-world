@@ -1,5 +1,5 @@
-import type { Entity } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
-import type { Babylon } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.babylon.script";
+import type { Entity } from "../../../../vircadia-world-sdk-ts/schema/schema.general";
+import type { Babylon } from "../../../../vircadia-world-sdk-ts/schema/schema.babylon.script";
 import {
     type Mesh,
     Vector3,
@@ -7,7 +7,7 @@ import {
     type AbstractMesh,
 } from "@babylonjs/core";
 import { registerBuiltInLoaders } from "@babylonjs/loaders/dynamic";
-import { log } from "../../../../../sdk/vircadia-world-sdk-ts/module/general/log";
+import { log } from "../../../../vircadia-world-sdk-ts/module/general/log";
 
 interface Position {
     x?: number;

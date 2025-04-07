@@ -1,14 +1,13 @@
-import type { Entity } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
-import type { Babylon } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.babylon.script";
+import type { Entity } from "../../../../vircadia-world-sdk-ts/schema/schema.general";
+import type { Babylon } from "../../../../vircadia-world-sdk-ts/schema/schema.babylon.script";
 import {
     HemisphericLight,
     DirectionalLight,
     Vector3,
     Color3,
     CubeTexture,
-    SceneLoader,
 } from "@babylonjs/core";
-import { log } from "../../../../../sdk/vircadia-world-sdk-ts/module/general/log";
+import { log } from "../../../../vircadia-world-sdk-ts/module/general/log";
 
 // Define lighting configuration interface
 interface LightingConfig {

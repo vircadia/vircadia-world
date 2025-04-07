@@ -1,7 +1,7 @@
-import { VircadiaConfig_CLI } from "../sdk/vircadia-world-sdk-ts/config/vircadia.cli.config.ts";
-import { VircadiaConfig_BROWSER_CLIENT } from "../sdk/vircadia-world-sdk-ts/config/vircadia.browser.client.config.ts";
-import { VircadiaConfig_SERVER } from "../sdk/vircadia-world-sdk-ts/config/vircadia.server.config.ts";
-import { log } from "../sdk/vircadia-world-sdk-ts/module/general/log.ts";
+import { VircadiaConfig_CLI } from "./vircadia-world-sdk-ts/config/vircadia.cli.config.ts";
+import { VircadiaConfig_BROWSER_CLIENT } from "./vircadia-world-sdk-ts/config/vircadia.browser.client.config.ts";
+import { VircadiaConfig_SERVER } from "./vircadia-world-sdk-ts/config/vircadia.server.config.ts";
+import { log } from "./vircadia-world-sdk-ts/module/general/log.ts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
@@ -13,12 +13,12 @@ import {
     type FileChangeInfo,
 } from "node:fs/promises";
 import { sign } from "jsonwebtoken";
-import { PostgresClient } from "../sdk/vircadia-world-sdk-ts/module/server/postgres.server.client.ts";
+import { PostgresClient } from "./vircadia-world-sdk-ts/module/server/postgres.server.client.ts";
 import {
     Entity,
     Service,
     type Auth,
-} from "../sdk/vircadia-world-sdk-ts/schema/schema.general.ts";
+} from "./vircadia-world-sdk-ts/schema/schema.general.ts";
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { basename } from "node:path";

@@ -1,5 +1,5 @@
-import type { Entity } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
-import type { Babylon } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.babylon.script";
+import type { Entity } from "../../../../vircadia-world-sdk-ts/schema/schema.general";
+import type { Babylon } from "../../../../vircadia-world-sdk-ts/schema/schema.babylon.script";
 import type { Mesh, Scene } from "@babylonjs/core";
 import {
     MeshBuilder,

@@ -1,6 +1,6 @@
-import { describe, expect, test, beforeAll, afterAll } from "bun:test";
+import { describe, expect, test, beforeAll } from "bun:test";
 import { Client_CLI } from "../vircadia.world.cli";
-import { VircadiaConfig_BROWSER_CLIENT } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.browser.client.config";
+import { VircadiaConfig_BROWSER_CLIENT } from "../vircadia-world-sdk-ts/config/vircadia.browser.client.config";
 
 describe("CLIENT Container and Database CLI Tests", () => {
     beforeAll(async () => {
@@ -17,27 +17,11 @@ describe("CLIENT Container and Database CLI Tests", () => {
         await Client_CLI.runClientDockerCommand({
             args: [
                 "up",
-                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEV_CONTAINER_NAME,
-                "-d",
-            ],
-        });
-        const devHealthAfterUp = await Client_CLI.isWebBabylonJsHealthy({
-            type: "dev",
-            wait: {
-                interval: 100,
-                timeout: 10000,
-            },
-        });
-        expect(devHealthAfterUp.isHealthy).toBe(true);
-        await Client_CLI.runClientDockerCommand({
-            args: [
-                "up",
                 VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_CONTAINER_NAME,
                 "-d",
             ],
         });
         const prodHealthAfterUp = await Client_CLI.isWebBabylonJsHealthy({
-            type: "prod",
             wait: {
                 interval: 100,
                 timeout: 10000,
@@ -50,17 +34,7 @@ describe("CLIENT Container and Database CLI Tests", () => {
         await Client_CLI.runClientDockerCommand({
             args: ["down"],
         });
-
-        const devHealthAfterDown = await Client_CLI.isWebBabylonJsHealthy({
-            type: "dev",
-            wait: {
-                interval: 100,
-                timeout: 10000,
-            },
-        });
-        expect(devHealthAfterDown.isHealthy).toBe(false);
         const prodHealthAfterDown = await Client_CLI.isWebBabylonJsHealthy({
-            type: "prod",
             wait: {
                 interval: 100,
                 timeout: 10000,
@@ -74,14 +48,6 @@ describe("CLIENT Container and Database CLI Tests", () => {
                 "-d",
             ],
         });
-        const devHealthAfterUp = await Client_CLI.isWebBabylonJsHealthy({
-            type: "dev",
-            wait: {
-                interval: 100,
-                timeout: 10000,
-            },
-        });
-        expect(devHealthAfterUp.isHealthy).toBe(true);
         await Client_CLI.runClientDockerCommand({
             args: [
                 "up",
@@ -90,7 +56,6 @@ describe("CLIENT Container and Database CLI Tests", () => {
             ],
         });
         const prodHealthAfterUp = await Client_CLI.isWebBabylonJsHealthy({
-            type: "prod",
             wait: {
                 interval: 100,
                 timeout: 10000,

@@ -13,7 +13,8 @@
         "test:client:babylon_js_core": "bun test ./test/3_test_cli_client_babylon_js_core.ts",
 
         "server:run-command": "VRCA_CLI_DEBUG=1 bun vircadia.world.cli.ts server:run-command",
-        "server:rebuild-all": "bun run server:run-command down -v && bun run server:run-command up --build vircadia_world_postgres -d && bun run server:postgres:health && bun run server:postgres:migrate && bun run server:postgres:seed:sql && bun run server:postgres:seed:assets && bun run server:postgres:seed:scripts && bun run server:run-command up --build vircadia_world_api_manager -d && bun run server:run-command up --build vircadia_world_tick_manager -d && bun run server:run-command up --build vircadia_world_pgweb -d",
+        "server:init": "bun run server:run-command up --build vircadia_world_postgres -d && bun run server:postgres:health && bun run server:postgres:migrate && bun run server:postgres:seed:sql && bun run server:postgres:seed:assets && bun run server:postgres:seed:scripts && bun run server:run-command up --build vircadia_world_api_manager -d && bun run server:run-command up --build vircadia_world_tick_manager -d && bun run server:run-command up --build vircadia_world_pgweb -d",
+        "server:rebuild-all": "bun run server:run-command down -v && bun run server:init",
 
         "server:postgres:reset": "bun run server:run-command down vircadia_world_api_manager vircadia_world_tick_manager vircadia_world_pgweb && bun run server:postgres:wipe && bun run server:postgres:migrate && bun run server:postgres:seed:sql && bun run server:postgres:seed:assets && bun run server:postgres:seed:scripts && bun run server:run-command up -d",
         "server:postgres:health": "bun vircadia.world.cli.ts server:postgres:health",
@@ -36,7 +37,8 @@
         "server:pgweb:access-command": "bun vircadia.world.cli.ts server:pgweb:access-command",
 
         "client:run-command": "VRCA_CLI_DEBUG=1 bun vircadia.world.cli.ts client:run-command",
-        "client:rebuild-all": "bun run client:run-command down -v && bun run client:run-command up --build -d",
+        "client:init": "bun run client:run-command up --build -d",
+        "client:rebuild-all": "bun run client:run-command down -v && bun run client:init",
 
         "client:web_babylon_js_prod:health": "bun vircadia.world.cli.ts client:web_babylon_js_prod:health"
     },

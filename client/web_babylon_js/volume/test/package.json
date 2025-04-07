@@ -1,0 +1,11 @@
+{
+  "name": "@client/web_babylon_js_test",
+  "version": "0.0.0",
+  "description": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "dependencies": {
+  }
+}

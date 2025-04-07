@@ -1,0 +1,169 @@
+name: ${VRCA_SERVER_CONTAINER_NAME}
+
+networks:
+  vircadia_internal_network:
+    driver: bridge
+    internal: true  # Make this network internal to prevent direct internet access
+
+  # Create a separate network for services that need external access
+  vircadia_public_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    name: "${VRCA_SERVER_CONTAINER_NAME}_postgres_data"
+
+services:
+  # Postgres service
+  vircadia_world_postgres:
+    image: postgres:17.4-alpine3.21
+    container_name: ${VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME}
+    user: "70:70"  # Alpine postgres user (UID:GID)
+    restart: always
+    environment:
+      POSTGRES_DB: ${VRCA_SERVER_SERVICE_POSTGRES_DATABASE}
+      POSTGRES_USER: ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME}  # This user gets superuser privileges by default
+      POSTGRES_PASSWORD: ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD}
+    command: [
+      "postgres", 
+      "-c", "wal_level=logical",
+      "-c", "max_wal_size=2GB",        # Increase from default 1GB
+      "-c", "checkpoint_timeout=5min", # Default is 5min, but good to explicitly set
+      "-c", "checkpoint_completion_target=0.9"  # Spread checkpoint I/O over more time
+    ]
+    ports:
+      - "${VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL}:5432"
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql:uid=70,gid=70,exec
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [
+        "CMD-SHELL", 
+        "pg_isready -U ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME} -d ${VRCA_SERVER_SERVICE_POSTGRES_DATABASE} && psql -U ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME} -d ${VRCA_SERVER_SERVICE_POSTGRES_DATABASE} -c \"SELECT COUNT(*) FROM config.seeds\" | grep -q '[1-9]'"
+      ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - vircadia_internal_network
+      - vircadia_public_network
+
+  # PGWEB service
+  vircadia_world_pgweb:
+    image: sosedoff/pgweb:0.16.2
+    container_name: ${VRCA_SERVER_SERVICE_PGWEB_CONTAINER_NAME}
+    user: "1000:1000"  # Run as non-root user (typical first user UID/GID)
+    restart: always
+    ports:
+      - "${VRCA_SERVER_SERVICE_PGWEB_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_BIND_EXTERNAL}:8081"
+    environment:
+      - PGWEB_DATABASE_URL=postgres://${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME}:${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD}@${VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME}:${VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL}/${VRCA_SERVER_SERVICE_POSTGRES_DATABASE}?sslmode=disable
+    depends_on:
+      vircadia_world_postgres:
+        condition: service_healthy
+        restart: true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://${VRCA_SERVER_SERVICE_PGWEB_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_BIND_EXTERNAL}"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run
+      - /var/cache
+      - /var/log
+      - /home/pgweb/.pgweb/bookmarks
+      - /home/pgweb/.pgweb/sessions
+      - /home/pgweb/.pgweb/queries
+    volumes:
+      - ./pgweb/volume/test:/app/test
+    networks:
+      - vircadia_internal_network
+      - vircadia_public_network
+
+  # API service
+  vircadia_world_api_manager:
+    image: oven/bun:1.2.7-alpine
+    container_name: ${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_CONTAINER_NAME}
+    user: "1000:1000"  # Run as non-root user
+    restart: always
+    ports:
+      - "${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_INTERNAL}"
+    volumes:
+      - ./api/volume:/app
+    working_dir: /app
+    command: ["bun", "run", "--watch", "/app/world.api.manager.ts"]
+    environment:
+      VRCA_SERVER_DEBUG: ${VRCA_SERVER_DEBUG}
+      VRCA_SERVER_SUPPRESS: ${VRCA_SERVER_SUPPRESS}
+
+      VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME: ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME}
+      VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME: ${VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME}
+      VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_BIND_EXTERNAL: ${VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_BIND_EXTERNAL}
+      VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL: ${VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL}
+      VRCA_SERVER_SERVICE_POSTGRES_DATABASE: ${VRCA_SERVER_SERVICE_POSTGRES_DATABASE}
+      VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD: ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD}
+      VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD: ${VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD}
+
+      VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_INTERNAL: ${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_INTERNAL}
+      VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_INTERNAL: ${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_INTERNAL}
+      VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_PUBLIC_AVAILABLE_AT: ${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_PUBLIC_AVAILABLE_AT}
+      VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_PUBLIC_AVAILABLE_AT: ${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_PUBLIC_AVAILABLE_AT}
+    depends_on:
+      vircadia_world_postgres:
+        condition: service_healthy
+        restart: true
+    healthcheck:
+      test: ["CMD-SHELL", "cd vircadia-world-sdk-ts && bun i && cd ../test && bun test"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    networks:
+      - vircadia_internal_network
+      - vircadia_public_network
+
+  # Tick service
+  vircadia_world_tick_manager:
+    image: oven/bun:1.2.7-alpine
+    container_name: ${VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_CONTAINER_NAME}
+    user: "1000:1000"  # Run as non-root user
+    restart: always
+    ports:
+      - "${VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_INTERNAL}"
+    volumes:
+      - ./tick/volume:/app
+    working_dir: /app
+    command: ["bun", "run", "--watch", "/app/world.tick.manager.ts"]
+    environment:
+      VRCA_SERVER_DEBUG: ${VRCA_SERVER_DEBUG}
+      VRCA_SERVER_SUPPRESS: ${VRCA_SERVER_SUPPRESS}
+
+      VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME: ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME}
+      VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME: ${VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME}
+      VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_BIND_EXTERNAL: ${VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_BIND_EXTERNAL}
+      VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL: ${VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL}
+      VRCA_SERVER_SERVICE_POSTGRES_DATABASE: ${VRCA_SERVER_SERVICE_POSTGRES_DATABASE}
+      VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD: ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD}
+      VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD: ${VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD}
+
+      VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_INTERNAL: ${VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_INTERNAL}
+      VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_INTERNAL: ${VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_INTERNAL}
+    depends_on:
+      vircadia_world_postgres:
+        condition: service_healthy
+        restart: true
+    healthcheck:
+      test: ["CMD-SHELL", "cd vircadia-world-sdk-ts && bun i && cd ../test && bun test"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    networks:
+      - vircadia_internal_network
+      - vircadia_public_network

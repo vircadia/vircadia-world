@@ -1,29 +1,17 @@
-# Vircadia World Server
+# Services
 
-Vircadia World is a very simple to use framework for developing connected worlds.
+### [World API Manager](./service/world_api_manager/README.md)
 
-*Warning: Vircadia World is simple relative to all other alternatives, however setting up and deploying your own world still requires some level of technical experience.*
+The World API Manager is the interface between clients and the PostgreSQL database, and any other services that might be utilized.
 
-## Installation & Configuration (Debian/Ubuntu)
+### [World Tick Manager](./service/world_tick_manager/README.md)
 
-### Prerequisites
+The World Tick Manager is in charge of tracking changes in the world at fixed intervals to enable advanced features such as anti-cheat, lag compensation, and more.
 
-* Git
-* Docker
-* NVM
-    * Bun.sh
+### PostgreSQL
 
-### Install Dependencies
+The PostgreSQL service runs a vanilla PostgreSQL instance, this serves as the primary data store for the game.
 
-```sh
-bun install
-```
+### PGWeb
 
-## Running
-
-### Start the server
-
-```bash
-bun run start
-```
-
+The PGWeb service is a service that allows you to manage the PostgreSQL database via a web interface.

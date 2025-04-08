@@ -1,6 +1,6 @@
-# Vircadia World - REALTIME DECLARATIVE MMOs
+# Overview
 
-Build MMO worlds with SQL, integrated directly with decentralized networks (Ethereum, Solana, etc.) for finance, identity, smart contracts, and more.
+Vircadia World is a declarative MMO game framework that allows you to build and design, develop, and deploy small or massive online games with ease.
 
 ## Get started
 

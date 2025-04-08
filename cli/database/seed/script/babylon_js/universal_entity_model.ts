@@ -92,133 +92,27 @@ function vircadiaScriptMain(context: Babylon.I_Context): Babylon.ScriptReturn {
                             // Check if asset data is available and properly format it
                             if (assetResult.asset__data__bytea) {
                                 try {
-                                    // Try to determine the type and convert to ArrayBuffer
-                                    if (
-                                        Array.isArray(
-                                            assetResult.asset__data__bytea,
-                                        )
-                                    ) {
-                                        // Array of numbers - convert to Uint8Array and then to ArrayBuffer
-                                        meshData = new Uint8Array(
-                                            assetResult.asset__data__bytea,
-                                        ).buffer;
-                                    } else if (
-                                        assetResult.asset__data__bytea instanceof
-                                        ArrayBuffer
-                                    ) {
-                                        // Use it directly if it's already an ArrayBuffer
-                                        meshData =
-                                            assetResult.asset__data__bytea;
-                                    } else if (
-                                        typeof assetResult.asset__data__bytea ===
-                                        "object"
-                                    ) {
-                                        // Check if it has a data property
-                                        const bytea =
-                                            assetResult.asset__data__bytea as unknown as {
-                                                data?: ArrayBuffer;
-                                                [key: string]: unknown;
-                                            };
-                                        if (bytea.data instanceof ArrayBuffer) {
-                                            meshData = bytea.data;
-                                        } else if (Array.isArray(bytea.data)) {
-                                            meshData = new Uint8Array(
-                                                bytea.data,
-                                            ).buffer;
-                                        } else if (
-                                            typeof assetResult.asset__data__bytea ===
-                                                "object" &&
-                                            assetResult.asset__data__bytea !==
-                                                null
-                                        ) {
-                                            // Handle array-like object with numeric indices
-                                            // This covers cases where the object acts like an array but isn't an actual Array instance
-                                            const objectData =
-                                                assetResult.asset__data__bytea as unknown as Record<
-                                                    string,
-                                                    unknown
-                                                >;
-                                            const isArrayLike = Object.keys(
-                                                objectData,
-                                            ).every(
-                                                (key) =>
-                                                    !Number.isNaN(Number(key)),
-                                            );
+                                    // We know the data is an object with a data property that's an array
+                                    const bytea =
+                                        assetResult.asset__data__bytea as unknown as {
+                                            data: number[];
+                                        };
 
-                                            if (isArrayLike) {
-                                                const numericArray: number[] =
-                                                    [];
-                                                for (
-                                                    let i = 0;
-                                                    i <
-                                                    Object.keys(objectData)
-                                                        .length;
-                                                    i++
-                                                ) {
-                                                    if (
-                                                        typeof objectData[i] ===
-                                                        "number"
-                                                    ) {
-                                                        numericArray.push(
-                                                            objectData[
-                                                                i
-                                                            ] as number,
-                                                        );
-                                                    } else if (
-                                                        typeof objectData[i] ===
-                                                        "string"
-                                                    ) {
-                                                        numericArray.push(
-                                                            Number.parseInt(
-                                                                objectData[
-                                                                    i
-                                                                ] as string,
-                                                                10,
-                                                            ),
-                                                        );
-                                                    }
-                                                }
-                                                meshData = new Uint8Array(
-                                                    numericArray,
-                                                ).buffer;
-                                            } else {
-                                                // Last resort: try using Object.values
-                                                const values =
-                                                    Object.values(objectData);
-                                                if (
-                                                    values.every(
-                                                        (val) =>
-                                                            typeof val ===
-                                                                "number" ||
-                                                            (typeof val ===
-                                                                "string" &&
-                                                                !Number.isNaN(
-                                                                    Number(val),
-                                                                )),
-                                                    )
-                                                ) {
-                                                    const numericValues =
-                                                        values.map((v) =>
-                                                            typeof v ===
-                                                            "number"
-                                                                ? v
-                                                                : Number.parseInt(
-                                                                      v as string,
-                                                                      10,
-                                                                  ),
-                                                        );
-                                                    meshData = new Uint8Array(
-                                                        numericValues,
-                                                    ).buffer;
-                                                }
-                                            }
-                                        }
+                                    if (
+                                        !bytea.data ||
+                                        !Array.isArray(bytea.data)
+                                    ) {
+                                        throw new Error(
+                                            "Asset data is not in the expected format (object with data array)",
+                                        );
                                     }
 
-                                    // Check if conversion was successful
+                                    meshData = new Uint8Array(bytea.data)
+                                        .buffer;
+
                                     if (!meshData) {
                                         throw new Error(
-                                            "Failed to convert asset data to a usable format",
+                                            "Failed to convert asset data to ArrayBuffer",
                                         );
                                     }
                                 } catch (err) {

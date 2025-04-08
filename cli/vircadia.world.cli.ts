@@ -19,7 +19,7 @@ import {
     Service,
     type Auth,
 } from "./vircadia-world-sdk-ts/schema/schema.general.ts";
-import { existsSync } from "node:fs";
+import { existsSync, type WatchEventType } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { basename } from "node:path";
 
@@ -300,6 +300,16 @@ export namespace WebScript_CLI {
                     currentHash?.source_hash === newHash?.source_hash
                 ) {
                     // No changes detected
+                    log({
+                        message: `No changes detected for script: ${fileName}`,
+                        data: {
+                            currentHash: currentHash?.source_hash,
+                            newHash: newHash?.source_hash,
+                        },
+                        type: "info",
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
                     return;
                 }
 
@@ -509,7 +519,10 @@ export namespace WebScript_CLI {
         };
 
         // Handle file change event
-        const handleFileChange = async (filePath: string): Promise<void> => {
+        const handleFileChange = async (
+            filePath: string,
+            eventType: WatchEventType,
+        ): Promise<void> => {
             const fileName = basename(filePath);
 
             try {
@@ -536,7 +549,7 @@ export namespace WebScript_CLI {
 
                 // Proceed with normal file change handling
                 log({
-                    message: `Detected change in script: ${fileName}`,
+                    message: `Detected change in script: ${fileName} (${eventType})`,
                     type: "info",
                     suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                     debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
@@ -611,6 +624,7 @@ export namespace WebScript_CLI {
                         ) {
                             await handleFileChange(
                                 path.join(syncDir, event.filename),
+                                event.eventType,
                             );
                         }
                     }

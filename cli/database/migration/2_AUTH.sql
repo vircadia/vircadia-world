@@ -160,6 +160,7 @@ CREATE TABLE auth.sync_groups (
     
     client__render_delay_ms INTEGER NOT NULL,
     client__max_prediction_time_ms INTEGER NOT NULL,
+    client__poll__rate_ms INTEGER NOT NULL,
     
     network__packet_timing_variance_ms INTEGER NOT NULL
 ) INHERITS (auth._template);
@@ -569,14 +570,15 @@ INSERT INTO auth.sync_groups (
     server__tick__max_tick_count_buffer,
     client__render_delay_ms,
     client__max_prediction_time_ms,
+    client__poll__rate_ms,
     network__packet_timing_variance_ms
 ) VALUES
     -- Public zone
-    ('public.REALTIME', 'Public realtime entities', 100, 50, 50, 100, 25),
-    ('public.NORMAL', 'Public normal-priority entities', 200, 20, 100, 150, 50),
-    ('public.BACKGROUND', 'Public background entities', 1000, 10, 200, 300, 100),
-    ('public.STATIC', 'Public static entities', 5000, 5, 500, 1000, 200),
-    ('public.SYSTEM.SCRIPTS', 'System static scripts', 5000, 55, 500, 1000, 200);
+    ('public.REALTIME', 'Public realtime entities', 100, 50, 50, 100, 100, 25),
+    ('public.NORMAL', 'Public normal-priority entities', 200, 20, 100, 150, 200, 50),
+    ('public.BACKGROUND', 'Public background entities', 1000, 10, 200, 300, 1000, 100),
+    ('public.STATIC', 'Public static entities', 5000, 5, 500, 1000, 5000, 250),
+    ('public.SYSTEM.SCRIPTS', 'System static scripts', 5000, 5, 500, 1000, 5000, 250);
 
 -- Add system provider to auth_providers table if not exists
 INSERT INTO auth.auth_providers (

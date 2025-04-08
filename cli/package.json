@@ -3,6 +3,10 @@
     "version": "1.0.0",
     "type": "module",
     "scripts": {
+        "install:all": "bun run install:client && bun run install:cli",
+        "install:client": "cd ../client/web_babylon_js/volume/app && bun install && cd ../vircadia-world-sdk-ts && bun install",
+        "install:cli": "bun install && cd ./vircadia-world-sdk-ts && bun install",
+
         "dev:hot-sync:web-scripts": "bun vircadia.world.cli.ts dev:hot-sync:web-scripts",
         "dev:hot-sync:web-scripts:by-group": "bun vircadia.world.cli.ts dev:hot-sync:web-scripts --sync-group",
         "dev:client:launch-with-dev-token": "export VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN=$(bun run server:postgres:system-token true) && cd ../client/web_babylon_js/volume/app && bun run dev",

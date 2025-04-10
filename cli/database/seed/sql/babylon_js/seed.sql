@@ -7,7 +7,11 @@ INSERT INTO entity.entity_scripts (
 VALUES 
     -- Model script
     ('universal_entity_model.ts', 'public.SYSTEM.SCRIPTS', 'https://github.com/vircadia/vircadia-world', 'BABYLON_BROWSER'),
+    ('universal_entity_model.ts', 'public.SYSTEM.SCRIPTS', 'https://github.com/vircadia/vircadia-world', 'BABYLON_NODE'),
+    ('universal_entity_model.ts', 'public.SYSTEM.SCRIPTS', 'https://github.com/vircadia/vircadia-world', 'BABYLON_BUN'),
     -- Character controller script
     ('browser_character_controller.ts', 'public.SYSTEM.SCRIPTS', 'https://github.com/vircadia/vircadia-world', 'BABYLON_BROWSER'),
     -- Basic scene lighting script
-    ('universal_basic_scene.ts', 'public.SYSTEM.SCRIPTS', 'https://github.com/vircadia/vircadia-world', 'BABYLON_BROWSER');
+    ('universal_basic_scene.ts', 'public.SYSTEM.SCRIPTS', 'https://github.com/vircadia/vircadia-world', 'BABYLON_BROWSER'),
+    ('universal_basic_scene.ts', 'public.SYSTEM.SCRIPTS', 'https://github.com/vircadia/vircadia-world', 'BABYLON_NODE'),
+    ('universal_basic_scene.ts', 'public.SYSTEM.SCRIPTS', 'https://github.com/vircadia/vircadia-world', 'BABYLON_BUN');

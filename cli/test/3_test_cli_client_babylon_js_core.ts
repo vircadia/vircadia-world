@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { NullEngine, Scene } from "@babylonjs/core";
 import { PostgresClient } from "../vircadia-world-sdk-ts/module/server/postgres.server.client";
-import { VircadiaBabylonCore } from "../vircadia-world-sdk-ts/module/client/core/vircadia.babylon.core";
+import { VircadiaBabylonCore } from "../vircadia-world-sdk-ts/module/client/vircadia.babylon.core";
 import {
     Communication,
     Entity,
@@ -175,7 +175,7 @@ describe("Babylon.js Client Core Integration", () => {
             expect(core.getConnectionManager().isClientConnected()).toBe(true);
 
             // Verify scene was set up correctly
-            expect(core.getEntityManager().getScene()).toBeDefined();
+            expect(core.getEntityAndScriptManager().getScene()).toBeDefined();
 
             // Clean up
             core.dispose();
@@ -283,136 +283,11 @@ describe("Babylon.js Client Core Integration", () => {
         });
     });
 
-    describe("AssetManager Tests", () => {
-        test("should load and manage assets", async () => {
-            // Create a test asset in the database
-            const assetName = `${DB_TEST_PREFIX}test_asset.gltf`;
-
-            // Sample data that will be encoded and decoded
-            const originalData = {
-                test_data: "Sample asset data for testing",
-                format: "gltf",
-                metadata: {
-                    version: "2.0",
-                    author: "Test Author",
-                    description:
-                        "Test asset for encoding/decoding verification",
-                },
-            };
-
-            await superUserSql.begin(async (tx) => {
-                const [asset] = await tx<[Entity.Asset.I_Asset]>`
-                    INSERT INTO entity.entity_assets (
-                        general__asset_file_name,
-                        asset__type,
-                        asset__data__bytea,
-                        group__sync
-                    ) VALUES (
-                        ${assetName},
-                        ${"gltf"},
-                        ${Buffer.from(JSON.stringify(originalData))},
-                        ${TEST_SYNC_GROUP}
-                    ) RETURNING *
-                `;
-            });
-
-            // Initialize VircadiaBabylonCore
-            const engine = new NullEngine();
-            const scene = new Scene(engine);
-            const core = new VircadiaBabylonCore({
-                serverUrl: `ws://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Communication.WS_UPGRADE_PATH}`,
-                authToken: adminAgent.token,
-                authProvider: SYSTEM_AUTH_PROVIDER_NAME,
-                scene: scene,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-            });
-
-            await core.initialize();
-
-            // Test asset metadata loading
-            const assetMetadata = await core
-                .getAssetManager()
-                .loadAssetMetadata(assetName);
-            expect(assetMetadata).toBeDefined();
-            expect(assetMetadata.general__asset_file_name).toBe(assetName);
-            expect(assetMetadata.asset__type).toBe("gltf");
-
-            // Separately query the asset data to verify content
-            const assetDataQuery = await core
-                .getConnectionManager()
-                .sendQueryAsync<[{ asset__data__bytea: Buffer }]>(
-                    "SELECT asset__data__bytea FROM entity.entity_assets WHERE general__asset_file_name = $1",
-                    [assetName],
-                );
-
-            expect(assetDataQuery.result[0]).toBeDefined();
-
-            if (!assetDataQuery.result[0]) {
-                throw new Error("Asset data not found");
-            }
-
-            const byteaData = assetDataQuery.result[0].asset__data__bytea;
-            expect(byteaData).toBeDefined();
-
-            // Make sure we have valid data before proceeding
-            if (!byteaData) {
-                throw new Error("Asset data not found");
-            }
-
-            // Convert bytea data to string and parse as JSON
-            const decodedString = Buffer.from(byteaData).toString("utf-8");
-            const decodedData = JSON.parse(decodedString);
-
-            // Verify the decoded data matches the original data
-            expect(decodedData).toEqual(originalData);
-            expect(decodedData.test_data).toBe(originalData.test_data);
-            expect(decodedData.format).toBe(originalData.format);
-            expect(decodedData.metadata.version).toBe(
-                originalData.metadata.version,
-            );
-            expect(decodedData.metadata.author).toBe(
-                originalData.metadata.author,
-            );
-            expect(decodedData.metadata.description).toBe(
-                originalData.metadata.description,
-            );
-
-            // Test asset metadata retrieval from cache
-            const cachedAssetMetadata = core
-                .getAssetManager()
-                .getAssetMetadata(assetName);
-            expect(cachedAssetMetadata).toBeDefined();
-            expect(cachedAssetMetadata?.general__asset_file_name).toBe(
-                assetName,
-            );
-            expect(cachedAssetMetadata?.asset__type).toBe("gltf");
-
-            // Test asset update notifications
-            let notificationReceived = false;
-            core.getAssetManager().addAssetUpdateListener(
-                (updatedAssetMetadata) => {
-                    notificationReceived = true;
-                    expect(updatedAssetMetadata.general__asset_file_name).toBe(
-                        assetName,
-                    );
-                    expect(updatedAssetMetadata.asset__type).toBe("gltf");
-                },
-            );
-
-            await core.getAssetManager().reloadAssetMetadata(assetName);
-            expect(notificationReceived).toBe(true);
-
-            // Clean up
-            core.dispose();
-        });
-    });
-
     describe("EntityManager Tests", () => {
         test("should update entities and notify scripts", async () => {
             // Create a test entity with a script
             const entityName = `${DB_TEST_PREFIX}Entity Update Test`;
-            let entityId: string;
+            let entityId = ""; // Define entityId with empty string initialization
 
             // First create a system script for testing entity updates if it doesn't exist
             const scriptName = `${DB_TEST_PREFIX}bun_entity_update_test.ts`;
@@ -481,7 +356,7 @@ describe("Babylon.js Client Core Integration", () => {
             await core.initialize();
 
             // Get the entity from the manager
-            const entity = core.getEntityManager().getEntity(entityId);
+            const entity = core.getEntityAndScriptManager().getEntity(entityId);
             expect(entity).toBeDefined();
             expect(entity?.general__entity_name).toBe(entityName);
 
@@ -497,13 +372,13 @@ describe("Babylon.js Client Core Integration", () => {
                 };
 
                 // Update entity and notify scripts
-                core.getEntityManager().updateEntityAndNotifyScripts(
+                core.getEntityAndScriptManager().updateEntityAndNotifyScripts(
                     updatedEntity,
                 );
 
                 // Verify the entity was updated in the manager
                 const retrievedEntity = core
-                    .getEntityManager()
+                    .getEntityAndScriptManager()
                     .getEntity(entityId);
                 expect(retrievedEntity?.meta__data.test_property.value).toBe(
                     "updated value",
@@ -595,18 +470,20 @@ describe("Babylon.js Client Core Integration", () => {
             await core.initialize();
 
             // Get all entities
-            const entities = core.getEntityManager().getEntities();
+            const entities = core.getEntityAndScriptManager().getEntities();
 
             // Find our test entities
             const highPriorityEntity = Array.from(entities.values()).find(
                 (e) => e.general__entity_name === highPriorityName,
-            );
+            ) as Entity.I_Entity | undefined;
+
             const mediumPriorityEntity = Array.from(entities.values()).find(
                 (e) => e.general__entity_name === mediumPriorityName,
-            );
+            ) as Entity.I_Entity | undefined;
+
             const lowPriorityEntity = Array.from(entities.values()).find(
                 (e) => e.general__entity_name === lowPriorityName,
-            );
+            ) as Entity.I_Entity | undefined;
 
             // Verify the entities were loaded
             expect(highPriorityEntity).toBeDefined();
@@ -736,12 +613,12 @@ describe("Babylon.js Client Core Integration", () => {
             await core.initialize();
 
             // Get the loaded entity from the entity manager
-            const entities = core.getEntityManager().getEntities();
+            const entities = core.getEntityAndScriptManager().getEntities();
             const testEntity = Array.from(entities.values()).find(
                 (e) =>
                     e.general__entity_name ===
                     `${DB_TEST_PREFIX}Entity Model Test Entity`,
-            );
+            ) as Entity.I_Entity | undefined;
 
             expect(testEntity).toBeDefined();
 
@@ -774,7 +651,7 @@ describe("Babylon.js Client Core Integration", () => {
                 };
 
                 await core
-                    .getEntityManager()
+                    .getEntityAndScriptManager()
                     .updateEntityAndNotifyScripts(updatedEntity);
 
                 // Allow time for the update to process
@@ -808,7 +685,9 @@ describe("Babylon.js Client Core Integration", () => {
             await core.initialize();
 
             // Check the detected platform type
-            const platform = core.getScriptManager().detectPlatform();
+            const platform = core
+                .getEntityAndScriptManager()
+                .getCurrentPlatform();
 
             // In the test environment, platform should be BABYLON_BUN
             expect(platform).toBe(Entity.Script.E_ScriptType.BABYLON_BUN);

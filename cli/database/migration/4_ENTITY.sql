@@ -40,22 +40,22 @@ CREATE TABLE entity.entity_scripts (
 
     -- Platform-specific compilation fields - BABYLON_NODE
     script__compiled__babylon_node__data TEXT NOT NULL DEFAULT '',
-    script__compiled__babylon_node__status TEXT NOT NULL DEFAULT 'PENDING',
-    CONSTRAINT chk_script_compiled_babylon_node_status CHECK (script__compiled__babylon_node__status IN ('PENDING', 'COMPILING', 'COMPILED', 'FAILED')),
+    script__compiled__babylon_node__status TEXT NOT NULL DEFAULT 'NOT_COMPILED',
+    CONSTRAINT chk_script_compiled_babylon_node_status CHECK (script__compiled__babylon_node__status IN ('NOT_COMPILED', 'COMPILING', 'COMPILED', 'FAILED')),
     script__compiled__babylon_node__data_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     script__compiled__babylon_node__status_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
     -- Platform-specific compilation fields - BABYLON_BUN
     script__compiled__babylon_bun__data TEXT NOT NULL DEFAULT '',
-    script__compiled__babylon_bun__status TEXT NOT NULL DEFAULT 'PENDING',
-    CONSTRAINT chk_script_compiled_babylon_bun_status CHECK (script__compiled__babylon_bun__status IN ('PENDING', 'COMPILING', 'COMPILED', 'FAILED')),
+    script__compiled__babylon_bun__status TEXT NOT NULL DEFAULT 'NOT_COMPILED',
+    CONSTRAINT chk_script_compiled_babylon_bun_status CHECK (script__compiled__babylon_bun__status IN ('NOT_COMPILED', 'COMPILING', 'COMPILED', 'FAILED')),
     script__compiled__babylon_bun__data_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     script__compiled__babylon_bun__status_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
     -- Platform-specific compilation fields - BABYLON_BROWSER
     script__compiled__babylon_browser__data TEXT NOT NULL DEFAULT '',
-    script__compiled__babylon_browser__status TEXT NOT NULL DEFAULT 'PENDING',
-    CONSTRAINT chk_script_compiled_babylon_browser_status CHECK (script__compiled__babylon_browser__status IN ('PENDING', 'COMPILING', 'COMPILED', 'FAILED')),
+    script__compiled__babylon_browser__status TEXT NOT NULL DEFAULT 'NOT_COMPILED',
+    CONSTRAINT chk_script_compiled_babylon_browser_status CHECK (script__compiled__babylon_browser__status IN ('NOT_COMPILED', 'COMPILING', 'COMPILED', 'FAILED')),
     script__compiled__babylon_browser__data_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     script__compiled__babylon_browser__status_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 

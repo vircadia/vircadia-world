@@ -68,6 +68,12 @@ export namespace WebScript_CLI {
                 RETURNING general__script_file_name
             `;
 
+            if (!script) {
+                throw new Error(
+                    `Failed to update script: ${data.fileName} because it does not exist in the database.`,
+                );
+            }
+
             // Compile for Node if requested
             if (data.type.includes(Entity.Script.E_ScriptType.BABYLON_NODE)) {
                 try {

@@ -1256,7 +1256,7 @@ describe("DB", () => {
                             UPDATE entity.entity_scripts
                             SET 
                                 script__compiled__babylon_node__data = ${'console.log("updated version")'},
-                                script__compiled__babylon_node__status = ${Entity.Script.E_CompilationStatus.PENDING}
+                                script__compiled__babylon_node__status = ${Entity.Script.E_CompilationStatus.NOT_COMPILED}
                             WHERE general__script_file_name = ${script1.general__script_file_name}
                         `;
                     });
@@ -1341,7 +1341,7 @@ describe("DB", () => {
                         expect(
                             scriptChange?.changes
                                 .script__compiled__babylon_node__status,
-                        ).toBe(Entity.Script.E_CompilationStatus.PENDING);
+                        ).toBe(Entity.Script.E_CompilationStatus.NOT_COMPILED);
 
                         // The URL field wasn't changed, so it shouldn't be included
                         expect(

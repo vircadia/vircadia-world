@@ -29,8 +29,8 @@ CREATE TABLE entity.entity_scripts (
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
     CONSTRAINT fk_entity_scripts_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group),
 
-    script__platform TEXT NOT NULL DEFAULT 'BABYLON_BROWSER',
-    CONSTRAINT chk_script_platform CHECK (script__platform IN ('BABYLON_NODE', 'BABYLON_BUN', 'BABYLON_BROWSER')),
+    script__platform TEXT[] NOT NULL DEFAULT '{BABYLON_BROWSER}',
+    CONSTRAINT chk_script_platform CHECK (script__platform <@ ARRAY['BABYLON_NODE', 'BABYLON_BUN', 'BABYLON_BROWSER']),
 
     -- Source fields
     script__source__repo__entry_path TEXT NOT NULL DEFAULT '',
@@ -38,14 +38,28 @@ CREATE TABLE entity.entity_scripts (
     script__source__data TEXT NOT NULL DEFAULT '',
     script__source__updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    script__compiled__data TEXT NOT NULL DEFAULT '',
-    script__compiled__status TEXT NOT NULL DEFAULT 'PENDING',
-    CONSTRAINT chk_script_compiled_status CHECK (script__compiled__status IN ('PENDING', 'COMPILING', 'COMPILED', 'FAILED')),
-    script__compiled__updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Platform-specific compilation fields - BABYLON_NODE
+    script__compiled__babylon_node__data TEXT NOT NULL DEFAULT '',
+    script__compiled__babylon_node__status TEXT NOT NULL DEFAULT 'PENDING',
+    CONSTRAINT chk_script_compiled_babylon_node_status CHECK (script__compiled__babylon_node__status IN ('PENDING', 'COMPILING', 'COMPILED', 'FAILED')),
+    script__compiled__babylon_node__data_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    script__compiled__babylon_node__status_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    
+    -- Platform-specific compilation fields - BABYLON_BUN
+    script__compiled__babylon_bun__data TEXT NOT NULL DEFAULT '',
+    script__compiled__babylon_bun__status TEXT NOT NULL DEFAULT 'PENDING',
+    CONSTRAINT chk_script_compiled_babylon_bun_status CHECK (script__compiled__babylon_bun__status IN ('PENDING', 'COMPILING', 'COMPILED', 'FAILED')),
+    script__compiled__babylon_bun__data_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    script__compiled__babylon_bun__status_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    
+    -- Platform-specific compilation fields - BABYLON_BROWSER
+    script__compiled__babylon_browser__data TEXT NOT NULL DEFAULT '',
+    script__compiled__babylon_browser__status TEXT NOT NULL DEFAULT 'PENDING',
+    CONSTRAINT chk_script_compiled_babylon_browser_status CHECK (script__compiled__babylon_browser__status IN ('PENDING', 'COMPILING', 'COMPILED', 'FAILED')),
+    script__compiled__babylon_browser__data_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    script__compiled__babylon_browser__status_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     script__source__data_updated_at timestamptz NOT NULL DEFAULT now(),
-    script__compiled__data_updated_at timestamptz NOT NULL DEFAULT now(),
-    script__compiled__status_updated_at timestamptz NOT NULL DEFAULT now(),
     script__source__repo__url_updated_at timestamptz NOT NULL DEFAULT now(),
     script__source__repo__entry_path_updated_at timestamptz NOT NULL DEFAULT now()
 ) INHERITS (entity._template);
@@ -419,12 +433,31 @@ BEGIN
         IF NEW.script__source__data IS DISTINCT FROM OLD.script__source__data THEN
             NEW.script__source__data_updated_at = now();
         END IF;
-        IF NEW.script__compiled__data IS DISTINCT FROM OLD.script__compiled__data THEN
-            NEW.script__compiled__data_updated_at = now();
+        
+        IF NEW.script__compiled__babylon_node__data IS DISTINCT FROM OLD.script__compiled__babylon_node__data THEN
+            NEW.script__compiled__babylon_node__data_updated_at = now();
         END IF;
-        IF NEW.script__compiled__status IS DISTINCT FROM OLD.script__compiled__status THEN
-            NEW.script__compiled__status_updated_at = now();
+
+        IF NEW.script__compiled__babylon_node__status IS DISTINCT FROM OLD.script__compiled__babylon_node__status THEN
+            NEW.script__compiled__babylon_node__status_updated_at = now();
         END IF;
+        
+        IF NEW.script__compiled__babylon_bun__data IS DISTINCT FROM OLD.script__compiled__babylon_bun__data THEN
+            NEW.script__compiled__babylon_bun__data_updated_at = now();
+        END IF;
+
+        IF NEW.script__compiled__babylon_bun__status IS DISTINCT FROM OLD.script__compiled__babylon_bun__status THEN
+            NEW.script__compiled__babylon_bun__status_updated_at = now();
+        END IF;
+        
+        IF NEW.script__compiled__babylon_browser__data IS DISTINCT FROM OLD.script__compiled__babylon_browser__data THEN
+            NEW.script__compiled__babylon_browser__data_updated_at = now();
+        END IF;
+
+        IF NEW.script__compiled__babylon_browser__status IS DISTINCT FROM OLD.script__compiled__babylon_browser__status THEN
+            NEW.script__compiled__babylon_browser__status_updated_at = now();
+        END IF;
+        
         IF NEW.script__source__repo__url IS DISTINCT FROM OLD.script__source__repo__url THEN
             NEW.script__source__repo__url_updated_at = now();
         END IF;
@@ -480,8 +513,12 @@ CREATE INDEX idx_script_timestamp_changes ON entity.entity_scripts
     (group__sync,
      GREATEST(
         script__source__data_updated_at,
-        script__compiled__data_updated_at,
-        script__compiled__status_updated_at,
+        script__compiled__babylon_node__data_updated_at,
+        script__compiled__babylon_bun__data_updated_at,
+        script__compiled__babylon_browser__data_updated_at,
+        script__compiled__babylon_node__status_updated_at,
+        script__compiled__babylon_bun__status_updated_at,
+        script__compiled__babylon_browser__status_updated_at,
         script__source__repo__url_updated_at,
         script__source__repo__entry_path_updated_at,
         general__updated_at

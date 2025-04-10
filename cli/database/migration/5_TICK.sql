@@ -135,7 +135,10 @@ CREATE INDEX idx_entity_states_sync_tick_composite ON tick.entity_states
 -- Composite index for tick + sync group lookup patterns for scripts
 CREATE INDEX idx_script_states_sync_tick_composite ON tick.script_states 
     (group__sync, general__tick_id) 
-    INCLUDE (general__script_file_name, script__compiled__status);
+    INCLUDE (general__script_file_name, 
+             script__compiled__babylon_node__status,
+             script__compiled__babylon_bun__status,
+             script__compiled__babylon_browser__status);
 
 -- ============================================================================
 -- 4. FUNCTIONS
@@ -329,18 +332,33 @@ BEGIN
             script__source__repo__url,
             script__source__data,
             script__source__updated_at,
-            script__compiled__data,
-            script__compiled__status,
-            script__compiled__updated_at,
+            
+            -- Platform-specific fields - BABYLON_NODE
+            script__compiled__babylon_node__data,
+            script__compiled__babylon_node__status,
+            script__compiled__babylon_node__data_updated_at,
+            script__compiled__babylon_node__status_updated_at,
+            
+            -- Platform-specific fields - BABYLON_BUN
+            script__compiled__babylon_bun__data,
+            script__compiled__babylon_bun__status,
+            script__compiled__babylon_bun__data_updated_at,
+            script__compiled__babylon_bun__status_updated_at,
+            
+            -- Platform-specific fields - BABYLON_BROWSER
+            script__compiled__babylon_browser__data,
+            script__compiled__babylon_browser__status,
+            script__compiled__babylon_browser__data_updated_at,
+            script__compiled__babylon_browser__status_updated_at,
+            
             general__created_at,
             general__created_by,
             general__updated_at,
             general__updated_by,
             general__tick_id,
+            
             -- Include timestamp columns
             script__source__data_updated_at,
-            script__compiled__data_updated_at,
-            script__compiled__status_updated_at,
             script__source__repo__url_updated_at,
             script__source__repo__entry_path_updated_at
         )
@@ -351,18 +369,33 @@ BEGIN
             s.script__source__repo__url,
             s.script__source__data,
             s.script__source__updated_at,
-            s.script__compiled__data,
-            s.script__compiled__status,
-            s.script__compiled__updated_at,
+            
+            -- Platform-specific fields - BABYLON_NODE
+            s.script__compiled__babylon_node__data,
+            s.script__compiled__babylon_node__status,
+            s.script__compiled__babylon_node__data_updated_at,
+            s.script__compiled__babylon_node__status_updated_at,
+            
+            -- Platform-specific fields - BABYLON_BUN
+            s.script__compiled__babylon_bun__data,
+            s.script__compiled__babylon_bun__status,
+            s.script__compiled__babylon_bun__data_updated_at,
+            s.script__compiled__babylon_bun__status_updated_at,
+            
+            -- Platform-specific fields - BABYLON_BROWSER
+            s.script__compiled__babylon_browser__data,
+            s.script__compiled__babylon_browser__status,
+            s.script__compiled__babylon_browser__data_updated_at,
+            s.script__compiled__babylon_browser__status_updated_at,
+            
             s.general__created_at,
             s.general__created_by,
             s.general__updated_at,
             s.general__updated_by,
             v_tick_id,
+            
             -- Copy timestamp columns
             s.script__source__data_updated_at,
-            s.script__compiled__data_updated_at,
-            s.script__compiled__status_updated_at,
             s.script__source__repo__url_updated_at,
             s.script__source__repo__entry_path_updated_at
         FROM entity.entity_scripts s

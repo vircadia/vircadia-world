@@ -4,14 +4,16 @@ import { VircadiaConfig_SERVER } from "./vircadia-world-sdk-ts/config/vircadia.s
 import { log } from "./vircadia-world-sdk-ts/module/general/log.ts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { dirname } from "node:path";
+import { dirname, basename } from "node:path";
 import {
     readdir,
     readFile,
     watch,
     writeFile,
     type FileChangeInfo,
+    mkdir,
 } from "node:fs/promises";
+import { existsSync, type WatchEventType } from "node:fs";
 import { sign } from "jsonwebtoken";
 import { PostgresClient } from "./vircadia-world-sdk-ts/module/server/postgres.server.client.ts";
 import {
@@ -19,9 +21,6 @@ import {
     Service,
     type Auth,
 } from "./vircadia-world-sdk-ts/schema/schema.general.ts";
-import { existsSync, type WatchEventType } from "node:fs";
-import { mkdir } from "node:fs/promises";
-import { basename } from "node:path";
 
 // TODO: Optimize the commands, get up and down rebuilds including init to work well.
 
@@ -37,34 +36,45 @@ export namespace WebScript_CLI {
 
     interface ScriptInfo {
         name: string;
-        type: string;
+        type: Entity.Script.E_ScriptType[];
         sourceHash: string;
-        compiledHash: string;
+        compiledBabylonNodeHash: string;
+        compiledBabylonBunHash: string;
+        compiledBabylonBrowserHash: string;
         lastChecked: Date;
+    }
+
+    // Define the compile script result type
+    interface CompileScriptResult {
+        [key: string]: {
+            data: string;
+            status: Entity.Script.E_CompilationStatus;
+        };
     }
 
     // Track all ongoing compilations
     const activeCompilations = new Set<AbortController>();
 
     // Function to compile script based on type
-    export async function compileScript(
+    export async function compileScriptForWebPlatform(
         source: string,
-        type: string,
+        type: Entity.Script.E_ScriptType[],
         filePath: string,
-    ): Promise<{
-        data: string;
-        hash: string;
-        status: Entity.Script.E_CompilationStatus;
-    }> {
+    ): Promise<CompileScriptResult> {
+        let compiledBrowserData = "";
+        let compiledBunData = "";
+        let compiledNodeData = "";
+
         const abortController = new AbortController();
         activeCompilations.add(abortController);
 
         try {
-            let compiledData: string;
+            // Result object to store compilation results
+            const result: CompileScriptResult = {};
 
-            switch (type) {
-                case Entity.Script.E_ScriptType.BABYLON_NODE: {
-                    // For Node/Bun scripts, use Bun's transpiler
+            // Compile for Node if requested
+            if (type.includes(Entity.Script.E_ScriptType.BABYLON_NODE)) {
+                try {
                     const nodeResult = await Bun.build({
                         entrypoints: [filePath],
                         format: "esm",
@@ -72,33 +82,29 @@ export namespace WebScript_CLI {
                         minify: false,
                     });
 
-                    if (!nodeResult.success) {
-                        return {
-                            data: source, // Return source on compilation failure
-                            hash: "", // We'll calculate this in the database
+                    if (nodeResult.success && nodeResult.outputs.length === 1) {
+                        compiledNodeData = await nodeResult.outputs[0].text();
+                        result[Entity.Script.E_ScriptType.BABYLON_NODE] = {
+                            data: compiledNodeData,
+                            status: Entity.Script.E_CompilationStatus.COMPILED,
+                        };
+                    } else {
+                        result[Entity.Script.E_ScriptType.BABYLON_NODE] = {
+                            data: source,
                             status: Entity.Script.E_CompilationStatus.FAILED,
                         };
                     }
-
-                    if (nodeResult.outputs.length > 1) {
-                        log({
-                            message: `Node compilation produced multiple outputs: ${nodeResult.outputs.length}`,
-                            type: "error",
-                            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-                        });
-                        return {
-                            data: source, // Return source on compilation failure
-                            hash: "", // We'll calculate this in the database
-                            status: Entity.Script.E_CompilationStatus.FAILED,
-                        };
-                    }
-
-                    compiledData = await nodeResult.outputs[0].text();
-                    break;
+                } catch (error) {
+                    result[Entity.Script.E_ScriptType.BABYLON_NODE] = {
+                        data: source,
+                        status: Entity.Script.E_CompilationStatus.FAILED,
+                    };
                 }
-                case Entity.Script.E_ScriptType.BABYLON_BUN: {
-                    // For Bun scripts, use Bun's transpiler with IIFE format
+            }
+
+            // Compile for Bun if requested
+            if (type.includes(Entity.Script.E_ScriptType.BABYLON_BUN)) {
+                try {
                     const bunResult = await Bun.build({
                         entrypoints: [filePath],
                         format: "esm",
@@ -106,33 +112,29 @@ export namespace WebScript_CLI {
                         minify: false,
                     });
 
-                    if (!bunResult.success) {
-                        return {
-                            data: source, // Return source on compilation failure
-                            hash: "", // We'll calculate this in the database
+                    if (bunResult.success && bunResult.outputs.length === 1) {
+                        compiledBunData = await bunResult.outputs[0].text();
+                        result[Entity.Script.E_ScriptType.BABYLON_BUN] = {
+                            data: compiledBunData,
+                            status: Entity.Script.E_CompilationStatus.COMPILED,
+                        };
+                    } else {
+                        result[Entity.Script.E_ScriptType.BABYLON_BUN] = {
+                            data: source,
                             status: Entity.Script.E_CompilationStatus.FAILED,
                         };
                     }
-
-                    if (bunResult.outputs.length > 1) {
-                        log({
-                            message: `Bun compilation produced multiple outputs: ${bunResult.outputs.length}`,
-                            type: "error",
-                            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-                        });
-                        return {
-                            data: source, // Return source on compilation failure
-                            hash: "", // We'll calculate this in the database
-                            status: Entity.Script.E_CompilationStatus.FAILED,
-                        };
-                    }
-
-                    compiledData = await bunResult.outputs[0].text();
-                    break;
+                } catch (error) {
+                    result[Entity.Script.E_ScriptType.BABYLON_BUN] = {
+                        data: source,
+                        status: Entity.Script.E_CompilationStatus.FAILED,
+                    };
                 }
-                case Entity.Script.E_ScriptType.BABYLON_BROWSER: {
-                    // For browser scripts, use browser target
+            }
+
+            // Compile for Browser if requested
+            if (type.includes(Entity.Script.E_ScriptType.BABYLON_BROWSER)) {
+                try {
                     const browserResult = await Bun.build({
                         entrypoints: [filePath],
                         format: "esm",
@@ -140,43 +142,31 @@ export namespace WebScript_CLI {
                         minify: false,
                     });
 
-                    if (!browserResult.success) {
-                        return {
-                            data: source, // Return source on compilation failure
-                            hash: "", // We'll calculate this in the database
+                    if (
+                        browserResult.success &&
+                        browserResult.outputs.length === 1
+                    ) {
+                        compiledBrowserData =
+                            await browserResult.outputs[0].text();
+                        result[Entity.Script.E_ScriptType.BABYLON_BROWSER] = {
+                            data: compiledBrowserData,
+                            status: Entity.Script.E_CompilationStatus.COMPILED,
+                        };
+                    } else {
+                        result[Entity.Script.E_ScriptType.BABYLON_BROWSER] = {
+                            data: source,
                             status: Entity.Script.E_CompilationStatus.FAILED,
                         };
                     }
-
-                    if (browserResult.outputs.length > 1) {
-                        log({
-                            message: `Browser compilation produced multiple outputs: ${browserResult.outputs.length}`,
-                            type: "error",
-                            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-                        });
-                        return {
-                            data: source, // Return source on compilation failure
-                            hash: "", // We'll calculate this in the database
-                            status: Entity.Script.E_CompilationStatus.FAILED,
-                        };
-                    }
-
-                    compiledData = await browserResult.outputs[0].text();
-                    break;
+                } catch (error) {
+                    result[Entity.Script.E_ScriptType.BABYLON_BROWSER] = {
+                        data: source,
+                        status: Entity.Script.E_CompilationStatus.FAILED,
+                    };
                 }
-                default:
-                    // Default fallback - no compilation
-                    compiledData = source;
             }
 
-            return {
-                data: compiledData,
-                hash: "", // We'll calculate this in the database
-                status: compiledData
-                    ? Entity.Script.E_CompilationStatus.COMPILED
-                    : Entity.Script.E_CompilationStatus.FAILED,
-            };
+            return result;
         } catch (error) {
             log({
                 message: `Compilation error: ${error}`,
@@ -186,14 +176,29 @@ export namespace WebScript_CLI {
                 debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
             });
 
-            return {
-                data: source,
-                hash: "", // We'll calculate this in the database
-                status: Entity.Script.E_CompilationStatus.FAILED,
-            };
+            // Return an object with failed compilation for all requested types
+            const result: CompileScriptResult = {};
+
+            for (const scriptType of type) {
+                result[scriptType] = {
+                    data: source,
+                    status: Entity.Script.E_CompilationStatus.FAILED,
+                };
+            }
+
+            return result;
         } finally {
             activeCompilations.delete(abortController);
         }
+    }
+
+    // Alias for backward compatibility
+    export async function compileScriptForWebPlatforms(
+        source: string,
+        type: Entity.Script.E_ScriptType[],
+        filePath: string,
+    ): Promise<CompileScriptResult> {
+        return compileScriptForWebPlatform(source, type, filePath);
     }
 
     // Main function to handle hot sync of scripts
@@ -322,14 +327,17 @@ export namespace WebScript_CLI {
                     WHERE general__script_file_name = ${fileName}
                 `;
 
-                const scriptType =
-                    scriptRecord?.script__platform ||
-                    Entity.Script.E_ScriptType.BABYLON_BROWSER;
+                const scriptTypes = scriptRecord.script__platform;
 
                 // Only process valid script types
-                if (!VALID_SCRIPT_TYPES.includes(scriptType)) {
+                if (
+                    !scriptTypes ||
+                    !scriptTypes.some((type) =>
+                        VALID_SCRIPT_TYPES.includes(type),
+                    )
+                ) {
                     log({
-                        message: `Skipping script with unsupported type: ${scriptType}`,
+                        message: `Skipping script with unsupported type: ${scriptTypes}`,
                         type: "info",
                         suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                         debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
@@ -340,58 +348,118 @@ export namespace WebScript_CLI {
                 // Set status to COMPILING
                 await sql`
                     UPDATE entity.entity_scripts
-                    SET script__compiled__status = ${Entity.Script.E_CompilationStatus.COMPILING},
+                    SET script__compiled__babylon_node__status = ${Entity.Script.E_CompilationStatus.COMPILING},
+                        script__compiled__babylon_bun__status = ${Entity.Script.E_CompilationStatus.COMPILING},
+                        script__compiled__babylon_browser__status = ${Entity.Script.E_CompilationStatus.COMPILING},
                         script__source__data = ${content},
                         script__source__updated_at = CURRENT_TIMESTAMP
                     WHERE general__script_file_name = ${fileName}
                 `;
 
                 log({
-                    message: `Compiling script: ${fileName} (${scriptType}) (${Entity.Script.E_CompilationStatus.COMPILING})`,
+                    message: `Compiling script: ${fileName} (${scriptTypes}) (${Entity.Script.E_CompilationStatus.COMPILING})`,
                     type: "info",
                     suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                     debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 });
 
                 // Compile the script
-                const compiledResult = await compileScript(
-                    content,
-                    scriptType,
-                    filePath,
-                );
+                if (
+                    scriptTypes.includes(
+                        Entity.Script.E_ScriptType.BABYLON_NODE,
+                    )
+                ) {
+                    const compiledResult = await compileScriptForWebPlatform(
+                        content,
+                        [Entity.Script.E_ScriptType.BABYLON_NODE],
+                        filePath,
+                    );
+                    await sql`
+                        UPDATE entity.entity_scripts
+                        SET script__compiled__babylon_node__data = ${compiledResult[Entity.Script.E_ScriptType.BABYLON_NODE].data},
+                            script__compiled__babylon_node__status = ${compiledResult[Entity.Script.E_ScriptType.BABYLON_NODE].status},
+                            script__compiled__updated_at = CURRENT_TIMESTAMP
+                    `;
+                    log({
+                        message: `Compiled script: ${fileName} (${Entity.Script.E_ScriptType.BABYLON_NODE}) (${compiledResult[Entity.Script.E_ScriptType.BABYLON_NODE].status})`,
+                        type: "info",
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                }
 
-                log({
-                    message: `Successfully compiled script: ${fileName}`,
-                    type: "info",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-                });
+                if (
+                    scriptTypes.includes(Entity.Script.E_ScriptType.BABYLON_BUN)
+                ) {
+                    const compiledResult = await compileScriptForWebPlatform(
+                        content,
+                        [Entity.Script.E_ScriptType.BABYLON_BUN],
+                        filePath,
+                    );
+                    await sql`
+                        UPDATE entity.entity_scripts
+                        SET script__compiled__babylon_bun__data = ${compiledResult[Entity.Script.E_ScriptType.BABYLON_BUN].data},
+                            script__compiled__babylon_bun__status = ${compiledResult[Entity.Script.E_ScriptType.BABYLON_BUN].status},
+                            script__compiled__updated_at = CURRENT_TIMESTAMP
+                    `;
+                    log({
+                        message: `Compiled script: ${fileName} (${Entity.Script.E_ScriptType.BABYLON_BUN}) (${compiledResult[Entity.Script.E_ScriptType.BABYLON_BUN].status})`,
+                        type: "info",
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                }
 
-                // Update the database with compiled result
-                await sql`
-                    UPDATE entity.entity_scripts
-                    SET script__compiled__data = ${compiledResult.data},
-                        script__compiled__status = ${compiledResult.status},
-                        script__compiled__updated_at = CURRENT_TIMESTAMP
-                    WHERE general__script_file_name = ${fileName}
-                `;
+                if (
+                    scriptTypes.includes(
+                        Entity.Script.E_ScriptType.BABYLON_BROWSER,
+                    )
+                ) {
+                    const compiledResult = await compileScriptForWebPlatform(
+                        content,
+                        [Entity.Script.E_ScriptType.BABYLON_BROWSER],
+                        filePath,
+                    );
+                    await sql`
+                        UPDATE entity.entity_scripts
+                        SET script__compiled__babylon_browser__data = ${compiledResult[Entity.Script.E_ScriptType.BABYLON_BROWSER].data},
+                            script__compiled__babylon_browser__status = ${compiledResult[Entity.Script.E_ScriptType.BABYLON_BROWSER].status},
+                            script__compiled__updated_at = CURRENT_TIMESTAMP
+                    `;
+                    log({
+                        message: `Compiled script: ${fileName} (${Entity.Script.E_ScriptType.BABYLON_BROWSER}) (${compiledResult[Entity.Script.E_ScriptType.BABYLON_BROWSER].status})`,
+                        type: "info",
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                }
 
-                // Update local tracking map
+                // Update local tracking map with last compiled platform's results
+                const lastCompiledType = scriptTypes.includes(
+                    Entity.Script.E_ScriptType.BABYLON_BROWSER,
+                )
+                    ? Entity.Script.E_ScriptType.BABYLON_BROWSER
+                    : scriptTypes.includes(
+                            Entity.Script.E_ScriptType.BABYLON_BUN,
+                        )
+                      ? Entity.Script.E_ScriptType.BABYLON_BUN
+                      : Entity.Script.E_ScriptType.BABYLON_NODE;
+
                 localScriptInfoMap.set(fileName, {
                     name: fileName,
-                    type: scriptType,
-                    sourceHash: compiledResult.hash,
-                    compiledHash: compiledResult.hash,
+                    type: Array.isArray(scriptTypes)
+                        ? scriptTypes
+                        : [scriptTypes],
+                    sourceHash: newHash?.source_hash || "",
+                    compiledBabylonNodeHash: "",
+                    compiledBabylonBunHash: "",
+                    compiledBabylonBrowserHash: "",
                     lastChecked: new Date(),
                 });
 
                 log({
-                    message: `Updated script in database: ${fileName} (${compiledResult.status})`,
-                    type:
-                        compiledResult.status ===
-                        Entity.Script.E_CompilationStatus.COMPILED
-                            ? "success"
-                            : "warn",
+                    message: `Updated script in database: ${fileName}`,
+                    type: "success",
                     suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                     debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                 });
@@ -399,7 +467,9 @@ export namespace WebScript_CLI {
                 // Set script compilation to failed.
                 await sql`
                     UPDATE entity.entity_scripts
-                    SET script__compiled__status = ${Entity.Script.E_CompilationStatus.FAILED},
+                    SET script__compiled__babylon_node__status = ${Entity.Script.E_CompilationStatus.FAILED},
+                        script__compiled__babylon_bun__status = ${Entity.Script.E_CompilationStatus.FAILED},
+                        script__compiled__babylon_browser__status = ${Entity.Script.E_CompilationStatus.FAILED},
                         script__compiled__updated_at = CURRENT_TIMESTAMP
                     WHERE general__script_file_name = ${fileName}
                 `;
@@ -484,9 +554,13 @@ export namespace WebScript_CLI {
                             // Update local tracking map
                             localScriptInfoMap.set(fileName, {
                                 name: fileName,
-                                type: script.script__platform,
+                                type: Array.isArray(script.script__platform)
+                                    ? script.script__platform
+                                    : [script.script__platform],
                                 sourceHash: script.script__source__sha256,
-                                compiledHash: "", // Will be updated later
+                                compiledBabylonNodeHash: "",
+                                compiledBabylonBunHash: "",
+                                compiledBabylonBrowserHash: "",
                                 lastChecked: new Date(),
                             });
 
@@ -2407,39 +2481,59 @@ export namespace Server_CLI {
 
                             // Compile the script using WebScript_CLI.compileScript
                             const compiledResult =
-                                await WebScript_CLI.compileScript(
+                                await WebScript_CLI.compileScriptForWebPlatforms(
                                     scriptData,
-                                    dbScript.script__platform,
+                                    dbScript.script__platform, // Already an array from database
                                     scriptPath,
                                 );
 
-                            // Update with compiled result
-                            await sql`
-                                UPDATE entity.entity_scripts
-                                SET script__compiled__data = ${compiledResult.data},
-                                    script__compiled__status = ${compiledResult.status},
-                                    script__compiled__updated_at = CURRENT_TIMESTAMP
-                                WHERE general__script_file_name = ${dbScript.general__script_file_name}
-                            `;
+                            // When accessing compiledResult, use the specific platform types:
+                            if (
+                                dbScript.script__platform &&
+                                dbScript.script__platform.length > 0
+                            ) {
+                                // Update database with specific script types
+                                for (const platform of dbScript.script__platform) {
+                                    const compiledPlatformResult =
+                                        compiledResult[platform];
+                                    if (compiledPlatformResult) {
+                                        try {
+                                            await sql`
+                                                UPDATE entity.entity_scripts
+                                                SET script__compiled__data = ${compiledPlatformResult.data},
+                                                    script__compiled__status = ${compiledPlatformResult.status},
+                                                    script__compiled__updated_at = CURRENT_TIMESTAMP
+                                                WHERE general__script_file_name = ${dbScript.general__script_file_name}
+                                                    AND $1 = ANY(script__platform)
+                                            `;
+
+                                            log({
+                                                message: `Updated script: ${dbScript.general__script_file_name} (${compiledPlatformResult.status})`,
+                                                type:
+                                                    compiledPlatformResult.status ===
+                                                    Entity.Script
+                                                        .E_CompilationStatus
+                                                        .COMPILED
+                                                        ? "success"
+                                                        : "warn",
+                                                suppress:
+                                                    VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                                                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                                            });
+                                        } catch (error) {
+                                            // ... existing code ...
+                                        }
+                                    }
+                                }
+                            }
 
                             log({
-                                message: `Updated script: ${dbScript.general__script_file_name} (${compiledResult.status})`,
-                                type:
-                                    compiledResult.status ===
-                                    Entity.Script.E_CompilationStatus.COMPILED
-                                        ? "success"
-                                        : "warn",
+                                message: `Processed ${matchingScripts.length} scripts from file ${fileName}`,
+                                type: "debug",
                                 suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                                 debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                             });
                         }
-                    });
-
-                    log({
-                        message: `Processed ${matchingScripts.length} scripts from file ${fileName}`,
-                        type: "debug",
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
                     });
                 } catch (error) {
                     log({
@@ -2968,4 +3062,18 @@ if (import.meta.main) {
         });
         process.exit(1);
     }
+}
+
+// Helper to detect script platform based on filename
+function detectScriptPlatform(fileName: string): Entity.Script.E_ScriptType[] {
+    if (fileName.includes("node")) {
+        return [Entity.Script.E_ScriptType.BABYLON_NODE];
+    }
+
+    if (fileName.includes("bun")) {
+        return [Entity.Script.E_ScriptType.BABYLON_BUN];
+    }
+
+    // Default to browser for maximum compatibility
+    return [Entity.Script.E_ScriptType.BABYLON_BROWSER];
 }

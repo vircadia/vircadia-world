@@ -616,8 +616,8 @@ describe("DB", () => {
                     const [script] = await tx<[Entity.Script.I_Script]>`
         			INSERT INTO entity.entity_scripts (
                         general__script_file_name,
-        				script__compiled__data,
-        				script__compiled__status,
+        				script__compiled__babylon_node__data,
+        				script__compiled__babylon_node__status,
         				group__sync
         			) VALUES (
                         ${`${DB_TEST_PREFIX}Test Script`},
@@ -1029,17 +1029,19 @@ describe("DB", () => {
         				script__source__repo__entry_path,
         				script__source__repo__url,
         				script__platform,
-                        script__compiled__data,   
-                        script__compiled__status,
-                        script__compiled__updated_at
+                        script__compiled__babylon_node__data,
+                        script__compiled__babylon_node__status,
+                        script__compiled__babylon_node__data_updated_at,
+                        script__compiled__babylon_node__status_updated_at
         			) VALUES (
         				${`${DB_TEST_PREFIX}Script to delete`},
         				${"public.NORMAL"},
         				${"path/to/script"},
         				${"https://github.com/example/repo"},
-        				${"BABYLON_BROWSER"},
+        				${[Entity.Script.E_ScriptType.BABYLON_BROWSER]},
                         ${'console.log("test")'},
                         ${Entity.Script.E_CompilationStatus.COMPILED},
+                        ${"2021-01-01 00:00:00"},
                         ${"2021-01-01 00:00:00"}
         			) RETURNING *
         		`;
@@ -1229,8 +1231,8 @@ describe("DB", () => {
                         [script1] = await tx<[Entity.Script.I_Script]>`
                             INSERT INTO entity.entity_scripts (
                                 general__script_file_name,
-                                script__compiled__data,
-                                script__compiled__status,
+                                script__compiled__babylon_node__data,
+                                script__compiled__babylon_node__status,
                                 script__source__repo__url,
                                 group__sync
                             ) VALUES (
@@ -1253,8 +1255,8 @@ describe("DB", () => {
                         await tx`
                             UPDATE entity.entity_scripts
                             SET 
-                                script__compiled__data = ${'console.log("updated version")'},
-                                script__compiled__status = ${Entity.Script.E_CompilationStatus.PENDING}
+                                script__compiled__babylon_node__data = ${'console.log("updated version")'},
+                                script__compiled__babylon_node__status = ${Entity.Script.E_CompilationStatus.PENDING}
                             WHERE general__script_file_name = ${script1.general__script_file_name}
                         `;
                     });
@@ -1298,12 +1300,12 @@ describe("DB", () => {
                                         ELSE 'UPDATE'
                                     END as operation,
                                     jsonb_build_object(
-                                        'script__compiled__data', 
-                                            CASE WHEN c.script__compiled__data != p.script__compiled__data 
-                                            THEN c.script__compiled__data ELSE NULL END,
-                                        'script__compiled__status', 
-                                            CASE WHEN c.script__compiled__status != p.script__compiled__status 
-                                            THEN c.script__compiled__status ELSE NULL END,
+                                        'script__compiled__babylon_node__data', 
+                                            CASE WHEN c.script__compiled__babylon_node__data != p.script__compiled__babylon_node__data 
+                                            THEN c.script__compiled__babylon_node__data ELSE NULL END,
+                                        'script__compiled__babylon_node__status', 
+                                            CASE WHEN c.script__compiled__babylon_node__status != p.script__compiled__babylon_node__status 
+                                            THEN c.script__compiled__babylon_node__status ELSE NULL END,
                                         'script__source__repo__url', 
                                             CASE WHEN c.script__source__repo__url != p.script__source__repo__url 
                                             THEN c.script__source__repo__url ELSE NULL END
@@ -1313,8 +1315,8 @@ describe("DB", () => {
                                 LEFT JOIN previous_state p ON c.general__script_file_name = p.general__script_file_name
                                 WHERE 
                                     p.general__script_file_name IS NULL OR
-                                    c.script__compiled__data != p.script__compiled__data OR
-                                    c.script__compiled__status != p.script__compiled__status OR
+                                    c.script__compiled__babylon_node__data != p.script__compiled__babylon_node__data OR
+                                    c.script__compiled__babylon_node__status != p.script__compiled__babylon_node__status OR
                                     c.script__source__repo__url != p.script__source__repo__url
                                     -- Add other comparisons as needed
                             )
@@ -1333,10 +1335,12 @@ describe("DB", () => {
 
                         // Check that only changed fields are included
                         expect(
-                            scriptChange?.changes.script__compiled__data,
+                            scriptChange?.changes
+                                .script__compiled__babylon_node__data,
                         ).toBe('console.log("updated version")');
                         expect(
-                            scriptChange?.changes.script__compiled__status,
+                            scriptChange?.changes
+                                .script__compiled__babylon_node__status,
                         ).toBe(Entity.Script.E_CompilationStatus.PENDING);
 
                         // The URL field wasn't changed, so it shouldn't be included

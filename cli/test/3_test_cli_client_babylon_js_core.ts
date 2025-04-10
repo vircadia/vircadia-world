@@ -311,7 +311,7 @@ describe("Babylon.js Client Core Integration", () => {
                         ) VALUES (
                             ${scriptName},
                             ${"function vircadiaScriptMain(context) { return { hooks: { onEntityUpdate: (entity) => { console.log('Entity updated:', entity.general__entity_id); } } }; }"},
-                            ${Entity.Script.E_ScriptType.BABYLON_BUN},
+                            ${[Entity.Script.E_ScriptType.BABYLON_BUN]},
                             ${TEST_SYNC_GROUP}
                         ) RETURNING *
                     `;

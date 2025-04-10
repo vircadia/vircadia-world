@@ -27,7 +27,7 @@ services:
     command: [
       "postgres", 
       "-c", "wal_level=logical",
-      "-c", "max_wal_size=2GB",        # Increase from default 1GB
+      "-c", "max_wal_size=4GB",        # Increase from default 1GB to 4GB
       "-c", "checkpoint_timeout=5min", # Default is 5min, but good to explicitly set
       "-c", "checkpoint_completion_target=0.9"  # Spread checkpoint I/O over more time
     ]

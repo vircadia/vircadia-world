@@ -682,6 +682,238 @@ describe("DB", () => {
                     await tx`DELETE FROM entity.entity_assets WHERE general__asset_file_name = ${asset.general__asset_file_name}`;
                 });
             });
+
+            test("should create and read an asset with binary data", async () => {
+                await proxyUserSql.begin(async (tx) => {
+                    await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
+
+                    // Test binary data instead of base64
+                    const binaryData = Buffer.from("test binary data");
+
+                    const [asset] = await tx<[Entity.Asset.I_Asset]>`
+                        INSERT INTO entity.entity_assets (
+                            general__asset_file_name,
+                            asset__data__bytea,
+                            group__sync
+                        ) VALUES (
+                            ${`${DB_TEST_PREFIX}Binary Asset`},
+                            ${binaryData},
+                            ${"public.NORMAL"}
+                        ) RETURNING *
+                    `;
+
+                    expect(asset.general__asset_file_name).toBe(
+                        `${DB_TEST_PREFIX}Binary Asset`,
+                    );
+                    expect(asset.asset__data__bytea).toBeDefined();
+
+                    // Read the asset back to verify the binary data
+                    const [retrievedAsset] = await tx<[Entity.Asset.I_Asset]>`
+                        SELECT * FROM entity.entity_assets 
+                        WHERE general__asset_file_name = ${`${DB_TEST_PREFIX}Binary Asset`}
+                    `;
+
+                    expect(retrievedAsset.asset__data__bytea).toBeDefined();
+                    // Using a more type-safe approach to check the buffer data
+                    const bytea = retrievedAsset.asset__data__bytea;
+                    if (bytea) {
+                        const bufferText = Buffer.from(bytea).toString();
+                        expect(bufferText).toBe("test binary data");
+                    }
+
+                    await tx`DELETE FROM entity.entity_assets WHERE general__asset_file_name = ${asset.general__asset_file_name}`;
+                });
+            });
+
+            test("should update an existing asset", async () => {
+                await proxyUserSql.begin(async (tx) => {
+                    await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
+
+                    // Create initial asset
+                    const initialData =
+                        Buffer.from("initial data").toString("base64");
+                    const [asset] = await tx<[Entity.Asset.I_Asset]>`
+                        INSERT INTO entity.entity_assets (
+                            general__asset_file_name,
+                            asset__data__base64,
+                            group__sync
+                        ) VALUES (
+                            ${`${DB_TEST_PREFIX}Asset To Update`},
+                            ${initialData},
+                            ${"public.NORMAL"}
+                        ) RETURNING *
+                    `;
+
+                    // Update the asset
+                    const updatedData =
+                        Buffer.from("updated data").toString("base64");
+                    await tx`
+                        UPDATE entity.entity_assets
+                        SET asset__data__base64 = ${updatedData}
+                        WHERE general__asset_file_name = ${asset.general__asset_file_name}
+                    `;
+
+                    // Verify the update
+                    const [updatedAsset] = await tx<[Entity.Asset.I_Asset]>`
+                        SELECT * FROM entity.entity_assets 
+                        WHERE general__asset_file_name = ${asset.general__asset_file_name}
+                    `;
+
+                    expect(updatedAsset.asset__data__base64).toBe(updatedData);
+                    // More safely handle potentially undefined base64 data
+                    const base64Data = updatedAsset.asset__data__base64;
+                    if (base64Data) {
+                        const decodedText = Buffer.from(
+                            base64Data,
+                            "base64",
+                        ).toString();
+                        expect(decodedText).toBe("updated data");
+                    }
+
+                    // Check that timestamp is updated with safer type handling
+                    const updatedAt = updatedAsset.general__updated_at;
+                    const createdAt = asset.general__created_at;
+                    if (updatedAt && createdAt) {
+                        const updatedTime = new Date(updatedAt).getTime();
+                        const createdTime = new Date(createdAt).getTime();
+                        expect(updatedTime).toBeGreaterThanOrEqual(createdTime);
+                    }
+
+                    await tx`DELETE FROM entity.entity_assets WHERE general__asset_file_name = ${asset.general__asset_file_name}`;
+                });
+            });
+
+            test("should handle multiple assets with different sync groups", async () => {
+                await proxyUserSql.begin(async (tx) => {
+                    await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
+
+                    // Create assets in different sync groups
+                    const [asset1] = await tx<[Entity.Asset.I_Asset]>`
+                        INSERT INTO entity.entity_assets (
+                            general__asset_file_name,
+                            asset__data__base64,
+                            group__sync
+                        ) VALUES (
+                            ${`${DB_TEST_PREFIX}Asset Group 1`},
+                            ${Buffer.from("group 1 data").toString("base64")},
+                            ${"public.NORMAL"}
+                        ) RETURNING *
+                    `;
+
+                    const [asset2] = await tx<[Entity.Asset.I_Asset]>`
+                        INSERT INTO entity.entity_assets (
+                            general__asset_file_name,
+                            asset__data__base64,
+                            group__sync
+                        ) VALUES (
+                            ${`${DB_TEST_PREFIX}Asset Group 2`},
+                            ${Buffer.from("group 2 data").toString("base64")},
+                            ${TEST_SYNC_GROUP}
+                        ) RETURNING *
+                    `;
+
+                    // Verify we can query assets by sync group
+                    const publicGroupAssets = await tx<
+                        Array<Entity.Asset.I_Asset>
+                    >`
+                        SELECT * FROM entity.entity_assets 
+                        WHERE group__sync = ${"public.NORMAL"}
+                        AND general__asset_file_name LIKE ${`${DB_TEST_PREFIX}%`}
+                    `;
+
+                    const testGroupAssets = await tx<
+                        Array<Entity.Asset.I_Asset>
+                    >`
+                        SELECT * FROM entity.entity_assets 
+                        WHERE group__sync = ${TEST_SYNC_GROUP}
+                        AND general__asset_file_name LIKE ${`${DB_TEST_PREFIX}%`}
+                    `;
+
+                    expect(publicGroupAssets.length).toBeGreaterThanOrEqual(1);
+                    expect(testGroupAssets.length).toBeGreaterThanOrEqual(1);
+
+                    // Verify we can find our specific assets in each group
+                    expect(
+                        publicGroupAssets.some(
+                            (a) =>
+                                a.general__asset_file_name ===
+                                asset1.general__asset_file_name,
+                        ),
+                    ).toBe(true);
+                    expect(
+                        testGroupAssets.some(
+                            (a) =>
+                                a.general__asset_file_name ===
+                                asset2.general__asset_file_name,
+                        ),
+                    ).toBe(true);
+
+                    // Clean up
+                    await tx`DELETE FROM entity.entity_assets WHERE general__asset_file_name = ${asset1.general__asset_file_name}`;
+                    await tx`DELETE FROM entity.entity_assets WHERE general__asset_file_name = ${asset2.general__asset_file_name}`;
+                });
+            });
+
+            test("should batch create and delete multiple assets", async () => {
+                await proxyUserSql.begin(async (tx) => {
+                    await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
+
+                    // Create a batch of assets
+                    const assetBatch = [];
+                    const assetCount = 5;
+
+                    for (let i = 0; i < assetCount; i++) {
+                        const assetName = `${DB_TEST_PREFIX}Batch Asset ${i}`;
+                        const assetData = Buffer.from(
+                            `batch data ${i}`,
+                        ).toString("base64");
+
+                        const [asset] = await tx<[Entity.Asset.I_Asset]>`
+                            INSERT INTO entity.entity_assets (
+                                general__asset_file_name,
+                                asset__data__base64,
+                                group__sync
+                            ) VALUES (
+                                ${assetName},
+                                ${assetData},
+                                ${"public.NORMAL"}
+                            ) RETURNING *
+                        `;
+
+                        assetBatch.push(asset);
+                    }
+
+                    // Verify all assets were created
+                    expect(assetBatch.length).toBe(assetCount);
+
+                    // Query to check all assets exist
+                    const assets = await tx<Array<Entity.Asset.I_Asset>>`
+                        SELECT * FROM entity.entity_assets 
+                        WHERE general__asset_file_name LIKE ${`${DB_TEST_PREFIX}Batch Asset%`}
+                    `;
+
+                    expect(assets.length).toBe(assetCount);
+
+                    // Batch delete the assets
+                    const deleteResult = await tx`
+                        DELETE FROM entity.entity_assets 
+                        WHERE general__asset_file_name LIKE ${`${DB_TEST_PREFIX}Batch Asset%`}
+                        RETURNING general__asset_file_name
+                    `;
+
+                    expect(deleteResult.length).toBe(assetCount);
+
+                    // Verify assets are gone
+                    const remainingAssets = await tx<
+                        Array<Entity.Asset.I_Asset>
+                    >`
+                        SELECT * FROM entity.entity_assets 
+                        WHERE general__asset_file_name LIKE ${`${DB_TEST_PREFIX}Batch Asset%`}
+                    `;
+
+                    expect(remainingAssets.length).toBe(0);
+                });
+            });
         });
         describe("Relations Operations", () => {
             test("should create an entity with related asset and script, then delete the entity", async () => {
@@ -1114,176 +1346,69 @@ describe("DB", () => {
                     });
                 });
             });
+        });
 
-            describe("Asset Operations", () => {
-                test("should create multiple test assets and capture their tick states", async () => {
-                    await superUserSql.begin(async (tx) => {
-                        // Create two test asset records
-                        const [asset1] = await tx<
-                            [{ general__asset_file_name: string }]
-                        >`
-                    INSERT INTO entity.entity_assets (
-                        general__asset_file_name,
+        describe("Entity Operations", () => {
+            test("should create multiple test entities and capture their tick states", async () => {
+                await superUserSql.begin(async (tx) => {
+                    const entityNames = [
+                        `${DB_TEST_PREFIX}Entity One`,
+                        `${DB_TEST_PREFIX}Entity Two`,
+                        `${DB_TEST_PREFIX}Entity Three`,
+                    ];
+                    const createdEntities = [];
+
+                    for (const name of entityNames) {
+                        const [entity] = await tx<[Entity.I_Entity]>`
+                    INSERT INTO entity.entities (
+                        general__entity_name,
+                        meta__data,
                         group__sync,
-                        asset__data__base64
+                        script__names,
+                        asset__names
                     ) VALUES (
-                        ${`${DB_TEST_PREFIX}Test Asset 1`},
+                        ${name},
+                        ${tx.json({
+                            test_script_1: {
+                                position: {
+                                    x: 0,
+                                    y: 0,
+                                    z: 0,
+                                },
+                            },
+                        })},
                         ${TEST_SYNC_GROUP},
-                        ${Buffer.from("asset data 1").toString("base64")}
-                    ) RETURNING general__asset_file_name
+                        ${tx.array([])},
+                        ${tx.array([])}
+                    ) RETURNING *
                 `;
-                        const [asset2] = await tx<
-                            [{ general__asset_file_name: string }]
-                        >`
-                    INSERT INTO entity.entity_assets (
-                        general__asset_file_name,
-                        group__sync,
-                        asset__data__base64
-                    ) VALUES (
-                        ${`${DB_TEST_PREFIX}Test Asset 2`},
-                        ${TEST_SYNC_GROUP},
-                        ${Buffer.from("asset data 2").toString("base64")}
-                    ) RETURNING general__asset_file_name
-                `;
-                        // Capture a tick so that the asset changes are processed
-                        await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
+                        createdEntities.push(entity);
+                    }
 
-                        // Retrieve all assets and verify they are present
-                        const assets = await tx<Array<Entity.Asset.I_Asset>>`
-                                SELECT * FROM entity.entity_assets WHERE group__sync = ${TEST_SYNC_GROUP}
-                            `;
+                    // Capture tick state
+                    const [tickRecord] = await tx<[Tick.I_Tick]>`
+                SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})
+            `;
 
-                        const retrievedAssetNames = assets.map(
-                            (a) => a.general__asset_file_name,
-                        );
-                        expect(retrievedAssetNames).toContain(
-                            asset1.general__asset_file_name,
-                        );
-                        expect(retrievedAssetNames).toContain(
-                            asset2.general__asset_file_name,
-                        );
-                    });
-                });
+                    // Verify entities exist
+                    const states = await tx<
+                        Array<{ general__entity_id: string }>
+                    >`
+                SELECT general__entity_id
+                FROM entity.entities
+                WHERE group__sync = ${TEST_SYNC_GROUP}
+            `;
 
-                // In the Asset Operations section, add this test after the existing one
-
-                test("should detect asset changes between ticks and only include changed fields", async () => {
-                    let asset1: Entity.Asset.I_Asset;
-
-                    // Create initial asset in its own transaction
-                    await superUserSql.begin(async (tx) => {
-                        [asset1] = await tx<[Entity.Asset.I_Asset]>`
-                            INSERT INTO entity.entity_assets (
-                                general__asset_file_name,
-                                asset__data__base64,
-                                group__sync
-                            ) VALUES (
-                                ${`${DB_TEST_PREFIX}Original Asset`},
-                                ${Buffer.from("initial asset data").toString("base64")},
-                                ${TEST_SYNC_GROUP}
-                            ) RETURNING *
-                        `;
-                    });
-
-                    // Capture first tick in separate transaction
-                    await superUserSql.begin(async (tx) => {
-                        await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
-                    });
-
-                    // Update the asset in a separate transaction
-                    await superUserSql.begin(async (tx) => {
-                        await tx`
-                            UPDATE entity.entity_assets
-                            SET 
-                                asset__data__base64 = ${Buffer.from("updated asset data").toString("base64")}
-                            WHERE general__asset_file_name = ${asset1.general__asset_file_name}
-                        `;
-                    });
-
-                    // Capture second tick in separate transaction
-                    await superUserSql.begin(async (tx) => {
-                        await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
-                    });
-
-                    // Verify changes in separate transaction
-                    await superUserSql.begin(async (tx) => {
-                        // Get the latest two ticks
-                        const latestTicks = await tx`
-                            SELECT general__tick_id, tick__number, tick__start_time
-                            FROM tick.world_ticks
-                            WHERE group__sync = ${TEST_SYNC_GROUP}
-                            ORDER BY tick__number DESC
-                            LIMIT 2
-                        `;
-
-                        const currentTickId = latestTicks[0].general__tick_id;
-                        const previousTickId = latestTicks[1].general__tick_id;
-
-                        // Retrieve asset changes between ticks using direct comparison
-                        const assetChanges = await tx<Tick.I_AssetUpdate[]>`
-                            WITH current_state AS (
-                                SELECT a.*
-                                FROM tick.asset_states a
-                                WHERE a.general__tick_id = ${currentTickId}
-                            ),
-                            previous_state AS (
-                                SELECT a.*
-                                FROM tick.asset_states a
-                                WHERE a.general__tick_id = ${previousTickId}
-                            ),
-                            changed_assets AS (
-                                SELECT 
-                                    c.general__asset_file_name,
-                                    CASE
-                                        WHEN p.general__asset_file_name IS NULL THEN 'INSERT'
-                                        ELSE 'UPDATE'
-                                    END as operation,
-                                    jsonb_build_object(
-                                        'asset__data__base64', 
-                                            CASE WHEN c.asset__data__base64 != p.asset__data__base64 
-                                            THEN c.asset__data__base64 ELSE NULL END
-                                        -- Add other fields as needed
-                                    ) as changes
-                                FROM current_state c
-                                LEFT JOIN previous_state p ON c.general__asset_file_name = p.general__asset_file_name
-                                WHERE 
-                                    p.general__asset_file_name IS NULL OR
-                                    c.asset__data__base64 != p.asset__data__base64
-                                    -- Add other comparisons as needed
-                            )
-                            SELECT * FROM changed_assets
-                        `;
-
-                        // Find our asset in the changes
-                        const assetChange = assetChanges.find(
-                            (c) =>
-                                c.general__asset_file_name ===
-                                asset1.general__asset_file_name,
-                        );
-
-                        expect(assetChange).toBeDefined();
-                        expect(assetChange?.operation).toBe("UPDATE");
-
-                        // Check that only changed fields are included
-                        expect(
-                            assetChange?.changes.asset__data__base64,
-                        ).toBeDefined();
-                    });
+                    const stateIds = states.map((s) => s.general__entity_id);
+                    for (const entity of createdEntities) {
+                        expect(stateIds).toContain(entity.general__entity_id);
+                    }
                 });
             });
 
-            describe("Entity Operations", () => {
-                test("should create multiple test entities and capture their tick states", async () => {
-                    await superUserSql.begin(async (tx) => {
-                        const entityNames = [
-                            `${DB_TEST_PREFIX}Entity One`,
-                            `${DB_TEST_PREFIX}Entity Two`,
-                            `${DB_TEST_PREFIX}Entity Three`,
-                        ];
-                        const createdEntities = [];
-
-                        for (const name of entityNames) {
-                            const [entity] = await tx<[Entity.I_Entity]>`
+            test("should detect entity changes between ticks for multiple entities", async () => {
+                await superUserSql.begin(async (tx) => {
+                    const [entity1] = await tx<[Entity.I_Entity]>`
                         INSERT INTO entity.entities (
                             general__entity_name,
                             meta__data,
@@ -1291,7 +1416,7 @@ describe("DB", () => {
                             script__names,
                             asset__names
                         ) VALUES (
-                            ${name},
+                            ${`${DB_TEST_PREFIX}Original Entity 1`},
                             ${tx.json({
                                 test_script_1: {
                                     position: {
@@ -1306,175 +1431,118 @@ describe("DB", () => {
                             ${tx.array([])}
                         ) RETURNING *
                     `;
-                            createdEntities.push(entity);
-                        }
+                    const [entity2] = await tx<[Entity.I_Entity]>`
+                       INSERT INTO entity.entities (
+                            general__entity_name,
+                            meta__data,
+                            group__sync,
+                            script__names,
+                            asset__names
+                        ) VALUES (
+                            ${`${DB_TEST_PREFIX}Original Entity 2`},
+                            ${tx.json({ test_script_1: { position: { x: 10, y: 10, z: 10 } } })},
+                            ${TEST_SYNC_GROUP},
+                            ${tx.array([])},
+                            ${tx.array([])}
+                        ) RETURNING *
+                    `;
+                    // Capture first tick
+                    await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
 
-                        // Capture tick state
-                        const [tickRecord] = await tx<[Tick.I_Tick]>`
-                    SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})
-                `;
+                    // Update both entities
+                    await tx`
+                        UPDATE entity.entities
+                        SET general__entity_name = ${`${DB_TEST_PREFIX}Updated Entity 1`},
+                            meta__data = ${tx.json({ test_script_1: { position: { x: 5, y: 5, z: 5 } } })}
+                        WHERE general__entity_id = ${entity1.general__entity_id}
+                    `;
+                    await tx`
+                        UPDATE entity.entities
+                        SET general__entity_name = ${`${DB_TEST_PREFIX}Updated Entity 2`},
+                            meta__data = ${tx.json({ test_script_1: { position: { x: 15, y: 15, z: 15 } } })}
+                        WHERE general__entity_id = ${entity2.general__entity_id}
+                    `;
 
-                        // Verify entities exist
-                        const states = await tx<
-                            Array<{ general__entity_id: string }>
-                        >`
-                    SELECT general__entity_id
-                    FROM entity.entities
-                    WHERE group__sync = ${TEST_SYNC_GROUP}
-                `;
+                    // Capture second tick
+                    await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
 
-                        const stateIds = states.map(
-                            (s) => s.general__entity_id,
-                        );
-                        for (const entity of createdEntities) {
-                            expect(stateIds).toContain(
-                                entity.general__entity_id,
-                            );
-                        }
-                    });
-                });
+                    // Retrieve changed entity states between latest ticks and verify
+                    const latestTicks = await tx`
+                        SELECT general__tick_id
+                        FROM tick.world_ticks
+                        WHERE group__sync = ${TEST_SYNC_GROUP}
+                        ORDER BY tick__number DESC
+                        LIMIT 2
+                    `;
 
-                test("should detect entity changes between ticks for multiple entities", async () => {
-                    await superUserSql.begin(async (tx) => {
-                        const [entity1] = await tx<[Entity.I_Entity]>`
-                            INSERT INTO entity.entities (
-                                general__entity_name,
-                                meta__data,
-                                group__sync,
-                                script__names,
-                                asset__names
-                            ) VALUES (
-                                ${`${DB_TEST_PREFIX}Original Entity 1`},
-                                ${tx.json({
-                                    test_script_1: {
-                                        position: {
-                                            x: 0,
-                                            y: 0,
-                                            z: 0,
-                                        },
-                                    },
-                                })},
-                                ${TEST_SYNC_GROUP},
-                                ${tx.array([])},
-                                ${tx.array([])}
-                            ) RETURNING *
-                        `;
-                        const [entity2] = await tx<[Entity.I_Entity]>`
-                           INSERT INTO entity.entities (
-                                general__entity_name,
-                                meta__data,
-                                group__sync,
-                                script__names,
-                                asset__names
-                            ) VALUES (
-                                ${`${DB_TEST_PREFIX}Original Entity 2`},
-                                ${tx.json({ test_script_1: { position: { x: 10, y: 10, z: 10 } } })},
-                                ${TEST_SYNC_GROUP},
-                                ${tx.array([])},
-                                ${tx.array([])}
-                            ) RETURNING *
-                        `;
-                        // Capture first tick
-                        await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
+                    const currentTickId = latestTicks[0].general__tick_id;
+                    const previousTickId = latestTicks[1].general__tick_id;
 
-                        // Update both entities
-                        await tx`
-                            UPDATE entity.entities
-                            SET general__entity_name = ${`${DB_TEST_PREFIX}Updated Entity 1`},
-                                meta__data = ${tx.json({ test_script_1: { position: { x: 5, y: 5, z: 5 } } })}
-                            WHERE general__entity_id = ${entity1.general__entity_id}
-                        `;
-                        await tx`
-                            UPDATE entity.entities
-                            SET general__entity_name = ${`${DB_TEST_PREFIX}Updated Entity 2`},
-                                meta__data = ${tx.json({ test_script_1: { position: { x: 15, y: 15, z: 15 } } })}
-                            WHERE general__entity_id = ${entity2.general__entity_id}
-                        `;
+                    // Query for entity changes between the two ticks
+                    const changes = await tx<Array<Tick.I_EntityUpdate>>`
+                        WITH current_state AS (
+                            SELECT e.*
+                            FROM tick.entity_states e
+                            WHERE e.general__tick_id = ${currentTickId}
+                        ),
+                        previous_state AS (
+                            SELECT e.*
+                            FROM tick.entity_states e
+                            WHERE e.general__tick_id = ${previousTickId}
+                        ),
+                        changed_entities AS (
+                            SELECT 
+                                c.general__entity_id,
+                                CASE
+                                    WHEN p.general__entity_id IS NULL THEN 'INSERT'
+                                    ELSE 'UPDATE'
+                                END as operation,
+                                jsonb_build_object(
+                                    'general__entity_name', 
+                                        CASE WHEN c.general__entity_name != p.general__entity_name 
+                                        THEN c.general__entity_name ELSE NULL END,
+                                    'meta__data', 
+                                        CASE WHEN c.meta__data != p.meta__data 
+                                        THEN c.meta__data ELSE NULL END,
+                                    'script__names', 
+                                        CASE WHEN c.script__names != p.script__names 
+                                        THEN c.script__names ELSE NULL END,
+                                    'asset__names', 
+                                        CASE WHEN c.asset__names != p.asset__names 
+                                        THEN c.asset__names ELSE NULL END
+                                    -- Add other entity fields as needed
+                                ) as changes
+                            FROM current_state c
+                            LEFT JOIN previous_state p ON c.general__entity_id = p.general__entity_id
+                            WHERE 
+                                p.general__entity_id IS NULL OR
+                                c.general__entity_name != p.general__entity_name OR
+                                c.meta__data != p.meta__data OR
+                                c.script__names != p.script__names OR
+                                c.asset__names != p.asset__names
+                                -- Add other comparisons as needed
+                        )
+                        SELECT * FROM changed_entities
+                    `;
 
-                        // Capture second tick
-                        await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
+                    const changeIds = changes.map((c) => c.general__entity_id);
+                    expect(changeIds).toEqual(
+                        expect.arrayContaining([
+                            entity1.general__entity_id,
+                            entity2.general__entity_id,
+                        ]),
+                    );
 
-                        // Retrieve changed entity states between latest ticks and verify
-                        const latestTicks = await tx`
-                            SELECT general__tick_id
-                            FROM tick.world_ticks
-                            WHERE group__sync = ${TEST_SYNC_GROUP}
-                            ORDER BY tick__number DESC
-                            LIMIT 2
-                        `;
-
-                        const currentTickId = latestTicks[0].general__tick_id;
-                        const previousTickId = latestTicks[1].general__tick_id;
-
-                        // Query for entity changes between the two ticks
-                        const changes = await tx<Array<Tick.I_EntityUpdate>>`
-                            WITH current_state AS (
-                                SELECT e.*
-                                FROM tick.entity_states e
-                                WHERE e.general__tick_id = ${currentTickId}
-                            ),
-                            previous_state AS (
-                                SELECT e.*
-                                FROM tick.entity_states e
-                                WHERE e.general__tick_id = ${previousTickId}
-                            ),
-                            changed_entities AS (
-                                SELECT 
-                                    c.general__entity_id,
-                                    CASE
-                                        WHEN p.general__entity_id IS NULL THEN 'INSERT'
-                                        ELSE 'UPDATE'
-                                    END as operation,
-                                    jsonb_build_object(
-                                        'general__entity_name', 
-                                            CASE WHEN c.general__entity_name != p.general__entity_name 
-                                            THEN c.general__entity_name ELSE NULL END,
-                                        'meta__data', 
-                                            CASE WHEN c.meta__data != p.meta__data 
-                                            THEN c.meta__data ELSE NULL END,
-                                        'script__names', 
-                                            CASE WHEN c.script__names != p.script__names 
-                                            THEN c.script__names ELSE NULL END,
-                                        'asset__names', 
-                                            CASE WHEN c.asset__names != p.asset__names 
-                                            THEN c.asset__names ELSE NULL END
-                                        -- Add other entity fields as needed
-                                    ) as changes
-                                FROM current_state c
-                                LEFT JOIN previous_state p ON c.general__entity_id = p.general__entity_id
-                                WHERE 
-                                    p.general__entity_id IS NULL OR
-                                    c.general__entity_name != p.general__entity_name OR
-                                    c.meta__data != p.meta__data OR
-                                    c.script__names != p.script__names OR
-                                    c.asset__names != p.asset__names
-                                    -- Add other comparisons as needed
-                            )
-                            SELECT * FROM changed_entities
-                        `;
-
-                        const changeIds = changes.map(
-                            (c) => c.general__entity_id,
-                        );
-                        expect(changeIds).toEqual(
-                            expect.arrayContaining([
-                                entity1.general__entity_id,
-                                entity2.general__entity_id,
-                            ]),
-                        );
-
-                        // Verify updated details for one of the entities
-                        const updatedChange = changes.find(
-                            (c) =>
-                                c.general__entity_id ===
-                                entity1.general__entity_id,
-                        );
-                        expect(updatedChange).toBeTruthy();
-                        expect(updatedChange?.operation).toBe("UPDATE");
-                        expect(
-                            updatedChange?.changes.general__entity_name,
-                        ).toBe(`${DB_TEST_PREFIX}Updated Entity 1`);
-                    });
+                    // Verify updated details for one of the entities
+                    const updatedChange = changes.find(
+                        (c) =>
+                            c.general__entity_id === entity1.general__entity_id,
+                    );
+                    expect(updatedChange).toBeTruthy();
+                    expect(updatedChange?.operation).toBe("UPDATE");
+                    expect(updatedChange?.changes.general__entity_name).toBe(
+                        `${DB_TEST_PREFIX}Updated Entity 1`,
+                    );
                 });
             });
         });

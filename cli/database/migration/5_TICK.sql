@@ -21,7 +21,6 @@ CREATE TABLE tick.world_ticks (
     tick__duration_ms double precision NOT NULL,
     tick__entity_states_processed int NOT NULL,
     tick__script_states_processed int NOT NULL,
-    tick__asset_states_processed int NOT NULL,
     tick__is_delayed boolean NOT NULL,
     tick__headroom_ms double precision,
     tick__time_since_last_tick_ms double precision,
@@ -82,26 +81,6 @@ CREATE TABLE tick.script_states (
         REFERENCES tick.world_ticks(general__tick_id) ON DELETE CASCADE
 );
 
--- 2.4 ASSET STATES TABLE - Replacing asset_audit_log
-CREATE TABLE tick.asset_states (
-    LIKE entity.entity_assets INCLUDING DEFAULTS EXCLUDING CONSTRAINTS,
-
-    -- Additional metadata for state tracking
-    general__tick_id uuid NOT NULL,
-    general__asset_state_id uuid DEFAULT uuid_generate_v4(),
-
-    -- Override the primary key to allow multiple states per asset
-    CONSTRAINT asset_states_pkey PRIMARY KEY (general__asset_state_id),
-
-    -- Add foreign key constraint for sync_group
-    CONSTRAINT asset_states_sync_group_fkey FOREIGN KEY (group__sync) 
-        REFERENCES auth.sync_groups(general__sync_group),
-    
-    -- Add foreign key constraint to world_ticks with cascade delete
-    CONSTRAINT asset_states_tick_fkey FOREIGN KEY (general__tick_id)
-        REFERENCES tick.world_ticks(general__tick_id) ON DELETE CASCADE
-);
-
 -- ============================================================================
 -- 3. INDEXES
 -- ============================================================================
@@ -124,21 +103,11 @@ CREATE INDEX script_states_sync_group_tick_idx ON tick.script_states (group__syn
 CREATE INDEX idx_script_states_sync_tick_lookup ON tick.script_states (group__sync, general__tick_id, general__script_file_name);
 CREATE INDEX idx_script_states_sync_tick ON tick.script_states (group__sync, general__tick_id);
 
--- 3.4 ASSET STATES INDEXES
-CREATE INDEX asset_states_lookup_idx ON tick.asset_states (general__asset_file_name, general__tick_id);
-CREATE INDEX asset_states_tick_idx ON tick.asset_states (general__tick_id);
-CREATE INDEX asset_states_sync_group_tick_idx ON tick.asset_states (group__sync, general__tick_id DESC);
-CREATE INDEX idx_asset_states_sync_tick_lookup ON tick.asset_states (group__sync, general__tick_id, general__asset_file_name);
-CREATE INDEX idx_asset_states_sync_tick ON tick.asset_states (group__sync, general__tick_id);
-
 -- Fast lookups of entity states by tick and entity ID
 CREATE INDEX idx_entity_states_tick_entity_id ON tick.entity_states (general__tick_id, general__entity_id);
 
 -- Fast lookups of script states by tick and script name
 CREATE INDEX idx_script_states_tick_script_name ON tick.script_states (general__tick_id, general__script_file_name);
-
--- Fast lookups of asset states by tick and asset name
-CREATE INDEX idx_asset_states_tick_asset_name ON tick.asset_states (general__tick_id, general__asset_file_name);
 
 -- Optimized index for finding latest ticks by sync group with covering columns
 CREATE INDEX idx_world_ticks_sync_number_covering ON tick.world_ticks 
@@ -155,11 +124,6 @@ CREATE INDEX idx_script_states_updated_at ON tick.script_states
     (group__sync, general__updated_at DESC) 
     INCLUDE (general__script_file_name);
     
--- Fast timestamp comparisons for asset changes
-CREATE INDEX idx_asset_states_updated_at ON tick.asset_states 
-    (group__sync, general__updated_at DESC) 
-    INCLUDE (general__asset_file_name);
-
 -- Space-efficient BRIN index for time-series data
 CREATE INDEX idx_world_ticks_time_brin ON tick.world_ticks USING BRIN (tick__start_time);
 
@@ -172,11 +136,6 @@ CREATE INDEX idx_entity_states_sync_tick_composite ON tick.entity_states
 CREATE INDEX idx_script_states_sync_tick_composite ON tick.script_states 
     (group__sync, general__tick_id) 
     INCLUDE (general__script_file_name, script__compiled__status);
-
--- Composite index for tick + sync group lookup patterns for assets
-CREATE INDEX idx_asset_states_sync_tick_composite ON tick.asset_states 
-    (group__sync, general__tick_id) 
-    INCLUDE (general__asset_file_name);
 
 -- ============================================================================
 -- 4. FUNCTIONS
@@ -194,7 +153,6 @@ CREATE OR REPLACE FUNCTION tick.capture_tick_state(
     tick__duration_ms double precision,
     tick__entity_states_processed int,
     tick__script_states_processed int,
-    tick__asset_states_processed int,
     tick__is_delayed boolean,
     tick__headroom_ms double precision,
     tick__time_since_last_tick_ms double precision,
@@ -209,7 +167,6 @@ DECLARE
     v_tick_number bigint;
     v_entity_states_processed int;
     v_script_states_processed int;
-    v_asset_states_processed int;
     v_end_time timestamptz;
     v_duration_ms double precision;
     v_headroom_ms double precision;
@@ -287,7 +244,6 @@ BEGIN
         tick__duration_ms,
         tick__entity_states_processed,
         tick__script_states_processed,
-        tick__asset_states_processed,
         tick__is_delayed,
         tick__headroom_ms,
         tick__time_since_last_tick_ms,
@@ -301,7 +257,6 @@ BEGIN
         p_sync_group,
         v_start_time,
         clock_timestamp(),
-        0,
         0,
         0,
         0,
@@ -416,41 +371,6 @@ BEGIN
     )
     SELECT COUNT(*) INTO v_script_states_processed FROM script_snapshot;
 
-    -- Capture asset states (now including timestamp columns)
-    WITH asset_snapshot AS (
-        INSERT INTO tick.asset_states (
-            general__asset_file_name,
-            group__sync,
-            asset__data__base64,
-            asset__data__bytea,
-            general__created_at,
-            general__created_by,
-            general__updated_at,
-            general__updated_by,
-            general__tick_id,
-            -- Include timestamp column
-            asset__data__base64_updated_at,
-            asset__data__bytea_updated_at
-        )
-        SELECT 
-            a.general__asset_file_name,
-            a.group__sync,
-            a.asset__data__base64,
-            a.asset__data__bytea,
-            a.general__created_at,
-            a.general__created_by,
-            a.general__updated_at,
-            a.general__updated_by,
-            v_tick_id,
-            -- Copy timestamp column
-            a.asset__data__base64_updated_at,
-            a.asset__data__bytea_updated_at
-        FROM entity.entity_assets a
-        WHERE a.group__sync = p_sync_group
-        RETURNING 1
-    )
-    SELECT COUNT(*) INTO v_asset_states_processed FROM asset_snapshot;
-
     -- Calculate tick duration, delay & headroom
     v_end_time := clock_timestamp();
     v_duration_ms := EXTRACT(EPOCH FROM (v_end_time - v_start_time)) * 1000;
@@ -474,7 +394,6 @@ BEGIN
         tick__duration_ms = v_duration_ms,
         tick__entity_states_processed = v_entity_states_processed,
         tick__script_states_processed = v_script_states_processed,
-        tick__asset_states_processed = v_asset_states_processed,
         tick__is_delayed = v_is_delayed,
         tick__headroom_ms = v_headroom_ms,
         tick__db__end_time = v_db_end_time,
@@ -503,7 +422,6 @@ BEGIN
         v_duration_ms,
         v_entity_states_processed,
         v_script_states_processed,
-        v_asset_states_processed,
         v_is_delayed,
         v_headroom_ms,
         v_time_since_last_tick_ms,
@@ -522,7 +440,6 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 ALTER TABLE tick.world_ticks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tick.entity_states ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tick.script_states ENABLE ROW LEVEL SECURITY;
-ALTER TABLE tick.asset_states ENABLE ROW LEVEL SECURITY;
 
 -- ============================================================================
 -- 6. POLICIES
@@ -606,32 +523,6 @@ CREATE POLICY "script_states_insert_policy" ON tick.script_states
     WITH CHECK (auth.is_admin_agent());
 
 CREATE POLICY "script_states_delete_policy" ON tick.script_states
-    FOR DELETE
-    USING (auth.is_admin_agent());
-
--- 6.4 ASSET STATES POLICIES
-CREATE POLICY "asset_states_read_policy" ON tick.asset_states
-    FOR SELECT
-    USING (
-        auth.is_admin_agent()
-        OR auth.is_system_agent()
-        OR EXISTS (
-            SELECT 1 
-            FROM auth.active_sync_group_sessions sess 
-            WHERE sess.auth__agent_id = auth.current_agent_id()
-              AND sess.group__sync = tick.asset_states.group__sync
-        )
-    );
-
-CREATE POLICY "asset_states_update_policy" ON tick.asset_states
-    FOR UPDATE
-    USING (auth.is_admin_agent());
-
-CREATE POLICY "asset_states_insert_policy" ON tick.asset_states
-    FOR INSERT
-    WITH CHECK (auth.is_admin_agent());
-
-CREATE POLICY "asset_states_delete_policy" ON tick.asset_states
     FOR DELETE
     USING (auth.is_admin_agent());
 

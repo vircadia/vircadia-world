@@ -332,7 +332,6 @@ export class WorldTickManager {
                     result?.tick_data.tick__entity_states_processed,
                 "Script Changes":
                     result?.tick_data.tick__script_states_processed,
-                "Asset Changes": result?.tick_data.tick__asset_states_processed,
             },
             debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
             suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,

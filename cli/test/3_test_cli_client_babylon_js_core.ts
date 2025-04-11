@@ -201,9 +201,9 @@ describe("Babylon.js Client Core Integration", () => {
             // Test querying the database through the connection
             const queryResponse = await core
                 .getConnectionManager()
-                .sendQueryAsync<Entity.I_Entity[]>(
-                    "SELECT * FROM entity.entities",
-                );
+                .sendQueryAsync<Entity.I_Entity[]>({
+                    query: "SELECT * FROM entity.entities",
+                });
 
             expect(queryResponse.result).toBeDefined();
             expect(queryResponse.errorMessage).toBeNull();
@@ -558,9 +558,9 @@ describe("Babylon.js Client Core Integration", () => {
             // Execute an invalid query that should return an error
             const queryResponse = await core
                 .getConnectionManager()
-                .sendQueryAsync<Entity.I_Entity[]>(
-                    "SELECT * FROM non_existent_table",
-                );
+                .sendQueryAsync<Entity.I_Entity[]>({
+                    query: "SELECT * FROM non_existent_table",
+                });
 
             // Response should contain an error message
             expect(queryResponse.errorMessage).not.toBeNull();

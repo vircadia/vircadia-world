@@ -368,15 +368,15 @@ export namespace WebScript_CLI {
                     return;
                 }
 
-                log({
-                    message: `Compiling script: ${fileName} (${scriptTypes}) (${Entity.Script.E_CompilationStatus.COMPILING})`,
-                    type: "info",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-                });
-
                 // Compile the script
                 for (const scriptType of scriptTypes) {
+                    log({
+                        message: `Compiling script: ${fileName} (${scriptType}) (${Entity.Script.E_CompilationStatus.COMPILING})`,
+                        type: "info",
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+
                     const compiledResult = await compileAndUpdateScript({
                         sql: sql,
                         source: content,
@@ -384,6 +384,7 @@ export namespace WebScript_CLI {
                         filePath: filePath,
                         fileName: fileName,
                     });
+
                     log({
                         message: `Compiled script: ${fileName} (${scriptType}) (${compiledResult.status})`,
                         type: "info",

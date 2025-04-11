@@ -6,7 +6,7 @@ import {
     createEffect,
 } from "solid-js";
 import { Scene, WebGPUEngine } from "@babylonjs/core";
-import { VircadiaBabylonCore } from "../../vircadia-world-sdk-ts/module/client/core/vircadia.babylon.core";
+import { VircadiaBabylonCore } from "../../vircadia-world-sdk-ts/module/client/vircadia.babylon.core";
 import { VircadiaConfig_BROWSER_CLIENT } from "../../vircadia-world-sdk-ts/config/vircadia.browser.client.config";
 import {
     Communication,
@@ -110,10 +110,10 @@ const App: Component = () => {
                         type: "info",
                         data: {
                             entitiesCount: vircadiaClient
-                                .getEntityManager()
+                                .getEntityAndScriptManager()
                                 .getEntities().size,
                             scriptsCount: vircadiaClient
-                                .getScriptManager()
+                                .getEntityAndScriptManager()
                                 .getScriptInstances().size,
                         },
                         suppress:

@@ -136,7 +136,6 @@ CREATE INDEX idx_entity_states_sync_tick_composite ON tick.entity_states
 CREATE INDEX idx_script_states_sync_tick_composite ON tick.script_states 
     (group__sync, general__tick_id) 
     INCLUDE (general__script_file_name, 
-             script__compiled__babylon_node__status,
              script__compiled__babylon_bun__status,
              script__compiled__babylon_browser__status);
 
@@ -333,12 +332,6 @@ BEGIN
             script__source__data,
             script__source__updated_at,
             
-            -- Platform-specific fields - BABYLON_NODE
-            script__compiled__babylon_node__data,
-            script__compiled__babylon_node__status,
-            script__compiled__babylon_node__data_updated_at,
-            script__compiled__babylon_node__status_updated_at,
-            
             -- Platform-specific fields - BABYLON_BUN
             script__compiled__babylon_bun__data,
             script__compiled__babylon_bun__status,
@@ -369,12 +362,6 @@ BEGIN
             s.script__source__repo__url,
             s.script__source__data,
             s.script__source__updated_at,
-            
-            -- Platform-specific fields - BABYLON_NODE
-            s.script__compiled__babylon_node__data,
-            s.script__compiled__babylon_node__status,
-            s.script__compiled__babylon_node__data_updated_at,
-            s.script__compiled__babylon_node__status_updated_at,
             
             -- Platform-specific fields - BABYLON_BUN
             s.script__compiled__babylon_bun__data,

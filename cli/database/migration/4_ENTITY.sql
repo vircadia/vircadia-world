@@ -30,7 +30,7 @@ CREATE TABLE entity.entity_scripts (
     CONSTRAINT fk_entity_scripts_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group),
 
     script__platform TEXT[] NOT NULL DEFAULT '{BABYLON_BROWSER}',
-    CONSTRAINT chk_script_platform CHECK (script__platform <@ ARRAY['BABYLON_NODE', 'BABYLON_BUN', 'BABYLON_BROWSER']),
+    CONSTRAINT chk_script_platform CHECK (script__platform <@ ARRAY['BABYLON_BUN', 'BABYLON_BROWSER']),
 
     -- Source fields
     script__source__repo__entry_path TEXT NOT NULL DEFAULT '',
@@ -38,13 +38,6 @@ CREATE TABLE entity.entity_scripts (
     script__source__data TEXT NOT NULL DEFAULT '',
     script__source__updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    -- Platform-specific compilation fields - BABYLON_NODE
-    script__compiled__babylon_node__data TEXT NOT NULL DEFAULT '',
-    script__compiled__babylon_node__status TEXT NOT NULL DEFAULT 'NOT_COMPILED',
-    CONSTRAINT chk_script_compiled_babylon_node_status CHECK (script__compiled__babylon_node__status IN ('NOT_COMPILED', 'COMPILING', 'COMPILED', 'FAILED')),
-    script__compiled__babylon_node__data_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    script__compiled__babylon_node__status_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
     -- Platform-specific compilation fields - BABYLON_BUN
     script__compiled__babylon_bun__data TEXT NOT NULL DEFAULT '',
     script__compiled__babylon_bun__status TEXT NOT NULL DEFAULT 'NOT_COMPILED',
@@ -434,14 +427,6 @@ BEGIN
             NEW.script__source__data_updated_at = now();
         END IF;
         
-        IF NEW.script__compiled__babylon_node__data IS DISTINCT FROM OLD.script__compiled__babylon_node__data THEN
-            NEW.script__compiled__babylon_node__data_updated_at = now();
-        END IF;
-
-        IF NEW.script__compiled__babylon_node__status IS DISTINCT FROM OLD.script__compiled__babylon_node__status THEN
-            NEW.script__compiled__babylon_node__status_updated_at = now();
-        END IF;
-        
         IF NEW.script__compiled__babylon_bun__data IS DISTINCT FROM OLD.script__compiled__babylon_bun__data THEN
             NEW.script__compiled__babylon_bun__data_updated_at = now();
         END IF;
@@ -513,11 +498,9 @@ CREATE INDEX idx_script_timestamp_changes ON entity.entity_scripts
     (group__sync,
      GREATEST(
         script__source__data_updated_at,
-        script__compiled__babylon_node__data_updated_at,
         script__compiled__babylon_bun__data_updated_at,
-        script__compiled__babylon_browser__data_updated_at,
-        script__compiled__babylon_node__status_updated_at,
         script__compiled__babylon_bun__status_updated_at,
+        script__compiled__babylon_browser__data_updated_at,
         script__compiled__babylon_browser__status_updated_at,
         script__source__repo__url_updated_at,
         script__source__repo__entry_path_updated_at,

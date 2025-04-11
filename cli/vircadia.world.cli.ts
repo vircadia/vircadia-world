@@ -30,7 +30,6 @@ import type postgres from "postgres";
 
 export namespace WebScript_CLI {
     const VALID_SCRIPT_TYPES = [
-        Entity.Script.E_ScriptType.BABYLON_NODE,
         Entity.Script.E_ScriptType.BABYLON_BUN,
         Entity.Script.E_ScriptType.BABYLON_BROWSER,
     ];
@@ -72,47 +71,6 @@ export namespace WebScript_CLI {
                 throw new Error(
                     `Failed to update script: ${data.fileName} because it does not exist in the database.`,
                 );
-            }
-
-            // Compile for Node if requested
-            if (data.type.includes(Entity.Script.E_ScriptType.BABYLON_NODE)) {
-                try {
-                    await data.sql`
-                        UPDATE entity.entity_scripts
-                        SET script__compiled__babylon_node__status = ${Entity.Script.E_CompilationStatus.COMPILING}
-                        WHERE general__script_file_name = ${data.fileName}
-                    `;
-
-                    const nodeResult = await Bun.build({
-                        entrypoints: [data.filePath],
-                        format: "esm",
-                        target: "node",
-                        minify: false,
-                    });
-
-                    if (nodeResult.success && nodeResult.outputs.length === 1) {
-                        await data.sql`
-                            UPDATE entity.entity_scripts
-                            SET script__compiled__babylon_node__data = ${await nodeResult.outputs[0].text()},
-                                script__compiled__babylon_node__status = ${Entity.Script.E_CompilationStatus.COMPILED}
-                            WHERE general__script_file_name = ${data.fileName}
-                        `;
-                        return {
-                            status: Entity.Script.E_CompilationStatus.COMPILED,
-                        };
-                    }
-
-                    throw new Error("Failed to compile Node");
-                } catch (error) {
-                    await data.sql`
-                        UPDATE entity.entity_scripts
-                        SET script__compiled__babylon_node__status = ${Entity.Script.E_CompilationStatus.FAILED}
-                        WHERE general__script_file_name = ${data.fileName}
-                    `;
-                    return {
-                        status: Entity.Script.E_CompilationStatus.FAILED,
-                    };
-                }
             }
 
             // Compile for Bun if requested
@@ -2958,18 +2916,4 @@ if (import.meta.main) {
         });
         process.exit(1);
     }
-}
-
-// Helper to detect script platform based on filename
-function detectScriptPlatform(fileName: string): Entity.Script.E_ScriptType[] {
-    if (fileName.includes("node")) {
-        return [Entity.Script.E_ScriptType.BABYLON_NODE];
-    }
-
-    if (fileName.includes("bun")) {
-        return [Entity.Script.E_ScriptType.BABYLON_BUN];
-    }
-
-    // Default to browser for maximum compatibility
-    return [Entity.Script.E_ScriptType.BABYLON_BROWSER];
 }

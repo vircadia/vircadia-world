@@ -616,8 +616,8 @@ describe("DB", () => {
                     const [script] = await tx<[Entity.Script.I_Script]>`
         			INSERT INTO entity.entity_scripts (
                         general__script_file_name,
-        				script__compiled__babylon_node__data,
-        				script__compiled__babylon_node__status,
+        				script__compiled__babylon_bun__data,
+        				script__compiled__babylon_bun__status,
         				group__sync
         			) VALUES (
                         ${`${DB_TEST_PREFIX}Test Script`},
@@ -1023,28 +1023,28 @@ describe("DB", () => {
 
                     // Insert a script record.
                     const [script] = await tx<[Entity.Script.I_Script]>`
-        			INSERT INTO entity.entity_scripts (
-        				general__script_file_name,
-        				group__sync,
-        				script__source__repo__entry_path,
-        				script__source__repo__url,
-        				script__platform,
-                        script__compiled__babylon_node__data,
-                        script__compiled__babylon_node__status,
-                        script__compiled__babylon_node__data_updated_at,
-                        script__compiled__babylon_node__status_updated_at
-        			) VALUES (
-        				${`${DB_TEST_PREFIX}Script to delete`},
-        				${"public.NORMAL"},
-        				${"path/to/script"},
-        				${"https://github.com/example/repo"},
-        				${[Entity.Script.E_ScriptType.BABYLON_BROWSER]},
-                        ${'console.log("test")'},
-                        ${Entity.Script.E_CompilationStatus.COMPILED},
-                        ${"2021-01-01 00:00:00"},
-                        ${"2021-01-01 00:00:00"}
-        			) RETURNING *
-        		`;
+                        INSERT INTO entity.entity_scripts (
+                            general__script_file_name,
+                            group__sync,
+                            script__source__repo__entry_path,
+                            script__source__repo__url,
+                            script__platform,
+                            script__compiled__babylon_bun__data,
+                            script__compiled__babylon_bun__status,
+                            script__compiled__babylon_bun__data_updated_at,
+                            script__compiled__babylon_bun__status_updated_at
+                        ) VALUES (
+                            ${`${DB_TEST_PREFIX}Script to delete`},
+                            ${"public.NORMAL"},
+                            ${"path/to/script"},
+                            ${"https://github.com/example/repo"},
+                            ${[Entity.Script.E_ScriptType.BABYLON_BROWSER]},
+                            ${'console.log("test")'},
+                            ${Entity.Script.E_CompilationStatus.COMPILED},
+                            ${"2021-01-01 00:00:00"},
+                            ${"2021-01-01 00:00:00"}
+                        ) RETURNING *
+                    `;
                     // Insert an entity referencing the script.
                     const [entity] = await tx<[Entity.I_Entity]>`
         			INSERT INTO entity.entities (
@@ -1231,8 +1231,8 @@ describe("DB", () => {
                         [script1] = await tx<[Entity.Script.I_Script]>`
                             INSERT INTO entity.entity_scripts (
                                 general__script_file_name,
-                                script__compiled__babylon_node__data,
-                                script__compiled__babylon_node__status,
+                                script__compiled__babylon_bun__data,
+                                script__compiled__babylon_bun__status,
                                 script__source__repo__url,
                                 group__sync
                             ) VALUES (
@@ -1255,8 +1255,8 @@ describe("DB", () => {
                         await tx`
                             UPDATE entity.entity_scripts
                             SET 
-                                script__compiled__babylon_node__data = ${'console.log("updated version")'},
-                                script__compiled__babylon_node__status = ${Entity.Script.E_CompilationStatus.NOT_COMPILED}
+                                script__compiled__babylon_bun__data = ${'console.log("updated version")'},
+                                script__compiled__babylon_bun__status = ${Entity.Script.E_CompilationStatus.NOT_COMPILED}
                             WHERE general__script_file_name = ${script1.general__script_file_name}
                         `;
                     });
@@ -1300,12 +1300,12 @@ describe("DB", () => {
                                         ELSE 'UPDATE'
                                     END as operation,
                                     jsonb_build_object(
-                                        'script__compiled__babylon_node__data', 
-                                            CASE WHEN c.script__compiled__babylon_node__data != p.script__compiled__babylon_node__data 
-                                            THEN c.script__compiled__babylon_node__data ELSE NULL END,
-                                        'script__compiled__babylon_node__status', 
-                                            CASE WHEN c.script__compiled__babylon_node__status != p.script__compiled__babylon_node__status 
-                                            THEN c.script__compiled__babylon_node__status ELSE NULL END,
+                                        'script__compiled__babylon_bun__data', 
+                                            CASE WHEN c.script__compiled__babylon_bun__data != p.script__compiled__babylon_bun__data 
+                                            THEN c.script__compiled__babylon_bun__data ELSE NULL END,
+                                        'script__compiled__babylon_bun__status', 
+                                            CASE WHEN c.script__compiled__babylon_bun__status != p.script__compiled__babylon_bun__status 
+                                            THEN c.script__compiled__babylon_bun__status ELSE NULL END,
                                         'script__source__repo__url', 
                                             CASE WHEN c.script__source__repo__url != p.script__source__repo__url 
                                             THEN c.script__source__repo__url ELSE NULL END
@@ -1315,8 +1315,8 @@ describe("DB", () => {
                                 LEFT JOIN previous_state p ON c.general__script_file_name = p.general__script_file_name
                                 WHERE 
                                     p.general__script_file_name IS NULL OR
-                                    c.script__compiled__babylon_node__data != p.script__compiled__babylon_node__data OR
-                                    c.script__compiled__babylon_node__status != p.script__compiled__babylon_node__status OR
+                                    c.script__compiled__babylon_bun__data != p.script__compiled__babylon_bun__data OR
+                                    c.script__compiled__babylon_bun__status != p.script__compiled__babylon_bun__status OR
                                     c.script__source__repo__url != p.script__source__repo__url
                                     -- Add other comparisons as needed
                             )
@@ -1336,11 +1336,11 @@ describe("DB", () => {
                         // Check that only changed fields are included
                         expect(
                             scriptChange?.changes
-                                .script__compiled__babylon_node__data,
+                                .script__compiled__babylon_bun__data,
                         ).toBe('console.log("updated version")');
                         expect(
                             scriptChange?.changes
-                                .script__compiled__babylon_node__status,
+                                .script__compiled__babylon_bun__status,
                         ).toBe(Entity.Script.E_CompilationStatus.NOT_COMPILED);
 
                         // The URL field wasn't changed, so it shouldn't be included

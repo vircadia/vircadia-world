@@ -32,6 +32,8 @@ export namespace WebScript_CLI {
     const VALID_SCRIPT_TYPES = [
         Entity.Script.E_ScriptType.BABYLON_BUN,
         Entity.Script.E_ScriptType.BABYLON_BROWSER,
+        Entity.Script.E_ScriptType.THREE_BUN,
+        Entity.Script.E_ScriptType.THREE_BROWSER,
     ];
 
     interface ScriptInfo {
@@ -74,11 +76,15 @@ export namespace WebScript_CLI {
             }
 
             // Compile for Bun if requested
-            if (data.type.includes(Entity.Script.E_ScriptType.BABYLON_BUN)) {
+            if (
+                data.type.includes(Entity.Script.E_ScriptType.BABYLON_BUN) ||
+                data.type.includes(Entity.Script.E_ScriptType.THREE_BUN)
+            ) {
                 try {
                     await data.sql`
                         UPDATE entity.entity_scripts
-                        SET script__compiled__babylon_bun__status = ${Entity.Script.E_CompilationStatus.COMPILING}
+                        SET script__compiled__babylon_bun__status = ${Entity.Script.E_CompilationStatus.COMPILING},
+                            script__compiled__three_bun__status = ${Entity.Script.E_CompilationStatus.COMPILING}
                         WHERE general__script_file_name = ${data.fileName}
                     `;
                     const bunResult = await Bun.build({
@@ -92,7 +98,9 @@ export namespace WebScript_CLI {
                         await data.sql`
                             UPDATE entity.entity_scripts
                             SET script__compiled__babylon_bun__data = ${await bunResult.outputs[0].text()},
-                                script__compiled__babylon_bun__status = ${Entity.Script.E_CompilationStatus.COMPILED}
+                                script__compiled__babylon_bun__status = ${Entity.Script.E_CompilationStatus.COMPILED},
+                                script__compiled__three_bun__status = ${Entity.Script.E_CompilationStatus.COMPILED},
+                                script__compiled__three_bun__data = ${await bunResult.outputs[0].text()},
                             WHERE general__script_file_name = ${data.fileName}
                         `;
                         return {
@@ -104,7 +112,8 @@ export namespace WebScript_CLI {
                 } catch (error) {
                     await data.sql`
                         UPDATE entity.entity_scripts
-                        SET script__compiled__babylon_bun__status = ${Entity.Script.E_CompilationStatus.FAILED}
+                        SET script__compiled__babylon_bun__status = ${Entity.Script.E_CompilationStatus.FAILED},
+                            script__compiled__three_bun__status = ${Entity.Script.E_CompilationStatus.FAILED}
                         WHERE general__script_file_name = ${data.fileName}
                     `;
                     return {
@@ -115,12 +124,16 @@ export namespace WebScript_CLI {
 
             // Compile for Browser if requested
             if (
-                data.type.includes(Entity.Script.E_ScriptType.BABYLON_BROWSER)
+                data.type.includes(
+                    Entity.Script.E_ScriptType.BABYLON_BROWSER,
+                ) ||
+                data.type.includes(Entity.Script.E_ScriptType.THREE_BROWSER)
             ) {
                 try {
                     await data.sql`
                         UPDATE entity.entity_scripts
-                        SET script__compiled__babylon_browser__status = ${Entity.Script.E_CompilationStatus.COMPILING}
+                        SET script__compiled__babylon_browser__status = ${Entity.Script.E_CompilationStatus.COMPILING},
+                            script__compiled__three_browser__status = ${Entity.Script.E_CompilationStatus.COMPILING}
                         WHERE general__script_file_name = ${data.fileName}
                     `;
                     const browserResult = await Bun.build({
@@ -137,7 +150,9 @@ export namespace WebScript_CLI {
                         await data.sql`
                             UPDATE entity.entity_scripts
                             SET script__compiled__babylon_browser__data = ${await browserResult.outputs[0].text()},
-                                script__compiled__babylon_browser__status = ${Entity.Script.E_CompilationStatus.COMPILED}
+                                script__compiled__babylon_browser__status = ${Entity.Script.E_CompilationStatus.COMPILED},
+                                script__compiled__three_browser__status = ${Entity.Script.E_CompilationStatus.COMPILED},
+                                script__compiled__three_browser__data = ${await browserResult.outputs[0].text()},
                             WHERE general__script_file_name = ${data.fileName}
                         `;
                         return {
@@ -149,7 +164,8 @@ export namespace WebScript_CLI {
                 } catch (error) {
                     await data.sql`
                         UPDATE entity.entity_scripts
-                        SET script__compiled__babylon_browser__status = ${Entity.Script.E_CompilationStatus.FAILED}
+                        SET script__compiled__babylon_browser__status = ${Entity.Script.E_CompilationStatus.FAILED},
+                            script__compiled__three_browser__status = ${Entity.Script.E_CompilationStatus.FAILED}
                         WHERE general__script_file_name = ${data.fileName}
                     `;
                     return {
@@ -673,6 +689,8 @@ export namespace Client_CLI {
 
             VRCA_CLIENT_CONTAINER_NAME:
                 VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_CONTAINER_NAME,
+
+            // Babylon.js
             VRCA_CLIENT_WEB_BABYLON_JS_DEBUG:
                 VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG.toString(),
             VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS:
@@ -715,6 +733,49 @@ export namespace Client_CLI {
                 VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI,
             VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL:
                 VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL.toString(),
+
+            // Three.js
+            VRCA_CLIENT_WEB_THREE_JS_DEBUG:
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_DEBUG.toString(),
+            VRCA_CLIENT_WEB_THREE_JS_SUPPRESS:
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_SUPPRESS.toString(),
+
+            VRCA_CLIENT_WEB_THREE_JS_PRODUCTION_CONTAINER_NAME:
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_PRODUCTION_CONTAINER_NAME,
+            VRCA_CLIENT_WEB_THREE_JS_PRODUCTION_HOST_CONTAINER_BIND_EXTERNAL:
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_PRODUCTION_HOST_CONTAINER_BIND_EXTERNAL,
+            VRCA_CLIENT_WEB_THREE_JS_PRODUCTION_PORT_CONTAINER_BIND_EXTERNAL:
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_PRODUCTION_PORT_CONTAINER_BIND_EXTERNAL.toString(),
+            VRCA_CLIENT_WEB_THREE_JS_PRODUCTION_PORT_CONTAINER_BIND_INTERNAL:
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_PRODUCTION_PORT_CONTAINER_BIND_INTERNAL.toString(),
+
+            VRCA_CLIENT_WEB_THREE_JS_DEV_HOST:
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_DEV_HOST,
+            VRCA_CLIENT_WEB_THREE_JS_DEV_PORT:
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_DEV_PORT.toString(),
+            VRCA_CLIENT_WEB_THREE_JS_DEBUG_SESSION_TOKEN:
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_DEBUG_SESSION_TOKEN,
+            VRCA_CLIENT_WEB_THREE_JS_DEBUG_SESSION_TOKEN_PROVIDER:
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_DEBUG_SESSION_TOKEN_PROVIDER,
+
+            VRCA_CLIENT_WEB_THREE_JS_META_TITLE_BASE:
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_META_TITLE_BASE,
+            VRCA_CLIENT_WEB_THREE_JS_META_DESCRIPTION:
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_META_DESCRIPTION,
+            VRCA_CLIENT_WEB_THREE_JS_META_OG_IMAGE:
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_META_OG_IMAGE,
+            VRCA_CLIENT_WEB_THREE_JS_META_OG_TYPE:
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_META_OG_TYPE,
+            VRCA_CLIENT_WEB_THREE_JS_META_FAVICON:
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_META_FAVICON,
+
+            VRCA_CLIENT_WEB_THREE_JS_APP_URL:
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_APP_URL,
+
+            VRCA_CLIENT_WEB_THREE_JS_DEFAULT_WORLD_API_URI:
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_DEFAULT_WORLD_API_URI,
+            VRCA_CLIENT_WEB_THREE_JS_DEFAULT_WORLD_API_URI_USING_SSL:
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_DEFAULT_WORLD_API_URI_USING_SSL.toString(),
         };
 
         let dockerArgs = [
@@ -781,8 +842,8 @@ export namespace Client_CLI {
         }
     }
 
-    // Client health check function
-    export async function isWebBabylonJsHealthy(data: {
+    // Web Babylon JS Prod Client health check function
+    export async function isWebBabylonJsProdHealthy(data: {
         wait?:
             | {
                   interval: number;
@@ -839,6 +900,69 @@ export namespace Client_CLI {
 
         while (Date.now() - startTime < waitConfig.timeout) {
             const result = await checkWebBabylonJs();
+            if (result.isHealthy) {
+                return result;
+            }
+            lastError = result.error;
+            await Bun.sleep(waitConfig.interval);
+        }
+
+        return { isHealthy: false, error: lastError };
+    }
+
+    // Web Three JS Prod Client health check function
+    export async function isWebThreeJsProdHealthy(data: {
+        wait?: { interval: number; timeout: number } | boolean;
+    }): Promise<{
+        isHealthy: boolean;
+        error?: Error;
+    }> {
+        const defaultWait = { interval: 100, timeout: 10000 };
+
+        const waitConfig =
+            data.wait === true
+                ? defaultWait
+                : data.wait && typeof data.wait !== "boolean"
+                  ? data.wait
+                  : null;
+
+        const checkWebThreeJs = async (): Promise<{
+            isHealthy: boolean;
+            error?: Error;
+        }> => {
+            try {
+                const response = await fetch(
+                    `http://${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_PRODUCTION_HOST_CONTAINER_BIND_EXTERNAL}:${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_PRODUCTION_PORT_CONTAINER_BIND_EXTERNAL}`,
+                );
+                const isHealthy = response.ok;
+                return {
+                    isHealthy,
+                    error: isHealthy
+                        ? undefined
+                        : new Error("Service not responding"),
+                };
+            } catch (error) {
+                return {
+                    isHealthy: false,
+                    error:
+                        error instanceof Error
+                            ? error
+                            : new Error(String(error)),
+                };
+            }
+        };
+
+        // If waiting is not enabled, just check once
+        if (!waitConfig) {
+            return await checkWebThreeJs();
+        }
+
+        // With waiting enabled, retry until timeout
+        const startTime = Date.now();
+        let lastError: Error | undefined;
+
+        while (Date.now() - startTime < waitConfig.timeout) {
+            const result = await checkWebThreeJs();
             if (result.isHealthy) {
                 return result;
             }
@@ -2814,7 +2938,7 @@ if (import.meta.main) {
                     waitTimeout = Number.parseInt(additionalArgs[1]);
                 }
 
-                const health = await Client_CLI.isWebBabylonJsHealthy({
+                const health = await Client_CLI.isWebBabylonJsProdHealthy({
                     wait:
                         waitInterval && waitTimeout
                             ? {
@@ -2825,6 +2949,39 @@ if (import.meta.main) {
                 });
                 log({
                     message: `Web Babylon JS (Production): ${health.isHealthy ? "healthy" : "unhealthy"}`,
+                    data: health,
+                    type: health.isHealthy ? "success" : "error",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+                if (!health.isHealthy) {
+                    process.exit(1);
+                } else {
+                    process.exit(0);
+                }
+                break;
+            }
+
+            case "client:web_three_js_prod:health": {
+                let waitInterval: number | undefined;
+                let waitTimeout: number | undefined;
+
+                if (additionalArgs.length > 0) {
+                    waitInterval = Number.parseInt(additionalArgs[0]);
+                    waitTimeout = Number.parseInt(additionalArgs[1]);
+                }
+
+                const health = await Client_CLI.isWebThreeJsProdHealthy({
+                    wait:
+                        waitInterval && waitTimeout
+                            ? {
+                                  interval: waitInterval,
+                                  timeout: waitTimeout,
+                              }
+                            : undefined,
+                });
+                log({
+                    message: `Web Three JS (Production): ${health.isHealthy ? "healthy" : "unhealthy"}`,
                     data: health,
                     type: health.isHealthy ? "success" : "error",
                     suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,

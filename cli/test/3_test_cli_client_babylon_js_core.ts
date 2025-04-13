@@ -586,7 +586,7 @@ describe("Babylon.js Client Core Integration", () => {
                         group__sync
                     ) VALUES (
                         ${`${DB_TEST_PREFIX}Entity Model Test Entity`},
-                        ${tx.array(["universal_entity_model.ts"])},
+                        ${tx.array(["babylon_universal_entity_model.ts"])},
                         ${tx.json({
                             transform__position: { x: 0, y: 1, z: 0 },
                             entity_model: {

@@ -30,7 +30,7 @@ CREATE TABLE entity.entity_scripts (
     CONSTRAINT fk_entity_scripts_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group),
 
     script__platform TEXT[] NOT NULL DEFAULT '{BABYLON_BROWSER}',
-    CONSTRAINT chk_script_platform CHECK (script__platform <@ ARRAY['BABYLON_BUN', 'BABYLON_BROWSER']),
+    CONSTRAINT chk_script_platform CHECK (script__platform <@ ARRAY['BABYLON_BUN', 'BABYLON_BROWSER', 'THREE_BUN', 'THREE_BROWSER']),
 
     -- Source fields
     script__source__repo__entry_path TEXT NOT NULL DEFAULT '',
@@ -51,6 +51,20 @@ CREATE TABLE entity.entity_scripts (
     CONSTRAINT chk_script_compiled_babylon_browser_status CHECK (script__compiled__babylon_browser__status IN ('NOT_COMPILED', 'COMPILING', 'COMPILED', 'FAILED')),
     script__compiled__babylon_browser__data_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     script__compiled__babylon_browser__status_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    -- Platform-specific compilation fields - THREE_BUN
+    script__compiled__three_bun__data TEXT NOT NULL DEFAULT '',
+    script__compiled__three_bun__status TEXT NOT NULL DEFAULT 'NOT_COMPILED',
+    CONSTRAINT chk_script_compiled_three_bun_status CHECK (script__compiled__three_bun__status IN ('NOT_COMPILED', 'COMPILING', 'COMPILED', 'FAILED')),
+    script__compiled__three_bun__data_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    script__compiled__three_bun__status_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    -- Platform-specific compilation fields - THREE_BROWSER
+    script__compiled__three_browser__data TEXT NOT NULL DEFAULT '',
+    script__compiled__three_browser__status TEXT NOT NULL DEFAULT 'NOT_COMPILED',
+    CONSTRAINT chk_script_compiled_three_browser_status CHECK (script__compiled__three_browser__status IN ('NOT_COMPILED', 'COMPILING', 'COMPILED', 'FAILED')),
+    script__compiled__three_browser__data_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    script__compiled__three_browser__status_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     script__source__data_updated_at timestamptz NOT NULL DEFAULT now(),
     script__source__repo__url_updated_at timestamptz NOT NULL DEFAULT now(),

@@ -95,9 +95,9 @@ services:
     ports:
       - "${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_INTERNAL}"
     volumes:
-      - ./api/volume:/app
-    working_dir: /app
-    command: ["bun", "run", "--watch", "/app/world.api.manager.ts"]
+      - ../../:/app
+    working_dir: /app/server/service/api/volume/app
+    command: ["bun", "run", "--watch", "world.api.manager.ts"]
     environment:
       VRCA_SERVER_DEBUG: ${VRCA_SERVER_DEBUG}
       VRCA_SERVER_SUPPRESS: ${VRCA_SERVER_SUPPRESS}
@@ -119,7 +119,7 @@ services:
         condition: service_healthy
         restart: true
     healthcheck:
-      test: ["CMD-SHELL", "cd vircadia-world-sdk-ts && bun i && cd ../test && bun test"]
+      test: ["CMD-SHELL", "cd ../test && bun i && bun test"]
       interval: 10s
       timeout: 10s
       retries: 3
@@ -137,9 +137,9 @@ services:
     ports:
       - "${VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_INTERNAL}"
     volumes:
-      - ./tick/volume:/app
-    working_dir: /app
-    command: ["bun", "run", "--watch", "/app/world.tick.manager.ts"]
+      - ../../:/app
+    working_dir: /app/server/service/tick/volume/app
+    command: ["bun", "run", "--watch", "world.tick.manager.ts"]
     environment:
       VRCA_SERVER_DEBUG: ${VRCA_SERVER_DEBUG}
       VRCA_SERVER_SUPPRESS: ${VRCA_SERVER_SUPPRESS}
@@ -159,7 +159,7 @@ services:
         condition: service_healthy
         restart: true
     healthcheck:
-      test: ["CMD-SHELL", "cd vircadia-world-sdk-ts && bun i && cd ../test && bun test"]
+      test: ["CMD-SHELL", "cd ../test && bun i && bun test"]
       interval: 10s
       timeout: 10s
       retries: 3

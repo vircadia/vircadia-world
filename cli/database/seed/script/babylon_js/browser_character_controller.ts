@@ -1,13 +1,16 @@
 import type { Entity } from "../../../../vircadia-world-sdk-ts/schema/schema.general";
 import type { Babylon } from "../../../../vircadia-world-sdk-ts/schema/schema.babylon.script";
-import type { Mesh, Scene } from "@babylonjs/core";
 import {
     MeshBuilder,
     Vector3,
     UniversalCamera,
     ActionManager,
     ExecuteCodeAction,
+    type Mesh,
+    type Scene,
 } from "@babylonjs/core";
+import { Inspector } from "@babylonjs/inspector";
+import { log } from "../../../../vircadia-world-sdk-ts/module/general/log";
 
 interface Position {
     x?: number;
@@ -58,18 +61,15 @@ interface ExtendedScene extends Scene {
 function vircadiaScriptMain(context: Babylon.I_Context): Babylon.ScriptReturn {
     return {
         hooks: {
-            onScriptInitialize: (
-                entity: Entity.I_Entity,
-                assets: Entity.Asset.I_Asset[],
-            ): void => {
+            onScriptInitialize: (entityData: Entity.I_Entity): void => {
                 if (context.Vircadia.Debug) {
                     console.log(
                         "Character controller initialized for entity:",
-                        entity.general__entity_id,
+                        entityData.general__entity_id,
                     );
                 }
 
-                const characterEntity = entity as CharacterEntity;
+                const characterEntity = entityData as CharacterEntity;
                 const scene = context.Babylon.Scene as ExtendedScene;
 
                 // Get canvas - we need to get it differently as Engine is not directly accessible
@@ -96,7 +96,8 @@ function vircadiaScriptMain(context: Babylon.I_Context): Babylon.ScriptReturn {
                 );
 
                 // Set initial position based on entity data
-                const metaData = entity.meta__data as unknown as EntityMetaData;
+                const metaData =
+                    entityData.meta__data as unknown as EntityMetaData;
                 const transformPosition = metaData.transform__position;
                 const entityModel = metaData.entity_model;
                 const position =
@@ -161,6 +162,24 @@ function vircadiaScriptMain(context: Babylon.I_Context): Babylon.ScriptReturn {
                                         characterEntity._jump = true;
                                     }
                                     break;
+                                case "/": {
+                                    log({
+                                        message: "Toggling debug layer",
+                                        debug: context.Vircadia.Debug,
+                                        suppress: context.Vircadia.Suppress,
+                                    });
+                                    if (!Inspector.IsVisible) {
+                                        Inspector.Show(scene, {
+                                            overlay: true,
+                                            showExplorer: true,
+                                            showInspector: true,
+                                            embedMode: true,
+                                        });
+                                    } else {
+                                        Inspector.Hide();
+                                    }
+                                    break;
+                                }
                             }
                         },
                     ),
@@ -185,6 +204,8 @@ function vircadiaScriptMain(context: Babylon.I_Context): Babylon.ScriptReturn {
                                     break;
                                 case "d":
                                     characterEntity._moveRight = false;
+                                    break;
+                                case "/":
                                     break;
                             }
                         },

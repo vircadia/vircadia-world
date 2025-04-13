@@ -14,6 +14,10 @@ Vircadia World is a declarative MMO game framework that allows you to build and 
 Be sure to clone recursively:
 
 ```sh
+git clone https://github.com/vircadia/vircadia-world.git --recursive
+```
+or
+```sh
 git submodule update --init --recursive
 ```
 

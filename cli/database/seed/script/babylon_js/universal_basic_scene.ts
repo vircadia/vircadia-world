@@ -61,7 +61,6 @@ function vircadiaScriptMain(context: Babylon.I_Context): Babylon.ScriptReturn {
         hooks: {
             onScriptInitialize: async (
                 entity: Entity.I_Entity,
-                assets: Entity.Asset.I_Asset[],
             ): Promise<void> => {
                 if (context.Vircadia.Debug) {
                     console.log(

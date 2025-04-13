@@ -3,7 +3,8 @@
     "version": "1.0.0",
     "type": "module",
     "scripts": {
-        "install:all": "bun run install:client && bun run install:cli",
+        "install:all": "bun run install:client && bun run install:cli && bun run install:sdk",
+        "install:sdk": "cd ../sdk/vircadia-world-sdk-ts && bun install",
         "install:client": "cd ../client/web_babylon_js/volume/app && bun install && cd ../vircadia-world-sdk-ts && bun install",
         "install:cli": "bun install && cd ./vircadia-world-sdk-ts && bun install",
 
@@ -49,8 +50,9 @@
     "dependencies": {
         "jsonwebtoken": "^9.0.2",
         "postgres": "^3.4.5",
-        "@babylonjs/core": "8.0.2",
-        "@babylonjs/loaders": "8.0.2"
+        "@babylonjs/core": "8.2.0",
+        "@babylonjs/loaders": "8.2.0",
+        "@babylonjs/inspector": "8.2.0"
     },
     "devDependencies": {
         "@types/bun": "latest",

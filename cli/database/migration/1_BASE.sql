@@ -22,3 +22,4 @@ GRANT USAGE ON SCHEMA public TO vircadia_agent_proxy;
 
 -- Only grant specific permissions needed
 GRANT EXECUTE ON FUNCTION uuid_generate_v4() TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION digest(bytea, text) TO vircadia_agent_proxy;

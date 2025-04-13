@@ -17,8 +17,8 @@ services:
     ports:
       - "${VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_PORT_CONTAINER_BIND_EXTERNAL}:${VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_PORT_CONTAINER_BIND_INTERNAL}"
     volumes:
-      - ./web_babylon_js/volume:/app
-    working_dir: /app/app
+      - ../:/app
+    working_dir: /app/client/web_babylon_js/volume/app
     command: ["bun", "run", "deploy"]
     environment:    
       VRCA_CLIENT_WEB_BABYLON_JS_DEBUG: ${VRCA_CLIENT_WEB_BABYLON_JS_DEBUG}

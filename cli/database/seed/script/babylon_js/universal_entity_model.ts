@@ -5,6 +5,7 @@ import {
     Vector3,
     type Scene,
     type ISceneLoaderAsyncResult,
+    ImportMeshAsync,
 } from "@babylonjs/core";
 import { log } from "../../../../vircadia-world-sdk-ts/module/general/log";
 
@@ -117,10 +118,9 @@ async function getAndLoadEntityAssets(
             return;
         }
 
-        // Retrieve assets in parallel using the Utilities function
-        // The utility will handle checking for updates and downloading when needed
+        // Use getAssetFromServer directly to always fetch from server
         const assetPromises = entity.asset__names.map((assetName) =>
-            context.Vircadia.Utilities.Asset.getAsset({
+            context.Vircadia.Utilities.Asset.getAssetFromServer({
                 assetName,
             }).catch((error) => {
                 log({
@@ -135,9 +135,14 @@ async function getAndLoadEntityAssets(
         );
 
         const assetsResults = await Promise.all(assetPromises);
-        const newAssets = assetsResults.filter(
-            (asset) => asset !== null,
-        ) as Entity.Asset.I_Asset[];
+        const newAssets: Entity.Asset.I_Asset[] = [];
+
+        // Filter out null results and add valid assets to our array
+        for (const asset of assetsResults) {
+            if (asset) {
+                newAssets.push(asset);
+            }
+        }
 
         if (newAssets.length === 0) {
             log({
@@ -193,7 +198,7 @@ async function getAndLoadEntityAssets(
             });
 
             for (const asset of modelAssets) {
-                // Always load the asset - the utility has already handled version checking
+                // Always load the asset - using the existing method
                 await loadAsset(entity, asset, scene, context);
             }
 
@@ -263,6 +268,11 @@ async function loadAsset(
         // Determine if this is a supported 3D model format
         const isGLB = assetType?.toLowerCase() === "glb";
         const isGLTF = assetType?.toLowerCase() === "gltf";
+        const isModelGltfBinary =
+            assetType?.toLowerCase() === "model/gltf-binary";
+        const isModelGltfJson =
+            assetType?.toLowerCase() === "model/gltf+json" ||
+            assetType?.toLowerCase() === "model/gltf";
 
         // If we already have this asset loaded, dispose of it first
         if (entity._assetMeshMap?.has(asset.general__asset_file_name)) {
@@ -274,15 +284,59 @@ async function loadAsset(
             }
         }
 
-        // Load the mesh using the appropriate utility
+        // Load the mesh directly using database query and Babylon's SceneLoader
         let result: ISceneLoaderAsyncResult;
-        if (isGLTF || isGLB) {
-            result = await context.Vircadia.Utilities.Asset.loadGLTFAssetAsMesh(
-                {
-                    asset,
-                    scene,
-                },
-            );
+        if (isGLTF || isGLB || isModelGltfBinary || isModelGltfJson) {
+            // Query the database to get the asset data directly
+            const assetQuery = `
+                SELECT asset__data__bytea, asset__type 
+                FROM entity.entity_assets 
+                WHERE general__asset_file_name = $1
+            `;
+
+            // Define the type alias for the asset query result
+            type AssetQueryResult = {
+                asset__data__bytea: Uint8Array;
+                asset__type: string;
+            };
+
+            // Execute the query
+            const queryResult = await context.Vircadia.Utilities.Query.execute({
+                query: assetQuery,
+                parameters: [asset.general__asset_file_name],
+            });
+
+            // Check if we got any results
+            if (
+                !queryResult.result ||
+                !Array.isArray(queryResult.result) ||
+                queryResult.result.length === 0
+            ) {
+                throw new Error(
+                    `Asset not found in database: ${asset.general__asset_file_name}`,
+                );
+            }
+
+            // Access the first result and extract the binary data
+            const assetData = (queryResult.result[0] as AssetQueryResult)
+                .asset__data__bytea;
+            if (!assetData) {
+                throw new Error(
+                    `No binary data for asset: ${asset.general__asset_file_name}`,
+                );
+            }
+
+            // Convert the bytea data to a Blob that Babylon can use
+            const blob = new Blob([assetData]);
+            const blobURL = URL.createObjectURL(blob);
+
+            // Use Babylon's SceneLoader to import the mesh directly
+            result = await ImportMeshAsync(blobURL, scene, {
+                pluginExtension: ".glb",
+            });
+
+            // Clean up the blob URL after importing
+            // URL.revokeObjectURL(blobURL);
         } else {
             throw new Error(`Unsupported asset type: ${assetType}`);
         }

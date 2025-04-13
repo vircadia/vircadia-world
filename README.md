@@ -48,3 +48,5 @@ The core Vircadia project is open source, permissively licensed under Apache 2.0
 ## Vircadia Quantum
 
 The fast track branch for testing the latest features. (coming soon...)
+
+<!-- TODO: We should remove all the SDK submods, and mount the ENTIRE repo to docker but only use the workingdirs, so that we only have one version of files needed. -->

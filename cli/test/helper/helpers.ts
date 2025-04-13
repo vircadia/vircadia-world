@@ -1,9 +1,9 @@
 import type postgres from "postgres";
 import { sign } from "jsonwebtoken";
 import { expect } from "bun:test";
-import { log } from "../../vircadia-world-sdk-ts/module/general/log";
-import { VircadiaConfig_CLI } from "../../vircadia-world-sdk-ts/config/vircadia.cli.config";
-import type { Auth } from "../../vircadia-world-sdk-ts/schema/schema.general";
+import { log } from "../../../sdk/vircadia-world-sdk-ts/module/general/log";
+import { VircadiaConfig_CLI } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.cli.config";
+import type { Auth } from "../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 
 export const TEST_SYNC_GROUP = "public.REALTIME";
 export const DB_TEST_PREFIX = "RESERVED_vtw908ncjw98t3t8kgr8y9ngv3w8b_db_test_";

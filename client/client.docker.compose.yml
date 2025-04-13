@@ -34,7 +34,7 @@ services:
       VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI: ${VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}
       VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL: ${VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL}
     healthcheck:
-      test: ["CMD-SHELL", "cd ../vircadia-world-sdk-ts && bun i && cd ../test && bun test"]
+      test: ["CMD-SHELL", "cd ../test && bun i && bun test"]
       interval: 10s
       timeout: 10s
       retries: 3

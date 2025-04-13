@@ -5,8 +5,8 @@
     "scripts": {
         "install:all": "bun run install:client && bun run install:cli && bun run install:sdk",
         "install:sdk": "cd ../sdk/vircadia-world-sdk-ts && bun install",
-        "install:client": "cd ../client/web_babylon_js/volume/app && bun install && cd ../vircadia-world-sdk-ts && bun install",
-        "install:cli": "bun install && cd ./vircadia-world-sdk-ts && bun install",
+        "install:client": "cd ../client/web_babylon_js/volume/app && bun install",
+        "install:cli": "bun install",
 
         "dev:hot-sync:web-scripts": "bun vircadia.world.cli.ts dev:hot-sync:web-scripts",
         "dev:hot-sync:web-scripts:by-group": "bun vircadia.world.cli.ts dev:hot-sync:web-scripts --sync-group",

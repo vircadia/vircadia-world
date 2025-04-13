@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test";
-import { VircadiaConfig_SERVER } from "../vircadia-world-sdk-ts/config/vircadia.server.config";
-import { log } from "../vircadia-world-sdk-ts/module/general/log";
-import { Service } from "../vircadia-world-sdk-ts/schema/schema.general";
+import { VircadiaConfig_SERVER } from "../../../../../sdk/vircadia-world-sdk-ts/config/vircadia.server.config";
+import { log } from "../../../../../sdk/vircadia-world-sdk-ts/module/general/log";
+import { Service } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import { fetch } from "bun";
 
 describe("World API Manager - HEALTH", () => {

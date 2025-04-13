@@ -1,6 +1,6 @@
 import { describe, expect, test, beforeAll } from "bun:test";
 import { Client_CLI } from "../vircadia.world.cli";
-import { VircadiaConfig_BROWSER_CLIENT } from "../vircadia-world-sdk-ts/config/vircadia.browser.client.config";
+import { VircadiaConfig_BROWSER_CLIENT } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.browser.client.config";
 
 describe("CLIENT Container and Database CLI Tests", () => {
     beforeAll(async () => {
@@ -41,13 +41,6 @@ describe("CLIENT Container and Database CLI Tests", () => {
             },
         });
         expect(prodHealthAfterDown.isHealthy).toBe(false);
-        await Client_CLI.runClientDockerCommand({
-            args: [
-                "up",
-                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEV_CONTAINER_NAME,
-                "-d",
-            ],
-        });
         await Client_CLI.runClientDockerCommand({
             args: [
                 "up",

@@ -1,11 +1,11 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { NullEngine, Scene } from "@babylonjs/core";
-import { PostgresClient } from "../vircadia-world-sdk-ts/module/server/postgres.server.client";
-import { VircadiaBabylonCore } from "../vircadia-world-sdk-ts/module/client/vircadia.babylon.core";
+import { PostgresClient } from "../../sdk/vircadia-world-sdk-ts/module/server/postgres.server.client";
+import { VircadiaBabylonCore } from "../../sdk/vircadia-world-sdk-ts/module/client/vircadia.babylon.core";
 import {
     Communication,
     Entity,
-} from "../vircadia-world-sdk-ts/schema/schema.general";
+} from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import {
     cleanupTestAccounts,
     cleanupTestAssets,
@@ -18,9 +18,9 @@ import {
     SYSTEM_AUTH_PROVIDER_NAME,
     ANON_AUTH_PROVIDER_NAME,
 } from "./helper/helpers";
-import { VircadiaConfig_CLI } from "../vircadia-world-sdk-ts/config/vircadia.cli.config";
-import { VircadiaConfig_SERVER } from "../vircadia-world-sdk-ts/config/vircadia.server.config";
-import { log } from "../vircadia-world-sdk-ts/module/general/log";
+import { VircadiaConfig_CLI } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.cli.config";
+import { VircadiaConfig_SERVER } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.server.config";
+import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 import type postgres from "postgres";
 
 // Add these variables to hold test accounts

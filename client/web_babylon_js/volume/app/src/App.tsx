@@ -6,13 +6,13 @@ import {
     createEffect,
 } from "solid-js";
 import { Scene, WebGPUEngine } from "@babylonjs/core";
-import { VircadiaBabylonCore } from "../../vircadia-world-sdk-ts/module/client/vircadia.babylon.core";
-import { VircadiaConfig_BROWSER_CLIENT } from "../../vircadia-world-sdk-ts/config/vircadia.browser.client.config";
+import { VircadiaBabylonCore } from "../../../../../sdk/vircadia-world-sdk-ts/module/client/vircadia.babylon.core";
+import { VircadiaConfig_BROWSER_CLIENT } from "../../../../../sdk/vircadia-world-sdk-ts/config/vircadia.browser.client.config";
 import {
     Communication,
     type Entity,
-} from "../../vircadia-world-sdk-ts/schema/schema.general";
-import { log } from "../../vircadia-world-sdk-ts/module/general/log";
+} from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+import { log } from "../../../../../sdk/vircadia-world-sdk-ts/module/general/log";
 
 enum ConnectionState {
     Disconnected = "disconnected",

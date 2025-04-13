@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
-import { VircadiaConfig_BROWSER_CLIENT } from "../vircadia-world-sdk-ts/config/vircadia.browser.client.config";
-import { log } from "../vircadia-world-sdk-ts/module/general/log";
+import { VircadiaConfig_BROWSER_CLIENT } from "../../../../sdk/vircadia-world-sdk-ts/config/vircadia.browser.client.config";
+import { log } from "../../../../sdk/vircadia-world-sdk-ts/module/general/log";
 import { fetch } from "bun";
 
 describe(`${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_CONTAINER_NAME} - HEALTH`, () => {

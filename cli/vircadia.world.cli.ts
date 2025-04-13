@@ -1,7 +1,7 @@
-import { VircadiaConfig_CLI } from "./vircadia-world-sdk-ts/config/vircadia.cli.config.ts";
-import { VircadiaConfig_BROWSER_CLIENT } from "./vircadia-world-sdk-ts/config/vircadia.browser.client.config.ts";
-import { VircadiaConfig_SERVER } from "./vircadia-world-sdk-ts/config/vircadia.server.config.ts";
-import { log } from "./vircadia-world-sdk-ts/module/general/log.ts";
+import { VircadiaConfig_CLI } from "../sdk/vircadia-world-sdk-ts/config/vircadia.cli.config.ts";
+import { VircadiaConfig_BROWSER_CLIENT } from "../sdk/vircadia-world-sdk-ts/config/vircadia.browser.client.config.ts";
+import { VircadiaConfig_SERVER } from "../sdk/vircadia-world-sdk-ts/config/vircadia.server.config.ts";
+import { log } from "../sdk/vircadia-world-sdk-ts/module/general/log.ts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { dirname, basename } from "node:path";
@@ -15,12 +15,12 @@ import {
 } from "node:fs/promises";
 import { existsSync, type WatchEventType } from "node:fs";
 import { sign } from "jsonwebtoken";
-import { PostgresClient } from "./vircadia-world-sdk-ts/module/server/postgres.server.client.ts";
+import { PostgresClient } from "../sdk/vircadia-world-sdk-ts/module/server/postgres.server.client.ts";
 import {
     Entity,
     Service,
     type Auth,
-} from "./vircadia-world-sdk-ts/schema/schema.general.ts";
+} from "../sdk/vircadia-world-sdk-ts/schema/schema.general.ts";
 import type postgres from "postgres";
 
 // TODO: Optimize the commands, get up and down rebuilds including init to work well.

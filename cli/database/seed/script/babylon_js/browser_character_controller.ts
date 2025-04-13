@@ -1,5 +1,5 @@
-import type { Entity } from "../../../../vircadia-world-sdk-ts/schema/schema.general";
-import type { Babylon } from "../../../../vircadia-world-sdk-ts/schema/schema.babylon.script";
+import type { Entity } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+import type { Babylon } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.babylon.script";
 import {
     MeshBuilder,
     Vector3,
@@ -10,7 +10,7 @@ import {
     type Scene,
 } from "@babylonjs/core";
 import { Inspector } from "@babylonjs/inspector";
-import { log } from "../../../../vircadia-world-sdk-ts/module/general/log";
+import { log } from "../../../../../sdk/vircadia-world-sdk-ts/module/general/log";
 
 interface Position {
     x?: number;

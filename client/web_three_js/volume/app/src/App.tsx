@@ -21,7 +21,6 @@ const App: Component = () => {
     let canvasRef: HTMLCanvasElement | undefined;
     let renderer: THREE.WebGLRenderer;
     let scene: THREE.Scene;
-    let camera: THREE.PerspectiveCamera;
     let vircadiaClient: VircadiaThreeCore;
     const [connectionState, setConnectionState] = createSignal<ConnectionState>(
         ConnectionState.Disconnected,
@@ -29,13 +28,9 @@ const App: Component = () => {
 
     // Define handleResize outside to make it accessible in onCleanup
     const handleResize = () => {
-        if (renderer && camera) {
+        if (renderer) {
             const width = window.innerWidth;
             const height = window.innerHeight;
-
-            camera.aspect = width / height;
-            camera.updateProjectionMatrix();
-
             renderer.setSize(width, height);
         }
     };
@@ -57,42 +52,23 @@ const App: Component = () => {
 
         // Create scene
         scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x000000);
-
-        // Create camera
-        camera = new THREE.PerspectiveCamera(
-            75, // field of view
-            window.innerWidth / window.innerHeight, // aspect ratio
-            0.1, // near clipping plane
-            1000, // far clipping plane
-        );
-        camera.position.z = 5;
-
-        // Add ambient light
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-        scene.add(ambientLight);
-
-        // Add directional light
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-        directionalLight.position.set(1, 1, 1);
-        scene.add(directionalLight);
 
         // Initialize Vircadia client
         const serverUrl =
-            VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL
-                ? `https://${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`
-                : `http://${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`;
+            VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_DEFAULT_WORLD_API_URI_USING_SSL
+                ? `https://${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`
+                : `http://${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`;
 
         vircadiaClient = new VircadiaThreeCore({
             serverUrl,
             authToken:
-                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_DEBUG_SESSION_TOKEN,
             authProvider:
-                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER,
-            scene, // Note: This will need to be updated once we have a Three.js core
-            debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_DEBUG_SESSION_TOKEN_PROVIDER,
+            scene,
+            debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_DEBUG,
             suppress:
-                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
+                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_SUPPRESS,
         });
 
         // Temporarily set connection state directly until we have a Three.js core
@@ -104,8 +80,8 @@ const App: Component = () => {
                 message: "Three.js version initialized (Vircadia core pending)",
                 type: "info",
                 suppress:
-                    VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
-                debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
+                    VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_SUPPRESS,
+                debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_DEBUG,
             });
 
             setConnectionState(ConnectionState.Connecting);
@@ -113,16 +89,16 @@ const App: Component = () => {
                 message: "Initializing Vircadia client",
                 type: "info",
                 suppress:
-                    VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
-                debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
+                    VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_SUPPRESS,
+                debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_DEBUG,
             });
             await vircadiaClient.initialize();
             log({
                 message: "Vircadia client initialized",
                 type: "info",
                 suppress:
-                    VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
-                debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
+                    VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_SUPPRESS,
+                debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_DEBUG,
             });
             const connection = vircadiaClient.getConnectionManager();
 
@@ -149,8 +125,8 @@ const App: Component = () => {
                                 .getScriptInstances().size,
                         },
                         suppress:
-                            VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
-                        debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
+                            VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_SUPPRESS,
+                        debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_DEBUG,
                     });
                 } else {
                     log({
@@ -158,8 +134,8 @@ const App: Component = () => {
                             "Checked connection: Disconnected from Vircadia server",
                         type: "info",
                         suppress:
-                            VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
-                        debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
+                            VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_SUPPRESS,
+                        debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_DEBUG,
                     });
                 }
             };
@@ -171,12 +147,14 @@ const App: Component = () => {
             connectionInterval = setInterval(checkConnectionStatus, 2000);
         } catch (error) {
             log({
-                message: "Error initializing Three.js version:",
-                data: error,
+                message: "Error initializing Three.js",
+                data: {
+                    error,
+                },
                 type: "error",
                 suppress:
-                    VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
-                debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
+                    VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_SUPPRESS,
+                debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_DEBUG,
             });
             setConnectionState(ConnectionState.Disconnected);
         }
@@ -184,7 +162,6 @@ const App: Component = () => {
         // Animation/render loop
         const animate = () => {
             animationFrameId = requestAnimationFrame(animate);
-            renderer.render(scene, camera);
         };
 
         animate();

@@ -69,10 +69,10 @@ services:
       VRCA_CLIENT_WEB_THREE_JS_DEFAULT_WORLD_API_URI_USING_SSL: ${VRCA_CLIENT_WEB_THREE_JS_DEFAULT_WORLD_API_URI_USING_SSL}
     healthcheck:
       test: ["CMD-SHELL", "cd ../test && bun i && bun test"]
-    interval: 10s
-    timeout: 10s
-    retries: 3
-    start_period: 5s
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
     networks:
       - vircadia_internal_network
       - vircadia_public_network

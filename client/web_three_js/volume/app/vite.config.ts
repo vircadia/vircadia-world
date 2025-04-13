@@ -12,7 +12,7 @@ export default defineConfig({
     },
     preview: {
         host: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_PRODUCTION_HOST_CONTAINER_BIND_EXTERNAL,
-        port: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_PRODUCTION_PORT_CONTAINER_BIND_INTERNAL,
+        port: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_PRODUCTION_PORT_CONTAINER_BIND_EXTERNAL,
         strictPort: true,
     },
     envPrefix: "VRCA_CLIENT_",

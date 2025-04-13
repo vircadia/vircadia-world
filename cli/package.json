@@ -3,9 +3,10 @@
     "version": "1.0.0",
     "type": "module",
     "scripts": {
-        "install:all": "bun run install:client && bun run install:cli && bun run install:sdk",
+        "install:all": "bun run install:client:web_babylon_js && bun run install:client:web_three_js && bun run install:cli && bun run install:sdk",
         "install:sdk": "cd ../sdk/vircadia-world-sdk-ts && bun install",
-        "install:client": "cd ../client/web_babylon_js/volume/app && bun install",
+        "install:client:web_babylon_js": "cd ../client/web_babylon_js/volume/app && bun install",
+        "install:client:web_three_js": "cd ../client/web_three_js/volume/app && bun install",
         "install:cli": "bun install",
         "dev:hot-sync:web-scripts": "bun vircadia.world.cli.ts dev:hot-sync:web-scripts",
         "dev:hot-sync:web-scripts:by-group": "bun vircadia.world.cli.ts dev:hot-sync:web-scripts --sync-group",
@@ -52,7 +53,8 @@
     "devDependencies": {
         "@types/bun": "latest",
         "@types/jsonwebtoken": "latest",
-        "@types/node": "^22.13.9"
+        "@types/node": "^22.13.9",
+        "@types/three": "latest"
     },
     "engines": {
         "bun": ">=1.2.4"

@@ -100,7 +100,7 @@ export namespace WebScript_CLI {
                             SET script__compiled__babylon_bun__data = ${await bunResult.outputs[0].text()},
                                 script__compiled__babylon_bun__status = ${Entity.Script.E_CompilationStatus.COMPILED},
                                 script__compiled__three_bun__status = ${Entity.Script.E_CompilationStatus.COMPILED},
-                                script__compiled__three_bun__data = ${await bunResult.outputs[0].text()},
+                                script__compiled__three_bun__data = ${await bunResult.outputs[0].text()}
                             WHERE general__script_file_name = ${data.fileName}
                         `;
                         return {
@@ -152,7 +152,7 @@ export namespace WebScript_CLI {
                             SET script__compiled__babylon_browser__data = ${await browserResult.outputs[0].text()},
                                 script__compiled__babylon_browser__status = ${Entity.Script.E_CompilationStatus.COMPILED},
                                 script__compiled__three_browser__status = ${Entity.Script.E_CompilationStatus.COMPILED},
-                                script__compiled__three_browser__data = ${await browserResult.outputs[0].text()},
+                                script__compiled__three_browser__data = ${await browserResult.outputs[0].text()}
                             WHERE general__script_file_name = ${data.fileName}
                         `;
                         return {
@@ -558,7 +558,9 @@ export namespace WebScript_CLI {
         await downloadScriptsFromDatabase();
 
         // Initial scan of local directory
-        const initialFiles = await readdir(syncDir);
+        const initialFiles = await readdir(syncDir, {
+            recursive: true,
+        });
         for (const fileName of initialFiles) {
             const filePath = path.join(syncDir, fileName);
             try {
@@ -1370,6 +1372,9 @@ export namespace Server_CLI {
             // Get list of migration files
             const resets = await readdir(
                 VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_RESET_DIR,
+                {
+                    recursive: true,
+                },
             );
             const resetSqlFiles = resets
                 .filter((f) => f.endsWith(".sql"))
@@ -1468,6 +1473,9 @@ export namespace Server_CLI {
         // Get list of migration files
         const migrations = await readdir(
             VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_MIGRATION_DIR,
+            {
+                recursive: true,
+            },
         );
         const migrationSqlFiles = migrations
             .filter((f) => f.endsWith(".sql"))
@@ -1585,7 +1593,9 @@ export namespace Server_CLI {
             let systemSqlFiles: string[] = [];
             if (systemSqlDir) {
                 try {
-                    const filesInSystemSqlDir = await readdir(systemSqlDir);
+                    const filesInSystemSqlDir = await readdir(systemSqlDir, {
+                        recursive: true,
+                    });
                     systemSqlFiles = filesInSystemSqlDir
                         .filter((f) => f.endsWith(".sql"))
                         .sort();
@@ -1618,7 +1628,9 @@ export namespace Server_CLI {
             let userSqlFiles: string[] = [];
             if (userSqlDir) {
                 try {
-                    const filesInUserSqlDir = await readdir(userSqlDir);
+                    const filesInUserSqlDir = await readdir(userSqlDir, {
+                        recursive: true,
+                    });
                     userSqlFiles = filesInUserSqlDir
                         .filter((f) => f.endsWith(".sql"))
                         .sort();
@@ -1821,7 +1833,12 @@ export namespace Server_CLI {
             let systemAssetFiles: string[] = [];
             if (systemAssetDir) {
                 try {
-                    const filesInSystemAssetDir = await readdir(systemAssetDir);
+                    const filesInSystemAssetDir = await readdir(
+                        systemAssetDir,
+                        {
+                            recursive: true,
+                        },
+                    );
                     systemAssetFiles = filesInSystemAssetDir.filter((file) => {
                         const ext = path.extname(file).toLowerCase();
                         return [
@@ -1868,7 +1885,9 @@ export namespace Server_CLI {
             let userAssetFiles: string[] = [];
             if (userAssetDir) {
                 try {
-                    const filesInUserAssetDir = await readdir(userAssetDir);
+                    const filesInUserAssetDir = await readdir(userAssetDir, {
+                        recursive: true,
+                    });
                     userAssetFiles = filesInUserAssetDir.filter((file) => {
                         const ext = path.extname(file).toLowerCase();
                         return [
@@ -1978,20 +1997,12 @@ export namespace Server_CLI {
             }: { fileName: string; searchName: string; directory: string }) => {
                 const assetPath = path.join(directory, fileName);
 
-                // Find matches
-                const matchingAssets = dbAssets.filter((dbAsset) =>
-                    dbAsset.general__asset_file_name.includes(searchName),
+                // When using S3-style paths, we need to check for exact matches or create a new asset
+                // instead of matching based on parts of the filename
+                const matchingAssets = dbAssets.filter(
+                    (dbAsset) =>
+                        dbAsset.general__asset_file_name === searchName,
                 );
-
-                if (matchingAssets.length === 0) {
-                    log({
-                        message: `No matching asset found in database for file: ${fileName}`,
-                        type: "warn",
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-                    });
-                    return;
-                }
 
                 // Read asset file content as buffer
                 const file = Bun.file(assetPath);
@@ -2007,7 +2018,35 @@ export namespace Server_CLI {
                     .toUpperCase()
                     .substring(1);
 
-                // Update all matching assets in a single transaction
+                if (matchingAssets.length === 0) {
+                    // Asset doesn't exist in DB yet, create a new one with the full path as name
+                    try {
+                        await sql`
+                            INSERT INTO entity.entity_assets
+                            (general__asset_file_name, asset__data__base64, asset__data__bytea, asset__type, group__sync)
+                            VALUES (${searchName}, ${assetDataBase64}, ${assetDataBinary}, ${fileExt}, 
+                                ${syncGroup || "public.NORMAL"})
+                        `;
+
+                        log({
+                            message: `Added new asset to database: ${searchName}`,
+                            type: "debug",
+                            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        });
+                    } catch (error) {
+                        log({
+                            message: `Failed to add new asset to database: ${searchName}`,
+                            type: "error",
+                            error: error,
+                            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        });
+                    }
+                    return;
+                }
+
+                // Update existing assets
                 try {
                     await sql.begin(async (sql) => {
                         for (const dbAsset of matchingAssets) {
@@ -2329,8 +2368,12 @@ export namespace Server_CLI {
             let systemScriptFiles: string[] = [];
             if (systemScriptDir) {
                 try {
-                    const filesInSystemScriptDir =
-                        await readdir(systemScriptDir);
+                    const filesInSystemScriptDir = await readdir(
+                        systemScriptDir,
+                        {
+                            recursive: true,
+                        },
+                    );
                     systemScriptFiles = filesInSystemScriptDir.filter((f) =>
                         /\.(js|ts|jsx|tsx)$/.test(f),
                     );
@@ -2363,7 +2406,9 @@ export namespace Server_CLI {
             let userScriptFiles: string[] = [];
             if (userScriptDir) {
                 try {
-                    const filesInUserScriptDir = await readdir(userScriptDir);
+                    const filesInUserScriptDir = await readdir(userScriptDir, {
+                        recursive: true,
+                    });
                     userScriptFiles = filesInUserScriptDir.filter((f) =>
                         /\.(js|ts|jsx|tsx)$/.test(f),
                     );
@@ -2595,6 +2640,166 @@ export namespace Server_CLI {
                 debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
             });
             throw error;
+        }
+    }
+
+    export async function downloadAssetsFromDatabase(data: {
+        options?: {
+            parallelProcessing?: boolean;
+            batchSize?: number;
+            syncGroup?: string;
+            outputDir?: string;
+        };
+    }) {
+        const syncGroup = data.options?.syncGroup;
+        const options = {
+            parallelProcessing: true,
+            batchSize: 10,
+            ...data.options,
+        };
+
+        // Use the configured sync directory or the one provided in options
+        const outputDir =
+            options.outputDir ||
+            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SYNC_ASSET_DIR;
+
+        const db = PostgresClient.getInstance({
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+        });
+        const sql = await db.getSuperClient({
+            postgres: {
+                host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                username:
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                password:
+                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+            },
+        });
+
+        log({
+            message: `Starting asset download to ${outputDir}...`,
+            type: "info",
+            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+        });
+
+        try {
+            // Ensure output directory exists
+            if (!existsSync(outputDir)) {
+                await mkdir(outputDir, { recursive: true });
+            }
+
+            // Query assets, optionally filtering by sync group
+            const assetsQuery = syncGroup
+                ? sql`
+                    SELECT 
+                        general__asset_file_name, 
+                        asset__data__bytea,
+                        asset__type 
+                    FROM entity.entity_assets 
+                    WHERE group__sync = ${syncGroup}
+                  `
+                : sql`
+                    SELECT 
+                        general__asset_file_name, 
+                        asset__data__bytea,
+                        asset__type 
+                    FROM entity.entity_assets
+                  `;
+
+            const assets = await assetsQuery;
+
+            log({
+                message: syncGroup
+                    ? `Retrieved ${assets.length} assets with sync group: ${syncGroup}`
+                    : `Retrieved ${assets.length} assets from database`,
+                type: "info",
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            });
+
+            // Function to process a single asset
+            const processAsset = async (asset: {
+                general__asset_file_name: string;
+                asset__data__bytea?: Buffer | Uint8Array | null;
+                asset__type?: string;
+                [key: string]: unknown;
+            }) => {
+                try {
+                    const fileName = asset.general__asset_file_name;
+
+                    // Handle S3-style paths in the filename (folders encoded in the name)
+                    // This preserves any folder structure in the asset name
+                    const filePath = path.join(outputDir, fileName);
+
+                    // Ensure the directory exists
+                    const dirPath = path.dirname(filePath);
+                    if (!existsSync(dirPath)) {
+                        await mkdir(dirPath, { recursive: true });
+                    }
+
+                    // Save the binary data to file
+                    if (asset.asset__data__bytea) {
+                        await writeFile(
+                            filePath,
+                            Buffer.from(asset.asset__data__bytea),
+                        );
+
+                        log({
+                            message: `Downloaded asset: ${fileName}`,
+                            type: "debug",
+                            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        });
+                    } else {
+                        log({
+                            message: `No binary data for asset: ${fileName}`,
+                            type: "warn",
+                            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        });
+                    }
+                } catch (error) {
+                    log({
+                        message: `Error downloading asset: ${asset.general__asset_file_name}`,
+                        type: "error",
+                        error,
+                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    });
+                }
+            };
+
+            // Process assets in parallel or sequentially
+            if (options.parallelProcessing) {
+                // Process in batches
+                for (let i = 0; i < assets.length; i += options.batchSize) {
+                    const batch = assets.slice(i, i + options.batchSize);
+                    await Promise.all(batch.map(processAsset));
+                }
+            } else {
+                for (const asset of assets) {
+                    await processAsset(asset);
+                }
+            }
+
+            log({
+                message: `Asset download completed successfully. Downloaded ${assets.length} assets.`,
+                type: "success",
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            });
+        } catch (error) {
+            log({
+                message: "Error downloading assets from database",
+                type: "error",
+                error,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            });
         }
     }
 }

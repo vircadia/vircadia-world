@@ -1,42 +1,180 @@
 #root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    text-align: left;
+}
+
+/* Reset default body margin and padding to ensure fullscreen */
+body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
 }
 
 .logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
+    height: 6em;
+    padding: 1.5em;
+    will-change: filter;
+    transition: filter 300ms;
 }
 .logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
+    filter: drop-shadow(0 0 2em #646cffaa);
 }
 .logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+    filter: drop-shadow(0 0 2em #61dafbaa);
 }
 
 @keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
+    a:nth-of-type(2) .logo {
+        animation: logo-spin infinite 20s linear;
+    }
 }
 
 .card {
-  padding: 2em;
+    padding: 2em;
 }
 
 .read-the-docs {
-  color: #888;
+    color: #888;
+}
+
+.app {
+    width: 100vw;
+    height: 100vh;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    position: relative;
+}
+
+.benchmark-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.canvas-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+}
+
+.control-panel {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    z-index: 10;
+    background-color: rgba(0, 0, 0, 0.7);
+    color: white;
+    padding: 10px;
+    border-radius: 5px;
+    max-width: 300px;
+    overflow-y: auto;
+    max-height: calc(100vh - 20px);
+}
+
+.benchmark-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.benchmark-controls h3 {
+    margin: 0 0 10px 0;
+    font-size: 1rem;
+    text-align: center;
+}
+
+.connection-controls,
+.entity-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+button {
+    background-color: #4caf50;
+    color: white;
+    border: none;
+    padding: 8px;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 0.8rem;
+    margin: 2px;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+}
+
+/* Stats panel styles */
+.stats-panel {
+    margin-top: 15px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.stats-panel h4 {
+    margin: 0 0 8px 0;
+    font-size: 0.9rem;
+    text-align: center;
+}
+
+.stats-content {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.8rem;
+}
+
+.stat-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.stat-label {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.stat-value {
+    font-weight: bold;
+    color: #4caf50;
+}
+
+/* Make the panel collapsible */
+@media (max-width: 768px) {
+    .control-panel {
+        max-width: 200px;
+    }
+
+    button {
+        font-size: 0.7rem;
+        padding: 6px;
+    }
+
+    .stats-content {
+        font-size: 0.7rem;
+    }
 }

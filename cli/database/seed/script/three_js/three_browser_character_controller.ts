@@ -1,5 +1,5 @@
 import type { Entity } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
-import type { VircadiaThreeScript } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.three.script";
+import type { VircadiaThreeScript } from "../../../../../sdk/vircadia-world-sdk-ts/module/client/vircadia.three.core";
 import {
     Group,
     PerspectiveCamera,

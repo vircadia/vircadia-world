@@ -1,5 +1,5 @@
 import type { Entity } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
-import type { VircadiaThreeScript } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.three.script";
+import type { VircadiaThreeScript } from "../../../../../sdk/vircadia-world-sdk-ts/module/client/vircadia.three.core";
 import type { Communication } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import {
     Group,
@@ -7,9 +7,19 @@ import {
     type Mesh,
     MeshStandardMaterial,
     Color,
+    REVISION as THREE_REVISION,
 } from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { log } from "../../../../../sdk/vircadia-world-sdk-ts/module/general/log";
+
+// Log Three.js version for debugging multiple instances
+console.log(
+    `[three_universal_entity_model] Loaded Three.js r${THREE_REVISION}`,
+);
+// Log the module object to check if it's the same instance
+console.log("[three_universal_entity_model] Three module:", {
+    three: { Group, MeshStandardMaterial, Color, GLTFLoader },
+});
 
 // Define model configuration interface
 interface ModelConfig {
@@ -101,7 +111,9 @@ function vircadiaScriptMain(
 
         try {
             // Query the asset data from the database
-            const response = (await context.Vircadia.Utilities.Query.execute({
+            const response = await context.Vircadia.Utilities.Query.execute<
+                AssetDataFields[]
+            >({
                 query: `
                     SELECT 
                         asset__data__bytea, 
@@ -110,9 +122,7 @@ function vircadiaScriptMain(
                     WHERE general__asset_file_name = $1
                 `,
                 parameters: [assetName],
-            })) as Communication.WebSocket.QueryResponseMessage<
-                AssetDataFields[]
-            >;
+            });
 
             if ("errorMessage" in response && response.errorMessage) {
                 throw new Error(
@@ -129,34 +139,149 @@ function vircadiaScriptMain(
                 throw new Error(`Asset not found: ${assetName}`);
             }
 
-            const assetData = response.result[0];
+            log({
+                message: "Asset found",
+                data: { assetName, assetData: response.result[0] },
+                debug: context.Vircadia.Debug,
+                suppress: context.Vircadia.Suppress,
+            });
+
+            // Since we've verified result exists and has elements, it's safe to access
+            const assetData = response.result[0] as unknown as AssetDataFields;
             let modelData: ArrayBuffer;
 
             // Convert the asset data to ArrayBuffer
-            if (assetData.asset__data__bytea) {
-                // If bytea is available, use it directly
-                // Convert bytea to ArrayBuffer (implementation depends on how bytea is represented)
-                // This is a simplified version - actual implementation may vary
-                const byteCharacters = atob(
-                    assetData.asset__data__bytea as unknown as string,
-                );
-                const byteNumbers = new Array(byteCharacters.length);
+            if (assetData?.asset__data__bytea) {
+                try {
+                    // Handle Buffer format from the server
+                    if (
+                        typeof assetData.asset__data__bytea === "object" &&
+                        assetData.asset__data__bytea !== null &&
+                        "type" in assetData.asset__data__bytea &&
+                        assetData.asset__data__bytea.type === "Buffer" &&
+                        "data" in assetData.asset__data__bytea &&
+                        Array.isArray(assetData.asset__data__bytea.data)
+                    ) {
+                        // Direct access to the Buffer data array
+                        const bufferData = assetData.asset__data__bytea.data;
+                        modelData = new Uint8Array(bufferData).buffer;
 
-                for (let i = 0; i < byteCharacters.length; i++) {
-                    byteNumbers[i] = byteCharacters.charCodeAt(i);
+                        log({
+                            message: "Successfully processed Buffer data",
+                            data: {
+                                dataType: "Buffer",
+                                byteLength: bufferData.length,
+                            },
+                            debug: context.Vircadia.Debug,
+                            suppress: context.Vircadia.Suppress,
+                        });
+                    }
+                    // Fallback to previous string-based methods
+                    else {
+                        // Check if the bytea is already a string or needs conversion
+                        let base64String: string;
+
+                        if (typeof assetData.asset__data__bytea === "string") {
+                            // If it's already a string, use it directly
+                            base64String = assetData.asset__data__bytea;
+                        } else {
+                            // Convert to string if it's in another format
+                            base64String = String(assetData.asset__data__bytea);
+                        }
+
+                        // Remove any potential URL prefix (like data:application/octet-stream;base64,)
+                        const commaIndex = base64String.indexOf(",");
+                        if (commaIndex !== -1) {
+                            base64String = base64String.substring(
+                                commaIndex + 1,
+                            );
+                        }
+
+                        // Decode base64 to binary string
+                        const byteCharacters = atob(base64String);
+                        const byteNumbers = new Array(byteCharacters.length);
+
+                        for (let i = 0; i < byteCharacters.length; i++) {
+                            byteNumbers[i] = byteCharacters.charCodeAt(i);
+                        }
+
+                        modelData = new Uint8Array(byteNumbers).buffer;
+                    }
+                } catch (decodeError) {
+                    log({
+                        message: "Error decoding bytea data",
+                        data: {
+                            error: decodeError,
+                            dataType: typeof assetData.asset__data__bytea,
+                            dataPreview:
+                                typeof assetData.asset__data__bytea === "string"
+                                    ? `${(assetData.asset__data__bytea as string).substring(0, 100)}...`
+                                    : "Non-string data",
+                        },
+                        type: "error",
+                        debug: context.Vircadia.Debug,
+                        suppress: context.Vircadia.Suppress,
+                    });
+
+                    // Try alternative approach - if bytea is PostgreSQL hex format
+                    try {
+                        // If format is like \x00FF23... (PostgreSQL hex format)
+                        const hexString = String(assetData.asset__data__bytea);
+                        if (hexString.startsWith("\\x")) {
+                            const hex = hexString.substring(2);
+                            const bytes = new Uint8Array(hex.length / 2);
+                            for (let i = 0; i < hex.length; i += 2) {
+                                bytes[i / 2] = Number.parseInt(
+                                    hex.substring(i, i + 2),
+                                    16,
+                                );
+                            }
+                            modelData = bytes.buffer;
+                        } else {
+                            throw new Error("Unrecognized bytea format");
+                        }
+                    } catch (hexError) {
+                        throw new Error(
+                            `Failed to decode asset data: ${decodeError instanceof Error ? decodeError.message : String(decodeError)}\nHex fallback also failed: ${hexError instanceof Error ? hexError.message : String(hexError)}`,
+                        );
+                    }
                 }
-
-                modelData = new Uint8Array(byteNumbers).buffer;
             } else if (assetData.asset__data__base64) {
-                // If base64 is available, decode it
-                const binary = atob(assetData.asset__data__base64);
-                const bytes = new Uint8Array(binary.length);
+                try {
+                    // Handle base64 data - clean up if needed
+                    let base64String = assetData.asset__data__base64;
 
-                for (let i = 0; i < binary.length; i++) {
-                    bytes[i] = binary.charCodeAt(i);
+                    // Remove any potential URL prefix
+                    const commaIndex = base64String.indexOf(",");
+                    if (commaIndex !== -1) {
+                        base64String = base64String.substring(commaIndex + 1);
+                    }
+
+                    const binary = atob(base64String);
+                    const bytes = new Uint8Array(binary.length);
+
+                    for (let i = 0; i < binary.length; i++) {
+                        bytes[i] = binary.charCodeAt(i);
+                    }
+
+                    modelData = bytes.buffer;
+                } catch (decodeError) {
+                    log({
+                        message: "Error decoding base64 data",
+                        data: {
+                            error: decodeError,
+                            dataPreview:
+                                typeof assetData.asset__data__base64 ===
+                                "string"
+                                    ? `${(assetData.asset__data__base64 as string).substring(0, 100)}...`
+                                    : "Non-string data",
+                        },
+                        type: "error",
+                        debug: context.Vircadia.Debug,
+                        suppress: context.Vircadia.Suppress,
+                    });
+                    throw decodeError;
                 }
-
-                modelData = bytes.buffer;
             } else {
                 throw new Error(`No data found for asset: ${assetName}`);
             }
@@ -280,13 +405,23 @@ function vircadiaScriptMain(
             }
 
             return group;
-        } catch (error) {
+        } catch (error: unknown) {
+            const errorObj =
+                error instanceof Error
+                    ? { message: error.message, stack: error.stack }
+                    : String(error);
+            const errorLocation =
+                error instanceof Error && error.stack
+                    ? error.stack.split("\n")[1]
+                    : "Unknown location";
+
             log({
                 message: "Error loading model from asset data",
                 data: {
                     entityId: entity.general__entity_id,
                     assetName,
-                    error,
+                    error: errorObj,
+                    errorLocation,
                 },
                 type: "error",
                 debug: context.Vircadia.Debug,
@@ -301,18 +436,58 @@ function vircadiaScriptMain(
      */
     async function loadGLTF(data: ArrayBuffer): Promise<Object3D> {
         return new Promise((resolve, reject) => {
-            const loader = new GLTFLoader();
-            loader.parse(
-                data,
-                "",
-                (gltf) => {
-                    const model = gltf.scene;
-                    resolve(model);
-                },
-                (error) => {
-                    reject(error);
-                },
-            );
+            try {
+                const loader = new GLTFLoader();
+
+                // Log data size for debugging
+                log({
+                    message: "Attempting to load GLTF model",
+                    data: { bufferSize: data.byteLength },
+                    debug: context.Vircadia.Debug,
+                    suppress: context.Vircadia.Suppress,
+                });
+
+                loader.parse(
+                    data,
+                    "",
+                    (gltf) => {
+                        log({
+                            message: "GLTF model loaded successfully",
+                            debug: context.Vircadia.Debug,
+                            suppress: context.Vircadia.Suppress,
+                        });
+                        const model = gltf.scene;
+                        resolve(model);
+                    },
+                    (error) => {
+                        log({
+                            message: "GLTF loader error",
+                            data: { error },
+                            type: "error",
+                            debug: context.Vircadia.Debug,
+                            suppress: context.Vircadia.Suppress,
+                        });
+                        reject(
+                            new Error(
+                                `GLTF parsing error: ${error.message || String(error)}`,
+                            ),
+                        );
+                    },
+                );
+            } catch (error: unknown) {
+                log({
+                    message: "Exception during GLTF loader setup",
+                    data: { error },
+                    type: "error",
+                    debug: context.Vircadia.Debug,
+                    suppress: context.Vircadia.Suppress,
+                });
+                reject(
+                    new Error(
+                        `GLTF loader setup error: ${error instanceof Error ? error.message : String(error)}`,
+                    ),
+                );
+            }
         });
     }
 

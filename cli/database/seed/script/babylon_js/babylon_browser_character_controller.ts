@@ -1,5 +1,5 @@
 import type { Entity } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
-import type { Babylon } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.babylon.script";
+import type { VircadiaBabylonScript } from "../../../../../sdk/vircadia-world-sdk-ts/module/client/vircadia.babylon.core";
 import {
     MeshBuilder,
     Vector3,
@@ -58,7 +58,9 @@ interface ExtendedScene extends Scene {
     alreadyLocked?: boolean;
 }
 
-function vircadiaScriptMain(context: Babylon.I_Context): Babylon.ScriptReturn {
+function vircadiaScriptMain(
+    context: VircadiaBabylonScript.I_Context,
+): VircadiaBabylonScript.ScriptReturn {
     return {
         hooks: {
             onScriptInitialize: (entityData: Entity.I_Entity): void => {

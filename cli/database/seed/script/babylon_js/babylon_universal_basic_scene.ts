@@ -1,5 +1,5 @@
 import type { Entity } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
-import type { Babylon } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.babylon.script";
+import type { VircadiaBabylonScript } from "../../../../../sdk/vircadia-world-sdk-ts/module/client/vircadia.babylon.core";
 import {
     HemisphericLight,
     DirectionalLight,
@@ -51,7 +51,9 @@ interface SceneEntityMetaData {
 }
 
 // Use the new vircadiaScriptMain function name
-function vircadiaScriptMain(context: Babylon.I_Context): Babylon.ScriptReturn {
+function vircadiaScriptMain(
+    context: VircadiaBabylonScript.I_Context,
+): VircadiaBabylonScript.ScriptReturn {
     // Store references to created lights for cleanup
     let hemisphericLight: HemisphericLight | null = null;
     let directionalLight: DirectionalLight | null = null;

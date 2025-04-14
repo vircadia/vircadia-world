@@ -50,117 +50,162 @@ body {
 }
 
 .app {
-    width: 100vw;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+        Roboto, sans-serif;
     height: 100vh;
-    margin: 0;
-    padding: 0;
-    overflow: hidden;
-    position: relative;
+    display: flex;
+    flex-direction: column;
 }
 
 .benchmark-container {
-    position: relative;
-    width: 100%;
-    height: 100%;
     display: flex;
-    flex-direction: column;
-    overflow: hidden;
+    height: 100%;
 }
 
 .canvas-container {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 1;
+    flex: 1;
+    position: relative;
+    overflow: hidden;
 }
 
 .control-panel {
-    position: absolute;
-    bottom: 10px;
-    left: 10px;
-    z-index: 10;
-    background-color: rgba(0, 0, 0, 0.7);
-    color: white;
-    padding: 10px;
-    border-radius: 5px;
-    max-width: 300px;
+    width: 300px;
+    background-color: #f8f9fa;
+    border-right: 1px solid #dee2e6;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
     overflow-y: auto;
-    max-height: calc(100vh - 20px);
 }
 
 .benchmark-controls {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 20px;
 }
 
 .benchmark-controls h3 {
-    margin: 0 0 10px 0;
-    font-size: 1rem;
-    text-align: center;
+    margin: 0;
+    color: #212529;
+    font-size: 1.5rem;
 }
 
-.connection-controls,
-.entity-controls {
+.description {
+    font-size: 0.9rem;
+    color: #6c757d;
+    margin: 0;
+    line-height: 1.4;
+}
+
+.connection-controls {
+    display: flex;
+    gap: 10px;
+}
+
+.connection-controls button {
+    flex: 1;
+}
+
+.benchmark-main-controls {
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    gap: 15px;
+}
+
+.benchmark-main-controls button {
+    padding: 12px;
+    font-size: 1rem;
+    font-weight: bold;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.benchmark-main-controls button:hover:not(:disabled) {
+    background-color: #0069d9;
+}
+
+.benchmark-main-controls button:disabled {
+    background-color: #6c757d;
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+.benchmark-main-controls button.running {
+    background-color: #dc3545;
+}
+
+.benchmark-main-controls button.running:hover:not(:disabled) {
+    background-color: #c82333;
+}
+
+.entity-count {
+    background-color: #e9ecef;
+    color: #495057;
+    padding: 10px;
+    border-radius: 5px;
+    font-weight: bold;
+    text-align: center;
 }
 
 button {
-    background-color: #4caf50;
+    padding: 8px 12px;
+    background-color: #6c757d;
     color: white;
     border: none;
-    padding: 8px;
-    text-align: center;
-    text-decoration: none;
-    display: inline-block;
-    font-size: 0.8rem;
-    margin: 2px;
-    cursor: pointer;
     border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: background-color 0.2s;
+}
+
+button:hover:not(:disabled) {
+    background-color: #5a6268;
 }
 
 button:disabled {
-    background-color: #cccccc;
     cursor: not-allowed;
+    opacity: 0.6;
 }
 
-/* Stats panel styles */
 .stats-panel {
-    margin-top: 15px;
-    padding-top: 10px;
-    border-top: 1px solid rgba(255, 255, 255, 0.3);
+    background-color: #ffffff;
+    border: 1px solid #dee2e6;
+    border-radius: 5px;
+    padding: 15px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
 .stats-panel h4 {
-    margin: 0 0 8px 0;
-    font-size: 0.9rem;
-    text-align: center;
+    margin: 0 0 10px 0;
+    font-size: 1.1rem;
+    color: #343a40;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e9ecef;
 }
 
 .stats-content {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    font-size: 0.8rem;
+    gap: 8px;
 }
 
 .stat-item {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    font-size: 0.9rem;
 }
 
 .stat-label {
-    color: rgba(255, 255, 255, 0.8);
+    color: #6c757d;
 }
 
 .stat-value {
     font-weight: bold;
-    color: #4caf50;
+    color: #212529;
 }
 
 /* Make the panel collapsible */

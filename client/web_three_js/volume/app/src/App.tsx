@@ -10,9 +10,18 @@ import {
 import * as THREE from "three";
 import "./App.css";
 
-// Connection config for VircadiaThreeCore
+// First, let's add a declaration for the global window.networkStats property
+declare global {
+    interface Window {
+        networkStats: ReturnType<typeof useNetworkStats> | null;
+    }
+}
+
+// Constants for benchmark
 const BENCHMARK_PREFIX = "benchmark_";
-const POLL_RATE_MS = 500;
+const ENTITY_CREATE_COUNT = 200; // Default number of entities to create
+const AUTO_UPDATE_INTERVAL = 100; // Update entities every 100ms
+const POLL_INTERVAL = 500; // Poll for changes every 500ms
 
 const SERVER_URL =
     VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_DEFAULT_WORLD_API_URI_USING_SSL
@@ -296,15 +305,23 @@ function ConnectionStatus({
 // Entity Manager for creating and updating entities
 function useEntityManager(vircadiaCore: VircadiaThreeCore | null) {
     const [entities, setEntities] = useState<
-        Map<string, { position: THREE.Vector3; color: THREE.Color }>
+        Map<
+            string,
+            {
+                position: THREE.Vector3;
+                color: THREE.Color;
+                velocity: THREE.Vector3;
+            }
+        >
     >(new Map());
     const [isCreating, setIsCreating] = useState(false);
     const [isUpdating, setIsUpdating] = useState(false);
-    const [entityCount, setEntityCount] = useState(0);
-    const [cleaned, setCleaned] = useState(false);
     const [isPolling, setIsPolling] = useState(false);
-    const pollingIntervalRef = useRef<number | null>(null);
+    const [cleaned, setCleaned] = useState(false);
     const entitiesRef = useRef(entities);
+    const autoUpdateIntervalRef = useRef<number | null>(null);
+    const pollIntervalRef = useRef<number | null>(null);
+    const lastPollTimeRef = useRef<Date | null>(null);
 
     // Keep the ref updated with the latest entities
     useEffect(() => {
@@ -322,37 +339,22 @@ function useEntityManager(vircadiaCore: VircadiaThreeCore | null) {
 
         console.log("Cleaning up existing benchmark entities...");
         try {
-            // Find existing benchmark entities
-            const existingResponse =
-                await vircadiaCore.Utilities.Connection.query<
-                    Array<Pick<Entity.I_Entity, "general__entity_id">>
-                >({
-                    query: "SELECT general__entity_id FROM entity.entities WHERE general__entity_name LIKE $1",
-                    parameters: [`${BENCHMARK_PREFIX}%`],
-                });
+            // Delete any existing benchmark entities
+            await vircadiaCore.Utilities.Connection.query({
+                query: "DELETE FROM entity.entities WHERE general__entity_name LIKE $1",
+                parameters: [`${BENCHMARK_PREFIX}%`],
+            });
 
-            // Delete them if they exist
-            if (existingResponse.result && existingResponse.result.length > 0) {
-                console.log(
-                    `Deleting ${existingResponse.result.length} existing benchmark entities`,
-                );
-
-                // Delete all entities in a single query instead of one by one
-                await vircadiaCore.Utilities.Connection.query({
-                    query: "DELETE FROM entity.entities WHERE general__entity_name LIKE $1",
-                    parameters: [`${BENCHMARK_PREFIX}%`],
-                });
-            }
             setCleaned(true);
             setEntities(new Map());
-            setEntityCount(0);
+            console.log("Cleaned up existing benchmark entities");
         } catch (error) {
             console.error("Error cleaning up benchmark entities:", error);
         }
     };
 
     // Create entities on the server
-    const createEntities = async (count: number) => {
+    const createEntities = async (count: number = ENTITY_CREATE_COUNT) => {
         if (!vircadiaCore || isCreating) return;
 
         setIsCreating(true);
@@ -364,38 +366,35 @@ function useEntityManager(vircadiaCore: VircadiaThreeCore | null) {
 
             // Create new entities
             const newEntities = new Map();
+            const entityParams = [];
 
-            // Prepare entity data
-            interface EntityBatchItem {
-                name: string;
-                data: {
-                    transform_position_x: { value: number };
-                    transform_position_y: { value: number };
-                    transform_position_z: { value: number };
-                    rendering_color_r: { value: number };
-                    rendering_color_g: { value: number };
-                    rendering_color_b: { value: number };
-                    benchmark: { value: boolean };
-                };
-                position: THREE.Vector3;
-                color: THREE.Color;
-            }
+            // Calculate grid dimensions based on count
+            const gridSize = Math.ceil(Math.sqrt(count));
+            const spacing = 1.0; // Space between entities
 
-            const entityBatch: EntityBatchItem[] = [];
-            const entityParams: (string | string)[] = [];
-
-            // Prepare all entities at once
+            // Prepare all entities
             for (let i = 0; i < count; i++) {
+                // Calculate grid position
+                const row = Math.floor(i / gridSize);
+                const col = i % gridSize;
+
                 const position = new THREE.Vector3(
-                    (Math.random() - 0.5) * 10,
-                    (Math.random() - 0.5) * 10,
-                    (Math.random() - 0.5) * 10,
+                    (col - gridSize / 2) * spacing,
+                    0, // Keep all at same y level for a flat grid
+                    (row - gridSize / 2) * spacing,
                 );
 
                 const color = new THREE.Color(
                     Math.random(),
                     Math.random(),
                     Math.random(),
+                );
+
+                // Add random velocity for movement
+                const velocity = new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.02,
+                    0,
+                    (Math.random() - 0.5) * 0.02,
                 );
 
                 // Create entity metadata
@@ -409,28 +408,15 @@ function useEntityManager(vircadiaCore: VircadiaThreeCore | null) {
                     benchmark: { value: true },
                 };
 
-                // Store this entity's position and color for local reference
-                entityBatch.push({
-                    name: `${BENCHMARK_PREFIX}${i}`,
-                    data: entityData,
-                    position,
-                    color,
-                });
-
-                // Add parameters
                 entityParams.push(
                     `${BENCHMARK_PREFIX}${i}`,
                     JSON.stringify(entityData),
                 );
-
-                // Update progress every 100 entities during preparation
-                if (i % 100 === 0) {
-                    setEntityCount(i);
-                }
             }
 
-            // Build a single SQL query to insert all entities at once
-            const placeholders = entityBatch
+            // Build a single SQL query to insert all entities
+            const placeholders = Array(count)
+                .fill(0)
                 .map((_, idx) => `($${idx * 2 + 1}, $${idx * 2 + 2}::jsonb)`)
                 .join(", ");
 
@@ -439,34 +425,57 @@ function useEntityManager(vircadiaCore: VircadiaThreeCore | null) {
                     general__entity_name,
                     meta__data
                 ) VALUES ${placeholders}
-                RETURNING general__entity_id
+                RETURNING general__entity_id, meta__data
             `;
 
-            // Execute the single insert query for all entities
+            // Execute the batch insert
             const response = await vircadiaCore.Utilities.Connection.query<
-                Array<Pick<Entity.I_Entity, "general__entity_id">>
+                Array<{ general__entity_id: string; meta__data: any }>
             >({
                 query,
                 parameters: entityParams,
             });
 
-            // Store created entities
+            // Process created entities
             if (response.result && response.result.length > 0) {
-                response.result.forEach((result, idx) => {
-                    const entityId = result.general__entity_id;
-                    const entityInfo = entityBatch[idx];
-                    newEntities.set(entityId, {
-                        position: entityInfo.position,
-                        color: entityInfo.color,
-                    });
+                response.result.forEach((entity, idx) => {
+                    const entityId = entity.general__entity_id;
+                    const data = entity.meta__data;
+
+                    if (data) {
+                        const position = new THREE.Vector3(
+                            data.transform_position_x?.value || 0,
+                            data.transform_position_y?.value || 0,
+                            data.transform_position_z?.value || 0,
+                        );
+
+                        const color = new THREE.Color(
+                            data.rendering_color_r?.value || 0,
+                            data.rendering_color_g?.value || 0,
+                            data.rendering_color_b?.value || 0,
+                        );
+
+                        // Add random velocity for movement
+                        const velocity = new THREE.Vector3(
+                            (Math.random() - 0.5) * 0.02,
+                            0,
+                            (Math.random() - 0.5) * 0.02,
+                        );
+
+                        newEntities.set(entityId, {
+                            position,
+                            color,
+                            velocity,
+                        });
+                    }
                 });
             }
 
             setEntities(newEntities);
-            setEntityCount(newEntities.size);
             console.log(`Created ${newEntities.size} entities`);
 
-            // Start polling for updates
+            // Start auto-updating and polling
+            startAutoUpdate();
             startPolling();
         } catch (error) {
             console.error("Error creating entities:", error);
@@ -475,235 +484,275 @@ function useEntityManager(vircadiaCore: VircadiaThreeCore | null) {
         }
     };
 
-    // Update random entities on the server
-    const updateRandomEntities = async (percentage: number) => {
-        if (!vircadiaCore || isUpdating || entities.size === 0) return;
+    // Start automatically moving entities
+    const startAutoUpdate = () => {
+        if (autoUpdateIntervalRef.current) {
+            window.clearInterval(autoUpdateIntervalRef.current);
+        }
 
-        setIsUpdating(true);
+        autoUpdateIntervalRef.current = window.setInterval(() => {
+            updateEntityPositions();
+        }, AUTO_UPDATE_INTERVAL);
 
-        try {
-            const entityIds = Array.from(entities.keys());
-            const updateCount = Math.floor(
-                entityIds.length * (percentage / 100),
-            );
+        console.log("Started automatic entity movement");
+    };
 
-            console.log(`Updating ${updateCount} entities (${percentage}%)...`);
-
-            // Randomly select entities to update
-            const shuffled = [...entityIds].sort(() => 0.5 - Math.random());
-            const selectedIds = shuffled.slice(0, updateCount);
-
-            // Create a batch update using a single SQL query
-            // This dramatically reduces connection overhead by using one query instead of many
-            if (selectedIds.length > 0) {
-                // Prepare entity data for each entity
-                const entityUpdates = selectedIds.map((entityId) => {
-                    const newColor = new THREE.Color(
-                        Math.random(),
-                        Math.random(),
-                        Math.random(),
-                    );
-
-                    // Update local state immediately
-                    const entity = entities.get(entityId);
-                    if (entity) {
-                        entities.set(entityId, {
-                            ...entity,
-                            color: newColor,
-                        });
-                    }
-
-                    return {
-                        id: entityId,
-                        r: newColor.r,
-                        g: newColor.g,
-                        b: newColor.b,
-                    };
-                });
-
-                // Build a single SQL query with all entity updates
-                const updateQuery = `
-                    WITH entity_updates (id, r, g, b) AS (
-                        VALUES ${entityUpdates
-                            .map(
-                                (_, i) =>
-                                    `($${i * 4 + 1}::UUID, $${i * 4 + 2}::float, $${i * 4 + 3}::float, $${i * 4 + 4}::float)`,
-                            )
-                            .join(", ")}
-                    )
-                    UPDATE entity.entities e
-                    SET meta__data = jsonb_set(
-                        jsonb_set(
-                            jsonb_set(
-                                e.meta__data,
-                                '{rendering_color_r, value}',
-                                to_jsonb(u.r)
-                            ),
-                            '{rendering_color_g, value}',
-                            to_jsonb(u.g)
-                        ),
-                        '{rendering_color_b, value}',
-                        to_jsonb(u.b)
-                    )
-                    FROM entity_updates u
-                    WHERE e.general__entity_id = u.id
-                `;
-
-                // Flatten parameter array for the query
-                const params = entityUpdates.flatMap((update) => [
-                    update.id,
-                    update.r,
-                    update.g,
-                    update.b,
-                ]);
-
-                // Execute single batch update
-                await vircadiaCore.Utilities.Connection.query({
-                    query: updateQuery,
-                    parameters: params,
-                });
-            }
-
-            // Update state with modified map
-            setEntities(new Map(entities));
-            console.log(`Updated ${updateCount} entities with new colors`);
-        } catch (error) {
-            console.error("Error updating entities:", error);
-        } finally {
-            setIsUpdating(false);
+    // Stop automatic updates
+    const stopAutoUpdate = () => {
+        if (autoUpdateIntervalRef.current) {
+            window.clearInterval(autoUpdateIntervalRef.current);
+            autoUpdateIntervalRef.current = null;
+            console.log("Stopped automatic entity movement");
         }
     };
 
-    // Poll for entity updates
+    // Update entity positions with their velocity
+    const updateEntityPositions = async () => {
+        if (!vircadiaCore || entitiesRef.current.size === 0) return;
+
+        try {
+            // Create a copy of the current entities map
+            const updatedEntities = new Map(entitiesRef.current);
+            const entitiesToUpdate = [];
+
+            // Update 10% of entities every update interval
+            const entityIds = Array.from(updatedEntities.keys());
+            const updateCount = Math.max(1, Math.floor(entityIds.length * 0.1));
+            const selectedIds = entityIds
+                .sort(() => 0.5 - Math.random())
+                .slice(0, updateCount);
+
+            // Update positions based on velocity
+            for (const id of selectedIds) {
+                const entity = updatedEntities.get(id);
+                if (entity) {
+                    // Update position with velocity
+                    entity.position.add(entity.velocity);
+
+                    // Occasionally change velocity
+                    if (Math.random() < 0.1) {
+                        entity.velocity.set(
+                            (Math.random() - 0.5) * 0.02,
+                            0,
+                            (Math.random() - 0.5) * 0.02,
+                        );
+                    }
+
+                    // Add to list of entities to update on server
+                    entitiesToUpdate.push({
+                        id,
+                        x: entity.position.x,
+                        y: entity.position.y,
+                        z: entity.position.z,
+                    });
+                }
+            }
+
+            // Update local state first for immediate visual feedback
+            setEntities(updatedEntities);
+
+            // Send updates to server if we have entities to update
+            if (entitiesToUpdate.length > 0) {
+                // Build SQL for updating all entities at once
+                const updateStatements = entitiesToUpdate
+                    .map(
+                        (entity) => `
+                    UPDATE entity.entities 
+                    SET meta__data = jsonb_set(
+                        jsonb_set(
+                            jsonb_set(
+                                meta__data,
+                                '{transform_position_x}', 
+                                '{"value": ${entity.x}}'::jsonb
+                            ),
+                            '{transform_position_y}', 
+                            '{"value": ${entity.y}}'::jsonb
+                        ),
+                        '{transform_position_z}', 
+                        '{"value": ${entity.z}}'::jsonb
+                    )
+                    WHERE general__entity_id = '${entity.id}'
+                `,
+                    )
+                    .join(";");
+
+                // Execute the batch update
+                await vircadiaCore.Utilities.Connection.query({
+                    query: updateStatements,
+                });
+
+                // Record updates for stats
+                if (window.networkStats) {
+                    window.networkStats.recordPushedUpdate(
+                        entitiesToUpdate.length,
+                    );
+                }
+            }
+        } catch (error) {
+            console.error("Error updating entity positions:", error);
+        }
+    };
+
+    // Poll for entity updates from server
     const pollForUpdates = useCallback(async () => {
         if (!vircadiaCore || !vircadiaCore.Utilities.Connection.isConnected())
             return;
 
         try {
-            // Get all benchmark entities in a single query
+            const currentTime = new Date();
+
+            // Get all current entity IDs from the server
+            const idsResponse = await vircadiaCore.Utilities.Connection.query<
+                Array<{ general__entity_id: string }>
+            >({
+                query: `
+                    SELECT general__entity_id
+                    FROM entity.entities
+                    WHERE general__entity_name LIKE $1
+                `,
+                parameters: [`${BENCHMARK_PREFIX}%`],
+            });
+
+            // Create a Set of current server entity IDs for efficient lookup
+            const serverEntityIds = new Set(
+                idsResponse.result?.map((item) => item.general__entity_id) ||
+                    [],
+            );
+
+            // Only fetch entities that have been updated since last poll
+            const timeCondition = lastPollTimeRef.current
+                ? "AND general__updated_at > $2"
+                : "";
+
+            const timeParams = lastPollTimeRef.current
+                ? [lastPollTimeRef.current.toISOString()]
+                : [];
+
+            // Get updated entities from server
             const response = await vircadiaCore.Utilities.Connection.query<
                 Array<{
                     general__entity_id: string;
-                    meta__data: {
-                        transform_position_x?: { value: number };
-                        transform_position_y?: { value: number };
-                        transform_position_z?: { value: number };
-                        rendering_color_r?: { value: number };
-                        rendering_color_g?: { value: number };
-                        rendering_color_b?: { value: number };
-                    };
+                    meta__data: any;
                 }>
             >({
                 query: `
                     SELECT general__entity_id, meta__data 
                     FROM entity.entities 
                     WHERE general__entity_name LIKE $1
+                    ${timeCondition}
                 `,
-                parameters: [`${BENCHMARK_PREFIX}%`],
+                parameters: [`${BENCHMARK_PREFIX}%`, ...timeParams],
             });
 
+            // Process updates if we have any
             if (response.result && response.result.length > 0) {
+                // Update local entities map based on server data
                 const updatedEntities = new Map(entitiesRef.current);
+                let updatedCount = 0;
 
-                // Update entities from server data
                 for (const entity of response.result) {
                     const data = entity.meta__data;
+                    const entityId = entity.general__entity_id;
 
-                    // Only process if we have the necessary data
-                    if (
-                        data &&
-                        data.transform_position_x?.value !== undefined &&
-                        data.transform_position_y?.value !== undefined &&
-                        data.transform_position_z?.value !== undefined &&
-                        data.rendering_color_r?.value !== undefined &&
-                        data.rendering_color_g?.value !== undefined &&
-                        data.rendering_color_b?.value !== undefined
-                    ) {
-                        const position = new THREE.Vector3(
-                            data.transform_position_x.value,
-                            data.transform_position_y.value,
-                            data.transform_position_z.value,
-                        );
+                    // Get current entity if it exists
+                    const currentEntity = updatedEntities.get(entityId);
 
-                        const color = new THREE.Color(
-                            data.rendering_color_r.value,
-                            data.rendering_color_g.value,
-                            data.rendering_color_b.value,
-                        );
+                    if (data && currentEntity) {
+                        // Update position if present in data
+                        if (
+                            data.transform_position_x?.value !== undefined &&
+                            data.transform_position_y?.value !== undefined &&
+                            data.transform_position_z?.value !== undefined
+                        ) {
+                            currentEntity.position.set(
+                                data.transform_position_x.value,
+                                data.transform_position_y.value,
+                                data.transform_position_z.value,
+                            );
+                            updatedCount++;
+                        }
 
-                        updatedEntities.set(entity.general__entity_id, {
-                            position,
-                            color,
-                        });
+                        // Update color if present in data
+                        if (
+                            data.rendering_color_r?.value !== undefined &&
+                            data.rendering_color_g?.value !== undefined &&
+                            data.rendering_color_b?.value !== undefined
+                        ) {
+                            currentEntity.color.setRGB(
+                                data.rendering_color_r.value,
+                                data.rendering_color_g.value,
+                                data.rendering_color_b.value,
+                            );
+                        }
                     }
                 }
 
-                if (updatedEntities.size !== entitiesRef.current.size) {
-                    setEntityCount(updatedEntities.size);
-                }
+                // Update state with modified map if we had changes
+                if (updatedCount > 0) {
+                    setEntities(new Map(updatedEntities));
+                    console.log(`Updated ${updatedCount} entities from server`);
 
-                setEntities(updatedEntities);
+                    // Record the number of entities we downloaded
+                    if (window.networkStats) {
+                        window.networkStats.recordDownloadedUpdate(
+                            updatedCount,
+                        );
+                    }
+                }
             }
+
+            // Update last poll time for next poll
+            lastPollTimeRef.current = currentTime;
         } catch (error) {
             console.error("Error polling for entity updates:", error);
         }
     }, [vircadiaCore]);
 
-    // Start polling for entity updates
+    // Start polling for updates from server
     const startPolling = useCallback(() => {
-        if (isPolling) return;
+        if (pollIntervalRef.current) {
+            window.clearInterval(pollIntervalRef.current);
+        }
+
+        pollIntervalRef.current = window.setInterval(() => {
+            pollForUpdates();
+        }, POLL_INTERVAL);
 
         setIsPolling(true);
-        const interval = window.setInterval(pollForUpdates, POLL_RATE_MS); // Poll every 500ms
-        pollingIntervalRef.current = interval;
+        console.log(
+            `Started polling for entity updates every ${POLL_INTERVAL}ms`,
+        );
+    }, [pollForUpdates]);
 
-        console.log("Started polling for entity updates");
-    }, [isPolling, pollForUpdates]);
-
-    // Stop polling for entity updates
+    // Stop polling
     const stopPolling = useCallback(() => {
-        if (pollingIntervalRef.current) {
-            window.clearInterval(pollingIntervalRef.current);
-            pollingIntervalRef.current = null;
+        if (pollIntervalRef.current) {
+            window.clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
             setIsPolling(false);
             console.log("Stopped polling for entity updates");
         }
     }, []);
 
-    // Start polling automatically when connected
+    // Cleanup on unmount
     useEffect(() => {
-        if (
-            vircadiaCore?.Utilities.Connection.isConnected() &&
-            !isPolling &&
-            entities.size > 0
-        ) {
-            startPolling();
-        }
-    }, [vircadiaCore, entities.size, isPolling, startPolling]);
-
-    // Cleanup when component unmounts
-    useEffect(() => {
-        const cleanup = () => {
-            if (pollingIntervalRef.current) {
-                window.clearInterval(pollingIntervalRef.current);
-                pollingIntervalRef.current = null;
-            }
+        return () => {
+            stopAutoUpdate();
+            stopPolling();
         };
-
-        return cleanup;
-    }, []);
+    }, [stopPolling]);
 
     return {
         entities,
         createEntities,
-        updateRandomEntities,
         isCreating,
         isUpdating,
-        entityCount,
+        isPolling,
         cleanExistingEntities,
         startPolling,
         stopPolling,
-        isPolling,
+        startAutoUpdate,
+        stopAutoUpdate,
     };
 }
 
@@ -711,7 +760,14 @@ function useEntityManager(vircadiaCore: VircadiaThreeCore | null) {
 function Entities({
     entities,
 }: {
-    entities: Map<string, { position: THREE.Vector3; color: THREE.Color }>;
+    entities: Map<
+        string,
+        {
+            position: THREE.Vector3;
+            color: THREE.Color;
+            velocity?: THREE.Vector3;
+        }
+    >;
 }) {
     // Render the 3D entities as meshes
     return (
@@ -725,7 +781,7 @@ function Entities({
                         data.position.z,
                     ]}
                 >
-                    <boxGeometry args={[0.5, 0.5, 0.5]} />
+                    <boxGeometry args={[0.2, 0.2, 0.2]} />
                     <meshStandardMaterial color={data.color} />
                 </mesh>
             ))}
@@ -753,6 +809,7 @@ function Benchmark() {
         null,
     );
     const [isConnected, setIsConnected] = useState(false);
+    const [isRunning, setIsRunning] = useState(false);
     const connectionCheckIntervalRef = useRef<number | null>(null);
 
     // Use hooks without circular dependencies
@@ -767,24 +824,8 @@ function Benchmark() {
 
     // Update entity count in stats when entity count changes
     useEffect(() => {
-        networkStatsRef.current.updateEntityCount(entityManager.entityCount);
-    }, [entityManager.entityCount]);
-
-    // Start/stop polling based on connection status
-    useEffect(() => {
-        if (isConnected) {
-            if (entityManager.entityCount > 0 && !entityManager.isPolling) {
-                entityManager.startPolling();
-            }
-        } else {
-            entityManager.stopPolling();
-        }
-    }, [
-        isConnected,
-        entityManager.entityCount,
-        entityManager.isPolling,
-        entityManager,
-    ]);
+        networkStatsRef.current.updateEntityCount(entityManager.entities.size);
+    }, [entityManager.entities.size]);
 
     // Initialize VircadiaThreeCore and connect on load
     useEffect(() => {
@@ -818,14 +859,7 @@ function Benchmark() {
         };
     }, []);
 
-    // Clean up existing benchmark entities when connection is established
-    useEffect(() => {
-        if (isConnected && vircadiaCore) {
-            entityManager.cleanExistingEntities();
-        }
-    }, [isConnected, vircadiaCore, entityManager]);
-
-    // Handle connection to server - now uses VircadiaThreeCore's ConnectionManager
+    // Handle connection to server
     const connectToServer = async (core: VircadiaThreeCore) => {
         try {
             const success = await core.Utilities.Connection.connect();
@@ -842,49 +876,66 @@ function Benchmark() {
         }
     };
 
-    // Manual connect button handler
-    const handleConnect = async () => {
-        if (!vircadiaCore) return;
-        await connectToServer(vircadiaCore);
+    // Start benchmark
+    const startBenchmark = async () => {
+        if (!isConnected || isRunning) return;
+
+        setIsRunning(true);
+
+        // Create entities with auto-movement
+        await entityManager.createEntities(ENTITY_CREATE_COUNT);
     };
 
-    // Manual disconnect button handler
+    // Stop benchmark
+    const stopBenchmark = () => {
+        if (!isRunning) return;
+
+        // Stop all automatic processes
+        entityManager.stopAutoUpdate();
+        entityManager.stopPolling();
+        setIsRunning(false);
+    };
+
+    // Disconnect and clean up
     const handleDisconnect = () => {
         if (!vircadiaCore) return;
+
+        // Stop benchmark if running
+        stopBenchmark();
+
+        // Disconnect from server
         vircadiaCore.Utilities.Connection.disconnect();
-        entityManager.stopPolling();
         setIsConnected(false);
         networkStats.resetStats();
         console.log("Disconnected from Vircadia server");
     };
 
-    // Record stats for updates
-    const handleCreateEntities = async (count: number) => {
-        await entityManager.createEntities(count);
-        networkStats.recordPushedUpdate(count);
-    };
-
-    const handleUpdateEntities = async (percentage: number) => {
-        const updateCount = Math.floor(
-            entityManager.entities.size * (percentage / 100),
-        );
-        await entityManager.updateRandomEntities(percentage);
-        networkStats.recordPushedUpdate(updateCount);
-    };
+    // Make networkStats accessible globally
+    useEffect(() => {
+        window.networkStats = networkStats;
+        return () => {
+            window.networkStats = null;
+        };
+    }, [networkStats]);
 
     return (
         <div className="benchmark-container">
             <div className="control-panel">
                 <div className="benchmark-controls">
-                    <h3>Vircadia Entity Benchmark</h3>
+                    <h3>Vircadia Entity Roundtrip Demo</h3>
+                    <p className="description">
+                        This demo shows real-time entity movement with server
+                        synchronization. Entities are continuously updated
+                        locally and synced with the server.
+                    </p>
 
                     <div className="connection-controls">
                         <button
                             type="button"
-                            onClick={handleConnect}
+                            onClick={() => connectToServer(vircadiaCore!)}
                             disabled={isConnected || !vircadiaCore}
                         >
-                            Connect
+                            Connect to Server
                         </button>
                         <button
                             type="button"
@@ -895,44 +946,25 @@ function Benchmark() {
                         </button>
                     </div>
 
-                    <div className="entity-controls">
+                    <div className="benchmark-main-controls">
                         <button
                             type="button"
-                            onClick={() => handleCreateEntities(1000)}
+                            className={isRunning ? "running" : ""}
+                            onClick={isRunning ? stopBenchmark : startBenchmark}
                             disabled={!isConnected || entityManager.isCreating}
                         >
-                            {entityManager.isCreating
-                                ? `Creating... (${entityManager.entityCount})`
-                                : "Create 1000 Entities"}
+                            {!isConnected
+                                ? "Connect to Start"
+                                : isRunning
+                                  ? "Stop Demo"
+                                  : entityManager.isCreating
+                                    ? "Creating Entities..."
+                                    : "Start Demo"}
                         </button>
 
-                        <button
-                            type="button"
-                            onClick={() => handleUpdateEntities(10)}
-                            disabled={
-                                !isConnected ||
-                                entityManager.isUpdating ||
-                                entityManager.entityCount === 0
-                            }
-                        >
-                            {entityManager.isUpdating
-                                ? "Updating..."
-                                : "Update 10% of Entities"}
-                        </button>
-
-                        <button
-                            type="button"
-                            onClick={() => handleUpdateEntities(50)}
-                            disabled={
-                                !isConnected ||
-                                entityManager.isUpdating ||
-                                entityManager.entityCount === 0
-                            }
-                        >
-                            {entityManager.isUpdating
-                                ? "Updating..."
-                                : "Update 50% of Entities"}
-                        </button>
+                        <div className="entity-count">
+                            <span>Entities: {entityManager.entities.size}</span>
+                        </div>
                     </div>
 
                     {isConnected && <StatsDisplay stats={networkStats.stats} />}

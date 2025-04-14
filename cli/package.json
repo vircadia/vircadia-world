@@ -58,7 +58,7 @@
     "devDependencies": {
         "@types/bun": "latest",
         "@types/jsonwebtoken": "latest",
-        "@types/node": "^22.13.9",
+        "@types/node": "^22.14.1",
         "@types/three": "^0.175.0"
     },
     "engines": {

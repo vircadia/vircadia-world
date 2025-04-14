@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Stats } from "@react-three/drei";
 import { VircadiaThreeCore } from "../../../../../sdk/vircadia-world-sdk-ts/module/client/vircadia.three.core";
@@ -12,7 +12,7 @@ import "./App.css";
 
 // Connection config for VircadiaThreeCore
 const BENCHMARK_PREFIX = "benchmark_";
-const POLL_RATE_MS = 5;
+const POLL_RATE_MS = 500;
 
 const SERVER_URL =
     VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_DEFAULT_WORLD_API_URI_USING_SSL
@@ -336,12 +336,12 @@ function useEntityManager(vircadiaCore: VircadiaThreeCore | null) {
                 console.log(
                     `Deleting ${existingResponse.result.length} existing benchmark entities`,
                 );
-                for (const entity of existingResponse.result) {
-                    await vircadiaCore.Utilities.Connection.query({
-                        query: "DELETE FROM entity.entities WHERE general__entity_id = $1",
-                        parameters: [entity.general__entity_id],
-                    });
-                }
+
+                // Delete all entities in a single query instead of one by one
+                await vircadiaCore.Utilities.Connection.query({
+                    query: "DELETE FROM entity.entities WHERE general__entity_name LIKE $1",
+                    parameters: [`${BENCHMARK_PREFIX}%`],
+                });
             }
             setCleaned(true);
             setEntities(new Map());
@@ -444,40 +444,60 @@ function useEntityManager(vircadiaCore: VircadiaThreeCore | null) {
             const shuffled = [...entityIds].sort(() => 0.5 - Math.random());
             const selectedIds = shuffled.slice(0, updateCount);
 
-            // Update each selected entity with new color
-            for (const entityId of selectedIds) {
-                const newColor = new THREE.Color(
-                    Math.random(),
-                    Math.random(),
-                    Math.random(),
+            // Process in smaller batches to avoid overwhelming the server
+            const batchSize = 50;
+            for (let i = 0; i < selectedIds.length; i += batchSize) {
+                const batch = selectedIds.slice(i, i + batchSize);
+
+                // Process each entity in the batch
+                await Promise.all(
+                    batch.map(async (entityId) => {
+                        const newColor = new THREE.Color(
+                            Math.random(),
+                            Math.random(),
+                            Math.random(),
+                        );
+
+                        await vircadiaCore.Utilities.Connection.query({
+                            query: `
+                        UPDATE entity.entities
+                        SET meta__data = jsonb_set(
+                            jsonb_set(
+                                jsonb_set(
+                                    meta__data, 
+                                    '{rendering_color_r, value}', 
+                                    to_jsonb($1::float)
+                                ),
+                                '{rendering_color_g, value}', 
+                                to_jsonb($2::float)
+                            ),
+                            '{rendering_color_b, value}', 
+                            to_jsonb($3::float)
+                        )
+                        WHERE general__entity_id = $4
+                        `,
+                            parameters: [
+                                newColor.r,
+                                newColor.g,
+                                newColor.b,
+                                entityId,
+                            ],
+                        });
+
+                        // Update the local map immediately
+                        const entity = entities.get(entityId);
+                        if (entity) {
+                            const updatedEntity = {
+                                ...entity,
+                                color: newColor,
+                            };
+                            entities.set(entityId, updatedEntity);
+                        }
+                    }),
                 );
 
-                await vircadiaCore.Utilities.Connection.query({
-                    query: `
-                    UPDATE entity.entities
-                    SET 
-                      meta__data->'rendering_color_r' = $1,
-                      meta__data->'rendering_color_g' = $2,
-                      meta__data->'rendering_color_b' = $3
-                    WHERE general__entity_id = $4
-                  `,
-                    parameters: [
-                        JSON.stringify({ value: newColor.r }),
-                        JSON.stringify({ value: newColor.g }),
-                        JSON.stringify({ value: newColor.b }),
-                        entityId,
-                    ],
-                });
-
-                // Update the local map immediately
-                const entity = entities.get(entityId);
-                if (entity) {
-                    const updatedEntity = {
-                        ...entity,
-                        color: newColor,
-                    };
-                    entities.set(entityId, updatedEntity);
-                }
+                // Small delay between batches to prevent server overload
+                await new Promise((resolve) => setTimeout(resolve, 10));
             }
 
             // Update state with modified map
@@ -491,12 +511,12 @@ function useEntityManager(vircadiaCore: VircadiaThreeCore | null) {
     };
 
     // Poll for entity updates
-    const pollForUpdates = async () => {
+    const pollForUpdates = useCallback(async () => {
         if (!vircadiaCore || !vircadiaCore.Utilities.Connection.isConnected())
             return;
 
         try {
-            // Get all benchmark entities
+            // Get all benchmark entities in a single query
             const response = await vircadiaCore.Utilities.Connection.query<
                 Array<{
                     general__entity_id: string;
@@ -563,28 +583,39 @@ function useEntityManager(vircadiaCore: VircadiaThreeCore | null) {
         } catch (error) {
             console.error("Error polling for entity updates:", error);
         }
-    };
+    }, [vircadiaCore]);
 
     // Start polling for entity updates
-    const startPolling = () => {
+    const startPolling = useCallback(() => {
         if (isPolling) return;
 
         setIsPolling(true);
-        const interval = window.setInterval(pollForUpdates, POLL_RATE_MS); // Poll every second
+        const interval = window.setInterval(pollForUpdates, POLL_RATE_MS); // Poll every 500ms
         pollingIntervalRef.current = interval;
 
         console.log("Started polling for entity updates");
-    };
+    }, [isPolling, pollForUpdates]);
 
     // Stop polling for entity updates
-    const stopPolling = () => {
+    const stopPolling = useCallback(() => {
         if (pollingIntervalRef.current) {
             window.clearInterval(pollingIntervalRef.current);
             pollingIntervalRef.current = null;
             setIsPolling(false);
             console.log("Stopped polling for entity updates");
         }
-    };
+    }, []);
+
+    // Start polling automatically when connected
+    useEffect(() => {
+        if (
+            vircadiaCore?.Utilities.Connection.isConnected() &&
+            !isPolling &&
+            entities.size > 0
+        ) {
+            startPolling();
+        }
+    }, [vircadiaCore, entities.size, isPolling, startPolling]);
 
     // Cleanup when component unmounts
     useEffect(() => {
@@ -674,6 +705,22 @@ function Benchmark() {
     useEffect(() => {
         networkStatsRef.current.updateEntityCount(entityManager.entityCount);
     }, [entityManager.entityCount]);
+
+    // Start/stop polling based on connection status
+    useEffect(() => {
+        if (isConnected) {
+            if (entityManager.entityCount > 0 && !entityManager.isPolling) {
+                entityManager.startPolling();
+            }
+        } else {
+            entityManager.stopPolling();
+        }
+    }, [
+        isConnected,
+        entityManager.entityCount,
+        entityManager.isPolling,
+        entityManager,
+    ]);
 
     // Initialize VircadiaThreeCore and connect on load
     useEffect(() => {
@@ -821,22 +868,6 @@ function Benchmark() {
                             {entityManager.isUpdating
                                 ? "Updating..."
                                 : "Update 50% of Entities"}
-                        </button>
-
-                        <button
-                            type="button"
-                            onClick={
-                                entityManager.isPolling
-                                    ? entityManager.stopPolling
-                                    : entityManager.startPolling
-                            }
-                            disabled={
-                                !isConnected || entityManager.entityCount === 0
-                            }
-                        >
-                            {entityManager.isPolling
-                                ? "Stop Polling"
-                                : "Start Polling"}
                         </button>
                     </div>
 

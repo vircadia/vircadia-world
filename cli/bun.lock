@@ -15,7 +15,7 @@
         "@types/bun": "latest",
         "@types/jsonwebtoken": "latest",
         "@types/node": "^22.13.9",
-        "@types/three": "latest",
+        "@types/three": "^0.175.0",
       },
       "peerDependencies": {
         "typescript": "^5.0.0",

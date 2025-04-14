@@ -32,6 +32,11 @@ async function readTriangleGltf(): Promise<BunFile> {
     return Bun.file(gltfPath);
 }
 
+async function readDiscGlb(): Promise<BunFile> {
+    const glbPath = `${import.meta.dir}/asset/disc.glb`;
+    return Bun.file(glbPath);
+}
+
 // TODO: Add benchmarks.
 
 describe("DB", () => {
@@ -1085,6 +1090,137 @@ describe("DB", () => {
                     expect(retrievedModelMesh.name).toBeDefined();
                 } catch (error) {
                     console.error("Error loading retrieved model:", error);
+                }
+
+                // Verify retrieved model loaded successfully
+                expect(retrievedModelLoaded).toBe(true);
+
+                // Clean up Babylon resources
+                retrievedScene.dispose();
+                scene.dispose();
+                engine.dispose();
+            });
+
+            test("should be able to load .glb assets into Babylon.js before and after database bytea storage", async () => {
+                // Import necessary Babylon.js libraries
+                const { NullEngine, Scene, AppendSceneAsync } = await import(
+                    "@babylonjs/core"
+                );
+                await import("@babylonjs/loaders");
+
+                // Create a NullEngine and Scene for testing
+                const engine = new NullEngine();
+                const scene = new Scene(engine);
+
+                // Original model data - using GLB file
+                const glbFile = await readDiscGlb();
+                const glbContent = await glbFile.arrayBuffer();
+                const glbBuffer = Buffer.from(glbContent);
+                let originalModelLoaded = false;
+
+                try {
+                    // Convert content to base64 for direct loading
+                    const base64Content = glbBuffer.toString("base64");
+                    // Use appropriate mimetype for GLB (binary)
+                    const base64ModelUrl = `data:application/octet-stream;base64,${base64Content}`;
+
+                    // Load model using AppendSceneAsync with GLB extension
+                    await AppendSceneAsync(base64ModelUrl, scene, {
+                        pluginExtension: ".glb",
+                    });
+
+                    // Add default camera and light
+                    scene.createDefaultCameraOrLight(true, true, true);
+
+                    // If we got here, the model loaded successfully
+                    originalModelLoaded = scene.meshes.length > 0;
+                    const originalModelMesh = scene.meshes[0];
+                    expect(originalModelMesh.name).toBeDefined();
+
+                    // Verify meshes were loaded
+                    expect(scene.meshes.length).toBeGreaterThan(0);
+
+                    // Clean up resources for this test run
+                    for (const mesh of scene.meshes) {
+                        mesh.dispose();
+                    }
+                } catch (error) {
+                    console.error("Error loading original GLB model:", error);
+                }
+
+                // Verify original model loaded successfully
+                expect(originalModelLoaded).toBe(true);
+
+                // Store the model in the database and retrieve it
+                let retrievedByteaData: Buffer | undefined;
+
+                await proxyUserSql.begin(async (tx) => {
+                    await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
+
+                    // Store the asset in bytea format - using binary content directly
+                    const [asset] = await tx<[Entity.Asset.I_Asset]>`
+                        INSERT INTO entity.entity_assets (
+                            general__asset_file_name,
+                            asset__data__bytea,
+                            group__sync
+                        ) VALUES (
+                            ${`${DB_TEST_PREFIX}Babylon GLB Bytea Test Asset`},
+                            ${glbBuffer},
+                            ${"public.NORMAL"}
+                        ) RETURNING *
+                    `;
+
+                    // Retrieve the asset
+                    const [retrievedAsset] = await tx<[Entity.Asset.I_Asset]>`
+                        SELECT * FROM entity.entity_assets 
+                        WHERE general__asset_file_name = ${`${DB_TEST_PREFIX}Babylon GLB Bytea Test Asset`}
+                    `;
+
+                    retrievedByteaData = retrievedAsset.asset__data__bytea;
+
+                    // Clean up
+                    await tx`DELETE FROM entity.entity_assets WHERE general__asset_file_name = ${asset.general__asset_file_name}`;
+                });
+
+                // Verify we got data back
+                expect(retrievedByteaData).toBeDefined();
+
+                if (!retrievedByteaData) {
+                    // Skip the rest of the test if data is undefined
+                    console.warn(
+                        "Retrieved bytea data is undefined, skipping Babylon GLB import test",
+                    );
+                    return;
+                }
+
+                // Create a new scene for the retrieved model
+                const retrievedScene = new Scene(engine);
+                let retrievedModelLoaded = false;
+
+                try {
+                    // Convert the bytea buffer to base64 for loading
+                    const base64FromBytea =
+                        Buffer.from(retrievedByteaData).toString("base64");
+                    // Use appropriate mimetype for GLB (binary)
+                    const retrievedModelUrl = `data:application/octet-stream;base64,${base64FromBytea}`;
+
+                    // Load the model from the data URL created from bytea data with GLB extension
+                    await AppendSceneAsync(retrievedModelUrl, retrievedScene, {
+                        pluginExtension: ".glb",
+                    });
+
+                    // Add default camera and light
+                    retrievedScene.createDefaultCameraOrLight(true, true, true);
+
+                    // If we got here with meshes, the model loaded successfully
+                    retrievedModelLoaded = retrievedScene.meshes.length > 0;
+                    const retrievedModelMesh = retrievedScene.meshes[0];
+
+                    // Check if the model has the expected components
+                    expect(retrievedModelMesh).toBeDefined();
+                    expect(retrievedModelMesh.name).toBeDefined();
+                } catch (error) {
+                    console.error("Error loading retrieved GLB model:", error);
                 }
 
                 // Verify retrieved model loaded successfully

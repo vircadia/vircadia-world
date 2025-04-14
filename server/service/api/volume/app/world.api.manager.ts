@@ -413,6 +413,11 @@ export class WorldApiManager {
                             prefix: LOG_PREFIX,
                             message: "WebSocket upgrade failed",
                             debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
+                            data: {
+                                token,
+                                agentId: jwtValidationResult.agentId,
+                                sessionId: jwtValidationResult.sessionId,
+                            },
                             suppress:
                                 VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
                             type: "error",

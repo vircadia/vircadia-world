@@ -1,28 +1,13 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { Canvas } from "@react-three/fiber";
+import { useState, useEffect, useRef } from "react";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, Stats } from "@react-three/drei";
 import { VircadiaThreeCore } from "../../../../../sdk/vircadia-world-sdk-ts/module/client/vircadia.three.core";
 import { VircadiaConfig_BROWSER_CLIENT } from "../../../../../sdk/vircadia-world-sdk-ts/config/vircadia.browser.client.config";
-import {
-    Communication,
-    type Entity,
-} from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+import { Communication } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import * as THREE from "three";
 import "./App.css";
 
-// First, let's add a declaration for the global window.networkStats property
-declare global {
-    interface Window {
-        networkStats: ReturnType<typeof useNetworkStats> | null;
-    }
-}
-
-// Constants for benchmark
-const BENCHMARK_PREFIX = "benchmark_";
-const ENTITY_CREATE_COUNT = 200; // Default number of entities to create
-const AUTO_UPDATE_INTERVAL = 100; // Update entities every 100ms
-const POLL_INTERVAL = 500; // Poll for changes every 500ms
-
+// Server connection constants
 const SERVER_URL =
     VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_DEFAULT_WORLD_API_URI_USING_SSL
         ? `https://${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`
@@ -37,193 +22,9 @@ const SERVER_CONFIG = {
     scene: new THREE.Scene(),
     debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_DEBUG,
     suppress: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_SUPPRESS,
-    // Adding reasonable default reconnection settings
     reconnectAttempts: 5,
     reconnectDelay: 5000,
 };
-
-// Network statistics hook
-function useNetworkStats() {
-    const [stats, setStats] = useState({
-        entityCount: 0,
-        updatesPushed: 0,
-        updatesDownloaded: 0,
-        pushRate: 0,
-        downloadRate: 0,
-        averagePushRate: 0,
-        averageDownloadRate: 0,
-    });
-
-    const statsRef = useRef({
-        updatesPushed: 0,
-        updatesDownloaded: 0,
-        lastPushCount: 0,
-        lastDownloadCount: 0,
-        totalPushRate: 0,
-        totalDownloadRate: 0,
-        pushRateUpdateCount: 0,
-        downloadRateUpdateCount: 0,
-    });
-
-    // Update rates every second
-    useEffect(() => {
-        const rateInterval = setInterval(() => {
-            const newPushRate =
-                statsRef.current.updatesPushed - statsRef.current.lastPushCount;
-            const newDownloadRate =
-                statsRef.current.updatesDownloaded -
-                statsRef.current.lastDownloadCount;
-
-            statsRef.current.lastPushCount = statsRef.current.updatesPushed;
-            statsRef.current.lastDownloadCount =
-                statsRef.current.updatesDownloaded;
-
-            // Only update totals and counts when there's actual activity
-            if (newPushRate > 0) {
-                statsRef.current.totalPushRate += newPushRate;
-                statsRef.current.pushRateUpdateCount++;
-            }
-
-            if (newDownloadRate > 0) {
-                statsRef.current.totalDownloadRate += newDownloadRate;
-                statsRef.current.downloadRateUpdateCount++;
-            }
-
-            // Calculate averages
-            const avgPushRate =
-                statsRef.current.pushRateUpdateCount > 0
-                    ? statsRef.current.totalPushRate /
-                      statsRef.current.pushRateUpdateCount
-                    : 0;
-            const avgDownloadRate =
-                statsRef.current.downloadRateUpdateCount > 0
-                    ? statsRef.current.totalDownloadRate /
-                      statsRef.current.downloadRateUpdateCount
-                    : 0;
-
-            setStats((prev) => ({
-                ...prev,
-                updatesPushed: statsRef.current.updatesPushed,
-                updatesDownloaded: statsRef.current.updatesDownloaded,
-                pushRate: newPushRate,
-                downloadRate: newDownloadRate,
-                averagePushRate: avgPushRate,
-                averageDownloadRate: avgDownloadRate,
-            }));
-        }, 1000);
-
-        return () => {
-            clearInterval(rateInterval);
-        };
-    }, []);
-
-    // Update entity count
-    const updateEntityCount = (count: number) => {
-        setStats((prev) => ({
-            ...prev,
-            entityCount: count,
-        }));
-    };
-
-    // Record pushed update - fix linter error by removing type annotation
-    const recordPushedUpdate = (count = 1) => {
-        statsRef.current.updatesPushed += count;
-    };
-
-    // Record downloaded update - fix linter error by removing type annotation
-    const recordDownloadedUpdate = (count = 1) => {
-        statsRef.current.updatesDownloaded += count;
-    };
-
-    // Reset stats
-    const resetStats = () => {
-        statsRef.current = {
-            updatesPushed: 0,
-            updatesDownloaded: 0,
-            lastPushCount: 0,
-            lastDownloadCount: 0,
-            totalPushRate: 0,
-            totalDownloadRate: 0,
-            pushRateUpdateCount: 0,
-            downloadRateUpdateCount: 0,
-        };
-
-        setStats({
-            entityCount: 0,
-            updatesPushed: 0,
-            updatesDownloaded: 0,
-            pushRate: 0,
-            downloadRate: 0,
-            averagePushRate: 0,
-            averageDownloadRate: 0,
-        });
-    };
-
-    return {
-        stats,
-        updateEntityCount,
-        recordPushedUpdate,
-        recordDownloadedUpdate,
-        resetStats,
-    };
-}
-
-// Stats Display Component
-function StatsDisplay({
-    stats,
-}: {
-    stats: {
-        entityCount: number;
-        updatesPushed: number;
-        updatesDownloaded: number;
-        pushRate: number;
-        downloadRate: number;
-        averagePushRate: number;
-        averageDownloadRate: number;
-    };
-}) {
-    return (
-        <div className="stats-panel">
-            <h4>Real-time Statistics</h4>
-            <div className="stats-content">
-                <div className="stat-item">
-                    <span className="stat-label">Entity Count:</span>
-                    <span className="stat-value">{stats.entityCount}</span>
-                </div>
-                <div className="stat-item">
-                    <span className="stat-label">Updates Pushed:</span>
-                    <span className="stat-value">{stats.updatesPushed}</span>
-                </div>
-                <div className="stat-item">
-                    <span className="stat-label">Updates Downloaded:</span>
-                    <span className="stat-value">
-                        {stats.updatesDownloaded}
-                    </span>
-                </div>
-                <div className="stat-item">
-                    <span className="stat-label">Push Rate:</span>
-                    <span className="stat-value">{stats.pushRate}/s</span>
-                </div>
-                <div className="stat-item">
-                    <span className="stat-label">Download Rate:</span>
-                    <span className="stat-value">{stats.downloadRate}/s</span>
-                </div>
-                <div className="stat-item">
-                    <span className="stat-label">Avg Push Rate:</span>
-                    <span className="stat-value">
-                        {stats.averagePushRate.toFixed(2)}/s
-                    </span>
-                </div>
-                <div className="stat-item">
-                    <span className="stat-label">Avg Download Rate:</span>
-                    <span className="stat-value">
-                        {stats.averageDownloadRate.toFixed(2)}/s
-                    </span>
-                </div>
-            </div>
-        </div>
-    );
-}
 
 // Connection status component
 function ConnectionStatus({
@@ -302,530 +103,567 @@ function ConnectionStatus({
     );
 }
 
-// Entity Manager for creating and updating entities
-function useEntityManager(vircadiaCore: VircadiaThreeCore | null) {
-    const [entities, setEntities] = useState<
-        Map<
-            string,
-            {
-                position: THREE.Vector3;
-                color: THREE.Color;
-                velocity: THREE.Vector3;
-            }
-        >
-    >(new Map());
-    const [isCreating, setIsCreating] = useState(false);
-    const [isUpdating, setIsUpdating] = useState(false);
-    const [isPolling, setIsPolling] = useState(false);
-    const [cleaned, setCleaned] = useState(false);
-    const entitiesRef = useRef(entities);
-    const autoUpdateIntervalRef = useRef<number | null>(null);
-    const pollIntervalRef = useRef<number | null>(null);
-    const lastPollTimeRef = useRef<Date | null>(null);
+// Attractor class for particle simulation
+class Attractor {
+    position: THREE.Vector3;
+    orientation: THREE.Vector3;
+    strength: number;
+    type: string;
+    oscillationParams: {
+        frequency: number;
+        amplitude: number;
+        phase: number;
+        axis: THREE.Vector3;
+    };
+    originalPosition: THREE.Vector3;
+    time: number;
 
-    // Keep the ref updated with the latest entities
+    constructor(
+        position: THREE.Vector3,
+        orientation: THREE.Vector3,
+        strength = 1,
+        type = "attract",
+    ) {
+        this.position = position.clone();
+        this.originalPosition = position.clone();
+        this.orientation = orientation.normalize();
+        this.strength = strength;
+        this.type = type; // "attract", "repel", "orbit", "chaos"
+        this.time = Math.random() * 1000;
+
+        // Random oscillation parameters
+        this.oscillationParams = {
+            frequency: 0.2 + Math.random() * 0.8, // Hz
+            amplitude: 0.5 + Math.random() * 1.5,
+            phase: Math.random() * Math.PI * 2,
+            axis: new THREE.Vector3(
+                Math.random() - 0.5,
+                Math.random() - 0.5,
+                Math.random() - 0.5,
+            ).normalize(),
+        };
+    }
+
+    update(delta: number) {
+        // Update time
+        this.time += delta;
+
+        // Make attractors move in oscillating patterns
+        const oscillation =
+            Math.sin(
+                this.time * this.oscillationParams.frequency +
+                    this.oscillationParams.phase,
+            ) * this.oscillationParams.amplitude;
+
+        // Apply oscillation along the chosen axis
+        this.position
+            .copy(this.originalPosition)
+            .addScaledVector(this.oscillationParams.axis, oscillation);
+
+        // Slowly rotate orientation
+        const rotAxis = new THREE.Vector3(0, 1, 0);
+        const rotAngle = delta * 0.2;
+        this.orientation.applyAxisAngle(rotAxis, rotAngle);
+    }
+
+    applyForce(
+        particlePosition: THREE.Vector3,
+        particleVelocity: THREE.Vector3,
+        particleMass = 1,
+    ) {
+        const toAttractor = new THREE.Vector3().subVectors(
+            this.position,
+            particlePosition,
+        );
+        const distance = toAttractor.length();
+
+        if (distance < 0.1) return; // Prevent extreme forces at close distances
+
+        // Base force strength calculation
+        const direction = toAttractor.clone().normalize();
+        let forceStrength =
+            (this.strength / (distance * distance)) * particleMass;
+
+        // Adjust force based on attractor type
+        switch (this.type) {
+            case "repel": {
+                forceStrength = -forceStrength;
+                break;
+            }
+            case "orbit": {
+                // Apply sideways force for orbiting
+                particleVelocity.add(
+                    new THREE.Vector3()
+                        .crossVectors(direction, this.orientation)
+                        .multiplyScalar(forceStrength * 2),
+                );
+                forceStrength *= 0.2; // Reduce direct attraction
+                break;
+            }
+            case "chaos": {
+                // Random directional force that changes over time
+                const chaosVec = new THREE.Vector3(
+                    Math.sin(this.time * 2 + particlePosition.x),
+                    Math.cos(this.time * 3 + particlePosition.y),
+                    Math.sin(this.time * 2.5 + particlePosition.z),
+                ).normalize();
+
+                particleVelocity.add(
+                    chaosVec.multiplyScalar(forceStrength * 2),
+                );
+                return; // Skip standard force application
+            }
+        }
+
+        // Apply main force
+        const forceVector = direction.multiplyScalar(forceStrength);
+        particleVelocity.add(forceVector);
+
+        // Spinning force - stronger now
+        const spinFactor = this.type === "orbit" ? 10 : 5;
+        const spinningForce = this.orientation
+            .clone()
+            .multiplyScalar(forceStrength * spinFactor);
+        const spinningVelocity = new THREE.Vector3().crossVectors(
+            spinningForce,
+            toAttractor,
+        );
+        particleVelocity.add(spinningVelocity);
+    }
+}
+
+// Particle System Component
+function ParticleSystem() {
+    const { scene } = useThree();
+    const pointsRef = useRef<THREE.Points | null>(null);
+    const vircadiaCoreRef = useRef<VircadiaThreeCore | null>(null);
+    const syncEnabled = useRef(false);
+    const lastSyncTime = useRef(0);
+    const clock = useRef(new THREE.Clock());
+
+    // Increased particle count
+    const count = 20000;
+
+    // More diverse attractors with different types
+    const attractors = [
+        new Attractor(
+            new THREE.Vector3(-2, 0, 0),
+            new THREE.Vector3(0, 1, 0),
+            1.5,
+            "attract",
+        ),
+        new Attractor(
+            new THREE.Vector3(2, 0, -1),
+            new THREE.Vector3(0, 1, 0),
+            1.2,
+            "orbit",
+        ),
+        new Attractor(
+            new THREE.Vector3(0, 1, 2),
+            new THREE.Vector3(1, 0, -0.5),
+            0.8,
+            "repel",
+        ),
+        new Attractor(
+            new THREE.Vector3(0, -1.5, 0),
+            new THREE.Vector3(0, 0, 1),
+            1.0,
+            "chaos",
+        ),
+        new Attractor(
+            new THREE.Vector3(1.5, 1.5, -1.5),
+            new THREE.Vector3(1, 1, 0),
+            0.7,
+            "attract",
+        ),
+    ];
+
     useEffect(() => {
-        entitiesRef.current = entities;
-    }, [entities]);
+        // Create geometry
+        const geometry = new THREE.BufferGeometry();
 
-    // Clean existing benchmark entities
-    const cleanExistingEntities = async () => {
-        if (
-            !vircadiaCore ||
-            !vircadiaCore.Utilities.Connection.isConnected() ||
-            cleaned
-        )
-            return;
+        // Create position attributes - adding size for visuals
+        const positions = new Float32Array(count * 3);
+        const velocities = new Float32Array(count * 3);
+        const colors = new Float32Array(count * 3);
+        const sizes = new Float32Array(count);
+        const masses = new Float32Array(count);
 
-        console.log("Cleaning up existing benchmark entities...");
-        try {
-            // Delete any existing benchmark entities
-            await vircadiaCore.Utilities.Connection.query({
-                query: "DELETE FROM entity.entities WHERE general__entity_name LIKE $1",
-                parameters: [`${BENCHMARK_PREFIX}%`],
-            });
+        // Initialize particles with more variety and wider distribution
+        for (let i = 0; i < count; i++) {
+            // Random positions in sphere distribution
+            const radius = 5 + Math.random() * 5;
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.acos(2 * Math.random() - 1);
 
-            setCleaned(true);
-            setEntities(new Map());
-            console.log("Cleaned up existing benchmark entities");
-        } catch (error) {
-            console.error("Error cleaning up benchmark entities:", error);
+            const x = radius * Math.sin(phi) * Math.cos(theta);
+            const y = radius * Math.sin(phi) * Math.sin(theta);
+            const z = radius * Math.cos(phi);
+
+            positions[i * 3] = x;
+            positions[i * 3 + 1] = y;
+            positions[i * 3 + 2] = z;
+
+            // Random initial velocities - faster now
+            velocities[i * 3] = (Math.random() - 0.5) * 0.1;
+            velocities[i * 3 + 1] = (Math.random() - 0.5) * 0.1;
+            velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.1;
+
+            // Color palette: cosmic blues and purples with some variation
+            colors[i * 3] = 0.3 + Math.random() * 0.4; // R: purple-blue range
+            colors[i * 3 + 1] = 0.1 + Math.random() * 0.3; // G: low
+            colors[i * 3 + 2] = 0.6 + Math.random() * 0.4; // B: high
+
+            // Random size - more variation
+            sizes[i] = 0.5 + Math.random() * 2.5;
+
+            // Random mass affects how particles respond to forces
+            masses[i] = 0.5 + Math.random() * 1.5;
         }
-    };
 
-    // Create entities on the server
-    const createEntities = async (count: number = ENTITY_CREATE_COUNT) => {
-        if (!vircadiaCore || isCreating) return;
+        // Set attributes
+        geometry.setAttribute(
+            "position",
+            new THREE.BufferAttribute(positions, 3),
+        );
+        geometry.setAttribute(
+            "velocity",
+            new THREE.BufferAttribute(velocities, 3),
+        );
+        geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+        geometry.setAttribute("size", new THREE.BufferAttribute(sizes, 1));
+        geometry.setAttribute("mass", new THREE.BufferAttribute(masses, 1));
 
-        setIsCreating(true);
-        console.log(`Creating ${count} entities...`);
+        // Improved material for better visuals
+        const material = new THREE.PointsMaterial({
+            size: 0.08,
+            vertexColors: true,
+            transparent: true,
+            opacity: 0.9,
+            blending: THREE.AdditiveBlending,
+            sizeAttenuation: true,
+            depthWrite: false,
+        });
 
-        try {
-            // Delete any existing benchmark entities first
-            await cleanExistingEntities();
+        // Create points
+        const points = new THREE.Points(geometry, material);
+        scene.add(points);
+        pointsRef.current = points;
 
-            // Create new entities
-            const newEntities = new Map();
-            const entityParams = [];
+        // Start the clock for consistent animations
+        clock.current.start();
 
-            // Calculate grid dimensions based on count
-            const gridSize = Math.ceil(Math.sqrt(count));
-            const spacing = 1.0; // Space between entities
-
-            // Prepare all entities
-            for (let i = 0; i < count; i++) {
-                // Calculate grid position
-                const row = Math.floor(i / gridSize);
-                const col = i % gridSize;
-
-                const position = new THREE.Vector3(
-                    (col - gridSize / 2) * spacing,
-                    0, // Keep all at same y level for a flat grid
-                    (row - gridSize / 2) * spacing,
-                );
-
-                const color = new THREE.Color(
-                    Math.random(),
-                    Math.random(),
-                    Math.random(),
-                );
-
-                // Add random velocity for movement
-                const velocity = new THREE.Vector3(
-                    (Math.random() - 0.5) * 0.02,
-                    0,
-                    (Math.random() - 0.5) * 0.02,
-                );
-
-                // Create entity metadata
-                const entityData = {
-                    transform_position_x: { value: position.x },
-                    transform_position_y: { value: position.y },
-                    transform_position_z: { value: position.z },
-                    rendering_color_r: { value: color.r },
-                    rendering_color_g: { value: color.g },
-                    rendering_color_b: { value: color.b },
-                    benchmark: { value: true },
-                };
-
-                entityParams.push(
-                    `${BENCHMARK_PREFIX}${i}`,
-                    JSON.stringify(entityData),
-                );
+        // Sync particles to server every 5 seconds
+        const syncInterval = setInterval(() => {
+            if (
+                syncEnabled.current &&
+                vircadiaCoreRef.current?.Utilities.Connection.isConnected()
+            ) {
+                syncParticlesToServer();
             }
+        }, 5000);
 
-            // Build a single SQL query to insert all entities
-            const placeholders = Array(count)
-                .fill(0)
-                .map((_, idx) => `($${idx * 2 + 1}, $${idx * 2 + 2}::jsonb)`)
-                .join(", ");
-
-            const query = `
-                INSERT INTO entity.entities (
-                    general__entity_name,
-                    meta__data
-                ) VALUES ${placeholders}
-                RETURNING general__entity_id, meta__data
-            `;
-
-            // Execute the batch insert
-            const response = await vircadiaCore.Utilities.Connection.query<
-                Array<{ general__entity_id: string; meta__data: any }>
-            >({
-                query,
-                parameters: entityParams,
-            });
-
-            // Process created entities
-            if (response.result && response.result.length > 0) {
-                response.result.forEach((entity, idx) => {
-                    const entityId = entity.general__entity_id;
-                    const data = entity.meta__data;
-
-                    if (data) {
-                        const position = new THREE.Vector3(
-                            data.transform_position_x?.value || 0,
-                            data.transform_position_y?.value || 0,
-                            data.transform_position_z?.value || 0,
-                        );
-
-                        const color = new THREE.Color(
-                            data.rendering_color_r?.value || 0,
-                            data.rendering_color_g?.value || 0,
-                            data.rendering_color_b?.value || 0,
-                        );
-
-                        // Add random velocity for movement
-                        const velocity = new THREE.Vector3(
-                            (Math.random() - 0.5) * 0.02,
-                            0,
-                            (Math.random() - 0.5) * 0.02,
-                        );
-
-                        newEntities.set(entityId, {
-                            position,
-                            color,
-                            velocity,
-                        });
-                    }
-                });
+        return () => {
+            clearInterval(syncInterval);
+            if (points && scene) {
+                scene.remove(points);
+                geometry.dispose();
+                material.dispose();
             }
+        };
+    }, [scene]);
 
-            setEntities(newEntities);
-            console.log(`Created ${newEntities.size} entities`);
+    // Update function for each frame
+    useFrame((_, delta) => {
+        if (!pointsRef.current) return;
 
-            // Start auto-updating and polling
-            startAutoUpdate();
-            startPolling();
-        } catch (error) {
-            console.error("Error creating entities:", error);
-        } finally {
-            setIsCreating(false);
-        }
-    };
+        // Make sure delta is reasonable
+        const clampedDelta = Math.min(delta, 0.1);
 
-    // Start automatically moving entities
-    const startAutoUpdate = () => {
-        if (autoUpdateIntervalRef.current) {
-            window.clearInterval(autoUpdateIntervalRef.current);
+        // Update attractor positions
+        for (const attractor of attractors) {
+            attractor.update(clampedDelta);
         }
 
-        autoUpdateIntervalRef.current = window.setInterval(() => {
-            updateEntityPositions();
-        }, AUTO_UPDATE_INTERVAL);
+        const points = pointsRef.current;
+        const positionAttr = points.geometry.getAttribute(
+            "position",
+        ) as THREE.BufferAttribute;
+        const velocityAttr = points.geometry.getAttribute(
+            "velocity",
+        ) as THREE.BufferAttribute;
+        const colorAttr = points.geometry.getAttribute(
+            "color",
+        ) as THREE.BufferAttribute;
+        const sizeAttr = points.geometry.getAttribute(
+            "size",
+        ) as THREE.BufferAttribute;
+        const massAttr = points.geometry.getAttribute(
+            "mass",
+        ) as THREE.BufferAttribute;
 
-        console.log("Started automatic entity movement");
-    };
-
-    // Stop automatic updates
-    const stopAutoUpdate = () => {
-        if (autoUpdateIntervalRef.current) {
-            window.clearInterval(autoUpdateIntervalRef.current);
-            autoUpdateIntervalRef.current = null;
-            console.log("Stopped automatic entity movement");
-        }
-    };
-
-    // Update entity positions with their velocity
-    const updateEntityPositions = async () => {
-        if (!vircadiaCore || entitiesRef.current.size === 0) return;
-
-        try {
-            // Create a copy of the current entities map
-            const updatedEntities = new Map(entitiesRef.current);
-            const entitiesToUpdate = [];
-
-            // Update 10% of entities every update interval
-            const entityIds = Array.from(updatedEntities.keys());
-            const updateCount = Math.max(1, Math.floor(entityIds.length * 0.1));
-            const selectedIds = entityIds
-                .sort(() => 0.5 - Math.random())
-                .slice(0, updateCount);
-
-            // Update positions based on velocity
-            for (const id of selectedIds) {
-                const entity = updatedEntities.get(id);
-                if (entity) {
-                    // Update position with velocity
-                    entity.position.add(entity.velocity);
-
-                    // Occasionally change velocity
-                    if (Math.random() < 0.1) {
-                        entity.velocity.set(
-                            (Math.random() - 0.5) * 0.02,
-                            0,
-                            (Math.random() - 0.5) * 0.02,
-                        );
-                    }
-
-                    // Add to list of entities to update on server
-                    entitiesToUpdate.push({
-                        id,
-                        x: entity.position.x,
-                        y: entity.position.y,
-                        z: entity.position.z,
-                    });
-                }
-            }
-
-            // Update local state first for immediate visual feedback
-            setEntities(updatedEntities);
-
-            // Send updates to server if we have entities to update
-            if (entitiesToUpdate.length > 0) {
-                // Build SQL for updating all entities at once
-                const updateStatements = entitiesToUpdate
-                    .map(
-                        (entity) => `
-                    UPDATE entity.entities 
-                    SET meta__data = jsonb_set(
-                        jsonb_set(
-                            jsonb_set(
-                                meta__data,
-                                '{transform_position_x}', 
-                                '{"value": ${entity.x}}'::jsonb
-                            ),
-                            '{transform_position_y}', 
-                            '{"value": ${entity.y}}'::jsonb
-                        ),
-                        '{transform_position_z}', 
-                        '{"value": ${entity.z}}'::jsonb
-                    )
-                    WHERE general__entity_id = '${entity.id}'
-                `,
-                    )
-                    .join(";");
-
-                // Execute the batch update
-                await vircadiaCore.Utilities.Connection.query({
-                    query: updateStatements,
-                });
-
-                // Record updates for stats
-                if (window.networkStats) {
-                    window.networkStats.recordPushedUpdate(
-                        entitiesToUpdate.length,
-                    );
-                }
-            }
-        } catch (error) {
-            console.error("Error updating entity positions:", error);
-        }
-    };
-
-    // Poll for entity updates from server
-    const pollForUpdates = useCallback(async () => {
-        if (!vircadiaCore || !vircadiaCore.Utilities.Connection.isConnected())
-            return;
-
-        try {
-            const currentTime = new Date();
-
-            // Get all current entity IDs from the server
-            const idsResponse = await vircadiaCore.Utilities.Connection.query<
-                Array<{ general__entity_id: string }>
-            >({
-                query: `
-                    SELECT general__entity_id
-                    FROM entity.entities
-                    WHERE general__entity_name LIKE $1
-                `,
-                parameters: [`${BENCHMARK_PREFIX}%`],
-            });
-
-            // Create a Set of current server entity IDs for efficient lookup
-            const serverEntityIds = new Set(
-                idsResponse.result?.map((item) => item.general__entity_id) ||
-                    [],
+        // Update each particle
+        for (let i = 0; i < count; i++) {
+            // Get current position and velocity
+            const pos = new THREE.Vector3(
+                positionAttr.array[i * 3],
+                positionAttr.array[i * 3 + 1],
+                positionAttr.array[i * 3 + 2],
             );
 
-            // Only fetch entities that have been updated since last poll
-            const timeCondition = lastPollTimeRef.current
-                ? "AND general__updated_at > $2"
-                : "";
+            const vel = new THREE.Vector3(
+                velocityAttr.array[i * 3],
+                velocityAttr.array[i * 3 + 1],
+                velocityAttr.array[i * 3 + 2],
+            );
 
-            const timeParams = lastPollTimeRef.current
-                ? [lastPollTimeRef.current.toISOString()]
-                : [];
+            const mass = massAttr.array[i];
 
-            // Get updated entities from server
-            const response = await vircadiaCore.Utilities.Connection.query<
-                Array<{
-                    general__entity_id: string;
-                    meta__data: any;
-                }>
-            >({
-                query: `
-                    SELECT general__entity_id, meta__data 
-                    FROM entity.entities 
-                    WHERE general__entity_name LIKE $1
-                    ${timeCondition}
-                `,
-                parameters: [`${BENCHMARK_PREFIX}%`, ...timeParams],
-            });
-
-            // Process updates if we have any
-            if (response.result && response.result.length > 0) {
-                // Update local entities map based on server data
-                const updatedEntities = new Map(entitiesRef.current);
-                let updatedCount = 0;
-
-                for (const entity of response.result) {
-                    const data = entity.meta__data;
-                    const entityId = entity.general__entity_id;
-
-                    // Get current entity if it exists
-                    const currentEntity = updatedEntities.get(entityId);
-
-                    if (data && currentEntity) {
-                        // Update position if present in data
-                        if (
-                            data.transform_position_x?.value !== undefined &&
-                            data.transform_position_y?.value !== undefined &&
-                            data.transform_position_z?.value !== undefined
-                        ) {
-                            currentEntity.position.set(
-                                data.transform_position_x.value,
-                                data.transform_position_y.value,
-                                data.transform_position_z.value,
-                            );
-                            updatedCount++;
-                        }
-
-                        // Update color if present in data
-                        if (
-                            data.rendering_color_r?.value !== undefined &&
-                            data.rendering_color_g?.value !== undefined &&
-                            data.rendering_color_b?.value !== undefined
-                        ) {
-                            currentEntity.color.setRGB(
-                                data.rendering_color_r.value,
-                                data.rendering_color_g.value,
-                                data.rendering_color_b.value,
-                            );
-                        }
-                    }
-                }
-
-                // Update state with modified map if we had changes
-                if (updatedCount > 0) {
-                    setEntities(new Map(updatedEntities));
-                    console.log(`Updated ${updatedCount} entities from server`);
-
-                    // Record the number of entities we downloaded
-                    if (window.networkStats) {
-                        window.networkStats.recordDownloadedUpdate(
-                            updatedCount,
-                        );
-                    }
-                }
+            // Apply attractor forces with particle mass
+            for (const attractor of attractors) {
+                attractor.applyForce(pos, vel, mass);
             }
 
-            // Update last poll time for next poll
-            lastPollTimeRef.current = currentTime;
-        } catch (error) {
-            console.error("Error polling for entity updates:", error);
+            // Reduced damping for more persistent motion
+            vel.multiplyScalar(0.99);
+
+            // Higher max speed
+            const speed = vel.length();
+            const maxSpeed = 0.5; // 5x faster than before
+            if (speed > maxSpeed) {
+                vel.multiplyScalar(maxSpeed / speed);
+            }
+
+            // Update position with frame-rate independent speed
+            pos.add(vel.clone().multiplyScalar(clampedDelta * 5)); // Faster movement
+
+            // Box bounds - now wrapping around instead of bouncing
+            const bound = 12; // Larger bounds
+            // Wrap around edges (teleport to opposite side when hitting boundary)
+            if (Math.abs(pos.x) > bound)
+                pos.x = -Math.sign(pos.x) * (bound - 0.1);
+            if (Math.abs(pos.y) > bound)
+                pos.y = -Math.sign(pos.y) * (bound - 0.1);
+            if (Math.abs(pos.z) > bound)
+                pos.z = -Math.sign(pos.z) * (bound - 0.1);
+
+            // Update color based on velocity - more dramatic color shifts
+            const speedColor = Math.min(1, speed / maxSpeed);
+
+            // Color based on speed and position for more visual variety
+            // Higher speed = more blue/purple, slower = more red/orange
+            colorAttr.array[i * 3] = 0.5 + (1 - speedColor) * 0.5; // R: high when slow
+            colorAttr.array[i * 3 + 1] = speedColor * 0.3; // G: low-mid always
+            colorAttr.array[i * 3 + 2] = 0.5 + speedColor * 0.5; // B: high when fast
+
+            // Update size based on speed - faster particles appear larger
+            sizeAttr.array[i] =
+                (0.5 + Math.min(2.5, speedColor * 3)) * (mass * 0.8);
+
+            // Update position and velocity in the buffer
+            positionAttr.array[i * 3] = pos.x;
+            positionAttr.array[i * 3 + 1] = pos.y;
+            positionAttr.array[i * 3 + 2] = pos.z;
+
+            velocityAttr.array[i * 3] = vel.x;
+            velocityAttr.array[i * 3 + 1] = vel.y;
+            velocityAttr.array[i * 3 + 2] = vel.z;
+        }
+
+        // Tell Three.js that these attributes need to be updated
+        positionAttr.needsUpdate = true;
+        velocityAttr.needsUpdate = true;
+        colorAttr.needsUpdate = true;
+        sizeAttr.needsUpdate = true;
+    });
+
+    // Read particle data for sync
+    const readParticleData = (particleCount = 100) => {
+        if (!pointsRef.current) return null;
+
+        const points = pointsRef.current;
+        const positionAttr = points.geometry.getAttribute(
+            "position",
+        ) as THREE.BufferAttribute;
+        const velocityAttr = points.geometry.getAttribute(
+            "velocity",
+        ) as THREE.BufferAttribute;
+        const colorAttr = points.geometry.getAttribute(
+            "color",
+        ) as THREE.BufferAttribute;
+
+        const particleData = [];
+        const sampleCount = Math.min(particleCount, count);
+
+        // Sample every Nth particle to get a diverse set
+        const step = Math.floor(count / sampleCount);
+
+        for (let i = 0; i < count; i += step) {
+            if (particleData.length >= sampleCount) break;
+
+            const pos = {
+                x: positionAttr.array[i * 3],
+                y: positionAttr.array[i * 3 + 1],
+                z: positionAttr.array[i * 3 + 2],
+            };
+
+            const vel = {
+                x: velocityAttr.array[i * 3],
+                y: velocityAttr.array[i * 3 + 1],
+                z: velocityAttr.array[i * 3 + 2],
+            };
+
+            const color = {
+                r: colorAttr.array[i * 3],
+                g: colorAttr.array[i * 3 + 1],
+                b: colorAttr.array[i * 3 + 2],
+            };
+
+            const speed = Math.sqrt(
+                vel.x * vel.x + vel.y * vel.y + vel.z * vel.z,
+            );
+
+            particleData.push({
+                position: pos,
+                velocity: vel,
+                color,
+                speed,
+            });
+        }
+
+        return particleData;
+    };
+
+    // Sync particles to server
+    const syncParticlesToServer = () => {
+        const now = Date.now();
+
+        // Throttle syncs to once per second
+        if (now - lastSyncTime.current < 1000) return;
+        lastSyncTime.current = now;
+
+        const particleData = readParticleData(100);
+        if (
+            particleData &&
+            vircadiaCoreRef.current?.Utilities.Connection.isConnected()
+        ) {
+            console.log("Particles ready for sync:", particleData.length);
+
+            // Here you would implement the actual server sync
+            // For example with Vircadia, create entities for each particle
+            // or update existing particle entities
+        }
+    };
+
+    // Toggle particle sync
+    const toggleSync = (enabled: boolean) => {
+        syncEnabled.current = enabled;
+        console.log(`Particle syncing ${enabled ? "enabled" : "disabled"}`);
+    };
+
+    // Expose the toggle function to window for testing
+    useEffect(() => {
+        const toggleSyncFn = toggleSync;
+        const readParticleDataFn = readParticleData;
+
+        (
+            window as Window &
+                typeof globalThis & {
+                    toggleParticleSync: typeof toggleSyncFn;
+                    getParticleData: typeof readParticleDataFn;
+                }
+        ).toggleParticleSync = toggleSyncFn;
+
+        (
+            window as Window &
+                typeof globalThis & {
+                    toggleParticleSync: typeof toggleSyncFn;
+                    getParticleData: typeof readParticleDataFn;
+                }
+        ).getParticleData = readParticleDataFn;
+
+        return () => {
+            const win = window as Window &
+                typeof globalThis & {
+                    toggleParticleSync?: typeof toggleSyncFn;
+                    getParticleData?: typeof readParticleDataFn;
+                };
+
+            if (win.toggleParticleSync) win.toggleParticleSync = undefined;
+            if (win.getParticleData) win.getParticleData = undefined;
+        };
+    }, [toggleSync, readParticleData]);
+
+    return null;
+}
+
+// Enhanced scene
+function Scene({ vircadiaCore }: { vircadiaCore: VircadiaThreeCore | null }) {
+    // Set the vircadia core reference for the particle system
+    useEffect(() => {
+        if (vircadiaCore) {
+            (
+                window as Window &
+                    typeof globalThis & {
+                        vircadiaCore: typeof vircadiaCore;
+                    }
+            ).vircadiaCore = vircadiaCore;
         }
     }, [vircadiaCore]);
 
-    // Start polling for updates from server
-    const startPolling = useCallback(() => {
-        if (pollIntervalRef.current) {
-            window.clearInterval(pollIntervalRef.current);
-        }
-
-        pollIntervalRef.current = window.setInterval(() => {
-            pollForUpdates();
-        }, POLL_INTERVAL);
-
-        setIsPolling(true);
-        console.log(
-            `Started polling for entity updates every ${POLL_INTERVAL}ms`,
-        );
-    }, [pollForUpdates]);
-
-    // Stop polling
-    const stopPolling = useCallback(() => {
-        if (pollIntervalRef.current) {
-            window.clearInterval(pollIntervalRef.current);
-            pollIntervalRef.current = null;
-            setIsPolling(false);
-            console.log("Stopped polling for entity updates");
-        }
-    }, []);
-
-    // Cleanup on unmount
-    useEffect(() => {
-        return () => {
-            stopAutoUpdate();
-            stopPolling();
-        };
-    }, [stopPolling]);
-
-    return {
-        entities,
-        createEntities,
-        isCreating,
-        isUpdating,
-        isPolling,
-        cleanExistingEntities,
-        startPolling,
-        stopPolling,
-        startAutoUpdate,
-        stopAutoUpdate,
-    };
-}
-
-// Entity visualization
-function Entities({
-    entities,
-}: {
-    entities: Map<
-        string,
-        {
-            position: THREE.Vector3;
-            color: THREE.Color;
-            velocity?: THREE.Vector3;
-        }
-    >;
-}) {
-    // Render the 3D entities as meshes
     return (
         <>
-            {Array.from(entities.entries()).map(([id, data]) => (
-                <mesh
-                    key={id}
-                    position={[
-                        data.position.x,
-                        data.position.y,
-                        data.position.z,
-                    ]}
-                >
-                    <boxGeometry args={[0.2, 0.2, 0.2]} />
-                    <meshStandardMaterial color={data.color} />
-                </mesh>
-            ))}
-        </>
-    );
-}
+            {/* Lighting */}
+            <ambientLight intensity={0.3} />
+            <spotLight position={[5, 10, 5]} intensity={0.8} castShadow />
+            <directionalLight
+                position={[-10, 10, -5]}
+                intensity={0.5}
+                color="#8866ff"
+                castShadow
+            />
+            <directionalLight
+                position={[10, 10, 10]}
+                intensity={0.3}
+                color="#ff6677"
+            />
+            <hemisphereLight
+                args={["#7799ff", "#00ff88", 0.5]}
+                position={[0, 50, 0]}
+            />
 
-// Scene setup
-function Scene() {
-    return (
-        <>
-            <ambientLight intensity={0.5} />
-            <pointLight position={[10, 10, 10]} />
-            <OrbitControls />
+            {/* Environment */}
+            <fog attach="fog" args={["#000020", 10, 50]} />
+            <OrbitControls
+                enableDamping
+                dampingFactor={0.05}
+                rotateSpeed={0.5}
+            />
             <axesHelper args={[5]} />
-            <gridHelper args={[20, 20]} />
+            <gridHelper args={[40, 40]} />
+            <mesh
+                position={[0, -0.1, 0]}
+                rotation={[-Math.PI / 2, 0, 0]}
+                receiveShadow
+            >
+                <planeGeometry args={[40, 40]} />
+                <meshStandardMaterial color="#222233" />
+            </mesh>
+
+            {/* Particle System */}
+            <ParticleSystem />
+
+            {/* Performance Stats */}
             <Stats />
         </>
     );
 }
 
-// Main Benchmark Component
-function Benchmark() {
+function App() {
     const [vircadiaCore, setVircadiaCore] = useState<VircadiaThreeCore | null>(
         null,
     );
-    const [isConnected, setIsConnected] = useState(false);
-    const [isRunning, setIsRunning] = useState(false);
     const connectionCheckIntervalRef = useRef<number | null>(null);
-
-    // Use hooks without circular dependencies
-    const networkStats = useNetworkStats();
-    const networkStatsRef = useRef(networkStats);
-    const entityManager = useEntityManager(vircadiaCore);
-
-    // Keep the ref updated with the latest networkStats
-    useEffect(() => {
-        networkStatsRef.current = networkStats;
-    }, [networkStats]);
-
-    // Update entity count in stats when entity count changes
-    useEffect(() => {
-        networkStatsRef.current.updateEntityCount(entityManager.entities.size);
-    }, [entityManager.entities.size]);
 
     // Initialize VircadiaThreeCore and connect on load
     useEffect(() => {
@@ -861,133 +699,26 @@ function Benchmark() {
 
     // Handle connection to server
     const connectToServer = async (core: VircadiaThreeCore) => {
+        if (!core) return;
+
         try {
             const success = await core.Utilities.Connection.connect();
             if (success) {
-                setIsConnected(true);
                 console.log("Connected to Vircadia server");
             } else {
-                setIsConnected(false);
                 console.error("Failed to connect to Vircadia server");
             }
         } catch (error) {
-            setIsConnected(false);
             console.error("Failed to connect to Vircadia server:", error);
         }
     };
 
-    // Start benchmark
-    const startBenchmark = async () => {
-        if (!isConnected || isRunning) return;
-
-        setIsRunning(true);
-
-        // Create entities with auto-movement
-        await entityManager.createEntities(ENTITY_CREATE_COUNT);
-    };
-
-    // Stop benchmark
-    const stopBenchmark = () => {
-        if (!isRunning) return;
-
-        // Stop all automatic processes
-        entityManager.stopAutoUpdate();
-        entityManager.stopPolling();
-        setIsRunning(false);
-    };
-
-    // Disconnect and clean up
-    const handleDisconnect = () => {
-        if (!vircadiaCore) return;
-
-        // Stop benchmark if running
-        stopBenchmark();
-
-        // Disconnect from server
-        vircadiaCore.Utilities.Connection.disconnect();
-        setIsConnected(false);
-        networkStats.resetStats();
-        console.log("Disconnected from Vircadia server");
-    };
-
-    // Make networkStats accessible globally
-    useEffect(() => {
-        window.networkStats = networkStats;
-        return () => {
-            window.networkStats = null;
-        };
-    }, [networkStats]);
-
-    return (
-        <div className="benchmark-container">
-            <div className="control-panel">
-                <div className="benchmark-controls">
-                    <h3>Vircadia Entity Roundtrip Demo</h3>
-                    <p className="description">
-                        This demo shows real-time entity movement with server
-                        synchronization. Entities are continuously updated
-                        locally and synced with the server.
-                    </p>
-
-                    <div className="connection-controls">
-                        <button
-                            type="button"
-                            onClick={() => connectToServer(vircadiaCore!)}
-                            disabled={isConnected || !vircadiaCore}
-                        >
-                            Connect to Server
-                        </button>
-                        <button
-                            type="button"
-                            onClick={handleDisconnect}
-                            disabled={!isConnected || !vircadiaCore}
-                        >
-                            Disconnect
-                        </button>
-                    </div>
-
-                    <div className="benchmark-main-controls">
-                        <button
-                            type="button"
-                            className={isRunning ? "running" : ""}
-                            onClick={isRunning ? stopBenchmark : startBenchmark}
-                            disabled={!isConnected || entityManager.isCreating}
-                        >
-                            {!isConnected
-                                ? "Connect to Start"
-                                : isRunning
-                                  ? "Stop Demo"
-                                  : entityManager.isCreating
-                                    ? "Creating Entities..."
-                                    : "Start Demo"}
-                        </button>
-
-                        <div className="entity-count">
-                            <span>Entities: {entityManager.entities.size}</span>
-                        </div>
-                    </div>
-
-                    {isConnected && <StatsDisplay stats={networkStats.stats} />}
-                </div>
-            </div>
-
-            <div className="canvas-container">
-                <Canvas>
-                    <Scene />
-                    <Entities entities={entityManager.entities} />
-                </Canvas>
-                {vircadiaCore && (
-                    <ConnectionStatus vircadiaCore={vircadiaCore} />
-                )}
-            </div>
-        </div>
-    );
-}
-
-function App() {
     return (
         <div className="app">
-            <Benchmark />
+            <Canvas shadows camera={{ position: [0, 5, 10], fov: 50 }}>
+                <Scene vircadiaCore={vircadiaCore} />
+            </Canvas>
+            {vircadiaCore && <ConnectionStatus vircadiaCore={vircadiaCore} />}
         </div>
     );
 }

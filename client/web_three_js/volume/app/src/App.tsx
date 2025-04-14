@@ -365,6 +365,26 @@ function useEntityManager(vircadiaCore: VircadiaThreeCore | null) {
             // Create new entities
             const newEntities = new Map();
 
+            // Prepare entity data
+            interface EntityBatchItem {
+                name: string;
+                data: {
+                    transform_position_x: { value: number };
+                    transform_position_y: { value: number };
+                    transform_position_z: { value: number };
+                    rendering_color_r: { value: number };
+                    rendering_color_g: { value: number };
+                    rendering_color_b: { value: number };
+                    benchmark: { value: boolean };
+                };
+                position: THREE.Vector3;
+                color: THREE.Color;
+            }
+
+            const entityBatch: EntityBatchItem[] = [];
+            const entityParams: (string | string)[] = [];
+
+            // Prepare all entities at once
             for (let i = 0; i < count; i++) {
                 const position = new THREE.Vector3(
                     (Math.random() - 0.5) * 10,
@@ -378,39 +398,68 @@ function useEntityManager(vircadiaCore: VircadiaThreeCore | null) {
                     Math.random(),
                 );
 
-                const response = await vircadiaCore.Utilities.Connection.query<
-                    Array<Pick<Entity.I_Entity, "general__entity_id">>
-                >({
-                    query: `
-                        INSERT INTO entity.entities (
-                        general__entity_name,
-                        meta__data
-                        ) VALUES ($1, $2)
-                        RETURNING general__entity_id
-                    `,
-                    parameters: [
-                        `${BENCHMARK_PREFIX}${i}`,
-                        {
-                            transform_position_x: { value: position.x },
-                            transform_position_y: { value: position.y },
-                            transform_position_z: { value: position.z },
-                            rendering_color_r: { value: color.r },
-                            rendering_color_g: { value: color.g },
-                            rendering_color_b: { value: color.b },
-                            benchmark: { value: true },
-                        },
-                    ],
+                // Create entity metadata
+                const entityData = {
+                    transform_position_x: { value: position.x },
+                    transform_position_y: { value: position.y },
+                    transform_position_z: { value: position.z },
+                    rendering_color_r: { value: color.r },
+                    rendering_color_g: { value: color.g },
+                    rendering_color_b: { value: color.b },
+                    benchmark: { value: true },
+                };
+
+                // Store this entity's position and color for local reference
+                entityBatch.push({
+                    name: `${BENCHMARK_PREFIX}${i}`,
+                    data: entityData,
+                    position,
+                    color,
                 });
 
-                if (response.result && response.result.length > 0) {
-                    const entityId = response.result[0].general__entity_id;
-                    newEntities.set(entityId, { position, color });
-                }
+                // Add parameters
+                entityParams.push(
+                    `${BENCHMARK_PREFIX}${i}`,
+                    JSON.stringify(entityData),
+                );
 
-                // Update progress every 100 entities
+                // Update progress every 100 entities during preparation
                 if (i % 100 === 0) {
                     setEntityCount(i);
                 }
+            }
+
+            // Build a single SQL query to insert all entities at once
+            const placeholders = entityBatch
+                .map((_, idx) => `($${idx * 2 + 1}, $${idx * 2 + 2}::jsonb)`)
+                .join(", ");
+
+            const query = `
+                INSERT INTO entity.entities (
+                    general__entity_name,
+                    meta__data
+                ) VALUES ${placeholders}
+                RETURNING general__entity_id
+            `;
+
+            // Execute the single insert query for all entities
+            const response = await vircadiaCore.Utilities.Connection.query<
+                Array<Pick<Entity.I_Entity, "general__entity_id">>
+            >({
+                query,
+                parameters: entityParams,
+            });
+
+            // Store created entities
+            if (response.result && response.result.length > 0) {
+                response.result.forEach((result, idx) => {
+                    const entityId = result.general__entity_id;
+                    const entityInfo = entityBatch[idx];
+                    newEntities.set(entityId, {
+                        position: entityInfo.position,
+                        color: entityInfo.color,
+                    });
+                });
             }
 
             setEntities(newEntities);
@@ -444,60 +493,75 @@ function useEntityManager(vircadiaCore: VircadiaThreeCore | null) {
             const shuffled = [...entityIds].sort(() => 0.5 - Math.random());
             const selectedIds = shuffled.slice(0, updateCount);
 
-            // Process in smaller batches to avoid overwhelming the server
-            const batchSize = 50;
-            for (let i = 0; i < selectedIds.length; i += batchSize) {
-                const batch = selectedIds.slice(i, i + batchSize);
+            // Create a batch update using a single SQL query
+            // This dramatically reduces connection overhead by using one query instead of many
+            if (selectedIds.length > 0) {
+                // Prepare entity data for each entity
+                const entityUpdates = selectedIds.map((entityId) => {
+                    const newColor = new THREE.Color(
+                        Math.random(),
+                        Math.random(),
+                        Math.random(),
+                    );
 
-                // Process each entity in the batch
-                await Promise.all(
-                    batch.map(async (entityId) => {
-                        const newColor = new THREE.Color(
-                            Math.random(),
-                            Math.random(),
-                            Math.random(),
-                        );
-
-                        await vircadiaCore.Utilities.Connection.query({
-                            query: `
-                        UPDATE entity.entities
-                        SET meta__data = jsonb_set(
-                            jsonb_set(
-                                jsonb_set(
-                                    meta__data, 
-                                    '{rendering_color_r, value}', 
-                                    to_jsonb($1::float)
-                                ),
-                                '{rendering_color_g, value}', 
-                                to_jsonb($2::float)
-                            ),
-                            '{rendering_color_b, value}', 
-                            to_jsonb($3::float)
-                        )
-                        WHERE general__entity_id = $4
-                        `,
-                            parameters: [
-                                newColor.r,
-                                newColor.g,
-                                newColor.b,
-                                entityId,
-                            ],
+                    // Update local state immediately
+                    const entity = entities.get(entityId);
+                    if (entity) {
+                        entities.set(entityId, {
+                            ...entity,
+                            color: newColor,
                         });
+                    }
 
-                        // Update the local map immediately
-                        const entity = entities.get(entityId);
-                        if (entity) {
-                            const updatedEntity = {
-                                ...entity,
-                                color: newColor,
-                            };
-                            entities.set(entityId, updatedEntity);
-                        }
-                    }),
-                );
+                    return {
+                        id: entityId,
+                        r: newColor.r,
+                        g: newColor.g,
+                        b: newColor.b,
+                    };
+                });
 
-                // Small delay between batches to prevent server overload
-                await new Promise((resolve) => setTimeout(resolve, 10));
+                // Build a single SQL query with all entity updates
+                const updateQuery = `
+                    WITH entity_updates (id, r, g, b) AS (
+                        VALUES ${entityUpdates
+                            .map(
+                                (_, i) =>
+                                    `($${i * 4 + 1}::UUID, $${i * 4 + 2}::float, $${i * 4 + 3}::float, $${i * 4 + 4}::float)`,
+                            )
+                            .join(", ")}
+                    )
+                    UPDATE entity.entities e
+                    SET meta__data = jsonb_set(
+                        jsonb_set(
+                            jsonb_set(
+                                e.meta__data,
+                                '{rendering_color_r, value}',
+                                to_jsonb(u.r)
+                            ),
+                            '{rendering_color_g, value}',
+                            to_jsonb(u.g)
+                        ),
+                        '{rendering_color_b, value}',
+                        to_jsonb(u.b)
+                    )
+                    FROM entity_updates u
+                    WHERE e.general__entity_id = u.id
+                `;
+
+                // Flatten parameter array for the query
+                const params = entityUpdates.flatMap((update) => [
+                    update.id,
+                    update.r,
+                    update.g,
+                    update.b,
+                ]);
+
+                // Execute single batch update
+                await vircadiaCore.Utilities.Connection.query({
+                    query: updateQuery,
+                    parameters: params,
+                });
             }
 
             // Update state with modified map

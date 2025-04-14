@@ -4,92 +4,88 @@ import { registerBuiltInLoaders } from "@babylonjs/loaders/dynamic";
 import {
     Vector3,
     type Scene,
-    type ISceneLoaderAsyncResult,
-    AppendSceneAsync,
-    ImportMeshAsync,
-    type Mesh,
-    type AbstractMesh,
+    MeshBuilder,
+    SceneLoader,
+    AbstractMesh,
 } from "@babylonjs/core";
-import { log } from "../../../../../sdk/vircadia-world-sdk-ts/module/general/log";
-import { Communication } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 
-// Define a WebSocket serialized buffer format
-interface SerializedBuffer {
-    type: string;
-    data: number[];
-}
-
+// Basic interface for handling position
 interface Position {
     x?: number;
     y?: number;
     z?: number;
 }
 
-interface EntityModel {
-    transform__position?: Position;
-}
-
+// Interface for entity metadata
 interface EntityMetaData {
     transform__position?: Position;
-    entity_model?: EntityModel;
+    entity_model?: {
+        transform__position?: Position;
+    };
 }
 
-// Extended entity interface to store mesh reference and assets
+// Extended entity interface to store mesh reference
 interface EntityWithMesh extends Entity.I_Entity {
-    _mesh?: Mesh | AbstractMesh;
-    _assets?: Entity.Asset.I_Asset[];
-    _assetMeshMap?: Map<string, Mesh | AbstractMesh>;
+    _mesh?: AbstractMesh; // Use AbstractMesh instead of any
 }
 
-// Define a type for array-like object with numeric keys
-interface ArrayLikeObject {
-    [key: string]: number;
-}
-
-// Extend the Entity.Asset interface to handle browser-compatible binary data
-declare module "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general" {
-    namespace Entity {
-        namespace Asset {
-            interface I_Asset {
-                asset__data__bytea?: unknown;
-            }
-        }
-    }
-}
-
-// Use the new vircadiaScriptMain function name
+// Main script function
 function vircadiaScriptMain(
     context: VircadiaBabylonScript.I_Context,
 ): VircadiaBabylonScript.ScriptReturn {
-    // Return the script structure directly
     return {
         hooks: {
-            // Script state variables
             onScriptInitialize: (entityData: Entity.I_Entity): void => {
+                // Register loaders
                 registerBuiltInLoaders();
-                // Store entity for later use
-                const entity = entityData as EntityWithMesh;
 
-                // Get assets for this entity
-                log({
-                    message: "Getting and loading entity assets",
-                    debug: context.Vircadia.Debug,
-                    suppress: context.Vircadia.Suppress,
-                });
-                getAndLoadEntityAssets(entity, context.Babylon.Scene, context);
+                const entity = entityData as EntityWithMesh;
+                console.log("Entity initialized:", entity.general__entity_id);
+
+                // Create a placeholder sphere for testing
+                const sphere = MeshBuilder.CreateSphere(
+                    "sphere",
+                    { diameter: 1 },
+                    context.Babylon.Scene,
+                );
+
+                // Apply position from entity metadata
+                const metaData = entity.meta__data as unknown as EntityMetaData;
+                const position =
+                    metaData.transform__position ||
+                    metaData.entity_model?.transform__position;
+
+                if (position) {
+                    sphere.position = new Vector3(
+                        position.x || 0,
+                        position.y || 0,
+                        position.z || 0,
+                    );
+                }
+
+                // Store mesh reference
+                entity._mesh = sphere;
+
+                // Try loading asset as well
+                if (entity.asset__names && entity.asset__names.length > 0) {
+                    console.log(
+                        "Will attempt to load assets:",
+                        entity.asset__names,
+                    );
+                    loadEntityAssets(entity, context.Babylon.Scene, context);
+                }
             },
 
             onEntityUpdate: (updatedEntity: Entity.I_Entity): void => {
                 const entityWithMesh = updatedEntity as EntityWithMesh;
 
-                // Update position if entity data changed
+                // Update position if mesh exists
                 if (entityWithMesh._mesh) {
                     const metaData =
                         updatedEntity.meta__data as unknown as EntityMetaData;
-                    const transformPosition = metaData.transform__position;
-                    const entityModel = metaData.entity_model;
                     const position =
-                        transformPosition || entityModel?.transform__position;
+                        metaData.transform__position ||
+                        metaData.entity_model?.transform__position;
 
                     if (position) {
                         entityWithMesh._mesh.position.x = position.x || 0;
@@ -97,616 +93,235 @@ function vircadiaScriptMain(
                         entityWithMesh._mesh.position.z = position.z || 0;
                     }
                 }
-
-                // Check for updated assets
-                getAndLoadEntityAssets(
-                    entityWithMesh,
-                    context.Babylon.Scene,
-                    context,
-                );
-            },
-
-            onScriptUpdate: (scriptData: Entity.Script.I_Script): void => {
-                log({
-                    message: `Script updated: ${scriptData.general__script_file_name}`,
-                    debug: context.Vircadia.Debug,
-                    suppress: context.Vircadia.Suppress,
-                });
             },
 
             onScriptTeardown: (): void => {
-                // Dispose of any remaining meshes
-                // Currently relying on entity reference cleanup by the system
+                // Minimal cleanup
+                console.log("Script teardown");
             },
         },
     };
 }
 
-// Helper function to get and load entity assets
-async function getAndLoadEntityAssets(
+// Simplified function to load entity assets
+async function loadEntityAssets(
     entity: EntityWithMesh,
     scene: Scene,
     context: VircadiaBabylonScript.I_Context,
 ): Promise<void> {
-    log({
-        message: `Starting asset loading for entity ${entity.general__entity_id}`,
-        debug: context.Vircadia.Debug,
-        suppress: context.Vircadia.Suppress,
-    });
-
     try {
         // Check if the entity has any asset names defined
         if (!entity.asset__names || entity.asset__names.length === 0) {
-            log({
-                message: "No asset names defined for entity",
-                data: { entityId: entity.general__entity_id },
-                type: "warning",
-                debug: context.Vircadia.Debug,
-                suppress: context.Vircadia.Suppress,
-            });
+            console.log("No asset names defined for entity");
             return;
         }
 
-        // Query assets directly from the database
-        const assetPromises = entity.asset__names.map(async (assetName) => {
-            try {
-                const queryResult =
-                    await context.Vircadia.Utilities.Query.execute<
-                        [
-                            {
-                                asset__data__bytea:
-                                    | SerializedBuffer
-                                    | ArrayBuffer;
-                                asset__type: string;
-                                general__asset_file_name: string;
-                            },
-                        ]
-                    >({
-                        query: `
-                        SELECT asset__data__bytea, asset__type, general__asset_file_name
-                        FROM entity.entity_assets 
-                        WHERE general__asset_file_name = $1
-                    `,
-                        parameters: [assetName],
-                        timeoutMs: 60000, // Increased timeout to 60 seconds for large assets
-                    });
+        console.log("Loading assets for entity:", entity.general__entity_id);
 
-                log({
-                    message: `Query result for asset: ${assetName}`,
-                    data: {
-                        entityId: entity.general__entity_id,
-                        hasResults:
-                            !!queryResult.result &&
-                            queryResult.result.length > 0,
-                        result: queryResult.result.slice(0, 100),
-                        resultCount: queryResult.result
-                            ? queryResult.result.length
-                            : 0,
-                    },
-                    debug: context.Vircadia.Debug,
-                    suppress: context.Vircadia.Suppress,
-                });
+        // Get the first asset for simplicity
+        const assetName = entity.asset__names[0];
 
-                if (
-                    !queryResult.result[0] ||
-                    !Array.isArray(queryResult.result) ||
-                    queryResult.result.length === 0
-                ) {
-                    log({
-                        message: `No asset found in database: ${assetName}`,
-                        data: { entityId: entity.general__entity_id },
-                        type: "warning",
-                        debug: context.Vircadia.Debug,
-                        suppress: context.Vircadia.Suppress,
-                    });
-                    return null;
-                }
-
-                // Extract the raw data from the query result
-                const rawData = queryResult.result[0];
-
-                log({
-                    message: "Processing query result",
-                    data: {
-                        assetName: rawData.general__asset_file_name,
-                        assetType: rawData.asset__type,
-                        hasData: !!rawData.asset__data__bytea,
-                        dataType: typeof rawData.asset__data__bytea,
-                    },
-                    debug: context.Vircadia.Debug,
-                    suppress: context.Vircadia.Suppress,
-                });
-
-                const assetData: Entity.Asset.I_Asset = {
-                    asset__data__bytea: rawData.asset__data__bytea,
-                    asset__type: rawData.asset__type,
-                    general__asset_file_name: rawData.general__asset_file_name,
-                };
-
-                // Return the asset data from the query
-                return assetData;
-            } catch (error) {
-                log({
-                    message: `Failed to load asset: ${assetName}`,
-                    data: {
-                        error:
-                            error instanceof Error
-                                ? {
-                                      message: error.message,
-                                      name: error.name,
-                                      stack: error.stack,
-                                  }
-                                : error,
-                        entityId: entity.general__entity_id,
-                        assetName: assetName,
-                    },
-                    type: "error",
-                    debug: context.Vircadia.Debug,
-                    suppress: context.Vircadia.Suppress,
-                });
-                return null;
-            }
+        // Query asset data from the database
+        const queryResult = await context.Vircadia.Utilities.Query.execute({
+            query: `
+                SELECT asset__data__bytea, asset__type, general__asset_file_name
+                FROM entity.entity_assets 
+                WHERE general__asset_file_name = $1
+            `,
+            parameters: [assetName],
+            timeoutMs: 30000,
         });
 
-        const assetsResults = await Promise.all(assetPromises);
-        const newAssets: Entity.Asset.I_Asset[] = [];
-
-        // Filter out null results and add valid assets to our array
-        for (const asset of assetsResults) {
-            if (asset) {
-                newAssets.push(asset);
-            }
-        }
-
-        if (newAssets.length === 0) {
-            log({
-                message: "No assets found for entity",
-                data: {
-                    entityId: entity.general__entity_id,
-                    assetNames: entity.asset__names,
-                },
-                type: "warning",
-                debug: context.Vircadia.Debug,
-                suppress: context.Vircadia.Suppress,
-            });
+        if (
+            !queryResult.result ||
+            !Array.isArray(queryResult.result) ||
+            queryResult.result.length === 0
+        ) {
+            console.log("No asset found in database:", assetName);
             return;
         }
 
-        // Log the assets found
-        log({
-            message: `Found ${newAssets.length} assets for entity`,
-            data: {
-                entityId: entity.general__entity_id,
-                assetTypes: newAssets.map((a) => a.asset__type),
-                assetNames: newAssets.map((a) => a.general__asset_file_name),
-            },
-            debug: context.Vircadia.Debug,
-            suppress: context.Vircadia.Suppress,
+        const assetData = queryResult.result[0];
+        console.log("Asset data found:", {
+            assetName: assetData.general__asset_file_name,
+            assetType: assetData.asset__type,
+            hasData: !!assetData.asset__data__bytea,
+            dataType: typeof assetData.asset__data__bytea,
+            isArrayBuffer: assetData.asset__data__bytea instanceof ArrayBuffer,
+            isObject: typeof assetData.asset__data__bytea === "object",
+            objectProps:
+                typeof assetData.asset__data__bytea === "object"
+                    ? Object.keys(assetData.asset__data__bytea).slice(0, 5)
+                    : null,
+            bufferType:
+                assetData.asset__data__bytea &&
+                typeof assetData.asset__data__bytea === "object" &&
+                "type" in assetData.asset__data__bytea
+                    ? assetData.asset__data__bytea.type
+                    : null,
         });
 
-        // Initialize asset mapping if needed
-        if (!entity._assetMeshMap) {
-            entity._assetMeshMap = new Map();
-        }
-
-        // Filter for model assets - expand supported types and handle case-insensitively
-        const modelAssets = newAssets.filter((asset) => {
-            if (!asset.asset__type) return false;
-
-            const type = asset.asset__type.toLowerCase();
-            return (
-                type === "glb" ||
-                type === "gltf" ||
-                type === "obj" ||
-                type === "model/gltf-binary" ||
-                type === "model/gltf+json"
+        // Process the asset data to get an ArrayBuffer
+        if (assetData.asset__data__bytea) {
+            // Convert the asset data to an ArrayBuffer for loading
+            const arrayBuffer = await assetDataToArrayBuffer(
+                assetData.asset__data__bytea,
             );
-        });
 
-        if (modelAssets.length > 0) {
-            log({
-                message: `Processing ${modelAssets.length} model assets for entity`,
-                data: { entityId: entity.general__entity_id },
-                debug: context.Vircadia.Debug,
-                suppress: context.Vircadia.Suppress,
-            });
+            if (arrayBuffer) {
+                console.log(
+                    "Successfully converted asset data to ArrayBuffer of size:",
+                    arrayBuffer.byteLength,
+                );
 
-            for (const asset of modelAssets) {
-                // Always load the asset - using the existing method
-                await loadAsset(entity, asset, scene, context);
-            }
+                // Determine file extension based on asset type
+                const fileExt = determineFileExtension(assetData.asset__type);
 
-            // Remove any assets that no longer exist
-            const newAssetNames = new Set(
-                modelAssets.map((a) => a.general__asset_file_name),
-            );
-            for (const currentAsset of entity._assets || []) {
-                if (
-                    !newAssetNames.has(currentAsset.general__asset_file_name) &&
-                    entity._assetMeshMap?.has(
-                        currentAsset.general__asset_file_name,
-                    )
-                ) {
-                    // Asset has been removed, dispose of the mesh
-                    const meshToRemove = entity._assetMeshMap.get(
-                        currentAsset.general__asset_file_name,
-                    );
-                    if (meshToRemove) {
-                        meshToRemove.dispose();
-                        entity._assetMeshMap.delete(
-                            currentAsset.general__asset_file_name,
+                if (fileExt) {
+                    try {
+                        // Use the ImportMeshAsync approach for async/await pattern
+                        const importResult = await SceneLoader.ImportMeshAsync(
+                            "", // meshNames (empty to load all)
+                            "file:", // rootUrl - just a prefix
+                            new Uint8Array(arrayBuffer), // data - our model data as Uint8Array
+                            scene, // scene
+                            null, // onProgress
+                            fileExt, // fileExtension
                         );
+
+                        const meshes = importResult.meshes;
+
+                        if (meshes && meshes.length > 0) {
+                            console.log(
+                                "Model loaded successfully! Meshes:",
+                                meshes.map((m) => m.name),
+                            );
+
+                            // Remove placeholder sphere and use the loaded model
+                            if (entity._mesh) {
+                                entity._mesh.dispose();
+                            }
+
+                            // Set the first mesh as the main entity mesh
+                            entity._mesh = meshes[0];
+
+                            // Apply position from entity metadata
+                            const metaData =
+                                entity.meta__data as unknown as EntityMetaData;
+                            const position =
+                                metaData.transform__position ||
+                                metaData.entity_model?.transform__position;
+
+                            if (position) {
+                                entity._mesh.position = new Vector3(
+                                    position.x || 0,
+                                    position.y || 0,
+                                    position.z || 0,
+                                );
+                            }
+                        } else {
+                            console.error(
+                                "No meshes were loaded from the model data",
+                            );
+                        }
+                    } catch (error) {
+                        console.error("Error loading model:", error);
                     }
+                } else {
+                    console.error(
+                        "Could not determine file extension from asset type:",
+                        assetData.asset__type,
+                    );
                 }
+            } else {
+                console.error("Could not convert asset data to ArrayBuffer");
             }
         } else {
-            log({
-                message: "No model assets found for entity:",
-                data: {
-                    entityId: entity.general__entity_id,
-                    assetTypes: newAssets.map((a) => a.asset__type),
-                },
-                type: "warning",
-                debug: context.Vircadia.Debug,
-                suppress: context.Vircadia.Suppress,
-            });
+            console.error("No asset data available");
         }
-
-        // Store the new assets for future comparison
-        entity._assets = newAssets;
     } catch (error) {
-        log({
-            message: "Error getting assets for entity:",
-            data: {
-                entityId: entity.general__entity_id,
-                error:
-                    error instanceof Error
-                        ? {
-                              message: error.message,
-                              name: error.name,
-                              stack: error.stack,
-                          }
-                        : error,
-            },
-            type: "error",
-            debug: context.Vircadia.Debug,
-            suppress: context.Vircadia.Suppress,
-        });
+        console.error("Error loading assets:", error);
     }
 }
 
-// Helper function to load a single asset
-async function loadAsset(
-    entity: EntityWithMesh,
-    asset: Entity.Asset.I_Asset,
-    scene: Scene,
-    context: VircadiaBabylonScript.I_Context,
-): Promise<void> {
+// Helper function to determine file extension from asset type
+function determineFileExtension(assetType: string | undefined): string | null {
+    if (!assetType) return null;
+
+    const type = assetType.toLowerCase();
+
+    if (type === "glb" || type === "model/gltf-binary") {
+        return ".glb";
+    }
+    if (
+        type === "gltf" ||
+        type === "model/gltf+json" ||
+        type === "model/gltf"
+    ) {
+        return ".gltf";
+    }
+    if (type === "obj") {
+        return ".obj";
+    }
+    if (type === "babylon") {
+        return ".babylon";
+    }
+
+    return null;
+}
+
+// Helper function to convert asset data to ArrayBuffer
+async function assetDataToArrayBuffer(
+    assetData: any,
+): Promise<ArrayBuffer | null> {
     try {
-        // Get the asset type
-        const assetType = asset.asset__type?.toLowerCase();
-
-        log({
-            message: `Starting asset loading process for: ${asset.general__asset_file_name}`,
-            data: {
-                entityId: entity.general__entity_id,
-                assetType: assetType,
-                assetName: asset.general__asset_file_name,
-            },
-            debug: context.Vircadia.Debug,
-            suppress: context.Vircadia.Suppress,
-        });
-
-        // Determine if this is a supported 3D model format
-        const isGLB = assetType?.toLowerCase() === "glb";
-        const isGLTF = assetType?.toLowerCase() === "gltf";
-        const isModelGltfBinary =
-            assetType?.toLowerCase() === "model/gltf-binary";
-        const isModelGltfJson =
-            assetType?.toLowerCase() === "model/gltf+json" ||
-            assetType?.toLowerCase() === "model/gltf";
-
-        // If we already have this asset loaded, dispose of it first
-        if (entity._assetMeshMap?.has(asset.general__asset_file_name)) {
-            const oldMesh = entity._assetMeshMap.get(
-                asset.general__asset_file_name,
-            );
-            if (oldMesh) {
-                oldMesh.dispose();
-            }
+        // Case 1: Already an ArrayBuffer
+        if (assetData instanceof ArrayBuffer) {
+            console.log("Asset data is already an ArrayBuffer");
+            return assetData;
         }
 
-        // Get binary data from the asset - Browser compatible approach
-        let modelData: ArrayBuffer;
+        // Case 2: Buffer format with type and data array
+        if (
+            typeof assetData === "object" &&
+            assetData !== null &&
+            "type" in assetData &&
+            assetData.type === "Buffer" &&
+            "data" in assetData &&
+            Array.isArray(assetData.data)
+        ) {
+            console.log("Asset data is a serialized Buffer object");
+            return new Uint8Array(assetData.data).buffer;
+        }
 
-        try {
-            // Check if we have binary data in the asset
-            if (!asset.asset__data__bytea) {
-                throw new Error(
-                    `No binary data for asset: ${asset.general__asset_file_name}`,
-                );
-            }
+        // Case 3: Array-like object with numeric keys
+        if (typeof assetData === "object" && assetData !== null) {
+            const keys = Object.keys(assetData);
+            const isArrayLike = keys.every((key) => !Number.isNaN(Number(key)));
 
-            // Handle direct ArrayBuffer
-            if (asset.asset__data__bytea instanceof ArrayBuffer) {
-                // Already an ArrayBuffer, use directly
-                modelData = asset.asset__data__bytea;
-
-                log({
-                    message: "Using direct ArrayBuffer data",
-                    data: {
-                        entityId: entity.general__entity_id,
-                        assetName: asset.general__asset_file_name,
-                        byteLength: modelData.byteLength,
-                    },
-                    debug: context.Vircadia.Debug,
-                    suppress: context.Vircadia.Suppress,
-                });
-            }
-            // Handle { type: "Buffer", data: number[] } format (serialized buffer from WebSocket)
-            else if (
-                typeof asset.asset__data__bytea === "object" &&
-                asset.asset__data__bytea !== null &&
-                "type" in asset.asset__data__bytea &&
-                asset.asset__data__bytea.type === "Buffer" &&
-                "data" in asset.asset__data__bytea &&
-                Array.isArray(asset.asset__data__bytea.data)
-            ) {
-                // Convert serialized buffer data to Uint8Array and then to ArrayBuffer
-                const uint8Array = new Uint8Array(
-                    (asset.asset__data__bytea as unknown as SerializedBuffer)
-                        .data,
-                );
-                modelData = uint8Array.buffer;
-
-                log({
-                    message: "Converted serialized buffer data to ArrayBuffer",
-                    data: {
-                        entityId: entity.general__entity_id,
-                        assetName: asset.general__asset_file_name,
-                        dataLength: (
-                            asset.asset__data__bytea as unknown as SerializedBuffer
-                        ).data.length,
-                        byteLength: modelData.byteLength,
-                    },
-                    debug: context.Vircadia.Debug,
-                    suppress: context.Vircadia.Suppress,
-                });
-            }
-            // Handle array-like object format with numeric keys ({"0": 103, "1": 108, ...})
-            else if (
-                typeof asset.asset__data__bytea === "object" &&
-                asset.asset__data__bytea !== null &&
-                // Check if all keys are numeric
-                Object.keys(asset.asset__data__bytea as object).every(
-                    (key) => !Number.isNaN(Number(key)),
-                )
-            ) {
-                // Convert array-like object to an actual array of numbers
+            if (isArrayLike) {
+                console.log("Asset data is an array-like object");
                 const dataArray: number[] = [];
-                const assetDataObj =
-                    asset.asset__data__bytea as unknown as Record<
-                        string,
-                        number
-                    >;
-                const keys = Object.keys(assetDataObj).sort(
-                    (a, b) => Number(a) - Number(b),
-                );
+                const sortedKeys = keys.sort((a, b) => Number(a) - Number(b));
 
-                for (const key of keys) {
-                    dataArray.push(assetDataObj[key]);
+                for (const key of sortedKeys) {
+                    dataArray.push(assetData[key]);
                 }
 
-                // Convert to Uint8Array and then to ArrayBuffer
-                const uint8Array = new Uint8Array(dataArray);
-                modelData = uint8Array.buffer;
-
-                log({
-                    message: "Converted array-like object data to ArrayBuffer",
-                    data: {
-                        entityId: entity.general__entity_id,
-                        assetName: asset.general__asset_file_name,
-                        dataLength: dataArray.length,
-                        byteLength: modelData.byteLength,
-                    },
-                    debug: context.Vircadia.Debug,
-                    suppress: context.Vircadia.Suppress,
-                });
+                return new Uint8Array(dataArray).buffer;
             }
-            // Unknown binary data format
-            else {
-                log({
-                    message: "Unknown binary data format",
-                    data: {
-                        entityId: entity.general__entity_id,
-                        assetName: asset.general__asset_file_name,
-                        dataType: typeof asset.asset__data__bytea,
-                        dataPreview:
-                            typeof asset.asset__data__bytea === "object"
-                                ? `${JSON.stringify(asset.asset__data__bytea).substring(0, 100)}...`
-                                : String(asset.asset__data__bytea).substring(
-                                      0,
-                                      100,
-                                  ),
-                    },
-                    debug: context.Vircadia.Debug,
-                    suppress: context.Vircadia.Suppress,
-                });
-
-                throw new Error(
-                    `Unsupported binary data format for asset: ${asset.general__asset_file_name}`,
-                );
-            }
-        } catch (error) {
-            log({
-                message: "Error processing asset binary data",
-                data: {
-                    entityId: entity.general__entity_id,
-                    assetName: asset.general__asset_file_name,
-                    error:
-                        error instanceof Error
-                            ? {
-                                  message: error.message,
-                                  name: error.name,
-                                  stack: error.stack,
-                              }
-                            : error,
-                },
-                type: "error",
-                debug: context.Vircadia.Debug,
-                suppress: context.Vircadia.Suppress,
-            });
-            throw error;
         }
 
-        // Convert the binary data to a base64 data URL for loading
-        const base64Content = bytesToBase64(new Uint8Array(modelData));
-        const base64ModelUrl = `data:model/gltf-binary;base64,${base64Content}`;
-
-        log({
-            message: "Created base64 data URL for model loading",
-            data: {
-                entityId: entity.general__entity_id,
-                assetName: asset.general__asset_file_name,
-                modelDataSize: modelData.byteLength,
-                urlPreview: `${base64ModelUrl.substring(0, 50)}...`,
-            },
-            debug: context.Vircadia.Debug,
-            suppress: context.Vircadia.Suppress,
-        });
-
-        if (isGLTF || isGLB || isModelGltfBinary || isModelGltfJson) {
-            log({
-                message: "Starting Babylon.js model append",
-                data: {
-                    entityId: entity.general__entity_id,
-                    assetName: asset.general__asset_file_name,
-                    assetType: assetType,
-                },
-                debug: context.Vircadia.Debug,
-                suppress: context.Vircadia.Suppress,
-            });
-
-            try {
-                // Use AppendSceneAsync with pluginExtension for better compatibility
-                const importResult = await ImportMeshAsync(
-                    base64ModelUrl,
-                    scene,
-                    { pluginExtension: ".glb" },
-                );
-
-                if (importResult.meshes.length === 0) {
-                    throw new Error(
-                        `No meshes loaded from asset: ${asset.general__asset_file_name}`,
-                    );
-                }
-
-                const rootMesh = importResult.meshes[0];
-
-                log({
-                    message: "Babylon.js model append completed",
-                    data: {
-                        entityId: entity.general__entity_id,
-                        assetName: asset.general__asset_file_name,
-                        meshCount: importResult.meshes.length,
-                        rootMeshName: rootMesh.name,
-                    },
-                    debug: context.Vircadia.Debug,
-                    suppress: context.Vircadia.Suppress,
-                });
-
-                // Apply position from entity metadata
-                const metaData = entity.meta__data as unknown as EntityMetaData;
-                const transformPosition = metaData.transform__position;
-                const entityModel = metaData.entity_model;
-                const position =
-                    transformPosition || entityModel?.transform__position;
-
-                if (position) {
-                    rootMesh.position = new Vector3(
-                        position.x || 0,
-                        position.y || 0,
-                        position.z || 0,
-                    );
-                }
-
-                // Store mesh in entity metadata for access in other hooks
-                entity._mesh = rootMesh;
-
-                // Also store in our asset map for reference
-                if (entity._assetMeshMap) {
-                    entity._assetMeshMap.set(
-                        asset.general__asset_file_name,
-                        rootMesh,
-                    );
-                }
-
-                log({
-                    message: "Mesh imported successfully for entity:",
-                    data: {
-                        entityId: entity.general__entity_id,
-                        assetName: asset.general__asset_file_name,
-                    },
-                    debug: context.Vircadia.Debug,
-                    suppress: context.Vircadia.Suppress,
-                });
-            } catch (importError) {
-                log({
-                    message: "Babylon.js model append failed",
-                    data: {
-                        entityId: entity.general__entity_id,
-                        assetName: asset.general__asset_file_name,
-                        error:
-                            importError instanceof Error
-                                ? {
-                                      message: importError.message,
-                                      name: importError.name,
-                                      stack: importError.stack,
-                                  }
-                                : importError,
-                    },
-                    type: "error",
-                    debug: context.Vircadia.Debug,
-                    suppress: context.Vircadia.Suppress,
-                });
-                throw importError;
-            }
-        } else {
-            throw new Error(`Unsupported asset type: ${assetType}`);
-        }
+        console.error(
+            "Unknown asset data format:",
+            typeof assetData,
+            assetData,
+        );
+        return null;
     } catch (error) {
-        log({
-            message: "Error importing model for entity:",
-            data: {
-                entityId: entity.general__entity_id,
-                asset: asset.general__asset_file_name,
-                error:
-                    error instanceof Error
-                        ? {
-                              message: error.message,
-                              name: error.name,
-                              stack: error.stack,
-                          }
-                        : error,
-            },
-            type: "error",
-            debug: context.Vircadia.Debug,
-            suppress: context.Vircadia.Suppress,
-        });
+        console.error("Error converting asset data to ArrayBuffer:", error);
+        return null;
     }
-}
-
-// Helper function to convert bytes to base64 string (works in browser)
-function bytesToBase64(bytes: Uint8Array): string {
-    let binary = "";
-    const len = bytes.byteLength;
-    for (let i = 0; i < len; i++) {
-        binary += String.fromCharCode(bytes[i]);
-    }
-    // Use browser's btoa function or fallback for Node.js
-    return typeof btoa === "function"
-        ? btoa(binary)
-        : Buffer.from(binary, "binary").toString("base64");
 }
 
 // Make the function available in the global scope

@@ -25,6 +25,12 @@ let adminAgent: TestAccount;
 let regularAgent: TestAccount;
 let anonAgent: TestAccount;
 
+// Helper function to read the triangle.gltf file
+async function readTriangleGltf(): Promise<string> {
+    const gltfPath = `${import.meta.dir}/asset/triangle.gltf`;
+    return await Bun.file(gltfPath).text();
+}
+
 // TODO: Add benchmarks.
 
 describe("DB", () => {
@@ -657,71 +663,90 @@ describe("DB", () => {
             });
         });
         describe("Entity Assets Operations", () => {
-            test("should create an asset and verify its metadata", async () => {
+            test("should create and handle both base64 and bytea asset operations", async () => {
                 await proxyUserSql.begin(async (tx) => {
                     await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
-                    // Creating an asset that mirrors the world_1_ENTITY_ASSET.sql structure.
-                    const assetData = {
-                        extra: "data",
-                        info: { version: 1 },
-                    };
-                    const [asset] = await tx<[Entity.Asset.I_Asset]>`
-        			INSERT INTO entity.entity_assets (
-        				general__asset_file_name,
-        				asset__data__base64,
-        				group__sync
-        			) VALUES (
-        				${`${DB_TEST_PREFIX}Test Asset`},
-        				${Buffer.from(JSON.stringify(assetData)).toString("base64")},
-        				${"public.NORMAL"}
-        			) RETURNING *
-        		`;
-                    expect(asset.general__asset_file_name).toBe(
-                        `${DB_TEST_PREFIX}Test Asset`,
+
+                    // Read the triangle.gltf file for both operations
+                    const gltfContent = await readTriangleGltf();
+                    const gltfBinary = await Bun.file(
+                        `${import.meta.dir}/asset/triangle.gltf`,
+                    ).arrayBuffer();
+                    const binaryData = Buffer.from(gltfBinary);
+
+                    // First query: Push asset with base64 data
+                    const [base64Asset] = await tx<[Entity.Asset.I_Asset]>`
+                        INSERT INTO entity.entity_assets (
+                            general__asset_file_name,
+                            asset__data__base64,
+                            group__sync
+                        ) VALUES (
+                            ${`${DB_TEST_PREFIX}Holistic Base64 Asset`},
+                            ${Buffer.from(gltfContent).toString("base64")},
+                            ${"public.NORMAL"}
+                        ) RETURNING *
+                    `;
+
+                    expect(base64Asset.general__asset_file_name).toBe(
+                        `${DB_TEST_PREFIX}Holistic Base64 Asset`,
                     );
-                    await tx`DELETE FROM entity.entity_assets WHERE general__asset_file_name = ${asset.general__asset_file_name}`;
-                });
-            });
+                    expect(base64Asset.asset__data__base64).toBeDefined();
 
-            test("should create and read an asset with binary data", async () => {
-                await proxyUserSql.begin(async (tx) => {
-                    await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
-
-                    // Test binary data instead of base64
-                    const binaryData = Buffer.from("test binary data");
-
-                    const [asset] = await tx<[Entity.Asset.I_Asset]>`
+                    // Second query: Push asset with bytea data
+                    const [byteaAsset] = await tx<[Entity.Asset.I_Asset]>`
                         INSERT INTO entity.entity_assets (
                             general__asset_file_name,
                             asset__data__bytea,
                             group__sync
                         ) VALUES (
-                            ${`${DB_TEST_PREFIX}Binary Asset`},
+                            ${`${DB_TEST_PREFIX}Holistic Bytea Asset`},
                             ${binaryData},
                             ${"public.NORMAL"}
                         ) RETURNING *
                     `;
 
-                    expect(asset.general__asset_file_name).toBe(
-                        `${DB_TEST_PREFIX}Binary Asset`,
+                    expect(byteaAsset.general__asset_file_name).toBe(
+                        `${DB_TEST_PREFIX}Holistic Bytea Asset`,
                     );
-                    expect(asset.asset__data__bytea).toBeDefined();
+                    expect(byteaAsset.asset__data__bytea).toBeDefined();
 
-                    // Read the asset back to verify the binary data
-                    const [retrievedAsset] = await tx<[Entity.Asset.I_Asset]>`
+                    // Retrieve both assets and verify their data
+                    const [retrievedBase64Asset] = await tx<
+                        [Entity.Asset.I_Asset]
+                    >`
                         SELECT * FROM entity.entity_assets 
-                        WHERE general__asset_file_name = ${`${DB_TEST_PREFIX}Binary Asset`}
+                        WHERE general__asset_file_name = ${`${DB_TEST_PREFIX}Holistic Base64 Asset`}
                     `;
 
-                    expect(retrievedAsset.asset__data__bytea).toBeDefined();
-                    // Using a more type-safe approach to check the buffer data
-                    const bytea = retrievedAsset.asset__data__bytea;
-                    if (bytea) {
-                        const bufferText = Buffer.from(bytea).toString();
-                        expect(bufferText).toBe("test binary data");
+                    const [retrievedByteaAsset] = await tx<
+                        [Entity.Asset.I_Asset]
+                    >`
+                        SELECT * FROM entity.entity_assets 
+                        WHERE general__asset_file_name = ${`${DB_TEST_PREFIX}Holistic Bytea Asset`}
+                    `;
+
+                    // Verify base64 data
+                    const base64Data = retrievedBase64Asset.asset__data__base64;
+                    if (base64Data) {
+                        const decodedContent = Buffer.from(
+                            base64Data,
+                            "base64",
+                        ).toString();
+                        const parsedContent = JSON.parse(decodedContent);
+                        expect(parsedContent.asset.version).toBe("2.0");
                     }
 
-                    await tx`DELETE FROM entity.entity_assets WHERE general__asset_file_name = ${asset.general__asset_file_name}`;
+                    // Verify bytea data
+                    const bytea = retrievedByteaAsset.asset__data__bytea;
+                    if (bytea) {
+                        const bufferText = Buffer.from(bytea).toString();
+                        const parsedContent = JSON.parse(bufferText);
+                        expect(parsedContent.asset.version).toBe("2.0");
+                    }
+
+                    // Clean up test assets
+                    await tx`DELETE FROM entity.entity_assets WHERE general__asset_file_name = ${base64Asset.general__asset_file_name}`;
+                    await tx`DELETE FROM entity.entity_assets WHERE general__asset_file_name = ${byteaAsset.general__asset_file_name}`;
                 });
             });
 
@@ -729,9 +754,12 @@ describe("DB", () => {
                 await proxyUserSql.begin(async (tx) => {
                     await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
 
+                    // Read the triangle.gltf file
+                    const gltfContent = await readTriangleGltf();
+
                     // Create initial asset
                     const initialData =
-                        Buffer.from("initial data").toString("base64");
+                        Buffer.from(gltfContent).toString("base64");
                     const [asset] = await tx<[Entity.Asset.I_Asset]>`
                         INSERT INTO entity.entity_assets (
                             general__asset_file_name,
@@ -744,9 +772,14 @@ describe("DB", () => {
                         ) RETURNING *
                     `;
 
-                    // Update the asset
+                    // Update the asset - modify the GLTF by changing a property
+                    const gltfData = JSON.parse(gltfContent);
+                    gltfData.scene = 1; // Simple modification to differentiate
+
+                    const updatedContent = JSON.stringify(gltfData);
                     const updatedData =
-                        Buffer.from("updated data").toString("base64");
+                        Buffer.from(updatedContent).toString("base64");
+
                     await tx`
                         UPDATE entity.entity_assets
                         SET asset__data__base64 = ${updatedData}
@@ -767,7 +800,8 @@ describe("DB", () => {
                             base64Data,
                             "base64",
                         ).toString();
-                        expect(decodedText).toBe("updated data");
+                        const parsedData = JSON.parse(decodedText);
+                        expect(parsedData.scene).toBe(1); // Verify our modification
                     }
 
                     // Check that timestamp is updated with safer type handling
@@ -787,6 +821,9 @@ describe("DB", () => {
                 await proxyUserSql.begin(async (tx) => {
                     await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
 
+                    // Read the triangle.gltf file
+                    const gltfContent = await readTriangleGltf();
+
                     // Create assets in different sync groups
                     const [asset1] = await tx<[Entity.Asset.I_Asset]>`
                         INSERT INTO entity.entity_assets (
@@ -795,10 +832,14 @@ describe("DB", () => {
                             group__sync
                         ) VALUES (
                             ${`${DB_TEST_PREFIX}Asset Group 1`},
-                            ${Buffer.from("group 1 data").toString("base64")},
+                            ${Buffer.from(gltfContent).toString("base64")},
                             ${"public.NORMAL"}
                         ) RETURNING *
                     `;
+
+                    // Modify the GLTF slightly for the second asset
+                    const gltfData = JSON.parse(gltfContent);
+                    gltfData.scene = 1; // Simple modification to differentiate
 
                     const [asset2] = await tx<[Entity.Asset.I_Asset]>`
                         INSERT INTO entity.entity_assets (
@@ -807,7 +848,7 @@ describe("DB", () => {
                             group__sync
                         ) VALUES (
                             ${`${DB_TEST_PREFIX}Asset Group 2`},
-                            ${Buffer.from("group 2 data").toString("base64")},
+                            ${Buffer.from(JSON.stringify(gltfData)).toString("base64")},
                             ${TEST_SYNC_GROUP}
                         ) RETURNING *
                     `;
@@ -858,14 +899,20 @@ describe("DB", () => {
                 await proxyUserSql.begin(async (tx) => {
                     await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
 
+                    // Read the triangle.gltf file
+                    const gltfContent = await readTriangleGltf();
+
                     // Create a batch of assets
                     const assetBatch = [];
                     const assetCount = 5;
 
                     for (let i = 0; i < assetCount; i++) {
                         const assetName = `${DB_TEST_PREFIX}Batch Asset ${i}`;
+                        // Slightly modify each asset to make them unique
+                        const gltfData = JSON.parse(gltfContent);
+                        gltfData.scene = i; // Set scene to batch index
                         const assetData = Buffer.from(
-                            `batch data ${i}`,
+                            JSON.stringify(gltfData),
                         ).toString("base64");
 
                         const [asset] = await tx<[Entity.Asset.I_Asset]>`

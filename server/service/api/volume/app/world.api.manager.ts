@@ -16,7 +16,7 @@ import { verify } from "jsonwebtoken";
 let superUserSql: postgres.Sql | null = null;
 let proxyUserSql: postgres.Sql | null = null;
 
-// TODO: Needs heavy optimization especially for pushing notifications to clients
+// TODO: Needs heavy optimization, especially for SQL flow.
 
 // ---------------------------------------------------------------------------------------------
 // ---------------------------------------------------------------------------------------------

@@ -18,6 +18,7 @@ import {
 import { VircadiaConfig_CLI } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.cli.config";
 import { VircadiaConfig_SERVER } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.server.config";
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
+import type { BunFile } from "bun";
 
 let superUserSql: postgres.Sql;
 let proxyUserSql: postgres.Sql;
@@ -26,9 +27,9 @@ let regularAgent: TestAccount;
 let anonAgent: TestAccount;
 
 // Helper function to read the triangle.gltf file
-async function readTriangleGltf(): Promise<string> {
+async function readTriangleGltf(): Promise<BunFile> {
     const gltfPath = `${import.meta.dir}/asset/triangle.gltf`;
-    return await Bun.file(gltfPath).text();
+    return Bun.file(gltfPath);
 }
 
 // TODO: Add benchmarks.
@@ -668,11 +669,9 @@ describe("DB", () => {
                     await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
 
                     // Read the triangle.gltf file for both operations
-                    const gltfContent = await readTriangleGltf();
-                    const gltfBinary = await Bun.file(
-                        `${import.meta.dir}/asset/triangle.gltf`,
-                    ).arrayBuffer();
-                    const binaryData = Buffer.from(gltfBinary);
+                    const gltfFile = await readTriangleGltf();
+                    const gltfContent = await gltfFile.arrayBuffer();
+                    const gltfBuffer = Buffer.from(gltfContent);
 
                     // First query: Push asset with base64 data
                     const [base64Asset] = await tx<[Entity.Asset.I_Asset]>`
@@ -682,7 +681,7 @@ describe("DB", () => {
                             group__sync
                         ) VALUES (
                             ${`${DB_TEST_PREFIX}Holistic Base64 Asset`},
-                            ${Buffer.from(gltfContent).toString("base64")},
+                            ${gltfBuffer.toString("base64")},
                             ${"public.NORMAL"}
                         ) RETURNING *
                     `;
@@ -700,7 +699,7 @@ describe("DB", () => {
                             group__sync
                         ) VALUES (
                             ${`${DB_TEST_PREFIX}Holistic Bytea Asset`},
-                            ${binaryData},
+                            ${gltfBuffer},
                             ${"public.NORMAL"}
                         ) RETURNING *
                     `;
@@ -755,11 +754,13 @@ describe("DB", () => {
                     await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
 
                     // Read the triangle.gltf file
-                    const gltfContent = await readTriangleGltf();
+                    const gltfFile = await readTriangleGltf();
+                    const gltfContent = await gltfFile.arrayBuffer();
+                    const gltfBuffer = Buffer.from(gltfContent);
+                    const gltfJson = await gltfFile.json();
 
                     // Create initial asset
-                    const initialData =
-                        Buffer.from(gltfContent).toString("base64");
+                    const initialData = gltfBuffer.toString("base64");
                     const [asset] = await tx<[Entity.Asset.I_Asset]>`
                         INSERT INTO entity.entity_assets (
                             general__asset_file_name,
@@ -773,7 +774,7 @@ describe("DB", () => {
                     `;
 
                     // Update the asset - modify the GLTF by changing a property
-                    const gltfData = JSON.parse(gltfContent);
+                    const gltfData = { ...gltfJson };
                     gltfData.scene = 1; // Simple modification to differentiate
 
                     const updatedContent = JSON.stringify(gltfData);
@@ -822,7 +823,10 @@ describe("DB", () => {
                     await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
 
                     // Read the triangle.gltf file
-                    const gltfContent = await readTriangleGltf();
+                    const gltfFile = await readTriangleGltf();
+                    const gltfContent = await gltfFile.arrayBuffer();
+                    const gltfBuffer = Buffer.from(gltfContent);
+                    const gltfJson = await gltfFile.json();
 
                     // Create assets in different sync groups
                     const [asset1] = await tx<[Entity.Asset.I_Asset]>`
@@ -832,13 +836,13 @@ describe("DB", () => {
                             group__sync
                         ) VALUES (
                             ${`${DB_TEST_PREFIX}Asset Group 1`},
-                            ${Buffer.from(gltfContent).toString("base64")},
+                            ${gltfBuffer.toString("base64")},
                             ${"public.NORMAL"}
                         ) RETURNING *
                     `;
 
                     // Modify the GLTF slightly for the second asset
-                    const gltfData = JSON.parse(gltfContent);
+                    const gltfData = { ...gltfJson };
                     gltfData.scene = 1; // Simple modification to differentiate
 
                     const [asset2] = await tx<[Entity.Asset.I_Asset]>`
@@ -900,7 +904,8 @@ describe("DB", () => {
                     await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
 
                     // Read the triangle.gltf file
-                    const gltfContent = await readTriangleGltf();
+                    const gltfFile = await readTriangleGltf();
+                    const gltfJson = await gltfFile.json();
 
                     // Create a batch of assets
                     const assetBatch = [];
@@ -909,7 +914,7 @@ describe("DB", () => {
                     for (let i = 0; i < assetCount; i++) {
                         const assetName = `${DB_TEST_PREFIX}Batch Asset ${i}`;
                         // Slightly modify each asset to make them unique
-                        const gltfData = JSON.parse(gltfContent);
+                        const gltfData = { ...gltfJson };
                         gltfData.scene = i; // Set scene to batch index
                         const assetData = Buffer.from(
                             JSON.stringify(gltfData),
@@ -960,6 +965,135 @@ describe("DB", () => {
 
                     expect(remainingAssets.length).toBe(0);
                 });
+            });
+
+            test("should be able to load .gltf assets into Babylon.js before and after database bytea storage", async () => {
+                // Import necessary Babylon.js libraries
+                const { NullEngine, Scene, AppendSceneAsync } = await import(
+                    "@babylonjs/core"
+                );
+                await import("@babylonjs/loaders");
+
+                // Create a NullEngine and Scene for testing
+                const engine = new NullEngine();
+                const scene = new Scene(engine);
+
+                // Original model data
+                const gltfFile = await readTriangleGltf();
+                const gltfContent = await gltfFile.arrayBuffer();
+                const gltfBuffer = Buffer.from(gltfContent);
+                let originalModelLoaded = false;
+
+                try {
+                    // Convert content to base64 for direct loading
+                    const base64Content = gltfBuffer.toString("base64");
+                    const base64ModelUrl = `data:;base64,${base64Content}`;
+
+                    // Load model using AppendSceneAsync
+                    await AppendSceneAsync(base64ModelUrl, scene, {
+                        pluginExtension: ".gltf",
+                    });
+
+                    // Add default camera and light
+                    scene.createDefaultCameraOrLight(true, true, true);
+
+                    // If we got here, the model loaded successfully
+                    originalModelLoaded = scene.meshes.length > 0;
+                    const originalModelMesh = scene.meshes[0];
+                    expect(originalModelMesh.name).toBeDefined();
+
+                    // Verify meshes were loaded
+                    expect(scene.meshes.length).toBeGreaterThan(0);
+
+                    // Clean up resources for this test run
+                    for (const mesh of scene.meshes) {
+                        mesh.dispose();
+                    }
+                } catch (error) {
+                    console.error("Error loading original model:", error);
+                }
+
+                // Verify original model loaded successfully
+                expect(originalModelLoaded).toBe(true);
+
+                // Store the model in the database and retrieve it
+                let retrievedByteaData: Buffer | undefined;
+
+                await proxyUserSql.begin(async (tx) => {
+                    await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
+
+                    // Store the asset in bytea format - using binary content directly
+                    const [asset] = await tx<[Entity.Asset.I_Asset]>`
+                        INSERT INTO entity.entity_assets (
+                            general__asset_file_name,
+                            asset__data__bytea,
+                            group__sync
+                        ) VALUES (
+                            ${`${DB_TEST_PREFIX}Babylon Bytea Test Asset`},
+                            ${gltfBuffer},
+                            ${"public.NORMAL"}
+                        ) RETURNING *
+                    `;
+
+                    // Retrieve the asset
+                    const [retrievedAsset] = await tx<[Entity.Asset.I_Asset]>`
+                        SELECT * FROM entity.entity_assets 
+                        WHERE general__asset_file_name = ${`${DB_TEST_PREFIX}Babylon Bytea Test Asset`}
+                    `;
+
+                    retrievedByteaData = retrievedAsset.asset__data__bytea;
+
+                    // Clean up
+                    await tx`DELETE FROM entity.entity_assets WHERE general__asset_file_name = ${asset.general__asset_file_name}`;
+                });
+
+                // Verify we got data back
+                expect(retrievedByteaData).toBeDefined();
+
+                if (!retrievedByteaData) {
+                    // Skip the rest of the test if data is undefined
+                    console.warn(
+                        "Retrieved bytea data is undefined, skipping Babylon import test",
+                    );
+                    return;
+                }
+
+                // Create a new scene for the retrieved model
+                const retrievedScene = new Scene(engine);
+                let retrievedModelLoaded = false;
+
+                try {
+                    // Convert the bytea buffer to base64 for loading
+                    const base64FromBytea =
+                        Buffer.from(retrievedByteaData).toString("base64");
+                    const retrievedModelUrl = `data:;base64,${base64FromBytea}`;
+
+                    // Load the model from the data URL created from bytea data
+                    await AppendSceneAsync(retrievedModelUrl, retrievedScene, {
+                        pluginExtension: ".gltf",
+                    });
+
+                    // Add default camera and light
+                    retrievedScene.createDefaultCameraOrLight(true, true, true);
+
+                    // If we got here with meshes, the model loaded successfully
+                    retrievedModelLoaded = retrievedScene.meshes.length > 0;
+                    const retrievedModelMesh = retrievedScene.meshes[0];
+
+                    // Check if the model has the expected components
+                    expect(retrievedModelMesh).toBeDefined();
+                    expect(retrievedModelMesh.name).toBeDefined();
+                } catch (error) {
+                    console.error("Error loading retrieved model:", error);
+                }
+
+                // Verify retrieved model loaded successfully
+                expect(retrievedModelLoaded).toBe(true);
+
+                // Clean up Babylon resources
+                retrievedScene.dispose();
+                scene.dispose();
+                engine.dispose();
             });
         });
         describe("Relations Operations", () => {

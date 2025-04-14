@@ -15,9 +15,10 @@ const SERVER_URL =
 
 // Particle system constants
 const PARTICLE_ENTITY_PREFIX = "ParticleSystem_";
-const PARTICLE_BATCH_SIZE = 50; // Number of particles to sync in one batch
+const PARTICLE_BATCH_SIZE = 500; // Number of particles to sync in one batch
 const PARTICLE_BATCH_INTERVAL = 50; // Milliseconds between batch updates
 const PARTICLE_SYNC_INTERVAL = 5000; // Milliseconds between full sync operations
+const PARTICLE_SYNC_COUNT = 5000; // Number of particles to sync
 
 const SERVER_CONFIG = {
     serverUrl: SERVER_URL,
@@ -837,7 +838,7 @@ function ParticleSystem({
                 return;
             }
 
-            const particleData = readParticleData(100);
+            const particleData = readParticleData(PARTICLE_SYNC_COUNT);
             if (!particleData) {
                 isSyncing.current = false;
                 syncStats.current.syncStatus = "Failed: No particle data";

@@ -210,18 +210,6 @@ function vircadiaScriptMain(
                 }
             },
 
-            onEntityUpdate: (updatedEntity: Entity.I_Entity): void => {
-                // Handle updates to lighting configuration if needed
-                if (context.Vircadia.Debug) {
-                    console.log(
-                        "Lighting entity updated:",
-                        updatedEntity.general__entity_id,
-                    );
-                }
-
-                // Could implement dynamic light updates based on entity properties
-            },
-
             onScriptTeardown: (): void => {
                 if (context.Vircadia.Debug) {
                     console.log("Scene lighting script being torn down");

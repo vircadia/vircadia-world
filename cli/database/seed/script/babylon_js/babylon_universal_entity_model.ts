@@ -4,9 +4,8 @@ import { registerBuiltInLoaders } from "@babylonjs/loaders/dynamic";
 import {
     Vector3,
     type Scene,
-    MeshBuilder,
     SceneLoader,
-    AbstractMesh,
+    type AbstractMesh,
 } from "@babylonjs/core";
 
 // Basic interface for handling position
@@ -42,29 +41,11 @@ function vircadiaScriptMain(
                 const entity = entityData as EntityWithMesh;
                 console.log("Entity initialized:", entity.general__entity_id);
 
-                // Create a placeholder sphere for testing
-                const sphere = MeshBuilder.CreateSphere(
-                    "sphere",
-                    { diameter: 1 },
-                    context.Babylon.Scene,
-                );
-
                 // Apply position from entity metadata
                 const metaData = entity.meta__data as unknown as EntityMetaData;
                 const position =
                     metaData.transform__position ||
                     metaData.entity_model?.transform__position;
-
-                if (position) {
-                    sphere.position = new Vector3(
-                        position.x || 0,
-                        position.y || 0,
-                        position.z || 0,
-                    );
-                }
-
-                // Store mesh reference
-                entity._mesh = sphere;
 
                 // Try loading asset as well
                 if (entity.asset__names && entity.asset__names.length > 0) {
@@ -73,25 +54,6 @@ function vircadiaScriptMain(
                         entity.asset__names,
                     );
                     loadEntityAssets(entity, context.Babylon.Scene, context);
-                }
-            },
-
-            onEntityUpdate: (updatedEntity: Entity.I_Entity): void => {
-                const entityWithMesh = updatedEntity as EntityWithMesh;
-
-                // Update position if mesh exists
-                if (entityWithMesh._mesh) {
-                    const metaData =
-                        updatedEntity.meta__data as unknown as EntityMetaData;
-                    const position =
-                        metaData.transform__position ||
-                        metaData.entity_model?.transform__position;
-
-                    if (position) {
-                        entityWithMesh._mesh.position.x = position.x || 0;
-                        entityWithMesh._mesh.position.y = position.y || 0;
-                        entityWithMesh._mesh.position.z = position.z || 0;
-                    }
                 }
             },
 

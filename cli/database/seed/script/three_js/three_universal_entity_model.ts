@@ -11,6 +11,7 @@ import {
 } from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { log } from "../../../../../sdk/vircadia-world-sdk-ts/module/general/log";
+import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 
 // Log Three.js version for debugging multiple instances
 console.log(
@@ -91,6 +92,95 @@ function vircadiaScriptMain(
     let currentAssetName = "";
 
     /**
+     * Helper function to convert asset data to ArrayBuffer
+     */
+    async function assetDataToArrayBuffer(
+        assetData: unknown,
+    ): Promise<ArrayBuffer | null> {
+        try {
+            // Case 1: Already an ArrayBuffer
+            if (assetData instanceof ArrayBuffer) {
+                return assetData;
+            }
+
+            // Case 2: Buffer format with type and data array
+            if (
+                typeof assetData === "object" &&
+                assetData !== null &&
+                "type" in assetData &&
+                assetData.type === "Buffer" &&
+                "data" in assetData &&
+                Array.isArray(assetData.data)
+            ) {
+                return new Uint8Array(assetData.data).buffer;
+            }
+
+            // Case 3: Base64 string
+            if (typeof assetData === "string") {
+                // Remove any potential URL prefix (like data:application/octet-stream;base64,)
+                const commaIndex = assetData.indexOf(",");
+                const base64String =
+                    commaIndex !== -1
+                        ? assetData.substring(commaIndex + 1)
+                        : assetData;
+
+                const binary = atob(base64String);
+                const bytes = new Uint8Array(binary.length);
+
+                for (let i = 0; i < binary.length; i++) {
+                    bytes[i] = binary.charCodeAt(i);
+                }
+
+                return bytes.buffer;
+            }
+
+            // Case 4: Array-like object with numeric keys
+            if (typeof assetData === "object" && assetData !== null) {
+                const keys = Object.keys(assetData);
+                const isArrayLike = keys.every(
+                    (key) => !Number.isNaN(Number(key)),
+                );
+
+                if (isArrayLike) {
+                    const dataArray: number[] = [];
+                    const sortedKeys = keys.sort(
+                        (a, b) => Number(a) - Number(b),
+                    );
+
+                    for (const key of sortedKeys) {
+                        dataArray.push(
+                            (assetData as Record<string, number>)[key],
+                        );
+                    }
+
+                    return new Uint8Array(dataArray).buffer;
+                }
+            }
+
+            log({
+                message: "Unknown asset data format",
+                data: {
+                    type: typeof assetData,
+                    preview: JSON.stringify(assetData).substring(0, 100),
+                },
+                type: "error",
+                debug: context.Vircadia.Debug,
+                suppress: context.Vircadia.Suppress,
+            });
+            return null;
+        } catch (error) {
+            log({
+                message: "Error converting asset data to ArrayBuffer",
+                data: { error },
+                type: "error",
+                debug: context.Vircadia.Debug,
+                suppress: context.Vircadia.Suppress,
+            });
+            return null;
+        }
+    }
+
+    /**
      * Loads a model from asset data
      */
     async function loadModelFromAssetData(
@@ -139,151 +229,25 @@ function vircadiaScriptMain(
                 throw new Error(`Asset not found: ${assetName}`);
             }
 
-            log({
-                message: "Asset found",
-                data: { assetName, assetData: response.result[0] },
-                debug: context.Vircadia.Debug,
-                suppress: context.Vircadia.Suppress,
-            });
-
             // Since we've verified result exists and has elements, it's safe to access
             const assetData = response.result[0] as unknown as AssetDataFields;
-            let modelData: ArrayBuffer;
+            let modelData: ArrayBuffer | null = null;
 
-            // Convert the asset data to ArrayBuffer
+            // Try to convert asset data to ArrayBuffer
             if (assetData?.asset__data__bytea) {
-                try {
-                    // Handle Buffer format from the server
-                    if (
-                        typeof assetData.asset__data__bytea === "object" &&
-                        assetData.asset__data__bytea !== null &&
-                        "type" in assetData.asset__data__bytea &&
-                        assetData.asset__data__bytea.type === "Buffer" &&
-                        "data" in assetData.asset__data__bytea &&
-                        Array.isArray(assetData.asset__data__bytea.data)
-                    ) {
-                        // Direct access to the Buffer data array
-                        const bufferData = assetData.asset__data__bytea.data;
-                        modelData = new Uint8Array(bufferData).buffer;
+                modelData = await assetDataToArrayBuffer(
+                    assetData.asset__data__bytea,
+                );
+            } else if (assetData?.asset__data__base64) {
+                modelData = await assetDataToArrayBuffer(
+                    assetData.asset__data__base64,
+                );
+            }
 
-                        log({
-                            message: "Successfully processed Buffer data",
-                            data: {
-                                dataType: "Buffer",
-                                byteLength: bufferData.length,
-                            },
-                            debug: context.Vircadia.Debug,
-                            suppress: context.Vircadia.Suppress,
-                        });
-                    }
-                    // Fallback to previous string-based methods
-                    else {
-                        // Check if the bytea is already a string or needs conversion
-                        let base64String: string;
-
-                        if (typeof assetData.asset__data__bytea === "string") {
-                            // If it's already a string, use it directly
-                            base64String = assetData.asset__data__bytea;
-                        } else {
-                            // Convert to string if it's in another format
-                            base64String = String(assetData.asset__data__bytea);
-                        }
-
-                        // Remove any potential URL prefix (like data:application/octet-stream;base64,)
-                        const commaIndex = base64String.indexOf(",");
-                        if (commaIndex !== -1) {
-                            base64String = base64String.substring(
-                                commaIndex + 1,
-                            );
-                        }
-
-                        // Decode base64 to binary string
-                        const byteCharacters = atob(base64String);
-                        const byteNumbers = new Array(byteCharacters.length);
-
-                        for (let i = 0; i < byteCharacters.length; i++) {
-                            byteNumbers[i] = byteCharacters.charCodeAt(i);
-                        }
-
-                        modelData = new Uint8Array(byteNumbers).buffer;
-                    }
-                } catch (decodeError) {
-                    log({
-                        message: "Error decoding bytea data",
-                        data: {
-                            error: decodeError,
-                            dataType: typeof assetData.asset__data__bytea,
-                            dataPreview:
-                                typeof assetData.asset__data__bytea === "string"
-                                    ? `${(assetData.asset__data__bytea as string).substring(0, 100)}...`
-                                    : "Non-string data",
-                        },
-                        type: "error",
-                        debug: context.Vircadia.Debug,
-                        suppress: context.Vircadia.Suppress,
-                    });
-
-                    // Try alternative approach - if bytea is PostgreSQL hex format
-                    try {
-                        // If format is like \x00FF23... (PostgreSQL hex format)
-                        const hexString = String(assetData.asset__data__bytea);
-                        if (hexString.startsWith("\\x")) {
-                            const hex = hexString.substring(2);
-                            const bytes = new Uint8Array(hex.length / 2);
-                            for (let i = 0; i < hex.length; i += 2) {
-                                bytes[i / 2] = Number.parseInt(
-                                    hex.substring(i, i + 2),
-                                    16,
-                                );
-                            }
-                            modelData = bytes.buffer;
-                        } else {
-                            throw new Error("Unrecognized bytea format");
-                        }
-                    } catch (hexError) {
-                        throw new Error(
-                            `Failed to decode asset data: ${decodeError instanceof Error ? decodeError.message : String(decodeError)}\nHex fallback also failed: ${hexError instanceof Error ? hexError.message : String(hexError)}`,
-                        );
-                    }
-                }
-            } else if (assetData.asset__data__base64) {
-                try {
-                    // Handle base64 data - clean up if needed
-                    let base64String = assetData.asset__data__base64;
-
-                    // Remove any potential URL prefix
-                    const commaIndex = base64String.indexOf(",");
-                    if (commaIndex !== -1) {
-                        base64String = base64String.substring(commaIndex + 1);
-                    }
-
-                    const binary = atob(base64String);
-                    const bytes = new Uint8Array(binary.length);
-
-                    for (let i = 0; i < binary.length; i++) {
-                        bytes[i] = binary.charCodeAt(i);
-                    }
-
-                    modelData = bytes.buffer;
-                } catch (decodeError) {
-                    log({
-                        message: "Error decoding base64 data",
-                        data: {
-                            error: decodeError,
-                            dataPreview:
-                                typeof assetData.asset__data__base64 ===
-                                "string"
-                                    ? `${(assetData.asset__data__base64 as string).substring(0, 100)}...`
-                                    : "Non-string data",
-                        },
-                        type: "error",
-                        debug: context.Vircadia.Debug,
-                        suppress: context.Vircadia.Suppress,
-                    });
-                    throw decodeError;
-                }
-            } else {
-                throw new Error(`No data found for asset: ${assetName}`);
+            if (!modelData) {
+                throw new Error(
+                    `Failed to process asset data for: ${assetName}`,
+                );
             }
 
             // Create a new group to hold the model
@@ -406,22 +370,12 @@ function vircadiaScriptMain(
 
             return group;
         } catch (error: unknown) {
-            const errorObj =
-                error instanceof Error
-                    ? { message: error.message, stack: error.stack }
-                    : String(error);
-            const errorLocation =
-                error instanceof Error && error.stack
-                    ? error.stack.split("\n")[1]
-                    : "Unknown location";
-
             log({
                 message: "Error loading model from asset data",
                 data: {
                     entityId: entity.general__entity_id,
                     assetName,
-                    error: errorObj,
-                    errorLocation,
+                    error,
                 },
                 type: "error",
                 debug: context.Vircadia.Debug,
@@ -438,6 +392,9 @@ function vircadiaScriptMain(
         return new Promise((resolve, reject) => {
             try {
                 const loader = new GLTFLoader();
+                const dracoLoader = new DRACOLoader();
+                dracoLoader.setDecoderPath("/examples/jsm/libs/draco/");
+                loader.setDRACOLoader(dracoLoader);
 
                 // Log data size for debugging
                 log({
@@ -462,7 +419,12 @@ function vircadiaScriptMain(
                     (error) => {
                         log({
                             message: "GLTF loader error",
-                            data: { error },
+                            data: {
+                                errorMessage: error.message || String(error),
+                                errorStack:
+                                    "stack" in error ? error.stack : undefined,
+                                errorType: error.constructor?.name,
+                            },
                             type: "error",
                             debug: context.Vircadia.Debug,
                             suppress: context.Vircadia.Suppress,
@@ -475,9 +437,18 @@ function vircadiaScriptMain(
                     },
                 );
             } catch (error: unknown) {
+                const errorObj =
+                    error instanceof Error
+                        ? {
+                              message: error.message,
+                              stack: error.stack,
+                              name: error.name,
+                          }
+                        : String(error);
+
                 log({
                     message: "Exception during GLTF loader setup",
-                    data: { error },
+                    data: { error: errorObj },
                     type: "error",
                     debug: context.Vircadia.Debug,
                     suppress: context.Vircadia.Suppress,

@@ -305,34 +305,6 @@ function vircadiaScriptMain(
                 });
             },
 
-            onEntityUpdate: (updatedEntity: Entity.I_Entity): void => {
-                if (context.Vircadia.Debug) {
-                    console.log(
-                        "Entity updated:",
-                        updatedEntity.general__entity_id,
-                    );
-                }
-
-                const characterEntity = updatedEntity as CharacterEntity;
-                if (characterEntity._characterMesh) {
-                    const metaData =
-                        updatedEntity.meta__data as unknown as EntityMetaData;
-                    const transformPosition = metaData.transform__position;
-                    const entityModel = metaData.entity_model;
-                    const position =
-                        transformPosition || entityModel?.transform__position;
-
-                    if (position) {
-                        characterEntity._characterMesh.position.x =
-                            position.x || 0;
-                        characterEntity._characterMesh.position.y =
-                            position.y || 0;
-                        characterEntity._characterMesh.position.z =
-                            position.z || 0;
-                    }
-                }
-            },
-
             onScriptTeardown: (): void => {
                 if (context.Vircadia.Debug) {
                     console.log("Character controller being torn down");

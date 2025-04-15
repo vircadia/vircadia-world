@@ -94,7 +94,7 @@ services:
     ports:
       - "${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_INTERNAL}"
     volumes:
-      - api/volume/app:/app
+      - ./api/volume/app:/app
     working_dir: /app
     command: ["bun", "run", "dist/world.api.manager.js"]
     environment:
@@ -134,16 +134,12 @@ services:
     user: "1000:1000"  # Run as non-root user
     restart: always
     read_only: true
-    tmpfs:
-      - /tmp
-      - /app/node_modules
-      - /app/server/service/tick/volume/app/node_modules
     ports:
       - "${VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_INTERNAL}"
     volumes:
-      - ../../:/app
-    working_dir: /app/server/service/tick/volume/app
-    command: ["bun", "run", "world.tick.manager.ts"]
+      - ./tick/volume/app:/app
+    working_dir: /app
+    command: ["bun", "run", "dist/world.tick.manager.js"]
     environment:
       VRCA_SERVER_DEBUG: ${VRCA_SERVER_DEBUG}
       VRCA_SERVER_SUPPRESS: ${VRCA_SERVER_SUPPRESS}

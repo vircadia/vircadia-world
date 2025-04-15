@@ -1,0 +1,11 @@
+{
+  "name": "world-tick-manager",
+  "version": "1.0.0",
+  "description": "Vircadia World Tick Manager",
+  "main": "dist/world.tick.manager.js",
+  "scripts": {
+    "build": "bun build world.tick.manager.ts --target bun --outfile ./dist/world.tick.manager.js",
+    "start": "bun ./dist/world.tick.manager.js",
+    "deploy": "bun run build && bun run start"
+  }
+}

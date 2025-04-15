@@ -119,7 +119,7 @@ services:
         condition: service_healthy
         restart: true
     healthcheck:
-      test: ["CMD-SHELL", "cd ../test && bun test"]
+      test: ["CMD-SHELL", "wget --spider http://127.0.0.1:${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_INTERNAL}/stats"]
       interval: 10s
       timeout: 10s
       retries: 3
@@ -159,7 +159,7 @@ services:
         condition: service_healthy
         restart: true
     healthcheck:
-      test: ["CMD-SHELL", "cd ../test && bun test"]
+      test: ["CMD-SHELL", "wget --spider http://127.0.0.1:${VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_INTERNAL}/stats"]
       interval: 10s
       timeout: 10s
       retries: 3

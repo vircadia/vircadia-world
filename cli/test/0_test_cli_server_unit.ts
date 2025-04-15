@@ -43,7 +43,6 @@ describe("SERVER Container and Database CLI Tests", () => {
         expect(migrationsRan).toBe(true);
         await Server_CLI.seedSql();
         await Server_CLI.seedAssets({});
-        await Server_CLI.seedScripts({});
 
         await Server_CLI.runServerDockerCommand({
             args: ["up", Service.E_Service.PGWEB, "-d"],
@@ -248,7 +247,6 @@ describe("SERVER Container and Database CLI Tests", () => {
 
         await Server_CLI.seedSql();
         await Server_CLI.seedAssets({});
-        await Server_CLI.seedScripts({});
 
         const finalPostgresHealth = await Server_CLI.isPostgresHealthy(true);
         expect(finalPostgresHealth.isHealthy).toBe(true);

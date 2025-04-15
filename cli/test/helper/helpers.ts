@@ -382,42 +382,6 @@ export async function cleanupTestEntities(data: {
     });
 }
 
-export async function cleanupTestScripts(data: {
-    superUserSql: postgres.Sql;
-}): Promise<void> {
-    await data.superUserSql.begin(async (tx) => {
-        try {
-            await tx`
-                DELETE FROM entity.entity_scripts 
-                WHERE general__script_file_name LIKE ${`%${DB_TEST_PREFIX}%`}
-            `;
-
-            // Verify no test scripts remain
-            const remainingScripts = await tx`
-                SELECT * FROM entity.entity_scripts 
-                WHERE general__script_file_name LIKE ${`%${DB_TEST_PREFIX}%`}
-            `;
-            expect(remainingScripts).toHaveLength(0);
-
-            log({
-                message: "Cleaned up test scripts",
-                type: "debug",
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-            });
-        } catch (error) {
-            log({
-                message: "Failed to cleanup test scripts",
-                type: "error",
-                error,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-            });
-            throw error;
-        }
-    });
-}
-
 export async function cleanupTestAssets(data: {
     superUserSql: postgres.Sql;
 }): Promise<void> {

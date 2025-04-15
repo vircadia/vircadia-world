@@ -55,8 +55,8 @@ These SQL migration files define the core database structure for Vircadia World.
     <p>
         The Entity SQL file creates the entity management system:
         - Core entity data structure
-        - Entity scripts and components
         - Entity relationships and hierarchy
+        - Asset management
         - Access control and ownership
     </p>
     <CodeBlock language="sql" title="4_ENTITY.sql">
@@ -68,8 +68,6 @@ These SQL migration files define the core database structure for Vircadia World.
         The Tick SQL file implements time-series state tracking:
         - World tick state management
         - Entity state history
-        - Script state history
-        - Asset state history
         - Performance metrics and analytics
     </p>
     <CodeBlock language="sql" title="5_TICK.sql">

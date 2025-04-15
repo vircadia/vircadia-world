@@ -22,58 +22,6 @@ CREATE TABLE entity._template (
 -- 4. CORE TABLES
 -- ============================================================================
 
--- 4.1 ENTITY SCRIPTS TABLE
--- ============================================================================
-CREATE TABLE entity.entity_scripts (
-    general__script_file_name TEXT PRIMARY KEY,
-    group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
-    CONSTRAINT fk_entity_scripts_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group),
-
-    script__platform TEXT[] NOT NULL DEFAULT '{BABYLON_BROWSER}',
-    CONSTRAINT chk_script_platform CHECK (script__platform <@ ARRAY['BABYLON_BUN', 'BABYLON_BROWSER', 'THREE_BUN', 'THREE_BROWSER']),
-
-    -- Source fields
-    script__source__repo__entry_path TEXT NOT NULL DEFAULT '',
-    script__source__repo__url TEXT NOT NULL DEFAULT '',
-    script__source__data TEXT NOT NULL DEFAULT '',
-    script__source__updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    -- Platform-specific compilation fields - BABYLON_BUN
-    script__compiled__babylon_bun__data TEXT NOT NULL DEFAULT '',
-    script__compiled__babylon_bun__status TEXT NOT NULL DEFAULT 'NOT_COMPILED',
-    CONSTRAINT chk_script_compiled_babylon_bun_status CHECK (script__compiled__babylon_bun__status IN ('NOT_COMPILED', 'COMPILING', 'COMPILED', 'FAILED')),
-    script__compiled__babylon_bun__data_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    script__compiled__babylon_bun__status_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
-    -- Platform-specific compilation fields - BABYLON_BROWSER
-    script__compiled__babylon_browser__data TEXT NOT NULL DEFAULT '',
-    script__compiled__babylon_browser__status TEXT NOT NULL DEFAULT 'NOT_COMPILED',
-    CONSTRAINT chk_script_compiled_babylon_browser_status CHECK (script__compiled__babylon_browser__status IN ('NOT_COMPILED', 'COMPILING', 'COMPILED', 'FAILED')),
-    script__compiled__babylon_browser__data_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    script__compiled__babylon_browser__status_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    -- Platform-specific compilation fields - THREE_BUN
-    script__compiled__three_bun__data TEXT NOT NULL DEFAULT '',
-    script__compiled__three_bun__status TEXT NOT NULL DEFAULT 'NOT_COMPILED',
-    CONSTRAINT chk_script_compiled_three_bun_status CHECK (script__compiled__three_bun__status IN ('NOT_COMPILED', 'COMPILING', 'COMPILED', 'FAILED')),
-    script__compiled__three_bun__data_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    script__compiled__three_bun__status_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    -- Platform-specific compilation fields - THREE_BROWSER
-    script__compiled__three_browser__data TEXT NOT NULL DEFAULT '',
-    script__compiled__three_browser__status TEXT NOT NULL DEFAULT 'NOT_COMPILED',
-    CONSTRAINT chk_script_compiled_three_browser_status CHECK (script__compiled__three_browser__status IN ('NOT_COMPILED', 'COMPILING', 'COMPILED', 'FAILED')),
-    script__compiled__three_browser__data_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    script__compiled__three_browser__status_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    script__source__data_updated_at timestamptz NOT NULL DEFAULT now(),
-    script__source__repo__url_updated_at timestamptz NOT NULL DEFAULT now(),
-    script__source__repo__entry_path_updated_at timestamptz NOT NULL DEFAULT now()
-) INHERITS (entity._template);
-
-ALTER TABLE entity.entity_scripts ENABLE ROW LEVEL SECURITY;
-
-
 -- 4.2 ENTITY ASSETS TABLE
 -- ============================================================================
 CREATE TABLE entity.entity_assets (
@@ -101,7 +49,6 @@ CREATE TABLE entity.entities (
     general__initialized_at TIMESTAMPTZ DEFAULT NULL,
     general__initialized_by UUID DEFAULT NULL,
     meta__data JSONB NOT NULL DEFAULT '{}'::jsonb,
-    script__names TEXT[] NOT NULL DEFAULT '{}',
     asset__names TEXT[] NOT NULL DEFAULT '{}',
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
     group__load_priority INTEGER NOT NULL DEFAULT 1,
@@ -109,7 +56,6 @@ CREATE TABLE entity.entities (
     CONSTRAINT fk_entities_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group),
 
     meta_data_updated_at timestamptz NOT NULL DEFAULT now(),
-    script_names_updated_at timestamptz NOT NULL DEFAULT now(),
     asset_names_updated_at timestamptz NOT NULL DEFAULT now(),
     position_updated_at timestamptz NOT NULL DEFAULT now()
 ) INHERITS (entity._template);
@@ -118,7 +64,6 @@ CREATE INDEX idx_entities_load_priority ON entity.entities(group__load_priority)
 CREATE INDEX idx_entities_created_at ON entity.entities(general__created_at);
 CREATE INDEX idx_entities_updated_at ON entity.entities(general__updated_at);
 CREATE INDEX idx_entities_semantic_version ON entity.entities(general__semantic_version);
-CREATE INDEX idx_entities_scripts_names ON entity.entities USING GIN (script__names);
 CREATE INDEX idx_entities_assets_names ON entity.entities USING GIN (asset__names);
 
 ALTER TABLE entity.entities ENABLE ROW LEVEL SECURITY;
@@ -145,18 +90,6 @@ $$ LANGUAGE plpgsql;
 -- 5.3 ENTITY FUNCTIONS
 -- ============================================================================
 
--- Function to remove deleted script references from entities
-CREATE OR REPLACE FUNCTION entity.remove_deleted_script_references()
-RETURNS TRIGGER AS $$
-BEGIN
-    UPDATE entity.entities
-    SET script__names = array_remove(script__names, OLD.general__script_file_name)
-    WHERE OLD.general__script_file_name = ANY(script__names);
-    
-    RETURN OLD;
-END;
-$$ LANGUAGE plpgsql;
-
 -- Function to remove deleted asset references from entities
 CREATE OR REPLACE FUNCTION entity.remove_deleted_asset_references()
 RETURNS TRIGGER AS $$
@@ -173,16 +106,6 @@ $$ LANGUAGE plpgsql;
 -- ============================================================================
 -- 6. TRIGGERS
 -- ============================================================================
-
--- 6.1 ENTITY SCRIPT TRIGGERS
--- ============================================================================
-
--- Update audit columns trigger for entity_scripts
-CREATE TRIGGER update_audit_columns
-    BEFORE UPDATE ON entity.entity_scripts
-    FOR EACH ROW
-    EXECUTE FUNCTION entity.update_audit_columns();
-
 
 -- 6.2 ENTITY ASSET TRIGGERS
 -- ============================================================================
@@ -203,12 +126,6 @@ CREATE TRIGGER update_audit_columns
     FOR EACH ROW
     EXECUTE FUNCTION entity.update_audit_columns();
 
--- Trigger to remove deleted script references from entities
-CREATE TRIGGER remove_deleted_script_references
-    BEFORE DELETE ON entity.entity_scripts
-    FOR EACH ROW
-    EXECUTE FUNCTION entity.remove_deleted_script_references();
-
 -- Trigger to remove deleted asset references from entities
 CREATE TRIGGER remove_deleted_asset_references
     BEFORE DELETE ON entity.entity_assets
@@ -228,45 +145,6 @@ REVOKE ALL ON ALL SEQUENCES IN SCHEMA entity FROM PUBLIC, vircadia_agent_proxy;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA entity FROM PUBLIC, vircadia_agent_proxy;
 REVOKE ALL ON ALL PROCEDURES IN SCHEMA entity FROM PUBLIC, vircadia_agent_proxy;
 REVOKE ALL ON ALL ROUTINES IN SCHEMA entity FROM PUBLIC, vircadia_agent_proxy;
-
-
--- 7.2 ENTITY SCRIPT POLICIES
--- ============================================================================
--- Grant table permissions to vircadia_agent_proxy
-GRANT SELECT, INSERT, UPDATE, DELETE ON entity.entity_scripts TO vircadia_agent_proxy;
-
--- Policy to explicitly allow the proxy agent to view entity scripts
-CREATE POLICY "All can view entity scripts" ON entity.entity_scripts
-    FOR SELECT
-    TO PUBLIC
-    USING (true);
-
--- Policy to explicitly allow the proxy agent to insert entity scripts
-CREATE POLICY "Only admins can insert entity scripts" ON entity.entity_scripts
-    FOR INSERT
-    TO PUBLIC
-    WITH CHECK (
-        auth.is_admin_agent()
-        OR auth.is_system_agent()
-    );
-
--- Policy to explicitly allow the proxy agent to update entity scripts
-CREATE POLICY "Only admins can update entity scripts" ON entity.entity_scripts
-    FOR UPDATE
-    TO PUBLIC
-    USING (
-        auth.is_admin_agent()
-        OR auth.is_system_agent()
-    );
-
--- Policy to explicitly allow the proxy agent to delete entity scripts
-CREATE POLICY "Only admins can delete entity scripts" ON entity.entity_scripts
-    FOR DELETE
-    TO PUBLIC
-    USING (
-        auth.is_admin_agent()
-        OR auth.is_system_agent()
-    );
 
 
 -- 7.3 ENTITY ASSET POLICIES
@@ -416,9 +294,6 @@ BEGIN
         IF NEW.meta__data IS DISTINCT FROM OLD.meta__data THEN
             NEW.meta_data_updated_at = now();
         END IF;
-        IF NEW.script__names IS DISTINCT FROM OLD.script__names THEN
-            NEW.script_names_updated_at = now();
-        END IF;
         IF NEW.asset__names IS DISTINCT FROM OLD.asset__names THEN
             NEW.asset_names_updated_at = now();
         END IF;
@@ -431,46 +306,6 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER update_entity_timestamps
 BEFORE UPDATE ON entity.entities
 FOR EACH ROW EXECUTE FUNCTION entity.update_entity_timestamps();
-
--- 2. Trigger for entity.entity_scripts
-CREATE OR REPLACE FUNCTION entity.update_script_timestamps()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF TG_OP = 'UPDATE' THEN
-        IF NEW.script__source__data IS DISTINCT FROM OLD.script__source__data THEN
-            NEW.script__source__data_updated_at = now();
-        END IF;
-        
-        IF NEW.script__compiled__babylon_bun__data IS DISTINCT FROM OLD.script__compiled__babylon_bun__data THEN
-            NEW.script__compiled__babylon_bun__data_updated_at = now();
-        END IF;
-
-        IF NEW.script__compiled__babylon_bun__status IS DISTINCT FROM OLD.script__compiled__babylon_bun__status THEN
-            NEW.script__compiled__babylon_bun__status_updated_at = now();
-        END IF;
-        
-        IF NEW.script__compiled__babylon_browser__data IS DISTINCT FROM OLD.script__compiled__babylon_browser__data THEN
-            NEW.script__compiled__babylon_browser__data_updated_at = now();
-        END IF;
-
-        IF NEW.script__compiled__babylon_browser__status IS DISTINCT FROM OLD.script__compiled__babylon_browser__status THEN
-            NEW.script__compiled__babylon_browser__status_updated_at = now();
-        END IF;
-        
-        IF NEW.script__source__repo__url IS DISTINCT FROM OLD.script__source__repo__url THEN
-            NEW.script__source__repo__url_updated_at = now();
-        END IF;
-        IF NEW.script__source__repo__entry_path IS DISTINCT FROM OLD.script__source__repo__entry_path THEN
-            NEW.script__source__repo__entry_path_updated_at = now();
-        END IF;
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER update_script_timestamps
-BEFORE UPDATE ON entity.entity_scripts
-FOR EACH ROW EXECUTE FUNCTION entity.update_script_timestamps();
 
 -- 3. Trigger for entity.entity_assets
 CREATE OR REPLACE FUNCTION entity.update_asset_timestamps()
@@ -501,26 +336,10 @@ CREATE INDEX idx_entity_timestamp_changes ON entity.entities
     (group__sync, 
      GREATEST(
         meta_data_updated_at, 
-        script_names_updated_at, 
         asset_names_updated_at, 
         general__updated_at
      ))
     INCLUDE (general__entity_id, general__entity_name);
-
--- 2. Composite index for script changes
-CREATE INDEX idx_script_timestamp_changes ON entity.entity_scripts
-    (group__sync,
-     GREATEST(
-        script__source__data_updated_at,
-        script__compiled__babylon_bun__data_updated_at,
-        script__compiled__babylon_bun__status_updated_at,
-        script__compiled__babylon_browser__data_updated_at,
-        script__compiled__babylon_browser__status_updated_at,
-        script__source__repo__url_updated_at,
-        script__source__repo__entry_path_updated_at,
-        general__updated_at
-     ))
-    INCLUDE (general__script_file_name);
 
 -- 3. Composite index for asset changes
 CREATE INDEX idx_asset_timestamp_changes ON entity.entity_assets

@@ -66,7 +66,7 @@ services:
         condition: service_healthy
         restart: true
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://${VRCA_SERVER_SERVICE_PGWEB_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_BIND_EXTERNAL}"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8081"]
       interval: 5s
       timeout: 5s
       retries: 3

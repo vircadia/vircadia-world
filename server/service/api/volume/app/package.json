@@ -1,0 +1,11 @@
+{
+  "name": "world-api-manager",
+  "version": "1.0.0",
+  "description": "Vircadia World API Manager",
+  "main": "dist/world.api.manager.js",
+  "scripts": {
+    "build": "bun build world.api.manager.ts --target bun --outfile ./dist/world.api.manager.js",
+    "start": "bun ./dist/world.api.manager.js",
+    "deploy": "bun run build && bun run start"
+  }
+}

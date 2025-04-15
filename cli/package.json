@@ -13,6 +13,8 @@
         "clean:client:web_babylon_js": "cd ../client/web_babylon_js/volume/app && rm -rf node_modules",
         "clean:client:web_three_js": "cd ../client/web_three_js/volume/app && rm -rf node_modules",
         "clean:cli": "rm -rf node_modules",
+        "build:all": "bun run build:server:api",
+        "build:server:api": "cd ../server/service/api/volume/app && bun run build",
         "dev:hot-sync:web-scripts": "bun vircadia.world.cli.ts dev:hot-sync:web-scripts",
         "dev:hot-sync:web-scripts:by-group": "bun vircadia.world.cli.ts dev:hot-sync:web-scripts --sync-group",
         "dev:client:web_babylon_js": "export VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN=$(bun run server:postgres:system-token true) && cd ../client/web_babylon_js/volume/app && bun run dev",

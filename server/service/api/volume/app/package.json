@@ -3,6 +3,16 @@
   "version": "1.0.0",
   "description": "Vircadia World API Manager",
   "main": "dist/world.api.manager.js",
+  "dependencies": {
+    "jsonwebtoken": "^9.0.2",
+    "postgres": "^3.4.5",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.9",
+    "@types/bun": "1.2.9",
+    "@types/node": "22.10.10"
+  },
   "scripts": {
     "build": "bun build world.api.manager.ts --target bun --outfile ./dist/world.api.manager.js",
     "start": "bun ./dist/world.api.manager.js",

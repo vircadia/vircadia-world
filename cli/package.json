@@ -3,8 +3,10 @@
     "version": "1.0.0",
     "type": "module",
     "scripts": {
-        "install:all": "bun run install:client:web_babylon_js && bun run install:client:web_three_js && bun run install:cli && bun run install:sdk",
+        "install:all": "bun run install:client:web_babylon_js && bun run install:client:web_three_js && bun run install:cli && bun run install:sdk && bun run install:server:api && bun run install:server:tick",
         "install:sdk": "cd ../sdk/vircadia-world-sdk-ts && bun install",
+        "install:server:api": "cd ../server/service/api/volume/app && bun install",
+        "install:server:tick": "cd ../server/service/tick/volume/app && bun install",
         "install:client:web_babylon_js": "cd ../client/web_babylon_js/volume/app && bun install",
         "install:client:web_three_js": "cd ../client/web_three_js/volume/app && bun install",
         "install:cli": "bun install",

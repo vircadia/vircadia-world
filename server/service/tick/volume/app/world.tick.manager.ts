@@ -330,8 +330,6 @@ export class WorldTickManager {
             data: {
                 "Entity Changes":
                     result?.tick_data.tick__entity_states_processed,
-                "Script Changes":
-                    result?.tick_data.tick__script_states_processed,
             },
             debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
             suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,

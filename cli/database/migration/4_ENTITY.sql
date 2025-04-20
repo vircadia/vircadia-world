@@ -28,7 +28,7 @@ CREATE TABLE entity.entity_assets (
     general__asset_file_name TEXT PRIMARY KEY,
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
     CONSTRAINT fk_entity_assets_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group),
-    
+
     asset__data__base64 TEXT,  -- Store asset binaries (GLBs, textures, etc.) as base64 encoded string
     asset__data__bytea BYTEA,  -- Store asset binaries (GLBs, textures, etc.) as bytea
     asset__type TEXT DEFAULT NULL,
@@ -49,22 +49,18 @@ CREATE TABLE entity.entities (
     general__initialized_at TIMESTAMPTZ DEFAULT NULL,
     general__initialized_by UUID DEFAULT NULL,
     meta__data JSONB NOT NULL DEFAULT '{}'::jsonb,
-    asset__names TEXT[] NOT NULL DEFAULT '{}',
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
     group__load_priority INTEGER NOT NULL DEFAULT 1,
 
     CONSTRAINT fk_entities_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group),
 
-    meta_data_updated_at timestamptz NOT NULL DEFAULT now(),
-    asset_names_updated_at timestamptz NOT NULL DEFAULT now(),
-    position_updated_at timestamptz NOT NULL DEFAULT now()
+    meta_data_updated_at timestamptz NOT NULL DEFAULT now()
 ) INHERITS (entity._template);
 
 CREATE INDEX idx_entities_load_priority ON entity.entities(group__load_priority) WHERE group__load_priority IS NOT NULL;
 CREATE INDEX idx_entities_created_at ON entity.entities(general__created_at);
 CREATE INDEX idx_entities_updated_at ON entity.entities(general__updated_at);
 CREATE INDEX idx_entities_semantic_version ON entity.entities(general__semantic_version);
-CREATE INDEX idx_entities_assets_names ON entity.entities USING GIN (asset__names);
 
 ALTER TABLE entity.entities ENABLE ROW LEVEL SECURITY;
 
@@ -83,22 +79,6 @@ BEGIN
     NEW.general__updated_at = CURRENT_TIMESTAMP;
     NEW.general__updated_by = auth.current_agent_id();
     RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-
--- 5.3 ENTITY FUNCTIONS
--- ============================================================================
-
--- Function to remove deleted asset references from entities
-CREATE OR REPLACE FUNCTION entity.remove_deleted_asset_references()
-RETURNS TRIGGER AS $$
-BEGIN
-    UPDATE entity.entities
-    SET asset__names = array_remove(asset__names, OLD.general__asset_file_name)
-    WHERE OLD.general__asset_file_name = ANY(asset__names);
-    
-    RETURN OLD;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -125,12 +105,6 @@ CREATE TRIGGER update_audit_columns
     BEFORE UPDATE ON entity.entities
     FOR EACH ROW
     EXECUTE FUNCTION entity.update_audit_columns();
-
--- Trigger to remove deleted asset references from entities
-CREATE TRIGGER remove_deleted_asset_references
-    BEFORE DELETE ON entity.entity_assets
-    FOR EACH ROW
-    EXECUTE FUNCTION entity.remove_deleted_asset_references();
 
 
 -- ============================================================================
@@ -229,8 +203,8 @@ CREATE POLICY "entities_read_policy" ON entity.entities
         auth.is_admin_agent()
         OR auth.is_system_agent()
         OR EXISTS (
-            SELECT 1 
-            FROM auth.active_sync_group_sessions sess 
+            SELECT 1
+            FROM auth.active_sync_group_sessions sess
             WHERE sess.auth__agent_id = auth.current_agent_id()
               AND sess.group__sync = entity.entities.group__sync
               AND sess.permissions__can_read = true
@@ -244,8 +218,8 @@ CREATE POLICY "entities_update_policy" ON entity.entities
         auth.is_admin_agent()
         OR auth.is_system_agent()
         OR EXISTS (
-            SELECT 1 
-            FROM auth.active_sync_group_sessions sess 
+            SELECT 1
+            FROM auth.active_sync_group_sessions sess
             WHERE sess.auth__agent_id = auth.current_agent_id()
               AND sess.group__sync = entity.entities.group__sync
               AND sess.permissions__can_update = true
@@ -259,8 +233,8 @@ CREATE POLICY "entities_insert_policy" ON entity.entities
         auth.is_admin_agent()
         OR auth.is_system_agent()
         OR EXISTS (
-            SELECT 1 
-            FROM auth.active_sync_group_sessions sess 
+            SELECT 1
+            FROM auth.active_sync_group_sessions sess
             WHERE sess.auth__agent_id = auth.current_agent_id()
               AND sess.group__sync = entity.entities.group__sync
               AND sess.permissions__can_insert = true
@@ -274,8 +248,8 @@ CREATE POLICY "entities_delete_policy" ON entity.entities
         auth.is_admin_agent()
         OR auth.is_system_agent()
         OR EXISTS (
-            SELECT 1 
-            FROM auth.active_sync_group_sessions sess 
+            SELECT 1
+            FROM auth.active_sync_group_sessions sess
             WHERE sess.auth__agent_id = auth.current_agent_id()
               AND sess.group__sync = entity.entities.group__sync
               AND sess.permissions__can_delete = true
@@ -294,10 +268,6 @@ BEGIN
         IF NEW.meta__data IS DISTINCT FROM OLD.meta__data THEN
             NEW.meta_data_updated_at = now();
         END IF;
-        IF NEW.asset__names IS DISTINCT FROM OLD.asset__names THEN
-            NEW.asset_names_updated_at = now();
-        END IF;
-        -- Add position_updated_at if you have position columns
     END IF;
     RETURN NEW;
 END;
@@ -332,11 +302,10 @@ FOR EACH ROW EXECUTE FUNCTION entity.update_asset_timestamps();
 -- ============================================================================
 
 -- 1. Composite index for entity changes
-CREATE INDEX idx_entity_timestamp_changes ON entity.entities 
-    (group__sync, 
+CREATE INDEX idx_entity_timestamp_changes ON entity.entities
+    (group__sync,
      GREATEST(
-        meta_data_updated_at, 
-        asset_names_updated_at, 
+        meta_data_updated_at,
         general__updated_at
      ))
     INCLUDE (general__entity_id, general__entity_name);

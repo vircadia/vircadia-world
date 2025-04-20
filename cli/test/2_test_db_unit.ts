@@ -1127,7 +1127,7 @@ describe("DB", () => {
             });
         });
         describe("Relations Operations", () => {
-            test("should create an entity with related asset and script, then delete the entity", async () => {
+            test("should create an entity with related asset, then delete the entity", async () => {
                 await proxyUserSql.begin(async (tx) => {
                     await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
                     // Insert an asset record.
@@ -1146,11 +1146,17 @@ describe("DB", () => {
                     const [entity] = await tx<[Entity.I_Entity]>`
                         INSERT INTO entity.entities (
                             general__entity_name,
-                            asset__names,
+                            meta__data,
                             group__sync
                         ) VALUES (
                             ${`${DB_TEST_PREFIX}Entity with asset and script`},
-                            ${[asset.general__asset_file_name]},
+                            ${tx.json({
+                                assets: {
+                                    references: [
+                                        asset.general__asset_file_name,
+                                    ],
+                                },
+                            })},
                             ${"public.NORMAL"}
                         ) RETURNING *
                     `;
@@ -1158,54 +1164,17 @@ describe("DB", () => {
                     expect(entity.general__entity_name).toBe(
                         `${DB_TEST_PREFIX}Entity with asset and script`,
                     );
-                    expect(entity.asset__names).toContain(
+                    const metaData =
+                        typeof entity.meta__data === "string"
+                            ? JSON.parse(entity.meta__data)
+                            : entity.meta__data;
+                    expect(metaData.assets.references).toContain(
                         asset.general__asset_file_name,
                     );
                     // Delete the entity record after all checks.
                     await tx`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
                     // Optionally clean up asset and script records.
                     await tx`DELETE FROM entity.entity_assets WHERE general__asset_file_name = ${asset.general__asset_file_name}`;
-                });
-            });
-            test("should remove asset name from entity when corresponding asset is deleted", async () => {
-                await proxyUserSql.begin(async (tx) => {
-                    await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
-
-                    // Insert an asset record.
-                    const [asset] = await tx<[Entity.Asset.I_Asset]>`
-        			INSERT INTO entity.entity_assets (
-        				general__asset_file_name,
-        				group__sync,
-        				asset__data__base64
-        			) VALUES (
-        				${`${DB_TEST_PREFIX}Asset to delete`},
-        				${"public.NORMAL"},
-        				${Buffer.from("deadbeef").toString("base64")}
-        			) RETURNING *
-        		`;
-                    // Insert an entity referencing the asset.
-                    const [entity] = await tx<[Entity.I_Entity]>`
-        			INSERT INTO entity.entities (
-        				general__entity_name,
-        				asset__names,
-        				group__sync
-        			) VALUES (
-        				${`${DB_TEST_PREFIX}Entity with asset`},
-        				${[asset.general__asset_file_name]},
-        				${"public.NORMAL"}
-        			) RETURNING *
-        		`;
-                    // Delete the asset.
-                    await tx`DELETE FROM entity.entity_assets WHERE general__asset_file_name = ${asset.general__asset_file_name}`;
-                    // Re-read the entity to ensure the asset id is removed.
-                    const [updatedEntity] = await tx`
-        			SELECT * FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}
-        		`;
-                    expect(updatedEntity.asset__names).not.toContain(
-                        asset.general__asset_file_name,
-                    );
-                    // Clean up
-                    await tx`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
                 });
             });
         });
@@ -1331,8 +1300,7 @@ describe("DB", () => {
                     INSERT INTO entity.entities (
                         general__entity_name,
                         meta__data,
-                        group__sync,
-                        asset__names
+                        group__sync
                     ) VALUES (
                         ${name},
                         ${tx.json({
@@ -1344,8 +1312,7 @@ describe("DB", () => {
                                 },
                             },
                         })},
-                        ${TEST_SYNC_GROUP},
-                        ${tx.array([])}
+                        ${TEST_SYNC_GROUP}
                     ) RETURNING *
                 `;
                         createdEntities.push(entity);
@@ -1378,8 +1345,7 @@ describe("DB", () => {
                         INSERT INTO entity.entities (
                             general__entity_name,
                             meta__data,
-                            group__sync,
-                            asset__names
+                            group__sync
                         ) VALUES (
                             ${`${DB_TEST_PREFIX}Original Entity 1`},
                             ${tx.json({
@@ -1391,21 +1357,18 @@ describe("DB", () => {
                                     },
                                 },
                             })},
-                            ${TEST_SYNC_GROUP},
-                            ${tx.array([])}
+                            ${TEST_SYNC_GROUP}
                         ) RETURNING *
                     `;
                     const [entity2] = await tx<[Entity.I_Entity]>`
                        INSERT INTO entity.entities (
                             general__entity_name,
                             meta__data,
-                            group__sync,
-                            asset__names
+                            group__sync
                         ) VALUES (
                             ${`${DB_TEST_PREFIX}Original Entity 2`},
                             ${tx.json({ test_script_1: { position: { x: 10, y: 10, z: 10 } } })},
-                            ${TEST_SYNC_GROUP},
-                            ${tx.array([])}
+                            ${TEST_SYNC_GROUP}
                         ) RETURNING *
                     `;
                     // Capture first tick
@@ -1471,10 +1434,7 @@ describe("DB", () => {
                                         THEN c.general__entity_name ELSE NULL END,
                                     'meta__data', 
                                         CASE WHEN c.meta__data != p.meta__data 
-                                        THEN c.meta__data ELSE NULL END,
-                                    'asset__names', 
-                                        CASE WHEN c.asset__names != p.asset__names 
-                                        THEN c.asset__names ELSE NULL END
+                                        THEN c.meta__data ELSE NULL END
                                     -- Add other entity fields as needed
                                 ) as changes
                             FROM current_state c
@@ -1482,8 +1442,7 @@ describe("DB", () => {
                             WHERE 
                                 p.general__entity_id IS NULL OR
                                 c.general__entity_name != p.general__entity_name OR
-                                c.meta__data != p.meta__data OR
-                                c.asset__names != p.asset__names
+                                c.meta__data != p.meta__data
                                 -- Add other comparisons as needed
                         )
                         SELECT * FROM changed_entities

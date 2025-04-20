@@ -23,19 +23,19 @@ CREATE TABLE tick.world_ticks (
     tick__is_delayed boolean NOT NULL,
     tick__headroom_ms double precision,
     tick__time_since_last_tick_ms double precision,
-    
+
     -- DB-specific metrics
     tick__db__start_time timestamptz,
     tick__db__end_time timestamptz,
     tick__db__duration_ms double precision,
     tick__db__is_delayed boolean,
-    
+
     -- Manager-specific metrics
     tick__manager__start_time timestamptz,
     tick__manager__end_time timestamptz,
     tick__manager__duration_ms double precision,
     tick__manager__is_delayed boolean,
-    
+
     -- Add unique constraint for sync_group + tick number combination
     UNIQUE (group__sync, tick__number)
 );
@@ -52,7 +52,7 @@ CREATE TABLE tick.entity_states (
     CONSTRAINT entity_states_pkey PRIMARY KEY (general__entity_state_id),
 
     -- Add foreign key constraint for sync_group
-    CONSTRAINT entity_states_sync_group_fkey FOREIGN KEY (group__sync) 
+    CONSTRAINT entity_states_sync_group_fkey FOREIGN KEY (group__sync)
         REFERENCES auth.sync_groups(general__sync_group),
 
     -- Add foreign key constraint to world_ticks with cascade delete
@@ -79,21 +79,21 @@ CREATE INDEX idx_entity_states_sync_tick ON tick.entity_states (group__sync, gen
 CREATE INDEX idx_entity_states_tick_entity_id ON tick.entity_states (general__tick_id, general__entity_id);
 
 -- Optimized index for finding latest ticks by sync group with covering columns
-CREATE INDEX idx_world_ticks_sync_number_covering ON tick.world_ticks 
-    (group__sync, tick__number DESC) 
+CREATE INDEX idx_world_ticks_sync_number_covering ON tick.world_ticks
+    (group__sync, tick__number DESC)
     INCLUDE (general__tick_id, tick__start_time);
 
 -- Fast timestamp comparisons for entity changes
-CREATE INDEX idx_entity_states_updated_at ON tick.entity_states 
-    (group__sync, general__updated_at DESC) 
+CREATE INDEX idx_entity_states_updated_at ON tick.entity_states
+    (group__sync, general__updated_at DESC)
     INCLUDE (general__entity_id);
-    
+
 -- Space-efficient BRIN index for time-series data
 CREATE INDEX idx_world_ticks_time_brin ON tick.world_ticks USING BRIN (tick__start_time);
 
 -- Composite index for tick + sync group lookup patterns
-CREATE INDEX idx_entity_states_sync_tick_composite ON tick.entity_states 
-    (group__sync, general__tick_id) 
+CREATE INDEX idx_entity_states_sync_tick_composite ON tick.entity_states
+    (group__sync, general__tick_id)
     INCLUDE (general__entity_id, general__entity_name, meta__data);
 
 -- ============================================================================
@@ -141,7 +141,7 @@ BEGIN
     v_db_start_time := v_start_time;  -- Database processing starts now
 
     -- Get max tick count buffer from sync group config
-    SELECT server__tick__max_tick_count_buffer 
+    SELECT server__tick__max_tick_count_buffer
     INTO v_max_tick_count_buffer
     FROM auth.sync_groups
     WHERE general__sync_group = p_sync_group;
@@ -149,10 +149,10 @@ BEGIN
     -- Shorter transaction for tick number acquisition
     BEGIN
         -- Get last tick information - lock only what we need
-        SELECT 
+        SELECT
             wt.tick__start_time,
             wt.tick__number
-        INTO 
+        INTO
             v_last_tick_time,
             v_tick_number
         FROM tick.world_ticks wt
@@ -241,10 +241,9 @@ BEGIN
             general__updated_by,
             general__tick_id,
             -- Include the timestamp columns from the source table if they exist
-            meta_data_updated_at,
-            position_updated_at
+            meta_data_updated_at
         )
-        SELECT 
+        SELECT
             e.general__entity_id,
             e.general__entity_name,
             e.general__semantic_version,
@@ -259,8 +258,7 @@ BEGIN
             e.general__updated_by,
             v_tick_id,
             -- Copy timestamp columns if they exist in the source table
-            e.meta_data_updated_at,
-            e.position_updated_at
+            e.meta_data_updated_at
         FROM entity.entities e
         WHERE e.group__sync = p_sync_group
         RETURNING 1
@@ -270,12 +268,12 @@ BEGIN
     -- Calculate tick duration, delay & headroom
     v_end_time := clock_timestamp();
     v_duration_ms := EXTRACT(EPOCH FROM (v_end_time - v_start_time)) * 1000;
-    
+
     -- Calculate DB-specific metrics
     v_db_end_time := v_end_time;
     v_db_duration_ms := EXTRACT(EPOCH FROM (v_db_end_time - v_db_start_time)) * 1000;
 
-    SELECT 
+    SELECT
         v_duration_ms > sg.server__tick__rate_ms AS is_delayed,
         sg.server__tick__rate_ms - v_duration_ms AS headroom_ms,
         v_db_duration_ms > sg.server__tick__rate_ms AS db_is_delayed
@@ -285,7 +283,7 @@ BEGIN
 
     -- Update tick record with final metrics
     UPDATE tick.world_ticks wt
-    SET 
+    SET
         tick__end_time = v_end_time,
         tick__duration_ms = v_duration_ms,
         tick__entity_states_processed = v_entity_states_processed,
@@ -298,7 +296,7 @@ BEGIN
 
     -- Send notification that a tick has been captured
     PERFORM pg_notify(
-        'tick_captured', 
+        'tick_captured',
         json_build_object(
             'syncGroup', p_sync_group,
             'tickId', v_tick_id,
@@ -374,8 +372,8 @@ CREATE POLICY "entity_states_read_policy" ON tick.entity_states
         auth.is_admin_agent()
         OR auth.is_system_agent()
         OR EXISTS (
-            SELECT 1 
-            FROM auth.active_sync_group_sessions sess 
+            SELECT 1
+            FROM auth.active_sync_group_sessions sess
             WHERE sess.auth__agent_id = auth.current_agent_id()
               AND sess.group__sync = tick.entity_states.group__sync
         )

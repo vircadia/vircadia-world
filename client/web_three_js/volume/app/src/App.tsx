@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, Stats } from "@react-three/drei";
-import { VircadiaThreeCore } from "../../../../../sdk/vircadia-world-sdk-ts/module/client/vircadia.three.core";
+import { VircadiaThreeCore } from "../../../../../sdk/vircadia-world-sdk-ts/module/client/core/vircadia.client.core";
 import { VircadiaConfig_BROWSER_CLIENT } from "../../../../../sdk/vircadia-world-sdk-ts/config/vircadia.browser.client.config";
 import { Communication } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import * as THREE from "three";

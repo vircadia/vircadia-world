@@ -24,5 +24,8 @@
 
         "types": ["vite/client"]
     },
-    "include": ["src"]
+    "include": [
+        "src",
+        "../../../../sdk/vircadia-world-sdk-ts/module/client/react"
+    ]
 }

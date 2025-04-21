@@ -1,32 +1,20 @@
 {
-    "name": "web_babylon_js",
-    "private": true,
-    "version": "0.0.0",
+    "name": "example-bare",
     "type": "module",
     "scripts": {
-        "dev": "vite",
-        "build": "tsc -b && vite build",
-        "lint": "eslint .",
-        "preview": "vite preview"
+        "dev": "vinxi dev --port ${VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT:-3000} --host ${VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST:-localhost}",
+        "build": "vinxi build",
+        "start": "vinxi start"
     },
     "dependencies": {
-        "@babylonjs/core": "^8.3.1",
-        "@babylonjs/loaders": "^8.3.1",
-        "react": "^19.0.0",
-        "react-dom": "^19.0.0"
+        "@solidjs/start": "^1.1.0",
+        "solid-js": "^1.9.5",
+        "vinxi": "^0.5.3"
     },
     "devDependencies": {
-        "@eslint/js": "^9.22.0",
-        "@types/react": "^19.0.10",
-        "@types/react-dom": "^19.0.4",
-        "@types/node": "^22.14.1",
-        "@vitejs/plugin-react-swc": "^3.8.0",
-        "eslint": "^9.22.0",
-        "eslint-plugin-react-hooks": "^5.2.0",
-        "eslint-plugin-react-refresh": "^0.4.19",
-        "globals": "^16.0.0",
-        "typescript": "~5.7.2",
-        "typescript-eslint": "^8.26.1",
-        "vite": "^6.3.1"
+        "@types/bun": "latest"
+    },
+    "engines": {
+        "node": ">=22"
     }
 }

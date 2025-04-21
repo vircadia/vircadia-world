@@ -23,6 +23,7 @@ export function useVircadiaAsset(assetFileName: string) {
 
             // Fetch from database
             const result = await executeQuery<{
+                // biome-ignore lint/suspicious/noExplicitAny: <explanation>
                 asset__data__bytea: any;
                 asset__mime_type: string;
             }>({
@@ -48,8 +49,10 @@ export function useVircadiaAsset(assetFileName: string) {
                 rawData &&
                 typeof rawData === "object" &&
                 "data" in rawData &&
+                // biome-ignore lint/suspicious/noExplicitAny: <explanation>
                 Array.isArray((rawData as unknown as any).data)
             ) {
+                // biome-ignore lint/suspicious/noExplicitAny: <explanation>
                 byteArray = (rawData as unknown as any).data;
             } else if (Array.isArray(rawData)) {
                 byteArray = rawData;

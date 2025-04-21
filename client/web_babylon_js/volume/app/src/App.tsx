@@ -8,7 +8,10 @@ import {
 } from "solid-js";
 import { VircadiaConfig_BROWSER_CLIENT } from "../../../../../sdk/vircadia-world-sdk-ts/config/vircadia.browser.client.config";
 import { VircadiaProvider, useVircadia } from "../solid/hook/useVircadia";
-import { useVircadiaAsset } from "../solid/hook/useVircadiaAsset";
+import {
+    VircadiaAsset,
+    type VircadiaAssetData,
+} from "../solid/component/VircadiaAsset";
 import { Communication } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import {
     MeshBuilder,
@@ -148,20 +151,43 @@ function BabylonRenderer(props) {
     );
 }
 
-// Simple MainContent component
+// Modified MainContent component with asset loading and connection stats
 function MainContent() {
-    const [count, setCount] = createSignal(0);
     const vircadia = useVircadia();
     const [connectionState, setConnectionState] = createSignal("Not connected");
     const [showRenderer, setShowRenderer] = createSignal(false);
-    const [assetNames, setAssetNames] = createSignal<string[]>([]);
-    const [loadingAssets, setLoadingAssets] = createSignal(false);
-    const [assetError, setAssetError] = createSignal<string | null>(null);
+    const [connectionStats, setConnectionStats] = createSignal({
+        pendingRequests: [],
+        stats: {
+            reconnectAttempts: 0,
+            pendingRequestsCount: 0,
+            connectionDuration: 0,
+        },
+    });
+
+    // Define a single asset state object
+    const [assetsState, setAssetsState] = createSignal({
+        names: [],
+        loading: false,
+        error: null,
+        dataMap: {},
+        loadingStatus: {},
+    });
+
+    // Then update it with fine-grained setters
+    const updateAssetData = (name, data) => {
+        setAssetsState((prev) => ({
+            ...prev,
+            dataMap: {
+                ...prev.dataMap,
+                [name]: data,
+            },
+        }));
+    };
 
     const fetchAssetNames = async () => {
         try {
-            setLoadingAssets(true);
-            setAssetError(null);
+            setAssetsState((prev) => ({ ...prev, loading: true, error: null }));
 
             const result = await vircadia.query<{
                 general__asset_file_name: string;
@@ -176,24 +202,58 @@ function MainContent() {
 
             if (result && Array.isArray(result)) {
                 const names = result.map((row) => row.general__asset_file_name);
-                setAssetNames(names);
+                setAssetsState((prev) => ({ ...prev, names }));
                 console.log(`Found ${names.length} assets in the database`);
             } else {
-                setAssetNames([]);
+                setAssetsState((prev) => ({ ...prev, names: [] }));
                 console.log("No assets found or unexpected result format");
             }
         } catch (err) {
             console.error("Failed to fetch asset names:", err);
-            setAssetError(
-                err instanceof Error
-                    ? err.message
-                    : "Failed to fetch asset names",
-            );
-            setAssetNames([]);
+            setAssetsState((prev) => ({
+                ...prev,
+                error:
+                    err instanceof Error
+                        ? err.message
+                        : "Failed to fetch asset names",
+                names: [],
+            }));
         } finally {
-            setLoadingAssets(false);
+            setAssetsState((prev) => ({ ...prev, loading: false }));
         }
     };
+
+    // Function to update connection stats
+    const updateConnectionStats = () => {
+        if (
+            !vircadia.isReady ||
+            vircadia.connectionStatus.status !== "connected"
+        )
+            return;
+
+        try {
+            const pendingRequests = vircadia.getPendingRequests?.() || [];
+            const stats = vircadia.getConnectionStats?.() || {
+                reconnectAttempts: 0,
+                pendingRequestsCount: 0,
+            };
+
+            setConnectionStats({
+                pendingRequests,
+                stats,
+            });
+        } catch (err) {
+            console.error("Failed to get connection stats:", err);
+        }
+    };
+
+    // Set up regular stats updates when connected
+    createEffect(() => {
+        if (vircadia.connectionStatus.status === "connected") {
+            const intervalId = setInterval(updateConnectionStats, 1000);
+            return () => clearInterval(intervalId);
+        }
+    });
 
     onMount(async () => {
         if (vircadia.isReady) {
@@ -203,6 +263,8 @@ function MainContent() {
                 setShowRenderer(true);
                 // Fetch asset names after successful connection
                 await fetchAssetNames();
+                // Initial stats update
+                updateConnectionStats();
             }
         }
     });
@@ -211,18 +273,77 @@ function MainContent() {
         <main>
             <h1>Vircadia 3D Viewer</h1>
             <div class="connection-status">
-                <p>Vircadia status: {vircadia.connectionStatus}</p>
+                <p>Vircadia status: {vircadia.connectionStatus.status}</p>
                 <p>Connection state: {connectionState()}</p>
                 {vircadia.error && (
                     <p class="error">Error: {vircadia.error.message}</p>
                 )}
+
+                {/* Add connection stats panel */}
+                <div class="connection-stats-panel">
+                    <h3>Connection Statistics</h3>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <span class="stat-label">Status:</span>
+                            <span
+                                class={`stat-value ${vircadia.connectionStatus.status}`}
+                            >
+                                {vircadia.connectionStatus.status}
+                            </span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Duration:</span>
+                            <span class="stat-value">
+                                {vircadia.connectionStatus.connectionDuration
+                                    ? `${Math.floor(
+                                          vircadia.connectionStatus
+                                              .connectionDuration / 1000,
+                                      )}s`
+                                    : "N/A"}
+                            </span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Reconnect Attempts:</span>
+                            <span class="stat-value">
+                                {connectionStats().stats.reconnectAttempts}
+                            </span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Pending Requests:</span>
+                            <span class="stat-value">
+                                {connectionStats().stats.pendingRequestsCount}
+                            </span>
+                        </div>
+                    </div>
+
+                    {connectionStats().pendingRequests.length > 0 && (
+                        <div class="pending-requests">
+                            <h4>Pending Requests:</h4>
+                            <ul>
+                                <For each={connectionStats().pendingRequests}>
+                                    {(request) => (
+                                        <li>
+                                            ID:{" "}
+                                            {request.requestId.substring(0, 8)}
+                                            ... (Elapsed:{" "}
+                                            {Math.floor(
+                                                request.elapsedMs / 1000,
+                                            )}
+                                            s)
+                                        </li>
+                                    )}
+                                </For>
+                            </ul>
+                        </div>
+                    )}
+                </div>
             </div>
 
             <button
                 type="button"
                 class="show-button"
                 onClick={() => setShowRenderer(!showRenderer())}
-                disabled={vircadia.connectionStatus !== "connected"}
+                disabled={vircadia.connectionStatus.status !== "connected"}
             >
                 {showRenderer() ? "Hide 3D Viewer" : "Show 3D Viewer"}
             </button>
@@ -237,38 +358,105 @@ function MainContent() {
                     class="refresh-button"
                     onClick={fetchAssetNames}
                     disabled={
-                        loadingAssets() ||
-                        vircadia.connectionStatus !== "connected"
+                        assetsState().loading ||
+                        vircadia.connectionStatus.status !== "connected"
                     }
                 >
                     Refresh Assets
                 </button>
 
-                {loadingAssets() ? (
+                {assetsState().loading ? (
                     <p>Loading assets...</p>
-                ) : assetError() ? (
-                    <p class="error">Error loading assets: {assetError()}</p>
-                ) : assetNames().length === 0 ? (
+                ) : assetsState().error ? (
+                    <p class="error">
+                        Error loading assets: {assetsState().error}
+                    </p>
+                ) : assetsState().names.length === 0 ? (
                     <p>No assets found in the database.</p>
                 ) : (
                     <div class="assets-list">
-                        <p>Found {assetNames().length} assets:</p>
+                        <p>Found {assetsState().names.length} assets:</p>
                         <ul>
-                            <For each={assetNames()}>
-                                {(name) => <li class="asset-item">{name}</li>}
+                            <For each={assetsState().names}>
+                                {(name) => (
+                                    <li class="asset-item">
+                                        {name}
+                                        {/* Use VircadiaAsset for each asset */}
+                                        <VircadiaAsset fileName={name}>
+                                            {({
+                                                assetData,
+                                                loading,
+                                                error,
+                                            }) => {
+                                                // Move state updates to a createEffect
+                                                createEffect(() => {
+                                                    // Update loading status
+                                                    setAssetsState((prev) => ({
+                                                        ...prev,
+                                                        loadingStatus: {
+                                                            ...prev.loadingStatus,
+                                                            [name]: {
+                                                                loading,
+                                                                error:
+                                                                    error ||
+                                                                    null,
+                                                            },
+                                                        },
+                                                    }));
+
+                                                    // Store asset data when loaded
+                                                    if (assetData) {
+                                                        updateAssetData(
+                                                            name,
+                                                            assetData,
+                                                        );
+                                                        console.log(
+                                                            `Asset loaded: ${name}`,
+                                                        );
+                                                    }
+                                                });
+
+                                                // Just return the display component
+                                                if (error) {
+                                                    return (
+                                                        <span class="asset-error">
+                                                            ⚠️ Error:{" "}
+                                                            {error.message ||
+                                                                "Unknown error"}
+                                                        </span>
+                                                    );
+                                                }
+
+                                                return loading ? (
+                                                    <span class="asset-loading">
+                                                        {" "}
+                                                        (loading...)
+                                                    </span>
+                                                ) : (
+                                                    <span class="asset-loaded">
+                                                        {" "}
+                                                        ✓
+                                                    </span>
+                                                );
+                                            }}
+                                        </VircadiaAsset>
+                                    </li>
+                                )}
                             </For>
                         </ul>
                     </div>
                 )}
             </div>
 
-            <button
-                class="increment"
-                onClick={() => setCount(count() + 1)}
-                type="button"
-            >
-                Clicks: {count()}
-            </button>
+            {/* Debug information about loaded assets */}
+            <div class="debug-info">
+                <h3>Loaded Assets</h3>
+                <p>
+                    Total assets loaded:{" "}
+                    {Object.keys(assetsState().dataMap).length} of{" "}
+                    {assetsState().names.length}
+                </p>
+            </div>
         </main>
     );
 }
@@ -340,8 +528,102 @@ export default function App() {
                     border-bottom: 1px solid #eee;
                 }
                 
+                .asset-loaded {
+                    color: green;
+                    margin-left: 5px;
+                }
+                
+                .asset-loading {
+                    color: orange;
+                    margin-left: 5px;
+                }
+                
+                .asset-error {
+                    color: red;
+                    margin-left: 5px;
+                }
+                
                 .error {
                     color: #d32f2f;
+                }
+                
+                .debug-info {
+                    margin-top: 20px;
+                    padding: 10px;
+                    border: 1px solid #ddd;
+                    border-radius: 8px;
+                    background-color: #f9f9f9;
+                }
+                
+                .connection-stats-panel {
+                    margin: 15px 0;
+                    padding: 12px;
+                    border-radius: 8px;
+                    background-color: #f0f4f8;
+                    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                }
+                
+                .stats-grid {
+                    display: grid;
+                    grid-template-columns: repeat(2, 1fr);
+                    gap: 10px;
+                    margin-bottom: 10px;
+                }
+                
+                .stat-item {
+                    padding: 6px 10px;
+                    background-color: #fff;
+                    border-radius: 4px;
+                    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+                }
+                
+                .stat-label {
+                    font-weight: bold;
+                    margin-right: 5px;
+                    color: #555;
+                }
+                
+                .stat-value {
+                    font-family: monospace;
+                }
+                
+                .stat-value.connected {
+                    color: green;
+                }
+                
+                .stat-value.connecting, .stat-value.reconnecting {
+                    color: orange;
+                }
+                
+                .stat-value.disconnected {
+                    color: red;
+                }
+                
+                .pending-requests {
+                    background-color: #fff;
+                    border-radius: 4px;
+                    padding: 10px;
+                    margin-top: 10px;
+                    max-height: 150px;
+                    overflow-y: auto;
+                }
+                
+                .pending-requests h4 {
+                    margin-top: 0;
+                    margin-bottom: 8px;
+                    font-size: 14px;
+                    color: #555;
+                }
+                
+                .pending-requests ul {
+                    margin: 0;
+                    padding-left: 20px;
+                }
+                
+                .pending-requests li {
+                    font-family: monospace;
+                    font-size: 12px;
+                    margin-bottom: 4px;
                 }
             `}</style>
         </VircadiaProvider>

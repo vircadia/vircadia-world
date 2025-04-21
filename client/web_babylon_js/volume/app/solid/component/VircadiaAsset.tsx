@@ -1,5 +1,11 @@
-import { createSignal, createEffect, onCleanup } from "solid-js";
-import { useVircadia } from "./useVircadia";
+import {
+    createSignal,
+    onCleanup,
+    onMount,
+    type JSX,
+    createResource,
+} from "solid-js";
+import { useVircadia } from "../hook/useVircadia";
 
 export interface VircadiaAssetData {
     arrayBuffer: ArrayBuffer;
@@ -8,22 +14,17 @@ export interface VircadiaAssetData {
     url: string;
 }
 
-export function useVircadiaAsset(assetFileName: string) {
-    const [assetData, setAssetData] = createSignal<VircadiaAssetData | null>(
-        null,
-    );
-    const [error, setError] = createSignal<Error | null>(null);
-    const [loading, setLoading] = createSignal(true);
-    const executeQuery = useVircadia().query;
+// Use createResource for proper handling of async data fetching
+function useVircadiaAsset(assetFileName: string) {
+    const vircadia = useVircadia();
 
-    createEffect(async () => {
+    // Using createResource is the recommended way to handle async data loading
+    const [assetData, { refetch }] = createResource(async () => {
         try {
-            setLoading(true);
-            setError(null);
+            console.log(`Starting to load asset: ${assetFileName}`);
 
             // Fetch from database
-            const result = await executeQuery<{
-                // biome-ignore lint/suspicious/noExplicitAny: <explanation>
+            const result = await vircadia.query<{
                 asset__data__bytea: any;
                 asset__mime_type: string;
             }>({
@@ -33,6 +34,7 @@ export function useVircadiaAsset(assetFileName: string) {
                     WHERE general__asset_file_name = $1
                 `,
                 parameters: [assetFileName],
+                timeoutMs: 100000,
             });
 
             if (!result.length) {
@@ -49,10 +51,8 @@ export function useVircadiaAsset(assetFileName: string) {
                 rawData &&
                 typeof rawData === "object" &&
                 "data" in rawData &&
-                // biome-ignore lint/suspicious/noExplicitAny: <explanation>
                 Array.isArray((rawData as unknown as any).data)
             ) {
-                // biome-ignore lint/suspicious/noExplicitAny: <explanation>
                 byteArray = (rawData as unknown as any).data;
             } else if (Array.isArray(rawData)) {
                 byteArray = rawData;
@@ -71,13 +71,18 @@ export function useVircadiaAsset(assetFileName: string) {
                 url,
             };
 
-            setAssetData(data);
+            console.log(
+                `Successfully loaded asset: ${assetFileName}, type: ${mimeType}, size: ${byteArray.length} bytes`,
+            );
+
+            return data;
         } catch (err) {
-            const errorObj =
-                err instanceof Error ? err : new Error("Failed to load asset");
-            setError(errorObj);
+            console.error(`Error loading asset ${assetFileName}:`, err);
+            throw err instanceof Error
+                ? err
+                : new Error("Failed to load asset");
         } finally {
-            setLoading(false);
+            console.log(`Finished loading attempt for asset: ${assetFileName}`);
         }
     });
 
@@ -89,15 +94,25 @@ export function useVircadiaAsset(assetFileName: string) {
         }
     });
 
-    return {
-        get assetData() {
-            return assetData();
-        },
-        get error() {
-            return error();
-        },
-        get loading() {
-            return loading();
-        },
-    };
+    return assetData;
+}
+
+interface VircadiaAssetProps {
+    fileName: string;
+    children: (props: {
+        assetData: VircadiaAssetData | null;
+        loading: boolean;
+        error: Error | null;
+    }) => JSX.Element;
+}
+
+export function VircadiaAsset(props: VircadiaAssetProps) {
+    const resource = useVircadiaAsset(props.fileName);
+
+    // With createResource, these properties are reactive
+    return props.children({
+        assetData: resource() || null,
+        loading: resource.loading,
+        error: resource.error,
+    });
 }

@@ -9,19 +9,14 @@ import {
 import type {
     VircadiaClientCore,
     VircadiaClientCoreConfig,
+    ConnectionStatus,
+    ConnectionStats,
 } from "../../../../../../sdk/vircadia-world-sdk-ts/module/client/core/vircadia.client.core";
 import { VircadiaClientCore as VircadiaClientCoreImpl } from "../../../../../../sdk/vircadia-world-sdk-ts/module/client/core/vircadia.client.core";
 
-// Define types for our context
-type ConnectionStatus =
-    | "connected"
-    | "connecting"
-    | "reconnecting"
-    | "disconnected";
-
 interface VircadiaContextType {
     client: VircadiaClientCore | null;
-    connectionStatus: ConnectionStatus;
+    connectionStatus: ConnectionStats;
     error: Error | null;
     isReady: boolean;
     connect: () => Promise<boolean>;
@@ -31,17 +26,28 @@ interface VircadiaContextType {
         parameters?: unknown[];
         timeoutMs?: number;
     }) => Promise<T[]>;
+    getPendingRequests: () => {
+        requestId: string;
+        elapsedMs: number;
+        query?: string;
+    }[];
 }
 
-// Create context
+// Create context with default values
 const VircadiaContext = createContext<VircadiaContextType>({
     client: null,
-    connectionStatus: "disconnected",
+    connectionStatus: {
+        status: "disconnected",
+        isConnected: false,
+        isConnecting: false,
+        isReconnecting: false,
+    },
     error: null,
     isReady: false,
     connect: async () => false,
     disconnect: () => {},
     query: async () => [],
+    getPendingRequests: () => [],
 });
 
 // Provider props
@@ -54,7 +60,12 @@ interface VircadiaProviderProps {
 export function VircadiaProvider(props: VircadiaProviderProps) {
     const [client, setClient] = createSignal<VircadiaClientCore | null>(null);
     const [connectionStatus, setConnectionStatus] =
-        createSignal<ConnectionStatus>("disconnected");
+        createSignal<ConnectionStats>({
+            status: "disconnected",
+            isConnected: false,
+            isConnecting: false,
+            isReconnecting: false,
+        });
     const [error, setError] = createSignal<Error | null>(null);
     const [isReady, setIsReady] = createSignal(false);
 
@@ -64,22 +75,14 @@ export function VircadiaProvider(props: VircadiaProviderProps) {
         if (!currentClient) return false;
 
         try {
-            setConnectionStatus("connecting");
             setError(null);
-
             const success = await currentClient.Utilities.Connection.connect();
-            if (success) {
-                setConnectionStatus("connected");
-            } else {
-                setConnectionStatus("disconnected");
-            }
-
+            // No need to update status here - it's handled by the status change listener
             return success;
         } catch (err) {
             setError(
                 err instanceof Error ? err : new Error("Connection failed"),
             );
-            setConnectionStatus("disconnected");
             return false;
         }
     };
@@ -90,7 +93,7 @@ export function VircadiaProvider(props: VircadiaProviderProps) {
         if (!currentClient) return;
 
         currentClient.Utilities.Connection.disconnect();
-        setConnectionStatus("disconnected");
+        // Status will be updated by the statusChange event
     };
 
     // Initialize client
@@ -120,15 +123,9 @@ export function VircadiaProvider(props: VircadiaProviderProps) {
 
         // Define event listeners for connection status changes
         const handleStatusChange = () => {
-            if (currentClient.Utilities.Connection.isConnected()) {
-                setConnectionStatus("connected");
-            } else if (currentClient.Utilities.Connection.isConnecting()) {
-                setConnectionStatus("connecting");
-            } else if (currentClient.Utilities.Connection.isReconnecting()) {
-                setConnectionStatus("reconnecting");
-            } else {
-                setConnectionStatus("disconnected");
-            }
+            const status =
+                currentClient.Utilities.Connection.getConnectionStatus();
+            setConnectionStatus(status);
         };
 
         // Check if event listener methods exist
@@ -171,7 +168,8 @@ export function VircadiaProvider(props: VircadiaProviderProps) {
         const currentClient = client();
         if (
             !currentClient ||
-            !currentClient.Utilities.Connection.isConnected()
+            !currentClient.Utilities.Connection.getConnectionStatus()
+                .isConnected
         ) {
             throw new Error("Not connected to server");
         }
@@ -183,6 +181,14 @@ export function VircadiaProvider(props: VircadiaProviderProps) {
         } catch (err) {
             throw err instanceof Error ? err : new Error("Query failed");
         }
+    };
+
+    // Get pending requests
+    const getPendingRequests = () => {
+        const currentClient = client();
+        if (!currentClient) return [];
+
+        return currentClient.Utilities.Connection.getPendingRequests();
     };
 
     // Create context value
@@ -202,6 +208,7 @@ export function VircadiaProvider(props: VircadiaProviderProps) {
         connect,
         disconnect,
         query,
+        getPendingRequests,
     };
 
     return (

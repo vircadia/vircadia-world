@@ -1,6 +1,14 @@
-import { createSignal, onMount, onCleanup, createEffect, Show } from "solid-js";
+import {
+    createSignal,
+    onMount,
+    onCleanup,
+    createEffect,
+    Show,
+    For,
+} from "solid-js";
 import { VircadiaConfig_BROWSER_CLIENT } from "../../../../../sdk/vircadia-world-sdk-ts/config/vircadia.browser.client.config";
 import { VircadiaProvider, useVircadia } from "../solid/hook/useVircadia";
+import { useVircadiaAsset } from "../solid/hook/useVircadiaAsset";
 import { Communication } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import {
     MeshBuilder,
@@ -146,6 +154,46 @@ function MainContent() {
     const vircadia = useVircadia();
     const [connectionState, setConnectionState] = createSignal("Not connected");
     const [showRenderer, setShowRenderer] = createSignal(false);
+    const [assetNames, setAssetNames] = createSignal<string[]>([]);
+    const [loadingAssets, setLoadingAssets] = createSignal(false);
+    const [assetError, setAssetError] = createSignal<string | null>(null);
+
+    const fetchAssetNames = async () => {
+        try {
+            setLoadingAssets(true);
+            setAssetError(null);
+
+            const result = await vircadia.query<{
+                general__asset_file_name: string;
+            }>({
+                query: `
+                    SELECT general__asset_file_name
+                    FROM entity.entity_assets
+                    ORDER BY general__asset_file_name
+                `,
+                parameters: [],
+            });
+
+            if (result && Array.isArray(result)) {
+                const names = result.map((row) => row.general__asset_file_name);
+                setAssetNames(names);
+                console.log(`Found ${names.length} assets in the database`);
+            } else {
+                setAssetNames([]);
+                console.log("No assets found or unexpected result format");
+            }
+        } catch (err) {
+            console.error("Failed to fetch asset names:", err);
+            setAssetError(
+                err instanceof Error
+                    ? err.message
+                    : "Failed to fetch asset names",
+            );
+            setAssetNames([]);
+        } finally {
+            setLoadingAssets(false);
+        }
+    };
 
     onMount(async () => {
         if (vircadia.isReady) {
@@ -153,6 +201,8 @@ function MainContent() {
             setConnectionState(success ? "Connected" : "Connection failed");
             if (success) {
                 setShowRenderer(true);
+                // Fetch asset names after successful connection
+                await fetchAssetNames();
             }
         }
     });
@@ -178,6 +228,39 @@ function MainContent() {
             </button>
 
             {showRenderer() && <BabylonRenderer height="500px" />}
+
+            {/* Asset list section */}
+            <div class="assets-container">
+                <h2>Available Assets</h2>
+                <button
+                    type="button"
+                    class="refresh-button"
+                    onClick={fetchAssetNames}
+                    disabled={
+                        loadingAssets() ||
+                        vircadia.connectionStatus !== "connected"
+                    }
+                >
+                    Refresh Assets
+                </button>
+
+                {loadingAssets() ? (
+                    <p>Loading assets...</p>
+                ) : assetError() ? (
+                    <p class="error">Error loading assets: {assetError()}</p>
+                ) : assetNames().length === 0 ? (
+                    <p>No assets found in the database.</p>
+                ) : (
+                    <div class="assets-list">
+                        <p>Found {assetNames().length} assets:</p>
+                        <ul>
+                            <For each={assetNames()}>
+                                {(name) => <li class="asset-item">{name}</li>}
+                            </For>
+                        </ul>
+                    </div>
+                )}
+            </div>
 
             <button
                 class="increment"
@@ -205,7 +288,7 @@ export default function App() {
                     margin: 20px 0;
                 }
                 
-                .show-button, .increment {
+                .show-button, .increment, .refresh-button {
                     padding: 8px 16px;
                     background-color: #4CAF50;
                     color: white;
@@ -215,7 +298,12 @@ export default function App() {
                     margin: 10px 0;
                 }
                 
-                .show-button:disabled {
+                .refresh-button {
+                    background-color: #2196F3;
+                    margin-left: 10px;
+                }
+                
+                .show-button:disabled, .refresh-button:disabled {
                     background-color: #cccccc;
                     cursor: not-allowed;
                 }
@@ -233,6 +321,27 @@ export default function App() {
                     color: white;
                     padding: 20px;
                     z-index: 10;
+                }
+                
+                .assets-container {
+                    margin: 20px 0;
+                    border: 1px solid #ddd;
+                    border-radius: 8px;
+                    padding: 15px;
+                    background-color: #f5f5f5;
+                }
+                
+                .assets-list {
+                    margin-top: 10px;
+                }
+                
+                .asset-item {
+                    padding: 5px 0;
+                    border-bottom: 1px solid #eee;
+                }
+                
+                .error {
+                    color: #d32f2f;
                 }
             `}</style>
         </VircadiaProvider>

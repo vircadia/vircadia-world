@@ -1,20 +1,21 @@
 {
-    "name": "example-bare",
-    "type": "module",
-    "scripts": {
-        "dev": "vinxi dev --port ${VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT:-3000} --host ${VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST:-localhost}",
-        "build": "vinxi build",
-        "start": "vinxi start"
-    },
-    "dependencies": {
-        "@solidjs/start": "^1.1.0",
-        "solid-js": "^1.9.5",
-        "vinxi": "^0.5.3"
-    },
-    "devDependencies": {
-        "@types/bun": "latest"
-    },
-    "engines": {
-        "node": ">=22"
-    }
+  "name": "vite-template-solid",
+  "version": "0.0.0",
+  "description": "",
+  "type": "module",
+  "scripts": {
+    "start": "vite",
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "vite preview"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vite": "^6.0.0",
+    "vite-plugin-solid": "^2.11.6"
+  },
+  "dependencies": {
+    "solid-js": "^1.9.5"
+  }
 }

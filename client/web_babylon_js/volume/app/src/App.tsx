@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import "./App.css";
 import {
-    Engine,
     Scene,
     ArcRotateCamera,
     HemisphericLight,
@@ -9,6 +8,7 @@ import {
     MeshBuilder,
     Color4,
     ImportMeshAsync,
+    WebGPUEngine,
 } from "@babylonjs/core";
 import "@babylonjs/loaders";
 import { VircadiaProvider } from "../../../../../sdk/vircadia-world-sdk-ts/module/client/react/VircadiaProvider";
@@ -40,79 +40,133 @@ function BabylonScene({
     assetDataList,
 }: { assetDataList: { name: string; bytea: number[]; type: string }[] }) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
-    const engineRef = useRef<Engine | null>(null);
+    const engineRef = useRef<WebGPUEngine | null>(null);
+    const sceneRef = useRef<Scene | null>(null);
 
     useEffect(() => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
+        // Create engine only if it hasn't been created yet
+        const setupEngine = async () => {
+            const canvas = canvasRef.current;
+            if (!canvas) return;
 
-        const engine = new Engine(canvas, true, {
-            preserveDrawingBuffer: true,
-            stencil: true,
-        });
-        engineRef.current = engine;
-        const scene = new Scene(engine);
-        scene.clearColor = new Color4(0.1, 0.1, 0.1, 1);
+            // Only create engine if it doesn't already exist
+            if (!engineRef.current) {
+                try {
+                    const engine = new WebGPUEngine(canvas, {});
+                    await engine.initAsync();
+                    engineRef.current = engine;
 
-        // Camera
-        const camera = new ArcRotateCamera(
-            "camera",
-            Math.PI / 2,
-            Math.PI / 3,
-            10,
-            new Vector3(0, 1, 0),
-            scene,
-        );
-        camera.attachControl(canvas, true);
+                    const scene = new Scene(engine);
+                    sceneRef.current = scene;
+                    scene.clearColor = new Color4(0.1, 0.1, 0.1, 1);
 
-        // Light
-        new HemisphericLight("light", new Vector3(0, 1, 0), scene);
+                    // Camera
+                    const camera = new ArcRotateCamera(
+                        "camera",
+                        Math.PI / 2,
+                        Math.PI / 3,
+                        10,
+                        new Vector3(0, 1, 0),
+                        scene,
+                    );
+                    camera.attachControl(canvas, true);
 
-        // Ground
-        MeshBuilder.CreateGround("ground", { width: 20, height: 20 }, scene);
+                    // Light
+                    new HemisphericLight("light", new Vector3(0, 1, 0), scene);
 
-        // Load assets from Vircadia
-        for (const data of assetDataList) {
-            let mime = "model/gltf-binary";
-            if (data.type && data.type.toLowerCase() === "gltf") {
-                mime = "model/gltf+json";
+                    // Ground
+                    MeshBuilder.CreateGround(
+                        "ground",
+                        { width: 20, height: 20 },
+                        scene,
+                    );
+
+                    // Start render loop
+                    engine.runRenderLoop(() => {
+                        scene.render();
+                    });
+                } catch (error) {
+                    console.error("Failed to initialize WebGPU engine:", error);
+                }
             }
-            let byteArray: number[] = [];
-            if (
-                data.bytea &&
-                typeof data.bytea === "object" &&
-                "data" in data.bytea &&
-                Array.isArray((data.bytea as any).data)
-            ) {
-                byteArray = (data.bytea as any).data;
-            } else if (Array.isArray(data.bytea)) {
-                byteArray = data.bytea;
-            }
-            const uint8 = new Uint8Array(byteArray);
-            const blob = new Blob([uint8], { type: mime });
-            const url = URL.createObjectURL(blob);
-
-            ImportMeshAsync(url, scene, {
-                pluginExtension: ".glb",
-            });
-        }
-
-        engine.runRenderLoop(() => {
-            scene.render();
-        });
-
-        const handleResize = () => {
-            engine.resize();
         };
-        window.addEventListener("resize", handleResize);
 
+        setupEngine();
+
+        // Clean up function
+        return () => {
+            // Only dispose if ref exists
+            if (engineRef.current) {
+                engineRef.current.stopRenderLoop();
+
+                if (sceneRef.current) {
+                    sceneRef.current.dispose();
+                    sceneRef.current = null;
+                }
+
+                engineRef.current.dispose();
+                engineRef.current = null;
+            }
+        };
+    }, []); // Empty dependency array means this effect runs once on mount
+
+    // Load assets effect
+    useEffect(() => {
+        const loadAssets = async () => {
+            if (!sceneRef.current || !engineRef.current) return;
+
+            // Load assets from Vircadia
+            for (const data of assetDataList) {
+                let mime = "model/gltf-binary";
+                if (data.type && data.type.toLowerCase() === "gltf") {
+                    mime = "model/gltf+json";
+                }
+                let byteArray: number[] = [];
+                if (
+                    data.bytea &&
+                    typeof data.bytea === "object" &&
+                    "data" in data.bytea &&
+                    Array.isArray((data.bytea as any).data)
+                ) {
+                    byteArray = (data.bytea as any).data;
+                } else if (Array.isArray(data.bytea)) {
+                    byteArray = data.bytea;
+                }
+                const uint8 = new Uint8Array(byteArray);
+                const blob = new Blob([uint8], { type: mime });
+                const url = URL.createObjectURL(blob);
+
+                try {
+                    await ImportMeshAsync(url, sceneRef.current, {
+                        pluginExtension: ".glb",
+                    });
+                } catch (error) {
+                    console.error(
+                        `Failed to import mesh for ${data.name}:`,
+                        error,
+                    );
+                }
+            }
+        };
+
+        if (assetDataList.length > 0) {
+            loadAssets();
+        }
+    }, [assetDataList]);
+
+    // Handle window resize
+    useEffect(() => {
+        const handleResize = () => {
+            if (engineRef.current) {
+                engineRef.current.resize();
+            }
+        };
+
+        window.addEventListener("resize", handleResize);
         return () => {
             window.removeEventListener("resize", handleResize);
-            engine.stopRenderLoop();
-            scene.dispose();
-            engine.dispose();
         };
-    }, [assetDataList]);
+    }, []);
 
     return (
         <canvas

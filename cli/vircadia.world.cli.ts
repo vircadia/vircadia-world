@@ -1677,7 +1677,14 @@ export namespace Server_CLI {
 
             // Query assets, optionally filtering by sync group
             const assetsQuery = syncGroup
-                ? sql`
+                ? sql<
+                      Pick<
+                          Entity.Asset.I_Asset,
+                          | "general__asset_file_name"
+                          | "asset__data__bytea"
+                          | "asset__mime_type"
+                      >[]
+                  >`
                     SELECT 
                         general__asset_file_name, 
                         asset__data__bytea,
@@ -1685,7 +1692,14 @@ export namespace Server_CLI {
                     FROM entity.entity_assets 
                     WHERE group__sync = ${syncGroup}
                   `
-                : sql`
+                : sql<
+                      Pick<
+                          Entity.Asset.I_Asset,
+                          | "general__asset_file_name"
+                          | "asset__data__bytea"
+                          | "asset__mime_type"
+                      >[]
+                  >`
                     SELECT 
                         general__asset_file_name, 
                         asset__data__bytea,

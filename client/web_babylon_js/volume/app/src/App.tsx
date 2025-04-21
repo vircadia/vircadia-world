@@ -1,224 +1,202 @@
+import { useEffect, useRef, useState } from "react";
+import "./App.css";
 import {
-    type Component,
-    onCleanup,
-    onMount,
-    createSignal,
-    createEffect,
-} from "solid-js";
-import { Scene, WebGPUEngine } from "@babylonjs/core";
-import { VircadiaBabylonCore } from "../../../../../sdk/vircadia-world-sdk-ts/module/client/vircadia.babylon.core";
+    Engine,
+    Scene,
+    ArcRotateCamera,
+    HemisphericLight,
+    Vector3,
+    MeshBuilder,
+    Color4,
+    ImportMeshAsync,
+} from "@babylonjs/core";
+import "@babylonjs/loaders";
+import { VircadiaProvider } from "../../../../../sdk/vircadia-world-sdk-ts/module/client/react/VircadiaProvider";
 import { VircadiaConfig_BROWSER_CLIENT } from "../../../../../sdk/vircadia-world-sdk-ts/config/vircadia.browser.client.config";
-import {
-    Communication,
-    type Entity,
-} from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
-import { log } from "../../../../../sdk/vircadia-world-sdk-ts/module/general/log";
+import { Communication } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+import { useVircadiaQuery } from "../../../../../sdk/vircadia-world-sdk-ts/module/client/react/hook/useVircadiaQuery";
+import { useVircadiaConnection } from "../../../../../sdk/vircadia-world-sdk-ts/module/client/react/hook/useVircadiaConnection";
 
-enum ConnectionState {
-    Disconnected = "disconnected",
-    Connecting = "connecting",
-    Connected = "connected",
-}
+// Server connection constants
+const SERVER_URL =
+    VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL
+        ? `https://${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`
+        : `http://${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`;
 
-const App: Component = () => {
-    let canvasRef: HTMLCanvasElement | undefined;
-    let engine: WebGPUEngine;
-    let scene: Scene;
-    let vircadiaClient: VircadiaBabylonCore;
-    const [connectionState, setConnectionState] = createSignal<ConnectionState>(
-        ConnectionState.Disconnected,
-    );
+// Configure server settings
+const vircadiaConfig = {
+    serverUrl: SERVER_URL,
+    authToken:
+        VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
+    authProvider:
+        VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER,
+    debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
+    suppress: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
+    reconnectAttempts: 5,
+    reconnectDelay: 5000,
+};
 
-    // Define handleResize outside to make it accessible in onCleanup
-    const handleResize = () => {
-        if (engine) {
-            engine.resize();
-        }
-    };
+function BabylonScene({
+    assetDataList,
+}: { assetDataList: { name: string; bytea: number[]; type: string }[] }) {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const engineRef = useRef<Engine | null>(null);
 
-    // Store interval reference at component level
-    let connectionInterval: ReturnType<typeof setInterval> | undefined;
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
 
-    onMount(async () => {
-        if (!canvasRef) return;
-
-        // Create a WebGPU engine
-        engine = new WebGPUEngine(canvasRef);
-        await engine.initAsync();
-
-        // Create scene
-        scene = new Scene(engine);
-
-        // Initialize Vircadia client
-        const serverUrl =
-            VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL
-                ? `https://${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`
-                : `http://${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`;
-
-        vircadiaClient = new VircadiaBabylonCore({
-            serverUrl,
-            authToken:
-                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
-            authProvider:
-                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER,
-            scene,
-            debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
-            suppress:
-                VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
+        const engine = new Engine(canvas, true, {
+            preserveDrawingBuffer: true,
+            stencil: true,
         });
+        engineRef.current = engine;
+        const scene = new Scene(engine);
+        scene.clearColor = new Color4(0.1, 0.1, 0.1, 1);
 
-        // Connect to Vircadia server
-        try {
-            log({
-                message: "Connecting to Vircadia server",
-                type: "info",
-                suppress:
-                    VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
-                debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
+        // Camera
+        const camera = new ArcRotateCamera(
+            "camera",
+            Math.PI / 2,
+            Math.PI / 3,
+            10,
+            new Vector3(0, 1, 0),
+            scene,
+        );
+        camera.attachControl(canvas, true);
+
+        // Light
+        new HemisphericLight("light", new Vector3(0, 1, 0), scene);
+
+        // Ground
+        MeshBuilder.CreateGround("ground", { width: 20, height: 20 }, scene);
+
+        // Load assets from Vircadia
+        for (const data of assetDataList) {
+            let mime = "model/gltf-binary";
+            if (data.type && data.type.toLowerCase() === "gltf") {
+                mime = "model/gltf+json";
+            }
+            let byteArray: number[] = [];
+            if (
+                data.bytea &&
+                typeof data.bytea === "object" &&
+                "data" in data.bytea &&
+                Array.isArray((data.bytea as any).data)
+            ) {
+                byteArray = (data.bytea as any).data;
+            } else if (Array.isArray(data.bytea)) {
+                byteArray = data.bytea;
+            }
+            const uint8 = new Uint8Array(byteArray);
+            const blob = new Blob([uint8], { type: mime });
+            const url = URL.createObjectURL(blob);
+
+            ImportMeshAsync(url, scene, {
+                pluginExtension: ".glb",
             });
-            setConnectionState(ConnectionState.Connecting);
-            log({
-                message: "Initializing Vircadia client",
-                type: "info",
-                suppress:
-                    VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
-                debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
-            });
-            await vircadiaClient.initialize();
-            log({
-                message: "Vircadia client initialized",
-                type: "info",
-                suppress:
-                    VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
-                debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
-            });
-            const connection = vircadiaClient.getConnectionManager();
-
-            // Set up connection state tracker
-            const checkConnectionStatus = async () => {
-                const connected = connection.isClientConnected();
-                setConnectionState(
-                    connected
-                        ? ConnectionState.Connected
-                        : ConnectionState.Disconnected,
-                );
-
-                if (connected) {
-                    log({
-                        message:
-                            "Checked connection: Connected to Vircadia server",
-                        type: "info",
-                        data: {
-                            entitiesCount: vircadiaClient
-                                .getEntityAndScriptManager()
-                                .getEntities().size,
-                            scriptsCount: vircadiaClient
-                                .getEntityAndScriptManager()
-                                .getScriptInstances().size,
-                        },
-                        suppress:
-                            VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
-                        debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
-                    });
-                } else {
-                    log({
-                        message:
-                            "Checked connection: Disconnected from Vircadia server",
-                        type: "info",
-                        suppress:
-                            VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
-                        debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
-                    });
-                }
-            };
-
-            // Initial check
-            checkConnectionStatus();
-
-            // Periodically check connection status
-            connectionInterval = setInterval(checkConnectionStatus, 2000);
-        } catch (error) {
-            log({
-                message: "Error connecting to Vircadia server:",
-                data: error,
-                type: "error",
-                suppress:
-                    VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
-                debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
-            });
-            setConnectionState(ConnectionState.Disconnected);
         }
 
-        // Start the render loop
         engine.runRenderLoop(() => {
             scene.render();
         });
 
-        // Handle window resize
+        const handleResize = () => {
+            engine.resize();
+        };
         window.addEventListener("resize", handleResize);
-    });
 
-    // Create effect to respond to connection state changes
-    createEffect(() => {
-        console.log("Connection state changed:", connectionState());
-    });
-
-    onCleanup(() => {
-        // Clean up resources
-        if (connectionInterval) {
-            clearInterval(connectionInterval);
-        }
-
-        if (vircadiaClient) {
-            vircadiaClient.dispose();
-            setConnectionState(ConnectionState.Disconnected);
-        }
-
-        if (engine) {
+        return () => {
+            window.removeEventListener("resize", handleResize);
+            engine.stopRenderLoop();
+            scene.dispose();
             engine.dispose();
-        }
-
-        window.removeEventListener("resize", handleResize);
-    });
+        };
+    }, [assetDataList]);
 
     return (
-        <div>
-            <canvas
-                ref={canvasRef}
-                style={{
-                    width: "100%",
-                    height: "100vh",
-                    display: "block",
-                    "touch-action": "none",
-                }}
-            />
+        <canvas
+            ref={canvasRef}
+            style={{ width: "100vw", height: "100vh", display: "block" }}
+        />
+    );
+}
+
+function VircadiaBabylonApp() {
+    const [assetDataList, setAssetDataList] = useState<
+        { name: string; bytea: number[]; type: string }[]
+    >([]);
+    const executeQuery = useVircadiaQuery();
+    const { connectionStatus } = useVircadiaConnection();
+
+    useEffect(() => {
+        if (connectionStatus !== "connected") return;
+
+        const fetchAssetData = async () => {
+            try {
+                const result = await executeQuery<{
+                    general__asset_file_name: string;
+                    asset__data__bytea: number[];
+                    asset__type: string;
+                }>({
+                    query: "SELECT general__asset_file_name, asset__data__bytea, asset__type FROM entity.entity_assets WHERE asset__data__bytea IS NOT NULL",
+                });
+
+                const dataList = result.map((item) => ({
+                    name: item.general__asset_file_name,
+                    bytea: item.asset__data__bytea,
+                    type: item.asset__type,
+                }));
+                setAssetDataList(dataList);
+            } catch (error) {
+                console.error("Failed to fetch asset data:", error);
+            }
+        };
+
+        fetchAssetData();
+    }, [executeQuery, connectionStatus]);
+
+    return <BabylonScene assetDataList={assetDataList} />;
+}
+
+function App() {
+    const [autoConnect, setAutoConnect] = useState(true);
+
+    return (
+        <VircadiaProvider config={vircadiaConfig} autoConnect={autoConnect}>
             <div
                 style={{
-                    position: "absolute",
-                    top: "10px",
-                    right: "10px",
-                    padding: "8px 12px",
-                    "border-radius": "4px",
-                    background:
-                        connectionState() === ConnectionState.Connecting
-                            ? "rgba(255, 165, 0, 0.7)"
-                            : connectionState() === ConnectionState.Connected
-                              ? "rgba(0, 128, 0, 0.7)"
-                              : "rgba(255, 0, 0, 0.7)",
-                    color: "white",
-                    "font-size": "12px",
-                    "font-weight": "bold",
-                    transition: "background 0.3s ease",
+                    width: "100vw",
+                    height: "100vh",
+                    position: "fixed",
+                    top: 0,
+                    left: 0,
                 }}
             >
-                {connectionState() === ConnectionState.Connecting
-                    ? "Connecting..."
-                    : connectionState() === ConnectionState.Connected
-                      ? "Connected"
-                      : "Disconnected"}
+                <VircadiaBabylonApp />
+                <div
+                    style={{
+                        position: "absolute",
+                        bottom: "10px",
+                        left: "10px",
+                        padding: "10px",
+                        backgroundColor: "rgba(0,0,0,0.7)",
+                        color: "white",
+                        borderRadius: "5px",
+                    }}
+                >
+                    <label>
+                        <input
+                            type="checkbox"
+                            checked={autoConnect}
+                            onChange={(e) => setAutoConnect(e.target.checked)}
+                        />
+                        {" Auto-connect on startup"}
+                    </label>
+                </div>
             </div>
-        </div>
+        </VircadiaProvider>
     );
-};
+}
 
 export default App;

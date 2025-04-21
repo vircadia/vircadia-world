@@ -620,7 +620,7 @@ describe("DB", () => {
             });
         });
         describe("Entity Assets Operations", () => {
-            test("should create and handle both base64 and bytea asset operations", async () => {
+            test("should create and handle bytea asset operations", async () => {
                 await proxyUserSql.begin(async (tx) => {
                     await tx`SELECT auth.set_agent_context_from_agent_id(${adminAgent.id}::uuid)`;
 
@@ -629,25 +629,7 @@ describe("DB", () => {
                     const gltfContent = await gltfFile.arrayBuffer();
                     const gltfBuffer = Buffer.from(gltfContent);
 
-                    // First query: Push asset with base64 data
-                    const [base64Asset] = await tx<[Entity.Asset.I_Asset]>`
-                        INSERT INTO entity.entity_assets (
-                            general__asset_file_name,
-                            asset__data__base64,
-                            group__sync
-                        ) VALUES (
-                            ${`${DB_TEST_PREFIX}Holistic Base64 Asset`},
-                            ${gltfBuffer.toString("base64")},
-                            ${"public.NORMAL"}
-                        ) RETURNING *
-                    `;
-
-                    expect(base64Asset.general__asset_file_name).toBe(
-                        `${DB_TEST_PREFIX}Holistic Base64 Asset`,
-                    );
-                    expect(base64Asset.asset__data__base64).toBeDefined();
-
-                    // Second query: Push asset with bytea data
+                    // Push asset with bytea data
                     const [byteaAsset] = await tx<[Entity.Asset.I_Asset]>`
                         INSERT INTO entity.entity_assets (
                             general__asset_file_name,
@@ -665,31 +647,12 @@ describe("DB", () => {
                     );
                     expect(byteaAsset.asset__data__bytea).toBeDefined();
 
-                    // Retrieve both assets and verify their data
-                    const [retrievedBase64Asset] = await tx<
-                        [Entity.Asset.I_Asset]
-                    >`
-                        SELECT * FROM entity.entity_assets 
-                        WHERE general__asset_file_name = ${`${DB_TEST_PREFIX}Holistic Base64 Asset`}
-                    `;
-
                     const [retrievedByteaAsset] = await tx<
                         [Entity.Asset.I_Asset]
                     >`
                         SELECT * FROM entity.entity_assets 
                         WHERE general__asset_file_name = ${`${DB_TEST_PREFIX}Holistic Bytea Asset`}
                     `;
-
-                    // Verify base64 data
-                    const base64Data = retrievedBase64Asset.asset__data__base64;
-                    if (base64Data) {
-                        const decodedContent = Buffer.from(
-                            base64Data,
-                            "base64",
-                        ).toString();
-                        const parsedContent = JSON.parse(decodedContent);
-                        expect(parsedContent.asset.version).toBe("2.0");
-                    }
 
                     // Verify bytea data
                     const bytea = retrievedByteaAsset.asset__data__bytea;
@@ -700,7 +663,6 @@ describe("DB", () => {
                     }
 
                     // Clean up test assets
-                    await tx`DELETE FROM entity.entity_assets WHERE general__asset_file_name = ${base64Asset.general__asset_file_name}`;
                     await tx`DELETE FROM entity.entity_assets WHERE general__asset_file_name = ${byteaAsset.general__asset_file_name}`;
                 });
             });
@@ -715,16 +677,14 @@ describe("DB", () => {
                     const gltfBuffer = Buffer.from(gltfContent);
                     const gltfJson = await gltfFile.json();
 
-                    // Create initial asset
-                    const initialData = gltfBuffer.toString("base64");
                     const [asset] = await tx<[Entity.Asset.I_Asset]>`
                         INSERT INTO entity.entity_assets (
                             general__asset_file_name,
-                            asset__data__base64,
+                            asset__data__bytea,
                             group__sync
                         ) VALUES (
                             ${`${DB_TEST_PREFIX}Asset To Update`},
-                            ${initialData},
+                            ${gltfBuffer},
                             ${"public.NORMAL"}
                         ) RETURNING *
                     `;
@@ -734,12 +694,11 @@ describe("DB", () => {
                     gltfData.scene = 1; // Simple modification to differentiate
 
                     const updatedContent = JSON.stringify(gltfData);
-                    const updatedData =
-                        Buffer.from(updatedContent).toString("base64");
+                    const updatedData = Buffer.from(updatedContent);
 
                     await tx`
                         UPDATE entity.entity_assets
-                        SET asset__data__base64 = ${updatedData}
+                        SET asset__data__bytea = ${updatedData}
                         WHERE general__asset_file_name = ${asset.general__asset_file_name}
                     `;
 
@@ -749,15 +708,15 @@ describe("DB", () => {
                         WHERE general__asset_file_name = ${asset.general__asset_file_name}
                     `;
 
-                    expect(updatedAsset.asset__data__base64).toBe(updatedData);
-                    // More safely handle potentially undefined base64 data
-                    const base64Data = updatedAsset.asset__data__base64;
-                    if (base64Data) {
-                        const decodedText = Buffer.from(
-                            base64Data,
-                            "base64",
-                        ).toString();
-                        const parsedData = JSON.parse(decodedText);
+                    // Instead of strict equality (toBe), use toEqual for content comparison
+                    expect(updatedAsset.asset__data__bytea).toEqual(
+                        updatedData,
+                    );
+                    // More safely handle potentially undefined bytea data
+                    const byteaData = updatedAsset.asset__data__bytea;
+                    if (byteaData) {
+                        const bufferText = Buffer.from(byteaData).toString();
+                        const parsedData = JSON.parse(bufferText);
                         expect(parsedData.scene).toBe(1); // Verify our modification
                     }
 
@@ -788,11 +747,11 @@ describe("DB", () => {
                     const [asset1] = await tx<[Entity.Asset.I_Asset]>`
                         INSERT INTO entity.entity_assets (
                             general__asset_file_name,
-                            asset__data__base64,
+                            asset__data__bytea,
                             group__sync
                         ) VALUES (
                             ${`${DB_TEST_PREFIX}Asset Group 1`},
-                            ${gltfBuffer.toString("base64")},
+                            ${gltfBuffer},
                             ${"public.NORMAL"}
                         ) RETURNING *
                     `;
@@ -804,11 +763,11 @@ describe("DB", () => {
                     const [asset2] = await tx<[Entity.Asset.I_Asset]>`
                         INSERT INTO entity.entity_assets (
                             general__asset_file_name,
-                            asset__data__base64,
+                            asset__data__bytea,
                             group__sync
                         ) VALUES (
                             ${`${DB_TEST_PREFIX}Asset Group 2`},
-                            ${Buffer.from(JSON.stringify(gltfData)).toString("base64")},
+                            ${gltfBuffer},
                             ${TEST_SYNC_GROUP}
                         ) RETURNING *
                     `;
@@ -872,14 +831,12 @@ describe("DB", () => {
                         // Slightly modify each asset to make them unique
                         const gltfData = { ...gltfJson };
                         gltfData.scene = i; // Set scene to batch index
-                        const assetData = Buffer.from(
-                            JSON.stringify(gltfData),
-                        ).toString("base64");
+                        const assetData = Buffer.from(JSON.stringify(gltfData));
 
                         const [asset] = await tx<[Entity.Asset.I_Asset]>`
                             INSERT INTO entity.entity_assets (
                                 general__asset_file_name,
-                                asset__data__base64,
+                                asset__data__bytea,
                                 group__sync
                             ) VALUES (
                                 ${assetName},
@@ -1135,11 +1092,11 @@ describe("DB", () => {
                         INSERT INTO entity.entity_assets (
                             general__asset_file_name,
                             group__sync,
-                            asset__data__base64
+                            asset__data__bytea
                         ) VALUES (
                             ${`${DB_TEST_PREFIX}Test Asset`},
                             ${"public.NORMAL"},
-                            ${Buffer.from("deadbeef").toString("base64")}
+                            ${Buffer.from("deadbeef")}
                         ) RETURNING *
                     `;
                     // Insert an entity that references the created script (and asset via metadata).

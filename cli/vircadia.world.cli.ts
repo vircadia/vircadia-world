@@ -1326,8 +1326,6 @@ export namespace Server_CLI {
                 const file = Bun.file(assetPath);
                 const buffer = await file.arrayBuffer();
 
-                // Store both base64 and binary formats for compatibility
-                const assetDataBase64 = Buffer.from(buffer).toString("base64");
                 const assetDataBinary = Buffer.from(buffer);
 
                 // Get the file extension for asset type
@@ -1341,8 +1339,8 @@ export namespace Server_CLI {
                     try {
                         await sql`
                             INSERT INTO entity.entity_assets
-                            (general__asset_file_name, asset__data__base64, asset__data__bytea, asset__mime_type, group__sync)
-                            VALUES (${searchName}, ${assetDataBase64}, ${assetDataBinary}, ${fileExt}, 
+                            (general__asset_file_name, asset__data__bytea, asset__mime_type, group__sync)
+                            VALUES (${searchName}, ${assetDataBinary}, ${fileExt}, 
                                 ${syncGroup || "public.NORMAL"})
                         `;
 
@@ -1371,7 +1369,6 @@ export namespace Server_CLI {
                             await sql`
                                 UPDATE entity.entity_assets 
                                 SET 
-                                    asset__data__base64 = ${assetDataBase64},
                                     asset__data__bytea = ${assetDataBinary},
                                     asset__mime_type = ${fileExt}
                                 WHERE general__asset_file_name = ${dbAsset.general__asset_file_name}

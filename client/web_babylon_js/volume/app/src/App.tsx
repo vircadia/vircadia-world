@@ -16,6 +16,7 @@ import { VircadiaConfig_BROWSER_CLIENT } from "../../../../../sdk/vircadia-world
 import { Communication } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import { useVircadiaQuery } from "../../../../../sdk/vircadia-world-sdk-ts/module/client/react/hook/useVircadiaQuery";
 import { useVircadiaConnection } from "../../../../../sdk/vircadia-world-sdk-ts/module/client/react/hook/useVircadiaConnection";
+import { useVircadiaByteArrayToObjectUrl } from "../../../../../sdk/vircadia-world-sdk-ts/module/client/react/hook/useVircadiaByteArrayToObjectUrl";
 
 // Server connection constants
 const SERVER_URL =
@@ -117,10 +118,10 @@ function BabylonScene({
 
             // Load assets from Vircadia
             for (const data of assetDataList) {
-                let mime = "model/gltf-binary";
-                if (data.type && data.type.toLowerCase() === "gltf") {
-                    mime = "model/gltf+json";
-                }
+                // Use the MIME type directly from the asset data
+                const mimeType = data.type;
+
+                // Handle bytea data in different formats
                 let byteArray: number[] = [];
                 if (
                     data.bytea &&
@@ -132,8 +133,9 @@ function BabylonScene({
                 } else if (Array.isArray(data.bytea)) {
                     byteArray = data.bytea;
                 }
+
                 const uint8 = new Uint8Array(byteArray);
-                const blob = new Blob([uint8], { type: mime });
+                const blob = new Blob([uint8], { type: mimeType });
                 const url = URL.createObjectURL(blob);
 
                 try {
@@ -191,15 +193,15 @@ function VircadiaBabylonApp() {
                 const result = await executeQuery<{
                     general__asset_file_name: string;
                     asset__data__bytea: number[];
-                    asset__type: string;
+                    asset__mime_type: string;
                 }>({
-                    query: "SELECT general__asset_file_name, asset__data__bytea, asset__type FROM entity.entity_assets WHERE asset__data__bytea IS NOT NULL",
+                    query: "SELECT general__asset_file_name, asset__data__bytea, asset__mime_type FROM entity.entity_assets WHERE asset__data__bytea IS NOT NULL",
                 });
 
                 const dataList = result.map((item) => ({
                     name: item.general__asset_file_name,
                     bytea: item.asset__data__bytea,
-                    type: item.asset__type,
+                    type: item.asset__mime_type,
                 }));
                 setAssetDataList(dataList);
             } catch (error) {

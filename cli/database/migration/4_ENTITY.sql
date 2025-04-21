@@ -31,7 +31,7 @@ CREATE TABLE entity.entity_assets (
 
     asset__data__base64 TEXT,  -- Store asset binaries (GLBs, textures, etc.) as base64 encoded string
     asset__data__bytea BYTEA,  -- Store asset binaries (GLBs, textures, etc.) as bytea
-    asset__type TEXT DEFAULT NULL,
+    asset__mime_type TEXT DEFAULT NULL,
 
     asset__data__base64_updated_at timestamptz DEFAULT now(),
     asset__data__bytea_updated_at timestamptz DEFAULT now()

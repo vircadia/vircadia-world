@@ -100,15 +100,15 @@ const InstancedMeshes = () => {
                     general__asset_file_name: string;
                     asset__data__bytea: number[];
                     asset__data__base64: string;
-                    asset__type: string;
+                    asset__mime_type: string;
                 }>({
-                    query: "SELECT general__asset_file_name, asset__data__bytea, asset__type FROM entity.entity_assets WHERE asset__data__bytea IS NOT NULL",
+                    query: "SELECT general__asset_file_name, asset__data__bytea, asset__mime_type FROM entity.entity_assets WHERE asset__data__bytea IS NOT NULL",
                 });
 
                 const dataList = result.map((item) => ({
                     name: item.general__asset_file_name,
                     bytea: item.asset__data__bytea,
-                    type: item.asset__type,
+                    type: item.asset__mime_type,
                 }));
                 setAssetDataList(dataList);
             } catch (error) {

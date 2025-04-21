@@ -1182,35 +1182,15 @@ export namespace Server_CLI {
             });
 
             // Process system asset files
-            let systemAssetFiles: string[] = [];
+            let filesInSystemAssetDir: string[] = [];
             if (systemAssetDir) {
                 try {
-                    const filesInSystemAssetDir = await readdir(
-                        systemAssetDir,
-                        {
-                            recursive: true,
-                        },
-                    );
-                    systemAssetFiles = filesInSystemAssetDir.filter((file) => {
-                        const ext = path.extname(file).toLowerCase();
-                        return [
-                            ".jpg",
-                            ".jpeg",
-                            ".png",
-                            ".gif",
-                            ".webp",
-                            ".svg",
-                            ".glb",
-                            ".gltf",
-                            ".bin",
-                            ".mp3",
-                            ".wav",
-                            ".ogg",
-                        ].includes(ext);
+                    filesInSystemAssetDir = await readdir(systemAssetDir, {
+                        recursive: true,
                     });
 
                     log({
-                        message: `Found ${systemAssetFiles.length} system asset files in ${systemAssetDir}`,
+                        message: `Found ${filesInSystemAssetDir.length} system asset files in ${systemAssetDir}`,
                         type: "debug",
                         suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                         debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
@@ -1234,32 +1214,15 @@ export namespace Server_CLI {
             }
 
             // Process user asset files
-            let userAssetFiles: string[] = [];
+            let filesInUserAssetDir: string[] = [];
             if (userAssetDir) {
                 try {
-                    const filesInUserAssetDir = await readdir(userAssetDir, {
+                    filesInUserAssetDir = await readdir(userAssetDir, {
                         recursive: true,
-                    });
-                    userAssetFiles = filesInUserAssetDir.filter((file) => {
-                        const ext = path.extname(file).toLowerCase();
-                        return [
-                            ".jpg",
-                            ".jpeg",
-                            ".png",
-                            ".gif",
-                            ".webp",
-                            ".svg",
-                            ".glb",
-                            ".gltf",
-                            ".bin",
-                            ".mp3",
-                            ".wav",
-                            ".ogg",
-                        ].includes(ext);
                     });
 
                     log({
-                        message: `Found ${userAssetFiles.length} user asset files in ${userAssetDir}`,
+                        message: `Found ${filesInUserAssetDir.length} user asset files in ${userAssetDir}`,
                         type: "debug",
                         suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                         debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
@@ -1282,7 +1245,10 @@ export namespace Server_CLI {
                 });
             }
 
-            if (systemAssetFiles.length === 0 && userAssetFiles.length === 0) {
+            if (
+                filesInSystemAssetDir.length === 0 &&
+                filesInUserAssetDir.length === 0
+            ) {
                 log({
                     message: `No asset files found in either ${systemAssetDir || "undefined"} or ${userAssetDir || "undefined"}`,
                     type: "info",
@@ -1294,7 +1260,7 @@ export namespace Server_CLI {
 
             // Prepare system asset files for processing
             const systemAssetFileNames = systemAssetDir
-                ? systemAssetFiles.map((file) => {
+                ? filesInSystemAssetDir.map((file) => {
                       const parsedName = path.parse(file);
                       return {
                           fileName: file,
@@ -1306,7 +1272,7 @@ export namespace Server_CLI {
 
             // Prepare user asset files for processing
             const userAssetFileNames = userAssetDir
-                ? userAssetFiles.map((file) => {
+                ? filesInUserAssetDir.map((file) => {
                       const parsedName = path.parse(file);
                       return {
                           fileName: file,
@@ -1375,7 +1341,7 @@ export namespace Server_CLI {
                     try {
                         await sql`
                             INSERT INTO entity.entity_assets
-                            (general__asset_file_name, asset__data__base64, asset__data__bytea, asset__type, group__sync)
+                            (general__asset_file_name, asset__data__base64, asset__data__bytea, asset__mime_type, group__sync)
                             VALUES (${searchName}, ${assetDataBase64}, ${assetDataBinary}, ${fileExt}, 
                                 ${syncGroup || "public.NORMAL"})
                         `;
@@ -1407,7 +1373,7 @@ export namespace Server_CLI {
                                 SET 
                                     asset__data__base64 = ${assetDataBase64},
                                     asset__data__bytea = ${assetDataBinary},
-                                    asset__type = ${fileExt}
+                                    asset__mime_type = ${fileExt}
                                 WHERE general__asset_file_name = ${dbAsset.general__asset_file_name}
                             `;
                         }
@@ -1715,7 +1681,7 @@ export namespace Server_CLI {
                     SELECT 
                         general__asset_file_name, 
                         asset__data__bytea,
-                        asset__type 
+                        asset__mime_type 
                     FROM entity.entity_assets 
                     WHERE group__sync = ${syncGroup}
                   `
@@ -1723,7 +1689,7 @@ export namespace Server_CLI {
                     SELECT 
                         general__asset_file_name, 
                         asset__data__bytea,
-                        asset__type 
+                        asset__mime_type 
                     FROM entity.entity_assets
                   `;
 
@@ -1742,7 +1708,7 @@ export namespace Server_CLI {
             const processAsset = async (asset: {
                 general__asset_file_name: string;
                 asset__data__bytea?: Buffer | Uint8Array | null;
-                asset__type?: string;
+                asset__mime_type?: string;
                 [key: string]: unknown;
             }) => {
                 try {

@@ -1,20 +1,9 @@
-import { fileURLToPath, URL } from "node:url";
-
 import { defineConfig } from "vite";
-import vue from "@vitejs/plugin-vue";
-import vueJsx from "@vitejs/plugin-vue-jsx";
-import vueDevTools from "vite-plugin-vue-devtools";
-
+import solidPlugin from "vite-plugin-solid";
 import { VircadiaConfig_BROWSER_CLIENT } from "../../../../sdk/vircadia-world-sdk-ts/config/vircadia.browser.client.config";
 
-// https://vite.dev/config/
 export default defineConfig({
-    plugins: [vue(), vueJsx(), vueDevTools()],
-    resolve: {
-        alias: {
-            "@": fileURLToPath(new URL("./src", import.meta.url)),
-        },
-    },
+    plugins: [solidPlugin()],
     server: {
         host: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_DEV_HOST,
         port: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_THREE_JS_DEV_PORT,

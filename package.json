@@ -1,5 +1,7 @@
 {
   "dependencies": {
+    "@babylonjs/core": "^8.3.1",
+    "@babylonjs/loaders": "^8.3.1",
     "@react-three/drei": "^10.0.6",
     "@react-three/fiber": "^9.1.2",
     "three": "^0.175.0"

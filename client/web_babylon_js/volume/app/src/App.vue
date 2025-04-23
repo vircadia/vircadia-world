@@ -1,21 +1,16 @@
 <script setup lang="ts">
-import HelloWorld from "./components/HelloWorld.vue";
-import TheWelcome from "./components/TheWelcome.vue";
 import VircadiaProvider from "../../../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/provider/VircadiaProvider.vue";
 import { Communication } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
-
-// Import your configuration (adjust the import path as needed)
 import { VircadiaConfig_BROWSER_CLIENT } from "../../../../../sdk/vircadia-world-sdk-ts/config/vircadia.browser.client.config";
 
-// Configure Vircadia connection
-const SERVER_URL =
-    VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL
-        ? `wss://${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`
-        : `ws://${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`;
+import ConnectionStatus from "./components/ConnectionStatus.vue";
 
-// Create the configuration object
+// Configure server settings
 const vircadiaConfig = {
-    serverUrl: SERVER_URL,
+    serverUrl:
+        VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL
+            ? `https://${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`
+            : `http://${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`,
     authToken:
         VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
     authProvider:
@@ -24,50 +19,35 @@ const vircadiaConfig = {
     suppress: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
     reconnectAttempts: 5,
     reconnectDelay: 5000,
+    autoConnect: true, // Note: autoConnect is true, manual connect button might not be needed initially unless disconnect is used.
 };
 </script>
 
 <template>
-  <VircadiaProvider :config="vircadiaConfig" :autoConnect="true">
+  <!-- Pass the configuration object to the provider -->
+  <VircadiaProvider :config="vircadiaConfig">
     <header>
-      <img alt="Vue logo" class="logo" src="./assets/logo.svg" width="125" height="125" />
-
-      <div class="wrapper">
-        <HelloWorld msg="You did it!" />
-      </div>
+      <h1>Vircadia World Assets</h1>
+      <!-- Connection status and buttons are now handled inside ConnectionStatus -->
     </header>
 
     <main>
-      <TheWelcome />
+      <!-- Use the new component here -->
+      <ConnectionStatus />
     </main>
   </VircadiaProvider>
 </template>
 
-<style scoped>
+<style>
+/* Keep general styles here */
 header {
-  line-height: 1.5;
+  background-color: #2c3e50;
+  color: white;
+  padding: 1rem;
+  text-align: center;
 }
 
-.logo {
-  display: block;
-  margin: 0 auto 2rem;
-}
-
-@media (min-width: 1024px) {
-  header {
-    display: flex;
-    place-items: center;
-    padding-right: calc(var(--section-gap) / 2);
-  }
-
-  .logo {
-    margin: 0 2rem 0 0;
-  }
-
-  header .wrapper {
-    display: flex;
-    place-items: flex-start;
-    flex-wrap: wrap;
-  }
+main {
+  padding: 1rem;
 }
 </style>

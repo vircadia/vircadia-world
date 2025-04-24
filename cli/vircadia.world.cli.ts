@@ -1369,8 +1369,7 @@ export namespace Server_CLI {
                             await sql`
                                 UPDATE entity.entity_assets 
                                 SET 
-                                    asset__data__bytea = ${assetDataBinary},
-                                    asset__mime_type = ${fileExt}
+                                    asset__data__bytea = ${assetDataBinary}
                                 WHERE general__asset_file_name = ${dbAsset.general__asset_file_name}
                             `;
                         }

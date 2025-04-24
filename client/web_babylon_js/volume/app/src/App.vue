@@ -137,36 +137,53 @@ const initializeBabylon = async () => {
 watch(
     loadedAssetData,
     async (newData) => {
-        if (newData?.blobUrl) {
+        // Change condition to check for the raw data instead of blobUrl
+        if (newData?.arrayBuffer) {
             console.log(
-                "Asset data received, checking if ready to load model...",
+                "Asset data received, checking if ready to load model from data buffer...",
             );
-            if (scene && loadedAssetData.value?.blobUrl && !modelLoaded) {
-                console.log(
-                    `Attempting to load model from: ${loadedAssetData.value.blobUrl}`,
-                );
+            // Ensure scene is ready and data exists, and model not already loaded
+            if (scene && loadedAssetData.value?.arrayBuffer && !modelLoaded) {
                 try {
+                    // Use "data:" as the root URL to indicate loading from buffer
+
+                    const pluginExtension =
+                        loadedAssetData.value.mimeType === "model/gltf-binary"
+                            ? ".glb"
+                            : ".gltf";
+
+                    console.log(
+                        `Attempting to load model from blob URL (url: ${loadedAssetData.value.blobUrl}) (size: ${loadedAssetData.value.arrayBuffer.byteLength} bytes) (${loadedAssetData.value.mimeType}:${pluginExtension})`,
+                    );
+
                     const result = await ImportMeshAsync(
-                        loadedAssetData.value.blobUrl,
+                        loadedAssetData.value.blobUrl, // Pass the ArrayBuffer
                         scene,
                         {
-                            pluginExtension:
-                                loadedAssetData.value.mimeType ===
-                                "model/gltf-binary"
-                                    ? ".glb"
-                                    : ".gltf",
+                            pluginExtension,
                         },
                     );
-                    console.log("Model loaded successfully:", result.meshes);
-                    modelLoaded = true;
+                    console.log(
+                        "Model loaded successfully from blob url:",
+                        result.meshes,
+                    );
+                    modelLoaded = true; // Set flag to prevent reloading
                 } catch (error) {
-                    console.error("Error loading model:", error);
+                    console.error(
+                        "Error loading model from blob url buffer:",
+                        error,
+                    );
                 }
+            } else {
+                // Log why loading didn't proceed
+                if (!scene) console.log("Scene not ready yet.");
+                if (modelLoaded) console.log("Model already loaded.");
             }
         }
     },
     {
-        immediate: true,
+        immediate: true, // Keep immediate to attempt loading once data is available
+        deep: true, // Use deep watch if assetData structure is complex (optional but safe)
     },
 );
 

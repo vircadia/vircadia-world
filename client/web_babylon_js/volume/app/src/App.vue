@@ -37,10 +37,8 @@ import {
     Vector3,
     HemisphericLight,
     WebGPUEngine,
-    SceneLoader,
-    ImportMeshAsync, // Import SceneLoader
+    ImportMeshAsync,
 } from "@babylonjs/core";
-// Import SceneLoader plugins if needed (e.g., for glTF/GLB)
 import "@babylonjs/loaders/glTF"; // Import the GLTF loader
 
 // biome-ignore lint/style/useImportType: FIXME: Vue requires this to not be a TYPE import, Biome is mistaken. We need to fix this.

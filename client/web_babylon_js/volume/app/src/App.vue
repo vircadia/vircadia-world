@@ -4,7 +4,27 @@
     <main>
       <!-- Canvas for Babylon.js -->
       <canvas ref="renderCanvas" id="renderCanvas"></canvas>
-      <!-- Use the new component here -->
+      <!-- Use VircadiaAsset to load the model data -->
+      <!-- Conditionally render VircadiaAsset only when connected -->
+      <VircadiaAsset
+        v-if="vircadiaProviderRef?.connectionInfo.status === 'connected'"
+        :file-name="modelFileName"
+        v-slot="{ assetData, loading, error }"
+      >
+        <!-- We don't need to render anything specific here, -->
+        <!-- but we use the slot to trigger the loading logic below -->
+        <div v-if="loading">Loading asset...</div>
+        <div v-if="error">Error loading asset: {{ error.message }}</div>
+        <!-- Store assetData in a ref when available -->
+        <template v-if="assetData">{{ setAssetDataRef(assetData) }}</template>
+      </VircadiaAsset>
+      <!-- Optional: Show a message while connecting -->
+      <div v-else-if="vircadiaProviderRef?.connectionInfo.status === 'connecting'">
+        Connecting to server...
+      </div>
+      <div v-else>
+        Not connected. State: {{ vircadiaProviderRef?.connectionInfo.status }}
+      </div>
     </main>
   </VircadiaProvider>
 </template>
@@ -17,12 +37,21 @@ import {
     Vector3,
     HemisphericLight,
     WebGPUEngine,
+    SceneLoader,
+    ImportMeshAsync, // Import SceneLoader
 } from "@babylonjs/core";
+// Import SceneLoader plugins if needed (e.g., for glTF/GLB)
+import "@babylonjs/loaders/glTF"; // Import the GLTF loader
+
 // biome-ignore lint/style/useImportType: FIXME: Vue requires this to not be a TYPE import, Biome is mistaken. We need to fix this.
 import VircadiaProvider from "../../../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/provider/VircadiaProvider.vue";
 import { Communication } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 import { VircadiaConfig_BROWSER_CLIENT } from "../../../../../sdk/vircadia-world-sdk-ts/config/vircadia.browser.client.config";
 import type { VircadiaClientCoreConfig } from "../../../../../sdk/vircadia-world-sdk-ts/module/client/core/vircadia.client.core";
+// Import VircadiaAsset and its data type
+import VircadiaAsset, {
+    type VircadiaAssetData,
+} from "../../../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/component/VircadiaAsset.vue";
 
 // Configure server settings
 const vircadiaConfig: VircadiaClientCoreConfig = {
@@ -49,6 +78,17 @@ const vircadiaProviderRef = ref<InstanceType<typeof VircadiaProvider> | null>(
 const renderCanvas = ref<HTMLCanvasElement | null>(null);
 let engine: WebGPUEngine | null = null;
 let scene: Scene | null = null;
+
+// Asset loading setup
+const modelFileName = ref("telekom.model.LandscapeWalkwayLOD.glb");
+const loadedAssetData = ref<VircadiaAssetData | null>(null);
+let modelLoaded = false; // Flag to prevent multiple loads
+
+// Function called from the template to update the ref
+const setAssetDataRef = (data: VircadiaAssetData) => {
+    loadedAssetData.value = data;
+    return null; // Don't render anything
+};
 
 const initializeBabylon = async () => {
     if (renderCanvas.value) {
@@ -93,6 +133,43 @@ const initializeBabylon = async () => {
     }
 };
 
+// Watch for changes in the loaded asset data
+watch(
+    loadedAssetData,
+    async (newData) => {
+        if (newData?.blobUrl) {
+            console.log(
+                "Asset data received, checking if ready to load model...",
+            );
+            if (scene && loadedAssetData.value?.blobUrl && !modelLoaded) {
+                console.log(
+                    `Attempting to load model from: ${loadedAssetData.value.blobUrl}`,
+                );
+                try {
+                    const result = await ImportMeshAsync(
+                        loadedAssetData.value.blobUrl,
+                        scene,
+                        {
+                            pluginExtension:
+                                loadedAssetData.value.mimeType ===
+                                "model/gltf-binary"
+                                    ? ".glb"
+                                    : ".gltf",
+                        },
+                    );
+                    console.log("Model loaded successfully:", result.meshes);
+                    modelLoaded = true;
+                } catch (error) {
+                    console.error("Error loading model:", error);
+                }
+            }
+        }
+    },
+    {
+        immediate: true,
+    },
+);
+
 const handleResize = () => {
     if (engine) {
         engine.resize();
@@ -100,7 +177,8 @@ const handleResize = () => {
 };
 
 onMounted(async () => {
-    initializeBabylon();
+    // It's generally better to initialize Babylon regardless of connection status
+    await initializeBabylon();
 
     // Access exposed properties after mount
     if (vircadiaProviderRef.value) {
@@ -113,15 +191,25 @@ onMounted(async () => {
                         "Connection info changed in App.vue:",
                         newInfo.status,
                     );
-                    // You can react to connection status changes here
+                    // Asset loading will now be triggered by the v-if in the template
+                    // when status becomes 'connected'
                 }
             },
-            { deep: true }, // Use deep watch if needed for nested properties
+            { deep: true, immediate: true }, // Use immediate to log initial status
         );
 
-        // Example: Call a method on the client
-        const connect =
-            await vircadiaProviderRef.value.client.Utilities.Connection.connect();
+        // Example: Call a method on the client - This should ideally happen
+        // AFTER connection is confirmed, or be handled internally by the SDK method.
+        // If connect() is idempotent or handles its own state, this might be okay.
+        // Otherwise, consider moving this call into the connectionInfo watcher
+        // when status becomes 'connected'.
+        try {
+            const connectResult =
+                await vircadiaProviderRef.value.client.Utilities.Connection.connect();
+            console.log("Manual connect attempt result:", connectResult);
+        } catch (error) {
+            console.error("Error during manual connect attempt:", error);
+        }
     }
 });
 
@@ -135,6 +223,7 @@ onUnmounted(() => {
         scene.dispose();
         scene = null;
     }
+    modelLoaded = false; // Reset flag on unmount
 });
 </script>
 
@@ -177,6 +266,32 @@ main {
     padding: 10px;
     border-radius: 5px;
     color: white;
+}
+
+/* Styling for asset loading/error messages (optional) */
+/* Adjust positioning if needed */
+main > div[v-if],
+main > div[v-else-if],
+main > div[v-else] {
+    position: absolute;
+    top: 50px; /* Position below connection info */
+    left: 10px;
+    z-index: 1;
+    background-color: rgba(44, 62, 80, 0.7); /* Default background */
+    padding: 5px 10px;
+    border-radius: 3px;
+    color: white;
+    font-family: sans-serif;
+    font-size: 0.9em;
+}
+main > div[v-if*="Error"] {
+    background-color: rgba(255, 0, 0, 0.7); /* Example error styling */
+}
+main > div[v-if*="Loading"] {
+    background-color: rgba(255, 165, 0, 0.7); /* Example loading styling */
+}
+main > div[v-else-if*="Connecting"] {
+    background-color: rgba(0, 100, 255, 0.7); /* Example connecting styling */
 }
 
 </style>

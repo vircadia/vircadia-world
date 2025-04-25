@@ -42,14 +42,11 @@ import { getInstanceKey } from "../../../../../../sdk/vircadia-world-sdk-ts/modu
 
 interface AssetDefinition {
     fileName: string;
-    entityName: string;
 }
 const assetDefinitions = ref<AssetDefinition[]>([
     {
         fileName: "telekom.model.LandscapeWalkwayLOD.glb",
-        entityName: "WalkwayEntity",
     },
-    // Add more assets here
 ]);
 
 const vircadia = inject(getInstanceKey("vircadiaWorld"));
@@ -153,11 +150,11 @@ watchEffect((onCleanup) => {
 
         for (const assetInfo of assetDefinitions.value) {
             const assetKey = `Asset-${assetInfo.fileName}`;
-            const entityKey = `Entity-${assetInfo.entityName}`;
+            const entityKey = `Entity-${assetInfo.fileName}`; // Now using fileName for entity key
 
             // --- Asset Handling ---
             const assetComposable = useVircadiaAsset({
-                fileName: ref(assetInfo.fileName), // Composables expect refs
+                fileName: ref(assetInfo.fileName),
                 instance: vircadia,
             });
             assetStates[assetKey] = assetComposable;
@@ -187,28 +184,28 @@ watchEffect((onCleanup) => {
 
             // --- Entity Handling ---
             const entityComposable = useVircadiaEntity({
-                entityName: ref(assetInfo.entityName), // Composables expect refs
+                entityName: ref(assetInfo.fileName), // Using fileName as entityName
                 insertIfNotExist: true,
-                // Updated to use string insertClause and insertParams
                 insertClause:
-                    "(general__entity_name, type, modelURL) VALUES ($1, $2, $3) RETURNING general__entity_id",
+                    "(general__entity_name, meta__data) VALUES ($1, $2) RETURNING general__entity_id",
                 insertParams: [
-                    assetInfo.entityName,
-                    "Model",
-                    assetInfo.fileName,
+                    assetInfo.fileName, // Using fileName as entityName
+                    JSON.stringify({
+                        type: { value: "Model" },
+                        modelURL: { value: assetInfo.fileName },
+                    }),
                 ],
                 selectClause:
-                    "general__entity_id, general__entity_name, type, modelURL",
+                    "general__entity_id, general__entity_name, meta__data",
                 instance: vircadia,
             });
-            entityStates[entityKey] = entityComposable;
 
             const stopEntityWatch = watch(
                 [entityComposable.entityData, entityComposable.error],
                 ([data, err]) => {
                     if (err) {
                         console.error(
-                            `Entity Error (${assetInfo.entityName}):`,
+                            `Entity Error (${assetInfo.fileName}):`, // Using fileName in logs
                             err,
                         );
                         activeErrors[entityKey] = err;
@@ -216,7 +213,7 @@ watchEffect((onCleanup) => {
                         delete activeErrors[entityKey];
                         if (data) {
                             console.log(
-                                `Entity data updated for ${assetInfo.entityName}:`,
+                                `Entity data updated for ${assetInfo.fileName}:`, // Using fileName in logs
                                 data,
                             );
                             // Optional: Update mesh position based on entity data
@@ -289,6 +286,20 @@ onMounted(async () => {
 
 onUnmounted(() => {
     console.log("Room component unmounting. Cleaning up...");
+
+    // Clean up each entity
+    for (const [key, entityState] of Object.entries(entityStates)) {
+        console.log(`Cleaning up entity: ${key}`);
+        entityState.cleanup();
+    }
+
+    // Clean up each asset
+    for (const [key, assetState] of Object.entries(assetStates)) {
+        console.log(`Cleaning up asset: ${key}`);
+        assetState.cleanup();
+    }
+
+    // Clean up BabylonJS resources
     window.removeEventListener("resize", handleResize);
     loadedAssetMeshes.value.clear();
     scene?.dispose();

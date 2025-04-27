@@ -14,7 +14,7 @@
         </div>
         
         <!-- Only render entities when scene is available -->
-        <template v-if="scene">
+        <template v-if="sceneInitialized">
             <StaticBabylonModel
                 v-for="(model, index) in modelDefinitions"
                 :key="model.fileName"
@@ -28,7 +28,15 @@
 </template>
 
 <script setup lang="ts">
-import { inject, computed, watch, ref, onMounted, onUnmounted } from "vue";
+import {
+    inject,
+    computed,
+    watch,
+    ref,
+    onMounted,
+    onUnmounted,
+    shallowRef,
+} from "vue";
 import { getInstanceKey } from "../../../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/provider/useVircadia";
 import StaticBabylonModel from "./components/StaticBabylonModel.vue";
 import {
@@ -56,10 +64,13 @@ const connectionStatus = computed(
     () => vircadiaWorld?.connectionInfo?.value?.status || "disconnected",
 );
 
-// BabylonJS Setup
+// BabylonJS Setup - use variables instead of refs
 const renderCanvas = ref<HTMLCanvasElement | null>(null);
-const engine = ref<WebGPUEngine | null>(null);
-const scene = ref<Scene | null>(null);
+// Using regular variables instead of refs for non-reactive engine and scene
+let engine: WebGPUEngine | null = null;
+let scene: Scene | null = null;
+// Track if scene is initialized for template rendering
+const sceneInitialized = ref(false);
 
 interface ModelDefinition {
     fileName: string;
@@ -85,10 +96,6 @@ const environmentAssets = ref<EnvironmentAsset[]>([
         fileName: "telekom.skybox.Room.hdr.1k.hdr",
         type: "hdr",
     },
-    {
-        fileName: "telekom.skybox.Room.image.2k.png",
-        type: "skybox",
-    },
 ]);
 
 // Loading state for environment assets
@@ -107,98 +114,62 @@ const isLoading = computed(() => {
 
 // Load environment assets
 const loadEnvironments = async () => {
-    if (!scene.value || environmentLoading.value) return;
+    if (!scene || environmentLoading.value) return;
 
     environmentLoading.value = true;
 
     try {
-        for (const asset of environmentAssets.value) {
-            try {
-                const assetResult = await useVircadiaAsset({
-                    fileName: ref(asset.fileName),
-                    instance: vircadiaWorld,
-                });
+        // Directly use hardcoded HDR filename
+        const hdrFileName = "telekom.skybox.Room.hdr.1k.hdr";
 
-                // Call executeLoad() explicitly to load the asset
-                await assetResult.executeLoad();
+        try {
+            const assetResult = await useVircadiaAsset({
+                fileName: ref(hdrFileName),
+                instance: vircadiaWorld,
+            });
 
-                if (!assetResult.assetData.value?.blobUrl) {
-                    console.error(
-                        `Failed to load environment asset: ${asset.fileName}`,
-                    );
-                    continue;
-                }
+            // Call executeLoad() explicitly to load the asset
+            await assetResult.executeLoad();
 
-                const blobUrl = assetResult.assetData.value.blobUrl;
-
-                if (asset.type === "hdr") {
-                    // Create an HDR environment
-                    const hdrTexture = new HDRCubeTexture(
-                        blobUrl,
-                        scene.value,
-                        128,
-                        false, // noMipmap
-                        true, // generateHarmonics
-                        true, // gammaSpace
-                        true, // prefilterOnLoad
-                    );
-
-                    // Wait for texture to load
-                    await new Promise<void>((resolve, reject) => {
-                        hdrTexture.onLoadObservable.addOnce(() => {
-                            if (scene.value) {
-                                scene.value.environmentTexture = hdrTexture;
-                                scene.value.environmentIntensity = 0.7;
-                            }
-                            console.log(
-                                `HDR environment texture loaded: ${asset.fileName}`,
-                            );
-                            resolve();
-                        });
-
-                        hdrTexture.onLoadErrorObservable.addOnce((error) => {
-                            console.error(
-                                `Error loading HDR texture: ${error}`,
-                            );
-                            reject(error);
-                        });
-                    });
-                } else if (asset.type === "skybox") {
-                    // Create a skybox using cube texture
-                    const skyboxTexture = new CubeTexture(blobUrl, scene.value);
-
-                    // Wait for texture to load
-                    await new Promise<void>((resolve, reject) => {
-                        skyboxTexture.onLoadObservable.addOnce(() => {
-                            // Create a default skybox with the texture
-                            if (scene.value) {
-                                const skybox = scene.value.createDefaultSkybox(
-                                    skyboxTexture,
-                                    true, // pbr
-                                    1000, // size
-                                    0.3, // blur level
-                                );
-                            }
-                            console.log(
-                                `Skybox texture loaded: ${asset.fileName}`,
-                            );
-                            resolve();
-                        });
-
-                        skyboxTexture.onLoadErrorObservable.addOnce((error) => {
-                            console.error(
-                                `Error loading skybox texture: ${error}`,
-                            );
-                            reject(error);
-                        });
-                    });
-                }
-            } catch (error) {
+            if (!assetResult.assetData.value?.blobUrl) {
                 console.error(
-                    `Error loading environment asset ${asset.fileName}:`,
-                    error,
+                    `Failed to load environment asset: ${hdrFileName}`,
                 );
+                return;
             }
+
+            const blobUrl = assetResult.assetData.value.blobUrl;
+
+            // Create an HDR environment
+            const hdrTexture = new HDRCubeTexture(
+                blobUrl,
+                scene,
+                512,
+                false,
+                true,
+                false,
+                true,
+            );
+
+            // Wait for texture to be ready before setting as environment
+            hdrTexture.onLoadObservable.addOnce(() => {
+                if (scene) {
+                    // Set as environment texture for PBR lighting
+                    scene.environmentTexture = hdrTexture;
+                    scene.environmentIntensity = 0.7;
+
+                    // Use same texture for the skybox (visual background)
+                    scene.createDefaultSkybox(hdrTexture, true, 1000);
+                }
+                console.log(
+                    `HDR environment texture loaded and set as skybox: ${hdrFileName}`,
+                );
+            });
+        } catch (error) {
+            console.error(
+                `Error loading environment asset ${hdrFileName}:`,
+                error,
+            );
         }
     } finally {
         environmentLoading.value = false;
@@ -214,14 +185,14 @@ const initializeBabylon = async () => {
 
     console.log("Initializing BabylonJS with WebGPU...");
     try {
-        engine.value = new WebGPUEngine(renderCanvas.value, {
+        engine = new WebGPUEngine(renderCanvas.value, {
             antialias: false,
             adaptToDeviceRatio: true,
         });
 
-        await engine.value.initAsync();
+        await engine.initAsync();
 
-        scene.value = new Scene(engine.value);
+        scene = new Scene(engine);
 
         const camera = new ArcRotateCamera(
             "camera",
@@ -229,16 +200,19 @@ const initializeBabylon = async () => {
             Math.PI / 2.5,
             10,
             Vector3.Zero(),
-            scene.value,
+            scene,
         );
         camera.attachControl(renderCanvas.value, true);
 
-        // Create light with properly typed scene
-        const babylonScene = scene.value;
-        new HemisphericLight("light", new Vector3(1, 1, 0), babylonScene);
+        // Create light
+        new HemisphericLight("light", new Vector3(1, 1, 0), scene);
 
-        engine.value.runRenderLoop(() => scene.value?.render());
+        engine.runRenderLoop(() => scene?.render());
         window.addEventListener("resize", handleResize);
+
+        // Set scene initialized flag to true
+        sceneInitialized.value = true;
+
         console.log("BabylonJS initialized successfully.");
         return true;
     } catch (error) {
@@ -247,7 +221,7 @@ const initializeBabylon = async () => {
     }
 };
 
-const handleResize = () => engine.value?.resize();
+const handleResize = () => engine?.resize();
 
 onMounted(async () => {
     await initializeBabylon();
@@ -259,10 +233,11 @@ onMounted(async () => {
 onUnmounted(() => {
     window.removeEventListener("resize", handleResize);
     console.log("Disposing BabylonJS scene and engine...");
-    scene.value?.dispose();
-    engine.value?.dispose();
-    scene.value = null;
-    engine.value = null;
+    scene?.dispose();
+    engine?.dispose();
+    scene = null;
+    engine = null;
+    sceneInitialized.value = false;
 });
 
 watch(
@@ -271,8 +246,8 @@ watch(
         if (newStatus === "connected") {
             console.log("Connected to Vircadia server");
             // Load environments when connection is established
-            if (scene.value) {
-                // loadEnvironments();
+            if (scene) {
+                loadEnvironments();
             }
         } else if (newStatus === "disconnected") {
             console.log("Disconnected from Vircadia server");
@@ -284,10 +259,10 @@ watch(
 
 // Also watch for scene creation to load environments if connection is already established
 watch(
-    () => scene.value,
-    (newScene) => {
-        if (newScene && connectionStatus.value === "connected") {
-            // loadEnvironments();
+    () => sceneInitialized.value,
+    (initialized) => {
+        if (initialized && connectionStatus.value === "connected") {
+            loadEnvironments();
         }
     },
 );

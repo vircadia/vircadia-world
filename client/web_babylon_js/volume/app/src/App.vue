@@ -28,26 +28,21 @@
 </template>
 
 <script setup lang="ts">
-import {
-    inject,
-    computed,
-    watch,
-    ref,
-    onMounted,
-    onUnmounted,
-    shallowRef,
-} from "vue";
+import { inject, computed, watch, ref, onMounted, onUnmounted } from "vue";
 import { getInstanceKey } from "../../../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/provider/useVircadia";
 import StaticBabylonModel from "./components/StaticBabylonModel.vue";
 import {
     Scene,
     ArcRotateCamera,
-    Engine,
     Vector3,
     HemisphericLight,
     WebGPUEngine,
     HDRCubeTexture,
     CubeTexture,
+    MeshBuilder,
+    Texture,
+    StandardMaterial,
+    Color3,
 } from "@babylonjs/core";
 // Make sure the importers are included
 import "@babylonjs/loaders/glTF";
@@ -119,58 +114,130 @@ const loadEnvironments = async () => {
     environmentLoading.value = true;
 
     try {
-        // Directly use hardcoded HDR filename
+        // First try to load the HDR environment for PBR lighting
         const hdrFileName = "telekom.skybox.Room.hdr.1k.hdr";
 
         try {
-            const assetResult = await useVircadiaAsset({
+            const hdrAssetResult = useVircadiaAsset({
                 fileName: ref(hdrFileName),
                 instance: vircadiaWorld,
             });
 
             // Call executeLoad() explicitly to load the asset
-            await assetResult.executeLoad();
+            await hdrAssetResult.executeLoad();
 
-            if (!assetResult.assetData.value?.blobUrl) {
-                console.error(
-                    `Failed to load environment asset: ${hdrFileName}`,
+            if (!hdrAssetResult.assetData.value?.blobUrl) {
+                console.error(`Failed to load HDR environment: ${hdrFileName}`);
+            } else {
+                const hdrBlobUrl = hdrAssetResult.assetData.value.blobUrl;
+
+                // Create an HDR environment
+                const hdrTexture = new HDRCubeTexture(
+                    hdrBlobUrl,
+                    scene,
+                    512,
+                    false,
+                    true,
+                    false,
+                    true,
                 );
-                return;
+
+                // Wait for texture to be ready before setting as environment
+                hdrTexture.onLoadObservable.addOnce(() => {
+                    if (scene) {
+                        // Set as environment texture for PBR lighting
+                        scene.environmentTexture = hdrTexture;
+                        scene.environmentIntensity = 0.7;
+                    }
+                    console.log(
+                        `HDR environment texture loaded: ${hdrFileName}`,
+                    );
+                });
             }
-
-            const blobUrl = assetResult.assetData.value.blobUrl;
-
-            // Create an HDR environment
-            const hdrTexture = new HDRCubeTexture(
-                blobUrl,
-                scene,
-                512,
-                false,
-                true,
-                false,
-                true,
-            );
-
-            // Wait for texture to be ready before setting as environment
-            hdrTexture.onLoadObservable.addOnce(() => {
-                if (scene) {
-                    // Set as environment texture for PBR lighting
-                    scene.environmentTexture = hdrTexture;
-                    scene.environmentIntensity = 0.7;
-
-                    // Use same texture for the skybox (visual background)
-                    scene.createDefaultSkybox(hdrTexture, true, 1000);
-                }
-                console.log(
-                    `HDR environment texture loaded and set as skybox: ${hdrFileName}`,
-                );
-            });
         } catch (error) {
-            console.error(
-                `Error loading environment asset ${hdrFileName}:`,
-                error,
-            );
+            console.error(`Error loading HDR asset ${hdrFileName}:`, error);
         }
+
+        // // Now load the PNG skybox for the visual background using MeshBuilder
+        // const skyboxFileName = "telekom.skybox.Room.image.2k.png";
+
+        // try {
+        //     const skyboxAssetResult = useVircadiaAsset({
+        //         fileName: ref(skyboxFileName),
+        //         instance: vircadiaWorld,
+        //     });
+
+        //     console.info(
+        //         `Loading skybox asset: ${skyboxFileName}`,
+        //         skyboxAssetResult,
+        //     );
+
+        //     // Execute the load explicitly
+        //     await skyboxAssetResult.executeLoad();
+
+        //     console.info(
+        //         `Skybox asset loaded: ${skyboxFileName}`,
+        //         skyboxAssetResult,
+        //     );
+
+        //     if (!skyboxAssetResult.assetData.value?.blobUrl) {
+        //         console.error(`Failed to load skybox: ${skyboxFileName}`);
+        //     } else {
+        //         const skyboxBlobUrl = skyboxAssetResult.assetData.value.blobUrl;
+
+        //         console.info(
+        //             `Skybox blob URL: ${skyboxBlobUrl}`,
+        //             skyboxAssetResult,
+        //         );
+
+        //         if (scene) {
+        //             console.info(
+        //                 `Creating skybox with blob URL: ${skyboxBlobUrl}`,
+        //             );
+        //             // Create a skybox using MeshBuilder
+        //             const skybox = MeshBuilder.CreateBox(
+        //                 "skyBox",
+        //                 { size: 10000.0 },
+        //                 scene,
+        //             );
+
+        //             skybox.infiniteDistance = true;
+        //             skybox.isPickable = false;
+        //             skybox.isNearGrabbable = false;
+        //             skybox.isNearPickable = false;
+        //             skybox.renderingGroupId = 0; // Ensure it's rendered first
+        //             // Attach the skybox directly to the scene, not to the camera
+        //             skybox.parent = null;
+
+        //             // Create skybox material
+        //             const skyboxMaterial = new StandardMaterial(
+        //                 "skyBoxMaterial",
+        //                 scene,
+        //             );
+        //             skyboxMaterial.backFaceCulling = false;
+
+        //             // Create cube texture from the blob URL
+        //             const skyboxTexture = new CubeTexture(skyboxBlobUrl, scene);
+        //             skyboxMaterial.reflectionTexture = skyboxTexture;
+        //             skyboxMaterial.reflectionTexture.coordinatesMode =
+        //                 Texture.SKYBOX_MODE;
+        //             skyboxMaterial.diffuseColor = new Color3(0, 0, 0);
+        //             skyboxMaterial.specularColor = new Color3(0, 0, 0);
+
+        //             // Apply the material to the skybox mesh
+        //             skybox.material = skyboxMaterial;
+
+        //             // Set the rendering group to ensure the skybox renders behind everything else
+        //             skybox.renderingGroupId = 0;
+
+        //             console.log(
+        //                 `Skybox loaded successfully: ${skyboxFileName}`,
+        //             );
+        //         }
+        //     }
+        // } catch (error) {
+        //     console.error(`Error loading skybox ${skyboxFileName}:`, error);
+        // }
     } finally {
         environmentLoading.value = false;
     }

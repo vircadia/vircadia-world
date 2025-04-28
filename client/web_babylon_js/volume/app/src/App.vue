@@ -23,6 +23,8 @@
                 :position="model.position"
                 :rotation="model.rotation"
                 :throttle-interval="model.throttleInterval"
+                :physics-type="model.physicsType"
+                :physics-options="model.physicsOptions"
                 :ref="el => modelRefs[index] = el"
             />
         </template>
@@ -30,17 +32,10 @@
 </template>
 
 <script setup lang="ts">
-import {
-    inject,
-    computed,
-    watch,
-    ref,
-    onMounted,
-    onUnmounted,
-    shallowRef,
-} from "vue";
+import { inject, computed, watch, ref, onMounted, onUnmounted } from "vue";
 import { getInstanceKey } from "../../../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/provider/useVircadia";
 import BabylonModel from "./components/BabylonModel.vue";
+import type { BabylonModelDefinition } from "./components/BabylonModel.vue";
 import {
     Scene,
     ArcRotateCamera,
@@ -52,6 +47,8 @@ import {
 } from "@babylonjs/core";
 // Make sure the importers are included
 import "@babylonjs/loaders/glTF";
+// Import Inspector for debugging
+import "@babylonjs/inspector";
 import { useVircadiaAsset } from "../../../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/composable/useVircadiaAsset";
 
 // Get the existing Vircadia connection from main.ts with proper typing
@@ -72,19 +69,36 @@ let engine: WebGPUEngine | null = null;
 let scene: Scene | null = null;
 // Track if scene is initialized for template rendering
 const sceneInitialized = ref(false);
+// Track inspector state
+const isInspectorVisible = ref(false);
 
-interface BabylonModelDefinition {
-    fileName: string;
-    position?: { x: number; y: number; z: number };
-    rotation?: { x: number; y: number; z: number; w: number };
-    throttleInterval?: number;
-}
+// Add function to toggle the inspector
+const toggleInspector = () => {
+    if (!scene) return;
+
+    if (!isInspectorVisible.value) {
+        scene.debugLayer.show({
+            embedMode: true,
+        });
+        isInspectorVisible.value = true;
+    } else {
+        scene.debugLayer.hide();
+        isInspectorVisible.value = false;
+    }
+};
+
+// Keyboard event handler for inspector toggle
+const handleKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "t" && scene) {
+        toggleInspector();
+    }
+};
 
 const modelDefinitions = ref<BabylonModelDefinition[]>([
     {
         fileName: "telekom.model.Room.glb",
         position: { x: 0, y: 0, z: 0 },
-        rotation: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0, w: 1 },
         throttleInterval: 1000,
     },
     // Add more assets here
@@ -241,10 +255,15 @@ onMounted(async () => {
 
     // Initialize model refs array
     modelRefs.value = Array(modelDefinitions.value.length).fill(null);
+
+    // Add keyboard event listener for inspector toggle
+    window.addEventListener("keydown", handleKeyDown);
 });
 
 onUnmounted(() => {
     window.removeEventListener("resize", handleResize);
+    // Remove keyboard event listener
+    window.removeEventListener("keydown", handleKeyDown);
     console.log("Disposing BabylonJS scene and engine...");
     scene?.dispose();
     engine?.dispose();

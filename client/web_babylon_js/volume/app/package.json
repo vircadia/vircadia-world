@@ -13,6 +13,7 @@
     "dependencies": {
         "@babylonjs/core": "^8.4.0",
         "@babylonjs/loaders": "^8.4.0",
+        "@babylonjs/inspector": "^8.4.0",
         "@vueuse/core": "^13.1.0",
         "lodash-es": "^4.17.21",
         "vue": "^3.5.13"

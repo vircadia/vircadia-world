@@ -13,6 +13,8 @@ import {
     type BaseTexture,
     type Nullable,
     Quaternion,
+    PhysicsImpostor,
+    type StandardMaterial,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF"; // Import the GLTF loader
 import { useThrottleFn } from "@vueuse/core";
@@ -120,14 +122,28 @@ namespace glTF {
     }
 }
 
-// Update props to support dynamic position and rotation
-const props = defineProps<{
-    scene: Scene;
+export interface BabylonModelDefinition {
     fileName: string;
     position?: { x: number; y: number; z: number };
     rotation?: { x: number; y: number; z: number; w: number };
     throttleInterval?: number;
-}>();
+    enablePhysics?: boolean;
+    // Physics properties
+    physicsType?: "box" | "convexHull" | "mesh";
+    physicsOptions?: {
+        mass?: number;
+        friction?: number;
+        restitution?: number;
+        isKinematic?: boolean;
+    };
+}
+
+// Update props to support dynamic position and rotation
+const props = defineProps<
+    BabylonModelDefinition & {
+        scene: Scene;
+    }
+>();
 
 // Add emits for position and rotation updates
 const emit = defineEmits<{
@@ -143,14 +159,6 @@ const errorMessage = ref("");
 // Reactive refs for position and rotation
 const currentPosition = ref(props.position || { x: 0, y: 0, z: 0 });
 const currentRotation = ref(props.rotation || { x: 0, y: 0, z: 0, w: 1 });
-
-defineExpose({
-    isLoading,
-    hasError,
-    errorMessage,
-    position: currentPosition,
-    rotation: currentRotation,
-});
 
 // Get Vircadia instance
 const vircadia = inject(getInstanceKey("vircadiaWorld"));
@@ -388,6 +396,11 @@ const loadModel = async () => {
         updateMeshPositions();
         updateMeshRotations();
 
+        // Apply physics if enabled
+        if (props.enablePhysics) {
+            applyPhysics();
+        }
+
         console.log(
             `Model '${props.fileName}' loaded successfully (${meshes.value.length} meshes).`,
         );
@@ -614,6 +627,147 @@ const loadLightmap = async (
     return meshes;
 };
 
+// Physics-related refs
+const physicsImpostors = ref<PhysicsImpostor[]>([]);
+
+// Apply physics to model based on mesh shape
+const applyPhysics = () => {
+    if (
+        !props.enablePhysics ||
+        meshes.value.length === 0 ||
+        !props.scene.physicsEnabled
+    ) {
+        return;
+    }
+
+    // Remove any existing physics
+    removePhysics();
+
+    // Default physics properties
+    const mass = props.physicsOptions?.mass ?? 0;
+    const friction = props.physicsOptions?.friction ?? 0.2;
+    const restitution = props.physicsOptions?.restitution ?? 0.2;
+
+    console.log(
+        `Applying physics type ${props.physicsType || "mesh"} to model ${props.fileName}`,
+    );
+
+    // Determine physics type - default to mesh impostor for precision
+    const physicsType = props.physicsType || "mesh";
+    let impostorType;
+
+    switch (physicsType) {
+        case "mesh":
+            impostorType = PhysicsImpostor.MeshImpostor;
+            break;
+        case "convexHull":
+            impostorType = PhysicsImpostor.ConvexHullImpostor;
+            break;
+        default:
+            impostorType = PhysicsImpostor.BoxImpostor;
+            break;
+    }
+
+    // Apply physics to each mesh that can have physics applied
+    for (const mesh of meshes.value) {
+        // Skip helper or utility meshes
+        if (
+            mesh.name.includes("__root__") ||
+            mesh.name.includes("__point__") ||
+            !mesh.getClassName ||
+            mesh.getClassName() !== "Mesh"
+        ) {
+            continue;
+        }
+
+        try {
+            // Create physics impostor for this mesh
+            const impostor = new PhysicsImpostor(
+                mesh,
+                impostorType,
+                { mass, friction, restitution },
+                props.scene,
+            );
+
+            physicsImpostors.value.push(impostor);
+
+            console.log(`Applied ${physicsType} physics to mesh: ${mesh.name}`);
+        } catch (error) {
+            console.error(
+                `Failed to apply physics to mesh ${mesh.name}:`,
+                error,
+            );
+        }
+    }
+
+    // Update entity metadata to include physics properties
+    updateEntityPhysicsData();
+};
+
+// Remove physics from model
+const removePhysics = () => {
+    // Remove all physics impostors
+    for (const impostor of physicsImpostors.value) {
+        if (impostor) {
+            impostor.dispose();
+        }
+    }
+    physicsImpostors.value = [];
+};
+
+// Update entity metadata with physics data
+const updateEntityPhysicsData = () => {
+    if (!entity.entityData.value?.general__entity_id) {
+        console.warn("Cannot update entity physics: No entity ID available");
+        return;
+    }
+
+    // Get current metadata
+    const metaData = entity.entityData.value.meta__data || {};
+
+    // Add physics properties
+    const updatedMetaData = {
+        ...metaData,
+        physics: {
+            value: {
+                enabled: props.enablePhysics,
+                type: props.physicsType || "mesh",
+                options: props.physicsOptions || {
+                    mass: 0,
+                    friction: 0.2,
+                    restitution: 0.2,
+                },
+            },
+        },
+    };
+
+    // Update entity metadata
+    console.log("Updating entity physics data:", updatedMetaData);
+    entity.executeUpdate("meta__data = $2", [JSON.stringify(updatedMetaData)]);
+};
+
+// Watch for changes in physics props
+watch(
+    [
+        () => props.enablePhysics,
+        () => props.physicsType,
+        () => props.physicsOptions,
+    ],
+    () => {
+        if (meshes.value.length > 0) {
+            if (props.enablePhysics) {
+                applyPhysics();
+            } else {
+                removePhysics();
+            }
+
+            // Update entity metadata
+            updateEntityPhysicsData();
+        }
+    },
+    { deep: true },
+);
+
 // Watch for asset data to load model
 watch(
     () => asset.assetData.value,
@@ -759,5 +913,17 @@ onUnmounted(() => {
     meshes.value = [];
 
     console.log(`Cleanup complete for ${props.fileName}.`);
+});
+
+defineExpose({
+    isLoading,
+    hasError,
+    errorMessage,
+    position: currentPosition,
+    rotation: currentRotation,
+    // Physics-related methods
+    applyPhysics,
+    removePhysics,
+    updateEntityPhysicsData,
 });
 </script>

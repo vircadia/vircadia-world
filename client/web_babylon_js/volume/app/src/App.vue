@@ -42,12 +42,11 @@ import StaticBabylonModel from "./components/StaticBabylonModel.vue";
 import {
     Scene,
     ArcRotateCamera,
-    Engine,
     Vector3,
     HemisphericLight,
     WebGPUEngine,
     HDRCubeTexture,
-    CubeTexture,
+    DirectionalLight,
 } from "@babylonjs/core";
 // Make sure the importers are included
 import "@babylonjs/loaders/glTF";
@@ -156,7 +155,7 @@ const loadEnvironments = async () => {
                 if (scene) {
                     // Set as environment texture for PBR lighting
                     scene.environmentTexture = hdrTexture;
-                    scene.environmentIntensity = 0.7;
+                    scene.environmentIntensity = 1.2;
 
                     // Use same texture for the skybox (visual background)
                     scene.createDefaultSkybox(hdrTexture, true, 1000);
@@ -206,6 +205,15 @@ const initializeBabylon = async () => {
 
         // Create light
         new HemisphericLight("light", new Vector3(1, 1, 0), scene);
+
+        // Create a directional light for shadows
+        const directionalLight = new DirectionalLight(
+            "directionalLight",
+            new Vector3(-1, -2, -1),
+            scene,
+        );
+        directionalLight.position = new Vector3(10, 10, 10);
+        directionalLight.intensity = 11.0;
 
         engine.runRenderLoop(() => scene?.render());
         window.addEventListener("resize", handleResize);

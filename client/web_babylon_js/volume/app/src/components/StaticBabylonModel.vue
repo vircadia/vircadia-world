@@ -404,6 +404,7 @@ const loadLightmap = async (
 
     return meshes;
 };
+
 // Load model when asset data is available
 const loadModel = async () => {
     if (!asset.assetData.value || !props.scene) {

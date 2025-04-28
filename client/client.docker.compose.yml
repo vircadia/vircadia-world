@@ -10,7 +10,7 @@ networks:
 services:
   # Production Web Babylon JS Client (Optimized Build)
   vircadia_world_client_web_babylon_js_prod:
-    image: oven/bun:1.2.9-alpine
+    image: oven/bun:1.2.10-alpine
     container_name: ${VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_CONTAINER_NAME}
     user: "1000:1000"  # Run as non-root user
     restart: always
@@ -34,41 +34,7 @@ services:
       VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI: ${VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}
       VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL: ${VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL}
     healthcheck:
-      test: ["CMD-SHELL", "cd ../test && bun i && bun test"]
-      interval: 10s
-      timeout: 10s
-      retries: 3
-      start_period: 5s
-    networks:
-      - vircadia_internal_network
-      - vircadia_public_network
-  # Production Web Three JS Client (Optimized Build)
-  vircadia_world_client_web_three_js_prod:
-    image: oven/bun:1.2.9-alpine
-    container_name: ${VRCA_CLIENT_WEB_THREE_JS_PRODUCTION_CONTAINER_NAME}
-    user: "1000:1000"  # Run as non-root user
-    restart: always
-    ports:
-      - "${VRCA_CLIENT_WEB_THREE_JS_PRODUCTION_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_CLIENT_WEB_THREE_JS_PRODUCTION_PORT_CONTAINER_BIND_EXTERNAL}:${VRCA_CLIENT_WEB_THREE_JS_PRODUCTION_PORT_CONTAINER_BIND_INTERNAL}"
-    volumes:
-      - ../:/app
-    working_dir: /app/client/web_three_js/volume/app
-    command: ["bun", "run", "deploy"]
-    environment:
-      VRCA_CLIENT_WEB_THREE_JS_DEBUG: ${VRCA_CLIENT_WEB_THREE_JS_DEBUG}
-      VRCA_CLIENT_WEB_THREE_JS_SUPPRESS: ${VRCA_CLIENT_WEB_THREE_JS_SUPPRESS}
-      VRCA_CLIENT_WEB_THREE_JS_PRODUCTION_PORT_CONTAINER_BIND_INTERNAL: ${VRCA_CLIENT_WEB_THREE_JS_PRODUCTION_PORT_CONTAINER_BIND_INTERNAL}
-      VRCA_CLIENT_WEB_THREE_JS_DEBUG_SESSION_TOKEN: ${VRCA_CLIENT_WEB_THREE_JS_DEBUG_SESSION_TOKEN}
-      VRCA_CLIENT_WEB_THREE_JS_META_TITLE_BASE: ${VRCA_CLIENT_WEB_THREE_JS_META_TITLE_BASE}
-      VRCA_CLIENT_WEB_THREE_JS_META_DESCRIPTION: ${VRCA_CLIENT_WEB_THREE_JS_META_DESCRIPTION}
-      VRCA_CLIENT_WEB_THREE_JS_META_OG_IMAGE: ${VRCA_CLIENT_WEB_THREE_JS_META_OG_IMAGE}
-      VRCA_CLIENT_WEB_THREE_JS_META_OG_TYPE: ${VRCA_CLIENT_WEB_THREE_JS_META_OG_TYPE}
-      VRCA_CLIENT_WEB_THREE_JS_META_FAVICON: ${VRCA_CLIENT_WEB_THREE_JS_META_FAVICON}
-      VRCA_CLIENT_WEB_THREE_JS_APP_URL: ${VRCA_CLIENT_WEB_THREE_JS_APP_URL}
-      VRCA_CLIENT_WEB_THREE_JS_DEFAULT_WORLD_API_URI: ${VRCA_CLIENT_WEB_THREE_JS_DEFAULT_WORLD_API_URI}
-      VRCA_CLIENT_WEB_THREE_JS_DEFAULT_WORLD_API_URI_USING_SSL: ${VRCA_CLIENT_WEB_THREE_JS_DEFAULT_WORLD_API_URI_USING_SSL}
-    healthcheck:
-      test: ["CMD-SHELL", "cd ../test && bun i && bun test"]
+      test: ["CMD-SHELL", "wget --spider http://localhost:${VRCA_CLIENT_WEB_BABYLON_JS_PRODUCTION_PORT_CONTAINER_BIND_INTERNAL}/"]
       interval: 10s
       timeout: 10s
       retries: 3

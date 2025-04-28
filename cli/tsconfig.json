@@ -8,12 +8,7 @@
         "jsx": "react-jsx",
         "allowJs": true,
 
-        "types": [
-            "@types/bun",
-            "@types/node",
-            "@types/jsonwebtoken",
-            "@types/three"
-        ],
+        "types": ["@types/bun", "@types/node", "@types/jsonwebtoken"],
 
         // Bundler mode
         "moduleResolution": "bundler",

@@ -9,7 +9,7 @@
   },
   "devDependencies": {
     "@types/node": "22.10.10",
-    "@types/bun": "1.2.9"
+    "@types/bun": "1.2.10"
   },
   "scripts": {
     "build": "bun build world.tick.manager.ts --target bun --outfile ./dist/world.tick.manager.js",

@@ -3,28 +3,24 @@
     "version": "1.0.0",
     "type": "module",
     "scripts": {
-        "install:all": "bun run install:client:web_babylon_js && bun run install:client:web_three_js && bun run install:cli && bun run install:sdk && bun run install:server:api && bun run install:server:tick",
+        "install:all": "bun run install:client:web_babylon_js && bun run install:cli && bun run install:sdk && bun run install:server:api && bun run install:server:tick",
         "install:sdk": "cd ../sdk/vircadia-world-sdk-ts && bun install",
         "install:server:api": "cd ../server/service/api/volume/app && bun install",
         "install:server:tick": "cd ../server/service/tick/volume/app && bun install",
         "install:client:web_babylon_js": "cd ../client/web_babylon_js/volume/app && bun install",
-        "install:client:web_three_js": "cd ../client/web_three_js/volume/app && bun install",
         "install:cli": "bun install",
-        "clean:all": "bun run clean:client:web_babylon_js && bun run clean:client:web_three_js && bun run clean:cli && bun run clean:sdk",
+        "clean:all": "bun run clean:client:web_babylon_js && bun run clean:cli && bun run clean:sdk",
         "clean:sdk": "cd ../sdk/vircadia-world-sdk-ts && rm -rf node_modules",
         "clean:client:web_babylon_js": "cd ../client/web_babylon_js/volume/app && rm -rf node_modules",
-        "clean:client:web_three_js": "cd ../client/web_three_js/volume/app && rm -rf node_modules",
         "clean:cli": "rm -rf node_modules",
         "build:all": "bun run build:server:api && bun run build:server:tick",
         "build:server:api": "cd ../server/service/api/volume/app && bun run build",
         "build:server:tick": "cd ../server/service/tick/volume/app && bun run build",
         "dev:client:web_babylon_js": "export VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN=$(bun run server:postgres:system-token true) && cd ../client/web_babylon_js/volume/app && bun run dev",
-        "dev:client:web_three_js": "export VRCA_CLIENT_WEB_THREE_JS_DEBUG_SESSION_TOKEN=$(bun run server:postgres:system-token true) && cd ../client/web_three_js/volume/app && bun run dev",
         "test:server:unit": "bun test ./test/0_test_cli_server_unit.ts",
         "test:client:unit": "bun test ./test/1_test_cli_client_unit.ts",
         "test:server:db:unit": "bun run server:run-command down vircadia_world_api_manager vircadia_world_tick_manager && bun test ./test/2_test_db_unit.ts && bun run server:run-command up vircadia_world_api_manager vircadia_world_tick_manager -d",
         "test:client:web_babylon_js_core": "bun test ./test/3_test_cli_client_web_babylon_js_core.ts",
-        "test:client:web_three_js_core": "bun test ./test/4_test_cli_client_web_three_js_core.ts",
         "server:run-command": "VRCA_CLI_DEBUG=1 bun vircadia.world.cli.ts server:run-command",
         "server:init": "bun run build:server:api && bun run build:server:tick && bun run server:run-command up --build vircadia_world_postgres -d && bun run server:postgres:health && bun run server:postgres:migrate && bun run server:postgres:seed:sql && bun run server:postgres:seed:assets && bun run server:run-command up --build vircadia_world_api_manager -d && bun run server:run-command up --build vircadia_world_tick_manager -d && bun run server:run-command up --build vircadia_world_pgweb -d",
         "server:rebuild-all": "bun run server:run-command down -v && bun run server:init",
@@ -46,21 +42,18 @@
         "client:init": "bun run client:run-command up --build -d",
         "client:rebuild-all": "bun run client:run-command down -v && bun run client:init",
         "client:web_babylon_js_prod:health": "bun vircadia.world.cli.ts client:web_babylon_js_prod:health",
-        "client:web_three_js_prod:health": "bun vircadia.world.cli.ts client:web_three_js_prod:health"
     },
     "dependencies": {
         "@babylonjs/core": "8.2.0",
         "@babylonjs/inspector": "8.2.0",
         "@babylonjs/loaders": "8.2.0",
         "jsonwebtoken": "^9.0.2",
-        "postgres": "^3.4.5",
-        "three": "^0.175.0"
+        "postgres": "^3.4.5"
     },
     "devDependencies": {
         "@types/bun": "latest",
         "@types/jsonwebtoken": "latest",
-        "@types/node": "^22.14.1",
-        "@types/three": "^0.175.0"
+        "@types/node": "^22.14.1"
     },
     "engines": {
         "bun": ">=1.2.4"

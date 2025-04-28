@@ -13,7 +13,8 @@ import {
     type BaseTexture,
     type Nullable,
     Quaternion,
-    PhysicsImpostor,
+    PhysicsAggregate,
+    PhysicsShapeType,
     type StandardMaterial,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF"; // Import the GLTF loader
@@ -628,7 +629,7 @@ const loadLightmap = async (
 };
 
 // Physics-related refs
-const physicsImpostors = ref<PhysicsImpostor[]>([]);
+const physicsAggregates = ref<PhysicsAggregate[]>([]);
 
 // Apply physics to model based on mesh shape
 const applyPhysics = () => {
@@ -654,17 +655,17 @@ const applyPhysics = () => {
 
     // Determine physics type - default to mesh impostor for precision
     const physicsType = props.physicsType || "mesh";
-    let impostorType;
+    let shapeType;
 
     switch (physicsType) {
         case "mesh":
-            impostorType = PhysicsImpostor.MeshImpostor;
+            shapeType = PhysicsShapeType.MESH;
             break;
         case "convexHull":
-            impostorType = PhysicsImpostor.ConvexHullImpostor;
+            shapeType = PhysicsShapeType.CONVEX_HULL;
             break;
         default:
-            impostorType = PhysicsImpostor.BoxImpostor;
+            shapeType = PhysicsShapeType.BOX;
             break;
     }
 
@@ -681,15 +682,15 @@ const applyPhysics = () => {
         }
 
         try {
-            // Create physics impostor for this mesh
-            const impostor = new PhysicsImpostor(
+            // Create physics aggregate for this mesh
+            const aggregate = new PhysicsAggregate(
                 mesh,
-                impostorType,
+                shapeType,
                 { mass, friction, restitution },
                 props.scene,
             );
 
-            physicsImpostors.value.push(impostor);
+            physicsAggregates.value.push(aggregate);
 
             console.log(`Applied ${physicsType} physics to mesh: ${mesh.name}`);
         } catch (error) {
@@ -706,13 +707,13 @@ const applyPhysics = () => {
 
 // Remove physics from model
 const removePhysics = () => {
-    // Remove all physics impostors
-    for (const impostor of physicsImpostors.value) {
-        if (impostor) {
-            impostor.dispose();
+    // Remove all physics aggregates
+    for (const aggregate of physicsAggregates.value) {
+        if (aggregate) {
+            aggregate.dispose();
         }
     }
-    physicsImpostors.value = [];
+    physicsAggregates.value = [];
 };
 
 // Update entity metadata with physics data

@@ -57,6 +57,11 @@ import {
     HDRCubeTexture,
     DirectionalLight,
     HavokPlugin,
+    MeshBuilder,
+    StandardMaterial,
+    Color3,
+    PhysicsAggregate,
+    PhysicsShapeType,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
 import "@babylonjs/inspector";
@@ -165,10 +170,10 @@ const initPhysics = async (scene: Scene) => {
         // pass the engine to the plugin
         const hk = new HavokPlugin(true, havokInstance);
         const gravityVector = new Vector3(0, -9.81, 0);
-        scene.enablePhysics(gravityVector, hk);
+        const enabled = scene.enablePhysics(gravityVector, hk);
 
-        console.log("Physics engine initialized successfully");
-        return true;
+        console.log("Physics engine initialized: ", enabled);
+        return enabled;
     } catch (error) {
         console.error("Error initializing physics engine:", error);
         return false;
@@ -257,9 +262,6 @@ const initializeBabylon = async () => {
 
         scene = new Scene(engine);
 
-        // Initialize the physics engine
-        await initPhysics(scene);
-
         // Create light
         new HemisphericLight("light", new Vector3(1, 1, 0), scene);
 
@@ -271,6 +273,38 @@ const initializeBabylon = async () => {
         );
         directionalLight.position = new Vector3(10, 10, 10);
         directionalLight.intensity = 11.0;
+
+        // Initialize physics first
+        const physicsEnabled = await initPhysics(scene);
+
+        if (physicsEnabled) {
+            // Create a large ground plane after physics is initialized
+            const ground = MeshBuilder.CreateGround(
+                "ground",
+                { width: 1000, height: 1000 },
+                scene,
+            );
+            ground.position = new Vector3(0, 0, 0);
+
+            // Add material to the ground
+            const groundMaterial = new StandardMaterial(
+                "groundMaterial",
+                scene,
+            );
+            groundMaterial.diffuseColor = new Color3(0.2, 0.2, 0.2);
+            groundMaterial.specularColor = new Color3(0.1, 0.1, 0.1);
+            ground.material = groundMaterial;
+
+            // Create a physics aggregate for the ground instead of using impostor
+            new PhysicsAggregate(
+                ground,
+                PhysicsShapeType.BOX,
+                { mass: 0, friction: 0.5, restitution: 0.3 },
+                scene,
+            );
+
+            console.log("Ground plane created with physics");
+        }
 
         // Note: We no longer start the render loop here
         // The render loop will be started when PhysicsAvatar is ready

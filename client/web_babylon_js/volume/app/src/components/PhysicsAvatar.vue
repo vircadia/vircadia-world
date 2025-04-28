@@ -16,10 +16,6 @@ import {
     PhysicsShapeType,
     PhysicsMotionType,
     PhysicsCharacterController,
-    PhysicsShapeCapsule,
-    type PhysicsBody,
-    type Mesh,
-    Axis,
     CharacterSupportedState,
     ArcRotateCamera,
     KeyboardEventTypes,
@@ -83,6 +79,9 @@ const keyState = ref({
     right: false,
     jump: false,
     run: false,
+    fly: false,
+    up: false,
+    down: false,
 });
 
 // Get Vircadia instance
@@ -393,10 +392,22 @@ const setupKeyboardControls = () => {
                         break;
                     case "Space":
                         keyState.value.jump = true;
+                        if (keyState.value.fly) {
+                            keyState.value.up = true;
+                        }
                         break;
                     case "ShiftLeft":
                     case "ShiftRight":
                         keyState.value.run = true;
+                        if (keyState.value.fly) {
+                            keyState.value.down = true;
+                        }
+                        break;
+                    case "KeyF":
+                        keyState.value.fly = !keyState.value.fly;
+                        console.log(
+                            `Fly mode ${keyState.value.fly ? "enabled" : "disabled"}`,
+                        );
                         break;
                 }
                 break;
@@ -421,10 +432,16 @@ const setupKeyboardControls = () => {
                         break;
                     case "Space":
                         keyState.value.jump = false;
+                        if (keyState.value.fly) {
+                            keyState.value.up = false;
+                        }
                         break;
                     case "ShiftLeft":
                     case "ShiftRight":
                         keyState.value.run = false;
+                        if (keyState.value.fly) {
+                            keyState.value.down = false;
+                        }
                         break;
                 }
                 break;
@@ -505,12 +522,51 @@ const throttledEntityUpdate = useThrottleFn(async () => {
     }
 
     // Prepare the updated meta data
-    const metaData = entity.entityData.value.meta__data || {};
+    let metaData = {};
+
+    // If existing meta_data is a string, parse it first
+    if (entity.entityData.value.meta__data) {
+        if (typeof entity.entityData.value.meta__data === "string") {
+            try {
+                metaData = JSON.parse(entity.entityData.value.meta__data);
+            } catch (e) {
+                console.error("Failed to parse existing meta data:", e);
+                // If parsing fails, use an empty object
+                metaData = {};
+            }
+        } else if (typeof entity.entityData.value.meta__data === "object") {
+            // If it's already an object, use it directly
+            metaData = entity.entityData.value.meta__data;
+        }
+    }
+
+    // Create clean update object with only needed properties
     const updatedMetaData = {
-        ...metaData,
+        type: { value: "Avatar" },
+        modelURL: { value: AVATAR_MODEL },
         position: { value: currentPosition.value },
         rotation: { value: currentRotation.value },
     };
+
+    // Preserve existing values if they exist
+    if (metaData && typeof metaData === "object") {
+        if (
+            metaData &&
+            "type" in metaData &&
+            metaData.type &&
+            "value" in metaData.type
+        ) {
+            updatedMetaData.type = { value: metaData.type.value };
+        }
+        if (
+            metaData &&
+            "modelURL" in metaData &&
+            metaData.modelURL &&
+            "value" in metaData.modelURL
+        ) {
+            updatedMetaData.modelURL = { value: metaData.modelURL.value };
+        }
+    }
 
     // Update the entity with new meta data
     console.log("Updating entity position and rotation:", updatedMetaData);
@@ -535,11 +591,11 @@ const registerBeforeRender = () => {
                 new Vector3(0, -1, 0),
             );
 
-            // Integrate physics
+            // Integrate physics with gravity in normal mode, without gravity in fly mode
             characterController.value.integrate(
                 deltaTime,
                 support,
-                new Vector3(0, -9.8, 0),
+                keyState.value.fly ? Vector3.Zero() : new Vector3(0, -9.8, 0),
             );
 
             // Sync avatar mesh with physics capsule
@@ -574,6 +630,16 @@ const processMovement = (deltaTime: number) => {
         moveDirection.x += 1;
     }
 
+    // Add vertical movement in fly mode
+    if (keyState.value.fly) {
+        if (keyState.value.up) {
+            moveDirection.y += 1;
+        }
+        if (keyState.value.down) {
+            moveDirection.y -= 1;
+        }
+    }
+
     // If no movement, return early
     if (moveDirection.length() === 0) {
         return;
@@ -583,11 +649,16 @@ const processMovement = (deltaTime: number) => {
     moveDirection.normalize();
 
     // Apply camera rotation to movement direction
-    // Get camera forward direction (ignoring Y)
+    // Get camera forward direction
     const cameraForward = camera.value
         .getTarget()
         .subtract(camera.value.position);
-    cameraForward.y = 0;
+
+    // In fly mode, use the actual camera direction including Y component
+    // Otherwise in walking mode, ignore Y (flatten the direction)
+    if (!keyState.value.fly) {
+        cameraForward.y = 0;
+    }
     cameraForward.normalize();
 
     // Get camera right direction
@@ -598,11 +669,23 @@ const processMovement = (deltaTime: number) => {
         .scale(moveDirection.z)
         .add(cameraRight.scale(moveDirection.x));
 
+    // In fly mode, add vertical movement relative to world up
+    if (keyState.value.fly && (keyState.value.up || keyState.value.down)) {
+        finalDirection.addInPlace(Vector3.Up().scale(moveDirection.y));
+    }
+
     // Normalize and scale the final direction
     finalDirection.normalize();
 
-    // Apply speed based on run state
-    const moveSpeed = keyState.value.run ? 8 : 4; // Run or walk speed
+    // Apply speed based on mode and run state
+    let moveSpeed: number;
+    if (keyState.value.fly) {
+        // Faster speeds in fly mode
+        moveSpeed = keyState.value.run ? 25 : 15; // Fly run or normal fly speed
+    } else {
+        // Normal walking speeds
+        moveSpeed = keyState.value.run ? 8 : 4; // Run or walk speed
+    }
     finalDirection.scaleInPlace(moveSpeed * deltaTime);
 
     // Current velocity
@@ -611,11 +694,13 @@ const processMovement = (deltaTime: number) => {
     // Get upward direction (opposite to gravity)
     const upVector = new Vector3(0, 1, 0);
 
-    // Check if we're on the ground
-    const support = characterController.value.checkSupport(
-        deltaTime,
-        new Vector3(0, -1, 0),
-    );
+    // Check if we're on the ground - only needed in non-fly mode
+    const support = !keyState.value.fly
+        ? characterController.value.checkSupport(
+              deltaTime,
+              new Vector3(0, -1, 0),
+          )
+        : null;
 
     // Direction for movement calculation
     const forwardVector = finalDirection.normalize();
@@ -623,8 +708,19 @@ const processMovement = (deltaTime: number) => {
     // Calculate movement
     let newVelocity: Vector3;
 
-    if (support?.supportedState === CharacterSupportedState.SUPPORTED) {
-        // On ground
+    if (keyState.value.fly) {
+        // In fly mode, we have direct control without gravity effects
+        newVelocity = characterController.value.calculateMovement(
+            deltaTime,
+            forwardVector,
+            upVector,
+            currentVelocity,
+            Vector3.Zero(),
+            finalDirection,
+            upVector,
+        );
+    } else if (support?.supportedState === CharacterSupportedState.SUPPORTED) {
+        // On ground (normal walking mode)
         newVelocity = characterController.value.calculateMovement(
             deltaTime,
             forwardVector,
@@ -635,7 +731,7 @@ const processMovement = (deltaTime: number) => {
             upVector,
         );
     } else {
-        // In air - simpler movement with gravity
+        // In air - simpler movement with gravity (normal walking mode)
         newVelocity = characterController.value.calculateMovement(
             deltaTime,
             forwardVector,
@@ -646,12 +742,13 @@ const processMovement = (deltaTime: number) => {
             upVector,
         );
 
-        // Add gravity if in the air
+        // Add gravity if in the air and not in fly mode
         newVelocity.addInPlace(new Vector3(0, -9.8, 0).scale(deltaTime));
     }
 
-    // Apply jumping if requested
+    // Apply jumping if requested - only in walk mode
     if (
+        !keyState.value.fly &&
         keyState.value.jump &&
         support?.supportedState === CharacterSupportedState.SUPPORTED
     ) {
@@ -665,8 +762,8 @@ const processMovement = (deltaTime: number) => {
     // Set the new velocity
     characterController.value.setVelocity(newVelocity);
 
-    // Rotate the avatar to face movement direction
-    if (physicsAggregate.value) {
+    // Rotate the avatar to face movement direction - Only when there's actual movement
+    if (physicsAggregate.value && moveDirection.length() > 0) {
         const capsule = physicsAggregate.value.transformNode as AbstractMesh;
         if (capsule?.rotationQuaternion) {
             // Calculate target rotation
@@ -690,19 +787,45 @@ const processMovement = (deltaTime: number) => {
 const moveAvatar = (direction: Vector3, deltaTime: number) => {
     if (!characterController.value) return;
 
+    // Apply speed based on mode and run state
+    let moveSpeed: number;
+    if (keyState.value.fly) {
+        // Faster speeds in fly mode
+        moveSpeed = keyState.value.run ? 25 : 15; // Fly run or normal fly speed
+    } else {
+        // Normal walking speeds
+        moveSpeed = keyState.value.run ? 8 : 4; // Run or walk speed
+    }
+
+    // Scale the direction by speed
+    const scaledDirection = direction.normalize().scale(moveSpeed * deltaTime);
+
     // Calculate movement using calculateMovement instead of directly applying velocity
     const currentVelocity = characterController.value.getVelocity();
     const upVector = new Vector3(0, 1, 0);
-    const forwardVector = direction.normalize();
+    const forwardVector = scaledDirection.normalize();
 
-    // Check support
-    const support = characterController.value.checkSupport(
-        deltaTime,
-        new Vector3(0, -1, 0),
-    );
+    // Check support - only relevant in non-fly mode
+    const support = !keyState.value.fly
+        ? characterController.value.checkSupport(
+              deltaTime,
+              new Vector3(0, -1, 0),
+          )
+        : null;
 
     let newVelocity: Vector3;
-    if (support?.supportedState === CharacterSupportedState.SUPPORTED) {
+    if (keyState.value.fly) {
+        // In fly mode, direct control without gravity
+        newVelocity = characterController.value.calculateMovement(
+            deltaTime,
+            forwardVector,
+            upVector,
+            currentVelocity,
+            Vector3.Zero(),
+            scaledDirection,
+            upVector,
+        );
+    } else if (support?.supportedState === CharacterSupportedState.SUPPORTED) {
         // On ground
         newVelocity = characterController.value.calculateMovement(
             deltaTime,
@@ -710,7 +833,7 @@ const moveAvatar = (direction: Vector3, deltaTime: number) => {
             support.averageSurfaceNormal,
             currentVelocity,
             support.averageSurfaceVelocity,
-            direction,
+            scaledDirection,
             upVector,
         );
     } else {
@@ -721,23 +844,27 @@ const moveAvatar = (direction: Vector3, deltaTime: number) => {
             upVector,
             currentVelocity,
             Vector3.Zero(),
-            direction,
+            scaledDirection,
             upVector,
         );
 
-        // Add gravity
-        newVelocity.addInPlace(new Vector3(0, -9.8, 0).scale(deltaTime));
+        // Add gravity when not in fly mode
+        if (!keyState.value.fly) {
+            newVelocity.addInPlace(new Vector3(0, -9.8, 0).scale(deltaTime));
+        }
     }
 
     // Set the velocity
     characterController.value.setVelocity(newVelocity);
 
-    // Integrate physics
-    characterController.value.integrate(
-        deltaTime,
-        support,
-        new Vector3(0, -9.8, 0),
-    );
+    if (support) {
+        // Integrate physics - no gravity in fly mode
+        characterController.value.integrate(
+            deltaTime,
+            support,
+            keyState.value.fly ? Vector3.Zero() : new Vector3(0, -9.8, 0),
+        );
+    }
 
     // Update position and rotation
     updateAvatarTransform();
@@ -1002,5 +1129,6 @@ defineExpose({
     rotateAvatar,
     characterController,
     camera,
+    flyMode: computed(() => keyState.value.fly),
 });
 </script>

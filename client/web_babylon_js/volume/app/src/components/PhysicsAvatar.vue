@@ -59,6 +59,13 @@ const QuaternionSchema = z.object({
     w: z.number(),
 });
 
+// Add schema for camera orientation
+const CameraOrientationSchema = z.object({
+    alpha: z.number(),
+    beta: z.number(),
+    radius: z.number(),
+});
+
 // Field value wrapper schema (common pattern in Vircadia entities)
 const FieldValueSchema = <T extends z.ZodType>(valueSchema: T) =>
     z.object({
@@ -71,6 +78,7 @@ const PhysicsAvatarMetaSchema = z.object({
     position: FieldValueSchema(Vector3Schema).optional(),
     rotation: FieldValueSchema(QuaternionSchema).optional(),
     modelURL: FieldValueSchema(z.string()).optional(),
+    cameraOrientation: FieldValueSchema(CameraOrientationSchema).optional(),
 });
 
 // Schema for the parsed result
@@ -121,6 +129,13 @@ const keyState = ref({
 
 // Add ref for entity name
 const entityName = ref<string | null>(props.entityName || "PhysicsAvatar");
+
+// Add ref for camera orientation
+const currentCameraOrientation = ref({
+    alpha: props.cameraAlpha ?? -Math.PI / 2,
+    beta: props.cameraBeta ?? Math.PI / 3,
+    radius: props.cameraRadius ?? 5,
+});
 
 // Get Vircadia instance
 const vircadia = inject(getInstanceKey("vircadiaWorld"));
@@ -352,10 +367,10 @@ const createCharacterController = () => {
 const createCamera = () => {
     if (!props.scene || !avatarNode.value) return;
 
-    // Default camera values
-    const alpha = props.cameraAlpha ?? -Math.PI / 2; // horizontal rotation
-    const beta = props.cameraBeta ?? Math.PI / 3; // vertical rotation
-    const radius = props.cameraRadius ?? 5; // distance from target
+    // Default camera values - use saved values if available
+    const alpha = currentCameraOrientation.value.alpha;
+    const beta = currentCameraOrientation.value.beta;
+    const radius = currentCameraOrientation.value.radius;
 
     // Create the camera
     camera.value = new ArcRotateCamera(
@@ -519,11 +534,21 @@ const debouncedEntityUpdate = useDebounceFn(async () => {
         return;
     }
 
+    // Get camera orientation if camera exists
+    if (camera.value) {
+        currentCameraOrientation.value = {
+            alpha: camera.value.alpha,
+            beta: camera.value.beta,
+            radius: camera.value.radius,
+        };
+    }
+
     // Prepare the updated meta data using our schema
     const updatedMetaData: PhysicsAvatarMetaData = {
         type: { value: "PhysicsAvatar" },
         position: { value: currentPosition.value },
         rotation: { value: currentRotation.value },
+        cameraOrientation: { value: currentCameraOrientation.value },
     };
 
     // If there is existing meta data, preserve other fields like modelURL
@@ -544,7 +569,8 @@ const debouncedEntityUpdate = useDebounceFn(async () => {
                     key !== "type" &&
                     key !== "position" &&
                     key !== "rotation" &&
-                    key !== "modelURL"
+                    key !== "modelURL" &&
+                    key !== "cameraOrientation"
                 ) {
                     (
                         updatedMetaData as PhysicsAvatarMetaData &
@@ -561,7 +587,10 @@ const debouncedEntityUpdate = useDebounceFn(async () => {
     }
 
     // Update the entity with new meta data and keep local state in sync with what we're sending
-    console.log("Updating entity position and rotation:", updatedMetaData);
+    console.log(
+        "Updating entity position, rotation, and camera orientation:",
+        updatedMetaData,
+    );
     entity.executeUpdate("meta__data = $1", [JSON.stringify(updatedMetaData)]);
 }, props.throttleInterval ?? 500);
 
@@ -966,6 +995,23 @@ watch(
                         );
                     }
 
+                    // Update camera orientation if available
+                    if (parsedData.cameraOrientation?.value) {
+                        const savedCameraOrientation =
+                            parsedData.cameraOrientation.value;
+                        console.log(
+                            "Found saved camera orientation in entity data:",
+                            savedCameraOrientation,
+                        );
+                        currentCameraOrientation.value = {
+                            ...savedCameraOrientation,
+                        };
+                    } else {
+                        console.log(
+                            "No camera orientation data found in entity meta_data",
+                        );
+                    }
+
                     // Check if entity type is fixed
                     if (parsedData.type.value !== "PhysicsAvatar") {
                         console.log("Fixed entity type from meta_data");
@@ -1066,6 +1112,23 @@ const manageEntity = () => {
                             } else {
                                 console.log(
                                     "No rotation data found in entity meta_data",
+                                );
+                            }
+
+                            // Update camera orientation if available
+                            if (parsedData.cameraOrientation?.value) {
+                                const savedCameraOrientation =
+                                    parsedData.cameraOrientation.value;
+                                console.log(
+                                    "Found saved camera orientation in entity data:",
+                                    savedCameraOrientation,
+                                );
+                                currentCameraOrientation.value = {
+                                    ...savedCameraOrientation,
+                                };
+                            } else {
+                                console.log(
+                                    "No camera orientation data found in entity meta_data",
                                 );
                             }
 

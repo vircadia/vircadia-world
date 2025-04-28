@@ -28,6 +28,19 @@ export default defineConfig({
     envPrefix: "VRCA_CLIENT_",
     build: {
         target: "esnext",
+        chunkSizeWarningLimit: 2000,
+        rollupOptions: {
+            output: {
+                manualChunks: {
+                    babylon: [
+                        "@babylonjs/core",
+                        "@babylonjs/loaders",
+                        "@babylonjs/inspector",
+                    ],
+                    vendor: ["vue", "@vueuse/core", "lodash-es"],
+                },
+            },
+        },
     },
     optimizeDeps: {
         exclude: ["@babylonjs/havok"],

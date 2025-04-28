@@ -126,7 +126,7 @@ const props = defineProps<{
     fileName: string;
     position?: { x: number; y: number; z: number };
     rotation?: { x: number; y: number; z: number; w: number };
-    throttleInterval: number;
+    throttleInterval?: number;
 }>();
 
 // Add emits for position and rotation updates
@@ -262,7 +262,7 @@ const throttledEntityUpdate = useThrottleFn(async () => {
     // Update the entity with new meta data
     console.log("Updating entity position and rotation:", updatedMetaData);
     entity.executeUpdate("meta__data = $2", [JSON.stringify(updatedMetaData)]);
-}, props.throttleInterval);
+}, props.throttleInterval ?? 1000);
 
 // Watch for changes to currentPosition
 watch(

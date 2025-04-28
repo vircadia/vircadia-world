@@ -15,13 +15,14 @@
         
         <!-- Only render entities when scene is available -->
         <template v-if="sceneInitialized && scene">
-            <StaticBabylonModel
+            <BabylonModel
                 v-for="(model, index) in modelDefinitions"
                 :key="model.fileName"
                 :scene="scene"
                 :fileName="model.fileName"
                 :position="model.position"
-                :throttle-interval="1000"
+                :rotation="model.rotation"
+                :throttle-interval="model.throttleInterval"
                 :ref="el => modelRefs[index] = el"
             />
         </template>
@@ -39,7 +40,7 @@ import {
     shallowRef,
 } from "vue";
 import { getInstanceKey } from "../../../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/provider/useVircadia";
-import StaticBabylonModel from "./components/StaticBabylonModel.vue";
+import BabylonModel from "./components/BabylonModel.vue";
 import {
     Scene,
     ArcRotateCamera,
@@ -72,16 +73,19 @@ let scene: Scene | null = null;
 // Track if scene is initialized for template rendering
 const sceneInitialized = ref(false);
 
-interface ModelDefinition {
+interface BabylonModelDefinition {
     fileName: string;
     position?: { x: number; y: number; z: number };
-    // Add other properties as needed
+    rotation?: { x: number; y: number; z: number; w: number };
+    throttleInterval?: number;
 }
 
-const modelDefinitions = ref<ModelDefinition[]>([
+const modelDefinitions = ref<BabylonModelDefinition[]>([
     {
         fileName: "telekom.model.Room.glb",
         position: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        throttleInterval: 1000,
     },
     // Add more assets here
 ]);
@@ -102,7 +106,7 @@ const environmentAssets = ref<EnvironmentAsset[]>([
 const environmentLoading = ref(false);
 
 // Store references to model components
-const modelRefs = ref<(InstanceType<typeof StaticBabylonModel> | null)[]>([]);
+const modelRefs = ref<(InstanceType<typeof BabylonModel> | null)[]>([]);
 
 // Simplified loading state from all model components and environment loading
 const isLoading = computed(() => {

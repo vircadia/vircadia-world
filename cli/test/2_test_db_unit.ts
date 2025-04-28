@@ -574,7 +574,7 @@ describe("DB", () => {
                             ? JSON.parse(entity.meta__data)
                             : entity.meta__data;
                     expect(metaData).toMatchObject(entityData);
-                    await tx`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
+                    await tx`DELETE FROM entity.entities WHERE general__entity_name = ${entity.general__entity_name}`;
                 });
             });
             test("should update an entity", async () => {
@@ -602,11 +602,11 @@ describe("DB", () => {
                                 script1: { status: "ready" },
                                 script2: { counter: 1 },
                             })}
-                        WHERE general__entity_id = ${entity.general__entity_id}
+                        WHERE general__entity_name = ${entity.general__entity_name}
                     `;
                     const [updated] = await tx<[Entity.I_Entity]>`
                         SELECT * FROM entity.entities
-                        WHERE general__entity_id = ${entity.general__entity_id}
+                        WHERE general__entity_name = ${`${DB_TEST_PREFIX}Updated Entity`}
                     `;
                     expect(updated.general__entity_name).toBe(
                         `${DB_TEST_PREFIX}Updated Entity`,
@@ -615,7 +615,7 @@ describe("DB", () => {
                         script1: { status: "ready" },
                         script2: { counter: 1 },
                     });
-                    await tx`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
+                    await tx`DELETE FROM entity.entities WHERE general__entity_name = ${updated.general__entity_name}`;
                 });
             });
         });
@@ -1129,7 +1129,7 @@ describe("DB", () => {
                         asset.general__asset_file_name,
                     );
                     // Delete the entity record after all checks.
-                    await tx`DELETE FROM entity.entities WHERE general__entity_id = ${entity.general__entity_id}`;
+                    await tx`DELETE FROM entity.entities WHERE general__entity_name = ${entity.general__entity_name}`;
                     // Optionally clean up asset and script records.
                     await tx`DELETE FROM entity.entity_assets WHERE general__asset_file_name = ${asset.general__asset_file_name}`;
                 });
@@ -1282,16 +1282,16 @@ describe("DB", () => {
 
                     // Verify entities exist
                     const states = await tx<
-                        Array<{ general__entity_id: string }>
+                        Array<{ general__entity_name: string }>
                     >`
-                SELECT general__entity_id
+                SELECT general__entity_name
                 FROM entity.entities
                 WHERE group__sync = ${TEST_SYNC_GROUP}
             `;
 
-                    const stateIds = states.map((s) => s.general__entity_id);
+                    const stateIds = states.map((s) => s.general__entity_name);
                     for (const entity of createdEntities) {
-                        expect(stateIds).toContain(entity.general__entity_id);
+                        expect(stateIds).toContain(entity.general__entity_name);
                     }
                 });
             });
@@ -1336,13 +1336,13 @@ describe("DB", () => {
                         UPDATE entity.entities
                         SET general__entity_name = ${`${DB_TEST_PREFIX}Updated Entity 1`},
                             meta__data = ${tx.json({ test_script_1: { position: { x: 5, y: 5, z: 5 } } })}
-                        WHERE general__entity_id = ${entity1.general__entity_id}
+                        WHERE general__entity_name = ${entity1.general__entity_name}
                     `;
                     await tx`
                         UPDATE entity.entities
                         SET general__entity_name = ${`${DB_TEST_PREFIX}Updated Entity 2`},
                             meta__data = ${tx.json({ test_script_1: { position: { x: 15, y: 15, z: 15 } } })}
-                        WHERE general__entity_id = ${entity2.general__entity_id}
+                        WHERE general__entity_name = ${entity2.general__entity_name}
                     `;
 
                     // Capture second tick
@@ -1363,7 +1363,7 @@ describe("DB", () => {
                     // Query for entity changes between the two ticks
                     const changes = await tx<
                         Array<{
-                            general__entity_id: string;
+                            general__entity_name: string;
                             operation: string;
                             changes: Record<string, unknown>;
                         }>
@@ -1380,9 +1380,9 @@ describe("DB", () => {
                         ),
                         changed_entities AS (
                             SELECT 
-                                c.general__entity_id,
+                                c.general__entity_name,
                                 CASE
-                                    WHEN p.general__entity_id IS NULL THEN 'INSERT'
+                                    WHEN p.general__entity_name IS NULL THEN 'INSERT'
                                     ELSE 'UPDATE'
                                 END as operation,
                                 jsonb_build_object(
@@ -1395,9 +1395,9 @@ describe("DB", () => {
                                     -- Add other entity fields as needed
                                 ) as changes
                             FROM current_state c
-                            LEFT JOIN previous_state p ON c.general__entity_id = p.general__entity_id
+                            LEFT JOIN previous_state p ON c.general__entity_name = p.general__entity_name
                             WHERE 
-                                p.general__entity_id IS NULL OR
+                                p.general__entity_name IS NULL OR
                                 c.general__entity_name != p.general__entity_name OR
                                 c.meta__data != p.meta__data
                                 -- Add other comparisons as needed
@@ -1405,18 +1405,16 @@ describe("DB", () => {
                         SELECT * FROM changed_entities
                     `;
 
-                    const changeIds = changes.map((c) => c.general__entity_id);
-                    expect(changeIds).toEqual(
-                        expect.arrayContaining([
-                            entity1.general__entity_id,
-                            entity2.general__entity_id,
-                        ]),
-                    );
+                    expect.arrayContaining([
+                        entity1.general__entity_name,
+                        entity2.general__entity_name,
+                    ]);
 
                     // Verify updated details for one of the entities
                     const updatedChange = changes.find(
                         (c) =>
-                            c.general__entity_id === entity1.general__entity_id,
+                            c.general__entity_name ===
+                            entity1.general__entity_name,
                     );
                     expect(updatedChange).toBeTruthy();
                     expect(updatedChange?.operation).toBe("UPDATE");

@@ -69,14 +69,14 @@ CREATE INDEX idx_world_ticks_sync_number ON tick.world_ticks (group__sync, tick_
 CREATE INDEX idx_world_ticks_sync_time ON tick.world_ticks (group__sync, tick__start_time DESC);
 
 -- 3.2 ENTITY STATES INDEXES
-CREATE INDEX entity_states_lookup_idx ON tick.entity_states (general__entity_id, general__tick_id);
+CREATE INDEX entity_states_lookup_idx ON tick.entity_states (general__entity_name, general__tick_id);
 CREATE INDEX entity_states_tick_idx ON tick.entity_states (general__tick_id);
 CREATE INDEX entity_states_sync_group_tick_idx ON tick.entity_states (group__sync, general__tick_id DESC);
-CREATE INDEX idx_entity_states_sync_tick_lookup ON tick.entity_states (group__sync, general__tick_id, general__entity_id);
+CREATE INDEX idx_entity_states_sync_tick_lookup ON tick.entity_states (group__sync, general__tick_id, general__entity_name);
 CREATE INDEX idx_entity_states_sync_tick ON tick.entity_states (group__sync, general__tick_id);
 
 -- Fast lookups of entity states by tick and entity ID
-CREATE INDEX idx_entity_states_tick_entity_id ON tick.entity_states (general__tick_id, general__entity_id);
+CREATE INDEX idx_entity_states_tick_entity_name ON tick.entity_states (general__tick_id, general__entity_name);
 
 -- Optimized index for finding latest ticks by sync group with covering columns
 CREATE INDEX idx_world_ticks_sync_number_covering ON tick.world_ticks
@@ -86,7 +86,7 @@ CREATE INDEX idx_world_ticks_sync_number_covering ON tick.world_ticks
 -- Fast timestamp comparisons for entity changes
 CREATE INDEX idx_entity_states_updated_at ON tick.entity_states
     (group__sync, general__updated_at DESC)
-    INCLUDE (general__entity_id);
+    INCLUDE (general__entity_name);
 
 -- Space-efficient BRIN index for time-series data
 CREATE INDEX idx_world_ticks_time_brin ON tick.world_ticks USING BRIN (tick__start_time);
@@ -94,7 +94,7 @@ CREATE INDEX idx_world_ticks_time_brin ON tick.world_ticks USING BRIN (tick__sta
 -- Composite index for tick + sync group lookup patterns
 CREATE INDEX idx_entity_states_sync_tick_composite ON tick.entity_states
     (group__sync, general__tick_id)
-    INCLUDE (general__entity_id, general__entity_name, meta__data);
+    INCLUDE (general__entity_name, meta__data);
 
 -- ============================================================================
 -- 4. FUNCTIONS
@@ -227,7 +227,6 @@ BEGIN
     -- Capture entity states (now including timestamp columns)
     WITH entity_snapshot AS (
         INSERT INTO tick.entity_states (
-            general__entity_id,
             general__entity_name,
             general__semantic_version,
             group__load_priority,
@@ -244,7 +243,6 @@ BEGIN
             meta_data_updated_at
         )
         SELECT
-            e.general__entity_id,
             e.general__entity_name,
             e.general__semantic_version,
             e.group__load_priority,

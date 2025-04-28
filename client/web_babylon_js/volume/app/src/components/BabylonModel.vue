@@ -16,6 +16,8 @@ import {
     PhysicsAggregate,
     PhysicsShapeType,
     type StandardMaterial,
+    type TransformNode,
+    type Mesh,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF"; // Import the GLTF loader
 import { useThrottleFn } from "@vueuse/core";
@@ -125,6 +127,7 @@ namespace glTF {
 
 export interface BabylonModelDefinition {
     fileName: string;
+    entityName?: string;
     position?: { x: number; y: number; z: number };
     rotation?: { x: number; y: number; z: number; w: number };
     throttleInterval?: number;
@@ -170,6 +173,9 @@ if (!vircadia) {
 // Entity management
 const meshes = ref<AbstractMesh[]>([]);
 
+// Add ref for entity name
+const entityName = ref<string | null>(props.entityName || null);
+
 // Initialize asset and entity composables
 const asset = useVircadiaAsset({
     fileName: ref(props.fileName),
@@ -196,10 +202,10 @@ const getInitialMetaData = () => {
 };
 
 const entity = useVircadiaEntity({
-    entityName: ref(props.fileName),
-    selectClause: "general__entity_id, general__entity_name, meta__data",
+    entityName,
+    selectClause: "general__entity_name, meta__data",
     insertClause:
-        "(general__entity_name, meta__data) VALUES ($1, $2) RETURNING general__entity_id",
+        "(general__entity_name, meta__data) VALUES ($1, $2) RETURNING general__entity_name",
     insertParams: [props.fileName, getInitialMetaData()],
     instance: vircadia,
 });
@@ -256,8 +262,8 @@ const updateMeshRotations = () => {
 
 // Create a throttled function to update the entity in the database
 const throttledEntityUpdate = useThrottleFn(async () => {
-    if (!entity.entityData.value?.general__entity_id) {
-        console.warn("Cannot update entity: No entity ID available");
+    if (!entity.entityData.value?.general__entity_name) {
+        console.warn("Cannot update entity: No entity name available");
         return;
     }
 
@@ -562,13 +568,15 @@ const loadLightmap = async (
                                     const currentMeshMaterialAsPBRMaterial = (
                                         mesh.material as PBRMaterial
                                     ).lightmapTexture;
-                                    if (!currentMeshMaterialAsPBRMaterial) {
-                                        throw new Error(
-                                            `Lightmap texture not found for material: ${currentMeshMaterialAsPBRMaterial.name}`,
+                                    // Only proceed if the lightmap texture exists
+                                    if (currentMeshMaterialAsPBRMaterial) {
+                                        currentMeshMaterialAsPBRMaterial.coordinatesIndex =
+                                            metadata.vircadia_lightmap_texcoord;
+                                    } else {
+                                        console.warn(
+                                            `No lightmap texture found for mesh: ${mesh.name}`,
                                         );
                                     }
-                                    currentMeshMaterialAsPBRMaterial.coordinatesIndex =
-                                        metadata.vircadia_lightmap_texcoord;
                                 }
                             }
                             resolve();
@@ -656,7 +664,7 @@ const applyPhysics = () => {
 
     // Determine physics type - default to mesh impostor for precision
     const physicsType = props.physicsType || "mesh";
-    let shapeType;
+    let shapeType: PhysicsShapeType;
 
     switch (physicsType) {
         case "mesh":
@@ -684,8 +692,9 @@ const applyPhysics = () => {
 
         try {
             // Create physics aggregate for this mesh
+            // Cast the mesh to the required type for PhysicsAggregate
             const aggregate = new PhysicsAggregate(
-                mesh,
+                mesh as unknown as Mesh,
                 shapeType,
                 { mass, friction, restitution },
                 props.scene,
@@ -719,8 +728,8 @@ const removePhysics = () => {
 
 // Update entity metadata with physics data
 const updateEntityPhysicsData = () => {
-    if (!entity.entityData.value?.general__entity_id) {
-        console.warn("Cannot update entity physics: No entity ID available");
+    if (!entity.entityData.value?.general__entity_name) {
+        console.warn("Cannot update entity physics: No entity name available");
         return;
     }
 
@@ -812,11 +821,26 @@ watch(
                 `Entity created successfully for ${props.fileName}:`,
                 entityData,
             );
+            // Store the name if this was a newly created entity
+            if (entityData.general__entity_name && !entityName.value) {
+                entityName.value = entityData.general__entity_name;
+                console.log(
+                    `Set entityName to ${entityName.value} after creation`,
+                );
+            }
         } else if (entityData && entityData !== oldEntityData) {
             console.log(
                 `Entity data available for ${props.fileName}:`,
                 entityData,
             );
+
+            // Store the name if we didn't have it before
+            if (entityData.general__entity_name && !entityName.value) {
+                entityName.value = entityData.general__entity_name;
+                console.log(
+                    `Set entityName to ${entityName.value} from retrieved entity`,
+                );
+            }
 
             // Check for updated position/rotation in entity data
             if (entityData.meta__data) {
@@ -858,19 +882,49 @@ const manageAssetAndEntity = () => {
     // 1. Load asset
     asset.executeLoad();
 
-    // 2. Retrieve entity, create if not found
-    entity.executeRetrieve();
+    // 2. Check if we have an entityName
+    if (entityName.value) {
+        // Try to retrieve the entity by name
+        console.log(`Retrieving model entity with name: ${entityName.value}`);
+        entity.executeRetrieve();
+    } else {
+        // No name, create a new entity
+        console.log(
+            `No entity name for ${props.fileName}, creating new entity`,
+        );
+        entity.executeCreate().then((newName) => {
+            if (newName) {
+                entityName.value = newName;
+                console.log(`Created model entity with new name: ${newName}`);
+                // After creating, retrieve to ensure we have the full entity data
+                entity.executeRetrieve();
+            }
+        });
+    }
 
-    // Watch for retrieve completion to create if needed
+    // Watch for retrieve completion to handle not found case
     const stopWatch = watch(
-        [() => entity.retrieving.value, () => entity.error.value],
-        ([retrieving, error], [wasRetrieving]) => {
+        [
+            () => entity.retrieving.value,
+            () => entity.error.value,
+            () => entity.entityData.value,
+        ],
+        ([retrieving, error, entityData], [wasRetrieving]) => {
             if (wasRetrieving && !retrieving) {
-                if (!entity.entityData.value && !error) {
+                if (!entityData && !error && entityName.value) {
+                    // Entity with provided name not found, create a new one
                     console.log(
-                        `Entity ${props.fileName} not found, creating...`,
+                        `Entity ${props.fileName} with name ${entityName.value} not found, creating new one...`,
                     );
-                    entity.executeCreate();
+                    entity.executeCreate().then((newName) => {
+                        if (newName) {
+                            entityName.value = newName;
+                            console.log(
+                                `Created new entity with name: ${newName} for ${props.fileName}`,
+                            );
+                            entity.executeRetrieve();
+                        }
+                    });
                 }
                 stopWatch(); // Stop watching after entity retrieval completes
             }
@@ -923,6 +977,7 @@ defineExpose({
     errorMessage,
     position: currentPosition,
     rotation: currentRotation,
+    entityName,
     // Physics-related methods
     applyPhysics,
     removePhysics,

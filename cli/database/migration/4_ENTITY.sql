@@ -41,8 +41,7 @@ ALTER TABLE entity.entity_assets ENABLE ROW LEVEL SECURITY;
 -- 4.3 ENTITIES TABLE
 -- ============================================================================
 CREATE TABLE entity.entities (
-    general__entity_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    general__entity_name TEXT NOT NULL,
+    general__entity_name TEXT PRIMARY KEY,
     general__semantic_version TEXT NOT NULL DEFAULT '1.0.0',
     general__initialized_at TIMESTAMPTZ DEFAULT NULL,
     general__initialized_by UUID DEFAULT NULL,
@@ -296,14 +295,14 @@ FOR EACH ROW EXECUTE FUNCTION entity.update_asset_timestamps();
 -- INDEXES FOR TIMESTAMP-BASED QUERIES
 -- ============================================================================
 
--- 1. Composite index for entity changes
+-- 1. Index for entity changes
 CREATE INDEX idx_entity_timestamp_changes ON entity.entities
     (group__sync,
      GREATEST(
         meta_data_updated_at,
         general__updated_at
      ))
-    INCLUDE (general__entity_id, general__entity_name);
+    INCLUDE (general__entity_name);
 
 -- 3. Composite index for asset changes
 CREATE INDEX idx_asset_timestamp_changes ON entity.entity_assets

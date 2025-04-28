@@ -10,16 +10,19 @@ import {
     Quaternion,
     TransformNode,
     MeshBuilder,
-    type PhysicsAggregate,
     PhysicsCharacterController,
     CharacterSupportedState,
     ArcRotateCamera,
     KeyboardEventTypes,
-    type Camera,
     StandardMaterial,
     Color3,
+    type Mesh,
+    type Node,
+    type PhysicsAggregate,
+    type Camera,
 } from "@babylonjs/core";
 import { useThrottleFn } from "@vueuse/core";
+import { z } from "zod";
 
 import { useVircadiaEntity } from "../../../../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/composable/useVircadiaEntity";
 import { getInstanceKey } from "../../../../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/provider/useVircadia";
@@ -27,6 +30,7 @@ import { getInstanceKey } from "../../../../../../sdk/vircadia-world-sdk-ts/modu
 // Define the props for the component
 const props = defineProps<{
     scene: Scene;
+    entityName?: string;
     position?: { x: number; y: number; z: number };
     rotation?: { x: number; y: number; z: number; w: number };
     throttleInterval?: number;
@@ -40,6 +44,43 @@ const props = defineProps<{
     cameraAlpha?: number;
     cameraBeta?: number;
 }>();
+
+// Define Zod schemas for structured entity data
+const Vector3Schema = z.object({
+    x: z.number(),
+    y: z.number(),
+    z: z.number(),
+});
+
+const QuaternionSchema = z.object({
+    x: z.number(),
+    y: z.number(),
+    z: z.number(),
+    w: z.number(),
+});
+
+// Field value wrapper schema (common pattern in Vircadia entities)
+const FieldValueSchema = <T extends z.ZodType>(valueSchema: T) =>
+    z.object({
+        value: valueSchema,
+    });
+
+// Avatar meta data schema
+const PhysicsAvatarMetaSchema = z.object({
+    type: FieldValueSchema(z.literal("PhysicsAvatar")),
+    position: FieldValueSchema(Vector3Schema).optional(),
+    rotation: FieldValueSchema(QuaternionSchema).optional(),
+    // Add other fields that might be in the meta data
+    modelURL: FieldValueSchema(z.string()).optional(),
+});
+
+// Schema for the parsed result
+type PhysicsAvatarMetaData = z.infer<typeof PhysicsAvatarMetaSchema>;
+
+// Type for any additional fields in meta data
+interface AdditionalMetaField {
+    [key: string]: unknown;
+}
 
 // Add emits for position and rotation updates
 const emit = defineEmits<{
@@ -64,7 +105,7 @@ const slopeLimit = computed(() => props.slopeLimit || 45);
 // Add character orientation quaternion
 const characterOrientation = ref(Quaternion.Identity());
 // Add display capsule separate from character controller
-const displayCapsule = ref<TransformNode | null>(null);
+const displayCapsule = ref<Mesh | null>(null);
 
 // Add camera ref
 const camera = ref<ArcRotateCamera | null>(null);
@@ -85,28 +126,122 @@ if (!vircadia) {
     throw new Error("Vircadia instance not found.");
 }
 
+// Add ref for entity name
+const entityName = ref<string | null>(props.entityName || null);
+
+// Function to parse meta data with Zod
+const parseMetaData = (
+    metaData: string | object | null,
+): PhysicsAvatarMetaData => {
+    if (!metaData) {
+        // Return default meta data if none exists
+        return {
+            type: { value: "PhysicsAvatar" },
+        };
+    }
+
+    // Parse string meta data if needed
+    let parsedData: object;
+    if (typeof metaData === "string") {
+        try {
+            parsedData = JSON.parse(metaData);
+        } catch (e) {
+            console.error("Failed to parse entity meta_data:", e);
+            return {
+                type: { value: "PhysicsAvatar" },
+            };
+        }
+    } else {
+        parsedData = metaData;
+    }
+
+    try {
+        // Try to validate with our schema
+        const result = PhysicsAvatarMetaSchema.parse(parsedData);
+        return result;
+    } catch (error) {
+        console.warn("Meta data validation failed:", error);
+
+        // If validation failed, try to recover or transform the data
+        // This handles the "Avatar" to "PhysicsAvatar" type conversion
+        const partial = parsedData as Record<string, Record<string, unknown>>;
+
+        // Create a fixed version
+        const fixedData: PhysicsAvatarMetaData = {
+            type: { value: "PhysicsAvatar" },
+        };
+
+        // Copy position if available
+        if (partial.position?.value) {
+            const posValue = partial.position.value as Record<string, number>;
+            fixedData.position = {
+                value: {
+                    x: Number(posValue.x) || 0,
+                    y: Number(posValue.y) || 0,
+                    z: Number(posValue.z) || 0,
+                },
+            };
+        }
+
+        // Copy rotation if available
+        if (partial.rotation?.value) {
+            const rotValue = partial.rotation.value as Record<string, number>;
+            fixedData.rotation = {
+                value: {
+                    x: Number(rotValue.x) || 0,
+                    y: Number(rotValue.y) || 0,
+                    z: Number(rotValue.z) || 0,
+                    w: Number(rotValue.w) || 1,
+                },
+            };
+        }
+
+        // Preserve any other fields
+        for (const [key, value] of Object.entries(partial)) {
+            if (
+                key !== "type" &&
+                key !== "position" &&
+                key !== "rotation" &&
+                typeof value === "object" &&
+                value !== null
+            ) {
+                (fixedData as PhysicsAvatarMetaData & Record<string, unknown>)[
+                    key
+                ] = value;
+            }
+        }
+
+        return fixedData;
+    }
+};
+
 // Prepare initial meta data with position and rotation
 const getInitialMetaData = () => {
-    return JSON.stringify({
+    const initialData: PhysicsAvatarMetaData = {
         type: { value: "PhysicsAvatar" },
-        position: props.position
-            ? {
-                  value: props.position,
-              }
-            : undefined,
-        rotation: props.rotation
-            ? {
-                  value: props.rotation,
-              }
-            : undefined,
-    });
+    };
+
+    if (props.position) {
+        initialData.position = {
+            value: { ...props.position },
+        };
+    }
+
+    if (props.rotation) {
+        initialData.rotation = {
+            value: { ...props.rotation },
+        };
+    }
+
+    console.log("Creating entity with initial data:", initialData);
+    return JSON.stringify(initialData);
 };
 
 const entity = useVircadiaEntity({
-    entityName: ref("PhysicsAvatar"),
-    selectClause: "general__entity_id, general__entity_name, meta__data",
+    entityName,
+    selectClause: "general__entity_name, meta__data",
     insertClause:
-        "(general__entity_name, meta__data) VALUES ($1, $2) RETURNING general__entity_id",
+        "(general__entity_name, meta__data) VALUES ($1, $2) RETURNING general__entity_name",
     insertParams: ["PhysicsAvatar", getInitialMetaData()],
     instance: vircadia,
 });
@@ -154,8 +289,11 @@ const createCharacterController = () => {
 
         // Create a parent transform node
         avatarNode.value = new TransformNode("avatarNode", props.scene);
-        // IMPORTANT: Set capsule as a child of avatarNode - this creates proper parent-child relationship
-        capsule.setParent(avatarNode.value);
+
+        // Set parent relationship using a type assertion to work around TypeScript limitations
+        // This is safe because TransformNode is a valid parent type in Babylon.js
+        capsule.parent = avatarNode.value as unknown as Node;
+
         // Save reference to display capsule
         displayCapsule.value = capsule;
 
@@ -200,7 +338,10 @@ const createCharacterController = () => {
             characterController.value.maxCastIterations = 20;
         }
 
-        console.log("Character controller created successfully");
+        console.log(
+            "Character controller created successfully with position:",
+            position,
+        );
 
         // Create the camera once the character controller is ready
         createCamera();
@@ -384,54 +525,49 @@ const updateTransforms = () => {
 
 // Create a throttled function to update the entity in the database
 const throttledEntityUpdate = useThrottleFn(async () => {
-    if (!entity.entityData.value?.general__entity_id) {
-        console.warn("Cannot update entity: No entity ID available");
+    if (!entity.entityData.value?.general__entity_name) {
+        console.warn("Cannot update entity: No entity name available");
         return;
     }
 
-    // Prepare the updated meta data
-    let metaData: Record<string, Record<string, unknown>> = {};
-
-    // If existing meta_data is a string, parse it first
-    if (entity.entityData.value.meta__data) {
-        if (typeof entity.entityData.value.meta__data === "string") {
-            try {
-                metaData = JSON.parse(entity.entityData.value.meta__data);
-            } catch (e) {
-                console.error("Failed to parse existing meta data:", e);
-                // If parsing fails, use an empty object
-                metaData = {};
-            }
-        } else if (typeof entity.entityData.value.meta__data === "object") {
-            // If it's already an object, use it directly
-            metaData = entity.entityData.value.meta__data as Record<
-                string,
-                Record<string, unknown>
-            >;
-        }
-    }
-
-    // Create clean update object with only needed properties
-    const updatedMetaData = {
+    // Prepare the updated meta data using our schema
+    const updatedMetaData: PhysicsAvatarMetaData = {
         type: { value: "PhysicsAvatar" },
         position: { value: currentPosition.value },
         rotation: { value: currentRotation.value },
     };
 
-    // Preserve existing values if they exist
-    if (metaData && typeof metaData === "object") {
-        if (
-            metaData.type &&
-            typeof metaData.type === "object" &&
-            typeof metaData.type.value === "string"
-        ) {
-            updatedMetaData.type = { value: metaData.type.value };
+    // If there is existing meta data, preserve other fields
+    if (entity.entityData.value.meta__data) {
+        try {
+            const existingData = parseMetaData(
+                entity.entityData.value.meta__data,
+            );
+
+            // Copy any other properties from existing data
+            for (const key of Object.keys(existingData)) {
+                if (
+                    key !== "type" &&
+                    key !== "position" &&
+                    key !== "rotation"
+                ) {
+                    (
+                        updatedMetaData as PhysicsAvatarMetaData &
+                            Record<string, unknown>
+                    )[key] = (
+                        existingData as PhysicsAvatarMetaData &
+                            Record<string, unknown>
+                    )[key];
+                }
+            }
+        } catch (error) {
+            console.error("Error preserving existing meta data fields:", error);
         }
     }
 
-    // Update the entity with new meta data
+    // Update the entity with new meta data and keep local state in sync with what we're sending
     console.log("Updating entity position and rotation:", updatedMetaData);
-    entity.executeUpdate("meta__data = $2", [JSON.stringify(updatedMetaData)]);
+    entity.executeUpdate("meta__data = $2", [updatedMetaData]);
 }, props.throttleInterval ?? 500);
 
 // Character state machine
@@ -780,36 +916,68 @@ watch(
             errorMessage.value = `Entity error: ${error}`;
         } else if (wasCreating && !creating && entityData) {
             console.log("Entity created successfully for avatar:", entityData);
+            // Store the name if this was a newly created entity
+            if (entityData.general__entity_name && !entityName.value) {
+                entityName.value = entityData.general__entity_name;
+                console.log(
+                    `Set entityName to ${entityName.value} after creation`,
+                );
+            }
         } else if (entityData && entityData !== oldEntityData) {
             console.log("Entity data available for avatar:", entityData);
 
-            // Check for updated position/rotation in entity data
+            // Store the name if we didn't have it before
+            if (entityData.general__entity_name && !entityName.value) {
+                entityName.value = entityData.general__entity_name;
+                console.log(
+                    `Set entityName to ${entityName.value} from retrieved entity`,
+                );
+            }
+
+            // Use Zod to parse and validate meta_data
             if (entityData.meta__data) {
-                const metaData = entityData.meta__data;
+                try {
+                    const parsedData = parseMetaData(entityData.meta__data);
+                    console.log(
+                        "Parsed entity meta_data with Zod:",
+                        parsedData,
+                    );
 
-                if (typeof metaData === "object" && metaData.position?.value) {
-                    const newPosition = metaData.position.value;
-                    // Only update if different to avoid circular updates
-                    if (
-                        newPosition.x !== currentPosition.value.x ||
-                        newPosition.y !== currentPosition.value.y ||
-                        newPosition.z !== currentPosition.value.z
-                    ) {
-                        currentPosition.value = { ...newPosition };
+                    // Update position if available
+                    if (parsedData.position?.value) {
+                        const savedPosition = parsedData.position.value;
+                        console.log(
+                            "Found saved position in entity data:",
+                            savedPosition,
+                        );
+                        currentPosition.value = { ...savedPosition };
+                    } else {
+                        console.log(
+                            "No position data found in entity meta_data",
+                        );
                     }
-                }
 
-                if (typeof metaData === "object" && metaData.rotation?.value) {
-                    const newRotation = metaData.rotation.value;
-                    // Only update if different to avoid circular updates
-                    if (
-                        newRotation.x !== currentRotation.value.x ||
-                        newRotation.y !== currentRotation.value.y ||
-                        newRotation.z !== currentRotation.value.z ||
-                        newRotation.w !== currentRotation.value.w
-                    ) {
-                        currentRotation.value = { ...newRotation };
+                    // Update rotation if available
+                    if (parsedData.rotation?.value) {
+                        const savedRotation = parsedData.rotation.value;
+                        console.log(
+                            "Found saved rotation in entity data:",
+                            savedRotation,
+                        );
+                        currentRotation.value = { ...savedRotation };
+                    } else {
+                        console.log(
+                            "No rotation data found in entity meta_data",
+                        );
                     }
+
+                    // Check if entity type is fixed
+                    if (parsedData.type.value !== "PhysicsAvatar") {
+                        console.log("Fixed entity type from meta_data");
+                        throttledEntityUpdate();
+                    }
+                } catch (error) {
+                    console.error("Error parsing meta_data with Zod:", error);
                 }
             }
         }
@@ -820,20 +988,113 @@ watch(
 const manageEntity = () => {
     console.log("Managing entity for physics avatar...");
 
-    // Retrieve entity, create if not found
-    entity.executeRetrieve();
+    if (entityName.value) {
+        // If we have a name, try to retrieve the entity
+        console.log(`Retrieving physics avatar with name: ${entityName.value}`);
+        entity.executeRetrieve();
+    } else {
+        // Without a name, we need to create a new entity
+        console.log(
+            "No entity name provided, creating new physics avatar entity",
+        );
+        entity.executeCreate().then((newName) => {
+            if (newName) {
+                entityName.value = newName;
+                console.log(`Created physics avatar with new name: ${newName}`);
+                // After creating, retrieve to ensure we have the full entity data
+                entity.executeRetrieve();
+            }
+        });
+    }
 
-    // Watch for retrieve completion to create if needed
+    // Watch for retrieve completion to process entity data
     const stopWatch = watch(
-        [() => entity.retrieving.value, () => entity.error.value],
-        ([retrieving, error], [wasRetrieving]) => {
+        [
+            () => entity.retrieving.value,
+            () => entity.error.value,
+            () => entity.entityData.value,
+        ],
+        ([retrieving, error, entityData], [wasRetrieving]) => {
             if (wasRetrieving && !retrieving) {
-                if (!entity.entityData.value && !error) {
-                    console.log("Physics avatar entity not found, creating...");
-                    entity.executeCreate();
-                } else if (entity.entityData.value) {
+                if (!entityData && !error) {
+                    // Entity might have been deleted or not found with the provided name
+                    if (entityName.value) {
+                        console.log(
+                            `Physics avatar entity with name ${entityName.value} not found, creating new one...`,
+                        );
+                        entity.executeCreate().then((newName) => {
+                            if (newName) {
+                                entityName.value = newName;
+                                console.log(
+                                    `Created new physics avatar with name: ${newName}`,
+                                );
+                                entity.executeRetrieve();
+                            }
+                        });
+                    }
+                } else if (entityData) {
                     console.log(
-                        "Physics avatar entity found, creating character controller",
+                        "Physics avatar entity found, checking for saved position/rotation",
+                    );
+
+                    // Use Zod to parse meta_data safely
+                    if (entityData.meta__data) {
+                        try {
+                            const parsedData = parseMetaData(
+                                entityData.meta__data,
+                            );
+                            console.log(
+                                "Parsed entity meta_data with Zod:",
+                                parsedData,
+                            );
+
+                            // Update position if available
+                            if (parsedData.position?.value) {
+                                const savedPosition = parsedData.position.value;
+                                console.log(
+                                    "Found saved position in entity data:",
+                                    savedPosition,
+                                );
+                                currentPosition.value = { ...savedPosition };
+                            } else {
+                                console.log(
+                                    "No position data found in entity meta_data",
+                                );
+                            }
+
+                            // Update rotation if available
+                            if (parsedData.rotation?.value) {
+                                const savedRotation = parsedData.rotation.value;
+                                console.log(
+                                    "Found saved rotation in entity data:",
+                                    savedRotation,
+                                );
+                                currentRotation.value = { ...savedRotation };
+                            } else {
+                                console.log(
+                                    "No rotation data found in entity meta_data",
+                                );
+                            }
+
+                            // If entity type doesn't match, update it
+                            if (parsedData.type.value !== "PhysicsAvatar") {
+                                console.log(
+                                    "Entity type needs fixing, will update on next cycle",
+                                );
+                                // The update will happen through the watch handler for entity data
+                            }
+                        } catch (error) {
+                            console.error(
+                                "Error parsing meta_data with Zod:",
+                                error,
+                            );
+                        }
+                    }
+
+                    // Now create the character controller with the updated position/rotation
+                    console.log(
+                        "Creating character controller with position:",
+                        currentPosition.value,
                     );
                     createCharacterController();
                 }
@@ -907,6 +1168,7 @@ defineExpose({
     errorMessage,
     position: currentPosition,
     rotation: currentRotation,
+    entityName,
     moveAvatar,
     rotateAvatar,
     characterController,

@@ -190,6 +190,7 @@ const loadEnvironments = async () => {
             const assetResult = await useVircadiaAsset({
                 fileName: ref(hdrFileName),
                 instance: vircadiaWorld,
+                useCache: true,
             });
 
             // Call executeLoad() explicitly to load the asset

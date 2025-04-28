@@ -174,6 +174,7 @@ const meshes = ref<AbstractMesh[]>([]);
 const asset = useVircadiaAsset({
     fileName: ref(props.fileName),
     instance: vircadia,
+    useCache: true,
 });
 
 // Prepare initial meta data with position and rotation

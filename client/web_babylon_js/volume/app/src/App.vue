@@ -15,6 +15,18 @@
         
         <!-- Only render entities when scene is available -->
         <template v-if="sceneInitialized && scene">
+            <!-- Add PhysicsAvatar component -->
+            <PhysicsAvatar
+                :scene="scene"
+                :position="{ x: 0, y: 2, z: 0 }"
+                :capsule-height="1.8"
+                :capsule-radius="0.3"
+                :step-offset="0.4"
+                :slope-limit="45"
+                @ready="startRenderLoop"
+                ref="avatarRef"
+            />
+            
             <BabylonModel
                 v-for="(model, index) in modelDefinitions"
                 :key="model.fileName"
@@ -25,7 +37,7 @@
                 :throttle-interval="model.throttleInterval"
                 :physics-type="model.physicsType"
                 :physics-options="model.physicsOptions"
-                :ref="el => modelRefs[index] = el"
+                :ref="(el: any) => modelRefs[index] = el"
             />
         </template>
     </main>
@@ -35,20 +47,20 @@
 import { inject, computed, watch, ref, onMounted, onUnmounted } from "vue";
 import { getInstanceKey } from "../../../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/provider/useVircadia";
 import BabylonModel from "./components/BabylonModel.vue";
+import PhysicsAvatar from "./components/PhysicsAvatar.vue";
 import type { BabylonModelDefinition } from "./components/BabylonModel.vue";
 import {
     Scene,
-    ArcRotateCamera,
     Vector3,
     HemisphericLight,
     WebGPUEngine,
     HDRCubeTexture,
     DirectionalLight,
+    HavokPlugin,
 } from "@babylonjs/core";
-// Make sure the importers are included
 import "@babylonjs/loaders/glTF";
-// Import Inspector for debugging
 import "@babylonjs/inspector";
+import HavokPhysics from "@babylonjs/havok";
 import { useVircadiaAsset } from "../../../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/composable/useVircadiaAsset";
 
 // Get the existing Vircadia connection from main.ts with proper typing
@@ -71,6 +83,8 @@ let scene: Scene | null = null;
 const sceneInitialized = ref(false);
 // Track inspector state
 const isInspectorVisible = ref(false);
+// Track if avatar is ready
+const avatarRef = ref<InstanceType<typeof PhysicsAvatar> | null>(null);
 
 // Add function to toggle the inspector
 const toggleInspector = () => {
@@ -87,6 +101,14 @@ const toggleInspector = () => {
     }
 };
 
+// Start the render loop after avatar is ready
+const startRenderLoop = () => {
+    if (!engine || !scene) return;
+
+    console.log("Starting render loop after avatar is ready");
+    engine.runRenderLoop(() => scene?.render());
+};
+
 // Keyboard event handler for inspector toggle
 const handleKeyDown = (event: KeyboardEvent) => {
     if (event.key === "t" && scene) {
@@ -100,6 +122,12 @@ const modelDefinitions = ref<BabylonModelDefinition[]>([
         position: { x: 0, y: 0, z: 0 },
         rotation: { x: 0, y: 0, z: 0, w: 1 },
         throttleInterval: 1000,
+        physicsType: "mesh",
+        physicsOptions: {
+            mass: 0, // 0 mass makes it static
+            friction: 0.5,
+            restitution: 0.3,
+        },
     },
     // Add more assets here
 ]);
@@ -129,6 +157,23 @@ const isLoading = computed(() => {
         environmentLoading.value
     );
 });
+
+// Initialize physics engine
+const initPhysics = async (scene: Scene) => {
+    try {
+        const havokInstance = await HavokPhysics();
+        // pass the engine to the plugin
+        const hk = new HavokPlugin(true, havokInstance);
+        const gravityVector = new Vector3(0, -9.81, 0);
+        scene.enablePhysics(gravityVector, hk);
+
+        console.log("Physics engine initialized successfully");
+        return true;
+    } catch (error) {
+        console.error("Error initializing physics engine:", error);
+        return false;
+    }
+};
 
 // Load environment assets
 const loadEnvironments = async () => {
@@ -212,15 +257,8 @@ const initializeBabylon = async () => {
 
         scene = new Scene(engine);
 
-        const camera = new ArcRotateCamera(
-            "camera",
-            -Math.PI / 2,
-            Math.PI / 2.5,
-            10,
-            Vector3.Zero(),
-            scene,
-        );
-        camera.attachControl(renderCanvas.value, true);
+        // Initialize the physics engine
+        await initPhysics(scene);
 
         // Create light
         new HemisphericLight("light", new Vector3(1, 1, 0), scene);
@@ -234,7 +272,8 @@ const initializeBabylon = async () => {
         directionalLight.position = new Vector3(10, 10, 10);
         directionalLight.intensity = 11.0;
 
-        engine.runRenderLoop(() => scene?.render());
+        // Note: We no longer start the render loop here
+        // The render loop will be started when PhysicsAvatar is ready
         window.addEventListener("resize", handleResize);
 
         // Set scene initialized flag to true

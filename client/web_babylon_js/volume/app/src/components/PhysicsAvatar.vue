@@ -6,25 +6,21 @@
 import { ref, onMounted, onUnmounted, watch, inject, computed } from "vue";
 import {
     type Scene,
-    ImportMeshAsync,
-    type AbstractMesh,
     Vector3,
     Quaternion,
     TransformNode,
     MeshBuilder,
-    PhysicsAggregate,
-    PhysicsShapeType,
-    PhysicsMotionType,
+    type PhysicsAggregate,
     PhysicsCharacterController,
     CharacterSupportedState,
     ArcRotateCamera,
     KeyboardEventTypes,
     type Camera,
+    StandardMaterial,
+    Color3,
 } from "@babylonjs/core";
-import "@babylonjs/loaders/glTF"; // Import the GLTF loader
 import { useThrottleFn } from "@vueuse/core";
 
-import { useVircadiaAsset } from "../../../../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/composable/useVircadiaAsset";
 import { useVircadiaEntity } from "../../../../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/composable/useVircadiaEntity";
 import { getInstanceKey } from "../../../../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/provider/useVircadia";
 
@@ -52,21 +48,23 @@ const emit = defineEmits<{
     ready: [];
 }>();
 
-// Constants
-const AVATAR_MODEL = "telekom.model.DefaultAvatar.glb";
-
 // Reactive refs
 const isLoading = ref(false);
 const hasError = ref(false);
 const errorMessage = ref("");
 const currentPosition = ref(props.position || { x: 0, y: 0, z: 0 });
 const currentRotation = ref(props.rotation || { x: 0, y: 0, z: 0, w: 1 });
-const avatarMeshes = ref<AbstractMesh[]>([]);
-const characterController = ref<PhysicsCharacterController | null>(null);
 const physicsAggregate = ref<PhysicsAggregate | null>(null);
 const avatarNode = ref<TransformNode | null>(null);
+const characterController = ref<PhysicsCharacterController | null>(null);
 const capsuleHeight = computed(() => props.capsuleHeight || 1.8);
 const capsuleRadius = computed(() => props.capsuleRadius || 0.3);
+const stepOffset = computed(() => props.stepOffset || 0.4);
+const slopeLimit = computed(() => props.slopeLimit || 45);
+// Add character orientation quaternion
+const characterOrientation = ref(Quaternion.Identity());
+// Add display capsule separate from character controller
+const displayCapsule = ref<TransformNode | null>(null);
 
 // Add camera ref
 const camera = ref<ArcRotateCamera | null>(null);
@@ -79,9 +77,6 @@ const keyState = ref({
     right: false,
     jump: false,
     run: false,
-    fly: false,
-    up: false,
-    down: false,
 });
 
 // Get Vircadia instance
@@ -90,17 +85,10 @@ if (!vircadia) {
     throw new Error("Vircadia instance not found.");
 }
 
-// Initialize asset and entity composables
-const asset = useVircadiaAsset({
-    fileName: ref(AVATAR_MODEL),
-    instance: vircadia,
-});
-
 // Prepare initial meta data with position and rotation
 const getInitialMetaData = () => {
     return JSON.stringify({
-        type: { value: "Avatar" },
-        modelURL: { value: AVATAR_MODEL },
+        type: { value: "PhysicsAvatar" },
         position: props.position
             ? {
                   value: props.position,
@@ -123,108 +111,22 @@ const entity = useVircadiaEntity({
     instance: vircadia,
 });
 
-// Update loading state based on asset and entity status
+// Update loading state based on entity status
 watch(
     [
-        () => asset.loading.value,
         () => entity.retrieving.value,
         () => entity.creating.value,
         () => entity.updating.value,
     ],
-    ([assetLoading, entityRetrieving, entityCreating, entityUpdating]) => {
-        isLoading.value =
-            assetLoading ||
-            entityRetrieving ||
-            entityCreating ||
-            entityUpdating;
+    ([entityRetrieving, entityCreating, entityUpdating]) => {
+        isLoading.value = entityRetrieving || entityCreating || entityUpdating;
     },
     { immediate: true },
 );
 
-// Function to load the avatar model
-const loadAvatarModel = async () => {
-    if (!asset.assetData.value || !props.scene) {
-        console.warn(
-            `Asset: ${asset.assetData.value ? "Ready" : "Not ready"}.`,
-        );
-        console.warn(`Scene: ${props.scene ? "Ready" : "Not ready"}.`);
-        return;
-    }
-
-    const assetData = asset.assetData.value;
-    if (!assetData.blobUrl) {
-        console.warn("Asset blob URL not available.");
-        return;
-    }
-
-    if (avatarMeshes.value.length > 0) {
-        console.log("Avatar model already loaded. Skipping.");
-        return;
-    }
-
-    try {
-        const pluginExtension =
-            assetData.mimeType === "model/gltf-binary" ? ".glb" : ".gltf";
-        console.log("Loading avatar model using blob URL...");
-
-        // Load the avatar model
-        const result = await ImportMeshAsync(assetData.blobUrl, props.scene, {
-            pluginExtension,
-        });
-
-        avatarMeshes.value = result.meshes;
-
-        // Create a parent transform node for the avatar
-        avatarNode.value = new TransformNode("avatarNode", props.scene);
-
-        // Parent all meshes to the transform node
-        for (const mesh of avatarMeshes.value) {
-            mesh.parent = avatarNode.value;
-        }
-
-        // Extract position and rotation from entity data if available
-        if (entity.entityData.value?.meta__data) {
-            const entityMetaData = entity.entityData.value.meta__data;
-            if (
-                typeof entityMetaData === "object" &&
-                entityMetaData.position?.value
-            ) {
-                currentPosition.value = { ...entityMetaData.position.value };
-            }
-
-            if (
-                typeof entityMetaData === "object" &&
-                entityMetaData.rotation?.value
-            ) {
-                currentRotation.value = { ...entityMetaData.rotation.value };
-            }
-        } else {
-            // Use props values as defaults
-            if (props.position) {
-                currentPosition.value = { ...props.position };
-            }
-
-            if (props.rotation) {
-                currentRotation.value = { ...props.rotation };
-            }
-        }
-
-        // Create and set up the physics character controller
-        createCharacterController();
-
-        console.log(
-            `Avatar model loaded successfully (${avatarMeshes.value.length} meshes).`,
-        );
-    } catch (error) {
-        console.error("Error loading avatar model:", error);
-        hasError.value = true;
-        errorMessage.value = `Error loading avatar model: ${error}`;
-    }
-};
-
 // Function to create and set up the character controller
 const createCharacterController = () => {
-    if (!props.scene || !props.scene.physicsEnabled || !avatarNode.value) {
+    if (!props.scene || !props.scene.physicsEnabled) {
         console.warn(
             "Cannot create character controller: prerequisites not met",
         );
@@ -232,7 +134,7 @@ const createCharacterController = () => {
     }
 
     try {
-        // Create invisible capsule mesh for physics
+        // Create a visible capsule mesh for display
         const capsule = MeshBuilder.CreateCapsule(
             "avatarCapsule",
             {
@@ -241,7 +143,21 @@ const createCharacterController = () => {
             },
             props.scene,
         );
-        capsule.isVisible = false; // Make capsule invisible
+
+        // Apply a material to make it stand out
+        const capsuleMaterial = new StandardMaterial(
+            "capsuleMaterial",
+            props.scene,
+        );
+        capsuleMaterial.diffuseColor = new Color3(0.2, 0.4, 0.8);
+        capsule.material = capsuleMaterial;
+
+        // Create a parent transform node
+        avatarNode.value = new TransformNode("avatarNode", props.scene);
+        // IMPORTANT: Set capsule as a child of avatarNode - this creates proper parent-child relationship
+        capsule.setParent(avatarNode.value);
+        // Save reference to display capsule
+        displayCapsule.value = capsule;
 
         // Position the capsule
         const position = new Vector3(
@@ -249,16 +165,19 @@ const createCharacterController = () => {
             currentPosition.value.y,
             currentPosition.value.z,
         );
-        capsule.position = position;
+        avatarNode.value.position = position;
 
-        // Initial rotation
-        const rotation = new Quaternion(
+        // Initial rotation as quaternion
+        characterOrientation.value = new Quaternion(
             currentRotation.value.x,
             currentRotation.value.y,
             currentRotation.value.z,
             currentRotation.value.w,
         );
-        capsule.rotationQuaternion = rotation;
+
+        // Apply orientation to avatar node
+        avatarNode.value.rotationQuaternion =
+            characterOrientation.value.clone();
 
         // Initialize the PhysicsCharacterController with the correct parameters
         characterController.value = new PhysicsCharacterController(
@@ -270,19 +189,16 @@ const createCharacterController = () => {
             props.scene,
         );
 
-        // Create physics aggregate for the capsule
-        physicsAggregate.value = new PhysicsAggregate(
-            capsule,
-            PhysicsShapeType.CAPSULE,
-            { mass: 1, restitution: 0.2 },
-            props.scene,
-        );
+        // Apply additional controller settings for better stability
+        if (characterController.value) {
+            // Set max slope angle (in cosine, lower values allow steeper slopes)
+            characterController.value.maxSlopeCosine = Math.cos(
+                (slopeLimit.value * Math.PI) / 180,
+            );
 
-        // Set motion type to dynamic
-        physicsAggregate.value.body.setMotionType(PhysicsMotionType.DYNAMIC);
-
-        // Set avatar position and rotation to match capsule
-        updateAvatarTransform();
+            // Increase cast iterations to help with ground contact
+            characterController.value.maxCastIterations = 20;
+        }
 
         console.log("Character controller created successfully");
 
@@ -291,6 +207,9 @@ const createCharacterController = () => {
 
         // Setup keyboard controls
         setupKeyboardControls();
+
+        // Emit ready event
+        emit("ready");
     } catch (error) {
         console.error("Error creating character controller:", error);
         hasError.value = true;
@@ -315,7 +234,7 @@ const createCamera = () => {
         radius,
         new Vector3(
             currentPosition.value.x,
-            currentPosition.value.y + (props.capsuleHeight ?? 1.8) / 2, // Target the middle of the avatar
+            currentPosition.value.y + (props.capsuleHeight ?? 1.8) / 2, // Target the middle of the capsule
             currentPosition.value.z,
         ),
         props.scene,
@@ -341,9 +260,6 @@ const createCamera = () => {
     props.scene.activeCamera = camera.value as unknown as Camera;
 
     console.log("Third-person camera created for avatar");
-
-    // Emit the ready event to notify the parent component
-    emit("ready");
 };
 
 // Function to update camera target position
@@ -351,7 +267,7 @@ const updateCameraTarget = () => {
     if (!camera.value || !avatarNode.value) return;
 
     // Calculate target position - follow the avatar with an offset
-    const targetHeight = (props.capsuleHeight ?? 1.8) / 2; // Target middle of avatar
+    const targetHeight = (props.capsuleHeight ?? 1.8) / 2; // Target middle of capsule
     const targetPosition = new Vector3(
         avatarNode.value.position.x,
         avatarNode.value.position.y + targetHeight,
@@ -392,22 +308,10 @@ const setupKeyboardControls = () => {
                         break;
                     case "Space":
                         keyState.value.jump = true;
-                        if (keyState.value.fly) {
-                            keyState.value.up = true;
-                        }
                         break;
                     case "ShiftLeft":
                     case "ShiftRight":
                         keyState.value.run = true;
-                        if (keyState.value.fly) {
-                            keyState.value.down = true;
-                        }
-                        break;
-                    case "KeyF":
-                        keyState.value.fly = !keyState.value.fly;
-                        console.log(
-                            `Fly mode ${keyState.value.fly ? "enabled" : "disabled"}`,
-                        );
                         break;
                 }
                 break;
@@ -432,16 +336,10 @@ const setupKeyboardControls = () => {
                         break;
                     case "Space":
                         keyState.value.jump = false;
-                        if (keyState.value.fly) {
-                            keyState.value.up = false;
-                        }
                         break;
                     case "ShiftLeft":
                     case "ShiftRight":
                         keyState.value.run = false;
-                        if (keyState.value.fly) {
-                            keyState.value.down = false;
-                        }
                         break;
                 }
                 break;
@@ -449,14 +347,19 @@ const setupKeyboardControls = () => {
     });
 };
 
-// Function to update avatar position and rotation based on physics capsule
-const updateAvatarTransform = () => {
-    if (!avatarNode.value || !characterController.value) return;
+// Function to update transforms based on physics controller
+const updateTransforms = () => {
+    if (
+        !avatarNode.value ||
+        !characterController.value ||
+        !displayCapsule.value
+    )
+        return;
 
     // Get position from character controller
     const position = characterController.value.getPosition();
     if (position) {
-        // Update avatar node to match controller position
+        // Update avatar node position to match controller position
         avatarNode.value.position = position.clone();
 
         // Update current position
@@ -467,51 +370,16 @@ const updateAvatarTransform = () => {
         };
     }
 
-    // For rotation, we need to handle it separately as character controller doesn't manage rotation
-    if (physicsAggregate.value) {
-        const capsule = physicsAggregate.value.transformNode as AbstractMesh;
-        if (capsule?.rotationQuaternion) {
-            avatarNode.value.rotationQuaternion =
-                capsule.rotationQuaternion.clone();
+    // Apply the current orientation to the avatar node
+    avatarNode.value.rotationQuaternion = characterOrientation.value.clone();
 
-            // Update current rotation
-            currentRotation.value = {
-                x: capsule.rotationQuaternion.x,
-                y: capsule.rotationQuaternion.y,
-                z: capsule.rotationQuaternion.z,
-                w: capsule.rotationQuaternion.w,
-            };
-        }
-    }
-};
-
-// Function to update capsule based on current position and rotation
-const updateCapsuleTransform = () => {
-    if (!physicsAggregate.value) return;
-
-    // Get capsule reference directly
-    const capsule = physicsAggregate.value.transformNode as AbstractMesh;
-    if (!capsule) return;
-
-    // Update capsule position
-    capsule.position = new Vector3(
-        currentPosition.value.x,
-        currentPosition.value.y,
-        currentPosition.value.z,
-    );
-
-    // Update capsule rotation
-    capsule.rotationQuaternion = new Quaternion(
-        currentRotation.value.x,
-        currentRotation.value.y,
-        currentRotation.value.z,
-        currentRotation.value.w,
-    );
-
-    // Apply physics changes
-    if (physicsAggregate.value.body) {
-        physicsAggregate.value.body.computeMassProperties();
-    }
+    // Update current rotation from character orientation
+    currentRotation.value = {
+        x: characterOrientation.value.x,
+        y: characterOrientation.value.y,
+        z: characterOrientation.value.z,
+        w: characterOrientation.value.w,
+    };
 };
 
 // Create a throttled function to update the entity in the database
@@ -522,7 +390,7 @@ const throttledEntityUpdate = useThrottleFn(async () => {
     }
 
     // Prepare the updated meta data
-    let metaData = {};
+    let metaData: Record<string, Record<string, unknown>> = {};
 
     // If existing meta_data is a string, parse it first
     if (entity.entityData.value.meta__data) {
@@ -536,14 +404,16 @@ const throttledEntityUpdate = useThrottleFn(async () => {
             }
         } else if (typeof entity.entityData.value.meta__data === "object") {
             // If it's already an object, use it directly
-            metaData = entity.entityData.value.meta__data;
+            metaData = entity.entityData.value.meta__data as Record<
+                string,
+                Record<string, unknown>
+            >;
         }
     }
 
     // Create clean update object with only needed properties
     const updatedMetaData = {
-        type: { value: "Avatar" },
-        modelURL: { value: AVATAR_MODEL },
+        type: { value: "PhysicsAvatar" },
         position: { value: currentPosition.value },
         rotation: { value: currentRotation.value },
     };
@@ -551,20 +421,11 @@ const throttledEntityUpdate = useThrottleFn(async () => {
     // Preserve existing values if they exist
     if (metaData && typeof metaData === "object") {
         if (
-            metaData &&
-            "type" in metaData &&
             metaData.type &&
-            "value" in metaData.type
+            typeof metaData.type === "object" &&
+            typeof metaData.type.value === "string"
         ) {
             updatedMetaData.type = { value: metaData.type.value };
-        }
-        if (
-            metaData &&
-            "modelURL" in metaData &&
-            metaData.modelURL &&
-            "value" in metaData.modelURL
-        ) {
-            updatedMetaData.modelURL = { value: metaData.modelURL.value };
         }
     }
 
@@ -572,6 +433,9 @@ const throttledEntityUpdate = useThrottleFn(async () => {
     console.log("Updating entity position and rotation:", updatedMetaData);
     entity.executeUpdate("meta__data = $2", [JSON.stringify(updatedMetaData)]);
 }, props.throttleInterval ?? 500);
+
+// Character state machine
+const characterState = ref("IN_AIR");
 
 // Register scene before render to update positions if needed
 const registerBeforeRender = () => {
@@ -585,22 +449,6 @@ const registerBeforeRender = () => {
             // Process keyboard input for movement
             processMovement(deltaTime);
 
-            // Check support
-            const support = characterController.value.checkSupport(
-                deltaTime,
-                new Vector3(0, -1, 0),
-            );
-
-            // Integrate physics with gravity in normal mode, without gravity in fly mode
-            characterController.value.integrate(
-                deltaTime,
-                support,
-                keyState.value.fly ? Vector3.Zero() : new Vector3(0, -9.8, 0),
-            );
-
-            // Sync avatar mesh with physics capsule
-            updateAvatarTransform();
-
             // Update camera target to follow avatar
             updateCameraTarget();
         }
@@ -611,176 +459,170 @@ const registerBeforeRender = () => {
 const processMovement = (deltaTime: number) => {
     if (!characterController.value || !camera.value) return;
 
-    // Calculate movement direction based on key states
-    const moveDirection = new Vector3(0, 0, 0);
+    // Calculate input direction based on key states
+    const inputDirection = new Vector3(0, 0, 0);
 
     // Forward/backward movement
     if (keyState.value.forward) {
-        moveDirection.z += 1;
+        inputDirection.z += 1;
     }
     if (keyState.value.backward) {
-        moveDirection.z -= 1;
+        inputDirection.z -= 1;
     }
 
     // Left/right movement
     if (keyState.value.left) {
-        moveDirection.x -= 1;
+        inputDirection.x -= 1;
     }
     if (keyState.value.right) {
-        moveDirection.x += 1;
-    }
-
-    // Add vertical movement in fly mode
-    if (keyState.value.fly) {
-        if (keyState.value.up) {
-            moveDirection.y += 1;
-        }
-        if (keyState.value.down) {
-            moveDirection.y -= 1;
-        }
+        inputDirection.x += 1;
     }
 
     // If no movement, return early
-    if (moveDirection.length() === 0) {
+    if (inputDirection.length() === 0) {
         return;
     }
 
     // Normalize the movement direction if moving in multiple directions
-    moveDirection.normalize();
+    inputDirection.normalize();
 
-    // Apply camera rotation to movement direction
-    // Get camera forward direction
+    // Get camera orientation for movement direction
     const cameraForward = camera.value
         .getTarget()
         .subtract(camera.value.position);
-
-    // In fly mode, use the actual camera direction including Y component
-    // Otherwise in walking mode, ignore Y (flatten the direction)
-    if (!keyState.value.fly) {
-        cameraForward.y = 0;
-    }
+    cameraForward.y = 0; // Flatten direction
     cameraForward.normalize();
 
     // Get camera right direction
     const cameraRight = Vector3.Cross(Vector3.Up(), cameraForward).normalize();
 
-    // Calculate final direction based on camera orientation
-    const finalDirection = cameraForward
-        .scale(moveDirection.z)
-        .add(cameraRight.scale(moveDirection.x));
+    // Define speeds
+    const onGroundSpeed = keyState.value.run ? 8 : 4;
+    const inAirSpeed = 5;
 
-    // In fly mode, add vertical movement relative to world up
-    if (keyState.value.fly && (keyState.value.up || keyState.value.down)) {
-        finalDirection.addInPlace(Vector3.Up().scale(moveDirection.y));
-    }
+    // Define gravity - stronger for better stability
+    const gravity = new Vector3(0, -14.7, 0); // Stronger gravity for better stability
 
-    // Normalize and scale the final direction
-    finalDirection.normalize();
+    // Check support state
+    const support = characterController.value.checkSupport(
+        deltaTime,
+        new Vector3(0, -1, 0),
+    );
 
-    // Apply speed based on mode and run state
-    let moveSpeed: number;
-    if (keyState.value.fly) {
-        // Faster speeds in fly mode
-        moveSpeed = keyState.value.run ? 25 : 15; // Fly run or normal fly speed
-    } else {
-        // Normal walking speeds
-        moveSpeed = keyState.value.run ? 8 : 4; // Run or walk speed
-    }
-    finalDirection.scaleInPlace(moveSpeed * deltaTime);
-
-    // Current velocity
+    // Get current velocity
     const currentVelocity = characterController.value.getVelocity();
 
-    // Get upward direction (opposite to gravity)
+    // Update character state based on support
+    const getNextState = () => {
+        if (characterState.value === "IN_AIR") {
+            if (support?.supportedState === CharacterSupportedState.SUPPORTED) {
+                return "ON_GROUND";
+            }
+            return "IN_AIR";
+        }
+
+        if (characterState.value === "ON_GROUND") {
+            if (support?.supportedState !== CharacterSupportedState.SUPPORTED) {
+                return "IN_AIR";
+            }
+            if (keyState.value.jump) {
+                return "START_JUMP";
+            }
+            return "ON_GROUND";
+        }
+
+        if (characterState.value === "START_JUMP") {
+            return "IN_AIR";
+        }
+
+        return characterState.value;
+    };
+
+    // Update state
+    const nextState = getNextState();
+    if (nextState !== characterState.value) {
+        characterState.value = nextState;
+    }
+
+    // Update character orientation from camera
+    // This is key to prevent flopping - we control orientation directly
+    Quaternion.FromEulerAnglesToRef(
+        0,
+        camera.value.alpha + Math.PI / 2,
+        0,
+        characterOrientation.value,
+    );
+
+    // Calculate desired velocity based on state
+    let newVelocity: Vector3;
     const upVector = new Vector3(0, 1, 0);
 
-    // Check if we're on the ground - only needed in non-fly mode
-    const support = !keyState.value.fly
-        ? characterController.value.checkSupport(
-              deltaTime,
-              new Vector3(0, -1, 0),
-          )
-        : null;
+    // Transform input direction into world space using character orientation
+    const forwardWorld = new Vector3(0, 0, 1).applyRotationQuaternion(
+        characterOrientation.value,
+    );
+    const finalDirection = inputDirection.applyRotationQuaternion(
+        characterOrientation.value,
+    );
 
-    // Direction for movement calculation
-    const forwardVector = finalDirection.normalize();
+    if (characterState.value === "IN_AIR") {
+        // In air - simpler movement
+        const desiredVelocity = finalDirection.scale(inAirSpeed);
 
-    // Calculate movement
-    let newVelocity: Vector3;
-
-    if (keyState.value.fly) {
-        // In fly mode, we have direct control without gravity effects
         newVelocity = characterController.value.calculateMovement(
             deltaTime,
-            forwardVector,
+            forwardWorld,
             upVector,
             currentVelocity,
             Vector3.Zero(),
-            finalDirection,
+            desiredVelocity,
             upVector,
         );
-    } else if (support?.supportedState === CharacterSupportedState.SUPPORTED) {
-        // On ground (normal walking mode)
+
+        // Preserve vertical velocity (gravity will be applied in integrate)
+        const currentVertical = currentVelocity.y;
+        newVelocity.y = currentVertical + gravity.y * deltaTime;
+    } else if (characterState.value === "ON_GROUND") {
+        // On ground - move relative to surface
+        const desiredVelocity = finalDirection.scale(onGroundSpeed);
+
         newVelocity = characterController.value.calculateMovement(
             deltaTime,
-            forwardVector,
+            forwardWorld,
             support.averageSurfaceNormal,
             currentVelocity,
             support.averageSurfaceVelocity,
-            finalDirection,
+            desiredVelocity,
             upVector,
         );
-    } else {
-        // In air - simpler movement with gravity (normal walking mode)
-        newVelocity = characterController.value.calculateMovement(
-            deltaTime,
-            forwardVector,
-            upVector,
-            currentVelocity,
-            Vector3.Zero(),
-            finalDirection,
-            upVector,
-        );
+    } else if (characterState.value === "START_JUMP") {
+        // Start jump - apply vertical impulse
+        const jumpHeight = 1.2; // Slightly lower jump height for better control
+        const jumpSpeed = Math.sqrt(2 * Math.abs(gravity.y) * jumpHeight);
 
-        // Add gravity if in the air and not in fly mode
-        newVelocity.addInPlace(new Vector3(0, -9.8, 0).scale(deltaTime));
-    }
+        newVelocity = currentVelocity.clone();
+        newVelocity.y = jumpSpeed;
 
-    // Apply jumping if requested - only in walk mode
-    if (
-        !keyState.value.fly &&
-        keyState.value.jump &&
-        support?.supportedState === CharacterSupportedState.SUPPORTED
-    ) {
-        // Add jump velocity
-        newVelocity.y = 5; // Jump strength
-
-        // Reset jump flag to prevent continuous jumping
+        // Reset jump flag
         keyState.value.jump = false;
+    } else {
+        // Default case - maintain current velocity
+        newVelocity = currentVelocity.clone();
     }
 
     // Set the new velocity
     characterController.value.setVelocity(newVelocity);
 
-    // Rotate the avatar to face movement direction - Only when there's actual movement
-    if (physicsAggregate.value && moveDirection.length() > 0) {
-        const capsule = physicsAggregate.value.transformNode as AbstractMesh;
-        if (capsule?.rotationQuaternion) {
-            // Calculate target rotation
-            const targetRotation = Quaternion.FromLookDirectionLH(
-                forwardVector,
-                Vector3.Up(),
-            );
+    // Integrate physics
+    characterController.value.integrate(deltaTime, support, gravity);
 
-            // Smoothly interpolate rotation
-            Quaternion.SlerpToRef(
-                capsule.rotationQuaternion,
-                targetRotation,
-                deltaTime * 10, // Adjust rotation speed
-                capsule.rotationQuaternion,
-            );
-        }
-    }
+    // Update avatar transform to match physics
+    updateTransforms();
+
+    // Emit updates
+    throttledEntityUpdate();
+    emit("update:position", currentPosition.value);
+    emit("update:rotation", currentRotation.value);
 };
 
 // Function to move the avatar in a specific direction (used for external control)
@@ -788,14 +630,7 @@ const moveAvatar = (direction: Vector3, deltaTime: number) => {
     if (!characterController.value) return;
 
     // Apply speed based on mode and run state
-    let moveSpeed: number;
-    if (keyState.value.fly) {
-        // Faster speeds in fly mode
-        moveSpeed = keyState.value.run ? 25 : 15; // Fly run or normal fly speed
-    } else {
-        // Normal walking speeds
-        moveSpeed = keyState.value.run ? 8 : 4; // Run or walk speed
-    }
+    const moveSpeed = keyState.value.run ? 8 : 4;
 
     // Scale the direction by speed
     const scaledDirection = direction.normalize().scale(moveSpeed * deltaTime);
@@ -805,27 +640,18 @@ const moveAvatar = (direction: Vector3, deltaTime: number) => {
     const upVector = new Vector3(0, 1, 0);
     const forwardVector = scaledDirection.normalize();
 
-    // Check support - only relevant in non-fly mode
-    const support = !keyState.value.fly
-        ? characterController.value.checkSupport(
-              deltaTime,
-              new Vector3(0, -1, 0),
-          )
-        : null;
+    // Check support
+    const support = characterController.value.checkSupport(
+        deltaTime,
+        new Vector3(0, -1, 0),
+    );
 
     let newVelocity: Vector3;
-    if (keyState.value.fly) {
-        // In fly mode, direct control without gravity
-        newVelocity = characterController.value.calculateMovement(
-            deltaTime,
-            forwardVector,
-            upVector,
-            currentVelocity,
-            Vector3.Zero(),
-            scaledDirection,
-            upVector,
-        );
-    } else if (support?.supportedState === CharacterSupportedState.SUPPORTED) {
+
+    if (
+        characterState.value === "ON_GROUND" &&
+        support?.supportedState === CharacterSupportedState.SUPPORTED
+    ) {
         // On ground
         newVelocity = characterController.value.calculateMovement(
             deltaTime,
@@ -848,26 +674,24 @@ const moveAvatar = (direction: Vector3, deltaTime: number) => {
             upVector,
         );
 
-        // Add gravity when not in fly mode
-        if (!keyState.value.fly) {
-            newVelocity.addInPlace(new Vector3(0, -9.8, 0).scale(deltaTime));
-        }
+        // Add gravity
+        newVelocity.addInPlace(new Vector3(0, -9.8, 0).scale(deltaTime));
     }
 
     // Set the velocity
     characterController.value.setVelocity(newVelocity);
 
     if (support) {
-        // Integrate physics - no gravity in fly mode
+        // Integrate physics
         characterController.value.integrate(
             deltaTime,
             support,
-            keyState.value.fly ? Vector3.Zero() : new Vector3(0, -9.8, 0),
+            new Vector3(0, -9.8, 0),
         );
     }
 
     // Update position and rotation
-    updateAvatarTransform();
+    updateTransforms();
     throttledEntityUpdate();
     emit("update:position", currentPosition.value);
     emit("update:rotation", currentRotation.value);
@@ -875,18 +699,14 @@ const moveAvatar = (direction: Vector3, deltaTime: number) => {
 
 // Function to rotate the avatar
 const rotateAvatar = (yawAmount: number, pitchAmount = 0) => {
-    if (!physicsAggregate.value) return;
-
-    // Get capsule reference directly
-    const capsule = physicsAggregate.value.transformNode as AbstractMesh;
-    if (!capsule?.rotationQuaternion) return;
+    if (!characterOrientation.value) return;
 
     // Create rotation quaternion for yaw (around Y axis)
     const yawRotation = Quaternion.RotationAxis(Vector3.Up(), yawAmount);
 
     // Apply rotation to current quaternion
-    const newRotation = capsule.rotationQuaternion.multiply(yawRotation);
-    capsule.rotationQuaternion = newRotation;
+    const newRotation = characterOrientation.value.multiply(yawRotation);
+    characterOrientation.value = newRotation;
 
     // Update current rotation
     currentRotation.value = {
@@ -897,29 +717,18 @@ const rotateAvatar = (yawAmount: number, pitchAmount = 0) => {
     };
 
     // Update avatar to match
-    updateAvatarTransform();
+    updateTransforms();
     throttledEntityUpdate();
     emit("update:rotation", currentRotation.value);
 };
 
-// Watch for changes to currentPosition
+// Watch for changes to currentPosition and currentRotation
 watch(
-    currentPosition,
-    (newPosition) => {
-        updateCapsuleTransform();
+    [currentPosition, currentRotation],
+    () => {
         throttledEntityUpdate();
-        emit("update:position", newPosition);
-    },
-    { deep: true },
-);
-
-// Watch for changes to currentRotation
-watch(
-    currentRotation,
-    (newRotation) => {
-        updateCapsuleTransform();
-        throttledEntityUpdate();
-        emit("update:rotation", newRotation);
+        emit("update:position", currentPosition.value);
+        emit("update:rotation", currentRotation.value);
     },
     { deep: true },
 );
@@ -955,29 +764,6 @@ watch(
         }
     },
     { deep: true },
-);
-
-// Watch for asset data to load model
-watch(
-    () => asset.assetData.value,
-    (assetData) => {
-        if (assetData?.blobUrl && avatarMeshes.value.length === 0) {
-            console.log("Asset data ready for avatar, loading model.");
-            loadAvatarModel();
-        }
-    },
-);
-
-// Watch for asset errors
-watch(
-    () => asset.error.value,
-    (error) => {
-        if (error) {
-            console.error("Asset Error (avatar):", error);
-            hasError.value = true;
-            errorMessage.value = `Asset error: ${error}`;
-        }
-    },
 );
 
 // Watch for entity data changes
@@ -1030,14 +816,11 @@ watch(
     },
 );
 
-// Manage asset and entity based on connection status
-const manageAssetAndEntity = () => {
-    console.log("Managing asset and entity for avatar...");
+// Manage entity based on connection status
+const manageEntity = () => {
+    console.log("Managing entity for physics avatar...");
 
-    // 1. Load asset
-    asset.executeLoad();
-
-    // 2. Retrieve entity, create if not found
+    // Retrieve entity, create if not found
     entity.executeRetrieve();
 
     // Watch for retrieve completion to create if needed
@@ -1046,8 +829,13 @@ const manageAssetAndEntity = () => {
         ([retrieving, error], [wasRetrieving]) => {
             if (wasRetrieving && !retrieving) {
                 if (!entity.entityData.value && !error) {
-                    console.log("Avatar entity not found, creating...");
+                    console.log("Physics avatar entity not found, creating...");
                     entity.executeCreate();
+                } else if (entity.entityData.value) {
+                    console.log(
+                        "Physics avatar entity found, creating character controller",
+                    );
+                    createCharacterController();
                 }
                 stopWatch(); // Stop watching after entity retrieval completes
             }
@@ -1062,17 +850,13 @@ onMounted(() => {
         (newStatus, oldStatus) => {
             if (newStatus === "connected" && oldStatus !== "connected") {
                 console.log(
-                    "Vircadia connected, managing asset and entity for avatar.",
+                    "Vircadia connected, managing entity for physics avatar",
                 );
-                manageAssetAndEntity();
+                manageEntity();
             } else if (newStatus !== "connected") {
                 console.log(
-                    "Vircadia disconnected, cleaning up avatar resources.",
+                    "Vircadia disconnected, cleaning up physics avatar resources",
                 );
-                for (const mesh of avatarMeshes.value) {
-                    mesh.dispose();
-                }
-                avatarMeshes.value = [];
                 if (physicsAggregate.value) {
                     physicsAggregate.value.dispose();
                     physicsAggregate.value = null;
@@ -1097,13 +881,6 @@ onUnmounted(() => {
     console.log("PhysicsAvatar component unmounting. Cleaning up...");
 
     entity.cleanup();
-    asset.cleanup();
-
-    // Dispose all meshes
-    for (const mesh of avatarMeshes.value) {
-        mesh.dispose();
-    }
-    avatarMeshes.value = [];
 
     // Clean up physics
     if (physicsAggregate.value) {
@@ -1115,7 +892,12 @@ onUnmounted(() => {
         avatarNode.value.dispose();
     }
 
-    console.log("Cleanup complete for avatar.");
+    // Clean up display capsule
+    if (displayCapsule.value) {
+        displayCapsule.value.dispose();
+    }
+
+    console.log("Cleanup complete for physics avatar.");
 });
 
 // Expose methods and properties for parent components
@@ -1129,6 +911,6 @@ defineExpose({
     rotateAvatar,
     characterController,
     camera,
-    flyMode: computed(() => keyState.value.fly),
+    characterState,
 });
 </script>

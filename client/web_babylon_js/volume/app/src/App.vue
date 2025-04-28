@@ -19,10 +19,6 @@
             <PhysicsAvatar
                 :scene="scene"
                 :position="{ x: 0, y: 2, z: 0 }"
-                :capsule-height="1.8"
-                :capsule-radius="0.3"
-                :step-offset="0.4"
-                :slope-limit="45"
                 @ready="startRenderLoop"
                 ref="avatarRef"
             />
@@ -126,7 +122,7 @@ const modelDefinitions = ref<BabylonModelDefinition[]>([
         fileName: "telekom.model.Room.glb",
         position: { x: 0, y: 0, z: 0 },
         rotation: { x: 0, y: 0, z: 0, w: 1 },
-        throttleInterval: 1000,
+        throttleInterval: 10,
         physicsType: "mesh",
         physicsOptions: {
             mass: 0, // 0 mass makes it static
@@ -254,7 +250,7 @@ const initializeBabylon = async () => {
     console.log("Initializing BabylonJS with WebGPU...");
     try {
         engine = new WebGPUEngine(renderCanvas.value, {
-            antialias: false,
+            antialias: true,
             adaptToDeviceRatio: true,
         });
 
@@ -272,7 +268,7 @@ const initializeBabylon = async () => {
             scene,
         );
         directionalLight.position = new Vector3(10, 10, 10);
-        directionalLight.intensity = 11.0;
+        directionalLight.intensity = 1.0;
 
         // Initialize physics first
         const physicsEnabled = await initPhysics(scene);

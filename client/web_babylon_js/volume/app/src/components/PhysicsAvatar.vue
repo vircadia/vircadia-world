@@ -21,7 +21,7 @@ import {
     type PhysicsAggregate,
     type Camera,
 } from "@babylonjs/core";
-import { useThrottleFn } from "@vueuse/core";
+import { useDebounceFn } from "@vueuse/core";
 import { z } from "zod";
 
 import { useVircadiaEntity } from "../../../../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/composable/useVircadiaEntity";
@@ -65,12 +65,11 @@ const FieldValueSchema = <T extends z.ZodType>(valueSchema: T) =>
         value: valueSchema,
     });
 
-// Avatar meta data schema
+// Avatar meta data schema - all fields are optional except type
 const PhysicsAvatarMetaSchema = z.object({
     type: FieldValueSchema(z.literal("PhysicsAvatar")),
     position: FieldValueSchema(Vector3Schema).optional(),
     rotation: FieldValueSchema(QuaternionSchema).optional(),
-    // Add other fields that might be in the meta data
     modelURL: FieldValueSchema(z.string()).optional(),
 });
 
@@ -120,16 +119,16 @@ const keyState = ref({
     run: false,
 });
 
+// Add ref for entity name
+const entityName = ref<string | null>(props.entityName || "PhysicsAvatar");
+
 // Get Vircadia instance
 const vircadia = inject(getInstanceKey("vircadiaWorld"));
 if (!vircadia) {
     throw new Error("Vircadia instance not found.");
 }
 
-// Add ref for entity name
-const entityName = ref<string | null>(props.entityName || null);
-
-// Function to parse meta data with Zod
+// Function to parse meta data with Zod - simplified
 const parseMetaData = (
     metaData: string | object | null,
 ): PhysicsAvatarMetaData => {
@@ -162,14 +161,13 @@ const parseMetaData = (
     } catch (error) {
         console.warn("Meta data validation failed:", error);
 
-        // If validation failed, try to recover or transform the data
-        // This handles the "Avatar" to "PhysicsAvatar" type conversion
-        const partial = parsedData as Record<string, Record<string, unknown>>;
-
-        // Create a fixed version
+        // If validation failed, create a minimal valid object
         const fixedData: PhysicsAvatarMetaData = {
             type: { value: "PhysicsAvatar" },
         };
+
+        // Try to recover position and rotation if available
+        const partial = parsedData as Record<string, Record<string, unknown>>;
 
         // Copy position if available
         if (partial.position?.value) {
@@ -196,26 +194,18 @@ const parseMetaData = (
             };
         }
 
-        // Preserve any other fields
-        for (const [key, value] of Object.entries(partial)) {
-            if (
-                key !== "type" &&
-                key !== "position" &&
-                key !== "rotation" &&
-                typeof value === "object" &&
-                value !== null
-            ) {
-                (fixedData as PhysicsAvatarMetaData & Record<string, unknown>)[
-                    key
-                ] = value;
-            }
+        // Copy modelURL if available
+        if (partial.modelURL?.value) {
+            fixedData.modelURL = {
+                value: String(partial.modelURL.value),
+            };
         }
 
         return fixedData;
     }
 };
 
-// Prepare initial meta data with position and rotation
+// Prepare initial meta data with position and rotation - simplified
 const getInitialMetaData = () => {
     const initialData: PhysicsAvatarMetaData = {
         type: { value: "PhysicsAvatar" },
@@ -242,7 +232,7 @@ const entity = useVircadiaEntity({
     selectClause: "general__entity_name, meta__data",
     insertClause:
         "(general__entity_name, meta__data) VALUES ($1, $2) RETURNING general__entity_name",
-    insertParams: ["PhysicsAvatar", getInitialMetaData()],
+    insertParams: [entityName.value, getInitialMetaData()],
     instance: vircadia,
 });
 
@@ -523,8 +513,7 @@ const updateTransforms = () => {
     };
 };
 
-// Create a throttled function to update the entity in the database
-const throttledEntityUpdate = useThrottleFn(async () => {
+const debouncedEntityUpdate = useDebounceFn(async () => {
     if (!entity.entityData.value?.general__entity_name) {
         console.warn("Cannot update entity: No entity name available");
         return;
@@ -537,19 +526,25 @@ const throttledEntityUpdate = useThrottleFn(async () => {
         rotation: { value: currentRotation.value },
     };
 
-    // If there is existing meta data, preserve other fields
+    // If there is existing meta data, preserve other fields like modelURL
     if (entity.entityData.value.meta__data) {
         try {
             const existingData = parseMetaData(
                 entity.entityData.value.meta__data,
             );
 
+            // Preserve modelURL if it exists
+            if (existingData.modelURL) {
+                updatedMetaData.modelURL = existingData.modelURL;
+            }
+
             // Copy any other properties from existing data
             for (const key of Object.keys(existingData)) {
                 if (
                     key !== "type" &&
                     key !== "position" &&
-                    key !== "rotation"
+                    key !== "rotation" &&
+                    key !== "modelURL"
                 ) {
                     (
                         updatedMetaData as PhysicsAvatarMetaData &
@@ -567,7 +562,7 @@ const throttledEntityUpdate = useThrottleFn(async () => {
 
     // Update the entity with new meta data and keep local state in sync with what we're sending
     console.log("Updating entity position and rotation:", updatedMetaData);
-    entity.executeUpdate("meta__data = $2", [updatedMetaData]);
+    entity.executeUpdate("meta__data = $1", [JSON.stringify(updatedMetaData)]);
 }, props.throttleInterval ?? 500);
 
 // Character state machine
@@ -756,7 +751,7 @@ const processMovement = (deltaTime: number) => {
     updateTransforms();
 
     // Emit updates
-    throttledEntityUpdate();
+    debouncedEntityUpdate();
     emit("update:position", currentPosition.value);
     emit("update:rotation", currentRotation.value);
 };
@@ -828,7 +823,7 @@ const moveAvatar = (direction: Vector3, deltaTime: number) => {
 
     // Update position and rotation
     updateTransforms();
-    throttledEntityUpdate();
+    debouncedEntityUpdate();
     emit("update:position", currentPosition.value);
     emit("update:rotation", currentRotation.value);
 };
@@ -854,7 +849,7 @@ const rotateAvatar = (yawAmount: number, pitchAmount = 0) => {
 
     // Update avatar to match
     updateTransforms();
-    throttledEntityUpdate();
+    debouncedEntityUpdate();
     emit("update:rotation", currentRotation.value);
 };
 
@@ -862,7 +857,7 @@ const rotateAvatar = (yawAmount: number, pitchAmount = 0) => {
 watch(
     [currentPosition, currentRotation],
     () => {
-        throttledEntityUpdate();
+        debouncedEntityUpdate();
         emit("update:position", currentPosition.value);
         emit("update:rotation", currentRotation.value);
     },
@@ -974,7 +969,7 @@ watch(
                     // Check if entity type is fixed
                     if (parsedData.type.value !== "PhysicsAvatar") {
                         console.log("Fixed entity type from meta_data");
-                        throttledEntityUpdate();
+                        debouncedEntityUpdate();
                     }
                 } catch (error) {
                     console.error("Error parsing meta_data with Zod:", error);
@@ -993,18 +988,10 @@ const manageEntity = () => {
         console.log(`Retrieving physics avatar with name: ${entityName.value}`);
         entity.executeRetrieve();
     } else {
-        // Without a name, we need to create a new entity
-        console.log(
-            "No entity name provided, creating new physics avatar entity",
-        );
-        entity.executeCreate().then((newName) => {
-            if (newName) {
-                entityName.value = newName;
-                console.log(`Created physics avatar with new name: ${newName}`);
-                // After creating, retrieve to ensure we have the full entity data
-                entity.executeRetrieve();
-            }
-        });
+        console.error("Entity name should never be null at this point");
+        // Set a default name if somehow it got cleared
+        entityName.value = "PhysicsAvatar";
+        entity.executeRetrieve();
     }
 
     // Watch for retrieve completion to process entity data
@@ -1024,10 +1011,16 @@ const manageEntity = () => {
                         );
                         entity.executeCreate().then((newName) => {
                             if (newName) {
-                                entityName.value = newName;
                                 console.log(
                                     `Created new physics avatar with name: ${newName}`,
                                 );
+                                entity.executeRetrieve();
+                            } else {
+                                console.error(
+                                    "Failed to create entity with name:",
+                                    entityName.value,
+                                );
+                                // The creation failed, but we still have the name
                                 entity.executeRetrieve();
                             }
                         });

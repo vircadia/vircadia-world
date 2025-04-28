@@ -20,7 +20,7 @@ import {
     type Mesh,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF"; // Import the GLTF loader
-import { useThrottleFn } from "@vueuse/core";
+import { useDebounceFn } from "@vueuse/core";
 
 import { useVircadiaAsset } from "../../../../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/composable/useVircadiaAsset";
 import { useVircadiaEntity } from "../../../../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/composable/useVircadiaEntity";
@@ -174,7 +174,7 @@ if (!vircadia) {
 const meshes = ref<AbstractMesh[]>([]);
 
 // Add ref for entity name
-const entityName = ref<string | null>(props.entityName || null);
+const entityName = ref<string | null>(props.entityName || props.fileName);
 
 // Initialize asset and entity composables
 const asset = useVircadiaAsset({
@@ -206,7 +206,7 @@ const entity = useVircadiaEntity({
     selectClause: "general__entity_name, meta__data",
     insertClause:
         "(general__entity_name, meta__data) VALUES ($1, $2) RETURNING general__entity_name",
-    insertParams: [props.fileName, getInitialMetaData()],
+    insertParams: [entityName.value, getInitialMetaData()],
     instance: vircadia,
 });
 
@@ -260,8 +260,7 @@ const updateMeshRotations = () => {
     }
 };
 
-// Create a throttled function to update the entity in the database
-const throttledEntityUpdate = useThrottleFn(async () => {
+const debouncedEntityUpdate = useDebounceFn(async () => {
     if (!entity.entityData.value?.general__entity_name) {
         console.warn("Cannot update entity: No entity name available");
         return;
@@ -285,7 +284,7 @@ watch(
     currentPosition,
     (newPosition) => {
         updateMeshPositions();
-        throttledEntityUpdate();
+        debouncedEntityUpdate();
         emit("update:position", newPosition);
     },
     { deep: true },
@@ -296,7 +295,7 @@ watch(
     currentRotation,
     (newRotation) => {
         updateMeshRotations();
-        throttledEntityUpdate();
+        debouncedEntityUpdate();
         emit("update:rotation", newRotation);
     },
     { deep: true },
@@ -888,18 +887,10 @@ const manageAssetAndEntity = () => {
         console.log(`Retrieving model entity with name: ${entityName.value}`);
         entity.executeRetrieve();
     } else {
-        // No name, create a new entity
-        console.log(
-            `No entity name for ${props.fileName}, creating new entity`,
-        );
-        entity.executeCreate().then((newName) => {
-            if (newName) {
-                entityName.value = newName;
-                console.log(`Created model entity with new name: ${newName}`);
-                // After creating, retrieve to ensure we have the full entity data
-                entity.executeRetrieve();
-            }
-        });
+        // This shouldn't happen but set a default name if somehow it got cleared
+        console.error("Entity name should never be null at this point");
+        entityName.value = props.fileName;
+        entity.executeRetrieve();
     }
 
     // Watch for retrieve completion to handle not found case
@@ -918,10 +909,16 @@ const manageAssetAndEntity = () => {
                     );
                     entity.executeCreate().then((newName) => {
                         if (newName) {
-                            entityName.value = newName;
                             console.log(
                                 `Created new entity with name: ${newName} for ${props.fileName}`,
                             );
+                            entity.executeRetrieve();
+                        } else {
+                            console.error(
+                                "Failed to create entity with name:",
+                                entityName.value,
+                            );
+                            // The creation failed, but we still have the name
                             entity.executeRetrieve();
                         }
                     });

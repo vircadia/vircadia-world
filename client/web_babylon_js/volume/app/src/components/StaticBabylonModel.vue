@@ -12,8 +12,10 @@ import {
     Texture,
     type BaseTexture,
     type Nullable,
+    Quaternion,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF"; // Import the GLTF loader
+import { useThrottleFn } from "@vueuse/core";
 
 import { useVircadiaAsset } from "../../../../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/composable/useVircadiaAsset";
 import { useVircadiaEntity } from "../../../../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/composable/useVircadiaEntity";
@@ -118,11 +120,19 @@ namespace glTF {
     }
 }
 
-// Update props to allow a possible null scene
+// Update props to support dynamic position and rotation
 const props = defineProps<{
-    scene: Scene; // Changed from Ref<Scene | null> to Scene
+    scene: Scene;
     fileName: string;
     position?: { x: number; y: number; z: number };
+    rotation?: { x: number; y: number; z: number; w: number };
+    throttleInterval: number;
+}>();
+
+// Add emits for position and rotation updates
+const emit = defineEmits<{
+    "update:position": [{ x: number; y: number; z: number }];
+    "update:rotation": [{ x: number; y: number; z: number; w: number }];
 }>();
 
 // Expose loading state to parent
@@ -130,10 +140,16 @@ const isLoading = ref(false);
 const hasError = ref(false);
 const errorMessage = ref("");
 
+// Reactive refs for position and rotation
+const currentPosition = ref(props.position || { x: 0, y: 0, z: 0 });
+const currentRotation = ref(props.rotation || { x: 0, y: 0, z: 0, w: 1 });
+
 defineExpose({
     isLoading,
     hasError,
     errorMessage,
+    position: currentPosition,
+    rotation: currentRotation,
 });
 
 // Get Vircadia instance
@@ -151,23 +167,30 @@ const asset = useVircadiaAsset({
     instance: vircadia,
 });
 
+// Prepare initial meta data with position and rotation
+const getInitialMetaData = () => {
+    return JSON.stringify({
+        type: { value: "Model" },
+        modelURL: { value: props.fileName },
+        position: props.position
+            ? {
+                  value: props.position,
+              }
+            : undefined,
+        rotation: props.rotation
+            ? {
+                  value: props.rotation,
+              }
+            : undefined,
+    });
+};
+
 const entity = useVircadiaEntity({
     entityName: ref(props.fileName),
     selectClause: "general__entity_id, general__entity_name, meta__data",
     insertClause:
         "(general__entity_name, meta__data) VALUES ($1, $2) RETURNING general__entity_id",
-    insertParams: [
-        props.fileName,
-        JSON.stringify({
-            type: { value: "Model" },
-            modelURL: { value: props.fileName },
-            position: props.position
-                ? {
-                      value: props.position,
-                  }
-                : undefined,
-        }),
-    ],
+    insertParams: [props.fileName, getInitialMetaData()],
     instance: vircadia,
 });
 
@@ -188,6 +211,192 @@ watch(
     },
     { immediate: true },
 );
+
+// Function to update mesh positions
+const updateMeshPositions = () => {
+    if (meshes.value.length === 0) return;
+
+    for (const mesh of meshes.value) {
+        if (!mesh.parent) {
+            mesh.position.set(
+                currentPosition.value.x,
+                currentPosition.value.y,
+                currentPosition.value.z,
+            );
+        }
+    }
+};
+
+// Function to update mesh rotations
+const updateMeshRotations = () => {
+    if (meshes.value.length === 0) return;
+
+    for (const mesh of meshes.value) {
+        if (!mesh.parent) {
+            const rotation = new Quaternion(
+                currentRotation.value.x,
+                currentRotation.value.y,
+                currentRotation.value.z,
+                currentRotation.value.w,
+            );
+            mesh.rotationQuaternion = rotation;
+        }
+    }
+};
+
+// Create a throttled function to update the entity in the database
+const throttledEntityUpdate = useThrottleFn(async () => {
+    if (!entity.entityData.value?.general__entity_id) {
+        console.warn("Cannot update entity: No entity ID available");
+        return;
+    }
+
+    // Prepare the updated meta data
+    const metaData = entity.entityData.value.meta__data || {};
+    const updatedMetaData = {
+        ...metaData,
+        position: { value: currentPosition.value },
+        rotation: { value: currentRotation.value },
+    };
+
+    // Update the entity with new meta data
+    console.log("Updating entity position and rotation:", updatedMetaData);
+    entity.executeUpdate("meta__data = $2", [JSON.stringify(updatedMetaData)]);
+}, props.throttleInterval);
+
+// Watch for changes to currentPosition
+watch(
+    currentPosition,
+    (newPosition) => {
+        updateMeshPositions();
+        throttledEntityUpdate();
+        emit("update:position", newPosition);
+    },
+    { deep: true },
+);
+
+// Watch for changes to currentRotation
+watch(
+    currentRotation,
+    (newRotation) => {
+        updateMeshRotations();
+        throttledEntityUpdate();
+        emit("update:rotation", newRotation);
+    },
+    { deep: true },
+);
+
+// Watch for changes to props.position
+watch(
+    () => props.position,
+    (newPosition) => {
+        if (
+            newPosition &&
+            (newPosition.x !== currentPosition.value.x ||
+                newPosition.y !== currentPosition.value.y ||
+                newPosition.z !== currentPosition.value.z)
+        ) {
+            currentPosition.value = { ...newPosition };
+        }
+    },
+    { deep: true },
+);
+
+// Watch for changes to props.rotation
+watch(
+    () => props.rotation,
+    (newRotation) => {
+        if (
+            newRotation &&
+            (newRotation.x !== currentRotation.value.x ||
+                newRotation.y !== currentRotation.value.y ||
+                newRotation.z !== currentRotation.value.z ||
+                newRotation.w !== currentRotation.value.w)
+        ) {
+            currentRotation.value = { ...newRotation };
+        }
+    },
+    { deep: true },
+);
+
+// Load model when asset data is available
+const loadModel = async () => {
+    if (!asset.assetData.value || !props.scene) {
+        console.warn(
+            `Asset: ${asset.assetData.value ? "Ready" : "Not ready"}.`,
+        );
+        console.warn(`Scene: ${props.scene ? "Ready" : "Not ready"}.`);
+        return;
+    }
+
+    const assetData = asset.assetData.value;
+
+    if (!assetData.blobUrl) {
+        console.warn("Asset blob URL not available.");
+        return;
+    }
+
+    if (meshes.value.length > 0) {
+        console.log(`Model '${props.fileName}' already loaded. Skipping.`);
+        return;
+    }
+
+    try {
+        const pluginExtension =
+            assetData.mimeType === "model/gltf-binary" ? ".glb" : ".gltf";
+        console.log(`Loading model '${props.fileName}' using blob URL...`);
+
+        // Using ImportMeshAsync with correct parameter usage
+        const result = await ImportMeshAsync(assetData.blobUrl, props.scene, {
+            pluginExtension,
+        });
+
+        // Apply lightmaps to the loaded meshes
+        console.log(`Processing lightmaps for '${props.fileName}'...`);
+        const processedMeshes = await loadLightmap(result.meshes, props.scene);
+
+        meshes.value = processedMeshes;
+
+        // Extract position and rotation from entity data if available
+        if (entity.entityData.value?.meta__data) {
+            const entityMetaData = entity.entityData.value.meta__data;
+            if (
+                typeof entityMetaData === "object" &&
+                entityMetaData.position?.value
+            ) {
+                currentPosition.value = { ...entityMetaData.position.value };
+            }
+
+            if (
+                typeof entityMetaData === "object" &&
+                entityMetaData.rotation?.value
+            ) {
+                currentRotation.value = { ...entityMetaData.rotation.value };
+            }
+        } else {
+            // Use props values as defaults
+            if (props.position) {
+                currentPosition.value = { ...props.position };
+            }
+
+            if (props.rotation) {
+                currentRotation.value = { ...props.rotation };
+            }
+        }
+
+        // Apply position and rotation to meshes
+        updateMeshPositions();
+        updateMeshRotations();
+
+        console.log(
+            `Model '${props.fileName}' loaded successfully (${meshes.value.length} meshes).`,
+        );
+    } catch (error) {
+        console.error(`Error loading model '${props.fileName}':`, error);
+        hasError.value = true;
+        errorMessage.value = `Error loading model: ${error}`;
+    }
+};
 
 /**
  * Loads and applies lightmaps to meshes in a scene
@@ -405,85 +614,6 @@ const loadLightmap = async (
     return meshes;
 };
 
-// Load model when asset data is available
-const loadModel = async () => {
-    if (!asset.assetData.value || !props.scene) {
-        console.warn(
-            `Asset: ${asset.assetData.value ? "Ready" : "Not ready"}.`,
-        );
-        console.warn(`Scene: ${props.scene ? "Ready" : "Not ready"}.`);
-        return;
-    }
-
-    const assetData = asset.assetData.value;
-
-    if (!assetData.blobUrl) {
-        console.warn("Asset blob URL not available.");
-        return;
-    }
-
-    if (meshes.value.length > 0) {
-        console.log(`Model '${props.fileName}' already loaded. Skipping.`);
-        return;
-    }
-
-    try {
-        const pluginExtension =
-            assetData.mimeType === "model/gltf-binary" ? ".glb" : ".gltf";
-        console.log(`Loading model '${props.fileName}' using blob URL...`);
-
-        // Using ImportMeshAsync with correct parameter usage
-        const result = await ImportMeshAsync(assetData.blobUrl, props.scene, {
-            pluginExtension,
-        });
-
-        // Apply lightmaps to the loaded meshes
-        console.log(`Processing lightmaps for '${props.fileName}'...`);
-        const processedMeshes = await loadLightmap(result.meshes, props.scene);
-
-        meshes.value = processedMeshes;
-
-        // Position the root meshes based on entity data
-        if (entity.entityData.value?.meta__data) {
-            const entityMetaData = entity.entityData.value.meta__data;
-            if (
-                typeof entityMetaData === "object" &&
-                entityMetaData.position?.value
-            ) {
-                const positionData = entityMetaData.position.value;
-                for (const mesh of meshes.value) {
-                    if (!mesh.parent) {
-                        mesh.position.set(
-                            positionData.x,
-                            positionData.y,
-                            positionData.z,
-                        );
-                    }
-                }
-            }
-        } else if (props.position) {
-            // Apply default position from props
-            for (const mesh of meshes.value) {
-                if (!mesh.parent) {
-                    mesh.position.set(
-                        props.position.x,
-                        props.position.y,
-                        props.position.z,
-                    );
-                }
-            }
-        }
-
-        console.log(
-            `Model '${props.fileName}' loaded successfully (${meshes.value.length} meshes).`,
-        );
-    } catch (error) {
-        console.error(`Error loading model '${props.fileName}':`, error);
-        hasError.value = true;
-        errorMessage.value = `Error loading model: ${error}`;
-    }
-};
-
 // Watch for asset data to load model
 watch(
     () => asset.assetData.value,
@@ -531,6 +661,36 @@ watch(
                 `Entity data available for ${props.fileName}:`,
                 entityData,
             );
+
+            // Check for updated position/rotation in entity data
+            if (entityData.meta__data) {
+                const metaData = entityData.meta__data;
+
+                if (typeof metaData === "object" && metaData.position?.value) {
+                    const newPosition = metaData.position.value;
+                    // Only update if different to avoid circular updates
+                    if (
+                        newPosition.x !== currentPosition.value.x ||
+                        newPosition.y !== currentPosition.value.y ||
+                        newPosition.z !== currentPosition.value.z
+                    ) {
+                        currentPosition.value = { ...newPosition };
+                    }
+                }
+
+                if (typeof metaData === "object" && metaData.rotation?.value) {
+                    const newRotation = metaData.rotation.value;
+                    // Only update if different to avoid circular updates
+                    if (
+                        newRotation.x !== currentRotation.value.x ||
+                        newRotation.y !== currentRotation.value.y ||
+                        newRotation.z !== currentRotation.value.z ||
+                        newRotation.w !== currentRotation.value.w
+                    ) {
+                        currentRotation.value = { ...newRotation };
+                    }
+                }
+            }
         }
     },
 );

@@ -14,13 +14,14 @@
         </div>
         
         <!-- Only render entities when scene is available -->
-        <template v-if="sceneInitialized">
+        <template v-if="sceneInitialized && scene">
             <StaticBabylonModel
                 v-for="(model, index) in modelDefinitions"
                 :key="model.fileName"
                 :scene="scene"
                 :fileName="model.fileName"
                 :position="model.position"
+                :throttle-interval="1000"
                 :ref="el => modelRefs[index] = el"
             />
         </template>

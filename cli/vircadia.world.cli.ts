@@ -1588,7 +1588,6 @@ export namespace Server_CLI {
             outputDir?: string;
         };
     }) {
-        const syncGroup = data.options?.syncGroup;
         const options = {
             parallelProcessing: true,
             batchSize: 10,
@@ -1599,6 +1598,10 @@ export namespace Server_CLI {
         const outputDir =
             options.outputDir ||
             VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SYNC_ASSET_DIR;
+
+        if (!outputDir) {
+            throw new Error("Output directory not configured");
+        }
 
         const db = PostgresClient.getInstance({
             debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
@@ -1630,7 +1633,7 @@ export namespace Server_CLI {
             }
 
             // Query assets, optionally filtering by sync group
-            const assetsQuery = syncGroup
+            const assetsQuery = options.syncGroup
                 ? sql<
                       Pick<
                           Entity.Asset.I_Asset,
@@ -1644,7 +1647,7 @@ export namespace Server_CLI {
                         asset__data__bytea,
                         asset__mime_type 
                     FROM entity.entity_assets 
-                    WHERE group__sync = ${syncGroup}
+                    WHERE group__sync = ${options.syncGroup}
                   `
                 : sql<
                       Pick<
@@ -1664,8 +1667,8 @@ export namespace Server_CLI {
             const assets = await assetsQuery;
 
             log({
-                message: syncGroup
-                    ? `Retrieved ${assets.length} assets with sync group: ${syncGroup}`
+                message: options.syncGroup
+                    ? `Retrieved ${assets.length} assets with sync group: ${options.syncGroup}`
                     : `Retrieved ${assets.length} assets from database`,
                 type: "info",
                 suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,

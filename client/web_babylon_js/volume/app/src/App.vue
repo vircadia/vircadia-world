@@ -233,8 +233,13 @@ const loadEnvironments = async () => {
 
 // Initialize BabylonJS
 const initializeBabylon = async () => {
-    if (!renderCanvas.value || !navigator.gpu) {
-        console.error("WebGPU not supported or canvas not found.");
+    if (!navigator.gpu) {
+        console.error("WebGPU not supported.");
+        return false;
+    }
+
+    if (!renderCanvas.value) {
+        console.error("Canvas not found.");
         return false;
     }
 

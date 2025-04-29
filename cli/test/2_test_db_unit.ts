@@ -38,8 +38,6 @@ async function readDiscGlb(): Promise<BunFile> {
     return Bun.file(glbPath);
 }
 
-// TODO: Add benchmarks.
-
 describe("DB", () => {
     beforeAll(async () => {
         log({

@@ -23,7 +23,7 @@ git submodule update --init --recursive
 
 ### Deploy
 
-Afterward, use the [CLI](./cli/README.md) to start the project.
+Afterward, use the [CLI](./cli/README.mdx) to start the project.
 
 ## Core features
 

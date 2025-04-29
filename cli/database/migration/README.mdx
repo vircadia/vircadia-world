@@ -2,8 +2,6 @@
 sidebar_label: World Database Structure
 ---
 
-import Tabs from '@theme/Tabs';
-import TabItem from '@theme/TabItem';
 import CodeBlock from '@theme/CodeBlock';
 
 import baseSql from '!!raw-loader!./1_BASE.sql';
@@ -16,62 +14,32 @@ import tickSql from '!!raw-loader!./5_TICK.sql';
 
 These SQL migration files define the core database structure for Vircadia World. They are executed in numeric order to set up the PostgreSQL database schema.
 
-<Tabs>
-  <TabItem value="base" label="1. Base">
-    <p>
-        The Base SQL file sets up the initial database security and permission structure:
-        - Creates the core proxy role for database access
-        - Sets up basic security permissions
-        - Configures the PostgreSQL environment
-    </p>
-    <CodeBlock language="sql" title="1_BASE.sql">
-      {baseSql}
-    </CodeBlock>
-  </TabItem>
-  <TabItem value="auth" label="2. Authentication">
-    <p>
-        The Authentication SQL file establishes the authentication system:
-        - Defines user authentication tables
-        - Creates agent profiles and session management
-        - Sets up authentication providers and sync groups
-    </p>
-    <CodeBlock language="sql" title="2_AUTH.sql">
-      {authSql}
-    </CodeBlock>
-  </TabItem>
-  <TabItem value="config" label="3. Configuration">
-    <p>
-        The Configuration SQL file defines system configuration tables:
-        - Entity configuration settings
-        - Network configuration parameters
-        - Authentication system configuration
-        - Database versioning information
-    </p>
-    <CodeBlock language="sql" title="3_CONFIG.sql">
-      {configSql}
-    </CodeBlock>
-  </TabItem>
-  <TabItem value="entity" label="4. Entity">
-    <p>
-        The Entity SQL file creates the entity management system:
-        - Core entity data structure
-        - Entity relationships and hierarchy
-        - Asset management
-        - Access control and ownership
-    </p>
-    <CodeBlock language="sql" title="4_ENTITY.sql">
-      {entitySql}
-    </CodeBlock>
-  </TabItem>
-  <TabItem value="tick" label="5. Tick">
-    <p>
-        The Tick SQL file implements time-series state tracking:
-        - World tick state management
-        - Entity state history
-        - Performance metrics and analytics
-    </p>
-    <CodeBlock language="sql" title="5_TICK.sql">
-      {tickSql}
-    </CodeBlock>
-  </TabItem>
-</Tabs>
+## 1. Base
+
+<CodeBlock language="sql" title="1_BASE.sql">
+  {baseSql}
+</CodeBlock>
+
+## 2. Authentication
+
+<CodeBlock language="sql" title="2_AUTH.sql">
+  {authSql}
+</CodeBlock>
+
+## 3. Configuration
+
+<CodeBlock language="sql" title="3_CONFIG.sql">
+  {configSql}
+</CodeBlock>
+
+## 4. Entity
+
+<CodeBlock language="sql" title="4_ENTITY.sql">
+  {entitySql}
+</CodeBlock>
+
+## 5. Tick
+
+<CodeBlock language="sql" title="5_TICK.sql">
+  {tickSql}
+</CodeBlock>

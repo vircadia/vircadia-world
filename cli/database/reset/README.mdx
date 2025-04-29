@@ -1,0 +1,17 @@
+---
+sidebar_label: Database Reset
+---
+
+import CodeBlock from '@theme/CodeBlock';
+
+import resetSql from '!!raw-loader!./reset.sql';
+
+# Database Reset
+
+This SQL script provides functionality to reset the Vircadia World database by dropping schemas, roles, and publications.
+
+## Reset Script
+
+<CodeBlock language="sql" title="reset.sql">
+  {resetSql}
+</CodeBlock>

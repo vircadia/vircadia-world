@@ -2,12 +2,10 @@
 sidebar_label: CLI
 ---
 
-import Tabs from '@theme/Tabs';
-import TabItem from '@theme/TabItem';
 import CodeBlock from '@theme/CodeBlock';
 
 import packageJson from '!!raw-loader!./package.json';
-import cliConfigTs from '!!raw-loader!./vircadia-world-sdk-ts/config/vircadia.cli.config.ts';
+import cliConfigTs from '!!raw-loader!../sdk/vircadia-world-sdk-ts/config/vircadia.cli.config.ts';
 
 # CLI
 
@@ -21,190 +19,237 @@ bun run server:init
 bun run client:init
 ```
 
+Then test your world using the default web client:
+
+```bash
+bun run dev:client:web_babylon_js
+```
+
 ## Available Commands
 
-<Tabs>
-  <TabItem value="install" label="Install Commands">
-    {(() => {
-      const pkg = JSON.parse(packageJson);
-      const installCommands = Object.entries(pkg.scripts)
-        .filter(([key]) => key.startsWith('install:'))
-        .map(([key, value]) => ({ key, value }));
-      
-      return (
-        <div>
-          <p>Installation commands:</p>
-          <table>
-            <thead>
-              <tr>
-                <th>Command</th>
-                <th>Description</th>
-              </tr>
-            </thead>
-            <tbody>
-              {installCommands.map(({key, value}) => (
-                <tr key={key}>
-                  <td><code>bun run {key}</code></td>
-                  <td>{value}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
-    })()}
-  </TabItem>
-  <TabItem value="dev" label="Dev Commands">
-    {(() => {
-      const pkg = JSON.parse(packageJson);
-      const devCommands = Object.entries(pkg.scripts)
-        .filter(([key]) => key.startsWith('dev:'))
-        .map(([key, value]) => ({ key, value }));
-      
-      return (
-        <div>
-          <p>Development commands:</p>
-          <table>
-            <thead>
-              <tr>
-                <th>Command</th>
-                <th>Description</th>
-              </tr>
-            </thead>
-            <tbody>
-              {devCommands.map(({key, value}) => (
-                <tr key={key}>
-                  <td><code>bun run {key}</code></td>
-                  <td>{value}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
-    })()}
-  </TabItem>
-  <TabItem value="test" label="Test Commands">
-    {(() => {
-      const pkg = JSON.parse(packageJson);
-      const testCommands = Object.entries(pkg.scripts)
-        .filter(([key]) => key.startsWith('test:'))
-        .map(([key, value]) => ({ key, value }));
-      
-      return (
-        <div>
-          <p>The following test commands are available:</p>
-          <table>
-            <thead>
-              <tr>
-                <th>Command</th>
-                <th>Description</th>
-              </tr>
-            </thead>
-            <tbody>
-              {testCommands.map(({key, value}) => (
-                <tr key={key}>
-                  <td><code>bun run {key}</code></td>
-                  <td>{value}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
-    })()}
-  </TabItem>
-  <TabItem value="server" label="Server Commands">
-    {(() => {
-      const pkg = JSON.parse(packageJson);
-      const serverCommands = Object.entries(pkg.scripts)
-        .filter(([key]) => key.startsWith('server:') && !key.startsWith('server:postgres:'))
-        .map(([key, value]) => ({ key, value }));
-      
-      return (
-        <div>
-          <p>Server management commands:</p>
-          <table>
-            <thead>
-              <tr>
-                <th>Command</th>
-                <th>Description</th>
-              </tr>
-            </thead>
-            <tbody>
-              {serverCommands.map(({key, value}) => (
-                <tr key={key}>
-                  <td><code>bun run {key}</code></td>
-                  <td>{value}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
-    })()}
-  </TabItem>
-  <TabItem value="client" label="Client Commands">
-    {(() => {
-      const pkg = JSON.parse(packageJson);
-      const clientCommands = Object.entries(pkg.scripts)
-        .filter(([key]) => key.startsWith('client:'))
-        .map(([key, value]) => ({ key, value }));
-      
-      return (
-        <div>
-          <p>Client management commands:</p>
-          <table>
-            <thead>
-              <tr>
-                <th>Command</th>
-                <th>Description</th>
-              </tr>
-            </thead>
-            <tbody>
-              {clientCommands.map(({key, value}) => (
-                <tr key={key}>
-                  <td><code>bun run {key}</code></td>
-                  <td>{value}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
-    })()}
-  </TabItem>
-  <TabItem value="clean" label="Clean Commands">
-    {(() => {
-      const pkg = JSON.parse(packageJson);
-      const cleanCommands = Object.entries(pkg.scripts)
-        .filter(([key]) => key.startsWith('clean:'))
-        .map(([key, value]) => ({ key, value }));
-      
-      return (
-        <div>
-          <p>Clean commands for removing node_modules:</p>
-          <table>
-            <thead>
-              <tr>
-                <th>Command</th>
-                <th>Description</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cleanCommands.map(({key, value}) => (
-                <tr key={key}>
-                  <td><code>bun run {key}</code></td>
-                  <td>{value}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
-    })()}
-  </TabItem>
-</Tabs> 
+### Install Commands
+
+{(() => {
+  const pkg = JSON.parse(packageJson);
+  const commands = Object.entries(pkg.scripts)
+    .filter(([key]) => key.startsWith('install:'))
+    .map(([key, value]) => ({ key, value }));
+  
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Command</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        {commands.map(({key, value}) => (
+          <tr key={key}>
+            <td><code>bun run {key}</code></td>
+            <td>{value}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+})()}
+
+### Dev Commands
+
+{(() => {
+  const pkg = JSON.parse(packageJson);
+  const commands = Object.entries(pkg.scripts)
+    .filter(([key]) => key.startsWith('dev:'))
+    .map(([key, value]) => ({ key, value }));
+  
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Command</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        {commands.map(({key, value}) => (
+          <tr key={key}>
+            <td><code>bun run {key}</code></td>
+            <td>{value}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+})()}
+
+### Test Commands
+
+{(() => {
+  const pkg = JSON.parse(packageJson);
+  const commands = Object.entries(pkg.scripts)
+    .filter(([key]) => key.startsWith('test:'))
+    .map(([key, value]) => ({ key, value }));
+  
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Command</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        {commands.map(({key, value}) => (
+          <tr key={key}>
+            <td><code>bun run {key}</code></td>
+            <td>{value}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+})()}
+
+### Server Commands
+
+{(() => {
+  const pkg = JSON.parse(packageJson);
+  const commands = Object.entries(pkg.scripts)
+    .filter(([key]) => key.startsWith('server:') && !key.startsWith('server:postgres:'))
+    .map(([key, value]) => ({ key, value }));
+  
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Command</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        {commands.map(({key, value}) => (
+          <tr key={key}>
+            <td><code>bun run {key}</code></td>
+            <td>{value}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+})()}
+
+### Server Postgres Commands
+
+{(() => {
+  const pkg = JSON.parse(packageJson);
+  const commands = Object.entries(pkg.scripts)
+    .filter(([key]) => key.startsWith('server:postgres:'))
+    .map(([key, value]) => ({ key, value }));
+  
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Command</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        {commands.map(({key, value}) => (
+          <tr key={key}>
+            <td><code>bun run {key}</code></td>
+            <td>{value}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+})()}
+
+### Client Commands
+
+{(() => {
+  const pkg = JSON.parse(packageJson);
+  const commands = Object.entries(pkg.scripts)
+    .filter(([key]) => key.startsWith('client:'))
+    .map(([key, value]) => ({ key, value }));
+  
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Command</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        {commands.map(({key, value}) => (
+          <tr key={key}>
+            <td><code>bun run {key}</code></td>
+            <td>{value}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+})()}
+
+### Clean Commands
+
+{(() => {
+  const pkg = JSON.parse(packageJson);
+  const commands = Object.entries(pkg.scripts)
+    .filter(([key]) => key.startsWith('clean:'))
+    .map(([key, value]) => ({ key, value }));
+  
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Command</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        {commands.map(({key, value}) => (
+          <tr key={key}>
+            <td><code>bun run {key}</code></td>
+            <td>{value}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+})()}
+
+### Build Commands
+
+{(() => {
+  const pkg = JSON.parse(packageJson);
+  const commands = Object.entries(pkg.scripts)
+    .filter(([key]) => key.startsWith('build:'))
+    .map(([key, value]) => ({ key, value }));
+  
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Command</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        {commands.map(({key, value}) => (
+          <tr key={key}>
+            <td><code>bun run {key}</code></td>
+            <td>{value}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+})()}
 
 ## Configuration
 

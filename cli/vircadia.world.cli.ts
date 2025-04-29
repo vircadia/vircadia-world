@@ -21,7 +21,6 @@ import {
     Service,
     type Auth,
 } from "../sdk/vircadia-world-sdk-ts/schema/schema.general.ts";
-import type postgres from "postgres";
 
 // TODO: Optimize the commands, get up and down rebuilds including init to work well.
 
@@ -1713,9 +1712,21 @@ if (import.meta.main) {
                 let waitInterval: number | undefined;
                 let waitTimeout: number | undefined;
 
-                if (additionalArgs.length > 0) {
-                    waitInterval = Number.parseInt(additionalArgs[0]);
-                    waitTimeout = Number.parseInt(additionalArgs[1]);
+                // Parse named arguments
+                for (let i = 0; i < additionalArgs.length; i++) {
+                    if (
+                        additionalArgs[i] === "--interval" &&
+                        i + 1 < additionalArgs.length
+                    ) {
+                        waitInterval = Number.parseInt(additionalArgs[i + 1]);
+                        i++; // Skip the next argument since we've already processed it
+                    } else if (
+                        additionalArgs[i] === "--timeout" &&
+                        i + 1 < additionalArgs.length
+                    ) {
+                        waitTimeout = Number.parseInt(additionalArgs[i + 1]);
+                        i++; // Skip the next argument since we've already processed it
+                    }
                 }
 
                 const health = await Server_CLI.isPostgresHealthy(
@@ -1745,10 +1756,23 @@ if (import.meta.main) {
                 let waitInterval: number | undefined;
                 let waitTimeout: number | undefined;
 
-                if (additionalArgs.length > 0) {
-                    waitInterval = Number.parseInt(additionalArgs[0]);
-                    waitTimeout = Number.parseInt(additionalArgs[1]);
+                // Parse named arguments
+                for (let i = 0; i < additionalArgs.length; i++) {
+                    if (
+                        additionalArgs[i] === "--interval" &&
+                        i + 1 < additionalArgs.length
+                    ) {
+                        waitInterval = Number.parseInt(additionalArgs[i + 1]);
+                        i++; // Skip the next argument since we've already processed it
+                    } else if (
+                        additionalArgs[i] === "--timeout" &&
+                        i + 1 < additionalArgs.length
+                    ) {
+                        waitTimeout = Number.parseInt(additionalArgs[i + 1]);
+                        i++; // Skip the next argument since we've already processed it
+                    }
                 }
+
                 const health = await Server_CLI.isPgwebHealthy(
                     waitInterval && waitTimeout
                         ? {
@@ -1776,9 +1800,21 @@ if (import.meta.main) {
                 let waitInterval: number | undefined;
                 let waitTimeout: number | undefined;
 
-                if (additionalArgs.length > 0) {
-                    waitInterval = Number.parseInt(additionalArgs[0]);
-                    waitTimeout = Number.parseInt(additionalArgs[1]);
+                // Parse named arguments
+                for (let i = 0; i < additionalArgs.length; i++) {
+                    if (
+                        additionalArgs[i] === "--interval" &&
+                        i + 1 < additionalArgs.length
+                    ) {
+                        waitInterval = Number.parseInt(additionalArgs[i + 1]);
+                        i++; // Skip the next argument since we've already processed it
+                    } else if (
+                        additionalArgs[i] === "--timeout" &&
+                        i + 1 < additionalArgs.length
+                    ) {
+                        waitTimeout = Number.parseInt(additionalArgs[i + 1]);
+                        i++; // Skip the next argument since we've already processed it
+                    }
                 }
 
                 const health = await Server_CLI.isWorldApiManagerHealthy(
@@ -1808,9 +1844,21 @@ if (import.meta.main) {
                 let waitInterval: number | undefined;
                 let waitTimeout: number | undefined;
 
-                if (additionalArgs.length > 0) {
-                    waitInterval = Number.parseInt(additionalArgs[0]);
-                    waitTimeout = Number.parseInt(additionalArgs[1]);
+                // Parse named arguments
+                for (let i = 0; i < additionalArgs.length; i++) {
+                    if (
+                        additionalArgs[i] === "--interval" &&
+                        i + 1 < additionalArgs.length
+                    ) {
+                        waitInterval = Number.parseInt(additionalArgs[i + 1]);
+                        i++; // Skip the next argument since we've already processed it
+                    } else if (
+                        additionalArgs[i] === "--timeout" &&
+                        i + 1 < additionalArgs.length
+                    ) {
+                        waitTimeout = Number.parseInt(additionalArgs[i + 1]);
+                        i++; // Skip the next argument since we've already processed it
+                    }
                 }
 
                 const health = await Server_CLI.isWorldTickManagerHealthy(
@@ -1997,9 +2045,21 @@ if (import.meta.main) {
                 let waitInterval: number | undefined;
                 let waitTimeout: number | undefined;
 
-                if (additionalArgs.length > 0) {
-                    waitInterval = Number.parseInt(additionalArgs[0]);
-                    waitTimeout = Number.parseInt(additionalArgs[1]);
+                // Parse named arguments
+                for (let i = 0; i < additionalArgs.length; i++) {
+                    if (
+                        additionalArgs[i] === "--interval" &&
+                        i + 1 < additionalArgs.length
+                    ) {
+                        waitInterval = Number.parseInt(additionalArgs[i + 1]);
+                        i++; // Skip the next argument since we've already processed it
+                    } else if (
+                        additionalArgs[i] === "--timeout" &&
+                        i + 1 < additionalArgs.length
+                    ) {
+                        waitTimeout = Number.parseInt(additionalArgs[i + 1]);
+                        i++; // Skip the next argument since we've already processed it
+                    }
                 }
 
                 const health = await Client_CLI.isWebBabylonJsProdHealthy({

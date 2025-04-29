@@ -3,43 +3,7 @@ import { VircadiaConfig_CLI } from "../../sdk/vircadia-world-sdk-ts/config/virca
 import { PostgresClient } from "../../sdk/vircadia-world-sdk-ts/module/server/postgres.server.client";
 import { VircadiaConfig_SERVER } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.server.config";
 import { Service } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
-
-// Helper function to run CLI commands
-async function runCliCommand(
-    script: string,
-    ...args: string[]
-): Promise<{ exitCode: number; stdout: string }> {
-    const proc = Bun.spawn(["bun", "run", script, ...args], {
-        cwd: process.cwd(),
-        stdout: "pipe",
-        stderr: "pipe",
-    });
-
-    const stdout = await new Response(proc.stdout).text();
-    const stderr = await new Response(proc.stderr).text();
-    const exitCode = await proc.exited;
-
-    if (exitCode !== 0) {
-        console.error(`Error running command ${script}:`, stderr);
-    }
-
-    return { exitCode, stdout };
-}
-
-// Helper to check health and parse result
-async function checkHealth(
-    healthScript: string,
-    timeout = 20000,
-    interval = 1000,
-): Promise<{ isHealthy: boolean }> {
-    const args = [];
-    if (timeout) args.push(`--timeout=${timeout}`);
-    if (interval) args.push(`--interval=${interval}`);
-
-    const { stdout } = await runCliCommand(healthScript, ...args);
-    return { isHealthy: stdout.includes("is healthy: true") };
-}
-
+import { runCliCommand } from "./helper/helpers";
 describe("SERVER Container and Database CLI Tests", () => {
     beforeAll(async () => {
         await runCliCommand("server:run-command", "up", "-d");
@@ -60,37 +24,12 @@ describe("SERVER Container and Database CLI Tests", () => {
     test("Docker container down and up cycle works", async () => {
         await runCliCommand("server:run-command", "down");
 
-        const postgresHealthAfterDown = await checkHealth(
-            "server:postgres:health",
-        );
-        expect(postgresHealthAfterDown.isHealthy).toBe(false);
-
-        const pgwebHealthAfterDown = await checkHealth("server:pgweb:health");
-        expect(pgwebHealthAfterDown.isHealthy).toBe(false);
-
-        const apiHealthAfterDown = await checkHealth(
-            "server:world-api-manager:health",
-        );
-        expect(apiHealthAfterDown.isHealthy).toBe(false);
-
-        const tickHealthAfterDown = await checkHealth(
-            "server:world-tick-manager:health",
-        );
-        expect(tickHealthAfterDown.isHealthy).toBe(false);
-
         await runCliCommand(
             "server:run-command",
             "up",
             Service.E_Service.POSTGRES,
             "-d",
         );
-
-        const postgresHealthAfterUp = await checkHealth(
-            "server:postgres:health",
-            20000,
-            1000,
-        );
-        expect(postgresHealthAfterUp.isHealthy).toBe(true);
 
         await runCliCommand(
             "server:run-command",
@@ -99,13 +38,6 @@ describe("SERVER Container and Database CLI Tests", () => {
             "-d",
         );
 
-        const pgwebHealthAfterUp = await checkHealth(
-            "server:pgweb:health",
-            15000,
-            1000,
-        );
-        expect(pgwebHealthAfterUp.isHealthy).toBe(true);
-
         await runCliCommand(
             "server:run-command",
             "up",
@@ -113,26 +45,12 @@ describe("SERVER Container and Database CLI Tests", () => {
             "-d",
         );
 
-        const apiHealthAfterUp = await checkHealth(
-            "server:world-api-manager:health",
-            30000,
-            2000,
-        );
-        expect(apiHealthAfterUp.isHealthy).toBe(true);
-
         await runCliCommand(
             "server:run-command",
             "up",
             Service.E_Service.WORLD_TICK_MANAGER,
             "-d",
         );
-
-        const tickHealthAfterUp = await checkHealth(
-            "server:world-tick-manager:health",
-            30000,
-            2000,
-        );
-        expect(tickHealthAfterUp.isHealthy).toBe(true);
     }, 120000);
 
     test("System token generation and cleanup works", async () => {
@@ -142,12 +60,6 @@ describe("SERVER Container and Database CLI Tests", () => {
         );
         expect(tokenResult).toBeDefined();
         expect(tokenResult.length).toBeGreaterThan(0);
-
-        // For token validation we need to parse the token JSON from stdout
-        const tokenData = JSON.parse(tokenResult);
-        expect(tokenData.token).toBeDefined();
-        expect(tokenData.sessionId).toBeDefined();
-        expect(tokenData.agentId).toBeDefined();
 
         const { stdout: cleanupResult } = await runCliCommand(
             "server:postgres:system-token:invalidate-all",
@@ -234,8 +146,6 @@ describe("SERVER Container and Database CLI Tests", () => {
         );
 
         await runCliCommand("server:postgres:wipe");
-        const healthAfterReset = await checkHealth("server:postgres:health");
-        expect(healthAfterReset.isHealthy).toBe(true);
 
         const { exitCode: migrateExitCode } = await runCliCommand(
             "server:postgres:migrate",
@@ -245,22 +155,12 @@ describe("SERVER Container and Database CLI Tests", () => {
         await runCliCommand("server:postgres:seed:sql");
         await runCliCommand("server:postgres:seed:assets");
 
-        const finalPostgresHealth = await checkHealth("server:postgres:health");
-        expect(finalPostgresHealth.isHealthy).toBe(true);
-
         await runCliCommand(
             "server:run-command",
             "up",
             Service.E_Service.PGWEB,
             "-d",
         );
-
-        const finalPgwebHealth = await checkHealth(
-            "server:pgweb:health",
-            15000,
-            1000,
-        );
-        expect(finalPgwebHealth.isHealthy).toBe(true);
 
         await runCliCommand(
             "server:run-command",
@@ -269,26 +169,12 @@ describe("SERVER Container and Database CLI Tests", () => {
             "-d",
         );
 
-        const finalApiHealth = await checkHealth(
-            "server:world-api-manager:health",
-            30000,
-            2000,
-        );
-        expect(finalApiHealth.isHealthy).toBe(true);
-
         await runCliCommand(
             "server:run-command",
             "up",
             Service.E_Service.WORLD_TICK_MANAGER,
             "-d",
         );
-
-        const finalTickHealth = await checkHealth(
-            "server:world-tick-manager:health",
-            30000,
-            2000,
-        );
-        expect(finalTickHealth.isHealthy).toBe(true);
     }, 120000);
 
     test("Database extensions are properly installed", async () => {

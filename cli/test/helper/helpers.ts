@@ -417,3 +417,24 @@ export async function cleanupTestAssets(data: {
         }
     });
 }
+
+export async function runCliCommand(
+    script: string,
+    ...args: string[]
+): Promise<{ exitCode: number; stdout: string }> {
+    const proc = Bun.spawn(["bun", "run", script, ...args], {
+        cwd: process.cwd(),
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+
+    const stdout = await new Response(proc.stdout).text();
+    const stderr = await new Response(proc.stderr).text();
+    const exitCode = await proc.exited;
+
+    if (exitCode !== 0) {
+        console.error(`Error running command ${script}:`, stderr);
+    }
+
+    return { exitCode, stdout };
+}

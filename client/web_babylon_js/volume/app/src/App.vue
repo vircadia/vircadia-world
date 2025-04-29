@@ -233,7 +233,7 @@ const loadEnvironments = async () => {
 
 // Initialize BabylonJS
 const initializeBabylon = async () => {
-    if (!navigator.gpu) {
+    if (!(await navigator.gpu?.requestAdapter())) {
         console.error("WebGPU not supported.");
         return false;
     }

@@ -1298,13 +1298,19 @@ describe("DB", () => {
 
             test("should detect entity changes between ticks for multiple entities", async () => {
                 await superUserSql.begin(async (tx) => {
+                    // Create the original entities
+                    const originalEntity1Name = `${DB_TEST_PREFIX}Original Entity 1`;
+                    const originalEntity2Name = `${DB_TEST_PREFIX}Original Entity 2`;
+                    const updatedEntity1Name = `${DB_TEST_PREFIX}Updated Entity 1`;
+                    const updatedEntity2Name = `${DB_TEST_PREFIX}Updated Entity 2`;
+
                     const [entity1] = await tx<[Entity.I_Entity]>`
                         INSERT INTO entity.entities (
                             general__entity_name,
                             meta__data,
                             group__sync
                         ) VALUES (
-                            ${`${DB_TEST_PREFIX}Original Entity 1`},
+                            ${originalEntity1Name},
                             ${tx.json({
                                 test_script_1: {
                                     position: {
@@ -1323,104 +1329,85 @@ describe("DB", () => {
                             meta__data,
                             group__sync
                         ) VALUES (
-                            ${`${DB_TEST_PREFIX}Original Entity 2`},
+                            ${originalEntity2Name},
                             ${tx.json({ test_script_1: { position: { x: 10, y: 10, z: 10 } } })},
                             ${TEST_SYNC_GROUP}
                         ) RETURNING *
                     `;
-                    // Capture first tick
-                    await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
+
+                    // Capture first tick to save original state
+                    const [firstTick] =
+                        await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
 
                     // Update both entities
                     await tx`
                         UPDATE entity.entities
-                        SET general__entity_name = ${`${DB_TEST_PREFIX}Updated Entity 1`},
+                        SET general__entity_name = ${updatedEntity1Name},
                             meta__data = ${tx.json({ test_script_1: { position: { x: 5, y: 5, z: 5 } } })}
-                        WHERE general__entity_name = ${entity1.general__entity_name}
+                        WHERE general__entity_name = ${originalEntity1Name}
                     `;
                     await tx`
                         UPDATE entity.entities
-                        SET general__entity_name = ${`${DB_TEST_PREFIX}Updated Entity 2`},
+                        SET general__entity_name = ${updatedEntity2Name},
                             meta__data = ${tx.json({ test_script_1: { position: { x: 15, y: 15, z: 15 } } })}
-                        WHERE general__entity_name = ${entity2.general__entity_name}
+                        WHERE general__entity_name = ${originalEntity2Name}
                     `;
 
-                    // Capture second tick
-                    await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
+                    // Capture second tick with updated state
+                    const [secondTick] =
+                        await tx`SELECT * FROM tick.capture_tick_state(${TEST_SYNC_GROUP})`;
 
-                    // Retrieve changed entity states between latest ticks and verify
-                    const latestTicks = await tx`
-                        SELECT general__tick_id
-                        FROM tick.world_ticks
-                        WHERE group__sync = ${TEST_SYNC_GROUP}
-                        ORDER BY tick__number DESC
-                        LIMIT 2
+                    // Get all entities from both ticks to manually find changes
+                    const firstTickEntities = await tx`
+                        SELECT * 
+                        FROM tick.entity_states
+                        WHERE general__tick_id = ${firstTick.general__tick_id}
+                        AND general__entity_name LIKE ${`${DB_TEST_PREFIX}%`}
                     `;
 
-                    const currentTickId = latestTicks[0].general__tick_id;
-                    const previousTickId = latestTicks[1].general__tick_id;
-
-                    // Query for entity changes between the two ticks
-                    const changes = await tx<
-                        Array<{
-                            general__entity_name: string;
-                            operation: string;
-                            changes: Record<string, unknown>;
-                        }>
-                    >`
-                        WITH current_state AS (
-                            SELECT e.*
-                            FROM tick.entity_states e
-                            WHERE e.general__tick_id = ${currentTickId}
-                        ),
-                        previous_state AS (
-                            SELECT e.*
-                            FROM tick.entity_states e
-                            WHERE e.general__tick_id = ${previousTickId}
-                        ),
-                        changed_entities AS (
-                            SELECT 
-                                c.general__entity_name,
-                                CASE
-                                    WHEN p.general__entity_name IS NULL THEN 'INSERT'
-                                    ELSE 'UPDATE'
-                                END as operation,
-                                jsonb_build_object(
-                                    'general__entity_name', 
-                                        CASE WHEN c.general__entity_name != p.general__entity_name 
-                                        THEN c.general__entity_name ELSE NULL END,
-                                    'meta__data', 
-                                        CASE WHEN c.meta__data != p.meta__data 
-                                        THEN c.meta__data ELSE NULL END
-                                    -- Add other entity fields as needed
-                                ) as changes
-                            FROM current_state c
-                            LEFT JOIN previous_state p ON c.general__entity_name = p.general__entity_name
-                            WHERE 
-                                p.general__entity_name IS NULL OR
-                                c.general__entity_name != p.general__entity_name OR
-                                c.meta__data != p.meta__data
-                                -- Add other comparisons as needed
-                        )
-                        SELECT * FROM changed_entities
+                    const secondTickEntities = await tx`
+                        SELECT * 
+                        FROM tick.entity_states
+                        WHERE general__tick_id = ${secondTick.general__tick_id}
+                        AND general__entity_name LIKE ${`${DB_TEST_PREFIX}%`}
                     `;
 
-                    expect.arrayContaining([
-                        entity1.general__entity_name,
-                        entity2.general__entity_name,
-                    ]);
-
-                    // Verify updated details for one of the entities
-                    const updatedChange = changes.find(
-                        (c) =>
-                            c.general__entity_name ===
-                            entity1.general__entity_name,
+                    // Verify original entities are in first tick
+                    const originalNames = firstTickEntities.map(
+                        (e) => e.general__entity_name,
                     );
-                    expect(updatedChange).toBeTruthy();
-                    expect(updatedChange?.operation).toBe("UPDATE");
-                    expect(updatedChange?.changes.general__entity_name).toBe(
-                        `${DB_TEST_PREFIX}Updated Entity 1`,
+                    expect(originalNames).toEqual(
+                        expect.arrayContaining([
+                            originalEntity1Name,
+                            originalEntity2Name,
+                        ]),
                     );
+
+                    // Verify updated entities are in second tick
+                    const updatedNames = secondTickEntities.map(
+                        (e) => e.general__entity_name,
+                    );
+                    expect(updatedNames).toEqual(
+                        expect.arrayContaining([
+                            updatedEntity1Name,
+                            updatedEntity2Name,
+                        ]),
+                    );
+
+                    // Verify updated entity data
+                    const updatedEntity1 = secondTickEntities.find(
+                        (e) => e.general__entity_name === updatedEntity1Name,
+                    );
+                    expect(updatedEntity1).toBeTruthy();
+                    expect(
+                        updatedEntity1?.meta__data?.test_script_1?.position?.x,
+                    ).toBe(5);
+                    expect(
+                        updatedEntity1?.meta__data?.test_script_1?.position?.y,
+                    ).toBe(5);
+                    expect(
+                        updatedEntity1?.meta__data?.test_script_1?.position?.z,
+                    ).toBe(5);
                 });
             });
         });

@@ -15,8 +15,6 @@ import {
     Quaternion,
     PhysicsAggregate,
     PhysicsShapeType,
-    type StandardMaterial,
-    type TransformNode,
     type Mesh,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF"; // Import the GLTF loader

@@ -19,7 +19,7 @@ import { VircadiaConfig_SERVER } from "../../sdk/vircadia-world-sdk-ts/config/vi
 import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
 import type { BunFile } from "bun";
 import { NullEngine, Scene, ImportMeshAsync } from "@babylonjs/core";
-import "@babylonjs/loaders";
+import "@babylonjs/loaders/glTF";
 
 let superUserSql: postgres.Sql;
 let proxyUserSql: postgres.Sql;

@@ -52,16 +52,14 @@ import {
     WebGPUEngine,
     HDRCubeTexture,
     DirectionalLight,
-    HavokPlugin,
     MeshBuilder,
     StandardMaterial,
     Color3,
     PhysicsAggregate,
     PhysicsShapeType,
 } from "@babylonjs/core";
-import "@babylonjs/loaders/glTF";
-import "@babylonjs/inspector";
-import HavokPhysics from "@babylonjs/havok";
+import { loadInspector, hideInspector } from "./utils/babylonHelpers";
+import { initializePhysics } from "./utils/physicsHelper";
 import { useVircadiaAsset } from "../../../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/composable/useVircadiaAsset";
 
 // Get the existing Vircadia connection from main.ts with proper typing
@@ -88,16 +86,14 @@ const isInspectorVisible = ref(false);
 const avatarRef = ref<InstanceType<typeof PhysicsAvatar> | null>(null);
 
 // Add function to toggle the inspector
-const toggleInspector = () => {
+const toggleInspector = async () => {
     if (!scene) return;
 
     if (!isInspectorVisible.value) {
-        scene.debugLayer.show({
-            embedMode: true,
-        });
+        await loadInspector(scene);
         isInspectorVisible.value = true;
     } else {
-        scene.debugLayer.hide();
+        hideInspector(scene);
         isInspectorVisible.value = false;
     }
 };
@@ -162,14 +158,8 @@ const isLoading = computed(() => {
 // Initialize physics engine
 const initPhysics = async (scene: Scene) => {
     try {
-        const havokInstance = await HavokPhysics();
-        // pass the engine to the plugin
-        const hk = new HavokPlugin(true, havokInstance);
         const gravityVector = new Vector3(0, -9.81, 0);
-        const enabled = scene.enablePhysics(gravityVector, hk);
-
-        console.log("Physics engine initialized: ", enabled);
-        return enabled;
+        return await initializePhysics(scene, gravityVector);
     } catch (error) {
         console.error("Error initializing physics engine:", error);
         return false;

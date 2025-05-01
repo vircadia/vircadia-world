@@ -1,4 +1,4 @@
-# web_babylon_js
+# Vircadia World Client (Web Babylon.js)
 
 This template should help get you started developing with Vue 3 in Vite.
 

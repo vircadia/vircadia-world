@@ -5,9 +5,9 @@ import "./assets/main.css";
 import {
     getInstanceKey,
     useVircadia,
-} from "../../../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/provider/useVircadia";
-import { VircadiaConfig_BROWSER_CLIENT } from "../../../../../sdk/vircadia-world-sdk-ts/config/vircadia.browser.client.config";
-import { Communication } from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+} from "../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/provider/useVircadia";
+import { VircadiaConfig_BROWSER_CLIENT } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.browser.client.config";
+import { Communication } from "../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 
 // Initialize Vircadia before creating the app
 const vircadiaWorld = useVircadia({

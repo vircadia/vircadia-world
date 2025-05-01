@@ -24,8 +24,8 @@ import {
 import { useDebounceFn } from "@vueuse/core";
 import { z } from "zod";
 
-import { useVircadiaEntity } from "../../../../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/composable/useVircadiaEntity";
-import { getInstanceKey } from "../../../../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/provider/useVircadia";
+import { useVircadiaEntity } from "../../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/composable/useVircadiaEntity";
+import { getInstanceKey } from "../../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/provider/useVircadia";
 
 // Define the props for the component
 const props = defineProps<{

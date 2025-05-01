@@ -4,41 +4,4 @@ sidebar_label: Server
 
 # Overview
 
-You can [configure](/vircadia-world/sdk/vircadia-world-sdk-ts/config/#server-configuration) the server by setting the environment variables before launching the service(s) with the CLI.
-
-## World API Manager
-
-The World API Manager is the interface between clients and the PostgreSQL database, and any other services that might be utilized.
-
-## World Tick Manager
-
-The World Tick Manager is in charge of tracking changes in the world at fixed intervals to enable advanced features such as anti-cheat, lag compensation, and more.
-
-## PostgreSQL
-
-The PostgreSQL service runs a vanilla PostgreSQL instance, this serves as the primary data store for your game.
-
-## PGWeb
-
-The PGWeb service is a service that allows you to manage the PostgreSQL database via a web interface.
-
-## API Endpoints and Connection
-
-The Vircadia World server exposes both REST and WebSocket endpoints for client-server communication. These endpoints are defined in the schema and can be accessed programmatically.
-
-### REST API
-
-The REST API is available at the base path `/world/rest`. Available endpoints include:
-
-- Session validation: `POST /world/rest/session/validate`
-- Service stats: `GET /stats`
-
-### WebSocket API
-
-The WebSocket connection is established by upgrading a connection at `/world/ws`. The WebSocket API supports these message types:
-
-- Query requests and responses
-- Tick notifications
-- Error responses
-
-For detailed information on connecting to these endpoints and available APIs, see the [API Reference](/vircadia-world/server/api-reference) documentation.
+You can [configure](/vircadia-world/sdk/vircadia-world-sdk-ts/config/#server-configuration) the server's services by setting the environment variables before launching the service(s) with the CLI.

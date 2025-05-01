@@ -5,7 +5,6 @@ sidebar_label: CLI
 import CodeBlock from '@theme/CodeBlock';
 
 import packageJson from '!!raw-loader!./package.json';
-import cliConfigTs from '!!raw-loader!../sdk/vircadia-world-sdk-ts/config/vircadia.cli.config.ts';
 
 # CLI
 
@@ -24,6 +23,10 @@ Then test your world using the default web client:
 ```bash
 bun run dev:client:web_babylon_js
 ```
+
+## Configuration
+
+The CLI can be [configured](/vircadia-world/sdk/vircadia-world-sdk-ts/config/#cli-configuration) by setting the environment variables before using the CLI.
 
 ## Available Commands
 
@@ -248,19 +251,5 @@ bun run dev:client:web_babylon_js
         ))}
       </tbody>
     </table>
-  );
-})()}
-
-## Configuration
-
-The CLI configuration options are defined in `vircadia-world-sdk-ts/config/vircadia.cli.config.ts`.
-
-{(() => {
-  return (
-    <div>
-      <CodeBlock language="typescript">
-        {cliConfigTs}
-      </CodeBlock>
-    </div>
   );
 })()}

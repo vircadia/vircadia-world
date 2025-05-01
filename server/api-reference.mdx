@@ -157,155 +157,110 @@ async connect(options?: { timeoutMs?: number }): Promise<ConnectionInfo> {
 
 WebSocket connections are established by upgrading a connection at `WS_UPGRADE_PATH` (`/world/ws`).
 
+### Establish Connection
+
+The WebSocket connection is established by creating a connection with search parameters:
+
+```typescript title="TypeScript WS upgrade example"
+// Format for WebSocket connection URL
+const url = new URL(`https://server-domain${Communication.WS_UPGRADE_PATH}`);
+url.searchParams.set("token", authToken);    // Authentication token
+url.searchParams.set("provider", authProvider);  // Authentication provider name
+const ws = new WebSocket(url);
+```
+
+Required URL parameters:
+- `token`: Authentication token obtained from the authentication provider
+- `provider`: Name of the authentication provider (e.g., 'system', 'local')
+
+These parameters are validated against the server using the `Communication.REST.Endpoint.AUTH_SESSION_VALIDATE` endpoint internally during the connection process.
+
 ### Message Types
 
-```typescript
-// From Communication.WebSocket namespace in schema.general.ts
-export enum MessageType {
-    GENERAL_ERROR_RESPONSE = "GENERAL_ERROR_RESPONSE",
-    QUERY_REQUEST = "QUERY_REQUEST",
-    QUERY_RESPONSE = "QUERY_RESPONSE",
-    SYNC_GROUP_UPDATES_RESPONSE = "SYNC_GROUP_UPDATES_RESPONSE",
-    TICK_NOTIFICATION = "TICK_NOTIFICATION",
-}
-```
+The following message types are available in the WebSocket API:
 
-### Query Implementation
-
-The SDK provides a query method for sending requests to the server:
-
-```typescript
-// From ConnectionManager.query in vircadia.client.core.ts
-async query<T = unknown>(data: {
-    query: string;
-    parameters?: unknown[];
-    timeoutMs?: number;
-}): Promise<Communication.WebSocket.QueryResponseMessage<T>> {
-    if (!this.isClientConnected()) {
-        throw new Error("Not connected to server");
-    }
-
-    const requestId = crypto.randomUUID();
-    const message = new Communication.WebSocket.QueryRequestMessage({
-        query: data.query,
-        parameters: data.parameters,
-        requestId,
-        errorMessage: null,
-    });
-
-    return new Promise<Communication.WebSocket.QueryResponseMessage<T>>(
-        (resolve, reject) => {
-            const timeout = setTimeout(() => {
-                this.pendingRequests.delete(requestId);
-                reject(new Error("Request timeout"));
-            }, data.timeoutMs ?? 10000);
-
-            this.pendingRequests.set(requestId, {
-                resolve: resolve as (value: unknown) => void,
-                reject,
-                timeout,
-            });
-            this.ws?.send(JSON.stringify(message));
-        },
-    );
-}
-```
-
-### Message Handling
-
-The SDK handles WebSocket messages as follows:
-
-```typescript
-// From ConnectionManager.handleMessage in vircadia.client.core.ts
-private handleMessage(event: MessageEvent): void {
-    try {
-        const message = JSON.parse(
-            event.data
-        ) as Communication.WebSocket.Message;
-        const request = this.pendingRequests.get(message.requestId);
-
-        if (request) {
-            clearTimeout(request.timeout);
-            this.pendingRequests.delete(message.requestId);
-
-            request.resolve(message);
-        }
-    } catch (error) {
-        log({
-            message: "Error handling WebSocket message:",
-            type: "error",
-            error,
-            debug: this.config.debug,
-            suppress: this.config.suppress,
-        });
-    }
-}
-```
-
-## Complete Usage Example
-
-Here's how to use the Vircadia Client Core to connect to a server:
-
-```typescript
-import { VircadiaClientCore } from '@vircadia/world-sdk-ts';
-
-// Create client instance
-const client = new VircadiaClientCore({
-    serverUrl: "wss://your-vircadia-server.com",
-    authToken: "your-auth-token",
-    authProvider: "your-auth-provider",
-    reconnectAttempts: 5,
-    reconnectDelay: 5000,
-    debug: true,
-});
-
-// Add event listeners
-client.Utilities.Connection.addEventListener("statusChange", () => {
-    const connectionInfo = client.Utilities.Connection.getConnectionInfo();
-    console.log("Connection status:", connectionInfo.status);
-});
-
-// Connect to server
-async function connect() {
-    try {
-        const connectionInfo = await client.Utilities.Connection.connect();
-        console.log("Connected!", connectionInfo);
-        
-        // Send a query
-        const result = await client.Utilities.Connection.query({
-            query: "SELECT * FROM entities WHERE id = $1",
-            parameters: ["some-entity-id"],
-            timeoutMs: 5000
-        });
-        
-        console.log("Query result:", result);
-    } catch (error) {
-        console.error("Connection error:", error);
-    }
-}
-
-connect();
-
-// Cleanup when done
-function cleanup() {
-    client.dispose();
-}
-```
-
-## Raw Loader Usage Note
-
-This documentation uses raw loaders to import code directly from the source files. In a real implementation, you would set up your documentation build process to use these loaders:
-
-```typescript
-// In your MDX file
-import SchemaGeneralRaw from '!!raw-loader!../../sdk/vircadia-world-sdk-ts/schema/schema.general.ts';
-import ClientCoreRaw from '!!raw-loader!../../sdk/vircadia-world-sdk-ts/module/client/core/vircadia.client.core.ts';
-
-// Then you can display sections or the entire raw code
-<CodeBlock language="typescript">{SchemaGeneralRaw}</CodeBlock>
-
-// Or use a custom parser to extract specific sections
-<CodeBlock language="typescript">{extractSection(SchemaGeneralRaw, 'Communication.REST')}</CodeBlock>
-```
-
-This ensures the documentation always reflects the latest code from the source files. 
+<table>
+  <thead>
+    <tr>
+      <th>Message Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    {Object.keys(SchemaGeneral.Communication.WebSocket.MessageType).map(key => {
+      const msgType = SchemaGeneral.Communication.WebSocket.MessageType[key];
+      const doc = SchemaGeneral.Communication.WebSocket.MessageTypeDocs[msgType];
+      return (
+        <>
+          <tr key={key}>
+            <td><code>{key}</code></td>
+            <td>{doc.description}</td>
+          </tr>
+          {doc.parameters && (
+            <tr>
+              <td colSpan={2}>
+                <details>
+                  <summary>Parameters</summary>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Type</th>
+                        <th>Required</th>
+                        <th>Description</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {doc.parameters.map(param => (
+                        <tr key={param.name}>
+                          <td><code>{param.name}</code></td>
+                          <td><code>{param.type}</code></td>
+                          <td>{param.required ? 'Yes' : 'No'}</td>
+                          <td>{param.description}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </details>
+              </td>
+            </tr>
+          )}
+          {doc.messageFormat && (
+            <tr>
+              <td colSpan={2}>
+                <details>
+                  <summary>Message Format</summary>
+                  <p><strong>Type:</strong> <code>{doc.messageFormat.type}</code></p>
+                  <p><strong>Description:</strong> {doc.messageFormat.description}</p>
+                  {doc.messageFormat.fields && (
+                    <>
+                      <h4>Fields</h4>
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Description</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {doc.messageFormat.fields.map(field => (
+                            <tr key={field.name}>
+                              <td><code>{field.name}</code></td>
+                              <td><code>{field.type}</code></td>
+                              <td>{field.description}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </>
+                  )}
+                </details>
+              </td>
+            </tr>
+          )}
+        </>
+      );
+    })}
+  </tbody>
+</table>

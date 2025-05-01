@@ -2,8 +2,9 @@
 sidebar_label: API Reference
 ---
 
-import SchemaGeneralRaw from '!!raw-loader!../../sdk/vircadia-world-sdk-ts/schema/schema.general.ts';
-import ClientCoreRaw from '!!raw-loader!../../sdk/vircadia-world-sdk-ts/module/client/core/vircadia.client.core.ts';
+import SchemaGeneralRaw from '!!raw-loader!../sdk/vircadia-world-sdk-ts/schema/schema.general.ts';
+import ClientCoreRaw from '!!raw-loader!../sdk/vircadia-world-sdk-ts/module/client/core/vircadia.client.core.ts';
+import * as SchemaGeneral from '../sdk/vircadia-world-sdk-ts/schema/schema.general';
 
 # Vircadia World API Reference
 
@@ -25,30 +26,91 @@ The REST API is accessible at the base path defined by `REST_BASE_PATH` (`/world
 
 ### Available Endpoints
 
-```typescript
-// From Communication.REST namespace in schema.general.ts
-export enum E_Endpoint {
-    AUTH_SESSION_VALIDATE = "AUTH_SESSION_VALIDATE",
-}
-```
-
-#### Session Validation
-
-```typescript
-// From Communication.REST.Endpoint in schema.general.ts
-AUTH_SESSION_VALIDATE: {
-    path: `${REST_BASE_PATH}/session/validate`,
-    method: "POST",
-    createRequest: (data: {
-        token: string;
-        provider: string;
-    }): string => JSON.stringify({
-        token: data.token,
-        provider: data.provider,
-    }),
-    // Response handlers omitted for brevity
-}
-```
+<table>
+  <thead>
+    <tr>
+      <th>Endpoint</th>
+      <th>Method</th>
+      <th>Path</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    {Object.keys(SchemaGeneral.Communication.REST.E_Endpoint).map(key => {
+      const endpointKey = SchemaGeneral.Communication.REST.E_Endpoint[key];
+      const endpoint = SchemaGeneral.Communication.REST.Endpoint[endpointKey];
+      return (
+        <>
+          <tr key={key}>
+            <td><code>{key}</code></td>
+            <td><code>{endpoint.method}</code></td>
+            <td><code>{endpoint.path}</code></td>
+            <td>{endpoint.description}</td>
+          </tr>
+          <tr>
+            <td colSpan={4}>
+              <details>
+                <summary>Parameters</summary>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Type</th>
+                      <th>Required</th>
+                      <th>Description</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {endpoint.parameters.map(param => (
+                      <tr key={param.name}>
+                        <td><code>{param.name}</code></td>
+                        <td><code>{param.type}</code></td>
+                        <td>{param.required ? 'Yes' : 'No'}</td>
+                        <td>{param.description}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </details>
+            </td>
+          </tr>
+          <tr>
+            <td colSpan={4}>
+              <details>
+                <summary>Returns</summary>
+                <p><strong>Type:</strong> <code>{endpoint.returns.type}</code></p>
+                <p><strong>Description:</strong> {endpoint.returns.description}</p>
+                {endpoint.returns.fields && (
+                  <>
+                    <h4>Fields</h4>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Name</th>
+                          <th>Type</th>
+                          <th>Description</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {endpoint.returns.fields.map(field => (
+                          <tr key={field.name}>
+                            <td><code>{field.name}</code></td>
+                            <td><code>{field.type}</code></td>
+                            <td>{field.description}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </>
+                )}
+              </details>
+            </td>
+          </tr>
+        </>
+      );
+    })}
+  </tbody>
+</table>
 
 ### SDK Implementation Example
 

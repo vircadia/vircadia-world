@@ -1,14 +1,14 @@
 import { VircadiaConfig_CLI } from "../sdk/vircadia-world-sdk-ts/config/vircadia.cli.config.ts";
 import { VircadiaConfig_BROWSER_CLIENT } from "../sdk/vircadia-world-sdk-ts/config/vircadia.browser.client.config.ts";
 import { VircadiaConfig_SERVER } from "../sdk/vircadia-world-sdk-ts/config/vircadia.server.config.ts";
-import { log } from "../sdk/vircadia-world-sdk-ts/module/general/log.ts";
+import { log } from "../sdk/vircadia-world-sdk-ts/module/internal/general.log.client.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { sign } from "jsonwebtoken";
-import { PostgresClient } from "../sdk/vircadia-world-sdk-ts/module/server/postgres.server.client.ts";
+import { PostgresClient } from "../sdk/vircadia-world-sdk-ts/module/internal/server.postgres.client.js";
 import {
     type Entity,
     Service,

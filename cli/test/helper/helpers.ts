@@ -1,7 +1,7 @@
 import type postgres from "postgres";
 import { sign } from "jsonwebtoken";
 import { expect } from "bun:test";
-import { log } from "../../../sdk/vircadia-world-sdk-ts/module/general/log";
+import { log } from "../../../sdk/vircadia-world-sdk-ts/module/internal/general.log.client";
 import { VircadiaConfig_CLI } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.cli.config";
 import type { Auth } from "../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
 

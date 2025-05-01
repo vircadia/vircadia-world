@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import type postgres from "postgres";
-import { PostgresClient } from "../../sdk/vircadia-world-sdk-ts/module/server/postgres.server.client";
+import { PostgresClient } from "../../sdk/vircadia-world-sdk-ts/module/internal/server.postgres.client";
 import type {
     Entity,
     Tick,
@@ -16,7 +16,7 @@ import {
 } from "./helper/helpers";
 import { VircadiaConfig_CLI } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.cli.config";
 import { VircadiaConfig_SERVER } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.server.config";
-import { log } from "../../sdk/vircadia-world-sdk-ts/module/general/log";
+import { log } from "../../sdk/vircadia-world-sdk-ts/module/internal/general.log.client";
 import type { BunFile } from "bun";
 import { NullEngine, Scene, ImportMeshAsync } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";

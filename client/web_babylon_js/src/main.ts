@@ -8,6 +8,7 @@ import {
 } from "../../../sdk/vircadia-world-sdk-ts/src/client/framework/vue/provider/useVircadia";
 import { VircadiaConfig_BROWSER_CLIENT } from "../../../sdk/vircadia-world-sdk-ts/src/client/config/browser/vircadia.browser.client.config";
 import { Communication } from "../../../sdk/vircadia-world-sdk-ts/src/schema/schema.general";
+import { useVircadia } from "@vircadia/world-sdk-ts";
 
 // Initialize Vircadia before creating the app
 const vircadiaWorld = useVircadia({

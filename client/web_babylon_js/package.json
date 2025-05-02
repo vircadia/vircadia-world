@@ -19,7 +19,8 @@
         "@vueuse/core": "^13.1.0",
         "lodash-es": "^4.17.21",
         "vue": "^3.5.13",
-        "zod": "^3.24.3"
+        "zod": "^3.24.3",
+        "@vircadia/world-sdk-ts": "file:../../sdk/vircadia-world-sdk-ts/package/vircadia-world-sdk-ts-0.0.1.tgz"
     },
     "devDependencies": {
         "@tsconfig/node22": "^22.0.1",

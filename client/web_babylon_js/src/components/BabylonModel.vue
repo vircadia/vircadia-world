@@ -3,7 +3,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, inject, type Ref } from "vue";
+import { ref, onMounted, onUnmounted, watch, inject } from "vue";
 import {
     type Scene,
     ImportMeshAsync,

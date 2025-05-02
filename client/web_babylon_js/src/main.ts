@@ -7,7 +7,7 @@ import {
     getInstanceKey,
     VircadiaConfig_BROWSER_CLIENT,
     Communication,
-} from "@vircadia/world-sdk-ts";
+} from "@vircadia/world-sdk-ts/browser";
 
 // Initialize Vircadia before creating the app
 const vircadiaWorld = useVircadia({

@@ -41,7 +41,7 @@
 
 <script setup lang="ts">
 import { inject, computed, watch, ref, onMounted, onUnmounted } from "vue";
-import { getInstanceKey } from "../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/provider/useVircadia";
+import { getInstanceKey } from "../../../sdk/vircadia-world-sdk-ts/src/client/framework/vue/provider/useVircadia";
 import BabylonModel from "./components/BabylonModel.vue";
 import PhysicsAvatar from "./components/PhysicsAvatar.vue";
 import type { BabylonModelDefinition } from "./components/BabylonModel.vue";
@@ -60,7 +60,7 @@ import {
 } from "@babylonjs/core";
 import { loadInspector, hideInspector } from "./utils/babylonHelpers";
 import { initializePhysics } from "./utils/physicsHelper";
-import { useVircadiaAsset } from "../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/composable/useVircadiaAsset";
+import { useVircadiaAsset } from "../../../sdk/vircadia-world-sdk-ts/src/client/framework/vue/composable/useVircadiaAsset";
 
 // Get the existing Vircadia connection from main.ts with proper typing
 const vircadiaWorld = inject(getInstanceKey("vircadiaWorld"));

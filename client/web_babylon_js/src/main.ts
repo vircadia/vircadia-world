@@ -1,13 +1,13 @@
-import { createApp, type InjectionKey } from "vue";
+import { createApp } from "vue";
 import App from "./App.vue";
 import "./assets/main.css";
 
 import {
     getInstanceKey,
     useVircadia,
-} from "../../../sdk/vircadia-world-sdk-ts/module/client/framework/vue/provider/useVircadia";
-import { VircadiaConfig_BROWSER_CLIENT } from "../../../sdk/vircadia-world-sdk-ts/config/vircadia.browser.client.config";
-import { Communication } from "../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+} from "../../../sdk/vircadia-world-sdk-ts/src/client/framework/vue/provider/useVircadia";
+import { VircadiaConfig_BROWSER_CLIENT } from "../../../sdk/vircadia-world-sdk-ts/src/client/config/browser/vircadia.browser.client.config";
+import { Communication } from "../../../sdk/vircadia-world-sdk-ts/src/schema/schema.general";
 
 // Initialize Vircadia before creating the app
 const vircadiaWorld = useVircadia({
@@ -31,7 +31,7 @@ const vircadiaWorld = useVircadia({
 const app = createApp(App);
 
 // Make the Vircadia instance available to all components
-// Note: The key needs to match exactly what is used in App.vue
+// Note: You need to use the same key in any components that need to access the Vircadia instance
 app.provide(getInstanceKey("vircadiaWorld"), vircadiaWorld);
 
 // Mount the app

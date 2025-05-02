@@ -8,16 +8,18 @@
         "install:server:api": "cd ../server/service/api/volume/app && bun install",
         "install:server:tick": "cd ../server/service/tick/volume/app && bun install",
         "install:cli": "bun install",
+        "install:client": "cd ../client/web_babylon_js && bun install",
 
         "clean:all": "bun run clean:cli && bun run clean:sdk",
         "clean:sdk": "cd ../sdk/vircadia-world-sdk-ts && rm -rf node_modules",
+        "clean:client": "cd ../client/web_babylon_js && rm -rf node_modules",
         "clean:cli": "rm -rf node_modules",
 
         "build:all": "bun run build:server:api && bun run build:server:tick",
         "build:server:api": "cd ../server/service/api/volume/app && bun run build",
         "build:server:tick": "cd ../server/service/tick/volume/app && bun run build",
         
-        "dev:client:web_babylon_js": "export VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN=$(bun run server:postgres:system-token true) && cd ../client/web_babylon_js/ && rm -rf node_modules && bun install && bun run dev",
+        "dev:client:web_babylon_js": "export VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN=$(bun run server:postgres:system-token true) && bun run clean:client && bun run install:client && cd ../client/web_babylon_js/ && bun run dev",
         
         "test:0_cli_server_unit": "bun test ./test/0_test_cli_server_unit.ts",
         "test:1_db_unit": "bun run server:run-command down vircadia_world_api_manager vircadia_world_tick_manager && bun test ./test/1_test_db_unit.ts && bun run server:run-command up vircadia_world_api_manager vircadia_world_tick_manager -d",
@@ -38,7 +40,7 @@
         "server:world-api-manager:health": "bun vircadia.world.cli.ts server:world-api-manager:health",
         "server:world-tick-manager:health": "bun vircadia.world.cli.ts server:world-tick-manager:health",
         "server:pgweb:health": "bun vircadia.world.cli.ts server:pgweb:health",
-        "server:pgweb:access-command": "bun vircadia.world.cli.ts server:pgweb:access-command",
+        "server:pgweb:access-command": "bun vircadia.world.cli.ts server:pgweb:access-command"
     },
     "dependencies": {
         "@babylonjs/core": "8.2.0",

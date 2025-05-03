@@ -1,8 +1,8 @@
 import path, { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { VircadiaConfig_SERVER_CONSTS } from "../../server/config/vircadia.server.consts";
-import { VircadiaConfig_SERVER } from "../../server/config/vircadia.server.config";
+import { VircadiaConfig_SERVER_CONSTS } from "../sdk/vircadia-world-sdk-ts/src/server/config/vircadia.server.consts";
+import { VircadiaConfig_SERVER } from "../sdk/vircadia-world-sdk-ts/src/server/config/vircadia.server.config";
 
 // CLI environment schema
 const cliEnvSchema = z.object({

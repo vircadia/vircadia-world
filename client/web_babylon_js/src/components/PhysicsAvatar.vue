@@ -3,7 +3,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, inject, computed } from "vue";
+import { ref, onMounted, onUnmounted, watch, computed, inject } from "vue";
 import {
     type Scene,
     Vector3,
@@ -24,8 +24,10 @@ import {
 import { useDebounceFn } from "@vueuse/core";
 import { z } from "zod";
 
-import { useVircadiaEntity } from "@vircadia/world-sdk-ts/browser";
-import { getInstanceKey } from "@vircadia/world-sdk-ts/browser";
+import {
+    useVircadiaEntity_Vue,
+    getVircadiaInstanceKey_Vue,
+} from "@vircadia/world-sdk-ts/browser";
 
 // Define the props for the component
 const props = defineProps<{
@@ -138,7 +140,7 @@ const currentCameraOrientation = ref({
 });
 
 // Get Vircadia instance
-const vircadia = inject(getInstanceKey("vircadiaWorld"));
+const vircadia = inject(getVircadiaInstanceKey_Vue());
 if (!vircadia) {
     throw new Error("Vircadia instance not found.");
 }
@@ -242,13 +244,12 @@ const getInitialMetaData = () => {
     return JSON.stringify(initialData);
 };
 
-const entity = useVircadiaEntity({
+const entity = useVircadiaEntity_Vue({
     entityName,
     selectClause: "general__entity_name, meta__data",
     insertClause:
         "(general__entity_name, meta__data) VALUES ($1, $2) RETURNING general__entity_name",
     insertParams: [entityName.value, getInitialMetaData()],
-    instance: vircadia,
 });
 
 // Update loading state based on entity status

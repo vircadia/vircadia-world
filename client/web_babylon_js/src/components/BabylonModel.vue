@@ -20,9 +20,11 @@ import {
 import "@babylonjs/loaders/glTF"; // Import the GLTF loader
 import { useDebounceFn } from "@vueuse/core";
 
-import { useVircadiaAsset } from "@vircadia/world-sdk-ts/browser/framework/vue";
-import { useVircadiaEntity } from "@vircadia/world-sdk-ts/browser/framework/vue";
-import { getInstanceKey } from "@vircadia/world-sdk-ts/browser/framework/vue";
+import {
+    getVircadiaInstanceKey_Vue,
+    useVircadiaAsset,
+} from "@vircadia/world-sdk-ts/browser";
+import { useVircadiaEntity_Vue } from "@vircadia/world-sdk-ts/browser";
 
 namespace glTF {
     export interface MetadataInterface {
@@ -163,7 +165,7 @@ const currentPosition = ref(props.position || { x: 0, y: 0, z: 0 });
 const currentRotation = ref(props.rotation || { x: 0, y: 0, z: 0, w: 1 });
 
 // Get Vircadia instance
-const vircadia = inject(getInstanceKey("vircadiaWorld"));
+const vircadia = inject(getVircadiaInstanceKey_Vue());
 if (!vircadia) {
     throw new Error("Vircadia instance not found.");
 }
@@ -177,7 +179,6 @@ const entityName = ref<string | null>(props.entityName || props.fileName);
 // Initialize asset and entity composables
 const asset = useVircadiaAsset({
     fileName: ref(props.fileName),
-    instance: vircadia,
     useCache: true,
 });
 
@@ -199,13 +200,12 @@ const getInitialMetaData = () => {
     });
 };
 
-const entity = useVircadiaEntity({
+const entity = useVircadiaEntity_Vue({
     entityName,
     selectClause: "general__entity_name, meta__data",
     insertClause:
         "(general__entity_name, meta__data) VALUES ($1, $2) RETURNING general__entity_name",
     insertParams: [entityName.value, getInitialMetaData()],
-    instance: vircadia,
 });
 
 // Update loading state based on asset and entity status

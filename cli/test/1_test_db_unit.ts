@@ -15,7 +15,7 @@ import {
     cleanupTestAssets,
 } from "./helper/helpers";
 import { VircadiaConfig_CLI } from "../vircadia.cli.config";
-import { VircadiaConfig_SERVER } from "../../server/vircadia.server.config";
+import { VircadiaConfig_SERVER } from "../../sdk/vircadia-world-sdk-ts/src/server/config/vircadia.server.config";
 import { log } from "../../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.log";
 import type { BunFile } from "bun";
 import { NullEngine, Scene, ImportMeshAsync } from "@babylonjs/core";

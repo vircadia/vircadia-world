@@ -3,14 +3,14 @@ import App from "./App.vue";
 import "./assets/main.css";
 
 import {
-    useVircadia,
-    getInstanceKey,
+    useVircadia_Vue,
     VircadiaConfig_BROWSER_CLIENT,
     Communication,
+    VUE_DEFAULT_INSTANCE_KEY,
 } from "@vircadia/world-sdk-ts/browser";
 
 // Initialize Vircadia before creating the app
-const vircadiaWorld = useVircadia({
+const vircadiaWorld = useVircadia_Vue({
     config: {
         serverUrl:
             VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL
@@ -31,8 +31,7 @@ const vircadiaWorld = useVircadia({
 const app = createApp(App);
 
 // Make the Vircadia instance available to all components
-// Note: You need to use the same key in any components that need to access the Vircadia instance
-app.provide(getInstanceKey("vircadiaWorld"), vircadiaWorld);
+app.provide(VUE_DEFAULT_INSTANCE_KEY, vircadiaWorld);
 
 // Mount the app
 app.mount("#app");

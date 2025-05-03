@@ -1,12 +1,12 @@
-import { log } from "../../../../../sdk/vircadia-world-sdk-ts/module/internal/general.log.client.js";
+import { log } from "../../../../../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.log";
 import type postgres from "postgres";
-import { VircadiaConfig_SERVER } from "../../../../../sdk/vircadia-world-sdk-ts/config/vircadia.server.config";
+import { VircadiaConfig_SERVER } from "../../../../vircadia.server.config";
 import {
     Service,
     type Auth,
     type Tick,
-} from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general";
-import { PostgresClient } from "../../../../../sdk/vircadia-world-sdk-ts/module/internal/server.postgres.client.js";
+} from "../../../../../sdk/vircadia-world-sdk-ts/src/schema/vircadia.schema.general";
+import { PostgresClient } from "../../../../../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.postgres";
 import type { Server } from "bun";
 
 const LOG_PREFIX = "World Tick Manager";

@@ -1,7 +1,6 @@
 {
     "name": "web_babylon_js",
     "version": "0.0.0",
-    "private": true,
     "type": "module",
     "scripts": {
         "dev": "vite",

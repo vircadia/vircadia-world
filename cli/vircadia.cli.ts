@@ -1,18 +1,18 @@
-import { VircadiaConfig_CLI } from "../sdk/vircadia-world-sdk-ts/src/cli/config/vircadia.cli.config.ts";
-import { VircadiaConfig_SERVER } from "../sdk/vircadia-world-sdk-ts/src/server/config/vircadia.server.config.ts";
-import { log } from "../sdk/vircadia-world-sdk-ts/src/server/module/server.log.client.ts";
+import { VircadiaConfig_CLI } from "./vircadia.cli.config";
+import { VircadiaConfig_SERVER } from "../server/vircadia.server.config";
+import { log } from "../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.log";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { sign } from "jsonwebtoken";
-import { PostgresClient } from "../sdk/vircadia-world-sdk-ts/src/server/module/server.postgres.client.ts";
+import { PostgresClient } from "../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.postgres";
 import {
     type Entity,
     Service,
     type Auth,
-} from "../sdk/vircadia-world-sdk-ts/src/schema/schema.general.ts";
+} from "../sdk/vircadia-world-sdk-ts/src/schema/vircadia.schema.general";
 
 // TODO: Optimize the commands, get up and down rebuilds including init to work well.
 

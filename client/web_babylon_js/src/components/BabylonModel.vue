@@ -20,9 +20,9 @@ import {
 import "@babylonjs/loaders/glTF"; // Import the GLTF loader
 import { useDebounceFn } from "@vueuse/core";
 
-import { useVircadiaAsset } from "@vircadia/world-sdk-ts/browser";
-import { useVircadiaEntity } from "@vircadia/world-sdk-ts/browser";
-import { getInstanceKey } from "@vircadia/world-sdk-ts/browser";
+import { useVircadiaAsset } from "@vircadia/world-sdk-ts/browser/framework/vue";
+import { useVircadiaEntity } from "@vircadia/world-sdk-ts/browser/framework/vue";
+import { getInstanceKey } from "@vircadia/world-sdk-ts/browser/framework/vue";
 
 namespace glTF {
     export interface MetadataInterface {

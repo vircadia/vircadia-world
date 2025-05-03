@@ -1,8 +1,8 @@
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
-import { VircadiaConfig_CLI } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.cli.config";
-import { PostgresClient } from "../../sdk/vircadia-world-sdk-ts/module/internal/server.postgres.client";
-import { VircadiaConfig_SERVER } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.server.config";
-import { Service } from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+import { VircadiaConfig_CLI } from "../vircadia.cli.config";
+import { PostgresClient } from "../../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.postgres";
+import { VircadiaConfig_SERVER } from "../../server/vircadia.server.config";
+import { Service } from "../../sdk/vircadia-world-sdk-ts/src/schema/vircadia.schema.general";
 import { runCliCommand } from "./helper/helpers";
 describe("SERVER Container and Database CLI Tests", () => {
     beforeAll(async () => {

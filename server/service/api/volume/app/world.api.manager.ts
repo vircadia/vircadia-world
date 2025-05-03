@@ -2,15 +2,15 @@
 // ============================== IMPORTS, TYPES, AND INTERFACES ==============================
 // =============================================================================
 
-import { log } from "../../../../../sdk/vircadia-world-sdk-ts/module/internal/general.log.client.js";
+import { log } from "../../../../../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.log";
 import type postgres from "postgres";
-import { VircadiaConfig_SERVER } from "../../../../../sdk/vircadia-world-sdk-ts/config/vircadia.server.config.ts";
+import { VircadiaConfig_SERVER } from "../../../../vircadia.server.config";
 import {
     Communication,
     Service,
-} from "../../../../../sdk/vircadia-world-sdk-ts/schema/schema.general.ts";
+} from "../../../../../sdk/vircadia-world-sdk-ts/src/schema/vircadia.schema.general";
 import type { Server, ServerWebSocket } from "bun";
-import { PostgresClient } from "../../../../../sdk/vircadia-world-sdk-ts/module/internal/server.postgres.client.js";
+import { PostgresClient } from "../../../../../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.postgres";
 import { verify } from "jsonwebtoken";
 
 let superUserSql: postgres.Sql | null = null;

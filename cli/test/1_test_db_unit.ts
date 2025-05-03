@@ -1,10 +1,10 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import type postgres from "postgres";
-import { PostgresClient } from "../../sdk/vircadia-world-sdk-ts/module/internal/server.postgres.client";
+import { PostgresClient } from "../../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.postgres";
 import type {
     Entity,
     Tick,
-} from "../../sdk/vircadia-world-sdk-ts/schema/schema.general";
+} from "../../sdk/vircadia-world-sdk-ts/src/schema/vircadia.schema.general";
 import {
     TEST_SYNC_GROUP,
     DB_TEST_PREFIX,
@@ -14,9 +14,9 @@ import {
     cleanupTestEntities,
     cleanupTestAssets,
 } from "./helper/helpers";
-import { VircadiaConfig_CLI } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.cli.config";
-import { VircadiaConfig_SERVER } from "../../sdk/vircadia-world-sdk-ts/config/vircadia.server.config";
-import { log } from "../../sdk/vircadia-world-sdk-ts/module/internal/general.log.client";
+import { VircadiaConfig_CLI } from "../vircadia.cli.config";
+import { VircadiaConfig_SERVER } from "../../server/vircadia.server.config";
+import { log } from "../../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.log";
 import type { BunFile } from "bun";
 import { NullEngine, Scene, ImportMeshAsync } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";

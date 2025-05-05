@@ -22,7 +22,7 @@ import { useDebounceFn } from "@vueuse/core";
 
 import {
     getVircadiaInstanceKey_Vue,
-    useVircadiaAsset,
+    useVircadiaAsset_Vue,
 } from "@vircadia/world-sdk/browser";
 import { useVircadiaEntity_Vue } from "@vircadia/world-sdk/browser";
 
@@ -177,7 +177,7 @@ const meshes = ref<AbstractMesh[]>([]);
 const entityName = ref<string | null>(props.entityName || props.fileName);
 
 // Initialize asset and entity composables
-const asset = useVircadiaAsset({
+const asset = useVircadiaAsset_Vue({
     fileName: ref(props.fileName),
     useCache: true,
 });

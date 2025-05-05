@@ -4,8 +4,14 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, computed, inject } from "vue";
+import type {
+    Scene,
+    Mesh,
+    Node,
+    PhysicsAggregate,
+    Camera,
+} from "@babylonjs/core";
 import {
-    type Scene,
     Vector3,
     Quaternion,
     TransformNode,
@@ -16,12 +22,8 @@ import {
     KeyboardEventTypes,
     StandardMaterial,
     Color3,
-    type Mesh,
-    type Node,
-    type PhysicsAggregate,
-    type Camera,
 } from "@babylonjs/core";
-import { useDebounceFn } from "@vueuse/core";
+import { useThrottleFn } from "@vueuse/core";
 import { z } from "zod";
 
 import {
@@ -32,69 +34,16 @@ import {
 // Define the props for the component
 const props = defineProps<{
     scene: Scene;
-    entityName?: string;
-    position?: { x: number; y: number; z: number };
-    rotation?: { x: number; y: number; z: number; w: number };
+    entityName: string;
     throttleInterval?: number;
     capsuleHeight?: number;
     capsuleRadius?: number;
     stepOffset?: number;
     slopeLimit?: number;
-    cameraOffset?: { x: number; y: number; z: number };
-    cameraTarget?: { x: number; y: number; z: number };
-    cameraRadius?: number;
-    cameraAlpha?: number;
-    cameraBeta?: number;
 }>();
-
-// Define Zod schemas for structured entity data
-const Vector3Schema = z.object({
-    x: z.number(),
-    y: z.number(),
-    z: z.number(),
-});
-
-const QuaternionSchema = z.object({
-    x: z.number(),
-    y: z.number(),
-    z: z.number(),
-    w: z.number(),
-});
-
-// Add schema for camera orientation
-const CameraOrientationSchema = z.object({
-    alpha: z.number(),
-    beta: z.number(),
-    radius: z.number(),
-});
-
-// Field value wrapper schema (common pattern in Vircadia entities)
-const FieldValueSchema = <T extends z.ZodType>(valueSchema: T) =>
-    z.object({
-        value: valueSchema,
-    });
-
-// Avatar meta data schema - all fields are optional except type
-const PhysicsAvatarMetaSchema = z.object({
-    type: FieldValueSchema(z.literal("PhysicsAvatar")),
-    position: FieldValueSchema(Vector3Schema).optional(),
-    rotation: FieldValueSchema(QuaternionSchema).optional(),
-    modelURL: FieldValueSchema(z.string()).optional(),
-    cameraOrientation: FieldValueSchema(CameraOrientationSchema).optional(),
-});
-
-// Schema for the parsed result
-type PhysicsAvatarMetaData = z.infer<typeof PhysicsAvatarMetaSchema>;
-
-// Type for any additional fields in meta data
-interface AdditionalMetaField {
-    [key: string]: unknown;
-}
 
 // Add emits for position and rotation updates
 const emit = defineEmits<{
-    "update:position": [{ x: number; y: number; z: number }];
-    "update:rotation": [{ x: number; y: number; z: number; w: number }];
     ready: [];
 }>();
 
@@ -102,11 +51,12 @@ const emit = defineEmits<{
 const isLoading = ref(false);
 const hasError = ref(false);
 const errorMessage = ref("");
-const currentPosition = ref(props.position || { x: 0, y: 0, z: 0 });
-const currentRotation = ref(props.rotation || { x: 0, y: 0, z: 0, w: 1 });
 const physicsAggregate = ref<PhysicsAggregate | null>(null);
 const avatarNode = ref<TransformNode | null>(null);
 const characterController = ref<PhysicsCharacterController | null>(null);
+// Temporary storage for initial state before controller exists
+const initialPosition = ref({ x: 0, y: 0, z: 0 });
+const initialRotation = ref({ x: 0, y: 0, z: 0, w: 1 });
 const capsuleHeight = computed(() => props.capsuleHeight || 1.8);
 const capsuleRadius = computed(() => props.capsuleRadius || 0.3);
 const stepOffset = computed(() => props.stepOffset || 0.4);
@@ -129,14 +79,51 @@ const keyState = ref({
     run: false,
 });
 
-// Add ref for entity name
-const entityName = ref<string | null>(props.entityName || "PhysicsAvatar");
+// Entity name
+const entityName = ref<string>(props.entityName);
 
-// Add ref for camera orientation
+// Define Zod schemas for validation
+const Vector3Schema = z.object({
+    x: z.number(),
+    y: z.number(),
+    z: z.number(),
+});
+
+const QuaternionSchema = z.object({
+    x: z.number(),
+    y: z.number(),
+    z: z.number(),
+    w: z.number(),
+});
+
+const CameraOrientationSchema = z.object({
+    alpha: z.number(),
+    beta: z.number(),
+    radius: z.number(),
+});
+
+// Field value wrapper schema
+const FieldValueSchema = <T extends z.ZodType>(valueSchema: T) =>
+    z.object({
+        value: valueSchema,
+    });
+
+// Combined avatar meta data schema with both transform and avatar data
+const PhysicsAvatarMetaSchema = z.object({
+    type: FieldValueSchema(z.literal(entityName.value)),
+    position: FieldValueSchema(Vector3Schema),
+    rotation: FieldValueSchema(QuaternionSchema),
+    modelURL: FieldValueSchema(z.string()).optional(),
+    cameraOrientation: FieldValueSchema(CameraOrientationSchema).optional(),
+});
+
+type PhysicsAvatarMetaData = z.infer<typeof PhysicsAvatarMetaSchema>;
+
+// Initialize camera orientation with local defaults
 const currentCameraOrientation = ref({
-    alpha: props.cameraAlpha ?? -Math.PI / 2,
-    beta: props.cameraBeta ?? Math.PI / 3,
-    radius: props.cameraRadius ?? 5,
+    alpha: -Math.PI / 2,
+    beta: Math.PI / 3,
+    radius: 5,
 });
 
 // Get Vircadia instance
@@ -145,124 +132,119 @@ if (!vircadia) {
     throw new Error("Vircadia instance not found.");
 }
 
-// Function to parse meta data with Zod - simplified
-const parseMetaData = (
-    metaData: string | object | null,
-): PhysicsAvatarMetaData => {
-    if (!metaData) {
-        // Return default meta data if none exists
-        return {
-            type: { value: "PhysicsAvatar" },
-        };
-    }
-
-    // Parse string meta data if needed
-    let parsedData: object;
-    if (typeof metaData === "string") {
-        try {
-            parsedData = JSON.parse(metaData);
-        } catch (e) {
-            console.error("Failed to parse entity meta_data:", e);
-            return {
-                type: { value: "PhysicsAvatar" },
-            };
-        }
-    } else {
-        parsedData = metaData;
-    }
-
-    try {
-        // Try to validate with our schema
-        const result = PhysicsAvatarMetaSchema.parse(parsedData);
-        return result;
-    } catch (error) {
-        console.warn("Meta data validation failed:", error);
-
-        // If validation failed, create a minimal valid object
-        const fixedData: PhysicsAvatarMetaData = {
-            type: { value: "PhysicsAvatar" },
-        };
-
-        // Try to recover position and rotation if available
-        const partial = parsedData as Record<string, Record<string, unknown>>;
-
-        // Copy position if available
-        if (partial.position?.value) {
-            const posValue = partial.position.value as Record<string, number>;
-            fixedData.position = {
-                value: {
-                    x: Number(posValue.x) || 0,
-                    y: Number(posValue.y) || 0,
-                    z: Number(posValue.z) || 0,
-                },
-            };
-        }
-
-        // Copy rotation if available
-        if (partial.rotation?.value) {
-            const rotValue = partial.rotation.value as Record<string, number>;
-            fixedData.rotation = {
-                value: {
-                    x: Number(rotValue.x) || 0,
-                    y: Number(rotValue.y) || 0,
-                    z: Number(rotValue.z) || 0,
-                    w: Number(rotValue.w) || 1,
-                },
-            };
-        }
-
-        // Copy modelURL if available
-        if (partial.modelURL?.value) {
-            fixedData.modelURL = {
-                value: String(partial.modelURL.value),
-            };
-        }
-
-        return fixedData;
-    }
-};
-
-// Prepare initial meta data with position and rotation - simplified
+// Get initial meta data with combined transform and avatar data
 const getInitialMetaData = () => {
+    // Get position and rotation from physics controller if available, otherwise use initial values
+    const positionValue = characterController.value
+        ? getPositionAsObject(characterController.value.getPosition())
+        : initialPosition.value;
+
+    const rotationValue = characterOrientation.value
+        ? getQuaternionAsObject(characterOrientation.value)
+        : initialRotation.value;
+
     const initialData: PhysicsAvatarMetaData = {
-        type: { value: "PhysicsAvatar" },
+        type: { value: entityName.value },
+        position: { value: positionValue },
+        rotation: { value: rotationValue },
+        cameraOrientation: { value: currentCameraOrientation.value },
     };
 
-    if (props.position) {
-        initialData.position = {
-            value: { ...props.position },
-        };
-    }
-
-    if (props.rotation) {
-        initialData.rotation = {
-            value: { ...props.rotation },
-        };
-    }
-
-    console.log("Creating entity with initial data:", initialData);
-    return JSON.stringify(initialData);
+    console.log("Creating avatar entity with initial data:", initialData);
+    return initialData;
 };
 
-const entity = useVircadiaEntity_Vue({
+// Helper functions to convert between Babylon objects and plain objects
+const getPositionAsObject = (vector: Vector3) => {
+    return {
+        x: vector.x,
+        y: vector.y,
+        z: vector.z,
+    };
+};
+
+const getQuaternionAsObject = (quaternion: Quaternion) => {
+    return {
+        x: quaternion.x,
+        y: quaternion.y,
+        z: quaternion.z,
+        w: quaternion.w,
+    };
+};
+
+// Initialize avatar entity with schema
+const avatarEntity = useVircadiaEntity_Vue({
     entityName,
     selectClause: "general__entity_name, meta__data",
     insertClause:
         "(general__entity_name, meta__data) VALUES ($1, $2) RETURNING general__entity_name",
-    insertParams: [entityName.value, getInitialMetaData()],
+    insertParams: [entityName.value, JSON.stringify(getInitialMetaData())],
+    metaDataSchema: PhysicsAvatarMetaSchema,
+    defaultMetaData: getInitialMetaData(),
 });
 
 // Update loading state based on entity status
 watch(
     [
-        () => entity.retrieving.value,
-        () => entity.creating.value,
-        () => entity.updating.value,
+        () => avatarEntity.retrieving.value,
+        () => avatarEntity.creating.value,
+        () => avatarEntity.updating.value,
     ],
     ([entityRetrieving, entityCreating, entityUpdating]) => {
         isLoading.value = entityRetrieving || entityCreating || entityUpdating;
     },
     { immediate: true },
+);
+
+// Throttled entity update function
+const throttledEntityUpdate = useThrottleFn(async () => {
+    if (!avatarEntity.entityData.value?.general__entity_name) {
+        console.warn("Cannot update entity: No entity name available");
+        return;
+    }
+
+    // Get position and rotation directly from sources of truth
+    const positionValue = characterController.value
+        ? getPositionAsObject(characterController.value.getPosition())
+        : initialPosition.value;
+
+    const rotationValue = characterOrientation.value
+        ? getQuaternionAsObject(characterOrientation.value)
+        : initialRotation.value;
+
+    // Get the current meta__data to preserve non-transform fields
+    const currentMetaData =
+        avatarEntity.entityData.value.meta__data || getInitialMetaData();
+
+    // Prepare the updated meta data with combined transform and avatar data
+    const updatedMetaData: PhysicsAvatarMetaData = {
+        type: { value: entityName.value },
+        position: { value: positionValue },
+        rotation: { value: rotationValue },
+        cameraOrientation: { value: currentCameraOrientation.value },
+    };
+
+    // Preserve modelURL if it exists
+    if (currentMetaData.modelURL) {
+        updatedMetaData.modelURL = currentMetaData.modelURL;
+    }
+
+    console.log("Updating entity data:", updatedMetaData);
+    avatarEntity.executeUpdate("meta__data = $1", [
+        JSON.stringify(updatedMetaData),
+    ]);
+}, props.throttleInterval ?? 500);
+
+// Watch for entity errors
+watch(
+    () => avatarEntity.error.value,
+    (error) => {
+        if (error) {
+            console.error("Entity Error:", error);
+            hasError.value = true;
+            errorMessage.value = `Entity error: ${error}`;
+        }
+    },
 );
 
 // Function to create and set up the character controller
@@ -303,20 +285,20 @@ const createCharacterController = () => {
         // Save reference to display capsule
         displayCapsule.value = capsule;
 
-        // Position the capsule
+        // Use position from entity data or default
         const position = new Vector3(
-            currentPosition.value.x,
-            currentPosition.value.y,
-            currentPosition.value.z,
+            initialPosition.value.x,
+            initialPosition.value.y,
+            initialPosition.value.z,
         );
         avatarNode.value.position = position;
 
-        // Initial rotation as quaternion
+        // Use rotation from entity data or default
         characterOrientation.value = new Quaternion(
-            currentRotation.value.x,
-            currentRotation.value.y,
-            currentRotation.value.z,
-            currentRotation.value.w,
+            initialRotation.value.x,
+            initialRotation.value.y,
+            initialRotation.value.z,
+            initialRotation.value.w,
         );
 
         // Apply orientation to avatar node
@@ -380,9 +362,9 @@ const createCamera = () => {
         beta,
         radius,
         new Vector3(
-            currentPosition.value.x,
-            currentPosition.value.y + (props.capsuleHeight ?? 1.8) / 2, // Target the middle of the capsule
-            currentPosition.value.z,
+            avatarNode.value.position.x,
+            avatarNode.value.position.y + (props.capsuleHeight ?? 1.8) / 2, // Target the middle of the capsule
+            avatarNode.value.position.z,
         ),
         props.scene,
     );
@@ -500,100 +482,33 @@ const updateTransforms = () => {
         !avatarNode.value ||
         !characterController.value ||
         !displayCapsule.value
-    )
+    ) {
+        console.info("Failed to update transforms.");
         return;
+    }
 
-    // Get position from character controller
+    // Get position from character controller - single source of truth
     const position = characterController.value.getPosition();
     if (position) {
         // Update avatar node position to match controller position
         avatarNode.value.position = position.clone();
-
-        // Update current position
-        currentPosition.value = {
-            x: position.x,
-            y: position.y,
-            z: position.z,
-        };
     }
 
     // Apply the current orientation to the avatar node
     avatarNode.value.rotationQuaternion = characterOrientation.value.clone();
 
-    // Update current rotation from character orientation
-    currentRotation.value = {
-        x: characterOrientation.value.x,
-        y: characterOrientation.value.y,
-        z: characterOrientation.value.z,
-        w: characterOrientation.value.w,
-    };
+    // Trigger throttled entity update when transforms change
+    throttledEntityUpdate();
 };
 
-const debouncedEntityUpdate = useDebounceFn(async () => {
-    if (!entity.entityData.value?.general__entity_name) {
-        console.warn("Cannot update entity: No entity name available");
-        return;
-    }
-
-    // Get camera orientation if camera exists
-    if (camera.value) {
-        currentCameraOrientation.value = {
-            alpha: camera.value.alpha,
-            beta: camera.value.beta,
-            radius: camera.value.radius,
-        };
-    }
-
-    // Prepare the updated meta data using our schema
-    const updatedMetaData: PhysicsAvatarMetaData = {
-        type: { value: "PhysicsAvatar" },
-        position: { value: currentPosition.value },
-        rotation: { value: currentRotation.value },
-        cameraOrientation: { value: currentCameraOrientation.value },
-    };
-
-    // If there is existing meta data, preserve other fields like modelURL
-    if (entity.entityData.value.meta__data) {
-        try {
-            const existingData = parseMetaData(
-                entity.entityData.value.meta__data,
-            );
-
-            // Preserve modelURL if it exists
-            if (existingData.modelURL) {
-                updatedMetaData.modelURL = existingData.modelURL;
-            }
-
-            // Copy any other properties from existing data
-            for (const key of Object.keys(existingData)) {
-                if (
-                    key !== "type" &&
-                    key !== "position" &&
-                    key !== "rotation" &&
-                    key !== "modelURL" &&
-                    key !== "cameraOrientation"
-                ) {
-                    (
-                        updatedMetaData as PhysicsAvatarMetaData &
-                            Record<string, unknown>
-                    )[key] = (
-                        existingData as PhysicsAvatarMetaData &
-                            Record<string, unknown>
-                    )[key];
-                }
-            }
-        } catch (error) {
-            console.error("Error preserving existing meta data fields:", error);
-        }
-    }
-
-    // Update the entity with new meta data and keep local state in sync with what we're sending
-    console.log(
-        "Updating entity position, rotation, and camera orientation:",
-        updatedMetaData,
-    );
-    entity.executeUpdate("meta__data = $1", [JSON.stringify(updatedMetaData)]);
-}, props.throttleInterval ?? 500);
+// Watch for camera orientation changes and add to throttled update
+watch(
+    () => currentCameraOrientation.value,
+    () => {
+        throttledEntityUpdate();
+    },
+    { deep: true },
+);
 
 // Character state machine
 const characterState = ref("IN_AIR");
@@ -618,7 +533,9 @@ const registerBeforeRender = () => {
 
 // Process keyboard input and move character
 const processMovement = (deltaTime: number) => {
-    if (!characterController.value || !camera.value) return;
+    const controller = characterController.value;
+    const cam = camera.value;
+    if (!controller || !cam) return;
 
     // Calculate input direction based on key states
     const inputDirection = new Vector3(0, 0, 0);
@@ -639,18 +556,11 @@ const processMovement = (deltaTime: number) => {
         inputDirection.x += 1;
     }
 
-    // If no movement, return early
-    if (inputDirection.length() === 0) {
-        return;
-    }
-
-    // Normalize the movement direction if moving in multiple directions
+    // Normalize the movement direction before applying input
     inputDirection.normalize();
 
     // Get camera orientation for movement direction
-    const cameraForward = camera.value
-        .getTarget()
-        .subtract(camera.value.position);
+    const cameraForward = cam.getTarget().subtract(cam.position);
     cameraForward.y = 0; // Flatten direction
     cameraForward.normalize();
 
@@ -665,13 +575,10 @@ const processMovement = (deltaTime: number) => {
     const gravity = new Vector3(0, -14.7, 0); // Stronger gravity for better stability
 
     // Check support state
-    const support = characterController.value.checkSupport(
-        deltaTime,
-        new Vector3(0, -1, 0),
-    );
+    const support = controller.checkSupport(deltaTime, new Vector3(0, -1, 0));
 
     // Get current velocity
-    const currentVelocity = characterController.value.getVelocity();
+    const currentVelocity = controller.getVelocity();
 
     // Update character state based on support
     const getNextState = () => {
@@ -709,7 +616,7 @@ const processMovement = (deltaTime: number) => {
     // This is key to prevent flopping - we control orientation directly
     Quaternion.FromEulerAnglesToRef(
         0,
-        camera.value.alpha + Math.PI / 2,
+        cam.alpha + Math.PI / 2,
         0,
         characterOrientation.value,
     );
@@ -730,7 +637,7 @@ const processMovement = (deltaTime: number) => {
         // In air - simpler movement
         const desiredVelocity = finalDirection.scale(inAirSpeed);
 
-        newVelocity = characterController.value.calculateMovement(
+        newVelocity = controller.calculateMovement(
             deltaTime,
             forwardWorld,
             upVector,
@@ -747,7 +654,7 @@ const processMovement = (deltaTime: number) => {
         // On ground - move relative to surface
         const desiredVelocity = finalDirection.scale(onGroundSpeed);
 
-        newVelocity = characterController.value.calculateMovement(
+        newVelocity = controller.calculateMovement(
             deltaTime,
             forwardWorld,
             support.averageSurfaceNormal,
@@ -772,23 +679,33 @@ const processMovement = (deltaTime: number) => {
     }
 
     // Set the new velocity
-    characterController.value.setVelocity(newVelocity);
+    controller.setVelocity(newVelocity);
 
     // Integrate physics
-    characterController.value.integrate(deltaTime, support, gravity);
+    controller.integrate(deltaTime, support, gravity);
 
     // Update avatar transform to match physics
     updateTransforms();
 
-    // Emit updates
-    debouncedEntityUpdate();
-    emit("update:position", currentPosition.value);
-    emit("update:rotation", currentRotation.value);
+    // Save camera orientation if it has changed
+    if (
+        cam &&
+        (cam.alpha !== currentCameraOrientation.value.alpha ||
+            cam.beta !== currentCameraOrientation.value.beta ||
+            cam.radius !== currentCameraOrientation.value.radius)
+    ) {
+        currentCameraOrientation.value = {
+            alpha: cam.alpha,
+            beta: cam.beta,
+            radius: cam.radius,
+        };
+    }
 };
 
 // Function to move the avatar in a specific direction (used for external control)
 const moveAvatar = (direction: Vector3, deltaTime: number) => {
-    if (!characterController.value) return;
+    const controller = characterController.value;
+    if (!controller) return;
 
     // Apply speed based on mode and run state
     const moveSpeed = keyState.value.run ? 8 : 4;
@@ -797,15 +714,12 @@ const moveAvatar = (direction: Vector3, deltaTime: number) => {
     const scaledDirection = direction.normalize().scale(moveSpeed * deltaTime);
 
     // Calculate movement using calculateMovement instead of directly applying velocity
-    const currentVelocity = characterController.value.getVelocity();
+    const currentVelocity = controller.getVelocity();
     const upVector = new Vector3(0, 1, 0);
     const forwardVector = scaledDirection.normalize();
 
     // Check support
-    const support = characterController.value.checkSupport(
-        deltaTime,
-        new Vector3(0, -1, 0),
-    );
+    const support = controller.checkSupport(deltaTime, new Vector3(0, -1, 0));
 
     let newVelocity: Vector3;
 
@@ -814,7 +728,7 @@ const moveAvatar = (direction: Vector3, deltaTime: number) => {
         support?.supportedState === CharacterSupportedState.SUPPORTED
     ) {
         // On ground
-        newVelocity = characterController.value.calculateMovement(
+        newVelocity = controller.calculateMovement(
             deltaTime,
             forwardVector,
             support.averageSurfaceNormal,
@@ -825,7 +739,7 @@ const moveAvatar = (direction: Vector3, deltaTime: number) => {
         );
     } else {
         // In air
-        newVelocity = characterController.value.calculateMovement(
+        newVelocity = controller.calculateMovement(
             deltaTime,
             forwardVector,
             upVector,
@@ -840,22 +754,15 @@ const moveAvatar = (direction: Vector3, deltaTime: number) => {
     }
 
     // Set the velocity
-    characterController.value.setVelocity(newVelocity);
+    controller.setVelocity(newVelocity);
 
     if (support) {
         // Integrate physics
-        characterController.value.integrate(
-            deltaTime,
-            support,
-            new Vector3(0, -9.8, 0),
-        );
+        controller.integrate(deltaTime, support, new Vector3(0, -9.8, 0));
     }
 
-    // Update position and rotation
+    // Update from physics controller - single source of truth
     updateTransforms();
-    debouncedEntityUpdate();
-    emit("update:position", currentPosition.value);
-    emit("update:rotation", currentRotation.value);
 };
 
 // Function to rotate the avatar
@@ -869,158 +776,127 @@ const rotateAvatar = (yawAmount: number, pitchAmount = 0) => {
     const newRotation = characterOrientation.value.multiply(yawRotation);
     characterOrientation.value = newRotation;
 
-    // Update current rotation
-    currentRotation.value = {
-        x: newRotation.x,
-        y: newRotation.y,
-        z: newRotation.z,
-        w: newRotation.w,
-    };
-
     // Update avatar to match
     updateTransforms();
-    debouncedEntityUpdate();
-    emit("update:rotation", currentRotation.value);
 };
 
-// Watch for changes to currentPosition and currentRotation
-watch(
-    [currentPosition, currentRotation],
-    () => {
-        debouncedEntityUpdate();
-        emit("update:position", currentPosition.value);
-        emit("update:rotation", currentRotation.value);
-    },
-    { deep: true },
-);
-
-// Watch for changes to props.position
-watch(
-    () => props.position,
-    (newPosition) => {
-        if (
-            newPosition &&
-            (newPosition.x !== currentPosition.value.x ||
-                newPosition.y !== currentPosition.value.y ||
-                newPosition.z !== currentPosition.value.z)
-        ) {
-            currentPosition.value = { ...newPosition };
-        }
-    },
-    { deep: true },
-);
-
-// Watch for changes to props.rotation
-watch(
-    () => props.rotation,
-    (newRotation) => {
-        if (
-            newRotation &&
-            (newRotation.x !== currentRotation.value.x ||
-                newRotation.y !== currentRotation.value.y ||
-                newRotation.z !== currentRotation.value.z ||
-                newRotation.w !== currentRotation.value.w)
-        ) {
-            currentRotation.value = { ...newRotation };
-        }
-    },
-    { deep: true },
-);
-
-// Watch for entity data changes
+// Watch for avatarEntity data changes to apply to local state
 watch(
     [
-        () => entity.entityData.value,
-        () => entity.creating.value,
-        () => entity.error.value,
+        () => avatarEntity.entityData.value?.meta__data,
+        () => avatarEntity.creating.value,
+        () => avatarEntity.error.value,
     ],
-    ([entityData, creating, error], [oldEntityData, wasCreating]) => {
+    ([metaData, creating, error], [oldMetaData, wasCreating]) => {
         if (error) {
-            console.error("Entity Error (avatar):", error);
+            console.error("Entity Error:", error);
             hasError.value = true;
             errorMessage.value = `Entity error: ${error}`;
-        } else if (wasCreating && !creating && entityData) {
-            console.log("Entity created successfully for avatar:", entityData);
+        } else if (wasCreating && !creating && avatarEntity.entityData.value) {
+            console.log(
+                "Entity created successfully:",
+                avatarEntity.entityData.value,
+            );
             // Store the name if this was a newly created entity
-            if (entityData.general__entity_name && !entityName.value) {
-                entityName.value = entityData.general__entity_name;
-                console.log(
-                    `Set entityName to ${entityName.value} after creation`,
-                );
+            if (
+                avatarEntity.entityData.value.general__entity_name &&
+                !entityName.value
+            ) {
+                entityName.value =
+                    avatarEntity.entityData.value.general__entity_name;
             }
-        } else if (entityData && entityData !== oldEntityData) {
-            console.log("Entity data available for avatar:", entityData);
+        } else if (metaData && metaData !== oldMetaData) {
+            console.log("Entity data updated:", metaData);
 
             // Store the name if we didn't have it before
-            if (entityData.general__entity_name && !entityName.value) {
-                entityName.value = entityData.general__entity_name;
-                console.log(
-                    `Set entityName to ${entityName.value} from retrieved entity`,
-                );
+            if (
+                avatarEntity.entityData.value?.general__entity_name &&
+                !entityName.value
+            ) {
+                entityName.value =
+                    avatarEntity.entityData.value.general__entity_name;
             }
 
-            // Use Zod to parse and validate meta_data
-            if (entityData.meta__data) {
-                try {
-                    const parsedData = parseMetaData(entityData.meta__data);
-                    console.log(
-                        "Parsed entity meta_data with Zod:",
-                        parsedData,
-                    );
-
-                    // Update position if available
-                    if (parsedData.position?.value) {
-                        const savedPosition = parsedData.position.value;
+            try {
+                // Create character controller if not already created
+                if (!characterController.value) {
+                    // Store initial position and rotation for controller creation
+                    if (metaData.position?.value) {
                         console.log(
-                            "Found saved position in entity data:",
-                            savedPosition,
+                            "Found initial position:",
+                            metaData.position.value,
                         );
-                        currentPosition.value = { ...savedPosition };
-                    } else {
+                        initialPosition.value = { ...metaData.position.value };
+                    }
+
+                    // Store initial rotation for controller creation
+                    if (metaData.rotation?.value) {
                         console.log(
-                            "No position data found in entity meta_data",
+                            "Found initial rotation:",
+                            metaData.rotation.value,
+                        );
+                        initialRotation.value = { ...metaData.rotation.value };
+                    }
+
+                    createCharacterController();
+                } else {
+                    // We have a character controller - use hard positioning when needed
+
+                    // Hard-set position if available
+                    if (metaData.position?.value) {
+                        console.log(
+                            "Hard-setting position from entity data:",
+                            metaData.position.value,
+                        );
+                        const newPosition = new Vector3(
+                            metaData.position.value.x,
+                            metaData.position.value.y,
+                            metaData.position.value.z,
+                        );
+
+                        // Use physics controller as source of truth - teleport to position
+                        characterController.value.setPosition(newPosition);
+                    }
+
+                    // Update orientation if available
+                    if (metaData.rotation?.value) {
+                        console.log(
+                            "Setting rotation from entity data:",
+                            metaData.rotation.value,
+                        );
+                        characterOrientation.value = new Quaternion(
+                            metaData.rotation.value.x,
+                            metaData.rotation.value.y,
+                            metaData.rotation.value.z,
+                            metaData.rotation.value.w,
                         );
                     }
 
-                    // Update rotation if available
-                    if (parsedData.rotation?.value) {
-                        const savedRotation = parsedData.rotation.value;
-                        console.log(
-                            "Found saved rotation in entity data:",
-                            savedRotation,
-                        );
-                        currentRotation.value = { ...savedRotation };
-                    } else {
-                        console.log(
-                            "No rotation data found in entity meta_data",
-                        );
-                    }
-
-                    // Update camera orientation if available
-                    if (parsedData.cameraOrientation?.value) {
-                        const savedCameraOrientation =
-                            parsedData.cameraOrientation.value;
-                        console.log(
-                            "Found saved camera orientation in entity data:",
-                            savedCameraOrientation,
-                        );
-                        currentCameraOrientation.value = {
-                            ...savedCameraOrientation,
-                        };
-                    } else {
-                        console.log(
-                            "No camera orientation data found in entity meta_data",
-                        );
-                    }
-
-                    // Check if entity type is fixed
-                    if (parsedData.type.value !== "PhysicsAvatar") {
-                        console.log("Fixed entity type from meta_data");
-                        debouncedEntityUpdate();
-                    }
-                } catch (error) {
-                    console.error("Error parsing meta_data with Zod:", error);
+                    // Update transforms to reflect changes immediately
+                    updateTransforms();
                 }
+
+                // Update camera orientation if available
+                if (metaData.cameraOrientation?.value) {
+                    console.log(
+                        "Found camera orientation:",
+                        metaData.cameraOrientation.value,
+                    );
+                    currentCameraOrientation.value = {
+                        ...metaData.cameraOrientation.value,
+                    };
+
+                    // Update camera if it exists
+                    if (camera.value) {
+                        camera.value.alpha =
+                            currentCameraOrientation.value.alpha;
+                        camera.value.beta = currentCameraOrientation.value.beta;
+                        camera.value.radius =
+                            currentCameraOrientation.value.radius;
+                    }
+                }
+            } catch (error) {
+                console.error("Error processing entity data:", error);
             }
         }
     },
@@ -1030,132 +906,40 @@ watch(
 const manageEntity = () => {
     console.log("Managing entity for physics avatar...");
 
-    if (entityName.value) {
-        // If we have a name, try to retrieve the entity
-        console.log(`Retrieving physics avatar with name: ${entityName.value}`);
-        entity.executeRetrieve();
-    } else {
-        console.error("Entity name should never be null at this point");
-        // Set a default name if somehow it got cleared
-        entityName.value = "PhysicsAvatar";
-        entity.executeRetrieve();
-    }
+    console.log(`Retrieving physics avatar with name: ${entityName.value}`);
+    avatarEntity.executeRetrieve();
 
-    // Watch for retrieve completion to process entity data
+    // Watch for retrieve completion
     const stopWatch = watch(
         [
-            () => entity.retrieving.value,
-            () => entity.error.value,
-            () => entity.entityData.value,
+            () => avatarEntity.retrieving.value,
+            () => avatarEntity.error.value,
+            () => avatarEntity.entityData.value,
         ],
         ([retrieving, error, entityData], [wasRetrieving]) => {
             if (wasRetrieving && !retrieving) {
                 if (!entityData && !error) {
-                    // Entity might have been deleted or not found with the provided name
                     if (entityName.value) {
                         console.log(
                             `Physics avatar entity with name ${entityName.value} not found, creating new one...`,
                         );
-                        entity.executeCreate().then((newName) => {
+                        avatarEntity.executeCreate().then((newName) => {
                             if (newName) {
                                 console.log(
                                     `Created new physics avatar with name: ${newName}`,
                                 );
-                                entity.executeRetrieve();
+                                avatarEntity.executeRetrieve();
                             } else {
                                 console.error(
                                     "Failed to create entity with name:",
                                     entityName.value,
                                 );
-                                // The creation failed, but we still have the name
-                                entity.executeRetrieve();
+                                avatarEntity.executeRetrieve();
                             }
                         });
                     }
-                } else if (entityData) {
-                    console.log(
-                        "Physics avatar entity found, checking for saved position/rotation",
-                    );
-
-                    // Use Zod to parse meta_data safely
-                    if (entityData.meta__data) {
-                        try {
-                            const parsedData = parseMetaData(
-                                entityData.meta__data,
-                            );
-                            console.log(
-                                "Parsed entity meta_data with Zod:",
-                                parsedData,
-                            );
-
-                            // Update position if available
-                            if (parsedData.position?.value) {
-                                const savedPosition = parsedData.position.value;
-                                console.log(
-                                    "Found saved position in entity data:",
-                                    savedPosition,
-                                );
-                                currentPosition.value = { ...savedPosition };
-                            } else {
-                                console.log(
-                                    "No position data found in entity meta_data",
-                                );
-                            }
-
-                            // Update rotation if available
-                            if (parsedData.rotation?.value) {
-                                const savedRotation = parsedData.rotation.value;
-                                console.log(
-                                    "Found saved rotation in entity data:",
-                                    savedRotation,
-                                );
-                                currentRotation.value = { ...savedRotation };
-                            } else {
-                                console.log(
-                                    "No rotation data found in entity meta_data",
-                                );
-                            }
-
-                            // Update camera orientation if available
-                            if (parsedData.cameraOrientation?.value) {
-                                const savedCameraOrientation =
-                                    parsedData.cameraOrientation.value;
-                                console.log(
-                                    "Found saved camera orientation in entity data:",
-                                    savedCameraOrientation,
-                                );
-                                currentCameraOrientation.value = {
-                                    ...savedCameraOrientation,
-                                };
-                            } else {
-                                console.log(
-                                    "No camera orientation data found in entity meta_data",
-                                );
-                            }
-
-                            // If entity type doesn't match, update it
-                            if (parsedData.type.value !== "PhysicsAvatar") {
-                                console.log(
-                                    "Entity type needs fixing, will update on next cycle",
-                                );
-                                // The update will happen through the watch handler for entity data
-                            }
-                        } catch (error) {
-                            console.error(
-                                "Error parsing meta_data with Zod:",
-                                error,
-                            );
-                        }
-                    }
-
-                    // Now create the character controller with the updated position/rotation
-                    console.log(
-                        "Creating character controller with position:",
-                        currentPosition.value,
-                    );
-                    createCharacterController();
                 }
-                stopWatch(); // Stop watching after entity retrieval completes
+                stopWatch();
             }
         },
         { immediate: false },
@@ -1168,7 +952,7 @@ onMounted(() => {
         (newStatus, oldStatus) => {
             if (newStatus === "connected" && oldStatus !== "connected") {
                 console.log(
-                    "Vircadia connected, managing entity for physics avatar",
+                    "Vircadia connected, managing physics avatar entity",
                 );
                 manageEntity();
             } else if (newStatus !== "connected") {
@@ -1196,9 +980,9 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-    console.log("PhysicsAvatar component unmounting. Cleaning up...");
+    console.log(`${entityName.value} component unmounting. Cleaning up...`);
 
-    entity.cleanup();
+    avatarEntity.cleanup();
 
     // Clean up physics
     if (physicsAggregate.value) {
@@ -1220,11 +1004,11 @@ onUnmounted(() => {
 
 // Expose methods and properties for parent components
 defineExpose({
+    currentPosition: initialPosition,
+    currentRotation: initialRotation,
     isLoading,
     hasError,
     errorMessage,
-    position: currentPosition,
-    rotation: currentRotation,
     entityName,
     moveAvatar,
     rotateAvatar,

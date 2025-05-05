@@ -18,7 +18,7 @@
             <!-- Add PhysicsAvatar component -->
             <PhysicsAvatar
                 :scene="scene"
-                :position="{ x: 0, y: 2, z: 0 }"
+                entity-name="PhysicsAvatar"
                 @ready="startRenderLoop"
                 ref="avatarRef"
             />
@@ -56,12 +56,11 @@ import {
     Color3,
     PhysicsAggregate,
     PhysicsShapeType,
+    HavokPlugin,
 } from "@babylonjs/core";
-import { loadInspector, hideInspector } from "./utils/babylonHelpers";
-import { initializePhysics } from "./utils/physicsHelper";
 import {
     getVircadiaInstanceKey_Vue,
-    useVircadiaAsset,
+    useVircadiaAsset_Vue,
 } from "@vircadia/world-sdk/browser";
 
 // Get the existing Vircadia connection from main.ts with proper typing
@@ -87,10 +86,45 @@ const isInspectorVisible = ref(false);
 // Track if avatar is ready
 const avatarRef = ref<InstanceType<typeof PhysicsAvatar> | null>(null);
 
-// Add function to toggle the inspector
-const toggleInspector = async () => {
-    if (!scene) return;
+// Inline physics initialization and inspector helpers
+let havokInstance: unknown = null;
+let physicsPlugin: HavokPlugin | null = null;
 
+const initializePhysics = async (
+    scene: Scene,
+    gravityVector: Vector3,
+): Promise<boolean> => {
+    try {
+        if (!havokInstance) {
+            const HavokPhysics = (await import("@babylonjs/havok")).default;
+            havokInstance = await HavokPhysics();
+        }
+        physicsPlugin = new HavokPlugin(true, havokInstance);
+        const enabled = scene.enablePhysics(gravityVector, physicsPlugin);
+        console.log("Physics engine initialized:", enabled);
+        return enabled;
+    } catch (error) {
+        console.error("Error initializing physics engine:", error);
+        return false;
+    }
+};
+
+const loadInspector = async (scene: Scene): Promise<void> => {
+    if (import.meta.env.DEV) {
+        await import("@babylonjs/inspector");
+        scene.debugLayer.show({ embedMode: true });
+        return;
+    }
+    console.warn("Inspector is only available in development mode");
+};
+
+const hideInspector = (scene: Scene): void => {
+    scene.debugLayer.hide();
+};
+
+// Add function to toggle the inspector
+const toggleInspector = async (): Promise<void> => {
+    if (!scene) return;
     if (!isInspectorVisible.value) {
         await loadInspector(scene);
         isInspectorVisible.value = true;
@@ -157,17 +191,6 @@ const isLoading = computed(() => {
     );
 });
 
-// Initialize physics engine
-const initPhysics = async (scene: Scene) => {
-    try {
-        const gravityVector = new Vector3(0, -9.81, 0);
-        return await initializePhysics(scene, gravityVector);
-    } catch (error) {
-        console.error("Error initializing physics engine:", error);
-        return false;
-    }
-};
-
 // Load environment assets
 const loadEnvironments = async () => {
     if (!scene || environmentLoading.value) return;
@@ -179,7 +202,7 @@ const loadEnvironments = async () => {
         const hdrFileName = "telekom.skybox.Room.hdr.1k.hdr";
 
         try {
-            const assetResult = useVircadiaAsset({
+            const assetResult = useVircadiaAsset_Vue({
                 fileName: ref(hdrFileName),
                 instance: vircadiaWorld,
                 useCache: true,
@@ -269,7 +292,8 @@ const initializeBabylon = async () => {
         directionalLight.intensity = 1.0;
 
         // Initialize physics first
-        const physicsEnabled = await initPhysics(scene);
+        const gravityVector = new Vector3(0, -9.81, 0);
+        const physicsEnabled = await initializePhysics(scene, gravityVector);
 
         if (physicsEnabled) {
             // Create a large ground plane after physics is initialized

@@ -7,7 +7,7 @@ import {
     VircadiaConfig_BROWSER_CLIENT,
     Communication,
     VUE_DEFAULT_INSTANCE_KEY,
-} from "@vircadia/world-sdk-ts/browser";
+} from "@vircadia/world-sdk/browser";
 
 // Initialize Vircadia before creating the app
 const vircadiaWorld = useVircadia_Vue({

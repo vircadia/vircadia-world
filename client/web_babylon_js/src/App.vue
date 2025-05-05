@@ -62,7 +62,7 @@ import { initializePhysics } from "./utils/physicsHelper";
 import {
     getVircadiaInstanceKey_Vue,
     useVircadiaAsset,
-} from "@vircadia/world-sdk-ts/browser";
+} from "@vircadia/world-sdk/browser";
 
 // Get the existing Vircadia connection from main.ts with proper typing
 const vircadiaWorld = inject(getVircadiaInstanceKey_Vue());
@@ -179,7 +179,7 @@ const loadEnvironments = async () => {
         const hdrFileName = "telekom.skybox.Room.hdr.1k.hdr";
 
         try {
-            const assetResult = await useVircadiaAsset({
+            const assetResult = useVircadiaAsset({
                 fileName: ref(hdrFileName),
                 instance: vircadiaWorld,
                 useCache: true,

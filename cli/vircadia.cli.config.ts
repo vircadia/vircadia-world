@@ -62,7 +62,7 @@ const cliEnvSchema = z.object({
         .default(
             path.join(
                 dirname(fileURLToPath(import.meta.url)),
-                "../../../cli/database/migration",
+                "./database/migration",
             ),
         ),
     VRCA_CLI_SERVICE_POSTGRES_SEED_SYSTEM_SQL_DIR: z
@@ -70,7 +70,7 @@ const cliEnvSchema = z.object({
         .default(
             path.join(
                 dirname(fileURLToPath(import.meta.url)),
-                "../../../cli/database/seed/sql/",
+                "./database/seed/sql/",
             ),
         ),
     VRCA_CLI_SERVICE_POSTGRES_SEED_USER_SQL_DIR: z
@@ -82,7 +82,7 @@ const cliEnvSchema = z.object({
         .default(
             path.join(
                 dirname(fileURLToPath(import.meta.url)),
-                "../../../cli/database/seed/asset/",
+                "./database/seed/asset/",
             ),
         ),
     VRCA_CLI_SERVICE_POSTGRES_SEED_USER_ASSET_DIR: z
@@ -99,7 +99,7 @@ const cliEnvSchema = z.object({
         .default(
             path.join(
                 dirname(fileURLToPath(import.meta.url)),
-                "../../../cli/database/reset",
+                "./database/reset",
             ),
         ),
     VRCA_CLI_SERVICE_POSTGRES_USER_RESET_DIR: z

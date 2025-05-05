@@ -27,7 +27,7 @@ import { z } from "zod";
 import {
     useVircadiaEntity_Vue,
     getVircadiaInstanceKey_Vue,
-} from "@vircadia/world-sdk-ts/browser";
+} from "@vircadia/world-sdk/browser";
 
 // Define the props for the component
 const props = defineProps<{

@@ -4,7 +4,7 @@
 
 import { log } from "../../../../../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.log";
 import type postgres from "postgres";
-import { VircadiaConfig_SERVER } from "../../../../vircadia.server.config";
+import { VircadiaConfig_SERVER } from "../../../../../sdk/vircadia-world-sdk-ts/src/server/config/vircadia.server.config";
 import {
     Communication,
     Service,

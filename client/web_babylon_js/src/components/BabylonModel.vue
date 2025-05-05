@@ -23,8 +23,8 @@ import { useDebounceFn } from "@vueuse/core";
 import {
     getVircadiaInstanceKey_Vue,
     useVircadiaAsset,
-} from "@vircadia/world-sdk-ts/browser";
-import { useVircadiaEntity_Vue } from "@vircadia/world-sdk-ts/browser";
+} from "@vircadia/world-sdk/browser";
+import { useVircadiaEntity_Vue } from "@vircadia/world-sdk/browser";
 
 namespace glTF {
     export interface MetadataInterface {
@@ -334,6 +334,8 @@ watch(
 
 // Load model when asset data is available
 const loadModel = async () => {
+    console.log("Loading model... ", props.fileName);
+
     if (!asset.assetData.value || !props.scene) {
         console.warn(
             `Asset: ${asset.assetData.value ? "Ready" : "Not ready"}.`,
@@ -779,7 +781,7 @@ watch(
 // Watch for asset data to load model
 watch(
     () => asset.assetData.value,
-    (assetData) => {
+    (assetData, oldAssetData) => {
         if (assetData?.blobUrl && meshes.value.length === 0) {
             console.log(
                 `Asset data ready for ${props.fileName}, loading model.`,
@@ -956,15 +958,50 @@ onUnmounted(() => {
         `StaticBabylonEntity component for ${props.fileName} unmounting. Cleaning up...`,
     );
 
-    entity.cleanup();
-    asset.cleanup();
-    for (const mesh of meshes.value) {
-        mesh.dispose();
-    }
-    meshes.value = [];
+    handleUnload();
 
     console.log(`Cleanup complete for ${props.fileName}.`);
 });
+
+// Add global error handler to force cleanup on errors
+const handleError = (error: Error | string | unknown) => {
+    console.error(`Error in BabylonModel (${props.fileName}):`, error);
+
+    // Clean up resources on error
+    handleUnload();
+};
+
+// Monitor for errors
+watch(
+    [() => asset.error.value, () => entity.error.value, () => hasError.value],
+    ([assetError, entityError, componentError]) => {
+        if (assetError || entityError || componentError) {
+            handleError(assetError || entityError || errorMessage.value);
+        }
+    },
+);
+
+// Immediately after importing, add this to ensure all URLs are released
+window.addEventListener("unload", () => {
+    handleUnload();
+
+    window.removeEventListener("unload", handleUnload);
+});
+
+const handleUnload = () => {
+    console.log("Unloading page, cleaning up...");
+    entity.cleanup();
+    asset.cleanup();
+    removePhysics();
+
+    // Force release all object URLs when page unloads
+    if (meshes.value.length > 0) {
+        for (const mesh of meshes.value) {
+            mesh.dispose();
+        }
+        meshes.value = [];
+    }
+};
 
 defineExpose({
     isLoading,

@@ -13,6 +13,7 @@ import {
     cleanupTestAccounts,
     cleanupTestEntities,
     cleanupTestAssets,
+    runCliCommand,
 } from "./helper/helpers";
 import { VircadiaConfig_CLI } from "../vircadia.cli.config";
 import { VircadiaConfig_SERVER } from "../../sdk/vircadia-world-sdk-ts/src/server/config/vircadia.server.config";
@@ -40,6 +41,9 @@ async function readDiscGlb(): Promise<BunFile> {
 
 describe("DB", () => {
     beforeAll(async () => {
+        await runCliCommand("server:run-command", "up", "-d");
+        Bun.sleep(1000);
+
         log({
             message: "Getting super user client...",
             type: "debug",
@@ -490,15 +494,6 @@ describe("DB", () => {
     describe("Config Schema", () => {
         test("should read all config tables", async () => {
             await proxyUserSql.begin(async (tx) => {
-                // Test entity_config
-                const [entityConfig] = await tx`
-                        SELECT *
-                        FROM config.entity_config
-                    `;
-                expect(
-                    entityConfig.entity_config__script_compilation_timeout_ms,
-                ).toBeDefined();
-
                 // Test network_config
                 const [networkConfig] = await tx`
                         SELECT *

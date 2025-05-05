@@ -57,6 +57,22 @@ const cliEnvSchema = z.object({
             VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD,
         ),
 
+    VRCA_CLI_SERVICE_POSTGRES_BACKUP_FILE: z
+        .string()
+        .default(
+            path.join(
+                dirname(fileURLToPath(import.meta.url)),
+                "./database/backup/backup.sql",
+            ),
+        ),
+    VRCA_CLI_SERVICE_POSTGRES_RESTORE_FILE: z
+        .string()
+        .default(
+            path.join(
+                dirname(fileURLToPath(import.meta.url)),
+                "./database/backup/backup.sql",
+            ),
+        ),
     VRCA_CLI_SERVICE_POSTGRES_MIGRATION_DIR: z
         .string()
         .default(

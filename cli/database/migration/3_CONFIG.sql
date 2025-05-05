@@ -54,11 +54,6 @@ CREATE TABLE config.seeds (
 -- ============================================================================
 -- 5. INITIAL DATA
 -- ============================================================================
--- Entity Configuration
-INSERT INTO config.entity_config (
-    entity_config__script_compilation_timeout_ms
-) VALUES (60000);
-
 -- Network Configuration
 INSERT INTO config.network_config (
     network_config__max_latency_ms,

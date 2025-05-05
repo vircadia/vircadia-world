@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, statSync } from "node:fs";
 import { sign } from "jsonwebtoken";
 import { PostgresClient } from "../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.postgres";
 import {
@@ -151,7 +151,9 @@ export namespace Server_CLI {
         const exitCode = spawnedProcess.exitCode;
 
         const isExpectedOutput =
-            data.args.includes("down") || data.args.includes("up");
+            data.args.includes("down") ||
+            data.args.includes("up") ||
+            data.args.includes("exec");
         if (exitCode !== 0 && !isExpectedOutput) {
             throw new Error(
                 `SERVER Docker command failed with exit code ${exitCode}.\nStdout: ${stdout}\nStderr: ${stderr}`,
@@ -1561,6 +1563,233 @@ export namespace Server_CLI {
             });
         }
     }
+
+    export async function backupDatabase() {
+        // Config values - ensure these are correctly loaded from your config setup
+        const dbUser =
+            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME;
+        const dbName = VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE;
+        const backupFilePathHost =
+            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_BACKUP_FILE; // Path on the host machine where the backup will be saved
+        const containerName =
+            VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME;
+
+        try {
+            // Ensure backup directory exists on host
+            const backupDir = path.dirname(backupFilePathHost);
+            if (!existsSync(backupDir)) {
+                mkdirSync(backupDir, { recursive: true });
+                log({
+                    message: `Created backup directory: ${backupDir}`,
+                    type: "info",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+            }
+
+            // Check if the database is running using isPostgresHealthy
+            const health = await isPostgresHealthy(false);
+            if (!health.isHealthy) {
+                throw new Error(
+                    `PostgreSQL database is not available. Please start the server with 'server:run-command up -d'. Error: ${health.error?.message || "Unknown error"}`,
+                );
+            }
+
+            // Execute pg_dump directly to stdout and pipe it to a file on the host
+            log({
+                message: `Running pg_dump and saving directly to: ${backupFilePathHost}`,
+                type: "debug",
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            });
+
+            // Use direct Bun.spawn for running docker command (not using compose to avoid stream redirection issues)
+            const pgDumpProcess = Bun.spawn(
+                [
+                    "docker",
+                    "exec",
+                    containerName,
+                    "pg_dump",
+                    "-U",
+                    dbUser,
+                    "-d",
+                    dbName,
+                    "-F",
+                    "c", // Use custom format for binary dumps
+                ],
+                {
+                    stdout: "pipe",
+                    stderr: "pipe",
+                },
+            );
+
+            // Create a write stream to the backup file
+            const file = Bun.file(backupFilePathHost);
+            const writer = file.writer();
+
+            // Stream the output to the file
+            const reader = pgDumpProcess.stdout.getReader();
+            try {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    writer.write(value);
+                }
+            } finally {
+                reader.releaseLock();
+                await writer.end();
+            }
+
+            // Check for errors
+            const stderr = await new Response(pgDumpProcess.stderr).text();
+            if (stderr) {
+                log({
+                    prefix: "pg_dump Error",
+                    message: stderr,
+                    type: "error",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+            }
+
+            // Verify the backup file exists and has content
+            if (!existsSync(backupFilePathHost)) {
+                throw new Error(
+                    `Backup file was not created at: ${backupFilePathHost}`,
+                );
+            }
+
+            const stats = statSync(backupFilePathHost);
+            if (stats.size === 0) {
+                throw new Error(
+                    `Backup file was created but is empty: ${backupFilePathHost}`,
+                );
+            }
+        } catch (error) {
+            log({
+                message: `Database backup failed: ${error instanceof Error ? error.message : String(error)}`,
+                type: "error",
+                error,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            });
+            throw error;
+        }
+    }
+
+    // Restore database from backup file
+    export async function restoreDatabase() {
+        const dbUser =
+            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME;
+        const dbName = VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE;
+        const restoreFilePathHost =
+            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_RESTORE_FILE;
+        const containerName =
+            VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME;
+
+        try {
+            // Check if restore file exists
+            if (!existsSync(restoreFilePathHost)) {
+                throw new Error(
+                    `Restore file not found: ${restoreFilePathHost}`,
+                );
+            }
+
+            // Check if the database is running using isPostgresHealthy
+            const health = await isPostgresHealthy(false);
+            if (!health.isHealthy) {
+                throw new Error(
+                    `PostgreSQL database is not available. Please start the server with 'server:run-command up -d'. Error: ${health.error?.message || "Unknown error"}`,
+                );
+            }
+
+            // Read the backup file
+            const stats = statSync(restoreFilePathHost);
+            log({
+                message: `Reading backup file (${(stats.size / 1024 / 1024).toFixed(2)} MB)...`,
+                type: "debug",
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            });
+
+            // Create a read stream from the backup file
+            const file = Bun.file(restoreFilePathHost);
+            const fileArrayBuffer = await file.arrayBuffer();
+            const fileBuffer = Buffer.from(fileArrayBuffer);
+
+            // Use direct Bun.spawn for running docker command with input pipe
+            log({
+                message: "Running pg_restore...",
+                type: "debug",
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            });
+
+            const pgRestoreProcess = Bun.spawn(
+                [
+                    "docker",
+                    "exec",
+                    "-i", // Interactive mode to allow stdin
+                    containerName,
+                    "pg_restore",
+                    "-U",
+                    dbUser,
+                    "-d",
+                    dbName,
+                    "-c", // Clean (drop) database objects before recreating
+                    "-Fc", // Format is custom
+                    "--if-exists", // Add IF EXISTS to drop commands
+                    "/dev/stdin", // Read from stdin instead of a file
+                ],
+                {
+                    stdout: "pipe",
+                    stderr: "pipe",
+                    stdin: fileBuffer,
+                },
+            );
+
+            // Wait for the process to complete
+            const stdout = await new Response(pgRestoreProcess.stdout).text();
+            const stderr = await new Response(pgRestoreProcess.stderr).text();
+
+            if (stdout) {
+                log({
+                    prefix: "pg_restore Output",
+                    message: stdout,
+                    type: "debug",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+            }
+
+            if (stderr) {
+                // pg_restore often outputs some warnings that aren't fatal errors
+                const isActualError = pgRestoreProcess.exitCode !== 0;
+                log({
+                    prefix: "pg_restore Output",
+                    message: stderr,
+                    type: isActualError ? "error" : "warn",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+
+                if (isActualError) {
+                    throw new Error(
+                        `Database restore failed. Exit code: ${pgRestoreProcess.exitCode}. Error: ${stderr}`,
+                    );
+                }
+            }
+        } catch (error) {
+            log({
+                message: `Database restore failed: ${error instanceof Error ? error.message : String(error)}`,
+                type: "error",
+                error,
+                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            });
+            throw error;
+        }
+    }
 }
 
 // If this file is run directly
@@ -1892,6 +2121,40 @@ if (import.meta.main) {
                 });
                 log({
                     message: "Asset seeds applied.",
+                    type: "success",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+                break;
+            }
+
+            case "server:postgres:backup": {
+                log({
+                    message: `Backing up database to [${VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_BACKUP_FILE}]...`,
+                    type: "info",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+                await Server_CLI.backupDatabase();
+                log({
+                    message: "Database backed up.",
+                    type: "success",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+                break;
+            }
+
+            case "server:postgres:restore": {
+                log({
+                    message: `Restoring database from [${VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_RESTORE_FILE}]...`,
+                    type: "info",
+                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                });
+                await Server_CLI.restoreDatabase();
+                log({
+                    message: "Database restored.",
                     type: "success",
                     suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
                     debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,

@@ -10,12 +10,13 @@ import type {
     Quaternion as BabylonQuaternion,
 } from "@babylonjs/core";
 import { Vector3, Quaternion, ArcRotateCamera } from "@babylonjs/core";
-import { z, type ZodType } from "zod";
+import { z } from "zod";
 import { getVircadiaInstanceKey_Vue } from "@vircadia/world-sdk/browser";
 
 import { useKeyboardControls } from "../composables/useKeyboardControls";
 import { useAvatarEntity } from "../composables/useAvatarEntity";
 import { useAvatarPhysicsController } from "../composables/useAvatarPhysicsController";
+import { useAvatarCameraController } from "../composables/useAvatarCameraController";
 import type {
     PositionObj,
     RotationObj,
@@ -115,34 +116,14 @@ const { avatarEntity, isLoading, hasError, errorMessage, throttledUpdate } =
         }),
     );
 
-// Camera setup
-let camera: ArcRotateCamera | null = null;
-function setupCamera() {
-    if (!props.scene || !avatarNode.value) return;
-    const cam = new ArcRotateCamera(
-        "avatar-cam",
-        cameraOrientation.value.alpha,
-        cameraOrientation.value.beta,
-        cameraOrientation.value.radius,
-        new Vector3(
-            avatarNode.value.position.x,
-            avatarNode.value.position.y + props.capsuleHeight / 2,
-            avatarNode.value.position.z,
-        ),
-        props.scene,
-    );
-    camera = cam;
-    cam.attachControl(props.scene.getEngine().getRenderingCanvas(), true);
-    props.scene.activeCamera = cam;
-    cam.onViewMatrixChangedObservable.add(() => {
-        cameraOrientation.value = {
-            alpha: cam.alpha,
-            beta: cam.beta,
-            radius: cam.radius,
-        };
-        throttledUpdate();
-    });
-}
+// Camera controller
+const { camera, setupCamera, updateCameraFromMeta } = useAvatarCameraController(
+    props.scene,
+    avatarNode,
+    cameraOrientation,
+    ref(props.capsuleHeight),
+    throttledUpdate,
+);
 
 // Lifecycle hooks
 onMounted(() => {
@@ -196,11 +177,8 @@ onMounted(() => {
                     charOrient.value = new Quaternion(r.x, r.y, r.z, r.w);
                 }
                 updateTransforms();
-                if (camera && meta.cameraOrientation) {
-                    const c = meta.cameraOrientation;
-                    camera.alpha = c.alpha;
-                    camera.beta = c.beta;
-                    camera.radius = c.radius;
+                if (meta.cameraOrientation) {
+                    updateCameraFromMeta(meta.cameraOrientation);
                 }
             }
         },
@@ -220,8 +198,8 @@ onMounted(() => {
         );
         if (dir.lengthSquared() > 0) {
             const cameraRotationY =
-                camera instanceof ArcRotateCamera
-                    ? camera.alpha + Math.PI / 2
+                camera.value instanceof ArcRotateCamera
+                    ? camera.value.alpha + Math.PI / 2
                     : 0;
             const transformedDir = new Vector3(
                 dir.x * Math.cos(cameraRotationY) -
@@ -249,13 +227,24 @@ onMounted(() => {
         const dt = props.scene.getEngine().getDeltaTime() / 1000;
         stepSimulation(dt);
         throttledUpdate();
+        // update camera target to follow the avatar
+        if (camera.value && avatarNode.value) {
+            const node = avatarNode.value;
+            camera.value.setTarget(
+                new Vector3(
+                    node.position.x,
+                    node.position.y + props.capsuleHeight / 2,
+                    node.position.z,
+                ),
+            );
+        }
     });
 });
 
 onUnmounted(() => {
     avatarNode.value?.dispose();
     avatarEntity.cleanup();
-    camera?.dispose();
+    // camera is disposed by useAvatarCameraController composable
 });
 
 defineExpose({ isLoading, hasError, errorMessage, moveAvatar, rotateAvatar });

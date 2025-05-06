@@ -15,11 +15,11 @@ import { getVircadiaInstanceKey_Vue } from "@vircadia/world-sdk/browser";
 
 import { useKeyboardControls } from "../composables/useKeyboardControls";
 import { useAvatarEntity } from "../composables/useAvatarEntity";
-import { usePhysicsController } from "../composables/usePhysicsController";
+import { useAvatarPhysicsController } from "../composables/useAvatarPhysicsController";
 import type {
     PositionObj,
     RotationObj,
-} from "../composables/usePhysicsController";
+} from "../composables/useAvatarPhysicsController";
 
 // Define component props with defaults
 const props = defineProps({
@@ -29,6 +29,7 @@ const props = defineProps({
     capsuleHeight: { type: Number, default: 1.8 },
     capsuleRadius: { type: Number, default: 0.3 },
     slopeLimit: { type: Number, default: 45 },
+    jumpSpeed: { type: Number, default: 5 },
 });
 const emit = defineEmits<{ ready: [] }>();
 
@@ -82,7 +83,9 @@ const {
     updateTransforms,
     moveAvatar,
     rotateAvatar,
-} = usePhysicsController(
+    stepSimulation,
+    jump,
+} = useAvatarPhysicsController(
     props.scene,
     initialPosition,
     initialRotation,
@@ -204,21 +207,48 @@ onMounted(() => {
         { immediate: true },
     );
 
-    props.scene.registerBeforeRender(() => {
-        if (characterController.value) {
-            const dt = props.scene.getEngine().getDeltaTime() / 1000;
-            const dir = new Vector3(
-                (keyState.value.right ? 1 : 0) - (keyState.value.left ? 1 : 0),
+    // Handle input just before the physics engine step
+    props.scene.onBeforePhysicsObservable.add(() => {
+        if (!characterController.value) return;
+        const dt = props.scene.getEngine().getDeltaTime() / 1000;
+        // Compute movement direction
+        const dir = new Vector3(
+            (keyState.value.right ? 1 : 0) - (keyState.value.left ? 1 : 0),
+            0,
+            (keyState.value.forward ? 1 : 0) -
+                (keyState.value.backward ? 1 : 0),
+        );
+        if (dir.lengthSquared() > 0) {
+            const cameraRotationY =
+                camera instanceof ArcRotateCamera
+                    ? camera.alpha + Math.PI / 2
+                    : 0;
+            const transformedDir = new Vector3(
+                dir.x * Math.cos(cameraRotationY) -
+                    dir.z * Math.sin(cameraRotationY),
                 0,
-                (keyState.value.forward ? 1 : 0) -
-                    (keyState.value.backward ? 1 : 0),
+                dir.x * Math.sin(cameraRotationY) +
+                    dir.z * Math.cos(cameraRotationY),
             );
-            if (dir.lengthSquared() > 0) {
-                moveAvatar(dir, dt);
-            }
-            updateTransforms();
-            throttledUpdate();
+            moveAvatar(transformedDir);
+        } else {
+            // Stop horizontal sliding
+            const vel = characterController.value.getVelocity();
+            vel.x = 0;
+            vel.z = 0;
+            characterController.value.setVelocity(vel);
         }
+        // Apply jump impulse if requested
+        if (keyState.value.jump) {
+            jump(dt, props.jumpSpeed);
+        }
+    });
+    // After the physics engine updates, integrate the character and sync transforms
+    props.scene.onAfterPhysicsObservable.add(() => {
+        if (!characterController.value) return;
+        const dt = props.scene.getEngine().getDeltaTime() / 1000;
+        stepSimulation(dt);
+        throttledUpdate();
     });
 });
 

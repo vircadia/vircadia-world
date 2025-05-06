@@ -1,8 +1,11 @@
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import { KeyboardEventTypes } from "@babylonjs/core";
 import type { Scene } from "@babylonjs/core";
+import { useWindowFocus } from "@vueuse/core";
 
 export function useKeyboardControls(scene: Scene | undefined) {
+    const focused = useWindowFocus();
+
     const keyState = ref({
         forward: false,
         backward: false,
@@ -41,6 +44,22 @@ export function useKeyboardControls(scene: Scene | undefined) {
                     keyState.value.run = isDown;
                     break;
             }
+        });
+    }
+
+    // Reset keys on window blur to prevent stuck states
+    if (typeof window !== "undefined") {
+        const resetKeys = () => {
+            keyState.value.forward = false;
+            keyState.value.backward = false;
+            keyState.value.left = false;
+            keyState.value.right = false;
+            keyState.value.jump = false;
+            keyState.value.run = false;
+        };
+
+        watch(focused, (isFocused) => {
+            if (!isFocused) resetKeys();
         });
     }
 

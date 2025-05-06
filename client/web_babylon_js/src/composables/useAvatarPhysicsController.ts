@@ -2,6 +2,7 @@ import { ref, type Ref } from "vue";
 import type { Scene } from "@babylonjs/core";
 import {
     Vector3,
+    CharacterSupportedState,
     Quaternion,
     TransformNode,
     MeshBuilder,
@@ -17,7 +18,7 @@ export type RotationObj = { x: number; y: number; z: number; w: number };
 /**
  * Composable for managing a physics-based character controller
  */
-export function usePhysicsController(
+export function useAvatarPhysicsController(
     scene: Scene | undefined,
     initialPosition: Ref<PositionObj>,
     initialRotation: Ref<RotationObj>,
@@ -101,30 +102,39 @@ export function usePhysicsController(
     /**
      * Move the avatar in a direction with physics integration
      */
-    function moveAvatar(direction: Vector3, deltaTime: number) {
+    function moveAvatar(direction: Vector3) {
         if (!characterController.value) return;
 
         // Apply simple horizontal movement
         const speed = 4;
-        const displacement = direction.normalize().scale(speed * deltaTime);
-        const currentVel = characterController.value.getVelocity().clone();
+        const displacement = direction.normalize().scale(speed);
+        const currentVel = characterController.value.getVelocity();
         currentVel.x = displacement.x;
         currentVel.z = displacement.z;
         characterController.value.setVelocity(currentVel);
+    }
 
-        // Integrate physics step
+    /**
+     * Step the physics simulation: apply gravity and update transforms.
+     */
+    function stepSimulation(deltaTime: number) {
+        if (!characterController.value) return;
+        // Apply manual gravity to vertical velocity
+        const gravity = -9.8;
+        const vel = characterController.value.getVelocity();
+        vel.y += gravity * deltaTime;
+        characterController.value.setVelocity(vel);
+        // Perform support check and integrate the controller
         const support = characterController.value.checkSupport(
             deltaTime,
             new Vector3(0, -1, 0),
         );
-        if (support) {
-            characterController.value.integrate(
-                deltaTime,
-                support,
-                new Vector3(0, -9.8, 0),
-            );
-        }
-
+        characterController.value.integrate(
+            deltaTime,
+            support,
+            new Vector3(0, gravity, 0),
+        );
+        // Sync visual transform
         updateTransforms();
     }
 
@@ -138,6 +148,22 @@ export function usePhysicsController(
         updateTransforms();
     }
 
+    /**
+     * Apply a jump impulse if on the ground
+     */
+    function jump(deltaTime: number, jumpSpeed = 5) {
+        if (!characterController.value) return;
+        const support = characterController.value.checkSupport(
+            deltaTime,
+            new Vector3(0, -1, 0),
+        );
+        if (support.supportedState === CharacterSupportedState.SUPPORTED) {
+            const vel = characterController.value.getVelocity();
+            vel.y = jumpSpeed;
+            characterController.value.setVelocity(vel);
+        }
+    }
+
     return {
         avatarNode,
         characterController,
@@ -146,5 +172,7 @@ export function usePhysicsController(
         updateTransforms,
         moveAvatar,
         rotateAvatar,
+        stepSimulation,
+        jump,
     };
 }

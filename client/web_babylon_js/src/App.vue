@@ -14,7 +14,7 @@
         </div>
         
         <!-- Only render entities when scene is available -->
-        <template v-if="sceneInitialized && scene">
+        <template v-if="sceneInitialized && scene && connectionStatus === 'connected'">
             <!-- Add PhysicsAvatar component -->
             <PhysicsAvatar
                 :scene="scene"
@@ -40,6 +40,7 @@
 </template>
 
 <script setup lang="ts">
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { inject, computed, watch, ref, onMounted, onUnmounted } from "vue";
 import BabylonModel from "./components/BabylonModel.vue";
 import PhysicsAvatar from "./components/PhysicsAvatar.vue";

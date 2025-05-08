@@ -59,13 +59,10 @@ import {
     PhysicsShapeType,
     HavokPlugin,
 } from "@babylonjs/core";
-import {
-    getVircadiaInstanceKey_Vue,
-    useVircadiaAsset_Vue,
-} from "@vircadia/world-sdk/browser";
+import { useVircadiaInstance, useAsset } from "@vircadia/world-sdk/browser/vue";
 
 // Get the existing Vircadia connection from main.ts with proper typing
-const vircadiaWorld = inject(getVircadiaInstanceKey_Vue());
+const vircadiaWorld = inject(useVircadiaInstance());
 if (!vircadiaWorld) {
     throw new Error("Vircadia instance not found.");
 }
@@ -203,7 +200,7 @@ const loadEnvironments = async () => {
         const hdrFileName = "telekom.skybox.Room.hdr.1k.hdr";
 
         try {
-            const assetResult = useVircadiaAsset_Vue({
+            const assetResult = useAsset({
                 fileName: ref(hdrFileName),
                 instance: vircadiaWorld,
                 useCache: true,

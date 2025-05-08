@@ -1,12 +1,12 @@
-import { BunLogModule } from "../../../../../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.log";
+import { BunLogModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
 import type postgres from "postgres";
-import { ServerConfiguration } from "../../../../../sdk/vircadia-world-sdk-ts/src/server/config/vircadia.server.config";
+import { serverConfiguration } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
 import {
     Service,
     type Auth,
     type Tick,
-} from "../../../../../sdk/vircadia-world-sdk-ts/src/schema/vircadia.schema.general";
-import { BunPostgresClientModule } from "../../../../../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.postgres";
+} from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
+import { BunPostgresClientModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
 import type { Server } from "bun";
 
 const LOG_PREFIX = "World Tick Manager";
@@ -23,17 +23,17 @@ export class WorldTickManager {
         try {
             BunLogModule({
                 message: "Initializing World Tick Manager",
-                debug: ServerConfiguration.VRCA_SERVER_DEBUG,
-                suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "debug",
                 prefix: LOG_PREFIX,
             });
 
             Bun.serve({
                 hostname:
-                    ServerConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_INTERNAL,
-                port: ServerConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_INTERNAL,
-                development: ServerConfiguration.VRCA_SERVER_DEBUG,
+                    serverConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_INTERNAL,
+                port: serverConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_INTERNAL,
+                development: serverConfiguration.VRCA_SERVER_DEBUG,
 
                 websocket: {
                     message(ws, message) {},
@@ -99,18 +99,18 @@ export class WorldTickManager {
             });
 
             this.superUserSql = await BunPostgresClientModule.getInstance({
-                debug: ServerConfiguration.VRCA_SERVER_DEBUG,
-                suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
             }).getSuperClient({
                 postgres: {
-                    host: ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
-                    port: ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL,
+                    host: serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
+                    port: serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL,
                     database:
-                        ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
+                        serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
                     username:
-                        ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                        serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                     password:
-                        ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                        serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
                 },
             });
 
@@ -142,16 +142,16 @@ export class WorldTickManager {
 
             BunLogModule({
                 message: `World Tick Manager initialized successfully with ${this.syncGroups.size} sync groups`,
-                debug: ServerConfiguration.VRCA_SERVER_DEBUG,
-                suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "success",
                 prefix: LOG_PREFIX,
             });
         } catch (error) {
             BunLogModule({
                 message: `Failed to initialize tick manager: ${error}`,
-                debug: ServerConfiguration.VRCA_SERVER_DEBUG,
-                suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "error",
                 prefix: LOG_PREFIX,
             });
@@ -169,8 +169,8 @@ export class WorldTickManager {
 
             BunLogModule({
                 message: `Received tick completion notification for sync group: ${syncGroup}, tick: ${data.tickNumber}`,
-                debug: ServerConfiguration.VRCA_SERVER_DEBUG,
-                suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "debug",
                 prefix: LOG_PREFIX,
             });
@@ -186,8 +186,8 @@ export class WorldTickManager {
         } catch (error) {
             BunLogModule({
                 message: `Error processing tick notification: ${error}`,
-                debug: ServerConfiguration.VRCA_SERVER_DEBUG,
-                suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "error",
                 prefix: LOG_PREFIX,
             });
@@ -199,8 +199,8 @@ export class WorldTickManager {
         if (!config) {
             BunLogModule({
                 message: `Cannot schedule tick for unknown sync group: ${syncGroup}`,
-                debug: ServerConfiguration.VRCA_SERVER_DEBUG,
-                suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "error",
                 prefix: LOG_PREFIX,
             });
@@ -212,8 +212,8 @@ export class WorldTickManager {
             this.pendingTicks.set(syncGroup, true);
             BunLogModule({
                 message: `Sync group ${syncGroup} is still processing, marking tick as pending`,
-                debug: ServerConfiguration.VRCA_SERVER_DEBUG,
-                suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "debug",
                 prefix: LOG_PREFIX,
             });
@@ -245,8 +245,8 @@ export class WorldTickManager {
                         message: `Error in tick processing for ${syncGroup}.`,
                         error: error,
                         prefix: LOG_PREFIX,
-                        suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
-                        debug: ServerConfiguration.VRCA_SERVER_DEBUG,
+                        suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                        debug: serverConfiguration.VRCA_SERVER_DEBUG,
                         type: "error",
                     });
 
@@ -286,8 +286,8 @@ export class WorldTickManager {
             if (!tickData) {
                 BunLogModule({
                     message: `No tick data returned for sync group: ${syncGroup}`,
-                    debug: ServerConfiguration.VRCA_SERVER_DEBUG,
-                    suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
+                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                    suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                     type: "warning",
                     prefix: LOG_PREFIX,
                 });
@@ -296,8 +296,8 @@ export class WorldTickManager {
 
             BunLogModule({
                 message: `Tick captured for sync group: ${syncGroup}`,
-                debug: ServerConfiguration.VRCA_SERVER_DEBUG,
-                suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "debug",
                 prefix: LOG_PREFIX,
                 data: {
@@ -331,8 +331,8 @@ export class WorldTickManager {
                 "Entity Changes":
                     result?.tick_data.tick__entity_states_processed,
             },
-            debug: ServerConfiguration.VRCA_SERVER_DEBUG,
-            suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
+            debug: serverConfiguration.VRCA_SERVER_DEBUG,
+            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
             type: "debug",
             prefix: LOG_PREFIX,
         });
@@ -344,8 +344,8 @@ export class WorldTickManager {
         ) {
             BunLogModule({
                 message: `Tick processing is delayed for ${syncGroup}\nLocally: ${isLocallyDbDelayed || isLocallyTotalDelayed}\nRemotely: ${isRemotelyDbDelayed}`,
-                debug: ServerConfiguration.VRCA_SERVER_DEBUG,
-                suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "warning",
                 prefix: LOG_PREFIX,
                 data: {
@@ -372,8 +372,8 @@ export class WorldTickManager {
             ).catch((error) => {
                 BunLogModule({
                     message: `Failed to update manager metrics: ${error}`,
-                    debug: ServerConfiguration.VRCA_SERVER_DEBUG,
-                    suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
+                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                    suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                     type: "error",
                     prefix: LOG_PREFIX,
                 });
@@ -408,8 +408,8 @@ export class WorldTickManager {
             // Log but don't throw to avoid affecting tick processing
             BunLogModule({
                 message: `Error updating tick manager metrics: ${error}`,
-                debug: ServerConfiguration.VRCA_SERVER_DEBUG,
-                suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "error",
                 prefix: LOG_PREFIX,
             });
@@ -424,8 +424,8 @@ export class WorldTickManager {
 
         BunLogModule({
             message: "World Tick Manager stopped",
-            debug: ServerConfiguration.VRCA_SERVER_DEBUG,
-            suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
+            debug: serverConfiguration.VRCA_SERVER_DEBUG,
+            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
             type: "debug",
             prefix: LOG_PREFIX,
         });
@@ -441,8 +441,8 @@ export class WorldTickManager {
                     (error: unknown) => {
                         BunLogModule({
                             message: `Error unlistening from tick notifications: ${error}`,
-                            debug: ServerConfiguration.VRCA_SERVER_DEBUG,
-                            suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
+                            debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                             type: "error",
                             prefix: LOG_PREFIX,
                         });
@@ -451,8 +451,8 @@ export class WorldTickManager {
             } catch (error) {
                 BunLogModule({
                     message: `Error attempting to unlisten: ${error}`,
-                    debug: ServerConfiguration.VRCA_SERVER_DEBUG,
-                    suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
+                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                    suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                     type: "error",
                     prefix: LOG_PREFIX,
                 });
@@ -460,8 +460,8 @@ export class WorldTickManager {
         }
 
         BunPostgresClientModule.getInstance({
-            debug: ServerConfiguration.VRCA_SERVER_DEBUG,
-            suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
+            debug: serverConfiguration.VRCA_SERVER_DEBUG,
+            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
         }).disconnect();
     }
 }
@@ -471,8 +471,8 @@ if (import.meta.main) {
     try {
         BunLogModule({
             message: "Starting World Tick Manager",
-            debug: ServerConfiguration.VRCA_SERVER_DEBUG,
-            suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
+            debug: serverConfiguration.VRCA_SERVER_DEBUG,
+            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
             type: "info",
             prefix: LOG_PREFIX,
         });
@@ -483,8 +483,8 @@ if (import.meta.main) {
         process.on("SIGINT", () => {
             BunLogModule({
                 message: "\nReceived SIGINT. Cleaning up tick manager...",
-                debug: ServerConfiguration.VRCA_SERVER_DEBUG,
-                suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "debug",
                 prefix: LOG_PREFIX,
             });
@@ -495,8 +495,8 @@ if (import.meta.main) {
         process.on("SIGTERM", () => {
             BunLogModule({
                 message: "\nReceived SIGTERM. Cleaning up tick manager...",
-                debug: ServerConfiguration.VRCA_SERVER_DEBUG,
-                suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "debug",
                 prefix: LOG_PREFIX,
             });
@@ -506,8 +506,8 @@ if (import.meta.main) {
 
         BunLogModule({
             message: "World Tick Manager running as standalone process",
-            debug: ServerConfiguration.VRCA_SERVER_DEBUG,
-            suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
+            debug: serverConfiguration.VRCA_SERVER_DEBUG,
+            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
             type: "success",
             prefix: LOG_PREFIX,
         });
@@ -515,8 +515,8 @@ if (import.meta.main) {
         BunLogModule({
             message: `Failed to start World Tick Manager: ${error}`,
             type: "error",
-            suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
-            debug: ServerConfiguration.VRCA_SERVER_DEBUG,
+            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+            debug: serverConfiguration.VRCA_SERVER_DEBUG,
             prefix: LOG_PREFIX,
         });
         process.exit(1);

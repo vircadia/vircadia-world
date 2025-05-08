@@ -1,9 +1,9 @@
 import type postgres from "postgres";
-import { BunPostgresClientModule } from "../../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.postgres";
+import { BunPostgresClientModule } from "../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
 import type {
     Entity,
     Tick,
-} from "../../sdk/vircadia-world-sdk-ts/src/schema/vircadia.schema.general";
+} from "../../sdk/vircadia-world-sdk-ts/schema/src/index.schema";
 import {
     TEST_SYNC_GROUP,
     DB_TEST_PREFIX,
@@ -14,9 +14,9 @@ import {
     cleanupTestAssets,
     runCliCommand,
 } from "./helper/helpers";
-import { CLIConfiguration } from "../vircadia.cli.config";
-import { ServerConfiguration } from "../../sdk/vircadia-world-sdk-ts/src/server/config/vircadia.server.config";
-import { BunLogModule } from "../../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.log";
+import { cliConfiguration } from "../vircadia.cli.config";
+import { serverConfiguration } from "../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
+import { BunLogModule } from "../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
 import type { BunFile } from "bun";
 import { NullEngine, Scene, ImportMeshAsync } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
@@ -46,49 +46,49 @@ describe("DB", () => {
         BunLogModule({
             message: "Getting super user client...",
             type: "debug",
-            suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
-            debug: ServerConfiguration.VRCA_SERVER_DEBUG,
+            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+            debug: serverConfiguration.VRCA_SERVER_DEBUG,
         });
         superUserSql = await BunPostgresClientModule.getInstance({
-            debug: CLIConfiguration.VRCA_CLI_DEBUG,
-            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+            debug: cliConfiguration.VRCA_CLI_DEBUG,
+            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
         }).getSuperClient({
             postgres: {
-                host: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                port: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                database: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                host: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                 username:
-                    CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                    cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                 password:
-                    CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                    cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
             },
         });
         proxyUserSql = await BunPostgresClientModule.getInstance({
-            debug: CLIConfiguration.VRCA_CLI_DEBUG,
-            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+            debug: cliConfiguration.VRCA_CLI_DEBUG,
+            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
         }).getProxyClient({
             postgres: {
-                host: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                port: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                database: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                host: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                 username:
-                    CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME,
+                    cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME,
                 password:
-                    CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD,
+                    cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD,
             },
         });
         BunLogModule({
             message: "Super user client and proxy user client obtained.",
             type: "debug",
-            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
-            debug: CLIConfiguration.VRCA_CLI_DEBUG,
+            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+            debug: cliConfiguration.VRCA_CLI_DEBUG,
         });
 
         BunLogModule({
             message: "Cleaning up test objects...",
             type: "debug",
-            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
-            debug: CLIConfiguration.VRCA_CLI_DEBUG,
+            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+            debug: cliConfiguration.VRCA_CLI_DEBUG,
         });
         await cleanupTestAccounts({
             superUserSql,
@@ -102,15 +102,15 @@ describe("DB", () => {
         BunLogModule({
             message: "Test objects cleaned up.",
             type: "debug",
-            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
-            debug: CLIConfiguration.VRCA_CLI_DEBUG,
+            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+            debug: cliConfiguration.VRCA_CLI_DEBUG,
         });
 
         BunLogModule({
             message: "Initializing test accounts...",
             type: "debug",
-            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
-            debug: CLIConfiguration.VRCA_CLI_DEBUG,
+            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+            debug: cliConfiguration.VRCA_CLI_DEBUG,
         });
         const testAccounts = await initTestAccounts({
             superUserSql,
@@ -121,14 +121,14 @@ describe("DB", () => {
         BunLogModule({
             message: "All test accounts initialized.",
             type: "debug",
-            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
-            debug: CLIConfiguration.VRCA_CLI_DEBUG,
+            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+            debug: cliConfiguration.VRCA_CLI_DEBUG,
         });
         BunLogModule({
             message: "Starting DB tests...",
             type: "debug",
-            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
-            debug: CLIConfiguration.VRCA_CLI_DEBUG,
+            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+            debug: cliConfiguration.VRCA_CLI_DEBUG,
         });
     });
 
@@ -1409,8 +1409,8 @@ describe("DB", () => {
         BunLogModule({
             message: "Cleaning up test objects...",
             type: "debug",
-            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
-            debug: CLIConfiguration.VRCA_CLI_DEBUG,
+            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+            debug: cliConfiguration.VRCA_CLI_DEBUG,
         });
         await cleanupTestEntities({
             superUserSql,
@@ -1424,24 +1424,24 @@ describe("DB", () => {
         BunLogModule({
             message: "Test objects cleaned up.",
             type: "debug",
-            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
-            debug: CLIConfiguration.VRCA_CLI_DEBUG,
+            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+            debug: cliConfiguration.VRCA_CLI_DEBUG,
         });
         BunLogModule({
             message: "Disconnecting from DB...",
             type: "debug",
-            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
-            debug: CLIConfiguration.VRCA_CLI_DEBUG,
+            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+            debug: cliConfiguration.VRCA_CLI_DEBUG,
         });
         await BunPostgresClientModule.getInstance({
-            debug: CLIConfiguration.VRCA_CLI_DEBUG,
-            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+            debug: cliConfiguration.VRCA_CLI_DEBUG,
+            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
         }).disconnect();
         BunLogModule({
             message: "Disconnected from DB.",
             type: "debug",
-            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
-            debug: CLIConfiguration.VRCA_CLI_DEBUG,
+            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+            debug: cliConfiguration.VRCA_CLI_DEBUG,
         });
     });
 });

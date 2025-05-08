@@ -1,9 +1,9 @@
 import type postgres from "postgres";
 import { sign } from "jsonwebtoken";
 import { expect } from "bun:test";
-import { BunLogModule } from "../../../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.log";
-import { CLIConfiguration } from "../../vircadia.cli.config";
-import type { Auth } from "../../../sdk/vircadia-world-sdk-ts/src/schema/vircadia.schema.general";
+import { BunLogModule } from "../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
+import { cliConfiguration } from "../../vircadia.cli.config";
+import type { Auth } from "../../../sdk/vircadia-world-sdk-ts/schema/src/index.schema";
 
 export const TEST_SYNC_GROUP = "public.REALTIME";
 export const DB_TEST_PREFIX = "RESERVED_vtw908ncjw98t3t8kgr8y9ngv3w8b_db_test_";
@@ -293,8 +293,8 @@ export async function initTestAccounts(data: {
         BunLogModule({
             message: "Initialized test accounts",
             type: "debug",
-            debug: CLIConfiguration.VRCA_CLI_DEBUG,
-            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+            debug: cliConfiguration.VRCA_CLI_DEBUG,
+            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
         });
     });
 
@@ -330,16 +330,16 @@ export async function cleanupTestAccounts(data: {
             BunLogModule({
                 message: "Cleaned up test accounts",
                 type: "debug",
-                debug: CLIConfiguration.VRCA_CLI_DEBUG,
-                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
             });
         } catch (error) {
             BunLogModule({
                 message: "Failed to cleanup test accounts",
                 type: "error",
                 error,
-                debug: CLIConfiguration.VRCA_CLI_DEBUG,
-                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
             });
             throw error;
         }
@@ -366,16 +366,16 @@ export async function cleanupTestEntities(data: {
             BunLogModule({
                 message: "Cleaned up test entities",
                 type: "debug",
-                debug: CLIConfiguration.VRCA_CLI_DEBUG,
-                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
             });
         } catch (error) {
             BunLogModule({
                 message: "Failed to cleanup test entities",
                 type: "error",
                 error,
-                debug: CLIConfiguration.VRCA_CLI_DEBUG,
-                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
             });
             throw error;
         }
@@ -402,16 +402,16 @@ export async function cleanupTestAssets(data: {
             BunLogModule({
                 message: "Cleaned up test assets",
                 type: "debug",
-                debug: CLIConfiguration.VRCA_CLI_DEBUG,
-                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
             });
         } catch (error) {
             BunLogModule({
                 message: "Failed to cleanup test assets",
                 type: "error",
                 error,
-                debug: CLIConfiguration.VRCA_CLI_DEBUG,
-                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
             });
             throw error;
         }

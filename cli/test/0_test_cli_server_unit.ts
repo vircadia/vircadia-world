@@ -1,8 +1,8 @@
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
-import { CLIConfiguration } from "../vircadia.cli.config";
-import { BunPostgresClientModule } from "../../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.postgres";
-import { ServerConfiguration } from "../../sdk/vircadia-world-sdk-ts/src/server/config/vircadia.server.config";
-import { Service } from "../../sdk/vircadia-world-sdk-ts/src/schema/vircadia.schema.general";
+import { cliConfiguration } from "../vircadia.cli.config";
+import { BunPostgresClientModule } from "../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
+import { serverConfiguration } from "../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
+import { Service } from "../../sdk/vircadia-world-sdk-ts/schema/src/index.schema";
 import { runCliCommand } from "./helper/helpers";
 import { existsSync, statSync, unlinkSync } from "node:fs";
 
@@ -14,8 +14,8 @@ describe("Container ops tests", () => {
 
     afterAll(async () => {
         await BunPostgresClientModule.getInstance({
-            debug: CLIConfiguration.VRCA_CLI_DEBUG,
-            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+            debug: cliConfiguration.VRCA_CLI_DEBUG,
+            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
         }).disconnect();
     });
 
@@ -85,18 +85,18 @@ describe("Container ops tests", () => {
 
         test("Superuser SQL connection works", async () => {
             const superUserSql = await BunPostgresClientModule.getInstance({
-                debug: CLIConfiguration.VRCA_CLI_DEBUG,
-                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
             }).getSuperClient({
                 postgres: {
-                    host: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                    port: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                    host: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                    port: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
                     database:
-                        CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                        cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                     username:
-                        CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                        cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                     password:
-                        CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                        cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
                 },
             });
 
@@ -114,18 +114,18 @@ describe("Container ops tests", () => {
 
         test("Proxy user SQL connection works", async () => {
             const proxyUserSql = await BunPostgresClientModule.getInstance({
-                debug: CLIConfiguration.VRCA_CLI_DEBUG,
-                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
             }).getProxyClient({
                 postgres: {
-                    host: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                    port: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                    host: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                    port: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
                     database:
-                        CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                        cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                     username:
-                        CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME,
+                        cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME,
                     password:
-                        CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD,
+                        cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD,
                 },
             });
 
@@ -186,18 +186,18 @@ describe("Container ops tests", () => {
 
         test("Database extensions are properly installed", async () => {
             const sql = await BunPostgresClientModule.getInstance({
-                debug: CLIConfiguration.VRCA_CLI_DEBUG,
-                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
             }).getSuperClient({
                 postgres: {
-                    host: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                    port: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                    host: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                    port: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
                     database:
-                        CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                        cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                     username:
-                        CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                        cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                     password:
-                        CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                        cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
                 },
             });
 
@@ -206,7 +206,7 @@ describe("Container ops tests", () => {
         `;
 
             const requiredExtensions =
-                ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS;
+                serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS;
             for (const ext of requiredExtensions) {
                 expect(extensions.some((e) => e.extname === ext)).toBe(true);
             }
@@ -214,7 +214,7 @@ describe("Container ops tests", () => {
 
         test("Database backup command writes backup file", async () => {
             const backupPath =
-                CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_BACKUP_FILE;
+                cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_BACKUP_FILE;
             if (existsSync(backupPath)) {
                 unlinkSync(backupPath);
             }
@@ -237,18 +237,18 @@ describe("Container ops tests", () => {
         test("Database backup and restore round-trip preserves data", async () => {
             // Connect as superuser
             const sql = await BunPostgresClientModule.getInstance({
-                debug: CLIConfiguration.VRCA_CLI_DEBUG,
-                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
             }).getSuperClient({
                 postgres: {
-                    host: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                    port: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                    host: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                    port: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
                     database:
-                        CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                        cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                     username:
-                        CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                        cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                     password:
-                        CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                        cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
                 },
             });
             // Count rows before backup

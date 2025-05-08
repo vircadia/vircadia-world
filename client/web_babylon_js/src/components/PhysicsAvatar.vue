@@ -11,7 +11,7 @@ import type {
 } from "@babylonjs/core";
 import { Vector3, Quaternion, ArcRotateCamera } from "@babylonjs/core";
 import { z } from "zod";
-import { getVircadiaInstanceKey_Vue } from "@vircadia/world-sdk/browser";
+import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
 
 import { useKeyboardControls } from "../composables/useKeyboardControls";
 import { useAvatarEntity } from "../composables/useAvatarEntity";
@@ -127,7 +127,7 @@ const { camera, setupCamera, updateCameraFromMeta } = useAvatarCameraController(
 
 // Lifecycle hooks
 onMounted(() => {
-    const vircadiaWorld = inject(getVircadiaInstanceKey_Vue());
+    const vircadiaWorld = inject(useVircadiaInstance());
     if (!vircadiaWorld) {
         throw new Error("Vircadia instance not found in PhysicsAvatar");
     }

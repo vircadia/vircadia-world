@@ -1,7 +1,7 @@
 import path, { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { ServerConfiguration } from "../sdk/vircadia-world-sdk-ts/src/server/config/vircadia.server.config";
+import { serverConfiguration } from "../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
 
 // CLI environment schema
 const cliEnvSchema = z.object({
@@ -28,36 +28,36 @@ const cliEnvSchema = z.object({
     VRCA_CLI_SERVICE_POSTGRES_HOST: z
         .string()
         .default(
-            ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_BIND_EXTERNAL,
+            serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_BIND_EXTERNAL,
         ),
     VRCA_CLI_SERVICE_POSTGRES_PORT: z.coerce
         .number()
         .default(
-            ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL,
+            serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL,
         ),
     VRCA_CLI_SERVICE_POSTGRES_DATABASE: z
         .string()
-        .default(ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_DATABASE),
+        .default(serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_DATABASE),
     VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME: z
         .string()
         .default(
-            ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+            serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME,
         ),
     VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD: z
         .string()
         .default(
-            ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+            serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
         ),
 
     VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME: z
         .string()
         .default(
-            ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME,
+            serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME,
         ),
     VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD: z
         .string()
         .default(
-            ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD,
+            serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD,
         ),
 
     VRCA_CLI_SERVICE_POSTGRES_BACKUP_FILE: z
@@ -129,34 +129,34 @@ const cliEnvSchema = z.object({
     VRCA_CLI_SERVICE_PGWEB_HOST: z
         .string()
         .default(
-            ServerConfiguration.VRCA_SERVER_SERVICE_PGWEB_HOST_CONTAINER_BIND_EXTERNAL,
+            serverConfiguration.VRCA_SERVER_SERVICE_PGWEB_HOST_CONTAINER_BIND_EXTERNAL,
         ),
     VRCA_CLI_SERVICE_PGWEB_PORT: z.coerce
         .number()
         .default(
-            ServerConfiguration.VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_BIND_EXTERNAL,
+            serverConfiguration.VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_BIND_EXTERNAL,
         ),
 
     VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST: z
         .string()
         .default(
-            ServerConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_PUBLIC_AVAILABLE_AT,
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_PUBLIC_AVAILABLE_AT,
         ),
     VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT: z.coerce
         .number()
         .default(
-            ServerConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_PUBLIC_AVAILABLE_AT,
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_PUBLIC_AVAILABLE_AT,
         ),
 
     VRCA_CLI_SERVICE_WORLD_TICK_MANAGER_HOST: z
         .string()
         .default(
-            ServerConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
         ),
     VRCA_CLI_SERVICE_WORLD_TICK_MANAGER_PORT: z.coerce
         .number()
         .default(
-            ServerConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_EXTERNAL,
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_EXTERNAL,
         ),
 });
-export const CLIConfiguration = cliEnvSchema.parse(process.env);
+export const cliConfiguration = cliEnvSchema.parse(process.env);

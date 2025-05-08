@@ -1,6 +1,6 @@
 import { ref, watch, type Ref } from "vue";
 import { useThrottleFn } from "@vueuse/core";
-import { useVircadiaEntity_Vue } from "@vircadia/world-sdk/browser";
+import { useEntity } from "@vircadia/world-sdk/browser/vue";
 import type { ZodSchema } from "zod";
 
 export function useAvatarEntity<M>(
@@ -10,7 +10,7 @@ export function useAvatarEntity<M>(
     getInitialMeta: () => M,
     getCurrentMeta: () => M,
 ) {
-    const avatarEntity = useVircadiaEntity_Vue({
+    const avatarEntity = useEntity({
         entityName: entityNameRef,
         selectClause: "general__entity_name, meta__data",
         insertClause:

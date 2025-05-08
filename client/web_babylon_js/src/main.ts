@@ -4,10 +4,11 @@ import "./assets/main.css";
 
 import {
     useVircadia,
-    clientBrowserConfiguration,
     DEFAULT_VIRCADIA_INSTANCE_KEY,
     Communication,
 } from "@vircadia/world-sdk/browser/vue";
+
+import { clientBrowserConfiguration } from "./vircadia.browser.config";
 
 // Initialize Vircadia before creating the app
 const vircadiaWorld = useVircadia({

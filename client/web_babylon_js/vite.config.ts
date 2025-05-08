@@ -5,7 +5,7 @@ import vue from "@vitejs/plugin-vue";
 import vueJsx from "@vitejs/plugin-vue-jsx";
 import vueDevTools from "vite-plugin-vue-devtools";
 
-import { VircadiaConfig_BROWSER_CLIENT } from "../../sdk/vircadia-world-sdk-ts/src/client/core/vircadia.client.browser.config";
+import { ClientBrowserConfiguration } from "../../sdk/vircadia-world-sdk-ts/src/client/core/vircadia.client.browser.config";
 
 // https://vite.dev/config/
 export default defineConfig(({ command }) => {
@@ -24,13 +24,13 @@ export default defineConfig(({ command }) => {
             },
         },
         server: {
-            host: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST,
-            port: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT,
+            host: ClientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST,
+            port: ClientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT,
             strictPort: true,
         },
         preview: {
-            host: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_PROD_HOST,
-            port: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT,
+            host: ClientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_PROD_HOST,
+            port: ClientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT,
             strictPort: true,
         },
         envPrefix: "VRCA_CLIENT_",

@@ -1,13 +1,13 @@
-import { VircadiaConfig_CLI } from "./vircadia.cli.config";
-import { VircadiaConfig_SERVER } from "../sdk/vircadia-world-sdk-ts/src/server/config/vircadia.server.config";
-import { log } from "../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.log";
+import { CLIConfiguration } from "./vircadia.cli.config";
+import { ServerConfiguration } from "../sdk/vircadia-world-sdk-ts/src/server/config/vircadia.server.config";
+import { BunLogModule } from "../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.log";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { sign } from "jsonwebtoken";
-import { PostgresClient } from "../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.postgres";
+import { BunPostgresClientModule } from "../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.postgres";
 import {
     type Entity,
     Service,
@@ -33,65 +33,64 @@ export namespace Server_CLI {
             PATH: process.env.PATH,
 
             VRCA_SERVER_CONTAINER_NAME:
-                VircadiaConfig_SERVER.VRCA_SERVER_CONTAINER_NAME,
-            VRCA_SERVER_DEBUG:
-                VircadiaConfig_SERVER.VRCA_SERVER_DEBUG.toString(),
+                ServerConfiguration.VRCA_SERVER_CONTAINER_NAME,
+            VRCA_SERVER_DEBUG: ServerConfiguration.VRCA_SERVER_DEBUG.toString(),
             VRCA_SERVER_SUPPRESS:
-                VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS.toString(),
+                ServerConfiguration.VRCA_SERVER_SUPPRESS.toString(),
 
             VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
+                ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
             VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME,
             VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
             VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME,
+                ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME,
             VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD,
+                ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD,
             VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_BIND_EXTERNAL:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_BIND_EXTERNAL,
+                ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_BIND_EXTERNAL,
             VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL.toString(),
+                ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL.toString(),
             VRCA_SERVER_SERVICE_POSTGRES_DATABASE:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
+                ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
             VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS.join(
+                ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS.join(
                     ",",
                 ),
 
             VRCA_SERVER_SERVICE_PGWEB_CONTAINER_NAME:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_PGWEB_CONTAINER_NAME,
+                ServerConfiguration.VRCA_SERVER_SERVICE_PGWEB_CONTAINER_NAME,
             VRCA_SERVER_SERVICE_PGWEB_HOST_CONTAINER_BIND_EXTERNAL:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_PGWEB_HOST_CONTAINER_BIND_EXTERNAL,
+                ServerConfiguration.VRCA_SERVER_SERVICE_PGWEB_HOST_CONTAINER_BIND_EXTERNAL,
             VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_BIND_EXTERNAL:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_BIND_EXTERNAL.toString(),
+                ServerConfiguration.VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_BIND_EXTERNAL.toString(),
 
             VRCA_SERVER_SERVICE_WORLD_API_MANAGER_CONTAINER_NAME:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_CONTAINER_NAME,
+                ServerConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_CONTAINER_NAME,
             VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_INTERNAL:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_INTERNAL,
+                ServerConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_INTERNAL,
             VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_INTERNAL:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_INTERNAL.toString(),
+                ServerConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_INTERNAL.toString(),
             VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
+                ServerConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
             VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString(),
+                ServerConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString(),
             VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_PUBLIC_AVAILABLE_AT:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_PUBLIC_AVAILABLE_AT,
+                ServerConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_PUBLIC_AVAILABLE_AT,
             VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_PUBLIC_AVAILABLE_AT:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_PUBLIC_AVAILABLE_AT.toString(),
+                ServerConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_PUBLIC_AVAILABLE_AT.toString(),
 
             VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_CONTAINER_NAME:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_CONTAINER_NAME,
+                ServerConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_CONTAINER_NAME,
             VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_INTERNAL:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_INTERNAL,
+                ServerConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_INTERNAL,
             VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_INTERNAL:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_INTERNAL.toString(),
+                ServerConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_INTERNAL.toString(),
             VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_EXTERNAL:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
+                ServerConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
             VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_EXTERNAL:
-                VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString(),
+                ServerConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString(),
         };
 
         // Construct the command
@@ -104,12 +103,12 @@ export namespace Server_CLI {
 
         dockerArgs = [...dockerArgs, ...data.args];
 
-        log({
+        BunLogModule({
             prefix: "Docker Command",
             message: dockerArgs.join(" "),
             type: "debug",
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+            debug: CLIConfiguration.VRCA_CLI_DEBUG,
         });
 
         const spawnedProcess = Bun.spawn(dockerArgs, {
@@ -122,12 +121,12 @@ export namespace Server_CLI {
         const stderr = await new Response(spawnedProcess.stderr).text();
 
         if (stdout) {
-            log({
+            BunLogModule({
                 prefix: "Docker Command Output",
                 message: stdout,
                 type: "debug",
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: CLIConfiguration.VRCA_CLI_DEBUG,
             });
         }
         if (stderr) {
@@ -139,12 +138,12 @@ export namespace Server_CLI {
                 (spawnedProcess.exitCode !== 0 &&
                     spawnedProcess.exitCode !== null);
 
-            log({
+            BunLogModule({
                 prefix: "Docker Command Output",
                 message: stderr,
                 type: isActualError ? "error" : "debug",
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: CLIConfiguration.VRCA_CLI_DEBUG,
             });
         }
 
@@ -183,21 +182,21 @@ export namespace Server_CLI {
             error?: Error;
         }> => {
             try {
-                const db = PostgresClient.getInstance({
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                const db = BunPostgresClientModule.getInstance({
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
                 });
 
                 const sql = await db.getSuperClient({
                     postgres: {
-                        host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                        port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                        host: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                        port: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
                         database:
-                            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                            CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                         username:
-                            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                            CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                         password:
-                            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                            CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
                     },
                 });
                 await sql`SELECT 1`;
@@ -307,7 +306,7 @@ export namespace Server_CLI {
             error?: Error;
         }> => {
             try {
-                const url = `http://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Service.API.Stats_Endpoint.path}`;
+                const url = `http://${CLIConfiguration.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${CLIConfiguration.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Service.API.Stats_Endpoint.path}`;
                 const response = await fetch(url, {
                     method: "POST",
                     body: Service.API.Stats_Endpoint.createRequest(),
@@ -364,7 +363,7 @@ export namespace Server_CLI {
             error?: Error;
         }> => {
             try {
-                const url = `http://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_TICK_MANAGER_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_WORLD_TICK_MANAGER_PORT}${Service.Tick.Stats_Endpoint.path}`;
+                const url = `http://${CLIConfiguration.VRCA_CLI_SERVICE_WORLD_TICK_MANAGER_HOST}:${CLIConfiguration.VRCA_CLI_SERVICE_WORLD_TICK_MANAGER_PORT}${Service.Tick.Stats_Endpoint.path}`;
                 const response = await fetch(url, {
                     method: "POST",
                     body: Service.Tick.Stats_Endpoint.createRequest(),
@@ -397,28 +396,28 @@ export namespace Server_CLI {
     }
 
     export async function wipeDatabase() {
-        const db = PostgresClient.getInstance({
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+        const db = BunPostgresClientModule.getInstance({
+            debug: CLIConfiguration.VRCA_CLI_DEBUG,
+            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
         });
         const sql = await db.getSuperClient({
             postgres: {
-                host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                database: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                host: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                 username:
-                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                    CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                 password:
-                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                    CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
             },
         });
 
         try {
             // Get list of migration files
             const systemResetDir =
-                VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SYSTEM_RESET_DIR;
+                CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SYSTEM_RESET_DIR;
             const userResetDir =
-                VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_USER_RESET_DIR;
+                CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_USER_RESET_DIR;
 
             // Process system reset files
             let systemResetFiles: string[] = [];
@@ -428,20 +427,20 @@ export namespace Server_CLI {
                 });
 
                 if (systemResetFiles.length === 0) {
-                    log({
+                    BunLogModule({
                         message: `No system reset files found in ${systemResetDir}`,
                         type: "debug",
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: CLIConfiguration.VRCA_CLI_DEBUG,
                     });
                 }
             } catch (error) {
-                log({
+                BunLogModule({
                     message: `Error accessing system reset directory: ${systemResetDir}`,
                     type: "warn",
                     error,
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
             }
 
@@ -454,28 +453,28 @@ export namespace Server_CLI {
                     });
 
                     if (userResetFiles.length === 0) {
-                        log({
+                        BunLogModule({
                             message: `No user reset files found in ${userResetDir}`,
                             type: "debug",
-                            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                            debug: CLIConfiguration.VRCA_CLI_DEBUG,
                         });
                     }
                 } catch (error) {
-                    log({
+                    BunLogModule({
                         message: `Error accessing user reset directory: ${userResetDir}`,
                         type: "warn",
                         error,
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: CLIConfiguration.VRCA_CLI_DEBUG,
                     });
                 }
             } else {
-                log({
+                BunLogModule({
                     message: "User reset directory not configured",
                     type: "debug",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
             }
 
@@ -485,11 +484,11 @@ export namespace Server_CLI {
                 .sort();
 
             if (resetSqlFiles.length === 0) {
-                log({
+                BunLogModule({
                     message: "No reset SQL files found",
                     type: "warn",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
             }
 
@@ -514,66 +513,66 @@ export namespace Server_CLI {
                         await sql.unsafe(sqlContent);
                     });
 
-                    log({
+                    BunLogModule({
                         message: `Reset ${file} executed successfully`,
                         type: "debug",
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: CLIConfiguration.VRCA_CLI_DEBUG,
                     });
                 } catch (error) {
-                    log({
+                    BunLogModule({
                         message: `Failed to run reset ${file}.`,
                         type: "error",
                         error: error,
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: CLIConfiguration.VRCA_CLI_DEBUG,
                     });
                     throw error;
                 }
             }
         } catch (error) {
-            log({
+            BunLogModule({
                 message: `Database reset failed: ${error}`,
                 type: "error",
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: CLIConfiguration.VRCA_CLI_DEBUG,
             });
             throw error;
         }
     }
 
     export async function migrate(): Promise<boolean> {
-        const db = PostgresClient.getInstance({
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+        const db = BunPostgresClientModule.getInstance({
+            debug: CLIConfiguration.VRCA_CLI_DEBUG,
+            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
         });
         const sql = await db.getSuperClient({
             postgres: {
-                host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                database: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                host: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                 username:
-                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                    CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                 password:
-                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                    CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
             },
         });
 
         let migrationsRan = false;
 
-        for (const name of VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS) {
-            log({
+        for (const name of ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS) {
+            BunLogModule({
                 message: `Installing PostgreSQL extension: ${name}...`,
                 type: "debug",
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: CLIConfiguration.VRCA_CLI_DEBUG,
             });
             await sql`CREATE EXTENSION IF NOT EXISTS ${sql(name)};`;
-            log({
+            BunLogModule({
                 message: `PostgreSQL extension ${name} installed successfully`,
                 type: "debug",
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: CLIConfiguration.VRCA_CLI_DEBUG,
             });
         }
 
@@ -589,7 +588,7 @@ export namespace Server_CLI {
 
         // Get list of migration files
         const migrations = await readdir(
-            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_MIGRATION_DIR,
+            CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_MIGRATION_DIR,
             {
                 recursive: true,
             },
@@ -609,11 +608,11 @@ export namespace Server_CLI {
                 return a.localeCompare(b);
             });
 
-        log({
+        BunLogModule({
             message: `Attempting to read migrations directory: ${migrations}, found ${migrationSqlFiles.length} files`,
             type: "debug",
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+            debug: CLIConfiguration.VRCA_CLI_DEBUG,
         });
 
         // Get already executed migrations
@@ -630,16 +629,16 @@ export namespace Server_CLI {
                 migrationsRan = true;
                 try {
                     const filePath = path.join(
-                        VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_MIGRATION_DIR,
+                        CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_MIGRATION_DIR,
                         file,
                     );
                     const sqlContent = await readFile(filePath, "utf-8");
 
-                    log({
+                    BunLogModule({
                         message: `Executing migration ${file}...`,
                         type: "debug",
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: CLIConfiguration.VRCA_CLI_DEBUG,
                     });
 
                     await sql.begin(async (sql) => {
@@ -650,19 +649,19 @@ export namespace Server_CLI {
                     `;
                     });
 
-                    log({
+                    BunLogModule({
                         message: `Migration ${file} executed successfully`,
                         type: "debug",
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: CLIConfiguration.VRCA_CLI_DEBUG,
                     });
                 } catch (error) {
-                    log({
+                    BunLogModule({
                         message: `Failed to run migration ${file}.`,
                         type: "error",
                         error: error,
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: CLIConfiguration.VRCA_CLI_DEBUG,
                     });
                     throw error;
                 }
@@ -674,28 +673,28 @@ export namespace Server_CLI {
 
     // Separate seed functions for SQL and assets
     export async function seedSql() {
-        const db = PostgresClient.getInstance({
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+        const db = BunPostgresClientModule.getInstance({
+            debug: CLIConfiguration.VRCA_CLI_DEBUG,
+            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
         });
         const sql = await db.getSuperClient({
             postgres: {
-                host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                database: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                host: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                 username:
-                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                    CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                 password:
-                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                    CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
             },
         });
 
         // Ensure we resolve the seed path to absolute path
         const systemSqlDir =
-            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SEED_SYSTEM_SQL_DIR;
+            CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SEED_SYSTEM_SQL_DIR;
 
         const userSqlDir =
-            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SEED_USER_SQL_DIR;
+            CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SEED_USER_SQL_DIR;
 
         try {
             // Get already executed seeds - querying by hash
@@ -717,27 +716,27 @@ export namespace Server_CLI {
                         .filter((f) => f.endsWith(".sql"))
                         .sort();
 
-                    log({
+                    BunLogModule({
                         message: `Found ${systemSqlFiles.length} system SQL seed files in ${systemSqlDir}`,
                         type: "debug",
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: CLIConfiguration.VRCA_CLI_DEBUG,
                     });
                 } catch (error) {
-                    log({
+                    BunLogModule({
                         message: `No system SQL seed files found or error accessing directory: ${systemSqlDir}`,
                         type: "warn",
                         error,
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: CLIConfiguration.VRCA_CLI_DEBUG,
                     });
                 }
             } else {
-                log({
+                BunLogModule({
                     message: "System SQL directory not configured",
                     type: "warn",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
             }
 
@@ -752,36 +751,36 @@ export namespace Server_CLI {
                         .filter((f) => f.endsWith(".sql"))
                         .sort();
 
-                    log({
+                    BunLogModule({
                         message: `Found ${userSqlFiles.length} user SQL seed files in ${userSqlDir}`,
                         type: "debug",
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: CLIConfiguration.VRCA_CLI_DEBUG,
                     });
                 } catch (error) {
-                    log({
+                    BunLogModule({
                         message: `No user SQL seed files found or error accessing directory: ${userSqlDir}`,
                         type: "warn",
                         error,
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: CLIConfiguration.VRCA_CLI_DEBUG,
                     });
                 }
             } else {
-                log({
+                BunLogModule({
                     message: "User SQL directory not configured",
                     type: "warn",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
             }
 
             if (systemSqlFiles.length === 0 && userSqlFiles.length === 0) {
-                log({
+                BunLogModule({
                     message: `No SQL seed files found in either ${systemSqlDir || "undefined"} or ${userSqlDir || "undefined"}`,
                     type: "info",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
                 return;
             }
@@ -801,11 +800,11 @@ export namespace Server_CLI {
 
             // Helper function to process a single SQL file
             async function processSqlFile(sqlFile: string, directory: string) {
-                log({
+                BunLogModule({
                     message: `Found seed ${sqlFile}...`,
                     type: "debug",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
 
                 const filePath = path.join(directory, sqlFile);
@@ -824,19 +823,19 @@ export namespace Server_CLI {
                         executedNames.has(sqlFile) &&
                         executedNames.get(sqlFile) !== content_hash
                     ) {
-                        log({
+                        BunLogModule({
                             message: `Warning: Seed ${sqlFile} has changed since it was last executed`,
                             type: "warn",
-                            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                            debug: CLIConfiguration.VRCA_CLI_DEBUG,
                         });
                     }
 
-                    log({
+                    BunLogModule({
                         message: `Executing seed ${sqlFile} (hash: ${content_hash})...`,
                         type: "debug",
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: CLIConfiguration.VRCA_CLI_DEBUG,
                     });
 
                     try {
@@ -849,47 +848,47 @@ export namespace Server_CLI {
                             `;
                         });
 
-                        log({
+                        BunLogModule({
                             message: `Seed ${sqlFile} executed successfully`,
                             type: "debug",
-                            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                            debug: CLIConfiguration.VRCA_CLI_DEBUG,
                         });
                     } catch (error) {
-                        log({
+                        BunLogModule({
                             message: `Failed to run seed ${sqlFile}`,
                             data: {
                                 directory,
                             },
                             type: "error",
                             error: error,
-                            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                            debug: CLIConfiguration.VRCA_CLI_DEBUG,
                         });
                         throw error;
                     }
                 } else {
-                    log({
+                    BunLogModule({
                         message: `Seed ${sqlFile} already executed`,
                         type: "debug",
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: CLIConfiguration.VRCA_CLI_DEBUG,
                     });
                 }
             }
 
-            log({
+            BunLogModule({
                 message: "SQL seeding completed successfully",
                 type: "success",
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: CLIConfiguration.VRCA_CLI_DEBUG,
             });
         } catch (error) {
-            log({
+            BunLogModule({
                 message: `Error processing SQL seed files: ${error instanceof Error ? error.message : String(error)}`,
                 type: "error",
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: CLIConfiguration.VRCA_CLI_DEBUG,
             });
             throw error;
         }
@@ -909,27 +908,27 @@ export namespace Server_CLI {
             ...data.options,
         };
 
-        const db = PostgresClient.getInstance({
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+        const db = BunPostgresClientModule.getInstance({
+            debug: CLIConfiguration.VRCA_CLI_DEBUG,
+            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
         });
         const sql = await db.getSuperClient({
             postgres: {
-                host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                database: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                host: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                 username:
-                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                    CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                 password:
-                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                    CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
             },
         });
 
         // Get paths for both system and user asset directories
         const systemAssetDir =
-            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SEED_SYSTEM_ASSET_DIR;
+            CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SEED_SYSTEM_ASSET_DIR;
         const userAssetDir =
-            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SEED_USER_ASSET_DIR;
+            CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SEED_USER_ASSET_DIR;
 
         try {
             // Get all assets from the database with one query
@@ -939,11 +938,11 @@ export namespace Server_CLI {
                 SELECT general__asset_file_name FROM entity.entity_assets
             `;
 
-            log({
+            BunLogModule({
                 message: `Found ${dbAssets.length} assets in database`,
                 type: "debug",
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: CLIConfiguration.VRCA_CLI_DEBUG,
             });
 
             // Process system asset files
@@ -954,27 +953,27 @@ export namespace Server_CLI {
                         recursive: true,
                     });
 
-                    log({
+                    BunLogModule({
                         message: `Found ${filesInSystemAssetDir.length} system asset files in ${systemAssetDir}`,
                         type: "debug",
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: CLIConfiguration.VRCA_CLI_DEBUG,
                     });
                 } catch (error) {
-                    log({
+                    BunLogModule({
                         message: `No system asset files found or error accessing directory: ${systemAssetDir}`,
                         type: "warn",
                         error,
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: CLIConfiguration.VRCA_CLI_DEBUG,
                     });
                 }
             } else {
-                log({
+                BunLogModule({
                     message: "System asset directory not configured",
                     type: "warn",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
             }
 
@@ -986,27 +985,27 @@ export namespace Server_CLI {
                         recursive: true,
                     });
 
-                    log({
+                    BunLogModule({
                         message: `Found ${filesInUserAssetDir.length} user asset files in ${userAssetDir}`,
                         type: "debug",
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: CLIConfiguration.VRCA_CLI_DEBUG,
                     });
                 } catch (error) {
-                    log({
+                    BunLogModule({
                         message: `No user asset files found or error accessing directory: ${userAssetDir}`,
                         type: "warn",
                         error,
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: CLIConfiguration.VRCA_CLI_DEBUG,
                     });
                 }
             } else {
-                log({
+                BunLogModule({
                     message: "User asset directory not configured",
                     type: "warn",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
             }
 
@@ -1014,11 +1013,11 @@ export namespace Server_CLI {
                 filesInSystemAssetDir.length === 0 &&
                 filesInUserAssetDir.length === 0
             ) {
-                log({
+                BunLogModule({
                     message: `No asset files found in either ${systemAssetDir || "undefined"} or ${userAssetDir || "undefined"}`,
                     type: "info",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
                 return;
             }
@@ -1060,11 +1059,11 @@ export namespace Server_CLI {
                 if (systemAssetIndex >= 0) {
                     // Replace the system asset with the user asset
                     allAssetFileNames[systemAssetIndex] = userAsset;
-                    log({
+                    BunLogModule({
                         message: `User asset '${userAsset.fileName}' overrides system asset with the same name`,
                         type: "debug",
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: CLIConfiguration.VRCA_CLI_DEBUG,
                     });
                 } else {
                     // Add the user asset
@@ -1109,19 +1108,19 @@ export namespace Server_CLI {
                                 ${syncGroup || "public.NORMAL"})
                         `;
 
-                        log({
+                        BunLogModule({
                             message: `Added new asset to database: ${searchName}`,
                             type: "debug",
-                            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                            debug: CLIConfiguration.VRCA_CLI_DEBUG,
                         });
                     } catch (error) {
-                        log({
+                        BunLogModule({
                             message: `Failed to add new asset to database: ${searchName}`,
                             type: "error",
                             error: error,
-                            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                            debug: CLIConfiguration.VRCA_CLI_DEBUG,
                         });
                     }
                     return;
@@ -1140,19 +1139,19 @@ export namespace Server_CLI {
                         }
                     });
 
-                    log({
+                    BunLogModule({
                         message: `Updated ${matchingAssets.length} assets from file ${fileName}`,
                         type: "debug",
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: CLIConfiguration.VRCA_CLI_DEBUG,
                     });
                 } catch (error) {
-                    log({
+                    BunLogModule({
                         message: `Failed to update assets from file ${fileName}`,
                         type: "error",
                         error: error,
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: CLIConfiguration.VRCA_CLI_DEBUG,
                     });
                 }
             };
@@ -1200,18 +1199,18 @@ export namespace Server_CLI {
                 }
             }
 
-            log({
+            BunLogModule({
                 message: "Asset seeding completed successfully",
                 type: "success",
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: CLIConfiguration.VRCA_CLI_DEBUG,
             });
         } catch (error) {
-            log({
+            BunLogModule({
                 message: `Error processing asset files: ${error instanceof Error ? error.message : String(error)}`,
                 type: "error",
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: CLIConfiguration.VRCA_CLI_DEBUG,
             });
             throw error;
         }
@@ -1222,19 +1221,19 @@ export namespace Server_CLI {
         sessionId: string;
         agentId: string;
     }> {
-        const db = PostgresClient.getInstance({
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+        const db = BunPostgresClientModule.getInstance({
+            debug: CLIConfiguration.VRCA_CLI_DEBUG,
+            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
         });
         const sql = await db.getSuperClient({
             postgres: {
-                host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                database: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                host: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                 username:
-                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                    CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                 password:
-                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                    CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
             },
         });
 
@@ -1344,19 +1343,19 @@ export namespace Server_CLI {
     }
 
     export async function invalidateDbSystemTokens(): Promise<number> {
-        const db = PostgresClient.getInstance({
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+        const db = BunPostgresClientModule.getInstance({
+            debug: CLIConfiguration.VRCA_CLI_DEBUG,
+            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
         });
         const sql = await db.getSuperClient({
             postgres: {
-                host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                database: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                host: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                 username:
-                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                    CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                 password:
-                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                    CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
             },
         });
 
@@ -1380,11 +1379,11 @@ export namespace Server_CLI {
     }
 
     export async function generateDbConnectionString(): Promise<string> {
-        return `postgres://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD}@${VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT}/${VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE}`;
+        return `postgres://${CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME}:${CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD}@${CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST}:${CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT}/${CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE}`;
     }
 
     export async function generatePgwebAccessURL(): Promise<string> {
-        return `http://${VircadiaConfig_CLI.VRCA_CLI_SERVICE_PGWEB_HOST}:${VircadiaConfig_CLI.VRCA_CLI_SERVICE_PGWEB_PORT}`;
+        return `http://${CLIConfiguration.VRCA_CLI_SERVICE_PGWEB_HOST}:${CLIConfiguration.VRCA_CLI_SERVICE_PGWEB_PORT}`;
     }
 
     export async function downloadAssetsFromDatabase(data: {
@@ -1404,33 +1403,33 @@ export namespace Server_CLI {
         // Use the configured sync directory or the one provided in options
         const outputDir =
             options.outputDir ||
-            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SYNC_ASSET_DIR;
+            CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SYNC_ASSET_DIR;
 
         if (!outputDir) {
             throw new Error("Output directory not configured");
         }
 
-        const db = PostgresClient.getInstance({
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+        const db = BunPostgresClientModule.getInstance({
+            debug: CLIConfiguration.VRCA_CLI_DEBUG,
+            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
         });
         const sql = await db.getSuperClient({
             postgres: {
-                host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                database: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                host: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                 username:
-                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                    CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                 password:
-                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                    CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
             },
         });
 
-        log({
+        BunLogModule({
             message: `Starting asset download to ${outputDir}...`,
             type: "info",
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+            debug: CLIConfiguration.VRCA_CLI_DEBUG,
         });
 
         try {
@@ -1473,13 +1472,13 @@ export namespace Server_CLI {
 
             const assets = await assetsQuery;
 
-            log({
+            BunLogModule({
                 message: options.syncGroup
                     ? `Retrieved ${assets.length} assets with sync group: ${options.syncGroup}`
                     : `Retrieved ${assets.length} assets from database`,
                 type: "info",
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: CLIConfiguration.VRCA_CLI_DEBUG,
             });
 
             // Function to process a single asset
@@ -1509,27 +1508,27 @@ export namespace Server_CLI {
                             Buffer.from(asset.asset__data__bytea),
                         );
 
-                        log({
+                        BunLogModule({
                             message: `Downloaded asset: ${fileName}`,
                             type: "debug",
-                            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                            debug: CLIConfiguration.VRCA_CLI_DEBUG,
                         });
                     } else {
-                        log({
+                        BunLogModule({
                             message: `No binary data for asset: ${fileName}`,
                             type: "warn",
-                            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                            debug: CLIConfiguration.VRCA_CLI_DEBUG,
                         });
                     }
                 } catch (error) {
-                    log({
+                    BunLogModule({
                         message: `Error downloading asset: ${asset.general__asset_file_name}`,
                         type: "error",
                         error,
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: CLIConfiguration.VRCA_CLI_DEBUG,
                     });
                 }
             };
@@ -1547,19 +1546,19 @@ export namespace Server_CLI {
                 }
             }
 
-            log({
+            BunLogModule({
                 message: `Asset download completed successfully. Downloaded ${assets.length} assets.`,
                 type: "success",
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: CLIConfiguration.VRCA_CLI_DEBUG,
             });
         } catch (error) {
-            log({
+            BunLogModule({
                 message: "Error downloading assets from database",
                 type: "error",
                 error,
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: CLIConfiguration.VRCA_CLI_DEBUG,
             });
         }
     }
@@ -1567,23 +1566,23 @@ export namespace Server_CLI {
     export async function backupDatabase() {
         // Config values - ensure these are correctly loaded from your config setup
         const dbUser =
-            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME;
-        const dbName = VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE;
+            CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME;
+        const dbName = CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE;
         const backupFilePathHost =
-            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_BACKUP_FILE; // Path on the host machine where the backup will be saved
+            CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_BACKUP_FILE; // Path on the host machine where the backup will be saved
         const containerName =
-            VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME;
+            ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME;
 
         try {
             // Ensure backup directory exists on host
             const backupDir = path.dirname(backupFilePathHost);
             if (!existsSync(backupDir)) {
                 mkdirSync(backupDir, { recursive: true });
-                log({
+                BunLogModule({
                     message: `Created backup directory: ${backupDir}`,
                     type: "info",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
             }
 
@@ -1596,11 +1595,11 @@ export namespace Server_CLI {
             }
 
             // Execute pg_dump directly to stdout and pipe it to a file on the host
-            log({
+            BunLogModule({
                 message: `Running pg_dump and saving directly to: ${backupFilePathHost}`,
                 type: "debug",
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: CLIConfiguration.VRCA_CLI_DEBUG,
             });
 
             // Use direct Bun.spawn for running docker command (not using compose to avoid stream redirection issues)
@@ -1643,12 +1642,12 @@ export namespace Server_CLI {
             // Check for errors
             const stderr = await new Response(pgDumpProcess.stderr).text();
             if (stderr) {
-                log({
+                BunLogModule({
                     prefix: "pg_dump Error",
                     message: stderr,
                     type: "error",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
             }
 
@@ -1666,12 +1665,12 @@ export namespace Server_CLI {
                 );
             }
         } catch (error) {
-            log({
+            BunLogModule({
                 message: `Database backup failed: ${error instanceof Error ? error.message : String(error)}`,
                 type: "error",
                 error,
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: CLIConfiguration.VRCA_CLI_DEBUG,
             });
             throw error;
         }
@@ -1680,12 +1679,12 @@ export namespace Server_CLI {
     // Restore database from backup file
     export async function restoreDatabase() {
         const dbUser =
-            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME;
-        const dbName = VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE;
+            CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME;
+        const dbName = CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE;
         const restoreFilePathHost =
-            VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_RESTORE_FILE;
+            CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_RESTORE_FILE;
         const containerName =
-            VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME;
+            ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME;
 
         try {
             // Check if restore file exists
@@ -1705,11 +1704,11 @@ export namespace Server_CLI {
 
             // Read the backup file
             const stats = statSync(restoreFilePathHost);
-            log({
+            BunLogModule({
                 message: `Reading backup file (${(stats.size / 1024 / 1024).toFixed(2)} MB)...`,
                 type: "debug",
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: CLIConfiguration.VRCA_CLI_DEBUG,
             });
 
             // Create a read stream from the backup file
@@ -1718,11 +1717,11 @@ export namespace Server_CLI {
             const fileBuffer = Buffer.from(fileArrayBuffer);
 
             // Use direct Bun.spawn for running docker command with input pipe
-            log({
+            BunLogModule({
                 message: "Running pg_restore...",
                 type: "debug",
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: CLIConfiguration.VRCA_CLI_DEBUG,
             });
 
             const pgRestoreProcess = Bun.spawn(
@@ -1753,24 +1752,24 @@ export namespace Server_CLI {
             const stderr = await new Response(pgRestoreProcess.stderr).text();
 
             if (stdout) {
-                log({
+                BunLogModule({
                     prefix: "pg_restore Output",
                     message: stdout,
                     type: "debug",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
             }
 
             if (stderr) {
                 // pg_restore often outputs some warnings that aren't fatal errors
                 const isActualError = pgRestoreProcess.exitCode !== 0;
-                log({
+                BunLogModule({
                     prefix: "pg_restore Output",
                     message: stderr,
                     type: isActualError ? "error" : "warn",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
 
                 if (isActualError) {
@@ -1780,12 +1779,12 @@ export namespace Server_CLI {
                 }
             }
         } catch (error) {
-            log({
+            BunLogModule({
                 message: `Database restore failed: ${error instanceof Error ? error.message : String(error)}`,
                 type: "error",
                 error,
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                debug: CLIConfiguration.VRCA_CLI_DEBUG,
             });
             throw error;
         }
@@ -1798,11 +1797,11 @@ if (import.meta.main) {
     const additionalArgs = Bun.argv.slice(3);
 
     if (!command) {
-        log({
+        BunLogModule({
             message: "No command provided",
             type: "error",
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+            debug: CLIConfiguration.VRCA_CLI_DEBUG,
         });
         process.exit(1);
     }
@@ -1839,12 +1838,12 @@ if (import.meta.main) {
                           }
                         : true,
                 );
-                log({
+                BunLogModule({
                     message: `PostgreSQL: ${health.isHealthy ? "healthy" : "unhealthy"}`,
                     data: health,
                     type: health.isHealthy ? "success" : "error",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
                 if (!health.isHealthy) {
                     process.exit(1);
@@ -1883,12 +1882,12 @@ if (import.meta.main) {
                           }
                         : undefined,
                 );
-                log({
+                BunLogModule({
                     message: `PGWEB: ${health.isHealthy ? "healthy" : "unhealthy"}`,
                     data: health,
                     type: health.isHealthy ? "success" : "error",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
                 if (!health.isHealthy) {
                     process.exit(1);
@@ -1927,12 +1926,12 @@ if (import.meta.main) {
                           }
                         : undefined,
                 );
-                log({
+                BunLogModule({
                     message: `World API Manager: ${health.isHealthy ? "healthy" : "unhealthy"}`,
                     data: health,
                     type: health.isHealthy ? "success" : "error",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
                 if (!health.isHealthy) {
                     process.exit(1);
@@ -1971,12 +1970,12 @@ if (import.meta.main) {
                           }
                         : undefined,
                 );
-                log({
+                BunLogModule({
                     message: `World Tick Manager: ${health.isHealthy ? "healthy" : "unhealthy"}`,
                     data: health,
                     type: health.isHealthy ? "success" : "error",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
                 if (!health.isHealthy) {
                     process.exit(1);
@@ -1988,35 +1987,35 @@ if (import.meta.main) {
 
             // SERVER POSTGRES DATABASE COMMANDS
             case "server:postgres:migrate": {
-                log({
+                BunLogModule({
                     message: "Running database migrations...",
                     type: "info",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
                 await Server_CLI.migrate();
-                log({
+                BunLogModule({
                     message: "Migrations ran successfully",
                     type: "success",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
                 break;
             }
 
             case "server:postgres:wipe": {
-                log({
+                BunLogModule({
                     message: "Wiping database...",
                     type: "info",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
                 await Server_CLI.wipeDatabase();
-                log({
+                BunLogModule({
                     message: "Database wiped",
                     type: "success",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
                 break;
             }
@@ -2024,11 +2023,11 @@ if (import.meta.main) {
             case "server:postgres:connection-string": {
                 const connectionString =
                     await Server_CLI.generateDbConnectionString();
-                log({
+                BunLogModule({
                     message: `Database connection string:\n[ ${connectionString} ]`,
                     type: "info",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
                 break;
             }
@@ -2041,11 +2040,11 @@ if (import.meta.main) {
                 }
 
                 if (!printOnlyToken) {
-                    log({
+                    BunLogModule({
                         message: "Generating system token...",
                         type: "info",
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: CLIConfiguration.VRCA_CLI_DEBUG,
                     });
                 }
 
@@ -2054,58 +2053,58 @@ if (import.meta.main) {
                 if (printOnlyToken) {
                     console.log(token);
                 } else {
-                    log({
+                    BunLogModule({
                         message: `System agent token: ${token}`,
                         data: { sessionId, agentId },
                         type: "success",
-                        suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                        debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                        suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: CLIConfiguration.VRCA_CLI_DEBUG,
                     });
                 }
                 break;
             }
 
             case "server:postgres:system-token:invalidate-all": {
-                log({
+                BunLogModule({
                     message: "Invalidating all system tokens...",
                     type: "info",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
                 const invalidatedCount =
                     await Server_CLI.invalidateDbSystemTokens();
-                log({
+                BunLogModule({
                     message: `Invalidated ${invalidatedCount} system tokens`,
                     type: "success",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
                 break;
             }
 
             case "server:postgres:seed:sql": {
-                log({
+                BunLogModule({
                     message: "Running database SQL seeds...",
                     type: "info",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
                 await Server_CLI.seedSql();
-                log({
+                BunLogModule({
                     message: "SQL seeds applied.",
                     type: "success",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
                 break;
             }
 
             case "server:postgres:seed:assets": {
-                log({
+                BunLogModule({
                     message: "Running database asset seeds...",
                     type: "info",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
                 await Server_CLI.seedAssets({
                     options: {
@@ -2119,45 +2118,45 @@ if (import.meta.main) {
                                 : 10,
                     },
                 });
-                log({
+                BunLogModule({
                     message: "Asset seeds applied.",
                     type: "success",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
                 break;
             }
 
             case "server:postgres:backup": {
-                log({
-                    message: `Backing up database to [${VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_BACKUP_FILE}]...`,
+                BunLogModule({
+                    message: `Backing up database to [${CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_BACKUP_FILE}]...`,
                     type: "info",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
                 await Server_CLI.backupDatabase();
-                log({
+                BunLogModule({
                     message: "Database backed up.",
                     type: "success",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
                 break;
             }
 
             case "server:postgres:restore": {
-                log({
-                    message: `Restoring database from [${VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_RESTORE_FILE}]...`,
+                BunLogModule({
+                    message: `Restoring database from [${CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_RESTORE_FILE}]...`,
                     type: "info",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
                 await Server_CLI.restoreDatabase();
-                log({
+                BunLogModule({
                     message: "Database restored.",
                     type: "success",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
                 break;
             }
@@ -2166,12 +2165,12 @@ if (import.meta.main) {
             case "server:pgweb:access-command": {
                 const pgwebAccessURL =
                     await Server_CLI.generatePgwebAccessURL();
-                log({
+                BunLogModule({
                     message: `Access PGWEB at:\n[ ${pgwebAccessURL} ]`,
                     data: { pgwebAccessURL },
                     type: "success",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
                 break;
             }
@@ -2188,29 +2187,29 @@ if (import.meta.main) {
             case "dev:hot-sync:assets": {
                 // await AssetHotSync.hotSyncAssets({
                 //     pollIntervalMs: 5000,
-                //     debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                //     debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 //     compileForce: true,
                 // });
                 break;
             }
 
             default:
-                log({
+                BunLogModule({
                     message: `Unknown command: ${command}`,
                     type: "error",
-                    suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-                    debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+                    suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: CLIConfiguration.VRCA_CLI_DEBUG,
                 });
                 process.exit(1);
         }
 
         process.exit(0);
     } catch (error) {
-        log({
+        BunLogModule({
             message: `Error: ${error}`,
             type: "error",
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+            debug: CLIConfiguration.VRCA_CLI_DEBUG,
         });
         process.exit(1);
     }

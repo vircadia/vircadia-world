@@ -1,12 +1,12 @@
-import { log } from "../../../../../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.log";
+import { BunLogModule } from "../../../../../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.log";
 import type postgres from "postgres";
-import { VircadiaConfig_SERVER } from "../../../../../sdk/vircadia-world-sdk-ts/src/server/config/vircadia.server.config";
+import { ServerConfiguration } from "../../../../../sdk/vircadia-world-sdk-ts/src/server/config/vircadia.server.config";
 import {
     Service,
     type Auth,
     type Tick,
 } from "../../../../../sdk/vircadia-world-sdk-ts/src/schema/vircadia.schema.general";
-import { PostgresClient } from "../../../../../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.postgres";
+import { BunPostgresClientModule } from "../../../../../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.postgres";
 import type { Server } from "bun";
 
 const LOG_PREFIX = "World Tick Manager";
@@ -21,19 +21,19 @@ export class WorldTickManager {
 
     async initialize() {
         try {
-            log({
+            BunLogModule({
                 message: "Initializing World Tick Manager",
-                debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
-                suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+                debug: ServerConfiguration.VRCA_SERVER_DEBUG,
+                suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "debug",
                 prefix: LOG_PREFIX,
             });
 
             Bun.serve({
                 hostname:
-                    VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_INTERNAL,
-                port: VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_INTERNAL,
-                development: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
+                    ServerConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_INTERNAL,
+                port: ServerConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_INTERNAL,
+                development: ServerConfiguration.VRCA_SERVER_DEBUG,
 
                 websocket: {
                     message(ws, message) {},
@@ -98,19 +98,19 @@ export class WorldTickManager {
                 },
             });
 
-            this.superUserSql = await PostgresClient.getInstance({
-                debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
-                suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+            this.superUserSql = await BunPostgresClientModule.getInstance({
+                debug: ServerConfiguration.VRCA_SERVER_DEBUG,
+                suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
             }).getSuperClient({
                 postgres: {
-                    host: VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
-                    port: VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL,
+                    host: ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
+                    port: ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL,
                     database:
-                        VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
+                        ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
                     username:
-                        VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                        ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                     password:
-                        VircadiaConfig_SERVER.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                        ServerConfiguration.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
                 },
             });
 
@@ -140,18 +140,18 @@ export class WorldTickManager {
                 this.scheduleTick(syncGroup);
             }
 
-            log({
+            BunLogModule({
                 message: `World Tick Manager initialized successfully with ${this.syncGroups.size} sync groups`,
-                debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
-                suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+                debug: ServerConfiguration.VRCA_SERVER_DEBUG,
+                suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "success",
                 prefix: LOG_PREFIX,
             });
         } catch (error) {
-            log({
+            BunLogModule({
                 message: `Failed to initialize tick manager: ${error}`,
-                debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
-                suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+                debug: ServerConfiguration.VRCA_SERVER_DEBUG,
+                suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "error",
                 prefix: LOG_PREFIX,
             });
@@ -167,10 +167,10 @@ export class WorldTickManager {
             const data = JSON.parse(notification);
             const syncGroup = data.syncGroup;
 
-            log({
+            BunLogModule({
                 message: `Received tick completion notification for sync group: ${syncGroup}, tick: ${data.tickNumber}`,
-                debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
-                suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+                debug: ServerConfiguration.VRCA_SERVER_DEBUG,
+                suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "debug",
                 prefix: LOG_PREFIX,
             });
@@ -184,10 +184,10 @@ export class WorldTickManager {
                 this.scheduleTick(syncGroup);
             }
         } catch (error) {
-            log({
+            BunLogModule({
                 message: `Error processing tick notification: ${error}`,
-                debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
-                suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+                debug: ServerConfiguration.VRCA_SERVER_DEBUG,
+                suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "error",
                 prefix: LOG_PREFIX,
             });
@@ -197,10 +197,10 @@ export class WorldTickManager {
     private scheduleTick(syncGroup: string) {
         const config = this.syncGroups.get(syncGroup);
         if (!config) {
-            log({
+            BunLogModule({
                 message: `Cannot schedule tick for unknown sync group: ${syncGroup}`,
-                debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
-                suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+                debug: ServerConfiguration.VRCA_SERVER_DEBUG,
+                suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "error",
                 prefix: LOG_PREFIX,
             });
@@ -210,10 +210,10 @@ export class WorldTickManager {
         // If this sync group is currently processing a tick, mark it as pending and return
         if (this.processingTicks.has(syncGroup)) {
             this.pendingTicks.set(syncGroup, true);
-            log({
+            BunLogModule({
                 message: `Sync group ${syncGroup} is still processing, marking tick as pending`,
-                debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
-                suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+                debug: ServerConfiguration.VRCA_SERVER_DEBUG,
+                suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "debug",
                 prefix: LOG_PREFIX,
             });
@@ -241,12 +241,12 @@ export class WorldTickManager {
                     // If there was an error, remove from processing
                     this.processingTicks.delete(syncGroup);
 
-                    log({
+                    BunLogModule({
                         message: `Error in tick processing for ${syncGroup}.`,
                         error: error,
                         prefix: LOG_PREFIX,
-                        suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
-                        debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
+                        suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
+                        debug: ServerConfiguration.VRCA_SERVER_DEBUG,
                         type: "error",
                     });
 
@@ -284,20 +284,20 @@ export class WorldTickManager {
             `;
 
             if (!tickData) {
-                log({
+                BunLogModule({
                     message: `No tick data returned for sync group: ${syncGroup}`,
-                    debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
-                    suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+                    debug: ServerConfiguration.VRCA_SERVER_DEBUG,
+                    suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
                     type: "warning",
                     prefix: LOG_PREFIX,
                 });
                 return null;
             }
 
-            log({
+            BunLogModule({
                 message: `Tick captured for sync group: ${syncGroup}`,
-                debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
-                suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+                debug: ServerConfiguration.VRCA_SERVER_DEBUG,
+                suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "debug",
                 prefix: LOG_PREFIX,
                 data: {
@@ -325,14 +325,14 @@ export class WorldTickManager {
         const isRemotelyDbDelayed =
             result?.tick_data.tick__db__is_delayed || false;
 
-        log({
+        BunLogModule({
             message: `Tick detected the following changes for sync group: ${syncGroup}`,
             data: {
                 "Entity Changes":
                     result?.tick_data.tick__entity_states_processed,
             },
-            debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
-            suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+            debug: ServerConfiguration.VRCA_SERVER_DEBUG,
+            suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
             type: "debug",
             prefix: LOG_PREFIX,
         });
@@ -342,10 +342,10 @@ export class WorldTickManager {
             isLocallyDbDelayed ||
             isRemotelyDbDelayed
         ) {
-            log({
+            BunLogModule({
                 message: `Tick processing is delayed for ${syncGroup}\nLocally: ${isLocallyDbDelayed || isLocallyTotalDelayed}\nRemotely: ${isRemotelyDbDelayed}`,
-                debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
-                suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+                debug: ServerConfiguration.VRCA_SERVER_DEBUG,
+                suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "warning",
                 prefix: LOG_PREFIX,
                 data: {
@@ -370,10 +370,10 @@ export class WorldTickManager {
                 managerDurationMs,
                 managerIsDelayed,
             ).catch((error) => {
-                log({
+                BunLogModule({
                     message: `Failed to update manager metrics: ${error}`,
-                    debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
-                    suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+                    debug: ServerConfiguration.VRCA_SERVER_DEBUG,
+                    suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
                     type: "error",
                     prefix: LOG_PREFIX,
                 });
@@ -406,10 +406,10 @@ export class WorldTickManager {
             `;
         } catch (error) {
             // Log but don't throw to avoid affecting tick processing
-            log({
+            BunLogModule({
                 message: `Error updating tick manager metrics: ${error}`,
-                debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
-                suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+                debug: ServerConfiguration.VRCA_SERVER_DEBUG,
+                suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "error",
                 prefix: LOG_PREFIX,
             });
@@ -422,10 +422,10 @@ export class WorldTickManager {
             this.intervalIds.delete(syncGroup);
         }
 
-        log({
+        BunLogModule({
             message: "World Tick Manager stopped",
-            debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
-            suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+            debug: ServerConfiguration.VRCA_SERVER_DEBUG,
+            suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
             type: "debug",
             prefix: LOG_PREFIX,
         });
@@ -439,30 +439,29 @@ export class WorldTickManager {
             try {
                 this.superUserSql`UNLISTEN tick_captured`.catch(
                     (error: unknown) => {
-                        log({
+                        BunLogModule({
                             message: `Error unlistening from tick notifications: ${error}`,
-                            debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
-                            suppress:
-                                VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+                            debug: ServerConfiguration.VRCA_SERVER_DEBUG,
+                            suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
                             type: "error",
                             prefix: LOG_PREFIX,
                         });
                     },
                 );
             } catch (error) {
-                log({
+                BunLogModule({
                     message: `Error attempting to unlisten: ${error}`,
-                    debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
-                    suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+                    debug: ServerConfiguration.VRCA_SERVER_DEBUG,
+                    suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
                     type: "error",
                     prefix: LOG_PREFIX,
                 });
             }
         }
 
-        PostgresClient.getInstance({
-            debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
-            suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+        BunPostgresClientModule.getInstance({
+            debug: ServerConfiguration.VRCA_SERVER_DEBUG,
+            suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
         }).disconnect();
     }
 }
@@ -470,10 +469,10 @@ export class WorldTickManager {
 // Add command line entry point
 if (import.meta.main) {
     try {
-        log({
+        BunLogModule({
             message: "Starting World Tick Manager",
-            debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
-            suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+            debug: ServerConfiguration.VRCA_SERVER_DEBUG,
+            suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
             type: "info",
             prefix: LOG_PREFIX,
         });
@@ -482,10 +481,10 @@ if (import.meta.main) {
 
         // Handle cleanup on process termination
         process.on("SIGINT", () => {
-            log({
+            BunLogModule({
                 message: "\nReceived SIGINT. Cleaning up tick manager...",
-                debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
-                suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+                debug: ServerConfiguration.VRCA_SERVER_DEBUG,
+                suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "debug",
                 prefix: LOG_PREFIX,
             });
@@ -494,10 +493,10 @@ if (import.meta.main) {
         });
 
         process.on("SIGTERM", () => {
-            log({
+            BunLogModule({
                 message: "\nReceived SIGTERM. Cleaning up tick manager...",
-                debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
-                suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+                debug: ServerConfiguration.VRCA_SERVER_DEBUG,
+                suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "debug",
                 prefix: LOG_PREFIX,
             });
@@ -505,19 +504,19 @@ if (import.meta.main) {
             process.exit(0);
         });
 
-        log({
+        BunLogModule({
             message: "World Tick Manager running as standalone process",
-            debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
-            suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
+            debug: ServerConfiguration.VRCA_SERVER_DEBUG,
+            suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
             type: "success",
             prefix: LOG_PREFIX,
         });
     } catch (error) {
-        log({
+        BunLogModule({
             message: `Failed to start World Tick Manager: ${error}`,
             type: "error",
-            suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
-            debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
+            suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
+            debug: ServerConfiguration.VRCA_SERVER_DEBUG,
             prefix: LOG_PREFIX,
         });
         process.exit(1);

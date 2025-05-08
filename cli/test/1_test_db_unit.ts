@@ -1,6 +1,5 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import type postgres from "postgres";
-import { PostgresClient } from "../../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.postgres";
+import { BunPostgresClientModule } from "../../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.postgres";
 import type {
     Entity,
     Tick,
@@ -15,9 +14,9 @@ import {
     cleanupTestAssets,
     runCliCommand,
 } from "./helper/helpers";
-import { VircadiaConfig_CLI } from "../vircadia.cli.config";
-import { VircadiaConfig_SERVER } from "../../sdk/vircadia-world-sdk-ts/src/server/config/vircadia.server.config";
-import { log } from "../../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.log";
+import { CLIConfiguration } from "../vircadia.cli.config";
+import { ServerConfiguration } from "../../sdk/vircadia-world-sdk-ts/src/server/config/vircadia.server.config";
+import { BunLogModule } from "../../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.log";
 import type { BunFile } from "bun";
 import { NullEngine, Scene, ImportMeshAsync } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
@@ -44,52 +43,52 @@ describe("DB", () => {
         await runCliCommand("server:run-command", "up", "-d");
         Bun.sleep(1000);
 
-        log({
+        BunLogModule({
             message: "Getting super user client...",
             type: "debug",
-            suppress: VircadiaConfig_SERVER.VRCA_SERVER_SUPPRESS,
-            debug: VircadiaConfig_SERVER.VRCA_SERVER_DEBUG,
+            suppress: ServerConfiguration.VRCA_SERVER_SUPPRESS,
+            debug: ServerConfiguration.VRCA_SERVER_DEBUG,
         });
-        superUserSql = await PostgresClient.getInstance({
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+        superUserSql = await BunPostgresClientModule.getInstance({
+            debug: CLIConfiguration.VRCA_CLI_DEBUG,
+            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
         }).getSuperClient({
             postgres: {
-                host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                database: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                host: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                 username:
-                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                    CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                 password:
-                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                    CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
             },
         });
-        proxyUserSql = await PostgresClient.getInstance({
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+        proxyUserSql = await BunPostgresClientModule.getInstance({
+            debug: CLIConfiguration.VRCA_CLI_DEBUG,
+            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
         }).getProxyClient({
             postgres: {
-                host: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                port: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                database: VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                host: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
                 username:
-                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME,
+                    CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME,
                 password:
-                    VircadiaConfig_CLI.VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD,
+                    CLIConfiguration.VRCA_CLI_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD,
             },
         });
-        log({
+        BunLogModule({
             message: "Super user client and proxy user client obtained.",
             type: "debug",
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+            debug: CLIConfiguration.VRCA_CLI_DEBUG,
         });
 
-        log({
+        BunLogModule({
             message: "Cleaning up test objects...",
             type: "debug",
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+            debug: CLIConfiguration.VRCA_CLI_DEBUG,
         });
         await cleanupTestAccounts({
             superUserSql,
@@ -100,18 +99,18 @@ describe("DB", () => {
         await cleanupTestAssets({
             superUserSql,
         });
-        log({
+        BunLogModule({
             message: "Test objects cleaned up.",
             type: "debug",
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+            debug: CLIConfiguration.VRCA_CLI_DEBUG,
         });
 
-        log({
+        BunLogModule({
             message: "Initializing test accounts...",
             type: "debug",
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+            debug: CLIConfiguration.VRCA_CLI_DEBUG,
         });
         const testAccounts = await initTestAccounts({
             superUserSql,
@@ -119,17 +118,17 @@ describe("DB", () => {
         adminAgent = testAccounts.adminAgent;
         regularAgent = testAccounts.regularAgent;
         anonAgent = testAccounts.anonAgent;
-        log({
+        BunLogModule({
             message: "All test accounts initialized.",
             type: "debug",
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+            debug: CLIConfiguration.VRCA_CLI_DEBUG,
         });
-        log({
+        BunLogModule({
             message: "Starting DB tests...",
             type: "debug",
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+            debug: CLIConfiguration.VRCA_CLI_DEBUG,
         });
     });
 
@@ -1407,11 +1406,11 @@ describe("DB", () => {
     });
 
     afterAll(async () => {
-        log({
+        BunLogModule({
             message: "Cleaning up test objects...",
             type: "debug",
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+            debug: CLIConfiguration.VRCA_CLI_DEBUG,
         });
         await cleanupTestEntities({
             superUserSql,
@@ -1422,27 +1421,27 @@ describe("DB", () => {
         await cleanupTestAccounts({
             superUserSql,
         });
-        log({
+        BunLogModule({
             message: "Test objects cleaned up.",
             type: "debug",
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+            debug: CLIConfiguration.VRCA_CLI_DEBUG,
         });
-        log({
+        BunLogModule({
             message: "Disconnecting from DB...",
             type: "debug",
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+            debug: CLIConfiguration.VRCA_CLI_DEBUG,
         });
-        await PostgresClient.getInstance({
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+        await BunPostgresClientModule.getInstance({
+            debug: CLIConfiguration.VRCA_CLI_DEBUG,
+            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
         }).disconnect();
-        log({
+        BunLogModule({
             message: "Disconnected from DB.",
             type: "debug",
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
+            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
+            debug: CLIConfiguration.VRCA_CLI_DEBUG,
         });
     });
 });

@@ -1,8 +1,8 @@
 import type postgres from "postgres";
 import { sign } from "jsonwebtoken";
 import { expect } from "bun:test";
-import { log } from "../../../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.log";
-import { VircadiaConfig_CLI } from "../../vircadia.cli.config";
+import { BunLogModule } from "../../../sdk/vircadia-world-sdk-ts/src/client/module/bun/vircadia.client.bun.log";
+import { CLIConfiguration } from "../../vircadia.cli.config";
 import type { Auth } from "../../../sdk/vircadia-world-sdk-ts/src/schema/vircadia.schema.general";
 
 export const TEST_SYNC_GROUP = "public.REALTIME";
@@ -290,11 +290,11 @@ export async function initTestAccounts(data: {
         );
         expect(anonProfile.auth__is_admin).toBe(false);
 
-        log({
+        BunLogModule({
             message: "Initialized test accounts",
             type: "debug",
-            debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-            suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+            debug: CLIConfiguration.VRCA_CLI_DEBUG,
+            suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
         });
     });
 
@@ -327,19 +327,19 @@ export async function cleanupTestAccounts(data: {
                 `;
             expect(remainingProfiles).toHaveLength(0);
 
-            log({
+            BunLogModule({
                 message: "Cleaned up test accounts",
                 type: "debug",
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: CLIConfiguration.VRCA_CLI_DEBUG,
+                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
             });
         } catch (error) {
-            log({
+            BunLogModule({
                 message: "Failed to cleanup test accounts",
                 type: "error",
                 error,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: CLIConfiguration.VRCA_CLI_DEBUG,
+                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
             });
             throw error;
         }
@@ -363,19 +363,19 @@ export async function cleanupTestEntities(data: {
             `;
             expect(remainingEntities).toHaveLength(0);
 
-            log({
+            BunLogModule({
                 message: "Cleaned up test entities",
                 type: "debug",
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: CLIConfiguration.VRCA_CLI_DEBUG,
+                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
             });
         } catch (error) {
-            log({
+            BunLogModule({
                 message: "Failed to cleanup test entities",
                 type: "error",
                 error,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: CLIConfiguration.VRCA_CLI_DEBUG,
+                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
             });
             throw error;
         }
@@ -399,19 +399,19 @@ export async function cleanupTestAssets(data: {
             `;
             expect(remainingAssets).toHaveLength(0);
 
-            log({
+            BunLogModule({
                 message: "Cleaned up test assets",
                 type: "debug",
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: CLIConfiguration.VRCA_CLI_DEBUG,
+                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
             });
         } catch (error) {
-            log({
+            BunLogModule({
                 message: "Failed to cleanup test assets",
                 type: "error",
                 error,
-                debug: VircadiaConfig_CLI.VRCA_CLI_DEBUG,
-                suppress: VircadiaConfig_CLI.VRCA_CLI_SUPPRESS,
+                debug: CLIConfiguration.VRCA_CLI_DEBUG,
+                suppress: CLIConfiguration.VRCA_CLI_SUPPRESS,
             });
             throw error;
         }

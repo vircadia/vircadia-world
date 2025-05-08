@@ -4,25 +4,25 @@ import "./assets/main.css";
 
 import {
     useVircadia_Vue,
-    VircadiaConfig_BROWSER_CLIENT,
+    clientBrowserConfig,
     Communication,
     VUE_DEFAULT_INSTANCE_KEY,
-} from "@vircadia/world-sdk/browser";
+} from "@vircadia/world-sdk/browser/vue";
 
 // Initialize Vircadia before creating the app
 const vircadiaWorld = useVircadia_Vue({
     config: {
         serverUrl:
-            VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL
-                ? `https://${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`
-                : `http://${VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`,
+            ClientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL
+                ? `https://${ClientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`
+                : `http://${ClientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`,
         authToken:
-            VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
+            ClientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
         authProvider:
-            VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER,
-        debug: VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
+            ClientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER,
+        debug: ClientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
         suppress:
-            VircadiaConfig_BROWSER_CLIENT.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
+            ClientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
         reconnectAttempts: 5,
         reconnectDelay: 5000,
     },

@@ -2,6 +2,16 @@
 sidebar_label: Server
 ---
 
+import CodeBlock from '@theme/CodeBlock';
+
+import vircadiaServerConfigTs from '!!raw-loader!../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config.ts'
+
 # Overview
 
-You can [configure](/vircadia-world/sdk/vircadia-world-sdk-ts/config/#server-configuration) the server's services by setting the environment variables before launching the service(s) with the CLI.
+You can configure the server's services by setting the environment variables before launching the service(s) with the CLI.
+
+## Configuration
+
+<CodeBlock language="typescript" title="vircadia.server.config.ts">
+  {vircadiaServerConfigTs}
+</CodeBlock>

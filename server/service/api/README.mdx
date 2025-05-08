@@ -2,27 +2,18 @@
 sidebar_label: World API Manager
 ---
 
-import SchemaGeneralRaw from '!!raw-loader!../../../sdk/vircadia-world-sdk-ts/src/schema/vircadia.schema.general.ts';
-import * as SchemaGeneral from '../../../sdk/vircadia-world-sdk-ts/src/schema/vircadia.schema.general';
+import * as SchemaGeneral from '../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general';
+
+{/* docs/vircadia-world/sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general.ts */}
 
 # Vircadia World API Reference
 
 The World API Manager is the interface between clients and the PostgreSQL database, and any other services that might be utilized.
 
-## Communication Constants
-
-The following constants define the base paths for API communication:
-
-```typescript
-// From Communication namespace in schema.general.ts
-export const WS_UPGRADE_PATH = "/world/ws";
-export const REST_BASE_PATH = "/world/rest";
-```
-
 ## REST API
 
 The REST API is accessible at the base path: 
-<pre>{`${SchemaGeneral.Communication.REST_BASE_PATH}`}</pre>
+<pre>{SchemaGeneral.Communication.REST_BASE_PATH}</pre>
 
 ### Available Endpoints
 
@@ -132,8 +123,6 @@ const ws = new WebSocket(url);
 Required URL parameters:
 - `token`: Authentication token obtained from the authentication provider
 - `provider`: Name of the authentication provider (e.g., 'system', 'local')
-
-These parameters are validated against the server using the `Communication.REST.Endpoint.AUTH_SESSION_VALIDATE` endpoint internally during the connection process.
 
 ### Message Types
 

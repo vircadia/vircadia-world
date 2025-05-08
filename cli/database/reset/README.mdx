@@ -6,9 +6,18 @@ import CodeBlock from '@theme/CodeBlock';
 
 import resetSql from '!!raw-loader!./reset.sql';
 
-# Database Reset
+# Reset (Wipe)
 
 This SQL script provides functionality to reset the Vircadia World database by dropping schemas, roles, and publications.
+
+## Environment Variables
+
+You can customize the reset process by setting these environment variables:
+
+- <code>VRCA_CLI_SERVICE_POSTGRES_SYSTEM_RESET_DIR</code>: Overrides the default system reset files (as seen below) with a custom set of files
+- <code>VRCA_CLI_SERVICE_POSTGRES_USER_RESET_DIR</code>: Optional: sets another directory for user-defined reset SQL scripts
+
+The reset process will execute all `.sql` files from both directories in alphanumeric order.
 
 ## Reset Script
 

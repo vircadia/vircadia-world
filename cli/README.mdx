@@ -5,6 +5,7 @@ sidebar_label: CLI
 import CodeBlock from '@theme/CodeBlock';
 
 import packageJson from '!!raw-loader!./package.json';
+import cliConfigTs from '!!raw-loader!./vircadia.cli.config.ts';
 
 # CLI
 
@@ -25,7 +26,11 @@ bun run dev:client:web_babylon_js
 
 ## Configuration
 
-The CLI can be [configured](/vircadia-world/sdk/vircadia-world-sdk-ts/config/#cli-configuration) by setting the environment variables before using the CLI.
+The CLI can be configured by setting the environment variables before using the CLI.
+
+<CodeBlock language="typescript" title="vircadia.cli.config.ts">
+  {cliConfigTs}
+</CodeBlock>
 
 ## Available Commands
 

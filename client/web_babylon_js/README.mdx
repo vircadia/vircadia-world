@@ -1,0 +1,47 @@
+import CodeBlock from '@theme/CodeBlock';
+
+import browserConfigTs from '!!raw-loader!./vircadia.browser.config.ts';
+
+# Vircadia World Client (Web Babylon.js)
+
+This client serves to be a generally accessible and usable client to use with games and worlds.
+
+It also serves as an example of how to use the Vircadia World SDK in a web application using Babylon.js.
+
+## Configure
+
+<CodeBlock language="typescript" title="vircadia.browser.config.ts">
+  {browserConfigTs}
+</CodeBlock>
+
+## Development Environment
+
+### Recommended IDE Setup
+
+[VSCode](https://code.visualstudio.com/) + [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+
+### Type Support for `.vue` Imports in TS
+
+TypeScript cannot handle type information for `.vue` imports by default, so we replace the `tsc` CLI with `vue-tsc` for type checking. In editors, we need [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) to make the TypeScript language service aware of `.vue` types.
+
+### Customize configuration
+
+See [Vite Configuration Reference](https://vite.dev/config/).
+
+### Project Setup
+
+```sh
+bun install
+```
+
+#### Compile and Hot-Reload for Development
+
+```sh
+bun dev
+```
+
+#### Type-Check, Compile and Minify for Production
+
+```sh
+bun run build
+```

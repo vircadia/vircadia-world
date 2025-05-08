@@ -12,7 +12,7 @@ Be sure to clone recursively:
 ```sh
 git clone https://github.com/vircadia/vircadia-world.git --recursive
 ```
-or
+or if you've already cloned the repo:
 ```sh
 git submodule update --init --recursive
 ```
@@ -21,11 +21,9 @@ git submodule update --init --recursive
 
 Afterward, use the [CLI](./cli/README.mdx) to start the project.
 
-## License
+## Features
 
-The core Vircadia project is open source, permissively licensed under Apache 2.0.
-
-**Note: Outside modules not mainly maintained by the Vircadia team may be licensed differently, please check their respective repositories for more information.**
+See the main [website](https://vircadia.com) for more information.
 
 ## Vircadia Quantum
 

@@ -50,7 +50,6 @@ import {
     Vector3,
     HemisphericLight,
     WebGPUEngine,
-    HDRCubeTexture,
     DirectionalLight,
     MeshBuilder,
     StandardMaterial,
@@ -59,18 +58,10 @@ import {
     PhysicsShapeType,
     HavokPlugin,
 } from "@babylonjs/core";
-import { useVircadiaInstance, useAsset } from "@vircadia/world-sdk/browser/vue";
+import { useVircadiaContext } from "@/composables/useVircadiaContext";
+import { useEnvironmentLoader } from "./composables/useEnvironmentLoader";
 
-// Get the existing Vircadia connection from main.ts with proper typing
-const vircadiaWorld = inject(useVircadiaInstance());
-if (!vircadiaWorld) {
-    throw new Error("Vircadia instance not found.");
-}
-
-// Safely compute the connection status with a fallback
-const connectionStatus = computed(
-    () => vircadiaWorld?.connectionInfo?.value?.status || "disconnected",
-);
+const { connectionStatus } = useVircadiaContext();
 
 // BabylonJS Setup - use variables instead of refs
 const renderCanvas = ref<HTMLCanvasElement | null>(null);
@@ -163,21 +154,6 @@ const modelDefinitions = ref<BabylonModelDefinition[]>([
     // Add more assets here
 ]);
 
-interface EnvironmentAsset {
-    fileName: string;
-    type: "hdr" | "skybox";
-}
-
-const environmentAssets = ref<EnvironmentAsset[]>([
-    {
-        fileName: "telekom.skybox.Room.hdr.1k.hdr",
-        type: "hdr",
-    },
-]);
-
-// Loading state for environment assets
-const environmentLoading = ref(false);
-
 // Store references to model components
 const modelRefs = ref<(InstanceType<typeof BabylonModel> | null)[]>([]);
 
@@ -189,70 +165,8 @@ const isLoading = computed(() => {
     );
 });
 
-// Load environment assets
-const loadEnvironments = async () => {
-    if (!scene || environmentLoading.value) return;
-
-    environmentLoading.value = true;
-
-    try {
-        // Directly use hardcoded HDR filename
-        const hdrFileName = "telekom.skybox.Room.hdr.1k.hdr";
-
-        try {
-            const assetResult = useAsset({
-                fileName: ref(hdrFileName),
-                instance: vircadiaWorld,
-                useCache: true,
-            });
-
-            // Call executeLoad() explicitly to load the asset
-            await assetResult.executeLoad();
-
-            if (!assetResult.assetData.value?.blobUrl) {
-                console.error(
-                    `Failed to load environment asset: ${hdrFileName}`,
-                );
-                return;
-            }
-
-            const blobUrl = assetResult.assetData.value.blobUrl;
-
-            // Create an HDR environment
-            const hdrTexture = new HDRCubeTexture(
-                blobUrl,
-                scene,
-                512,
-                false,
-                true,
-                false,
-                true,
-            );
-
-            // Wait for texture to be ready before setting as environment
-            hdrTexture.onLoadObservable.addOnce(() => {
-                if (scene) {
-                    // Set as environment texture for PBR lighting
-                    scene.environmentTexture = hdrTexture;
-                    scene.environmentIntensity = 1.2;
-
-                    // Use same texture for the skybox (visual background)
-                    scene.createDefaultSkybox(hdrTexture, true, 1000);
-                }
-                console.log(
-                    `HDR environment texture loaded and set as skybox: ${hdrFileName}`,
-                );
-            });
-        } catch (error) {
-            console.error(
-                `Error loading environment asset ${hdrFileName}:`,
-                error,
-            );
-        }
-    } finally {
-        environmentLoading.value = false;
-    }
-};
+const { loadAll: loadEnvironments, isLoading: environmentLoading } =
+    useEnvironmentLoader(["telekom.skybox.Room.hdr.1k.hdr"]);
 
 // Initialize BabylonJS
 const initializeBabylon = async () => {
@@ -361,29 +275,23 @@ onUnmounted(() => {
     sceneInitialized.value = false;
 });
 
+// Combined watcher for connection status and scene initialization
 watch(
-    () => connectionStatus.value,
-    (newStatus) => {
-        if (newStatus === "connected") {
-            console.log("Connected to Vircadia server");
-            // Load environments when connection is established
-            if (scene) {
-                loadEnvironments();
+    [() => connectionStatus.value, () => sceneInitialized.value],
+    ([status, initialized], [prevStatus, prevInitialized]) => {
+        // Log connection status changes
+        if (status !== prevStatus) {
+            if (status === "connected") {
+                console.log("Connected to Vircadia server");
+            } else if (status === "disconnected") {
+                console.log("Disconnected from Vircadia server");
+            } else if (status === "connecting") {
+                console.log("Connecting to Vircadia server...");
             }
-        } else if (newStatus === "disconnected") {
-            console.log("Disconnected from Vircadia server");
-        } else if (newStatus === "connecting") {
-            console.log("Connecting to Vircadia server...");
         }
-    },
-);
-
-// Also watch for scene creation to load environments if connection is already established
-watch(
-    () => sceneInitialized.value,
-    (initialized) => {
-        if (initialized && connectionStatus.value === "connected") {
-            loadEnvironments();
+        // Load environments when scene is initialized and connected
+        if (initialized && status === "connected" && scene) {
+            loadEnvironments(scene);
         }
     },
 );

@@ -3,20 +3,31 @@ import { useThrottleFn } from "@vueuse/core";
 import { useEntity } from "@vircadia/world-sdk/browser/vue";
 import type { ZodSchema } from "zod";
 
+// ───────── Avatar entity composable ─────────
+// Manages retrieval, creation, and metadata updates for an avatar entity in Vircadia World.
+// - Retrieves or creates the entity with initial metadata validated by Zod.
+// - Exposes loading and error states.
+// - Provides a throttled update function for metadata changes.
 export function useAvatarEntity<M>(
     entityNameRef: Ref<string>,
-    throttleInterval: number,
-    metaDataSchema: ZodSchema<M>,
-    getInitialMeta: () => M,
-    getCurrentMeta: () => M,
+    throttleInterval: number, 
+    metaDataSchema: ZodSchema<M>, 
+    getInitialMeta: () => M, 
+    getCurrentMeta: () => M, 
 ) {
     const avatarEntity = useEntity({
+        // A reactive ref holding the avatar's unique name; triggers re-fetch/create on change.
         entityName: entityNameRef,
+        // SQL SELECT fragment; load any columns needed for usage.
         selectClause: "general__entity_name, meta__data",
+        // SQL INSERT snippet; sets the entity with the given values if needed.
         insertClause:
             "(general__entity_name, meta__data) VALUES ($1, $2) RETURNING general__entity_name",
+        // Values for INSERT: the values to insert into the entity.
         insertParams: [entityNameRef.value, JSON.stringify(getInitialMeta())],
+        // Zod schema for parsing and typing the metadata on retrieval.
         metaDataSchema,
+        // Fallback metadata used if parsing fails or before creation.
         defaultMetaData: getInitialMeta(),
     });
 

@@ -27,7 +27,10 @@ export namespace Server_CLI {
 
     export async function runServerDockerCommand(data: {
         args: string[];
+        /** If true, treat 'exec' on non-zero exit as an error */
+        throwOnNonZeroExec?: boolean;
     }) {
+        const { args, throwOnNonZeroExec = false } = data;
         const processEnv = {
             ...process.env,
             PATH: process.env.PATH,
@@ -101,7 +104,7 @@ export namespace Server_CLI {
             SERVER_DOCKER_COMPOSE_FILE,
         ];
 
-        dockerArgs = [...dockerArgs, ...data.args];
+        dockerArgs = [...dockerArgs, ...args];
 
         BunLogModule({
             prefix: "Docker Command",
@@ -150,9 +153,9 @@ export namespace Server_CLI {
         const exitCode = spawnedProcess.exitCode;
 
         const isExpectedOutput =
-            data.args.includes("down") ||
-            data.args.includes("up") ||
-            data.args.includes("exec");
+            args.includes("down") ||
+            args.includes("up") ||
+            (args.includes("exec") && !throwOnNonZeroExec);
         if (exitCode !== 0 && !isExpectedOutput) {
             throw new Error(
                 `SERVER Docker command failed with exit code ${exitCode}.\nStdout: ${stdout}\nStderr: ${stderr}`,
@@ -291,6 +294,10 @@ export namespace Server_CLI {
     ): Promise<{
         isHealthy: boolean;
         error?: Error;
+        waitConfig?: {
+            interval: number;
+            timeout: number;
+        };
     }> {
         const defaultWait = { interval: 100, timeout: 10000 };
 
@@ -306,10 +313,10 @@ export namespace Server_CLI {
             error?: Error;
         }> => {
             try {
+                // Host-side health check: fetch stats with x-forwarded-for header
                 const url = `http://${cliConfiguration.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${cliConfiguration.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Service.API.Stats_Endpoint.path}`;
                 const response = await fetch(url, {
-                    method: "POST",
-                    body: Service.API.Stats_Endpoint.createRequest(),
+                    headers: { "x-forwarded-for": "127.0.0.1" },
                 });
                 return { isHealthy: response.ok };
             } catch (error: unknown) {
@@ -335,7 +342,11 @@ export namespace Server_CLI {
             await Bun.sleep(waitConfig.interval);
         }
 
-        return { isHealthy: false, error: lastError };
+        return {
+            isHealthy: false,
+            error: lastError,
+            waitConfig: waitConfig,
+        };
     }
 
     export async function isWorldTickManagerHealthy(
@@ -348,6 +359,10 @@ export namespace Server_CLI {
     ): Promise<{
         isHealthy: boolean;
         error?: Error;
+        waitConfig?: {
+            interval: number;
+            timeout: number;
+        };
     }> {
         const defaultWait = { interval: 100, timeout: 10000 };
 
@@ -363,10 +378,10 @@ export namespace Server_CLI {
             error?: Error;
         }> => {
             try {
+                // Host-side health check: fetch stats with x-forwarded-for header
                 const url = `http://${cliConfiguration.VRCA_CLI_SERVICE_WORLD_TICK_MANAGER_HOST}:${cliConfiguration.VRCA_CLI_SERVICE_WORLD_TICK_MANAGER_PORT}${Service.Tick.Stats_Endpoint.path}`;
                 const response = await fetch(url, {
-                    method: "POST",
-                    body: Service.Tick.Stats_Endpoint.createRequest(),
+                    headers: { "x-forwarded-for": "127.0.0.1" },
                 });
                 return { isHealthy: response.ok };
             } catch (error: unknown) {
@@ -392,7 +407,11 @@ export namespace Server_CLI {
             await Bun.sleep(waitConfig.interval);
         }
 
-        return { isHealthy: false, error: lastError };
+        return {
+            isHealthy: false,
+            error: lastError,
+            waitConfig: waitConfig,
+        };
     }
 
     export async function wipeDatabase() {
@@ -1791,6 +1810,60 @@ export namespace Server_CLI {
     }
 }
 
+// Helper: parse --interval, --timeout, --no-wait
+function parseWaitFlags(
+    args: string[],
+): boolean | { interval: number; timeout: number } {
+    let wait = true;
+    let interval: number | undefined;
+    let timeout: number | undefined;
+
+    for (let i = 0; i < args.length; i++) {
+        const a = args[i];
+        if (a === "--no-wait") {
+            wait = false;
+        } else if (a === "--interval" && i + 1 < args.length) {
+            interval = Number.parseInt(args[++i]);
+        } else if (a === "--timeout" && i + 1 < args.length) {
+            timeout = Number.parseInt(args[++i]);
+        }
+    }
+
+    if (!wait) {
+        return false; // user asked to skip waiting
+    }
+    if (interval != null && timeout != null) {
+        return { interval, timeout };
+    }
+    return true; // default wait with built-in defaults
+}
+
+// Tiny wrapper that does the loop, logs and exits appropriately.
+async function runHealthCommand(
+    label: string,
+    healthFn: (
+        wait?: boolean | { interval: number; timeout: number },
+    ) => Promise<{
+        isHealthy: boolean;
+        error?: Error;
+        waitConfig?: { interval: number; timeout: number };
+    }>,
+    args: string[],
+) {
+    const waitParam = parseWaitFlags(args);
+    const health = await healthFn(waitParam);
+
+    BunLogModule({
+        message: `${label}: ${health.isHealthy ? "healthy" : "unhealthy"}`,
+        data: health,
+        type: health.isHealthy ? "success" : "error",
+        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+        debug: cliConfiguration.VRCA_CLI_DEBUG,
+    });
+
+    process.exit(health.isHealthy ? 0 : 1);
+}
+
 // If this file is run directly
 if (import.meta.main) {
     const command = Bun.argv[2];
@@ -1809,181 +1882,37 @@ if (import.meta.main) {
     try {
         switch (command) {
             // SERVER CONTAINER HEALTH
-            case "server:postgres:health": {
-                let waitInterval: number | undefined;
-                let waitTimeout: number | undefined;
-
-                // Parse named arguments
-                for (let i = 0; i < additionalArgs.length; i++) {
-                    if (
-                        additionalArgs[i] === "--interval" &&
-                        i + 1 < additionalArgs.length
-                    ) {
-                        waitInterval = Number.parseInt(additionalArgs[i + 1]);
-                        i++; // Skip the next argument since we've already processed it
-                    } else if (
-                        additionalArgs[i] === "--timeout" &&
-                        i + 1 < additionalArgs.length
-                    ) {
-                        waitTimeout = Number.parseInt(additionalArgs[i + 1]);
-                        i++; // Skip the next argument since we've already processed it
-                    }
-                }
-
-                const health = await Server_CLI.isPostgresHealthy(
-                    waitInterval && waitTimeout
-                        ? {
-                              interval: waitInterval,
-                              timeout: waitTimeout,
-                          }
-                        : true,
+            case "server:postgres:health":
+                await runHealthCommand(
+                    "PostgreSQL",
+                    Server_CLI.isPostgresHealthy,
+                    additionalArgs,
                 );
-                BunLogModule({
-                    message: `PostgreSQL: ${health.isHealthy ? "healthy" : "unhealthy"}`,
-                    data: health,
-                    type: health.isHealthy ? "success" : "error",
-                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                    debug: cliConfiguration.VRCA_CLI_DEBUG,
-                });
-                if (!health.isHealthy) {
-                    process.exit(1);
-                } else {
-                    process.exit(0);
-                }
                 break;
-            }
 
-            case "server:pgweb:health": {
-                let waitInterval: number | undefined;
-                let waitTimeout: number | undefined;
-
-                // Parse named arguments
-                for (let i = 0; i < additionalArgs.length; i++) {
-                    if (
-                        additionalArgs[i] === "--interval" &&
-                        i + 1 < additionalArgs.length
-                    ) {
-                        waitInterval = Number.parseInt(additionalArgs[i + 1]);
-                        i++; // Skip the next argument since we've already processed it
-                    } else if (
-                        additionalArgs[i] === "--timeout" &&
-                        i + 1 < additionalArgs.length
-                    ) {
-                        waitTimeout = Number.parseInt(additionalArgs[i + 1]);
-                        i++; // Skip the next argument since we've already processed it
-                    }
-                }
-
-                const health = await Server_CLI.isPgwebHealthy(
-                    waitInterval && waitTimeout
-                        ? {
-                              interval: waitInterval,
-                              timeout: waitTimeout,
-                          }
-                        : undefined,
+            case "server:pgweb:health":
+                await runHealthCommand(
+                    "PGWEB",
+                    Server_CLI.isPgwebHealthy,
+                    additionalArgs,
                 );
-                BunLogModule({
-                    message: `PGWEB: ${health.isHealthy ? "healthy" : "unhealthy"}`,
-                    data: health,
-                    type: health.isHealthy ? "success" : "error",
-                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                    debug: cliConfiguration.VRCA_CLI_DEBUG,
-                });
-                if (!health.isHealthy) {
-                    process.exit(1);
-                } else {
-                    process.exit(0);
-                }
                 break;
-            }
 
-            case "server:world-api-manager:health": {
-                let waitInterval: number | undefined;
-                let waitTimeout: number | undefined;
-
-                // Parse named arguments
-                for (let i = 0; i < additionalArgs.length; i++) {
-                    if (
-                        additionalArgs[i] === "--interval" &&
-                        i + 1 < additionalArgs.length
-                    ) {
-                        waitInterval = Number.parseInt(additionalArgs[i + 1]);
-                        i++; // Skip the next argument since we've already processed it
-                    } else if (
-                        additionalArgs[i] === "--timeout" &&
-                        i + 1 < additionalArgs.length
-                    ) {
-                        waitTimeout = Number.parseInt(additionalArgs[i + 1]);
-                        i++; // Skip the next argument since we've already processed it
-                    }
-                }
-
-                const health = await Server_CLI.isWorldApiManagerHealthy(
-                    waitInterval && waitTimeout
-                        ? {
-                              interval: waitInterval,
-                              timeout: waitTimeout,
-                          }
-                        : undefined,
+            case "server:world-api-manager:health":
+                await runHealthCommand(
+                    "World API Manager",
+                    Server_CLI.isWorldApiManagerHealthy,
+                    additionalArgs,
                 );
-                BunLogModule({
-                    message: `World API Manager: ${health.isHealthy ? "healthy" : "unhealthy"}`,
-                    data: health,
-                    type: health.isHealthy ? "success" : "error",
-                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                    debug: cliConfiguration.VRCA_CLI_DEBUG,
-                });
-                if (!health.isHealthy) {
-                    process.exit(1);
-                } else {
-                    process.exit(0);
-                }
                 break;
-            }
 
-            case "server:world-tick-manager:health": {
-                let waitInterval: number | undefined;
-                let waitTimeout: number | undefined;
-
-                // Parse named arguments
-                for (let i = 0; i < additionalArgs.length; i++) {
-                    if (
-                        additionalArgs[i] === "--interval" &&
-                        i + 1 < additionalArgs.length
-                    ) {
-                        waitInterval = Number.parseInt(additionalArgs[i + 1]);
-                        i++; // Skip the next argument since we've already processed it
-                    } else if (
-                        additionalArgs[i] === "--timeout" &&
-                        i + 1 < additionalArgs.length
-                    ) {
-                        waitTimeout = Number.parseInt(additionalArgs[i + 1]);
-                        i++; // Skip the next argument since we've already processed it
-                    }
-                }
-
-                const health = await Server_CLI.isWorldTickManagerHealthy(
-                    waitInterval && waitTimeout
-                        ? {
-                              interval: waitInterval,
-                              timeout: waitTimeout,
-                          }
-                        : undefined,
+            case "server:world-tick-manager:health":
+                await runHealthCommand(
+                    "World Tick Manager",
+                    Server_CLI.isWorldTickManagerHealthy,
+                    additionalArgs,
                 );
-                BunLogModule({
-                    message: `World Tick Manager: ${health.isHealthy ? "healthy" : "unhealthy"}`,
-                    data: health,
-                    type: health.isHealthy ? "success" : "error",
-                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                    debug: cliConfiguration.VRCA_CLI_DEBUG,
-                });
-                if (!health.isHealthy) {
-                    process.exit(1);
-                } else {
-                    process.exit(0);
-                }
                 break;
-            }
 
             // SERVER POSTGRES DATABASE COMMANDS
             case "server:postgres:migrate": {

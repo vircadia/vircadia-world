@@ -1,10 +1,5 @@
 # Get started
 
-## Prerequisites
-
-* [Bun](https://bun.sh/)
-* [Docker](https://www.docker.com/)
-
 ## Clone the repository
 
 Be sure to clone recursively:
@@ -19,7 +14,7 @@ git submodule update --init --recursive
 
 ## Deploy
 
-Afterward, use the [CLI](./cli/README.mdx) to start the project.
+Afterward, use the [CLI](./cli/README.mdx) to deploy the project.
 
 ## Features
 

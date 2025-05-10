@@ -366,10 +366,19 @@ const loadModel = async () => {
             pluginExtension,
         });
 
-        // Apply lightmaps to the loaded meshes
-        console.log(`Processing lightmaps for '${props.fileName}'...`);
-        const processedMeshes = await loadLightmap(result.meshes, props.scene);
-
+        const hasLightmapData = result.meshes.some((mesh) =>
+            mesh.name.startsWith(glTF.Lightmap.DATA_MESH_NAME),
+        );
+        let processedMeshes: AbstractMesh[];
+        if (hasLightmapData) {
+            console.log(`Processing lightmaps for '${props.fileName}'...`);
+            processedMeshes = await loadLightmap(result.meshes, props.scene);
+        } else {
+            console.log(
+                `No lightmap data found for '${props.fileName}'... skipping lightmap processing.`,
+            );
+            processedMeshes = result.meshes;
+        }
         meshes.value = processedMeshes;
 
         // Extract position and rotation from entity data if available

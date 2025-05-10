@@ -18,7 +18,7 @@
             <!-- Add PhysicsAvatar component -->
             <PhysicsAvatar
                 :scene="scene"
-                entity-name="PhysicsAvatar"
+                entity-name="physics.avatar.entity"
                 @ready="startRenderLoop"
                 ref="avatarRef"
             />
@@ -138,9 +138,12 @@ const handleKeyDown = (event: KeyboardEvent) => {
     }
 };
 
+const { loadAll: loadEnvironments, isLoading: environmentLoading } =
+    useEnvironmentLoader(["babylon.level.test.hdr.1k.hdr"]);
+
 const modelDefinitions = ref<BabylonModelDefinition[]>([
     {
-        fileName: "telekom.model.Room.glb",
+        fileName: "babylon.level.test.glb",
         position: { x: 0, y: 0, z: 0 },
         rotation: { x: 0, y: 0, z: 0, w: 1 },
         throttleInterval: 10,
@@ -164,9 +167,6 @@ const isLoading = computed(() => {
         environmentLoading.value
     );
 });
-
-const { loadAll: loadEnvironments, isLoading: environmentLoading } =
-    useEnvironmentLoader(["telekom.skybox.Room.hdr.1k.hdr"]);
 
 // Initialize BabylonJS
 const initializeBabylon = async () => {
@@ -295,12 +295,6 @@ watch(
         }
     },
 );
-
-function getInstanceKey(
-    arg0: string,
-): string | import("vue").InjectionKey<unknown> {
-    throw new Error("Function not implemented.");
-}
 </script>
 
 <style>

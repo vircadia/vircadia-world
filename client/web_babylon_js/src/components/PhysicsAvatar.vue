@@ -145,6 +145,26 @@ onMounted(() => {
         );
     }
 
+    // Ensure entity exists: create if not found
+    const stopWatchCreate = watch(
+        [
+            () => avatarEntity.retrieving.value,
+            () => avatarEntity.error.value,
+            () => avatarEntity.entityData.value,
+        ],
+        ([retrieving, error, data], [wasRetrieving]) => {
+            if (wasRetrieving && !retrieving) {
+                if (!data && !error) {
+                    avatarEntity
+                        .executeCreate()
+                        .then(() => avatarEntity.executeRetrieve());
+                }
+                stopWatchCreate();
+            }
+        },
+        { immediate: false },
+    );
+
     watch(
         () => avatarEntity.entityData.value,
         (data) => {

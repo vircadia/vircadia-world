@@ -3,7 +3,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, inject } from "vue";
+import { ref, onMounted, onUnmounted, watch, inject, type PropType } from "vue";
 import type {
     Scene,
     Vector3 as BabylonVector3,
@@ -31,17 +31,29 @@ const props = defineProps({
     capsuleRadius: { type: Number, default: 0.3 },
     slopeLimit: { type: Number, default: 45 },
     jumpSpeed: { type: Number, default: 5 },
+    initialPosition: {
+        type: Object as PropType<PositionObj>,
+        default: () => ({ x: 3, y: 0.3, z: -8 }),
+    },
+    initialRotation: {
+        type: Object as PropType<RotationObj>,
+        default: () => ({ x: 0, y: 0, z: 0, w: 1 }),
+    },
+    initialCameraOrientation: {
+        type: Object as PropType<{
+            alpha: number;
+            beta: number;
+            radius: number;
+        }>,
+        default: () => ({ alpha: -Math.PI / 2, beta: Math.PI / 3, radius: 5 }),
+    },
 });
 const emit = defineEmits<{ ready: [] }>();
 
 // Local state for transforms
-const initialPosition = ref<PositionObj>({ x: 0, y: 0, z: 0 });
-const initialRotation = ref<RotationObj>({ x: 0, y: 0, z: 0, w: 1 });
-const cameraOrientation = ref({
-    alpha: -Math.PI / 2,
-    beta: Math.PI / 3,
-    radius: 5,
-});
+const initialPosition = ref<PositionObj>(props.initialPosition);
+const initialRotation = ref<RotationObj>(props.initialRotation);
+const cameraOrientation = ref(props.initialCameraOrientation);
 
 // Zod schemas (kept local per request)
 const Vector3Schema = z.object({ x: z.number(), y: z.number(), z: z.number() });

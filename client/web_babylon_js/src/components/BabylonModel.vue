@@ -258,6 +258,36 @@ const updateMeshRotations = () => {
     }
 };
 
+// FIRST_EDIT: add a safeExecuteUpdate helper that retries when the entity is busy
+const safeExecuteUpdate = (
+    query: string,
+    params: unknown[],
+    retryInterval: number = props.throttleInterval ?? 1000,
+): void => {
+    if (
+        entity.retrieving.value ||
+        entity.creating.value ||
+        entity.updating.value
+    ) {
+        console.warn(`Entity busy, retrying update in ${retryInterval}ms`);
+        setTimeout(
+            () => safeExecuteUpdate(query, params, retryInterval),
+            retryInterval,
+        );
+        return;
+    }
+    entity.executeUpdate(query, params).catch((e: unknown) => {
+        console.error("Entity update failed:", e);
+        if (e instanceof Error && e.message.includes("Another operation")) {
+            console.warn(`Retrying update after failure in ${retryInterval}ms`);
+            setTimeout(
+                () => safeExecuteUpdate(query, params, retryInterval),
+                retryInterval,
+            );
+        }
+    });
+};
+
 const debouncedEntityUpdate = useDebounceFn(async () => {
     if (!entity.entityData.value?.general__entity_name) {
         console.warn("Cannot update entity: No entity name available");
@@ -274,7 +304,13 @@ const debouncedEntityUpdate = useDebounceFn(async () => {
 
     // Update the entity with new meta data
     console.log("Updating entity position and rotation:", updatedMetaData);
-    entity.executeUpdate("meta__data = $2", [JSON.stringify(updatedMetaData)]);
+    console.log(
+        "Current position:",
+        currentPosition.value,
+        "Current rotation:",
+        currentRotation.value,
+    );
+    safeExecuteUpdate("meta__data = $2", [JSON.stringify(updatedMetaData)]);
 }, props.throttleInterval ?? 1000);
 
 // Watch for changes to currentPosition
@@ -762,7 +798,7 @@ const updateEntityPhysicsData = () => {
 
     // Update entity metadata
     console.log("Updating entity physics data:", updatedMetaData);
-    entity.executeUpdate("meta__data = $2", [JSON.stringify(updatedMetaData)]);
+    safeExecuteUpdate("meta__data = $2", [JSON.stringify(updatedMetaData)]);
 };
 
 // Watch for changes in physics props

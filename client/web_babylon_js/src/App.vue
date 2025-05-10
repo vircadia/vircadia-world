@@ -19,6 +19,9 @@
             <PhysicsAvatar
                 :scene="scene"
                 entity-name="physics.avatar.entity"
+                :initial-position="{ x: 0, y: 1, z: 4 }"
+                :initial-rotation="{ x: 0, y: 0, z: 0, w: 1 }"
+                :initial-camera-orientation="{ alpha: -Math.PI/2, beta: Math.PI/3, radius: 5 }"
                 @ready="startRenderLoop"
                 ref="avatarRef"
             />
@@ -31,6 +34,7 @@
                 :position="model.position"
                 :rotation="model.rotation"
                 :throttle-interval="model.throttleInterval"
+                :enable-physics="model.enablePhysics"
                 :physics-type="model.physicsType"
                 :physics-options="model.physicsOptions"
                 :ref="(el: any) => modelRefs[index] = el"
@@ -147,14 +151,14 @@ const modelDefinitions = ref<BabylonModelDefinition[]>([
         position: { x: 0, y: 0, z: 0 },
         rotation: { x: 0, y: 0, z: 0, w: 1 },
         throttleInterval: 10,
+        enablePhysics: true,
         physicsType: "mesh",
         physicsOptions: {
-            mass: 0, // 0 mass makes it static
+            mass: 0,
             friction: 0.5,
             restitution: 0.3,
         },
     },
-    // Add more assets here
 ]);
 
 // Store references to model components
@@ -214,7 +218,7 @@ const initializeBabylon = async () => {
                 { width: 1000, height: 1000 },
                 scene,
             );
-            ground.position = new Vector3(0, 0, 0);
+            ground.position = new Vector3(0, -1, 0);
 
             // Add material to the ground
             const groundMaterial = new StandardMaterial(

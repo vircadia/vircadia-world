@@ -8,7 +8,7 @@
         "@babylonjs/havok": "^1.3.10",
         "@babylonjs/inspector": "^8.6.1",
         "@babylonjs/loaders": "^8.6.1",
-        "@vircadia/world-sdk": "0.0.1",
+        "@vircadia/world-sdk": "0.0.2",
         "@vueuse/core": "^13.1.0",
         "lodash-es": "^4.17.21",
         "vue": "^3.5.13",
@@ -244,7 +244,7 @@
 
     "@types/web-bluetooth": ["@types/web-bluetooth@0.0.21", "", {}, "sha512-oIQLCGWtcFZy2JW77j9k8nHzAOpqMHLQejDA48XXMWH6tjCQHz5RCFz1bzsmROyL6PUm+LLnUiI4BCn221inxA=="],
 
-    "@vircadia/world-sdk": ["@vircadia/world-sdk@0.0.1", "", { "dependencies": { "@vueuse/core": "^13.1.0", "eight-colors": "latest", "idb": "^8.0.2", "jsonwebtoken": "^9.0.2", "lodash-es": "^4.17.21", "postgres": "3.4.5", "tmp": "^0.2.3", "typescript": "5.8.3", "vue": "^3.5.13", "zod": "3.24.4" } }, "sha512-MjWLHgfjUJIpyZMc8R1FK9QrTfy+gRmwkY9zwoQnsggxCiPd9V6OpVgjCJjdN2A3g8IXdA+JN8QDGjfr7g2+DA=="],
+    "@vircadia/world-sdk": ["@vircadia/world-sdk@0.0.2", "", { "dependencies": { "@vueuse/core": "^13.1.0", "eight-colors": "latest", "idb": "^8.0.2", "jsonwebtoken": "^9.0.2", "lodash-es": "^4.17.21", "postgres": "3.4.5", "tmp": "^0.2.3", "typescript": "5.8.3", "vue": "^3.5.13", "zod": "3.24.4" } }, "sha512-RnurfC2jziydIWepfV5YI2ecDo2/cCFBXeJzmg+VP0xT9+x5LkoBvjg+UPjpJqf7Gzkg+/aQiwP0plsdG4MdxQ=="],
 
     "@vitejs/plugin-vue": ["@vitejs/plugin-vue@5.2.3", "", { "peerDependencies": { "vite": "^5.0.0 || ^6.0.0", "vue": "^3.2.25" } }, "sha512-IYSLEQj4LgZZuoVpdSUCw3dIynTWQgPlaRP6iAvMle4My0HdYwr5g5wQAfwOeHQBmYwEkqF70nRpSilr6PoUDg=="],
 

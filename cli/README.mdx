@@ -29,6 +29,27 @@ Then test your setup by running the following command:
 bun run server:health-all
 ```
 
+Then run the test client:
+
+```bash
+bun run dev:client:web_babylon_js
+```
+
+
+### Resetting the World
+
+To reset the world, run the following command, only resetting the database:
+
+```bash
+bun run server:postgres:reset
+```
+
+If you need to do a full reset, you can run the following command, which will rebuild all the services and reset the database:
+
+```bash
+bun run server:rebuild-all
+```
+
 ## Configuration
 
 The CLI can be configured by setting the environment variables before using the CLI.

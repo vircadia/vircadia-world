@@ -15,7 +15,7 @@
         
         <!-- Only render entities when scene is available -->
         <template v-if="sceneInitialized && scene && connectionStatus === 'connected'">
-            <!-- Add PhysicsAvatar component -->
+            <!-- PhysicsAvatar component -->
             <PhysicsAvatar
                 :scene="scene"
                 entity-name="physics.avatar.entity"
@@ -24,6 +24,14 @@
                 :initial-camera-orientation="{ alpha: -Math.PI/2, beta: Math.PI/3, radius: 5 }"
                 @ready="startRenderLoop"
                 ref="avatarRef"
+            />
+
+            <!-- BabylonModel components -->
+            <BabylonModel
+                v-for="def in appStore.modelDefinitions"
+                :key="def.fileName"
+                :def="def"
+                :scene="scene"
             />
         </template>
     </main>
@@ -34,6 +42,7 @@
 import { computed, watch, ref, onMounted, onUnmounted, inject } from "vue";
 import { useBabylonModel } from "./composables/useBabylonModel";
 import PhysicsAvatar from "./components/PhysicsAvatar.vue";
+import BabylonModel from "./components/BabylonModel.vue";
 import { useEnvironmentLoader } from "./composables/useEnvironmentLoader";
 import { useAppStore } from "@/stores/appStore";
 // @ts-ignore: suppress type-only imports error
@@ -143,15 +152,8 @@ const envLoader = useEnvironmentLoader(appStore.hdrList);
 const loadEnvironments = envLoader.loadAll;
 const environmentLoading = envLoader.isLoading;
 
-// Store headless model hooks, instantiate during setup so inject() can run
-const modelHooks = ref<ReturnType<typeof useBabylonModel>[]>(
-    appStore.modelDefinitions.map((def) => useBabylonModel(def)),
-);
-
-// Simplified loading state from all model hooks and environment loading
-const isLoading = computed(() => {
-    return modelHooks.value?.some((h) => h.isLoading) || environmentLoading;
-});
+// Global loading state (environment only)
+const isLoading = computed(() => environmentLoading);
 
 // Initialize BabylonJS
 const initializeBabylon = async () => {
@@ -275,10 +277,7 @@ watch(
         if (initialized && status === "connected" && scene) {
             const s = scene; // narrow scene
             loadEnvironments(s);
-            // Kick off model loads
-            for (const h of modelHooks.value ?? []) {
-                h.load(s);
-            }
+            // BabylonModel components auto-load themselves when scene is set
         }
     },
 );

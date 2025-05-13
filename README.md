@@ -20,8 +20,6 @@ Afterward, use the [CLI](./cli/README.mdx) to deploy the project.
 
 See the main [website](https://vircadia.com) for more information.
 
-## Vircadia Quantum
+## Next
 
-The fast track branch for testing the latest features. (coming soon...)
-
-<!-- TODO: We should remove all the SDK submods, and mount the ENTIRE repo to docker but only use the workingdirs, so that we only have one version of files needed. -->
+The `next` branch is where new updates are merged before being pushed to `master`.

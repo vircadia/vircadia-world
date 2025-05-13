@@ -12,7 +12,7 @@ export interface CameraOrientation {
 /**
  * Composable for setting up and controlling an ArcRotateCamera
  */
-export function useAvatarCameraController(
+export function useBabylonAvatarCameraController(
     scene: Scene | undefined,
     avatarNode: Ref<{ position: Vector3 } | null>,
     cameraOrientation: Ref<CameraOrientation>,

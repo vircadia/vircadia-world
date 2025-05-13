@@ -3,7 +3,7 @@ import { KeyboardEventTypes } from "@babylonjs/core";
 import type { Scene } from "@babylonjs/core";
 import { useWindowFocus } from "@vueuse/core";
 
-export function useAvatarKeyboardControls(scene: Scene | undefined) {
+export function useBabylonAvatarKeyboardControls(scene: Scene | undefined) {
     const focused = useWindowFocus();
 
     const keyState = ref({

@@ -18,7 +18,7 @@ export type RotationObj = { x: number; y: number; z: number; w: number };
 /**
  * Composable for managing a physics-based character controller
  */
-export function useAvatarPhysicsController(
+export function useBabylonAvatarPhysicsController(
     scene: Scene | undefined,
     initialPosition: Ref<PositionObj>,
     initialRotation: Ref<RotationObj>,

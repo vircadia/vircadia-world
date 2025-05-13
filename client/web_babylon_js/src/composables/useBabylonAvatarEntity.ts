@@ -8,12 +8,12 @@ import type { ZodSchema } from "zod";
 // - Retrieves or creates the entity with initial metadata validated by Zod.
 // - Exposes loading and error states.
 // - Provides a throttled update function for metadata changes.
-export function useAvatarEntity<M>(
+export function useBabylonAvatarEntity<M>(
     entityNameRef: Ref<string>,
-    throttleInterval: number, 
-    metaDataSchema: ZodSchema<M>, 
-    getInitialMeta: () => M, 
-    getCurrentMeta: () => M, 
+    throttleInterval: number,
+    metaDataSchema: ZodSchema<M>,
+    getInitialMeta: () => M,
+    getCurrentMeta: () => M,
 ) {
     const avatarEntity = useEntity({
         // A reactive ref holding the avatar's unique name; triggers re-fetch/create on change.

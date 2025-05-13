@@ -13,14 +13,14 @@ import { Vector3, Quaternion, ArcRotateCamera } from "@babylonjs/core";
 import { z } from "zod";
 import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
 
-import { useAvatarKeyboardControls } from "../composables/useAvatarKeyboardControls";
-import { useAvatarEntity } from "../composables/useAvatarEntity";
-import { useAvatarPhysicsController } from "../composables/useAvatarPhysicsController";
-import { useAvatarCameraController } from "../composables/useAvatarCameraController";
+import { useBabylonAvatarKeyboardControls } from "../composables/useBabylonAvatarKeyboardControls";
+import { useBabylonAvatarEntity } from "../composables/useBabylonAvatarEntity";
+import { useBabylonAvatarPhysicsController } from "../composables/useBabylonAvatarPhysicsController";
+import { useBabylonAvatarCameraController } from "../composables/useBabylonAvatarCameraController";
 import type {
     PositionObj,
     RotationObj,
-} from "../composables/useAvatarPhysicsController";
+} from "../composables/useBabylonAvatarPhysicsController";
 
 // Define component props with defaults
 const props = defineProps({
@@ -98,7 +98,7 @@ const {
     rotateAvatar,
     stepSimulation,
     jump,
-} = useAvatarPhysicsController(
+} = useBabylonAvatarPhysicsController(
     props.scene,
     initialPosition,
     initialRotation,
@@ -106,9 +106,9 @@ const {
     ref(props.capsuleRadius),
     ref(props.slopeLimit),
 );
-const { keyState } = useAvatarKeyboardControls(props.scene);
+const { keyState } = useBabylonAvatarKeyboardControls(props.scene);
 const { avatarEntity, isLoading, hasError, errorMessage, throttledUpdate } =
-    useAvatarEntity<PhysicsAvatarMeta>(
+    useBabylonAvatarEntity<PhysicsAvatarMeta>(
         ref(props.entityName),
         props.throttleInterval,
         PhysicsAvatarMetaSchema,
@@ -129,13 +129,14 @@ const { avatarEntity, isLoading, hasError, errorMessage, throttledUpdate } =
     );
 
 // Camera controller
-const { camera, setupCamera, updateCameraFromMeta } = useAvatarCameraController(
-    props.scene,
-    avatarNode,
-    cameraOrientation,
-    ref(props.capsuleHeight),
-    throttledUpdate,
-);
+const { camera, setupCamera, updateCameraFromMeta } =
+    useBabylonAvatarCameraController(
+        props.scene,
+        avatarNode,
+        cameraOrientation,
+        ref(props.capsuleHeight),
+        throttledUpdate,
+    );
 
 // Lifecycle hooks
 onMounted(() => {

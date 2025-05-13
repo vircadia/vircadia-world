@@ -16,7 +16,7 @@
         <!-- Only render entities when scene is available -->
         <template v-if="sceneInitialized && scene && connectionStatus === 'connected'">
             <!-- PhysicsAvatar component -->
-            <PhysicsAvatar
+            <BabylonAvatar
                 :scene="scene"
                 entity-name="physics.avatar.entity"
                 :initial-position="{ x: 0, y: 1, z: 4 }"
@@ -40,10 +40,9 @@
 <script setup lang="ts">
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/consistent-type-imports */
 import { computed, watch, ref, onMounted, onUnmounted, inject } from "vue";
-import { useBabylonModel } from "./composables/useBabylonModel";
-import PhysicsAvatar from "./components/PhysicsAvatar.vue";
+import BabylonAvatar from "./components/BabylonAvatar.vue";
 import BabylonModel from "./components/BabylonModel.vue";
-import { useEnvironmentLoader } from "./composables/useEnvironmentLoader";
+import { useEnvironment } from "./composables/useEnvironment";
 import { useAppStore } from "@/stores/appStore";
 // @ts-ignore: suppress type-only imports error
 import {
@@ -148,7 +147,7 @@ const handleKeyDown = (event: KeyboardEvent) => {
 };
 
 // Set up environment loader using HDR list from store
-const envLoader = useEnvironmentLoader(appStore.hdrList);
+const envLoader = useEnvironment(appStore.hdrList);
 const loadEnvironments = envLoader.loadAll;
 const environmentLoading = envLoader.isLoading;
 

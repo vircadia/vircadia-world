@@ -12,7 +12,7 @@ import { useAsset, useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
 // - Reactive loading state
 // - Handles Vircadia asset fetching
 // - Applies HDR textures to the scene
-export function useEnvironmentLoader(
+export function useEnvironment(
     hdrFiles: string[], // list of HDR file names on the Vircadia server in the entity.entity_assets table
 ) {
     const isLoading = ref(false);

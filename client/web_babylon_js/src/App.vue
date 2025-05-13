@@ -25,30 +25,19 @@
                 @ready="startRenderLoop"
                 ref="avatarRef"
             />
-            
-            <BabylonModel
-                v-for="(model, index) in modelDefinitions"
-                :key="model.fileName"
-                :scene="scene"
-                :fileName="model.fileName"
-                :position="model.position"
-                :rotation="model.rotation"
-                :throttle-interval="model.throttleInterval"
-                :enable-physics="model.enablePhysics"
-                :physics-type="model.physicsType"
-                :physics-options="model.physicsOptions"
-                :ref="(el: any) => modelRefs[index] = el"
-            />
         </template>
     </main>
 </template>
 
 <script setup lang="ts">
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import { inject, computed, watch, ref, onMounted, onUnmounted } from "vue";
-import BabylonModel from "./components/BabylonModel.vue";
+/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/consistent-type-imports */
+import { computed, watch, ref, onMounted, onUnmounted } from "vue";
+import { useBabylonModel } from "./composables/useBabylonModel";
 import PhysicsAvatar from "./components/PhysicsAvatar.vue";
-import type { BabylonModelDefinition } from "./components/BabylonModel.vue";
+import { useVircadiaContext } from "@/composables/useVircadiaContext";
+import { useEnvironmentLoader } from "./composables/useEnvironmentLoader";
+import { useAppStore } from "@/stores/appStore";
+// @ts-ignore: suppress type-only imports error
 import {
     Scene,
     Vector3,
@@ -62,10 +51,11 @@ import {
     PhysicsShapeType,
     HavokPlugin,
 } from "@babylonjs/core";
-import { useVircadiaContext } from "@/composables/useVircadiaContext";
-import { useEnvironmentLoader } from "./composables/useEnvironmentLoader";
 
-const { connectionStatus } = useVircadiaContext();
+// Get Vircadia context once in setup
+const vircadiaContext = useVircadiaContext();
+const connectionStatus = vircadiaContext.connectionStatus;
+const appStore = useAppStore();
 
 // BabylonJS Setup - use variables instead of refs
 const renderCanvas = ref<HTMLCanvasElement | null>(null);
@@ -142,34 +132,17 @@ const handleKeyDown = (event: KeyboardEvent) => {
     }
 };
 
-const { loadAll: loadEnvironments, isLoading: environmentLoading } =
-    useEnvironmentLoader(["babylon.level.test.hdr.1k.hdr"]);
+// Set up environment loader using HDR list from store
+const envLoader = useEnvironmentLoader(appStore.hdrList);
+const loadEnvironments = envLoader.loadAll;
+const environmentLoading = envLoader.isLoading;
 
-const modelDefinitions = ref<BabylonModelDefinition[]>([
-    {
-        fileName: "babylon.level.test.glb",
-        position: { x: 0, y: 0, z: 0 },
-        rotation: { x: 0, y: 0, z: 0, w: 1 },
-        throttleInterval: 10,
-        enablePhysics: true,
-        physicsType: "mesh",
-        physicsOptions: {
-            mass: 0,
-            friction: 0.5,
-            restitution: 0.3,
-        },
-    },
-]);
+// Store headless model hooks
+const modelHooks = ref<ReturnType<typeof useBabylonModel>[] | null>(null);
 
-// Store references to model components
-const modelRefs = ref<(InstanceType<typeof BabylonModel> | null)[]>([]);
-
-// Simplified loading state from all model components and environment loading
+// Simplified loading state from all model hooks and environment loading
 const isLoading = computed(() => {
-    return (
-        modelRefs.value.some((ref) => ref?.isLoading) ||
-        environmentLoading.value
-    );
+    return modelHooks.value?.some((h) => h.isLoading) || environmentLoading;
 });
 
 // Initialize BabylonJS
@@ -260,9 +233,6 @@ const handleResize = () => engine?.resize();
 onMounted(async () => {
     await initializeBabylon();
 
-    // Initialize model refs array
-    modelRefs.value = Array(modelDefinitions.value.length).fill(null);
-
     // Add keyboard event listener for inspector toggle
     window.addEventListener("keydown", handleKeyDown);
 });
@@ -295,7 +265,16 @@ watch(
         }
         // Load environments when scene is initialized and connected
         if (initialized && status === "connected" && scene) {
-            loadEnvironments(scene);
+            const s = scene; // narrow scene
+            loadEnvironments(s);
+            // Kick off model loads
+
+            modelHooks.value = appStore.modelDefinitions.map((def) =>
+                useBabylonModel(def, s),
+            );
+            for (const h of modelHooks.value ?? []) {
+                h.load();
+            }
         }
     },
 );

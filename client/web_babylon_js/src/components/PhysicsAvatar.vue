@@ -13,7 +13,7 @@ import { Vector3, Quaternion, ArcRotateCamera } from "@babylonjs/core";
 import { z } from "zod";
 import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
 
-import { useKeyboardControls } from "../composables/useKeyboardControls";
+import { useAvatarKeyboardControls } from "../composables/useAvatarKeyboardControls";
 import { useAvatarEntity } from "../composables/useAvatarEntity";
 import { useAvatarPhysicsController } from "../composables/useAvatarPhysicsController";
 import { useAvatarCameraController } from "../composables/useAvatarCameraController";
@@ -106,7 +106,7 @@ const {
     ref(props.capsuleRadius),
     ref(props.slopeLimit),
 );
-const { keyState } = useKeyboardControls(props.scene);
+const { keyState } = useAvatarKeyboardControls(props.scene);
 const { avatarEntity, isLoading, hasError, errorMessage, throttledUpdate } =
     useAvatarEntity<PhysicsAvatarMeta>(
         ref(props.entityName),

@@ -31,10 +31,9 @@
 
 <script setup lang="ts">
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/consistent-type-imports */
-import { computed, watch, ref, onMounted, onUnmounted } from "vue";
+import { computed, watch, ref, onMounted, onUnmounted, inject } from "vue";
 import { useBabylonModel } from "./composables/useBabylonModel";
 import PhysicsAvatar from "./components/PhysicsAvatar.vue";
-import { useVircadiaContext } from "@/composables/useVircadiaContext";
 import { useEnvironmentLoader } from "./composables/useEnvironmentLoader";
 import { useAppStore } from "@/stores/appStore";
 // @ts-ignore: suppress type-only imports error
@@ -51,10 +50,17 @@ import {
     PhysicsShapeType,
     HavokPlugin,
 } from "@babylonjs/core";
+import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
 
 // Get Vircadia context once in setup
-const vircadiaContext = useVircadiaContext();
-const connectionStatus = vircadiaContext.connectionStatus;
+const vircadiaWorld = inject(useVircadiaInstance());
+
+if (!vircadiaWorld) {
+    throw new Error("Vircadia instance not found");
+}
+const connectionStatus = computed(
+    () => vircadiaWorld.connectionInfo.value.status,
+);
 const appStore = useAppStore();
 
 // BabylonJS Setup - use variables instead of refs
@@ -137,8 +143,10 @@ const envLoader = useEnvironmentLoader(appStore.hdrList);
 const loadEnvironments = envLoader.loadAll;
 const environmentLoading = envLoader.isLoading;
 
-// Store headless model hooks
-const modelHooks = ref<ReturnType<typeof useBabylonModel>[] | null>(null);
+// Store headless model hooks, instantiate during setup so inject() can run
+const modelHooks = ref<ReturnType<typeof useBabylonModel>[]>(
+    appStore.modelDefinitions.map((def) => useBabylonModel(def)),
+);
 
 // Simplified loading state from all model hooks and environment loading
 const isLoading = computed(() => {
@@ -268,12 +276,8 @@ watch(
             const s = scene; // narrow scene
             loadEnvironments(s);
             // Kick off model loads
-
-            modelHooks.value = appStore.modelDefinitions.map((def) =>
-                useBabylonModel(def, s),
-            );
             for (const h of modelHooks.value ?? []) {
-                h.load();
+                h.load(s);
             }
         }
     },

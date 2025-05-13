@@ -1,4 +1,4 @@
-import { ref, onUnmounted, watch } from "vue";
+import { ref, onUnmounted, watch, inject } from "vue";
 import {
     type Scene,
     ImportMeshAsync,
@@ -15,8 +15,11 @@ import {
 import "@babylonjs/loaders/glTF"; // Import the GLTF loader
 import { useDebounceFn } from "@vueuse/core";
 
-import { useAsset, useEntity } from "@vircadia/world-sdk/browser/vue";
-import { useVircadiaContext } from "./useVircadiaContext";
+import {
+    useAsset,
+    useEntity,
+    useVircadiaInstance,
+} from "@vircadia/world-sdk/browser/vue";
 
 namespace glTF {
     export interface MetadataInterface {
@@ -134,7 +137,10 @@ export interface BabylonModelDefinition {
     };
 }
 
-export function useBabylonModel(def: BabylonModelDefinition, scene: Scene) {
+export function useBabylonModel(def: BabylonModelDefinition) {
+    // Local scene reference to be set when load() is called
+    let scene: Scene | null = null;
+
     // Expose loading state to parent
     const isLoading = ref(false);
     const hasError = ref(false);
@@ -145,7 +151,11 @@ export function useBabylonModel(def: BabylonModelDefinition, scene: Scene) {
     const currentRotation = ref(def.rotation || { x: 0, y: 0, z: 0, w: 1 });
 
     // Get Vircadia instance
-    const { vircadiaWorld } = useVircadiaContext();
+    const vircadiaWorld = inject(useVircadiaInstance());
+
+    if (!vircadiaWorld) {
+        throw new Error("Vircadia instance not found");
+    }
 
     // Entity management
     const meshes = ref<AbstractMesh[]>([]);
@@ -349,11 +359,13 @@ export function useBabylonModel(def: BabylonModelDefinition, scene: Scene) {
     const loadModel = async () => {
         console.log("Loading model... ", def.fileName);
 
-        if (!asset.assetData.value || !scene) {
+        // Ensure asset is ready and scene is set
+        const s = scene;
+        if (!asset.assetData.value || !s) {
             console.warn(
                 `Asset: ${asset.assetData.value ? "Ready" : "Not ready"}.`,
             );
-            console.warn(`Scene: ${scene ? "Ready" : "Not ready"}.`);
+            console.warn(`Scene: ${s ? "Ready" : "Not ready"}.`);
             return;
         }
 
@@ -375,7 +387,7 @@ export function useBabylonModel(def: BabylonModelDefinition, scene: Scene) {
             console.log(`Loading model '${def.fileName}' using blob URL...`);
 
             // Using ImportMeshAsync with correct parameter usage
-            const result = await ImportMeshAsync(assetData.blobUrl, scene, {
+            const result = await ImportMeshAsync(assetData.blobUrl, s, {
                 pluginExtension,
             });
 
@@ -385,7 +397,7 @@ export function useBabylonModel(def: BabylonModelDefinition, scene: Scene) {
             let processedMeshes: AbstractMesh[];
             if (hasLightmapData) {
                 console.log(`Processing lightmaps for '${def.fileName}'...`);
-                processedMeshes = await loadLightmap(result.meshes, scene);
+                processedMeshes = await loadLightmap(result.meshes, s);
             } else {
                 console.log(
                     `No lightmap data found for '${def.fileName}'... skipping lightmap processing.`,
@@ -678,10 +690,13 @@ export function useBabylonModel(def: BabylonModelDefinition, scene: Scene) {
 
     // Apply physics to model based on mesh shape
     const applyPhysics = () => {
+        // Ensure scene is ready and physics is enabled
+        const s = scene;
         if (
             !def.enablePhysics ||
             meshes.value.length === 0 ||
-            !scene.physicsEnabled
+            !s ||
+            !s.physicsEnabled
         ) {
             return;
         }
@@ -728,12 +743,11 @@ export function useBabylonModel(def: BabylonModelDefinition, scene: Scene) {
 
             try {
                 // Create physics aggregate for this mesh
-                // Cast the mesh to the required type for PhysicsAggregate
                 const aggregate = new PhysicsAggregate(
                     mesh as unknown as Mesh,
                     shapeType,
                     { mass, friction, restitution },
-                    scene,
+                    s,
                 );
 
                 physicsAggregates.value.push(aggregate);
@@ -754,7 +768,7 @@ export function useBabylonModel(def: BabylonModelDefinition, scene: Scene) {
     };
 
     // Remove physics from model
-    const removePhysics = () => {
+    function removePhysics() {
         // Remove all physics aggregates
         for (const aggregate of physicsAggregates.value) {
             if (aggregate) {
@@ -762,10 +776,10 @@ export function useBabylonModel(def: BabylonModelDefinition, scene: Scene) {
             }
         }
         physicsAggregates.value = [];
-    };
+    }
 
     // Update entity metadata with physics data
-    const updateEntityPhysicsData = () => {
+    function updateEntityPhysicsData() {
         if (!entity.entityData.value?.general__entity_name) {
             console.warn(
                 "Cannot update entity physics: No entity name available",
@@ -795,7 +809,7 @@ export function useBabylonModel(def: BabylonModelDefinition, scene: Scene) {
         // Update entity metadata
         console.log("Updating entity physics data:", updatedMetaData);
         safeExecuteUpdate("meta__data = $2", [JSON.stringify(updatedMetaData)]);
-    };
+    }
 
     // Watch for changes in physics props
     watch(
@@ -1064,7 +1078,11 @@ export function useBabylonModel(def: BabylonModelDefinition, scene: Scene) {
         rotation: currentRotation,
         entityName,
         meshes,
-        load: loadModel,
+        load: (s: Scene) => {
+            scene = s;
+            manageAssetAndEntity();
+        },
+        unload: handleUnload,
         applyPhysics,
         removePhysics,
         updateEntityPhysicsData,

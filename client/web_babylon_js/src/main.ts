@@ -37,8 +37,8 @@ app.use(pinia);
 // Make the Vircadia instance available to all components
 app.provide(DEFAULT_VIRCADIA_INSTANCE_KEY, vircadiaWorld);
 
-// Mount the app
-app.mount("#app");
-
 // Auto-connect to the domain server after mounting the app
 vircadiaWorld.client.Utilities.Connection.connect();
+
+// Mount the app
+app.mount("#app");

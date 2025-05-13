@@ -1,12 +1,11 @@
-import { ref } from "vue";
+import { inject, ref } from "vue";
 
 import { HDRCubeTexture, type Scene } from "@babylonjs/core";
 
-import { useAsset } from "@vircadia/world-sdk/browser/vue";
-import { useVircadiaContext } from "./useVircadiaContext";
+import { useAsset, useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
 //  ^ Vircadia’s Vue SDK:
 //    - useAsset: composable to fetch an asset and process from Vircadia’s database.
-//    - useVircadiaContext: composable to get the Vircadia World client instance.
+//    - useVircadiaInstance: composable to get the Vircadia World client instance.
 
 // ───────── Environment loader composable ─────────
 // Loads multiple HDR environments into a Babylon.js scene.
@@ -19,7 +18,11 @@ export function useEnvironmentLoader(
     const isLoading = ref(false);
     // ^ tracks whether we’re already loading—prevents duplicate calls
 
-    const { vircadiaWorld } = useVircadiaContext();
+    const vircadiaWorld = inject(useVircadiaInstance());
+
+    if (!vircadiaWorld) {
+        throw new Error("Vircadia instance not found");
+    }
     // ^ Vircadia World client instance used by useAsset
 
     async function loadAll(scene: Scene) {

@@ -1,4 +1,4 @@
-import { ref } from "vue";
+import { shallowRef, markRaw } from "vue";
 import {
     type Scene,
     ImportMeshAsync,
@@ -6,7 +6,6 @@ import {
     PBRMaterial,
     Texture,
     type BaseTexture,
-    type Nullable,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
 import type { BabylonModelDefinition } from "./types";
@@ -103,7 +102,8 @@ namespace glTF {
 
 // Composable for loading a 3D model and processing lightmaps
 export function useBabylonModelLoader(def: BabylonModelDefinition) {
-    const meshes = ref<AbstractMesh[]>([]);
+    // only track top-level array changes, never recurse into mesh properties
+    const meshes = shallowRef<AbstractMesh[]>([]);
 
     // Load mesh blobs into the scene, apply lightmaps if present
     async function loadModel(
@@ -139,7 +139,7 @@ export function useBabylonModelLoader(def: BabylonModelDefinition) {
                 );
                 processed = result.meshes;
             }
-            meshes.value = processed;
+            meshes.value = processed.map((m) => markRaw(m));
         } catch (e) {
             console.error(`Error loading model '${def.fileName}':`, e);
             throw e;

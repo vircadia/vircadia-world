@@ -1,5 +1,7 @@
 import { createApp } from "vue";
 import App from "./App.vue";
+// Vuetify styles should load before custom styles
+import "vuetify/styles";
 import "./assets/main.css";
 import { createPinia } from "pinia";
 
@@ -11,7 +13,21 @@ import {
 
 import { clientBrowserConfiguration } from "./vircadia.browser.config";
 
-// Initialize Vircadia before creating the app
+// Vuetify setup
+import { createVuetify } from "vuetify";
+
+// App setup
+const app = createApp(App);
+
+// Pinia setup
+const pinia = createPinia();
+app.use(pinia);
+
+// create and register Vuetify instance
+const vuetify = createVuetify();
+app.use(vuetify);
+
+// Initialize Vircadia
 const vircadiaWorld = useVircadia({
     config: {
         serverUrl:
@@ -30,14 +46,10 @@ const vircadiaWorld = useVircadia({
     },
 });
 
-const app = createApp(App);
-const pinia = createPinia();
-app.use(pinia);
-
 // Make the Vircadia instance available to all components
 app.provide(DEFAULT_VIRCADIA_INSTANCE_KEY, vircadiaWorld);
 
-// Auto-connect to the domain server after mounting the app
+// Auto-connect to the domain server immediately, do not await
 vircadiaWorld.client.Utilities.Connection.connect();
 
 // Mount the app

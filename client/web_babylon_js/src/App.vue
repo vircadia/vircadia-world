@@ -1,40 +1,42 @@
 <template>
-    <main>
-        <div v-if="connectionStatus === 'connecting'" class="connection-status">
-            Connecting to Vircadia server...
-        </div>
-        <div v-if="connectionStatus === 'disconnected'" class="connection-status">
-            Disconnected from Vircadia server. Will attempt to reconnect...
-        </div>
-        <canvas ref="renderCanvas" id="renderCanvas"></canvas>
-        
-        <!-- Entities loading indicator -->
-        <div v-if="isLoading" class="overlay loading-indicator">
-            Loading assets or creating entities...
-        </div>
-        
-        <!-- Only render entities when scene is available -->
-        <template v-if="sceneInitialized && scene && connectionStatus === 'connected'">
-            <!-- PhysicsAvatar component -->
-            <BabylonAvatar
-                :scene="scene"
-                entity-name="physics.avatar.entity"
-                :initial-position="{ x: 0, y: 1, z: 4 }"
-                :initial-rotation="{ x: 0, y: 0, z: 0, w: 1 }"
-                :initial-camera-orientation="{ alpha: -Math.PI/2, beta: Math.PI/3, radius: 5 }"
-                @ready="startRenderLoop"
-                ref="avatarRef"
-            />
+    <v-app>
+        <main>
+            <div v-if="connectionStatus === 'connecting'" class="connection-status">
+                Connecting to Vircadia server...
+            </div>
+            <div v-if="connectionStatus === 'disconnected'" class="connection-status">
+                Disconnected from Vircadia server. Will attempt to reconnect...
+            </div>
+            <canvas ref="renderCanvas" id="renderCanvas"></canvas>
+            
+            <!-- Entities loading indicator -->
+            <div v-if="isLoading" class="overlay loading-indicator">
+                Loading assets or creating entities...
+            </div>
+            
+            <!-- Only render entities when scene is available -->
+            <template v-if="sceneInitialized && scene && connectionStatus === 'connected'">
+                <!-- PhysicsAvatar component -->
+                <BabylonAvatar
+                    :scene="scene"
+                    entity-name="physics.avatar.entity"
+                    :initial-position="{ x: 0, y: 1, z: 4 }"
+                    :initial-rotation="{ x: 0, y: 0, z: 0, w: 1 }"
+                    :initial-camera-orientation="{ alpha: -Math.PI/2, beta: Math.PI/3, radius: 5 }"
+                    @ready="startRenderLoop"
+                    ref="avatarRef"
+                />
 
-            <!-- BabylonModel components -->
-            <BabylonModel
-                v-for="def in appStore.modelDefinitions"
-                :key="def.fileName"
-                :def="def"
-                :scene="scene"
-            />
-        </template>
-    </main>
+                <!-- BabylonModel components -->
+                <BabylonModel
+                    v-for="def in appStore.modelDefinitions"
+                    :key="def.fileName"
+                    :def="def"
+                    :scene="scene"
+                />
+            </template>
+        </main>
+    </v-app>
 </template>
 
 <script setup lang="ts">
@@ -44,7 +46,7 @@ import BabylonAvatar from "./components/BabylonAvatar.vue";
 import BabylonModel from "./components/BabylonModel.vue";
 import { useEnvironment } from "./composables/useEnvironment";
 import { useAppStore } from "@/stores/appStore";
-// @ts-ignore: suppress type-only imports error
+// BabylonJS
 import {
     Scene,
     Vector3,
@@ -81,7 +83,7 @@ const sceneInitialized = ref(false);
 // Track inspector state
 const isInspectorVisible = ref(false);
 // Track if avatar is ready
-const avatarRef = ref<InstanceType<typeof PhysicsAvatar> | null>(null);
+const avatarRef = ref<InstanceType<typeof BabylonAvatar> | null>(null);
 
 // Inline physics initialization and inspector helpers
 let havokInstance: unknown = null;

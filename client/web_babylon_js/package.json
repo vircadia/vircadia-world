@@ -19,7 +19,9 @@
         "@vueuse/core": "^13.1.0",
         "lodash-es": "^4.17.21",
         "pinia": "^3.0.2",
+        "vite-plugin-vuetify": "^2.1.1",
         "vue": "^3.5.13",
+        "vuetify": "^3.8.5",
         "zod": "^3.24.4"
     },
     "devDependencies": {

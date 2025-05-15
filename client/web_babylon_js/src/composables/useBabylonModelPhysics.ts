@@ -1,25 +1,36 @@
-import { ref, watch, type Ref } from "vue";
-import { PhysicsAggregate, PhysicsShapeType } from "@babylonjs/core";
+import { ref, type Ref } from "vue";
+import { PhysicsAggregate, PhysicsShapeType, Vector3 } from "@babylonjs/core";
 import type { Scene, AbstractMesh } from "@babylonjs/core";
+import { CannonJSPlugin } from "@babylonjs/core/Physics/Plugins/cannonJSPlugin";
 import type { BabylonModelDefinition } from "./types";
 
 // Composable for applying/removing physics to a Babylon model
 export function useBabylonModelPhysics(
-    sceneRef: Ref<Scene | null>,
     meshes: Ref<AbstractMesh[]>,
     def: BabylonModelDefinition,
 ) {
     const physicsAggregates = ref<PhysicsAggregate[]>([]);
 
-    function applyPhysics() {
-        const scene = sceneRef.value;
-        if (
-            !scene ||
-            !def.enablePhysics ||
-            meshes.value.length === 0 ||
-            !scene.physicsEnabled
-        ) {
+    function applyPhysics(scene: Scene) {
+        if (!scene) {
+            console.warn("No scene to apply physics to");
             return;
+        }
+
+        if (!def.enablePhysics) {
+            console.warn("Physics is not enabled for this model");
+            return;
+        }
+
+        if (meshes.value.length === 0) {
+            console.warn("No meshes to apply physics to");
+            return;
+        }
+
+        // Initialize physics engine on scene if not already
+        if (!scene.isPhysicsEnabled) {
+            console.log("Initializing physics engine on scene");
+            scene.enablePhysics(new Vector3(0, -9.8, 0), new CannonJSPlugin());
         }
         // Clean up any existing physics
         removePhysics();
@@ -72,19 +83,6 @@ export function useBabylonModelPhysics(
         }
         physicsAggregates.value = [];
     }
-
-    // React to enablePhysics flag changes
-    watch(
-        () => def.enablePhysics,
-        (enabled) => {
-            if (enabled) {
-                applyPhysics();
-            } else {
-                removePhysics();
-            }
-        },
-        { immediate: true },
-    );
 
     return { applyPhysics, removePhysics };
 }

@@ -35,9 +35,7 @@ const { entityName, entity, debouncedUpdate } = useBabylonModelEntity(
 const { meshes, loadModel } = useBabylonModelLoader(props.def);
 
 // 4. Physics application
-const sceneRef = ref<Scene | null>(null);
 const { applyPhysics, removePhysics } = useBabylonModelPhysics(
-    sceneRef,
     meshes,
     props.def,
 );
@@ -54,7 +52,6 @@ watch(
     () => props.scene,
     (s) => {
         if (s) {
-            sceneRef.value = s;
             asset.executeLoad();
             // Retrieve or create entity
             if (entityName.value) {
@@ -67,13 +64,33 @@ watch(
     { immediate: true },
 );
 
-// When asset blob URL is ready, load the 3D model
+// When asset blob URL is ready, load the 3D model and apply physics if enabled
 watch(
     () => asset.assetData.value,
-    (assetData) => {
-        const scene = sceneRef.value;
-        if (assetData?.blobUrl && scene) {
-            loadModel(scene, assetData);
+    async (assetData) => {
+        if (assetData?.blobUrl && props.scene) {
+            await loadModel(props.scene, assetData);
+            if (props.def.enablePhysics) {
+                applyPhysics(props.scene);
+            }
+        } else {
+            console.warn("No asset data or scene to load model");
+        }
+    },
+);
+
+// React to enablePhysics toggles at runtime
+watch(
+    () => props.def.enablePhysics,
+    (enabled) => {
+        if (enabled) {
+            if (props.scene) {
+                applyPhysics(props.scene);
+            } else {
+                console.warn("No scene to apply physics to");
+            }
+        } else {
+            removePhysics();
         }
     },
 );

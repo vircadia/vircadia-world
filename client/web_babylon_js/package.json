@@ -15,7 +15,7 @@
         "@babylonjs/havok": "^1.3.10",
         "@babylonjs/inspector": "^8.6.1",
         "@babylonjs/loaders": "^8.6.1",
-        "@vircadia/world-sdk": "0.0.2",
+        "@vircadia/world-sdk": "file:../../sdk/vircadia-world-sdk-ts",
         "@vueuse/core": "^13.1.0",
         "lodash-es": "^4.17.21",
         "pinia": "^3.0.2",

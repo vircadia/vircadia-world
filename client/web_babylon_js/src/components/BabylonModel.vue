@@ -51,11 +51,15 @@ if (!vircadia) {
 // When scene becomes available, load asset and retrieve entity metadata
 watch(
     () => props.scene,
-    (s) => {
+    async (s) => {
         if (s) {
-            loadModel(s);
+            await loadModel(s);
             // Always attempt to retrieve existing entity
             entity.executeRetrieve();
+            // Apply physics if enabled after model load
+            if (props.def.enablePhysics) {
+                applyPhysics(s);
+            }
         }
     },
     { immediate: true },

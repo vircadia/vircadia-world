@@ -1,0 +1,15 @@
+import CodeBlock from '@theme/CodeBlock';
+
+import serverDockerComposeYaml from '!!raw-loader!./server.docker.compose.yml';
+
+# Services
+
+All Vircadia's services run in a secure Docker container environment.
+
+For maximum production security, Vircadia uses only the default distributed image by each respective vendor, built from Alpine Linux. Each container is set to `read_only` to prevent any modifications to the underlying image.
+
+## Docker Compose File
+
+<CodeBlock language="yaml">
+${serverDockerComposeYaml}
+</CodeBlock>

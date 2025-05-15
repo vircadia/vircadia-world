@@ -7,12 +7,12 @@ import { useAsset, useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
 //    - useAsset: composable to fetch an asset and process from Vircadia’s database.
 //    - useVircadiaInstance: composable to get the Vircadia World client instance.
 
-// ───────── Environment loader composable ─────────
+// ───────── Babylon Environment loader composable ─────────
 // Loads multiple HDR environments into a Babylon.js scene.
 // - Reactive loading state
 // - Handles Vircadia asset fetching
 // - Applies HDR textures to the scene
-export function useEnvironment(
+export function useBabylonEnvironment(
     hdrFiles: string[], // list of HDR file names on the Vircadia server in the entity.entity_assets table
 ) {
     const isLoading = ref(false);

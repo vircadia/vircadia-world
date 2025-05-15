@@ -3,7 +3,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onUnmounted, inject } from "vue";
+import { ref, watch, onUnmounted, inject, computed } from "vue";
 import type { Scene } from "@babylonjs/core";
 import type { BabylonModelDefinition } from "../composables/types";
 import { useAsset, useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
@@ -25,11 +25,14 @@ const rotation = ref(props.def.rotation ?? { x: 0, y: 0, z: 0, w: 1 });
 const asset = useAsset({ fileName: ref(props.def.fileName), useCache: true });
 
 // 2. Entity synchronization
-const { entityName, entity, debouncedUpdate } = useBabylonModelEntity(
-    props.def,
-    position,
-    rotation,
-);
+const {
+    entityName,
+    entity,
+    debouncedUpdate,
+    isRetrieving,
+    isCreating,
+    isUpdating,
+} = useBabylonModelEntity(props.def, position, rotation);
 
 // 3. Model loader
 const { meshes, loadModel } = useBabylonModelLoader(props.def);
@@ -120,5 +123,14 @@ onUnmounted(() => {
     for (const m of meshes.value) {
         m.dispose();
     }
+});
+
+// Expose loading state for parent tracking
+// isLoading combines asset loading and initial entity retrieval/creation only
+defineExpose({
+    isAssetLoading: asset.loading,
+    isEntityRetrieving: isRetrieving,
+    isEntityCreating: isCreating,
+    isEntityUpdating: isUpdating,
 });
 </script>

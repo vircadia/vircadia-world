@@ -1,4 +1,4 @@
-import { ref, watch, inject, type Ref } from "vue";
+import { ref, watch, inject, computed, type Ref } from "vue";
 import { useDebounceFn } from "@vueuse/core";
 import {
     useEntity,
@@ -36,6 +36,11 @@ export function useBabylonModelEntity(
             }),
         ],
     });
+
+    // Separate loading states for entity operations
+    const isRetrieving = computed(() => entity.retrieving.value);
+    const isCreating = computed(() => entity.creating.value);
+    const isUpdating = computed(() => entity.updating.value);
 
     // Helper to retry updates when the entity is busy
     function safeExecuteUpdate(
@@ -89,5 +94,12 @@ export function useBabylonModelEntity(
     watch(position, () => debouncedUpdate(), { deep: true });
     watch(rotation, () => debouncedUpdate(), { deep: true });
 
-    return { entityName, entity, debouncedUpdate };
+    return {
+        entityName,
+        entity,
+        debouncedUpdate,
+        isRetrieving,
+        isCreating,
+        isUpdating,
+    };
 }

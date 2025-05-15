@@ -1,22 +1,19 @@
 <template>
     <v-app>
         <main>
-            <div v-if="connectionStatus === 'connecting'" class="connection-status">
-                Connecting to Vircadia server...
-            </div>
-            <div v-if="connectionStatus === 'disconnected'" class="connection-status">
-                Disconnected from Vircadia server. Will attempt to reconnect...
-            </div>
             <canvas ref="renderCanvas" id="renderCanvas"></canvas>
             
-            <!-- Entities loading indicator -->
-            <div v-if="isLoading" class="overlay loading-indicator">
-                Loading assets or creating entities...
-            </div>
+            <!-- Snackbar for loading and connection status -->
+            <v-snackbar v-model="snackbarVisible" :timeout="0" top>
+                <div class="d-flex align-center">
+                    <v-progress-circular v-if="isLoading" indeterminate color="white" size="24" class="mr-2" />
+                    {{ snackbarText }}
+                </div>
+            </v-snackbar>
             
             <!-- Only render entities when scene is available -->
             <template v-if="sceneInitialized && scene && connectionStatus === 'connected'">
-                <!-- PhysicsAvatar component -->
+                <!-- BabylonAvatar component -->
                 <BabylonAvatar
                     :scene="scene"
                     entity-name="physics.avatar.entity"
@@ -33,6 +30,7 @@
                     :key="def.fileName"
                     :def="def"
                     :scene="scene"
+                    ref="modelRefs"
                 />
             </template>
         </main>
@@ -42,9 +40,15 @@
 <script setup lang="ts">
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/consistent-type-imports */
 import { computed, watch, ref, onMounted, onUnmounted, inject } from "vue";
+// @ts-ignore: used in template
 import BabylonAvatar from "./components/BabylonAvatar.vue";
+// @ts-ignore: used in template
 import BabylonModel from "./components/BabylonModel.vue";
-import { useEnvironment } from "./composables/useEnvironment";
+// mark as used at runtime for template
+void BabylonAvatar;
+// mark as used at runtime for template
+void BabylonModel;
+import { useBabylonEnvironment } from "./composables/useBabylonEnvironment";
 import { useAppStore } from "@/stores/appStore";
 // BabylonJS
 import {
@@ -84,6 +88,7 @@ const sceneInitialized = ref(false);
 const isInspectorVisible = ref(false);
 // Track if avatar is ready
 const avatarRef = ref<InstanceType<typeof BabylonAvatar> | null>(null);
+const modelRefs = ref<(InstanceType<typeof BabylonModel> | null)[]>([]);
 
 // Inline physics initialization and inspector helpers
 let havokInstance: unknown = null;
@@ -149,12 +154,50 @@ const handleKeyDown = (event: KeyboardEvent) => {
 };
 
 // Set up environment loader using HDR list from store
-const envLoader = useEnvironment(appStore.hdrList);
+const envLoader = useBabylonEnvironment(appStore.hdrList);
 const loadEnvironments = envLoader.loadAll;
 const environmentLoading = envLoader.isLoading;
 
-// Global loading state (environment only)
-const isLoading = computed(() => environmentLoading);
+// Child component loading states
+const avatarLoading = computed(
+    () =>
+        (avatarRef.value?.isCreating || avatarRef.value?.isRetrieving) ?? false,
+);
+const modelsLoading = computed(() =>
+    modelRefs.value.some(
+        (m) =>
+            (m?.isEntityCreating ||
+                m?.isEntityRetrieving ||
+                m?.isAssetLoading) ??
+            false,
+    ),
+);
+
+// Global loading state: environment, avatar, or models
+const isLoading = computed(
+    () =>
+        environmentLoading.value || avatarLoading.value || modelsLoading.value,
+);
+
+// snackbarVisible is driven by connection status and loading, add noop setter to satisfy v-model
+const snackbarVisible = computed<boolean>({
+    get: () => connectionStatus.value !== "connected" || isLoading.value,
+    set: (_val: boolean) => {
+        // no-op setter: visibility is derived from connection status and loading
+    },
+});
+const snackbarText = computed(() => {
+    if (isLoading.value) {
+        return "Loading assets or creating entities...";
+    }
+    if (connectionStatus.value === "connecting") {
+        return "Connecting to Vircadia server...";
+    }
+    if (connectionStatus.value === "disconnected") {
+        return "Disconnected from Vircadia server. Will attempt to reconnect...";
+    }
+    return "";
+});
 
 // Initialize BabylonJS
 const initializeBabylon = async () => {
@@ -293,26 +336,5 @@ main {
 }
 #renderCanvas {
     width: 100%; height: 100%; display: block; touch-action: none; outline: none;
-}
-.connection-status {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background-color: rgba(0, 0, 0, 0.7);
-    color: white;
-    padding: 20px;
-    border-radius: 5px;
-    font-family: sans-serif;
-    text-align: center;
-}
-.connection-status.error {
-    background-color: rgba(120, 0, 0, 0.7);
-}
-.overlay {
-    position: absolute; left: 10px; color: white; background: rgba(0,0,0,0.7); padding: 8px; border-radius: 4px; font-family: sans-serif; font-size: 14px; z-index: 10; /* Ensure overlay is on top */
-}
-.loading-indicator {
-    top: 10px;
 }
 </style>

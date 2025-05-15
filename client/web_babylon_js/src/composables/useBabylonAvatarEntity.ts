@@ -1,4 +1,4 @@
-import { ref, watch, type Ref } from "vue";
+import { ref, watch, computed, type Ref } from "vue";
 import { useThrottleFn } from "@vueuse/core";
 import { useEntity } from "@vircadia/world-sdk/browser/vue";
 import type { ZodSchema } from "zod";
@@ -31,22 +31,13 @@ export function useBabylonAvatarEntity<M>(
         defaultMetaData: getInitialMeta(),
     });
 
-    const isLoading = ref(false);
+    // Separate loading states into retrieving, creating, and updating
+    const isRetrieving = computed(() => avatarEntity.retrieving.value);
+    const isCreating = computed(() => avatarEntity.creating.value);
+    const isUpdating = computed(() => avatarEntity.updating.value);
+
     const hasError = ref(false);
     const errorMessage = ref<string>("");
-
-    // Reflect retrieving/creating/updating state
-    watch(
-        [
-            () => avatarEntity.retrieving.value,
-            () => avatarEntity.creating.value,
-            () => avatarEntity.updating.value,
-        ],
-        ([retrieving, creating, updating]) => {
-            isLoading.value = retrieving || creating || updating;
-        },
-        { immediate: true },
-    );
 
     // Reflect errors
     watch(
@@ -68,5 +59,13 @@ export function useBabylonAvatarEntity<M>(
         ]);
     }, throttleInterval);
 
-    return { avatarEntity, isLoading, hasError, errorMessage, throttledUpdate };
+    return {
+        avatarEntity,
+        isRetrieving,
+        isCreating,
+        isUpdating,
+        hasError,
+        errorMessage,
+        throttledUpdate,
+    };
 }

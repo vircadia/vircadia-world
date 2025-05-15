@@ -107,26 +107,33 @@ const {
     ref(props.slopeLimit),
 );
 const { keyState } = useBabylonAvatarKeyboardControls(props.scene);
-const { avatarEntity, isLoading, hasError, errorMessage, throttledUpdate } =
-    useBabylonAvatarEntity<PhysicsAvatarMeta>(
-        ref(props.entityName),
-        props.throttleInterval,
-        PhysicsAvatarMetaSchema,
-        () => ({
-            type: props.entityName,
-            position: initialPosition.value,
-            rotation: initialRotation.value,
-            cameraOrientation: cameraOrientation.value,
-        }),
-        () => ({
-            type: props.entityName,
-            position: characterController.value
-                ? vectorToObj(characterController.value.getPosition())
-                : initialPosition.value,
-            rotation: quatToObj(charOrient.value),
-            cameraOrientation: cameraOrientation.value,
-        }),
-    );
+const {
+    avatarEntity,
+    isRetrieving,
+    isCreating,
+    isUpdating,
+    hasError,
+    errorMessage,
+    throttledUpdate,
+} = useBabylonAvatarEntity<PhysicsAvatarMeta>(
+    ref(props.entityName),
+    props.throttleInterval,
+    PhysicsAvatarMetaSchema,
+    () => ({
+        type: props.entityName,
+        position: initialPosition.value,
+        rotation: initialRotation.value,
+        cameraOrientation: cameraOrientation.value,
+    }),
+    () => ({
+        type: props.entityName,
+        position: characterController.value
+            ? vectorToObj(characterController.value.getPosition())
+            : initialPosition.value,
+        rotation: quatToObj(charOrient.value),
+        cameraOrientation: cameraOrientation.value,
+    }),
+);
 
 // Camera controller
 const { camera, setupCamera, updateCameraFromMeta } =
@@ -280,5 +287,13 @@ onUnmounted(() => {
     // camera is disposed by useAvatarCameraController composable
 });
 
-defineExpose({ isLoading, hasError, errorMessage, moveAvatar, rotateAvatar });
+defineExpose({
+    isRetrieving,
+    isCreating,
+    isUpdating,
+    hasError,
+    errorMessage,
+    moveAvatar,
+    rotateAvatar,
+});
 </script>

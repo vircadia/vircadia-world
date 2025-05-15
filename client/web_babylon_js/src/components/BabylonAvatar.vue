@@ -9,7 +9,12 @@ import type {
     Vector3 as BabylonVector3,
     Quaternion as BabylonQuaternion,
 } from "@babylonjs/core";
-import { Vector3, Quaternion, ArcRotateCamera } from "@babylonjs/core";
+import {
+    Vector3,
+    Quaternion,
+    ArcRotateCamera,
+    CharacterSupportedState,
+} from "@babylonjs/core";
 import { z } from "zod";
 import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
 
@@ -91,13 +96,16 @@ function quatToObj(q: BabylonQuaternion): RotationObj {
 const {
     avatarNode,
     characterController,
-    characterOrientation: charOrient,
     createController,
     updateTransforms,
-    moveAvatar,
-    rotateAvatar,
-    stepSimulation,
-    jump,
+    getPosition,
+    setPosition,
+    getOrientation,
+    setOrientation,
+    getVelocity,
+    setVelocity,
+    checkSupport,
+    integrate,
 } = useBabylonAvatarPhysicsController(
     props.scene,
     initialPosition,
@@ -127,10 +135,13 @@ const {
     }),
     () => ({
         type: props.entityName,
-        position: characterController.value
-            ? vectorToObj(characterController.value.getPosition())
-            : initialPosition.value,
-        rotation: quatToObj(charOrient.value),
+        position: (() => {
+            const p = getPosition();
+            return p ? vectorToObj(p) : initialPosition.value;
+        })(),
+        rotation: characterController.value
+            ? quatToObj(getOrientation())
+            : initialRotation.value,
         cameraOrientation: cameraOrientation.value,
     }),
 );
@@ -208,13 +219,11 @@ onMounted(() => {
                 // Remote update, apply if present
                 if (meta.position) {
                     const p = meta.position;
-                    characterController.value.setPosition(
-                        new Vector3(p.x, p.y, p.z),
-                    );
+                    setPosition(new Vector3(p.x, p.y, p.z));
                 }
                 if (meta.rotation) {
                     const r = meta.rotation;
-                    charOrient.value = new Quaternion(r.x, r.y, r.z, r.w);
+                    setOrientation(new Quaternion(r.x, r.y, r.z, r.w));
                 }
                 updateTransforms();
                 if (meta.cameraOrientation) {
@@ -236,7 +245,9 @@ onMounted(() => {
             (keyState.value.forward ? 1 : 0) -
                 (keyState.value.backward ? 1 : 0),
         );
-        if (dir.lengthSquared() > 0) {
+        // Horizontal movement via velocity
+        const vel = getVelocity();
+        if (dir.lengthSquared() > 0 && vel) {
             const cameraRotationY =
                 camera.value instanceof ArcRotateCamera
                     ? camera.value.alpha + Math.PI / 2
@@ -248,25 +259,40 @@ onMounted(() => {
                 dir.x * Math.sin(cameraRotationY) +
                     dir.z * Math.cos(cameraRotationY),
             );
-            moveAvatar(transformedDir);
-        } else {
-            // Stop horizontal sliding
-            const vel = characterController.value.getVelocity();
-            vel.x = 0;
-            vel.z = 0;
-            characterController.value.setVelocity(vel);
+            const speed = 4; // or customize per-character
+            const horiz = transformedDir.normalize().scale(speed);
+            setVelocity(new Vector3(horiz.x, vel.y, horiz.z));
+        } else if (vel) {
+            setVelocity(new Vector3(0, vel.y, 0));
         }
-        // Apply jump impulse if requested
+        // Jump if on ground
         if (keyState.value.jump) {
-            jump(dt, props.jumpSpeed);
+            const support = checkSupport(dt);
+            if (
+                support?.supportedState === CharacterSupportedState.SUPPORTED &&
+                vel
+            ) {
+                setVelocity(new Vector3(vel.x, props.jumpSpeed, vel.z));
+            }
         }
     });
     // After the physics engine updates, integrate the character and sync transforms
     props.scene.onAfterPhysicsObservable.add(() => {
         if (!characterController.value) return;
         const dt = props.scene.getEngine().getDeltaTime() / 1000;
-        stepSimulation(dt);
+        // Apply manual gravity to vertical velocity
+        const velAfter = getVelocity();
+        if (velAfter) {
+            velAfter.y += -9.8 * dt;
+            setVelocity(velAfter);
+        }
+        // Integrate physics and sync transforms
+        const supportAfter = checkSupport(dt);
+        if (supportAfter) {
+            integrate(dt, supportAfter);
+        }
         throttledUpdate();
+        updateTransforms();
         // update camera target to follow the avatar
         if (camera.value && avatarNode.value) {
             const node = avatarNode.value;
@@ -293,7 +319,13 @@ defineExpose({
     isUpdating,
     hasError,
     errorMessage,
-    moveAvatar,
-    rotateAvatar,
+    getPosition,
+    setPosition,
+    getOrientation,
+    setOrientation,
+    getVelocity,
+    setVelocity,
+    checkSupport,
+    integrate,
 });
 </script>

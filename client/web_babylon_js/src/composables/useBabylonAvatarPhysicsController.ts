@@ -15,6 +15,11 @@ import {
 export type PositionObj = { x: number; y: number; z: number };
 export type RotationObj = { x: number; y: number; z: number; w: number };
 
+// Add SupportType alias
+export type SupportType = ReturnType<
+    PhysicsCharacterController["checkSupport"]
+>;
+
 /**
  * Composable for managing a physics-based character controller
  */
@@ -99,80 +104,57 @@ export function useBabylonAvatarPhysicsController(
             characterOrientation.value.clone();
     }
 
-    /**
-     * Move the avatar in a direction with physics integration
-     */
-    function moveAvatar(direction: Vector3) {
-        if (!characterController.value) return;
-
-        // Apply simple horizontal movement
-        const speed = 4;
-        const displacement = direction.normalize().scale(speed);
-        const currentVel = characterController.value.getVelocity();
-        currentVel.x = displacement.x;
-        currentVel.z = displacement.z;
-        characterController.value.setVelocity(currentVel);
+    // Low-level primitives
+    function getPosition(): Vector3 | undefined {
+        return characterController.value?.getPosition();
     }
-
-    /**
-     * Step the physics simulation: apply gravity and update transforms.
-     */
-    function stepSimulation(deltaTime: number) {
-        if (!characterController.value) return;
-        // Apply manual gravity to vertical velocity
-        const gravity = -9.8;
-        const vel = characterController.value.getVelocity();
-        vel.y += gravity * deltaTime;
-        characterController.value.setVelocity(vel);
-        // Perform support check and integrate the controller
-        const support = characterController.value.checkSupport(
-            deltaTime,
-            new Vector3(0, -1, 0),
-        );
-        characterController.value.integrate(
-            deltaTime,
-            support,
-            new Vector3(0, gravity, 0),
-        );
-        // Sync visual transform
-        updateTransforms();
+    function setPosition(pos: Vector3) {
+        const node = avatarNode.value;
+        const controller = characterController.value;
+        if (!node || !controller) return;
+        node.position = pos.clone();
+        controller.setPosition(pos.clone());
     }
-
-    /**
-     * Rotate the avatar by a yaw amount
-     */
-    function rotateAvatar(yawAmount: number) {
-        const yawQuat = Quaternion.RotationAxis(Vector3.Up(), yawAmount);
-        characterOrientation.value =
-            characterOrientation.value.multiply(yawQuat);
-        updateTransforms();
+    function getOrientation(): Quaternion {
+        return characterOrientation.value.clone();
     }
-
-    /**
-     * Apply a jump impulse if on the ground
-     */
-    function jump(deltaTime: number, jumpSpeed = 5) {
-        if (!characterController.value) return;
-        const support = characterController.value.checkSupport(
-            deltaTime,
-            new Vector3(0, -1, 0),
-        );
-        if (support.supportedState === CharacterSupportedState.SUPPORTED) {
-            const vel = characterController.value.getVelocity();
-            vel.y = jumpSpeed;
-            characterController.value.setVelocity(vel);
+    function setOrientation(q: Quaternion) {
+        characterOrientation.value = q.clone();
+        if (avatarNode.value) {
+            avatarNode.value.rotationQuaternion = q.clone();
         }
+    }
+    function getVelocity(): Vector3 | undefined {
+        return characterController.value?.getVelocity();
+    }
+    function setVelocity(v: Vector3) {
+        characterController.value?.setVelocity(v);
+    }
+    function checkSupport(deltaTime: number): SupportType | undefined {
+        return characterController.value?.checkSupport(
+            deltaTime,
+            new Vector3(0, -1, 0),
+        );
+    }
+    function integrate(deltaTime: number, support: SupportType) {
+        const controller = characterController.value;
+        if (!controller || !support) return;
+        // default gravity vector Y = -9.8
+        controller.integrate(deltaTime, support, new Vector3(0, -9.8, 0));
     }
 
     return {
         avatarNode,
         characterController,
-        characterOrientation,
         createController,
         updateTransforms,
-        moveAvatar,
-        rotateAvatar,
-        stepSimulation,
-        jump,
+        getPosition,
+        setPosition,
+        getOrientation,
+        setOrientation,
+        getVelocity,
+        setVelocity,
+        checkSupport,
+        integrate,
     };
 }

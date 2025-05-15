@@ -1,4 +1,4 @@
-import { shallowRef, markRaw } from "vue";
+import { shallowRef, markRaw, ref } from "vue";
 import {
     type Scene,
     ImportMeshAsync,
@@ -9,6 +9,7 @@ import {
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
 import type { BabylonModelDefinition } from "./types";
+import { useAsset } from "@vircadia/world-sdk/browser/vue";
 
 // glTF metadata definitions (copied from useBabylonModel)
 namespace glTF {
@@ -104,17 +105,28 @@ namespace glTF {
 export function useBabylonModelLoader(def: BabylonModelDefinition) {
     // only track top-level array changes, never recurse into mesh properties
     const meshes = shallowRef<AbstractMesh[]>([]);
+    const fileNameRef = ref(def.fileName);
+    const asset = useAsset({
+        fileName: fileNameRef,
+        useCache: true,
+        debug: false,
+    });
 
     // Load mesh blobs into the scene, apply lightmaps if present
-    async function loadModel(
-        scene: Scene,
-        assetData: { blobUrl: string; mimeType: string },
-    ) {
-        console.log("Loading model... ", def.fileName);
-        if (!assetData?.blobUrl) {
-            console.warn("Asset blob URL not available.");
+    async function loadModel(scene: Scene) {
+        if (!scene) {
+            console.warn("No scene provided to loadModel");
             return;
         }
+
+        // trigger asset fetch
+        await asset.executeLoad();
+        const assetData = asset.assetData.value;
+        if (!assetData?.blobUrl) {
+            console.warn(`Asset blob URL not available for '${def.fileName}'`);
+            return;
+        }
+        console.log("Loading model... ", def.fileName);
         if (meshes.value.length > 0) {
             console.log(`Model '${def.fileName}' already loaded. Skipping.`);
             return;
@@ -268,5 +280,5 @@ export function useBabylonModelLoader(def: BabylonModelDefinition) {
         return meshesArr;
     }
 
-    return { meshes, loadModel };
+    return { meshes, loadModel, asset };
 }

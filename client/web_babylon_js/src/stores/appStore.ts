@@ -10,7 +10,7 @@ export const useAppStore = defineStore("app", {
         // model definitions for environments
         modelDefinitions: [
             {
-                fileName: "babylon.level.test.glb",
+                fileName: "babylon.level.glb",
                 position: { x: 0, y: 0, z: 0 },
                 rotation: { x: 0, y: 0, z: 0, w: 1 },
                 throttleInterval: 10,
@@ -24,7 +24,7 @@ export const useAppStore = defineStore("app", {
             },
         ] as BabylonModelDefinition[],
         // HDR environment list
-        hdrList: ["babylon.level.test.hdr.1k.hdr"] as string[],
+        hdrList: ["babylon.level.hdr.1k.hdr"] as string[],
     }),
     getters: {
         // whether an error is set

@@ -6,7 +6,7 @@
 import { ref, watch, onUnmounted, inject, computed } from "vue";
 import type { Scene } from "@babylonjs/core";
 import type { BabylonModelDefinition } from "../composables/types";
-import { useAsset, useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
+import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
 import { useBabylonModelEntity } from "../composables/useBabylonModelEntity";
 import { useBabylonModelLoader } from "../composables/useBabylonModelLoader";
 import { useBabylonModelPhysics } from "../composables/useBabylonModelPhysics";
@@ -21,9 +21,7 @@ const props = defineProps<{
 const position = ref(props.def.position ?? { x: 0, y: 0, z: 0 });
 const rotation = ref(props.def.rotation ?? { x: 0, y: 0, z: 0, w: 1 });
 
-// 1. Asset loader
-const asset = useAsset({ fileName: ref(props.def.fileName), useCache: true });
-
+// 1. Asset loader is now managed by useBabylonModelLoader
 // 2. Entity synchronization
 const {
     entityName,
@@ -34,8 +32,8 @@ const {
     isUpdating,
 } = useBabylonModelEntity(props.def, position, rotation);
 
-// 3. Model loader
-const { meshes, loadModel } = useBabylonModelLoader(props.def);
+// 3. Model loader and asset management
+const { meshes, loadModel, asset } = useBabylonModelLoader(props.def);
 
 // 4. Physics application
 const { applyPhysics, removePhysics } = useBabylonModelPhysics(
@@ -50,37 +48,39 @@ if (!vircadia) {
 }
 
 // --- Orchestration ---
-// When scene becomes available, store it and load asset/entity
+// When scene becomes available, load asset and retrieve entity metadata
 watch(
     () => props.scene,
     (s) => {
         if (s) {
-            asset.executeLoad();
-            // Retrieve or create entity
-            if (entityName.value) {
-                entity.executeRetrieve();
-            } else {
-                entity.executeCreate().then(() => entity.executeRetrieve());
-            }
+            loadModel(s);
+            // Always attempt to retrieve existing entity
+            entity.executeRetrieve();
         }
     },
     { immediate: true },
 );
 
-// When asset blob URL is ready, load the 3D model and apply physics if enabled
-watch(
-    () => asset.assetData.value,
-    async (assetData) => {
-        if (assetData?.blobUrl && props.scene) {
-            await loadModel(props.scene, assetData);
-            if (props.def.enablePhysics) {
-                applyPhysics(props.scene);
+// Ensure entity exists: if retrieve completes with no data, create then retrieve again
+const stopWatchCreate = watch(
+    [
+        () => entity.retrieving.value,
+        () => entity.error.value,
+        () => entity.entityData.value,
+    ],
+    ([retrieving, error, data], [wasRetrieving]) => {
+        if (wasRetrieving && !retrieving) {
+            if (!data && !error) {
+                entity.executeCreate().then(() => entity.executeRetrieve());
             }
-        } else {
-            console.warn("No asset data or scene to load model");
+            stopWatchCreate();
         }
     },
+    { immediate: false },
 );
+
+// When asset blob URL is ready, load the 3D model and apply physics if enabled
+// Asset loading and model loading is handled inside useBabylonModelLoader
 
 // React to enablePhysics toggles at runtime
 watch(

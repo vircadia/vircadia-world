@@ -9,6 +9,7 @@ import type {
     Vector3 as BabylonVector3,
     Quaternion as BabylonQuaternion,
     TransformNode,
+    Observer,
 } from "@babylonjs/core";
 import {
     Vector3,
@@ -158,6 +159,10 @@ const { camera, setupCamera, updateCameraFromMeta } =
 const { meshes, skeletons, animationGroups, loadModel } =
     useBabylonAvatarModelLoader({ fileName: modelFileName.value });
 
+// Observers for physics events, for cleanup on unmount
+let beforePhysicsObserver: Observer<Scene> | null = null;
+let afterPhysicsObserver: Observer<Scene> | null = null;
+
 // Lifecycle hooks
 onMounted(() => {
     const vircadiaWorld = inject(useVircadiaInstance());
@@ -280,7 +285,7 @@ onMounted(() => {
     );
 
     // Handle input just before the physics engine step
-    props.scene.onBeforePhysicsObservable.add(() => {
+    beforePhysicsObserver = props.scene.onBeforePhysicsObservable.add(() => {
         if (!characterController.value) return;
         const dt = props.scene.getEngine().getDeltaTime() / 1000;
         // Compute movement direction
@@ -322,7 +327,7 @@ onMounted(() => {
         }
     });
     // After the physics engine updates, integrate the character and sync transforms
-    props.scene.onAfterPhysicsObservable.add(() => {
+    afterPhysicsObserver = props.scene.onAfterPhysicsObservable.add(() => {
         if (!characterController.value) return;
         const dt = props.scene.getEngine().getDeltaTime() / 1000;
         // Apply manual gravity to vertical velocity
@@ -353,6 +358,13 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+    // Remove physics observers to avoid duplicate callbacks
+    if (beforePhysicsObserver) {
+        props.scene.onBeforePhysicsObservable.remove(beforePhysicsObserver);
+    }
+    if (afterPhysicsObserver) {
+        props.scene.onAfterPhysicsObservable.remove(afterPhysicsObserver);
+    }
     avatarNode.value?.dispose();
     avatarEntity.cleanup();
     // camera is disposed by useAvatarCameraController composable

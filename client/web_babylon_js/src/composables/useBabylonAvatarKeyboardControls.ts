@@ -1,6 +1,7 @@
-import { ref, watch } from "vue";
+import { ref, watch, onUnmounted } from "vue";
 import { KeyboardEventTypes } from "@babylonjs/core";
-import type { Scene } from "@babylonjs/core";
+import type { Scene, Observer } from "@babylonjs/core";
+import type { KeyboardInfo } from "@babylonjs/core";
 import { useWindowFocus } from "@vueuse/core";
 
 export function useBabylonAvatarKeyboardControls(scene: Scene | undefined) {
@@ -15,8 +16,11 @@ export function useBabylonAvatarKeyboardControls(scene: Scene | undefined) {
         run: false,
     });
 
+    // Observer handle for keyboard events
+    let keyboardObserver: Observer<KeyboardInfo> | null = null;
+
     if (scene) {
-        scene.onKeyboardObservable.add((kbInfo) => {
+        keyboardObserver = scene.onKeyboardObservable.add((kbInfo) => {
             const code = kbInfo.event.code;
             const isDown = kbInfo.type === KeyboardEventTypes.KEYDOWN;
             switch (code) {
@@ -62,6 +66,13 @@ export function useBabylonAvatarKeyboardControls(scene: Scene | undefined) {
             if (!isFocused) resetKeys();
         });
     }
+
+    // Cleanup keyboard observer on unmount
+    onUnmounted(() => {
+        if (scene && keyboardObserver) {
+            scene.onKeyboardObservable.remove(keyboardObserver);
+        }
+    });
 
     return { keyState };
 }

@@ -62,6 +62,7 @@ export function useBabylonAvatarModelLoader(def: AvatarModelDefinition) {
             console.info(`Imported model '${def.fileName}' contents:`, {
                 meshes: result.meshes.map((m) => m.name),
                 skeletons: result.skeletons.map((s) => s.name),
+                animationGroups: result.animationGroups.map((g) => g.name),
             });
             // Parent imported meshes under the avatar physics node
             for (const mesh of result.meshes) {

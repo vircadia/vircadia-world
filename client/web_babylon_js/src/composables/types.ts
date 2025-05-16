@@ -13,3 +13,12 @@ export interface BabylonModelDefinition {
         isKinematic?: boolean;
     };
 }
+
+export interface BabylonAnimationDefinition {
+    /** Filename of the animation file (e.g. 'walk.glb') */
+    fileName: string;
+    /** Whether the animation should loop */
+    loop?: boolean;
+    /** Optional list of animation group names to load from the GLB */
+    groupNames?: string[];
+}

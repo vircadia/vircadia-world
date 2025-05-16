@@ -17,6 +17,7 @@ import {
     ArcRotateCamera,
     CharacterSupportedState,
 } from "@babylonjs/core";
+import type { AnimationGroup } from "@babylonjs/core";
 import { z } from "zod";
 import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
 import { useAppStore } from "@/stores/appStore";
@@ -26,6 +27,7 @@ import { useBabylonAvatarEntity } from "../composables/useBabylonAvatarEntity";
 import { useBabylonAvatarPhysicsController } from "../composables/useBabylonAvatarPhysicsController";
 import { useBabylonAvatarCameraController } from "../composables/useBabylonAvatarCameraController";
 import { useBabylonAvatarModelLoader } from "../composables/useBabylonAvatarModelLoader";
+import { useBabylonAvatarModelAnimationGroups } from "../composables/useBabylonAvatarModelAnimationGroups.ts";
 import type {
     PositionObj,
     RotationObj,
@@ -52,6 +54,7 @@ const {
     initialRotation: storeRotation,
     initialCameraOrientation: storeCameraOrientation,
     modelFileName,
+    animations,
 } = toRefs(avatarDefinition);
 
 // Reactive local transform state from store
@@ -159,6 +162,48 @@ const { camera, setupCamera, updateCameraFromMeta } =
 const { meshes, skeletons, animationGroups, loadModel } =
     useBabylonAvatarModelLoader({ fileName: modelFileName.value });
 
+// Avatar animation loader
+const { animationGroupsMap, loadAnimations } =
+    useBabylonAvatarModelAnimationGroups(animations.value);
+
+// Local map of retargeted AnimationGroups for controlled playback
+const localAnimGroups = new Map<string, AnimationGroup>();
+let currentAnimName = "";
+
+// Helper to stop all and play a single animation group by name
+function playAnimation(name: string): void {
+    if (name === currentAnimName) {
+        return;
+    }
+    const groupToPlay = localAnimGroups.get(name);
+    if (!groupToPlay) {
+        console.warn(`Animation group '${name}' not found`);
+        return;
+    }
+    // stop all other groups
+    for (const g of localAnimGroups.values()) {
+        if (g.isStarted) {
+            g.stop();
+        }
+    }
+    // start the chosen group with its loop setting
+    groupToPlay.start(groupToPlay.loopAnimation);
+    currentAnimName = name;
+}
+
+// Expose debug helpers in development for testing via browser console
+if (import.meta.env.DEV) {
+    // @ts-ignore
+    window.localAnimGroups = localAnimGroups;
+    // @ts-ignore
+    window.playAnimation = playAnimation;
+    // @ts-ignore
+    window.getLoadedAnimationNames = () => Array.from(localAnimGroups.keys());
+    console.info(
+        "Debug helpers added: window.localAnimGroups, window.playAnimation(), window.getLoadedAnimationNames()",
+    );
+}
+
 // Observers for physics events, for cleanup on unmount
 let beforePhysicsObserver: Observer<Scene> | null = null;
 let afterPhysicsObserver: Observer<Scene> | null = null;
@@ -256,6 +301,93 @@ onMounted(() => {
                             mesh.position.x = 0;
                             mesh.position.z = 0;
                             mesh.position.y = -1;
+                        }
+                    }
+                    // load and apply run animation to avatar skeleton
+                    await loadAnimations(props.scene);
+                    {
+                        const runDef = animations.value.find(
+                            (def) =>
+                                def.fileName ===
+                                "babylon.avatar.animation.idle.glb",
+                        );
+                        if (runDef) {
+                            console.info(
+                                `Loading animations from: '${runDef.fileName}'`,
+                            );
+                            // Retarget and collect only desired groups in defined order
+                            const allGroups =
+                                animationGroupsMap.value[runDef.fileName] || [];
+                            const groups =
+                                runDef.groupNames &&
+                                runDef.groupNames.length > 0
+                                    ? runDef.groupNames
+                                          .map((name) =>
+                                              allGroups.find(
+                                                  (g) => g.name === name,
+                                              ),
+                                          )
+                                          .filter(
+                                              (g): g is AnimationGroup => !!g,
+                                          )
+                                    : allGroups;
+                            console.info(
+                                "Ordered animation groups:",
+                                groups.map((g) => g.name),
+                            );
+                            // fetch the skeleton actually bound to one of the avatar meshes
+                            const meshWithSkeleton = meshes.value.find(
+                                (m) => m.skeleton,
+                            );
+                            if (
+                                !meshWithSkeleton ||
+                                !meshWithSkeleton.skeleton
+                            ) {
+                                console.warn(
+                                    "No skeleton found on avatar meshes, skipping animation retarget",
+                                );
+                                return;
+                            }
+                            const avatarSkeleton = meshWithSkeleton.skeleton;
+                            console.info(
+                                `Retargeting to mesh '${meshWithSkeleton.name}' skeleton with ${avatarSkeleton.name} (${avatarSkeleton.bones.length} bones)`,
+                            );
+                            // Use AnimationGroup.clone to retarget animations onto the avatar skeleton
+                            localAnimGroups.clear();
+                            for (const g of groups) {
+                                // Retarget each animation group by mapping to the avatar skeleton bone
+                                const retargeted = g.clone(g.name, (target) => {
+                                    const bone = avatarSkeleton.bones.find(
+                                        (b) => b.name === target.name,
+                                    );
+                                    if (!bone) {
+                                        console.warn(
+                                            `No bone found for target '${target.name}', skipping retarget`,
+                                        );
+                                        return target;
+                                    }
+                                    return bone;
+                                });
+                                retargeted.loopAnimation = runDef.loop ?? false;
+                                localAnimGroups.set(
+                                    retargeted.name,
+                                    retargeted,
+                                );
+                                console.info(
+                                    `Retargeted group '${retargeted.name}': ${retargeted.targetedAnimations.length} animations to ${avatarSkeleton.bones.length} bones on skeleton '${avatarSkeleton.name}'`,
+                                );
+                            }
+                            console.info(
+                                "Loaded animation groups:",
+                                Array.from(localAnimGroups.keys()),
+                            );
+                            // for now, play the first loaded animation to verify it works
+                            const firstAnim = localAnimGroups
+                                .keys()
+                                .next().value;
+                            if (firstAnim) {
+                                playAnimation(firstAnim);
+                            }
                         }
                     }
                 } else {

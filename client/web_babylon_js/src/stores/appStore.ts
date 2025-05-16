@@ -1,5 +1,8 @@
 import { defineStore } from "pinia";
-import type { BabylonModelDefinition } from "../composables/types";
+import type {
+    BabylonModelDefinition,
+    BabylonAnimationDefinition,
+} from "../composables/types";
 
 export const useAppStore = defineStore("app", {
     state: () => ({
@@ -41,6 +44,21 @@ export const useAppStore = defineStore("app", {
             capsuleRadius: 0.3,
             slopeLimit: 45,
             jumpSpeed: 5,
+            animations: [
+                {
+                    fileName: "babylon.avatar.animation.running.glb",
+                    loop: true,
+                    groupNames: [
+                        "Armature|mixamo.com|Layer0",
+                        "Armature|mixamo.com|Layer0.001",
+                    ],
+                },
+                {
+                    fileName: "babylon.avatar.animation.idle.glb",
+                    loop: true,
+                    groupNames: ["Armature|mixamo.com|Layer0"],
+                },
+            ] as BabylonAnimationDefinition[],
         },
     }),
     getters: {

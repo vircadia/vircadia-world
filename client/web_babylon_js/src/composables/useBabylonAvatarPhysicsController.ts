@@ -50,6 +50,8 @@ export function useBabylonAvatarPhysicsController(
         const material = new StandardMaterial("capsuleMaterial", scene);
         material.diffuseColor = new Color3(0.2, 0.4, 0.8);
         capsule.material = material;
+        // Hide the physics capsule so the avatar model is visible instead
+        capsule.isVisible = false;
 
         // Create parent transform node
         const node = new TransformNode("avatarNode", scene);

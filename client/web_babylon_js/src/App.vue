@@ -16,11 +16,6 @@
                 <!-- BabylonAvatar component -->
                 <BabylonAvatar
                     :scene="scene"
-                    entity-name="physics.avatar.entity"
-                    model-file-name="babylon.avatar.glb"
-                    :initial-position="{ x: 0, y: 1, z: -5 }"
-                    :initial-rotation="{ x: 0, y: 0, z: 0, w: 1 }"
-                    :initial-camera-orientation="{ alpha: -Math.PI/2, beta: Math.PI/3, radius: 5 }"
                     @ready="startRenderLoop"
                     ref="avatarRef"
                 />

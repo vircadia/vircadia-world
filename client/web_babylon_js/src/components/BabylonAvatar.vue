@@ -3,7 +3,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, inject, type PropType } from "vue";
+import { ref, onMounted, onUnmounted, watch, inject, toRefs } from "vue";
 import type {
     Scene,
     Vector3 as BabylonVector3,
@@ -18,6 +18,7 @@ import {
 } from "@babylonjs/core";
 import { z } from "zod";
 import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
+import { useAppStore } from "@/stores/appStore";
 
 import { useBabylonAvatarKeyboardControls } from "../composables/useBabylonAvatarKeyboardControls";
 import { useBabylonAvatarEntity } from "../composables/useBabylonAvatarEntity";
@@ -32,36 +33,30 @@ import type {
 // Define component props with defaults
 const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
-    entityName: { type: String, required: true },
-    throttleInterval: { type: Number, default: 500 },
-    capsuleHeight: { type: Number, default: 1.8 },
-    capsuleRadius: { type: Number, default: 0.3 },
-    slopeLimit: { type: Number, default: 45 },
-    jumpSpeed: { type: Number, default: 5 },
-    initialPosition: {
-        type: Object as PropType<PositionObj>,
-        default: () => ({ x: 3, y: 0.3, z: -8 }),
-    },
-    initialRotation: {
-        type: Object as PropType<RotationObj>,
-        default: () => ({ x: 0, y: 0, z: 0, w: 1 }),
-    },
-    initialCameraOrientation: {
-        type: Object as PropType<{
-            alpha: number;
-            beta: number;
-            radius: number;
-        }>,
-        default: () => ({ alpha: -Math.PI / 2, beta: Math.PI / 3, radius: 5 }),
-    },
-    modelFileName: { type: String, required: true },
 });
+
 const emit = defineEmits<{ ready: [] }>();
 
-// Local state for transforms
-const initialPosition = ref<PositionObj>(props.initialPosition);
-const initialRotation = ref<RotationObj>(props.initialRotation);
-const cameraOrientation = ref(props.initialCameraOrientation);
+// Load avatar configuration from global store
+const appStore = useAppStore();
+const avatarDefinition = appStore.avatarDefinition;
+const {
+    entityName,
+    throttleInterval,
+    capsuleHeight,
+    capsuleRadius,
+    slopeLimit,
+    jumpSpeed,
+    initialPosition: storePosition,
+    initialRotation: storeRotation,
+    initialCameraOrientation: storeCameraOrientation,
+    modelFileName,
+} = toRefs(avatarDefinition);
+
+// Reactive local transform state from store
+const initialPosition = ref<PositionObj>(storePosition.value);
+const initialRotation = ref<RotationObj>(storeRotation.value);
+const cameraOrientation = ref(storeCameraOrientation.value);
 
 // Zod schemas (kept local per request)
 const Vector3Schema = z.object({ x: z.number(), y: z.number(), z: z.number() });
@@ -79,7 +74,7 @@ const CameraSchema = z.object({
 
 // Replace PhysicsAvatarMetaSchema without FieldValue wrappers
 const PhysicsAvatarMetaSchema = z.object({
-    type: z.literal(props.entityName),
+    type: z.literal(entityName.value),
     position: Vector3Schema,
     rotation: QuaternionSchema.optional(),
     cameraOrientation: CameraSchema.optional(),
@@ -113,9 +108,9 @@ const {
     props.scene,
     initialPosition,
     initialRotation,
-    ref(props.capsuleHeight),
-    ref(props.capsuleRadius),
-    ref(props.slopeLimit),
+    capsuleHeight,
+    capsuleRadius,
+    slopeLimit,
 );
 const { keyState } = useBabylonAvatarKeyboardControls(props.scene);
 const {
@@ -127,17 +122,17 @@ const {
     errorMessage,
     throttledUpdate,
 } = useBabylonAvatarEntity<PhysicsAvatarMeta>(
-    ref(props.entityName),
-    props.throttleInterval,
+    ref(entityName.value),
+    throttleInterval.value,
     PhysicsAvatarMetaSchema,
     () => ({
-        type: props.entityName,
+        type: entityName.value,
         position: initialPosition.value,
         rotation: initialRotation.value,
         cameraOrientation: cameraOrientation.value,
     }),
     () => ({
-        type: props.entityName,
+        type: entityName.value,
         position: (() => {
             const p = getPosition();
             return p ? vectorToObj(p) : initialPosition.value;
@@ -155,13 +150,13 @@ const { camera, setupCamera, updateCameraFromMeta } =
         props.scene,
         avatarNode,
         cameraOrientation,
-        ref(props.capsuleHeight),
+        capsuleHeight,
         throttledUpdate,
     );
 
 // Avatar model loader (GLTF/GLB)
 const { meshes, skeletons, animationGroups, loadModel } =
-    useBabylonAvatarModelLoader({ fileName: props.modelFileName });
+    useBabylonAvatarModelLoader({ fileName: modelFileName.value });
 
 // Lifecycle hooks
 onMounted(() => {
@@ -290,7 +285,7 @@ onMounted(() => {
                 support?.supportedState === CharacterSupportedState.SUPPORTED &&
                 vel
             ) {
-                setVelocity(new Vector3(vel.x, props.jumpSpeed, vel.z));
+                setVelocity(new Vector3(vel.x, jumpSpeed.value, vel.z));
             }
         }
     });
@@ -317,7 +312,7 @@ onMounted(() => {
             camera.value.setTarget(
                 new Vector3(
                     node.position.x,
-                    node.position.y + props.capsuleHeight / 2,
+                    node.position.y + capsuleHeight.value / 2,
                     node.position.z,
                 ),
             );

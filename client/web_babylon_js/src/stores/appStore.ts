@@ -25,6 +25,23 @@ export const useAppStore = defineStore("app", {
         ] as BabylonModelDefinition[],
         // HDR environment list
         hdrList: ["babylon.level.hdr.1k.hdr"] as string[],
+        // avatar configuration
+        avatarDefinition: {
+            entityName: "physics.avatar.entity",
+            modelFileName: "babylon.avatar.glb",
+            initialPosition: { x: 0, y: 1, z: -5 },
+            initialRotation: { x: 0, y: 0, z: 0, w: 1 },
+            initialCameraOrientation: {
+                alpha: -Math.PI / 2,
+                beta: Math.PI / 3,
+                radius: 5,
+            },
+            throttleInterval: 500,
+            capsuleHeight: 1.8,
+            capsuleRadius: 0.3,
+            slopeLimit: 45,
+            jumpSpeed: 5,
+        },
     }),
     getters: {
         // whether an error is set

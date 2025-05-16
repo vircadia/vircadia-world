@@ -63,10 +63,8 @@ export function useBabylonAvatarModelLoader(def: AvatarModelDefinition) {
                 meshes: result.meshes.map((m) => m.name),
                 skeletons: result.skeletons.map((s) => s.name),
             });
-            // Parent all imported meshes under the avatar physics node
+            // Parent imported meshes under the avatar physics node
             for (const mesh of result.meshes) {
-                // Scale up tiny imported mesh to full size
-                mesh.scaling.scaleInPlace(100);
                 mesh.setParent(parentNode, true);
             }
 

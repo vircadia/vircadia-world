@@ -221,6 +221,38 @@ onMounted(() => {
                         props.scene,
                         avatarNode.value as TransformNode,
                     );
+                    // scale meshes to fit capsule
+                    {
+                        let minVec = new Vector3(
+                            Number.POSITIVE_INFINITY,
+                            Number.POSITIVE_INFINITY,
+                            Number.POSITIVE_INFINITY,
+                        );
+                        let maxVec = new Vector3(
+                            Number.NEGATIVE_INFINITY,
+                            Number.NEGATIVE_INFINITY,
+                            Number.NEGATIVE_INFINITY,
+                        );
+                        for (const mesh of meshes.value) {
+                            const { min, max } =
+                                mesh.getHierarchyBoundingVectors(true);
+                            minVec = Vector3.Minimize(minVec, min);
+                            maxVec = Vector3.Maximize(maxVec, max);
+                        }
+                        const modelHeight = maxVec.y - minVec.y;
+                        const heightScale = capsuleHeight.value / modelHeight;
+                        const uniformScale = heightScale;
+                        for (const mesh of meshes.value) {
+                            mesh.scaling.set(
+                                uniformScale,
+                                -uniformScale,
+                                uniformScale,
+                            );
+                            mesh.position.x = 0;
+                            mesh.position.z = 0;
+                            mesh.position.y = -1;
+                        }
+                    }
                 } else {
                     console.warn(
                         "Avatar node not initialized, skipping model load",

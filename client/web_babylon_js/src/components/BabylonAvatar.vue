@@ -10,6 +10,7 @@ import type {
     Quaternion as BabylonQuaternion,
     TransformNode,
     Observer,
+    Node,
 } from "@babylonjs/core";
 import {
     Vector3,
@@ -19,19 +20,21 @@ import {
 } from "@babylonjs/core";
 import type { AnimationGroup } from "@babylonjs/core";
 import { z } from "zod";
-import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
+import { useVircadiaInstance, useAsset } from "@vircadia/world-sdk/browser/vue";
 import { useAppStore } from "@/stores/appStore";
+import { ImportMeshAsync } from "@babylonjs/core";
+import "@babylonjs/loaders/glTF";
 
 import { useBabylonAvatarKeyboardControls } from "../composables/useBabylonAvatarKeyboardControls";
 import { useBabylonAvatarEntity } from "../composables/useBabylonAvatarEntity";
 import { useBabylonAvatarPhysicsController } from "../composables/useBabylonAvatarPhysicsController";
 import { useBabylonAvatarCameraController } from "../composables/useBabylonAvatarCameraController";
 import { useBabylonAvatarModelLoader } from "../composables/useBabylonAvatarModelLoader";
-import { useBabylonAvatarModelAnimationGroups } from "../composables/useBabylonAvatarModelAnimationGroups.ts";
 import type {
     PositionObj,
     RotationObj,
 } from "../composables/useBabylonAvatarPhysicsController";
+import { onKeyStroke } from "@vueuse/core";
 
 // Define component props with defaults
 const props = defineProps({
@@ -162,46 +165,68 @@ const { camera, setupCamera, updateCameraFromMeta } =
 const { meshes, skeletons, animationGroups, loadModel } =
     useBabylonAvatarModelLoader({ fileName: modelFileName.value });
 
-// Avatar animation loader
-const { animationGroupsMap, loadAnimations } =
-    useBabylonAvatarModelAnimationGroups(animations.value);
-
 // Local map of retargeted AnimationGroups for controlled playback
 const localAnimGroups = new Map<string, AnimationGroup>();
 let currentAnimName = "";
+let currentAnimIndex = 0;
 
 // Helper to stop all and play a single animation group by name
 function playAnimation(name: string): void {
-    if (name === currentAnimName) {
+    console.info(`▷ playAnimation('${name}') attempt...`);
+    const group = localAnimGroups.get(name);
+
+    if (!group) {
+        console.warn(`Animation group '${name}' not found in localAnimGroups.`);
         return;
     }
-    const groupToPlay = localAnimGroups.get(name);
-    if (!groupToPlay) {
-        console.warn(`Animation group '${name}' not found`);
+    console.info(
+        `Found group: ${group.name}, From: ${group.from}, To: ${group.to}, Loop: ${group.loopAnimation}`,
+    );
+
+    // Log some targeted animations
+    if (group.targetedAnimations.length > 0) {
+        console.info(
+            `Animation group '${name}' has ${group.targetedAnimations.length} targeted animation(s). First few actual targets after retargeting:`,
+        );
+        for (let i = 0; i < Math.min(5, group.targetedAnimations.length); i++) {
+            const targetedAnim = group.targetedAnimations[i];
+            const targetNode = targetedAnim.target as Node;
+            if (targetNode) {
+                console.info(
+                    `  - Target Node: '${targetNode.name}' (ID: ${targetNode.id}, Class: ${targetNode.getClassName()}), Animation Property: '${targetedAnim.animation.targetProperty}'`,
+                );
+            } else {
+                console.info(
+                    `  - Target Node: null (was likely removed during retargeting), Animation Property: '${targetedAnim.animation.targetProperty}'`,
+                );
+            }
+        }
+    } else {
+        console.warn(
+            `Animation group '${name}' has NO targeted animations after retargeting. Nothing to play.`,
+        );
+        // No need to stop/start if there's nothing to play
+        currentAnimName = name; // Still update current to prevent re-processing this empty group
         return;
     }
-    // stop all other groups
+
+    // Stop all other groups
     for (const g of localAnimGroups.values()) {
-        if (g.isStarted) {
+        if (g.name !== name && g.isStarted) {
             g.stop();
         }
     }
-    // start the chosen group with its loop setting
-    groupToPlay.start(groupToPlay.loopAnimation);
-    currentAnimName = name;
-}
 
-// Expose debug helpers in development for testing via browser console
-if (import.meta.env.DEV) {
-    // @ts-ignore
-    window.localAnimGroups = localAnimGroups;
-    // @ts-ignore
-    window.playAnimation = playAnimation;
-    // @ts-ignore
-    window.getLoadedAnimationNames = () => Array.from(localAnimGroups.keys());
+    // Start the chosen group
+    if (group.isStarted) {
+        group.restart(); // If it's the same animation, restart it
+    } else {
+        group.start(group.loopAnimation, 1.0, group.from, group.to, false);
+    }
     console.info(
-        "Debug helpers added: window.localAnimGroups, window.playAnimation(), window.getLoadedAnimationNames()",
+        `▶ Animation group '${group.name}' started/restarted. Animatables: ${group.animatables.length}`,
     );
+    currentAnimName = name;
 }
 
 // Observers for physics events, for cleanup on unmount
@@ -303,92 +328,168 @@ onMounted(() => {
                             mesh.position.y = -1;
                         }
                     }
-                    // load and apply run animation to avatar skeleton
-                    await loadAnimations(props.scene);
-                    {
-                        const runDef = animations.value.find(
-                            (def) =>
-                                def.fileName ===
-                                "babylon.avatar.animation.idle.glb",
+                    // Method 1: Load animations and retarget them onto the avatar's primary skeleton.
+                    const avatarSkeleton =
+                        skeletons.value[0] ??
+                        meshes.value.find((m) => m.skeleton)?.skeleton;
+
+                    if (!avatarSkeleton) {
+                        console.warn(
+                            "No skeleton found on avatar meshes, skipping animation load.",
                         );
-                        if (runDef) {
-                            console.info(
-                                `Loading animations from: '${runDef.fileName}'`,
-                            );
-                            // Retarget and collect only desired groups in defined order
-                            const allGroups =
-                                animationGroupsMap.value[runDef.fileName] || [];
-                            const groups =
-                                runDef.groupNames &&
-                                runDef.groupNames.length > 0
-                                    ? runDef.groupNames
-                                          .map((name) =>
-                                              allGroups.find(
-                                                  (g) => g.name === name,
-                                              ),
-                                          )
-                                          .filter(
-                                              (g): g is AnimationGroup => !!g,
-                                          )
-                                    : allGroups;
-                            console.info(
-                                "Ordered animation groups:",
-                                groups.map((g) => g.name),
-                            );
-                            // fetch the skeleton actually bound to one of the avatar meshes
-                            const meshWithSkeleton = meshes.value.find(
-                                (m) => m.skeleton,
-                            );
-                            if (
-                                !meshWithSkeleton ||
-                                !meshWithSkeleton.skeleton
-                            ) {
+                    } else {
+                        console.info(
+                            `Found avatar skeleton: ${avatarSkeleton.name} with ${avatarSkeleton.bones.length} bones.`,
+                            avatarSkeleton.bones.map((b) => b.name),
+                        );
+                        localAnimGroups.clear();
+
+                        for (const def of animations.value) {
+                            const asset = useAsset({
+                                fileName: ref(def.fileName),
+                                useCache: true,
+                                debug: false,
+                                instance: vircadiaWorld, // ensure vircadiaWorld is in scope
+                            });
+                            await asset.executeLoad();
+                            const blobUrl = asset.assetData.value?.blobUrl;
+
+                            if (!blobUrl) {
                                 console.warn(
-                                    "No skeleton found on avatar meshes, skipping animation retarget",
+                                    `Animation asset blob URL not available for \'${def.fileName}\'`,
                                 );
-                                return;
+                                continue;
                             }
-                            const avatarSkeleton = meshWithSkeleton.skeleton;
-                            console.info(
-                                `Retargeting to mesh '${meshWithSkeleton.name}' skeleton with ${avatarSkeleton.name} (${avatarSkeleton.bones.length} bones)`,
-                            );
-                            // Use AnimationGroup.clone to retarget animations onto the avatar skeleton
-                            localAnimGroups.clear();
-                            for (const g of groups) {
-                                // Retarget each animation group by mapping to the avatar skeleton bone
-                                const retargeted = g.clone(g.name, (target) => {
-                                    const bone = avatarSkeleton.bones.find(
-                                        (b) => b.name === target.name,
-                                    );
-                                    if (!bone) {
-                                        console.warn(
-                                            `No bone found for target '${target.name}', skipping retarget`,
-                                        );
-                                        return target;
-                                    }
-                                    return bone;
-                                });
-                                retargeted.loopAnimation = runDef.loop ?? false;
-                                localAnimGroups.set(
-                                    retargeted.name,
-                                    retargeted,
-                                );
+
+                            try {
                                 console.info(
-                                    `Retargeted group '${retargeted.name}': ${retargeted.targetedAnimations.length} animations to ${avatarSkeleton.bones.length} bones on skeleton '${avatarSkeleton.name}'`,
+                                    `Loading animations from: ${def.fileName}`,
                                 );
-                            }
-                            console.info(
-                                "Loaded animation groups:",
-                                Array.from(localAnimGroups.keys()),
-                            );
-                            // for now, play the first loaded animation to verify it works
-                            const firstAnim = localAnimGroups
-                                .keys()
-                                .next().value;
-                            if (firstAnim) {
-                                playAnimation(firstAnim);
+                                const result = await ImportMeshAsync(
+                                    blobUrl,
+                                    props.scene,
+                                    {
+                                        pluginExtension:
+                                            asset.fileExtension.value,
+                                    },
+                                );
+
+                                // We don't need the meshes or skeletons from the animation-only file
+                                for (const mesh of result.meshes) {
+                                    mesh.dispose();
+                                }
+                                if (result.skeletons) {
+                                    for (const skeleton of result.skeletons) {
+                                        skeleton.dispose();
+                                    }
+                                }
+
+                                let groupsToProcess = result.animationGroups;
+                                if (
+                                    def.groupNames &&
+                                    def.groupNames.length > 0
+                                ) {
+                                    const groupNames = def.groupNames; // For TS narrowing
+                                    groupsToProcess =
+                                        result.animationGroups.filter((g) =>
+                                            groupNames.includes(g.name),
+                                        );
+                                    console.info(
+                                        `Filtered for groups: ${groupNames.join(", ")} in ${def.fileName}, found ${groupsToProcess.length}`,
+                                    );
+                                } else {
+                                    console.info(
+                                        `Using all ${result.animationGroups.length} groups from ${def.fileName}`,
+                                    );
+                                }
+
+                                if (groupsToProcess.length === 0) {
+                                    console.warn(
+                                        `No animation groups found or matched in ${def.fileName}`,
+                                    );
+                                }
+
+                                for (const group of groupsToProcess) {
+                                    // Clone the animation group, retargeting its animations to the avatar's skeleton
+                                    const clonedGroup = group.clone(
+                                        `${def.fileName}-${group.name}`, // New name for the cloned group
+                                        (oldTarget) => {
+                                            const oldTargetNode =
+                                                oldTarget as Node; // Use imported Node type
+                                            const targetBone =
+                                                avatarSkeleton.bones.find(
+                                                    (bone) =>
+                                                        bone.name ===
+                                                        oldTargetNode.name,
+                                                );
+                                            if (targetBone) {
+                                                // Optional: console.info(`Retargeting SUCCESS: Animation target '${oldTargetNode.name}' found in avatar skeleton as '${targetBone.name}'.`);
+                                            } else {
+                                                console.warn(
+                                                    `Retargeting FAIL: Animation target bone '${oldTargetNode.name}' from ${group.name} was NOT found in avatar skeleton. This animation track will be skipped for this bone.`,
+                                                );
+                                            }
+                                            return targetBone; // IMPORTANT: Return only the found bone, or null/undefined if not found
+                                        },
+                                    );
+                                    if (clonedGroup) {
+                                        clonedGroup.loopAnimation =
+                                            def.loop ?? false;
+                                        localAnimGroups.set(
+                                            clonedGroup.name,
+                                            clonedGroup,
+                                        );
+                                        console.info(
+                                            `Retargeted and stored: ${clonedGroup.name}`,
+                                        );
+                                    } else {
+                                        console.warn(
+                                            `Failed to clone group ${group.name} from ${def.fileName}`,
+                                        );
+                                    }
+                                }
+                            } catch (e) {
+                                console.error(
+                                    `Error loading or retargeting animation \'${def.fileName}\':`,
+                                    e,
+                                );
                             }
                         }
+
+                        // Automatically play the first animation group (e.g., idle)
+                        if (localAnimGroups.size > 0) {
+                            const firstAnimName = localAnimGroups
+                                .keys()
+                                .next().value;
+                            if (firstAnimName) {
+                                playAnimation(firstAnimName);
+                                console.info(
+                                    `Playing first animation: ${firstAnimName}`,
+                                );
+                            } else {
+                                console.warn(
+                                    "First animation name is undefined, cannot play.",
+                                );
+                            }
+                        } else {
+                            console.warn("No animations loaded to play.");
+                        }
+
+                        // Allow cycling through animations with 'f'
+                        onKeyStroke("f", (e) => {
+                            e.preventDefault();
+                            if (localAnimGroups.size === 0) return;
+                            const animNames = Array.from(
+                                localAnimGroups.keys(),
+                            );
+                            currentAnimIndex =
+                                (currentAnimIndex + 1) % animNames.length;
+                            const animToPlay = animNames[currentAnimIndex];
+                            console.info(
+                                `Cycling to animation [${currentAnimIndex}]: ${animToPlay}`,
+                            );
+                            playAnimation(animToPlay);
+                        });
                     }
                 } else {
                     console.warn(

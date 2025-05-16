@@ -2,7 +2,6 @@ import { ref, type Ref } from "vue";
 import type { Scene } from "@babylonjs/core";
 import {
     Vector3,
-    CharacterSupportedState,
     Quaternion,
     TransformNode,
     MeshBuilder,

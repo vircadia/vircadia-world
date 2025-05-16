@@ -31,7 +31,7 @@ export const useAppStore = defineStore("app", {
         // avatar configuration
         avatarDefinition: {
             entityName: "physics.avatar.entity",
-            modelFileName: "babylon.avatar.glb",
+            modelFileName: "f1.glb",
             initialPosition: { x: 0, y: 1, z: -5 },
             initialRotation: { x: 0, y: 0, z: 0, w: 1 },
             initialCameraOrientation: {
@@ -46,17 +46,9 @@ export const useAppStore = defineStore("app", {
             jumpSpeed: 5,
             animations: [
                 {
-                    fileName: "babylon.avatar.animation.running.glb",
+                    fileName: "f1_idle.glb",
                     loop: true,
-                    groupNames: [
-                        "Armature|mixamo.com|Layer0",
-                        "Armature|mixamo.com|Layer0.001",
-                    ],
-                },
-                {
-                    fileName: "babylon.avatar.animation.idle.glb",
-                    loop: true,
-                    groupNames: ["Armature|mixamo.com|Layer0"],
+                    // groupNames: ["idle02_Armature", "idle02_Armature.001"],
                 },
             ] as BabylonAnimationDefinition[],
         },

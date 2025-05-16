@@ -11,4 +11,6 @@ VALUES
     ('babylon.avatar.glb', 'public.STATIC', 'model/gltf-binary'),
     ('babylon.avatar.animation.running.glb', 'public.STATIC', 'model/gltf-binary'),
     ('babylon.avatar.animation.idle.glb', 'public.STATIC', 'model/gltf-binary'),
-    ('babylon.avatar.animation.all.glb', 'public.STATIC', 'model/gltf-binary');
+    ('babylon.avatar.animation.all.glb', 'public.STATIC', 'model/gltf-binary'),
+    ('f1.glb', 'public.STATIC', 'model/gltf-binary'),
+    ('f1_idle.glb', 'public.STATIC', 'model/gltf-binary');

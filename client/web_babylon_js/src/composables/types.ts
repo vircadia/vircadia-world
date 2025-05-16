@@ -21,4 +21,6 @@ export interface BabylonAnimationDefinition {
     loop?: boolean;
     /** Optional list of animation group names to load from the GLB */
     groupNames?: string[];
+    /** Optional map from source bone names to avatar bone names for retargeting */
+    retargetMap?: Record<string, string>;
 }

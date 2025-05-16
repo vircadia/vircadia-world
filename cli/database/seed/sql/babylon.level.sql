@@ -8,5 +8,5 @@ VALUES
     ('babylon.level.glb', 'public.STATIC', 'model/gltf-binary'),
     ('babylon.level.hdr.1k.hdr', 'public.STATIC', 'image/vnd.radiance'),
     -- Babylon.js Avatar
-    ('babylon.avatar.fbx', 'public.STATIC', 'model/fbx'),
-    ('babylon.avatar.animation.running.fbx', 'public.STATIC', 'model/fbx');
+    ('babylon.avatar.glb', 'public.STATIC', 'model/gltf-binary'),
+    ('babylon.avatar.animation.running.glb', 'public.STATIC', 'model/gltf-binary');

@@ -132,11 +132,11 @@ export function useBabylonModelLoader(def: BabylonModelDefinition) {
             return;
         }
         try {
-            const pluginExtension =
-                assetData.mimeType === "model/gltf-binary" ? ".glb" : ".gltf";
-            console.log(`Loading model '${def.fileName}' using blob URL...`);
+            console.log(
+                `Loading model '${def.fileName}' using blob URL with plugin extension ${asset.fileExtension.value}...`,
+            );
             const result = await ImportMeshAsync(assetData.blobUrl, scene, {
-                pluginExtension,
+                pluginExtension: asset.fileExtension.value,
             });
             const hasLightmapData = result.meshes.some((m) =>
                 m.name.startsWith(glTF.Lightmap.DATA_MESH_NAME),

@@ -4,7 +4,7 @@ import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import vueJsx from "@vitejs/plugin-vue-jsx";
 import vueDevTools from "vite-plugin-vue-devtools";
-import vuetify, { transformAssetUrls } from "vite-plugin-vuetify";
+import vuetify from "vite-plugin-vuetify";
 
 import { clientBrowserConfiguration } from "./src/vircadia.browser.config";
 
@@ -14,7 +14,7 @@ export default defineConfig(({ command }) => {
 
     return {
         plugins: [
-            vue({ template: { transformAssetUrls } }),
+            vue(),
             vuetify({ autoImport: true }),
             vueJsx(),
             // Only include Vue DevTools in development

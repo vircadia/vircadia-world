@@ -8,6 +8,7 @@ import type {
     Scene,
     Vector3 as BabylonVector3,
     Quaternion as BabylonQuaternion,
+    TransformNode,
 } from "@babylonjs/core";
 import {
     Vector3,
@@ -22,6 +23,7 @@ import { useBabylonAvatarKeyboardControls } from "../composables/useBabylonAvata
 import { useBabylonAvatarEntity } from "../composables/useBabylonAvatarEntity";
 import { useBabylonAvatarPhysicsController } from "../composables/useBabylonAvatarPhysicsController";
 import { useBabylonAvatarCameraController } from "../composables/useBabylonAvatarCameraController";
+import { useBabylonAvatarModelLoader } from "../composables/useBabylonAvatarModelLoader";
 import type {
     PositionObj,
     RotationObj,
@@ -52,6 +54,7 @@ const props = defineProps({
         }>,
         default: () => ({ alpha: -Math.PI / 2, beta: Math.PI / 3, radius: 5 }),
     },
+    modelFileName: { type: String, required: true },
 });
 const emit = defineEmits<{ ready: [] }>();
 
@@ -156,6 +159,10 @@ const { camera, setupCamera, updateCameraFromMeta } =
         throttledUpdate,
     );
 
+// Avatar model loader (GLTF/GLB)
+const { meshes, skeletons, animationGroups, loadModel } =
+    useBabylonAvatarModelLoader({ fileName: props.modelFileName });
+
 // Lifecycle hooks
 onMounted(() => {
     const vircadiaWorld = inject(useVircadiaInstance());
@@ -198,7 +205,7 @@ onMounted(() => {
 
     watch(
         () => avatarEntity.entityData.value,
-        (data) => {
+        async (data) => {
             const meta = data?.meta__data;
             if (meta && !characterController.value) {
                 // First create, use defaults when missing
@@ -213,6 +220,17 @@ onMounted(() => {
                     cameraOrientation.value = meta.cameraOrientation;
                 }
                 createController();
+                // load and parent the avatar mesh under the physics root
+                if (avatarNode.value) {
+                    await loadModel(
+                        props.scene,
+                        avatarNode.value as TransformNode,
+                    );
+                } else {
+                    console.warn(
+                        "Avatar node not initialized, skipping model load",
+                    );
+                }
                 setupCamera();
                 emit("ready");
             } else if (meta && characterController.value) {

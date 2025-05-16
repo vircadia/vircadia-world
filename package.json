@@ -1,9 +1,5 @@
 {
     "dependencies": {
-        "@babylonjs/core": "^8.4.0",
-        "@babylonjs/loaders": "^8.4.0",
-        "@react-three/drei": "^10.0.6",
-        "@react-three/fiber": "^9.1.2"
     },
     "devDependencies": {
         "@biomejs/biome": "^1.9.4"

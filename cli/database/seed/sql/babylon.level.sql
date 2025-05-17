@@ -19,6 +19,7 @@ VALUES
     ('babylon.avatar.animation.f.idle.7.glb', 'public.STATIC', 'model/gltf-binary'),
     ('babylon.avatar.animation.f.idle.8.glb', 'public.STATIC', 'model/gltf-binary'),
     ('babylon.avatar.animation.f.idle.9.glb', 'public.STATIC', 'model/gltf-binary'),
+    ('babylon.avatar.animation.f.idle.10.glb', 'public.STATIC', 'model/gltf-binary'),
     -- Other animations
     ('babylon.avatar.animation.f.crouch_strafe_left.glb', 'public.STATIC', 'model/gltf-binary'),
     ('babylon.avatar.animation.f.crouch_strafe_right.glb', 'public.STATIC', 'model/gltf-binary'),

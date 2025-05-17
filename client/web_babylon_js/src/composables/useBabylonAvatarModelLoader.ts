@@ -1,4 +1,4 @@
-import { shallowRef, markRaw, ref } from "vue";
+import { shallowRef, markRaw, ref, type Ref } from "vue";
 import type {
     Scene,
     TransformNode,
@@ -25,7 +25,7 @@ export function useBabylonAvatarModelLoader(def: AvatarModelDefinition) {
     const animationGroups = shallowRef<AnimationGroup[]>([]);
 
     // Track filename for the asset loader
-    const fileNameRef = ref(def.fileName);
+    const fileNameRef: Ref<string> = ref(def.fileName);
     const asset = useAsset({
         fileName: fileNameRef,
         useCache: true,

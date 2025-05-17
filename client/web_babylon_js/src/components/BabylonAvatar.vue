@@ -3,8 +3,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, inject, toRefs } from "vue";
-import { useVircadiaInstance, useAsset } from "@vircadia/world-sdk/browser/vue";
+import {
+    ref,
+    onMounted,
+    onUnmounted,
+    watch,
+    inject,
+    toRefs,
+    type Ref,
+} from "vue";
+import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
 
 import { useAppStore } from "@/stores/appStore";
 
@@ -13,12 +21,11 @@ import {
     Quaternion,
     ArcRotateCamera,
     CharacterSupportedState,
-    ImportMeshAsync,
     type AnimationGroup,
     type Scene,
     type TransformNode,
     type Observer,
-    type Node,
+    type Skeleton,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
 
@@ -29,6 +36,7 @@ import { useBabylonAvatarEntity } from "../composables/useBabylonAvatarEntity";
 import { useBabylonAvatarPhysicsController } from "../composables/useBabylonAvatarPhysicsController";
 import { useBabylonAvatarCameraController } from "../composables/useBabylonAvatarCameraController";
 import { useBabylonAvatarModelLoader } from "../composables/useBabylonAvatarModelLoader";
+import { useBabylonAvatarAnimationLoader } from "../composables/useBabylonAvatarAnimationLoader";
 import type {
     PositionObj,
     RotationObj,
@@ -59,8 +67,8 @@ const {
 } = toRefs(avatarDefinition);
 
 // Reactive local transform state from store
-const initialPosition = ref<PositionObj>(storePosition.value);
-const initialRotation = ref<RotationObj>(storeRotation.value);
+const initialPosition: Ref<PositionObj> = ref(storePosition.value);
+const initialRotation: Ref<RotationObj> = ref(storeRotation.value);
 const cameraOrientation = ref(storeCameraOrientation.value);
 
 // Zod schemas (kept local per request)
@@ -163,8 +171,7 @@ const { camera, setupCamera, updateCameraFromMeta } =
 const { meshes, skeletons, animationGroups, loadModel } =
     useBabylonAvatarModelLoader({ fileName: modelFileName.value });
 
-// Local map of retargeted AnimationGroups for controlled playback
-const localAnimGroups = new Map<string, AnimationGroup>();
+// Replace the existing localAnimGroups and animation-related code
 const blendWeight = ref(0); // 0 = idle, 1 = walk
 const blendSpeed = 0.1; // How quickly to blend between animations
 
@@ -172,57 +179,87 @@ const blendSpeed = 0.1; // How quickly to blend between animations
 let idleAnimation: AnimationGroup | null = null;
 let walkAnimation: AnimationGroup | null = null;
 
+// Reference to the avatar skeleton for animation retargeting
+const avatarSkeleton: Ref<Skeleton | null> = ref(null);
+
+// Get Vircadia instance
+const vircadiaWorld = inject(useVircadiaInstance());
+if (!vircadiaWorld) {
+    throw new Error("Vircadia instance not found in BabylonAvatar");
+}
+
+// Animation loader composable
+const {
+    animationsMap,
+    loadAnimations,
+    areAnimationsReady,
+    getAnimationGroups,
+} = useBabylonAvatarAnimationLoader({
+    scene: props.scene,
+    animations,
+    targetSkeleton: avatarSkeleton,
+    vircadiaWorld,
+});
+
 function setupBlendedAnimations(): void {
     console.info(
-        "Setting up blended animations, available groups:",
-        Array.from(localAnimGroups.keys()),
+        "Setting up blended animations, available animations:",
+        Array.from(animationsMap.value.keys())
+            .filter((name) => animationsMap.value.get(name)?.state === "ready")
+            .map(
+                (name) =>
+                    `${name} (${animationsMap.value.get(name)?.group?.name || "unnamed"})`,
+            ),
     );
 
-    // Make sure we have animations loaded before attempting to set up blending
-    if (localAnimGroups.size === 0) {
-        console.warn("No animation groups available for blending");
-        return;
-    }
+    // Look for idle and walk animations in successfully loaded animations
+    const idleFileName = animations.value.find((anim) =>
+        anim.fileName.toLowerCase().includes("idle"),
+    )?.fileName;
 
-    // Find our idle and walk animations
-    for (const [name, group] of localAnimGroups.entries()) {
-        if (
-            name.toLowerCase().includes("idle") ||
-            name.toLowerCase().includes("stand")
-        ) {
-            console.info(`Found idle animation: ${name}`);
-            idleAnimation = group;
-        } else if (name.toLowerCase().includes("walk")) {
-            console.info(`Found walk animation: ${name}`);
-            walkAnimation = group;
+    const walkFileName = animations.value.find((anim) =>
+        anim.fileName.toLowerCase().includes("walk"),
+    )?.fileName;
+
+    if (
+        idleFileName &&
+        animationsMap.value.get(idleFileName)?.state === "ready"
+    ) {
+        const animInfo = animationsMap.value.get(idleFileName);
+        if (animInfo?.group && animInfo.state === "ready") {
+            idleAnimation = animInfo.group;
+            console.info(`Found idle animation: ${idleAnimation.name}`);
+            idleAnimation.start(true, 1.0);
+            idleAnimation.loopAnimation = true;
         }
-    }
-
-    // If we can't find specific animations, use the first one as idle
-    if (!idleAnimation && localAnimGroups.size > 0) {
-        const firstKey = Array.from(localAnimGroups.keys())[0];
-        if (firstKey) {
-            const firstGroup = localAnimGroups.get(firstKey);
-            if (firstGroup) {
+    } else {
+        // If no explicit idle animation found, use the first available one
+        for (const [fileName, info] of animationsMap.value.entries()) {
+            if (info.state === "ready" && info.group) {
                 console.info(
-                    `No explicit idle animation found, using first animation as idle: ${firstKey}`,
+                    `No explicit idle animation found, using ${fileName} as idle`,
                 );
-                idleAnimation = firstGroup;
+                idleAnimation = info.group;
+                if (idleAnimation) {
+                    idleAnimation.start(true, 1.0);
+                    idleAnimation.loopAnimation = true;
+                    break;
+                }
             }
         }
     }
 
-    // If we found animations, start them with appropriate weights
-    if (idleAnimation) {
-        console.info(`Starting idle animation: ${idleAnimation.name}`);
-        idleAnimation.start(true, 1.0);
-        idleAnimation.loopAnimation = true;
-    }
-
-    if (walkAnimation) {
-        console.info(`Starting walk animation: ${walkAnimation.name}`);
-        walkAnimation.start(true, 0.0);
-        walkAnimation.loopAnimation = true;
+    if (
+        walkFileName &&
+        animationsMap.value.get(walkFileName)?.state === "ready"
+    ) {
+        const walkInfo = animationsMap.value.get(walkFileName);
+        if (walkInfo?.group && walkInfo.state === "ready") {
+            walkAnimation = walkInfo.group;
+            console.info(`Found walk animation: ${walkAnimation.name}`);
+            walkAnimation.start(true, 0.0);
+            walkAnimation.loopAnimation = true;
+        }
     }
 
     console.info("Blended animations setup complete");
@@ -256,10 +293,6 @@ let afterPhysicsObserver: Observer<Scene> | null = null;
 
 // Lifecycle hooks
 onMounted(() => {
-    const vircadiaWorld = inject(useVircadiaInstance());
-    if (!vircadiaWorld) {
-        throw new Error("Vircadia instance not found in PhysicsAvatar");
-    }
     const retrieveAvatar = () => avatarEntity.executeRetrieve();
     if (vircadiaWorld.connectionInfo.value.status === "connected") {
         retrieveAvatar();
@@ -317,13 +350,26 @@ onMounted(() => {
                         props.scene,
                         avatarNode.value as TransformNode,
                     );
-                    // Parent skeleton bones to avatarNode so the skeleton moves with the mesh
-                    for (const skeleton of skeletons.value) {
-                        for (const bone of skeleton.bones) {
-                            // This works, don't know why. FIXME: why is this needed?
+
+                    // Find and store skeleton for animation retargeting
+                    if (skeletons.value.length > 0) {
+                        avatarSkeleton.value = skeletons.value[0];
+                    } else {
+                        const skeletonMesh = meshes.value.find(
+                            (m) => m.skeleton,
+                        );
+                        avatarSkeleton.value = skeletonMesh?.skeleton || null;
+                    }
+
+                    // Parent skeleton bones to avatarNode
+                    if (avatarSkeleton.value) {
+                        for (const bone of avatarSkeleton.value.bones) {
+                            // TO AI AGENTS: DO NOT ALTER THIS. This works, don't know why. FIXME: why is this needed?
                             bone.linkTransformNode();
+                            // TO AI AGENTS: DO NOT ALTER THIS. This works, don't know why. FIXME: why is this needed?
                         }
                     }
+
                     // Ensure skinned meshes have enough bone influencers
                     for (const mesh of meshes.value.filter((m) => m.skeleton)) {
                         mesh.numBoneInfluencers = Math.max(
@@ -331,7 +377,7 @@ onMounted(() => {
                             4,
                         );
                     }
-                    // scale meshes to fit capsule
+                    // Scale meshes to fit capsule
                     {
                         let minVec = new Vector3(
                             Number.POSITIVE_INFINITY,
@@ -363,103 +409,28 @@ onMounted(() => {
                             mesh.position.y = -1;
                         }
                     }
-                    // Simplified animation loading: load and assign animations without auto-play
-                    const avatarSkeleton =
-                        skeletons.value[0] ??
-                        meshes.value.find((m) => m.skeleton)?.skeleton;
-                    if (!avatarSkeleton) {
+
+                    if (avatarSkeleton.value) {
+                        // Load animations
+                        console.info("Loading animations...");
+                        await loadAnimations();
+                        console.info(
+                            "Animation loading complete, setting up animation blending...",
+                        );
+                        setupBlendedAnimations();
+                    } else {
                         console.warn(
                             "No skeleton found on avatar meshes, skipping animation load.",
                         );
-                    } else {
-                        localAnimGroups.clear();
-                        for (const def of animations.value) {
-                            const asset = useAsset({
-                                fileName: ref(def.fileName),
-                                useCache: true,
-                                debug: false,
-                                instance: vircadiaWorld,
-                            });
-                            await asset.executeLoad();
-                            const blobUrl = asset.assetData.value?.blobUrl;
-                            if (!blobUrl) {
-                                console.warn(
-                                    `Animation asset blob URL not available for '${def.fileName}'`,
-                                );
-                                continue;
-                            }
-                            try {
-                                const result = await ImportMeshAsync(
-                                    blobUrl,
-                                    props.scene,
-                                    {
-                                        pluginExtension:
-                                            asset.fileExtension.value,
-                                    },
-                                );
-                                for (const mesh of result.meshes) {
-                                    mesh.dispose();
-                                }
-                                if (result.skeletons) {
-                                    for (const skel of result.skeletons) {
-                                        skel.dispose();
-                                    }
-                                }
-                                for (const sourceGroup of result.animationGroups) {
-                                    const clonedGroup = sourceGroup.clone(
-                                        `${def.fileName}-${sourceGroup.name}`,
-                                        (originalTarget) => {
-                                            const targetBone =
-                                                avatarSkeleton.bones.find(
-                                                    (bone) =>
-                                                        bone.name ===
-                                                        originalTarget.name,
-                                                );
-                                            if (!targetBone) {
-                                                console.warn(
-                                                    `Retarget: Bone '${originalTarget.name}' not found on avatar skeleton`,
-                                                );
-                                            }
-                                            return targetBone ?? null;
-                                        },
-                                    );
-                                    if (
-                                        clonedGroup.targetedAnimations.length >
-                                        0
-                                    ) {
-                                        localAnimGroups.set(
-                                            clonedGroup.name,
-                                            clonedGroup,
-                                        );
-                                        console.info(
-                                            `Loaded animation group '${clonedGroup.name}' from ${def.fileName}`,
-                                        );
-                                    } else {
-                                        clonedGroup.dispose();
-                                    }
-                                    sourceGroup.dispose();
-                                }
-                            } catch (e) {
-                                console.error(
-                                    `Error loading animation '${def.fileName}':`,
-                                    e,
-                                );
-                            }
-                        }
                     }
+
+                    emit("ready");
                 } else {
                     console.warn(
                         "Avatar node not initialized, skipping model load",
                     );
                 }
                 setupCamera();
-                // Setup our animation blending system once animations are loaded
-                console.info(
-                    "Animation loading complete, setting up animation blending...",
-                );
-                setupBlendedAnimations();
-
-                emit("ready");
             } else if (meta && characterController.value) {
                 // Remote update, apply if present
                 if (meta.position) {

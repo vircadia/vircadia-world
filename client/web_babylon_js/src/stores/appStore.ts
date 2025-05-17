@@ -46,7 +46,7 @@ export const useAppStore = defineStore("app", {
             jumpSpeed: 5,
             animations: [
                 {
-                    fileName: "babylon.avatar.animation.idle.1.glb",
+                    fileName: "babylon.avatar.animation.f.idle.1.glb",
                 },
             ] as BabylonAnimationDefinition[],
         },

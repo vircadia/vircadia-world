@@ -47,9 +47,9 @@
         "server:pgweb:access-command": "bun vircadia.cli.ts server:pgweb:access-command"
     },
     "dependencies": {
-        "@babylonjs/core": "8.8.1",
-        "@babylonjs/inspector": "8.8.1",
-        "@babylonjs/loaders": "8.8.1",
+        "@babylonjs/core": "8.8.5",
+        "@babylonjs/inspector": "8.8.5",
+        "@babylonjs/loaders": "8.8.5",
         "jsonwebtoken": "^9.0.2",
         "postgres": "^3.4.5",
         "zod": "^3.24.3"

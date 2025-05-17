@@ -296,14 +296,8 @@ onMounted(() => {
                     // Parent skeleton bones to avatarNode so the skeleton moves with the mesh
                     for (const skeleton of skeletons.value) {
                         for (const bone of skeleton.bones) {
-                            const node = bone.linkTransformNode();
-                            if (node) {
-                                node.setParent(
-                                    avatarNode.value as TransformNode,
-                                    true,
-                                    true,
-                                );
-                            }
+                            // This works, don't know why. FIXME: why is this needed?
+                            bone.linkTransformNode();
                         }
                     }
                     // Ensure skinned meshes have enough bone influencers
@@ -416,7 +410,6 @@ onMounted(() => {
                                         console.info(
                                             `Loaded animation group '${clonedGroup.name}'`,
                                         );
-                                        playAnimation(clonedGroup.name);
                                     } else {
                                         clonedGroup.dispose();
                                     }
@@ -469,13 +462,14 @@ onMounted(() => {
                 (keyState.value.backward ? 1 : 0),
         );
         // Play idle animation when no movement input
-        if (dir.lengthSquared() < 1) {
+        if (dir.lengthSquared() === 0) {
             const idleName = localAnimGroups.keys().next().value;
             // console.info(`▷ idleName: ${idleName}`);
             if (idleName && currentAnimName !== idleName) {
                 // console.info(`▷ playing idle animation: ${idleName}`);
                 playAnimation(idleName);
             }
+        } else {
         }
         // Horizontal movement via velocity
         const vel = getVelocity();

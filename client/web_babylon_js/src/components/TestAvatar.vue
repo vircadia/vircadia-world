@@ -22,7 +22,7 @@ const modelAsset = useAsset({
     debug: true,
 });
 
-const animFile = ref("babylon.avatar.animation.idle.1.glb");
+const animFile = ref("babylon.avatar.animation.f.idle.1.glb");
 const animAsset = useAsset({
     fileName: animFile,
     useCache: true,

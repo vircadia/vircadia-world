@@ -9,4 +9,4 @@ VALUES
     ('babylon.level.hdr.1k.hdr', 'public.STATIC', 'image/vnd.radiance'),
     -- Babylon.js Avatar
     ('babylon.avatar.glb', 'public.STATIC', 'model/gltf-binary'),
-    ('babylon.avatar.animation.idle.1.glb', 'public.STATIC', 'model/gltf-binary');
+    ('babylon.avatar.animation.f.idle.1.glb', 'public.STATIC', 'model/gltf-binary');

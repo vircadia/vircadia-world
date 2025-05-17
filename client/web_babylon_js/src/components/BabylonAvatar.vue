@@ -4,28 +4,25 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, inject, toRefs } from "vue";
-import type {
-    Scene,
-    Vector3 as BabylonVector3,
-    Quaternion as BabylonQuaternion,
-    TransformNode,
-    Observer,
-    Node,
-} from "@babylonjs/core";
+import { useVircadiaInstance, useAsset } from "@vircadia/world-sdk/browser/vue";
+
+import { useAppStore } from "@/stores/appStore";
+
 import {
     Vector3,
     Quaternion,
     ArcRotateCamera,
     CharacterSupportedState,
-    Animation as BabylonAnimation,
-    MeshBuilder as BabylonMeshBuilder,
+    ImportMeshAsync,
+    type AnimationGroup,
+    type Scene,
+    type TransformNode,
+    type Observer,
+    type Node,
 } from "@babylonjs/core";
-import { AnimationGroup } from "@babylonjs/core";
-import { z } from "zod";
-import { useVircadiaInstance, useAsset } from "@vircadia/world-sdk/browser/vue";
-import { useAppStore } from "@/stores/appStore";
-import { ImportMeshAsync } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
+
+import { z } from "zod";
 
 import { useBabylonAvatarKeyboardControls } from "../composables/useBabylonAvatarKeyboardControls";
 import { useBabylonAvatarEntity } from "../composables/useBabylonAvatarEntity";
@@ -36,7 +33,6 @@ import type {
     PositionObj,
     RotationObj,
 } from "../composables/useBabylonAvatarPhysicsController";
-import { onKeyStroke } from "@vueuse/core";
 
 // Define component props with defaults
 const props = defineProps({
@@ -92,10 +88,10 @@ const PhysicsAvatarMetaSchema = z.object({
 type PhysicsAvatarMeta = z.infer<typeof PhysicsAvatarMetaSchema>;
 
 // Helpers
-function vectorToObj(v: BabylonVector3): PositionObj {
+function vectorToObj(v: Vector3): PositionObj {
     return { x: v.x, y: v.y, z: v.z };
 }
-function quatToObj(q: BabylonQuaternion): RotationObj {
+function quatToObj(q: Quaternion): RotationObj {
     return { x: q.x, y: q.y, z: q.z, w: q.w };
 }
 
@@ -170,7 +166,6 @@ const { meshes, skeletons, animationGroups, loadModel } =
 // Local map of retargeted AnimationGroups for controlled playback
 const localAnimGroups = new Map<string, AnimationGroup>();
 let currentAnimName = "";
-let currentAnimIndex = 0;
 
 // Helper to stop all and play a single animation group by name
 function playAnimation(name: string): void {
@@ -298,6 +293,26 @@ onMounted(() => {
                         props.scene,
                         avatarNode.value as TransformNode,
                     );
+                    // Parent skeleton bones to avatarNode so the skeleton moves with the mesh
+                    for (const skeleton of skeletons.value) {
+                        for (const bone of skeleton.bones) {
+                            const node = bone.linkTransformNode();
+                            if (node) {
+                                node.setParent(
+                                    avatarNode.value as TransformNode,
+                                    true,
+                                    true,
+                                );
+                            }
+                        }
+                    }
+                    // Ensure skinned meshes have enough bone influencers
+                    for (const mesh of meshes.value.filter((m) => m.skeleton)) {
+                        mesh.numBoneInfluencers = Math.max(
+                            mesh.numBoneInfluencers,
+                            4,
+                        );
+                    }
                     // scale meshes to fit capsule
                     {
                         let minVec = new Vector3(
@@ -330,43 +345,32 @@ onMounted(() => {
                             mesh.position.y = -1;
                         }
                     }
-                    // Method 1: Load animations and retarget them onto the avatar's primary skeleton.
+                    // Simplified animation loading: load and assign animations without auto-play
                     const avatarSkeleton =
                         skeletons.value[0] ??
                         meshes.value.find((m) => m.skeleton)?.skeleton;
-
                     if (!avatarSkeleton) {
                         console.warn(
                             "No skeleton found on avatar meshes, skipping animation load.",
                         );
                     } else {
-                        console.info(
-                            `Found avatar skeleton: ${avatarSkeleton.name} with ${avatarSkeleton.bones.length} bones.`,
-                            avatarSkeleton.bones.map((b) => b.name),
-                        );
                         localAnimGroups.clear();
-
                         for (const def of animations.value) {
                             const asset = useAsset({
                                 fileName: ref(def.fileName),
                                 useCache: true,
                                 debug: false,
-                                instance: vircadiaWorld, // ensure vircadiaWorld is in scope
+                                instance: vircadiaWorld,
                             });
                             await asset.executeLoad();
                             const blobUrl = asset.assetData.value?.blobUrl;
-
                             if (!blobUrl) {
                                 console.warn(
-                                    `Animation asset blob URL not available for \'${def.fileName}\'`,
+                                    `Animation asset blob URL not available for '${def.fileName}'`,
                                 );
                                 continue;
                             }
-
                             try {
-                                console.info(
-                                    `Loading animations from: ${def.fileName}`,
-                                );
                                 const result = await ImportMeshAsync(
                                     blobUrl,
                                     props.scene,
@@ -375,55 +379,18 @@ onMounted(() => {
                                             asset.fileExtension.value,
                                     },
                                 );
-
-                                // We don't need the meshes or skeletons from the animation-only file
                                 for (const mesh of result.meshes) {
                                     mesh.dispose();
                                 }
                                 if (result.skeletons) {
-                                    for (const skeleton of result.skeletons) {
-                                        skeleton.dispose();
+                                    for (const skel of result.skeletons) {
+                                        skel.dispose();
                                     }
                                 }
-
-                                let groupsToProcess = result.animationGroups;
-                                if (
-                                    def.groupNames &&
-                                    def.groupNames.length > 0
-                                ) {
-                                    const groupNames = def.groupNames; // For TS narrowing
-                                    groupsToProcess =
-                                        result.animationGroups.filter((g) =>
-                                            groupNames.includes(g.name),
-                                        );
-                                    console.info(
-                                        `Filtered for groups: ${groupNames.join(", ")} in ${def.fileName}, found ${groupsToProcess.length}`,
-                                    );
-                                } else {
-                                    console.info(
-                                        `Using all ${result.animationGroups.length} groups from ${def.fileName}`,
-                                    );
-                                }
-
-                                if (groupsToProcess.length === 0) {
-                                    console.warn(
-                                        `No animation groups found or matched in ${def.fileName}`,
-                                    );
-                                }
-
-                                for (const sourceGroup of groupsToProcess) {
-                                    const newGroupName = `${def.fileName}-${sourceGroup.name}`;
-
-                                    // This picker function is called by clone() for each animation track's target.
-                                    // It must return the new target node (a bone in our avatarSkeleton) or null to skip the track.
-                                    const newTargetPicker = (
-                                        originalTarget: Node,
-                                    ): Node | null => {
-                                        if (
-                                            avatarSkeleton &&
-                                            originalTarget &&
-                                            originalTarget.name
-                                        ) {
+                                for (const sourceGroup of result.animationGroups) {
+                                    const clonedGroup = sourceGroup.clone(
+                                        `${def.fileName}-${sourceGroup.name}`,
+                                        (originalTarget) => {
                                             const targetBone =
                                                 avatarSkeleton.bones.find(
                                                     (bone) =>
@@ -432,90 +399,36 @@ onMounted(() => {
                                                 );
                                             if (!targetBone) {
                                                 console.warn(
-                                                    `Retargeting: Bone '${originalTarget.name}' from animation group '${sourceGroup.name}' (file: ${def.fileName}, new group: ${newGroupName}) not found in avatar skeleton. This animation track will be skipped.`,
+                                                    `Retarget: Bone '${originalTarget.name}' not found on avatar skeleton`,
                                                 );
                                             }
                                             return targetBone ?? null;
-                                        }
-                                        console.warn(
-                                            `Retargeting: Invalid original target (name: ${originalTarget?.name}) or missing avatar skeleton for a track in animation group '${sourceGroup.name}' (file: ${def.fileName}, new group: ${newGroupName}). Track will be skipped.`,
-                                        );
-                                        return null;
-                                    };
-
-                                    // Clone the animation group, retargeting its animations to the avatar's skeleton.
-                                    // The third parameter to clone (cloneAnimations) defaults to false, meaning Animation objects are shared, which is efficient.
-                                    const clonedGroup = sourceGroup.clone(
-                                        newGroupName,
-                                        newTargetPicker,
+                                        },
                                     );
-
                                     if (
-                                        clonedGroup &&
                                         clonedGroup.targetedAnimations.length >
-                                            0
+                                        0
                                     ) {
-                                        clonedGroup.loopAnimation =
-                                            def.loop ?? false;
                                         localAnimGroups.set(
                                             clonedGroup.name,
                                             clonedGroup,
                                         );
                                         console.info(
-                                            `Successfully cloned and retargeted animation group: '${clonedGroup.name}' with ${clonedGroup.targetedAnimations.length} tracks. Loop: ${clonedGroup.loopAnimation}`,
+                                            `Loaded animation group '${clonedGroup.name}'`,
                                         );
+                                        playAnimation(clonedGroup.name);
                                     } else {
-                                        console.warn(
-                                            `Cloned animation group '${newGroupName}' (from file ${def.fileName}, source group ${sourceGroup.name}) resulted in no targeted animations after retargeting, or the clone operation failed. The group will not be stored.`,
-                                        );
-                                        // Dispose the cloned group if it was created but is empty or invalid
-                                        clonedGroup?.dispose();
+                                        clonedGroup.dispose();
                                     }
-                                    // Dispose of the original animation group from the loaded file, as it's no longer needed.
                                     sourceGroup.dispose();
                                 }
                             } catch (e) {
                                 console.error(
-                                    `Error loading or retargeting animation \'${def.fileName}\':`,
+                                    `Error loading animation '${def.fileName}':`,
                                     e,
                                 );
                             }
                         }
-
-                        // Automatically play the first animation group (e.g., idle)
-                        if (localAnimGroups.size > 0) {
-                            const firstAnimName = localAnimGroups
-                                .keys()
-                                .next().value;
-                            if (firstAnimName) {
-                                playAnimation(firstAnimName);
-                                console.info(
-                                    `Playing first animation: ${firstAnimName}`,
-                                );
-                            } else {
-                                console.warn(
-                                    "First animation name is undefined, cannot play.",
-                                );
-                            }
-                        } else {
-                            console.warn("No animations loaded to play.");
-                        }
-
-                        // Allow cycling through animations with 'f'
-                        onKeyStroke("f", (e) => {
-                            e.preventDefault();
-                            if (localAnimGroups.size === 0) return;
-                            const animNames = Array.from(
-                                localAnimGroups.keys(),
-                            );
-                            currentAnimIndex =
-                                (currentAnimIndex + 1) % animNames.length;
-                            const animToPlay = animNames[currentAnimIndex];
-                            console.info(
-                                `Cycling to animation [${currentAnimIndex}]: ${animToPlay}`,
-                            );
-                            playAnimation(animToPlay);
-                        });
                     }
                 } else {
                     console.warn(
@@ -523,76 +436,6 @@ onMounted(() => {
                     );
                 }
                 setupCamera();
-
-                // --- BEGIN TEST CUBE ANIMATION ---
-                try {
-                    console.info(
-                        "Attempting to create and animate a test cube.",
-                    );
-                    const testCube = BabylonMeshBuilder.CreateBox(
-                        "testCube",
-                        { size: 0.2 },
-                        props.scene,
-                    );
-                    testCube.position = new Vector3(
-                        0,
-                        capsuleHeight.value + 0.5,
-                        0.5,
-                    ); // Position it slightly above and in front of typical avatar origin for visibility
-
-                    if (avatarNode.value) {
-                        // Parent to avatarNode so it moves with the avatar, making it easier to keep in view
-                        // testCube.parent = avatarNode.value;
-                        // For initial test, let's place it in world space relative to avatar's expected start to avoid parenting complexities if avatarNode itself is an issue.
-                        const initialAvatarPos = avatarNode.value.position;
-                        testCube.position = new Vector3(
-                            initialAvatarPos.x,
-                            initialAvatarPos.y + capsuleHeight.value + 0.5,
-                            initialAvatarPos.z + 0.5,
-                        );
-                        console.info(
-                            `Test cube initial position: ${testCube.position.toString()}`,
-                        );
-                    } else {
-                        console.warn(
-                            "Test cube: avatarNode not available for positioning reference, using absolute position.",
-                        );
-                        testCube.position = new Vector3(0, 1.8 + 0.5, 0.5); // Default position if avatarNode is not ready
-                    }
-
-                    const frameRate = 10;
-                    const xSlide = new BabylonAnimation(
-                        "xSlide",
-                        "position.x",
-                        frameRate,
-                        BabylonAnimation.ANIMATIONTYPE_FLOAT,
-                        BabylonAnimation.ANIMATIONLOOPMODE_CYCLE,
-                    );
-                    const keyFrames = [];
-                    keyFrames.push({ frame: 0, value: testCube.position.x });
-                    keyFrames.push({
-                        frame: frameRate * 1,
-                        value: testCube.position.x + 0.5,
-                    }); // Slide 0.5 units
-                    keyFrames.push({
-                        frame: frameRate * 2,
-                        value: testCube.position.x,
-                    });
-                    xSlide.setKeys(keyFrames);
-                    testCube.animations.push(xSlide);
-                    props.scene.beginAnimation(
-                        testCube,
-                        0,
-                        2 * frameRate,
-                        true,
-                    );
-                    console.info(
-                        "Test cube animation started. Check if a small cube near the avatar's head is sliding horizontally.",
-                    );
-                } catch (e) {
-                    console.error("Error creating test cube animation:", e);
-                }
-                // --- END TEST CUBE ANIMATION ---
 
                 emit("ready");
             } else if (meta && characterController.value) {
@@ -625,6 +468,15 @@ onMounted(() => {
             (keyState.value.forward ? 1 : 0) -
                 (keyState.value.backward ? 1 : 0),
         );
+        // Play idle animation when no movement input
+        if (dir.lengthSquared() < 1) {
+            const idleName = localAnimGroups.keys().next().value;
+            // console.info(`▷ idleName: ${idleName}`);
+            if (idleName && currentAnimName !== idleName) {
+                // console.info(`▷ playing idle animation: ${idleName}`);
+                playAnimation(idleName);
+            }
+        }
         // Horizontal movement via velocity
         const vel = getVelocity();
         if (dir.lengthSquared() > 0 && vel) {
@@ -688,7 +540,6 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-    // Remove physics observers to avoid duplicate callbacks
     if (beforePhysicsObserver) {
         props.scene.onBeforePhysicsObservable.remove(beforePhysicsObserver);
     }
@@ -697,7 +548,6 @@ onUnmounted(() => {
     }
     avatarNode.value?.dispose();
     avatarEntity.cleanup();
-    // camera is disposed by useAvatarCameraController composable
 });
 
 defineExpose({

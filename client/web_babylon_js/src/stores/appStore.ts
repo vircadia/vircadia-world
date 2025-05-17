@@ -30,7 +30,7 @@ export const useAppStore = defineStore("app", {
         hdrList: ["babylon.level.hdr.1k.hdr"] as string[],
         // avatar configuration
         avatarDefinition: {
-            entityName: "physics.avatar.entity",
+            entityName: "babylon.avatar.glb",
             modelFileName: "babylon.avatar.glb",
             initialPosition: { x: 0, y: 1, z: -5 },
             initialRotation: { x: 0, y: 0, z: 0, w: 1 },
@@ -47,8 +47,6 @@ export const useAppStore = defineStore("app", {
             animations: [
                 {
                     fileName: "babylon.avatar.animation.idle.1.glb",
-                    loop: true,
-                    // groupNames: ["idle02_Armature", "idle02_Armature.001"],
                 },
             ] as BabylonAnimationDefinition[],
         },

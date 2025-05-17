@@ -17,10 +17,4 @@ export interface BabylonModelDefinition {
 export interface BabylonAnimationDefinition {
     /** Filename of the animation file (e.g. 'walk.glb') */
     fileName: string;
-    /** Whether the animation should loop */
-    loop?: boolean;
-    /** Optional list of animation group names to load from the GLB */
-    groupNames?: string[];
-    /** Optional map from source bone names to avatar bone names for retargeting */
-    retargetMap?: Record<string, string>;
 }

@@ -20,7 +20,6 @@ const modelAsset = useAsset({
     fileName: modelFile,
     useCache: true,
     debug: true,
-    instance: undefined,
 });
 
 const animFile = ref("babylon.avatar.animation.idle.1.glb");
@@ -28,7 +27,6 @@ const animAsset = useAsset({
     fileName: animFile,
     useCache: true,
     debug: true,
-    instance: undefined,
 });
 
 onMounted(async () => {

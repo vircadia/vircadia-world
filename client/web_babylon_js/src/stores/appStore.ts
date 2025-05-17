@@ -31,7 +31,7 @@ export const useAppStore = defineStore("app", {
         // avatar configuration
         avatarDefinition: {
             entityName: "physics.avatar.entity",
-            modelFileName: "f1.glb",
+            modelFileName: "babylon.avatar.glb",
             initialPosition: { x: 0, y: 1, z: -5 },
             initialRotation: { x: 0, y: 0, z: 0, w: 1 },
             initialCameraOrientation: {
@@ -46,7 +46,7 @@ export const useAppStore = defineStore("app", {
             jumpSpeed: 5,
             animations: [
                 {
-                    fileName: "f1_idle.glb",
+                    fileName: "babylon.avatar.animation.idle.1.glb",
                     loop: true,
                     // groupNames: ["idle02_Armature", "idle02_Armature.001"],
                 },

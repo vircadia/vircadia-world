@@ -15,7 +15,7 @@ const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
 });
 
-const modelFile = ref("f1.glb");
+const modelFile = ref("babylon.avatar.glb");
 const modelAsset = useAsset({
     fileName: modelFile,
     useCache: true,
@@ -23,7 +23,7 @@ const modelAsset = useAsset({
     instance: undefined,
 });
 
-const animFile = ref("f1_idle.glb");
+const animFile = ref("babylon.avatar.animation.idle.1.glb");
 const animAsset = useAsset({
     fileName: animFile,
     useCache: true,

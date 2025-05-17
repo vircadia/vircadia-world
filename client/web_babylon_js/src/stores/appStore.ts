@@ -48,6 +48,123 @@ export const useAppStore = defineStore("app", {
                 {
                     fileName: "babylon.avatar.animation.f.idle.1.glb",
                 },
+                {
+                    fileName: "babylon.avatar.animation.f.idle.2.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.idle.3.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.idle.4.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.idle.5.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.idle.6.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.idle.7.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.idle.8.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.idle.9.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.idle.10.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.walk.1.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.walk.2.glb",
+                },
+                {
+                    fileName:
+                        "babylon.avatar.animation.f.crouch_strafe_left.glb",
+                },
+                {
+                    fileName:
+                        "babylon.avatar.animation.f.crouch_strafe_right.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.crouch_walk_back.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.crouch_walk.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.falling_idle.1.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.falling_idle.2.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.jog_back.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.jog.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.jump_small.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.jump.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.run_back.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.run_strafe_left.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.run_strafe_right.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.run.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.strafe_left.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.strafe_right.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.talking.1.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.talking.2.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.talking.3.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.talking.4.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.talking.5.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.talking.6.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.walk_back.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.walk_jump.1.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.walk_jump.2.glb",
+                },
+                {
+                    fileName: "babylon.avatar.animation.f.walk_strafe_left.glb",
+                },
+                {
+                    fileName:
+                        "babylon.avatar.animation.f.walk_strafe_right.glb",
+                },
             ] as BabylonAnimationDefinition[],
         },
     }),

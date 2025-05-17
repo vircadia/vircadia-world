@@ -165,65 +165,89 @@ const { meshes, skeletons, animationGroups, loadModel } =
 
 // Local map of retargeted AnimationGroups for controlled playback
 const localAnimGroups = new Map<string, AnimationGroup>();
-let currentAnimName = "";
+const blendWeight = ref(0); // 0 = idle, 1 = walk
+const blendSpeed = 0.1; // How quickly to blend between animations
 
-// Helper to stop all and play a single animation group by name
-function playAnimation(name: string): void {
-    console.info(`▷ playAnimation('${name}') attempt...`);
-    const group = localAnimGroups.get(name);
+// Initialize and manage blended animations
+let idleAnimation: AnimationGroup | null = null;
+let walkAnimation: AnimationGroup | null = null;
 
-    if (!group) {
-        console.warn(`Animation group '${name}' not found in localAnimGroups.`);
-        return;
-    }
+function setupBlendedAnimations(): void {
     console.info(
-        `Found group: ${group.name}, From: ${group.from}, To: ${group.to}, Loop: ${group.loopAnimation}`,
+        "Setting up blended animations, available groups:",
+        Array.from(localAnimGroups.keys()),
     );
 
-    // Log some targeted animations
-    if (group.targetedAnimations.length > 0) {
-        console.info(
-            `Animation group '${name}' has ${group.targetedAnimations.length} targeted animation(s). First few actual targets after retargeting:`,
-        );
-        for (let i = 0; i < Math.min(5, group.targetedAnimations.length); i++) {
-            const targetedAnim = group.targetedAnimations[i];
-            const targetNode = targetedAnim.target as Node;
-            if (targetNode) {
+    // Make sure we have animations loaded before attempting to set up blending
+    if (localAnimGroups.size === 0) {
+        console.warn("No animation groups available for blending");
+        return;
+    }
+
+    // Find our idle and walk animations
+    for (const [name, group] of localAnimGroups.entries()) {
+        if (
+            name.toLowerCase().includes("idle") ||
+            name.toLowerCase().includes("stand")
+        ) {
+            console.info(`Found idle animation: ${name}`);
+            idleAnimation = group;
+        } else if (name.toLowerCase().includes("walk")) {
+            console.info(`Found walk animation: ${name}`);
+            walkAnimation = group;
+        }
+    }
+
+    // If we can't find specific animations, use the first one as idle
+    if (!idleAnimation && localAnimGroups.size > 0) {
+        const firstKey = Array.from(localAnimGroups.keys())[0];
+        if (firstKey) {
+            const firstGroup = localAnimGroups.get(firstKey);
+            if (firstGroup) {
                 console.info(
-                    `  - Target Node: '${targetNode.name}' (ID: ${targetNode.id}, Class: ${targetNode.getClassName()}), Animation Property: '${targetedAnim.animation.targetProperty}'`,
+                    `No explicit idle animation found, using first animation as idle: ${firstKey}`,
                 );
-            } else {
-                console.info(
-                    `  - Target Node: null (was likely removed during retargeting), Animation Property: '${targetedAnim.animation.targetProperty}'`,
-                );
+                idleAnimation = firstGroup;
             }
         }
-    } else {
-        console.warn(
-            `Animation group '${name}' has NO targeted animations after retargeting. Nothing to play.`,
-        );
-        // No need to stop/start if there's nothing to play
-        currentAnimName = name; // Still update current to prevent re-processing this empty group
+    }
+
+    // If we found animations, start them with appropriate weights
+    if (idleAnimation) {
+        console.info(`Starting idle animation: ${idleAnimation.name}`);
+        idleAnimation.start(true, 1.0);
+        idleAnimation.loopAnimation = true;
+    }
+
+    if (walkAnimation) {
+        console.info(`Starting walk animation: ${walkAnimation.name}`);
+        walkAnimation.start(true, 0.0);
+        walkAnimation.loopAnimation = true;
+    }
+
+    console.info("Blended animations setup complete");
+}
+
+// Update animation weights based on movement
+function updateAnimationBlending(isMoving: boolean, dt: number): void {
+    if (!idleAnimation) {
+        // No animations set up, can't blend
         return;
     }
 
-    // Stop all other groups
-    for (const g of localAnimGroups.values()) {
-        if (g.name !== name && g.isStarted) {
-            g.stop();
-        }
-    }
+    // Only blend when we have both animations
+    if (walkAnimation) {
+        // Calculate target weight based on movement state
+        const targetWeight = isMoving ? 1.0 : 0.0;
 
-    // Start the chosen group
-    if (group.isStarted) {
-        group.restart(); // If it's the same animation, restart it
-    } else {
-        group.start(group.loopAnimation, 1.0, group.from, group.to, false);
+        // Smoothly interpolate current blend weight toward target
+        blendWeight.value +=
+            (targetWeight - blendWeight.value) * blendSpeed * (dt * 1000);
+
+        // Apply weights to animations
+        idleAnimation.setWeightForAllAnimatables(1.0 - blendWeight.value);
+        walkAnimation.setWeightForAllAnimatables(blendWeight.value);
     }
-    console.info(
-        `▶ Animation group '${group.name}' started/restarted. Animatables: ${group.animatables.length}`,
-    );
-    currentAnimName = name;
 }
 
 // Observers for physics events, for cleanup on unmount
@@ -408,7 +432,7 @@ onMounted(() => {
                                             clonedGroup,
                                         );
                                         console.info(
-                                            `Loaded animation group '${clonedGroup.name}'`,
+                                            `Loaded animation group '${clonedGroup.name}' from ${def.fileName}`,
                                         );
                                     } else {
                                         clonedGroup.dispose();
@@ -429,6 +453,11 @@ onMounted(() => {
                     );
                 }
                 setupCamera();
+                // Setup our animation blending system once animations are loaded
+                console.info(
+                    "Animation loading complete, setting up animation blending...",
+                );
+                setupBlendedAnimations();
 
                 emit("ready");
             } else if (meta && characterController.value) {
@@ -461,19 +490,16 @@ onMounted(() => {
             (keyState.value.forward ? 1 : 0) -
                 (keyState.value.backward ? 1 : 0),
         );
-        // Play idle animation when no movement input
-        if (dir.lengthSquared() === 0) {
-            const idleName = localAnimGroups.keys().next().value;
-            // console.info(`▷ idleName: ${idleName}`);
-            if (idleName && currentAnimName !== idleName) {
-                // console.info(`▷ playing idle animation: ${idleName}`);
-                playAnimation(idleName);
-            }
-        } else {
-        }
+
+        // Check if character is moving for animation blending
+        const isMoving = dir.lengthSquared() > 0;
+
+        // Update animation blending based on movement state
+        updateAnimationBlending(isMoving, dt);
+
         // Horizontal movement via velocity
         const vel = getVelocity();
-        if (dir.lengthSquared() > 0 && vel) {
+        if (isMoving && vel) {
             const cameraRotationY =
                 camera.value instanceof ArcRotateCamera
                     ? camera.value.alpha + Math.PI / 2

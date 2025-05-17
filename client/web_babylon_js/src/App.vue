@@ -28,6 +28,7 @@
                     :scene="scene"
                     ref="modelRefs"
                 />
+                <TestAvatar :scene="scene" />
             </template>
         </main>
     </v-app>
@@ -40,10 +41,14 @@ import { computed, watch, ref, onMounted, onUnmounted, inject } from "vue";
 import BabylonAvatar from "./components/BabylonAvatar.vue";
 // @ts-ignore: used in template
 import BabylonModel from "./components/BabylonModel.vue";
+// @ts-ignore: used in template
+import TestAvatar from "./components/TestAvatar.vue";
 // mark as used at runtime for template
 void BabylonAvatar;
 // mark as used at runtime for template
 void BabylonModel;
+// mark as used at runtime for template
+void TestAvatar;
 import { useBabylonEnvironment } from "./composables/useBabylonEnvironment";
 import { useAppStore } from "@/stores/appStore";
 // BabylonJS

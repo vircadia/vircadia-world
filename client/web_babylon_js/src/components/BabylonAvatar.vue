@@ -17,8 +17,10 @@ import {
     Quaternion,
     ArcRotateCamera,
     CharacterSupportedState,
+    Animation as BabylonAnimation,
+    MeshBuilder as BabylonMeshBuilder,
 } from "@babylonjs/core";
-import type { AnimationGroup } from "@babylonjs/core";
+import { AnimationGroup } from "@babylonjs/core";
 import { z } from "zod";
 import { useVircadiaInstance, useAsset } from "@vircadia/world-sdk/browser/vue";
 import { useAppStore } from "@/stores/appStore";
@@ -409,30 +411,50 @@ onMounted(() => {
                                     );
                                 }
 
-                                for (const group of groupsToProcess) {
-                                    // Clone the animation group, retargeting its animations to the avatar's skeleton
-                                    const clonedGroup = group.clone(
-                                        `${def.fileName}-${group.name}`, // New name for the cloned group
-                                        (oldTarget) => {
-                                            const oldTargetNode =
-                                                oldTarget as Node; // Use imported Node type
+                                for (const sourceGroup of groupsToProcess) {
+                                    const newGroupName = `${def.fileName}-${sourceGroup.name}`;
+
+                                    // This picker function is called by clone() for each animation track's target.
+                                    // It must return the new target node (a bone in our avatarSkeleton) or null to skip the track.
+                                    const newTargetPicker = (
+                                        originalTarget: Node,
+                                    ): Node | null => {
+                                        if (
+                                            avatarSkeleton &&
+                                            originalTarget &&
+                                            originalTarget.name
+                                        ) {
                                             const targetBone =
                                                 avatarSkeleton.bones.find(
                                                     (bone) =>
                                                         bone.name ===
-                                                        oldTargetNode.name,
+                                                        originalTarget.name,
                                                 );
-                                            if (targetBone) {
-                                                // Optional: console.info(`Retargeting SUCCESS: Animation target '${oldTargetNode.name}' found in avatar skeleton as '${targetBone.name}'.`);
-                                            } else {
+                                            if (!targetBone) {
                                                 console.warn(
-                                                    `Retargeting FAIL: Animation target bone '${oldTargetNode.name}' from ${group.name} was NOT found in avatar skeleton. This animation track will be skipped for this bone.`,
+                                                    `Retargeting: Bone '${originalTarget.name}' from animation group '${sourceGroup.name}' (file: ${def.fileName}, new group: ${newGroupName}) not found in avatar skeleton. This animation track will be skipped.`,
                                                 );
                                             }
-                                            return targetBone; // IMPORTANT: Return only the found bone, or null/undefined if not found
-                                        },
+                                            return targetBone ?? null;
+                                        }
+                                        console.warn(
+                                            `Retargeting: Invalid original target (name: ${originalTarget?.name}) or missing avatar skeleton for a track in animation group '${sourceGroup.name}' (file: ${def.fileName}, new group: ${newGroupName}). Track will be skipped.`,
+                                        );
+                                        return null;
+                                    };
+
+                                    // Clone the animation group, retargeting its animations to the avatar's skeleton.
+                                    // The third parameter to clone (cloneAnimations) defaults to false, meaning Animation objects are shared, which is efficient.
+                                    const clonedGroup = sourceGroup.clone(
+                                        newGroupName,
+                                        newTargetPicker,
                                     );
-                                    if (clonedGroup) {
+
+                                    if (
+                                        clonedGroup &&
+                                        clonedGroup.targetedAnimations.length >
+                                            0
+                                    ) {
                                         clonedGroup.loopAnimation =
                                             def.loop ?? false;
                                         localAnimGroups.set(
@@ -440,13 +462,17 @@ onMounted(() => {
                                             clonedGroup,
                                         );
                                         console.info(
-                                            `Retargeted and stored: ${clonedGroup.name}`,
+                                            `Successfully cloned and retargeted animation group: '${clonedGroup.name}' with ${clonedGroup.targetedAnimations.length} tracks. Loop: ${clonedGroup.loopAnimation}`,
                                         );
                                     } else {
                                         console.warn(
-                                            `Failed to clone group ${group.name} from ${def.fileName}`,
+                                            `Cloned animation group '${newGroupName}' (from file ${def.fileName}, source group ${sourceGroup.name}) resulted in no targeted animations after retargeting, or the clone operation failed. The group will not be stored.`,
                                         );
+                                        // Dispose the cloned group if it was created but is empty or invalid
+                                        clonedGroup?.dispose();
                                     }
+                                    // Dispose of the original animation group from the loaded file, as it's no longer needed.
+                                    sourceGroup.dispose();
                                 }
                             } catch (e) {
                                 console.error(
@@ -497,6 +523,77 @@ onMounted(() => {
                     );
                 }
                 setupCamera();
+
+                // --- BEGIN TEST CUBE ANIMATION ---
+                try {
+                    console.info(
+                        "Attempting to create and animate a test cube.",
+                    );
+                    const testCube = BabylonMeshBuilder.CreateBox(
+                        "testCube",
+                        { size: 0.2 },
+                        props.scene,
+                    );
+                    testCube.position = new Vector3(
+                        0,
+                        capsuleHeight.value + 0.5,
+                        0.5,
+                    ); // Position it slightly above and in front of typical avatar origin for visibility
+
+                    if (avatarNode.value) {
+                        // Parent to avatarNode so it moves with the avatar, making it easier to keep in view
+                        // testCube.parent = avatarNode.value;
+                        // For initial test, let's place it in world space relative to avatar's expected start to avoid parenting complexities if avatarNode itself is an issue.
+                        const initialAvatarPos = avatarNode.value.position;
+                        testCube.position = new Vector3(
+                            initialAvatarPos.x,
+                            initialAvatarPos.y + capsuleHeight.value + 0.5,
+                            initialAvatarPos.z + 0.5,
+                        );
+                        console.info(
+                            `Test cube initial position: ${testCube.position.toString()}`,
+                        );
+                    } else {
+                        console.warn(
+                            "Test cube: avatarNode not available for positioning reference, using absolute position.",
+                        );
+                        testCube.position = new Vector3(0, 1.8 + 0.5, 0.5); // Default position if avatarNode is not ready
+                    }
+
+                    const frameRate = 10;
+                    const xSlide = new BabylonAnimation(
+                        "xSlide",
+                        "position.x",
+                        frameRate,
+                        BabylonAnimation.ANIMATIONTYPE_FLOAT,
+                        BabylonAnimation.ANIMATIONLOOPMODE_CYCLE,
+                    );
+                    const keyFrames = [];
+                    keyFrames.push({ frame: 0, value: testCube.position.x });
+                    keyFrames.push({
+                        frame: frameRate * 1,
+                        value: testCube.position.x + 0.5,
+                    }); // Slide 0.5 units
+                    keyFrames.push({
+                        frame: frameRate * 2,
+                        value: testCube.position.x,
+                    });
+                    xSlide.setKeys(keyFrames);
+                    testCube.animations.push(xSlide);
+                    props.scene.beginAnimation(
+                        testCube,
+                        0,
+                        2 * frameRate,
+                        true,
+                    );
+                    console.info(
+                        "Test cube animation started. Check if a small cube near the avatar's head is sliding horizontally.",
+                    );
+                } catch (e) {
+                    console.error("Error creating test cube animation:", e);
+                }
+                // --- END TEST CUBE ANIMATION ---
+
                 emit("ready");
             } else if (meta && characterController.value) {
                 // Remote update, apply if present

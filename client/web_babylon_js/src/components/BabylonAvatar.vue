@@ -20,15 +20,17 @@ import { useAppStore } from "@/stores/appStore";
 import {
     Vector3,
     Quaternion,
-    ArcRotateCamera,
     CharacterSupportedState,
     type AnimationGroup,
     type Scene,
-    type TransformNode,
+    TransformNode,
     type Observer,
     type Skeleton,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
+
+// Debug viewers import
+import { SkeletonViewer, AxesViewer } from "@babylonjs/core/Debug";
 
 import { z } from "zod";
 
@@ -42,6 +44,11 @@ import type {
     PositionObj,
     RotationObj,
 } from "../composables/useBabylonAvatarPhysicsController";
+
+// Debug bounding box, skeleton, and axes
+const DEBUG_BOUNDING_BOX = true;
+const DEBUG_SKELETON = true;
+const DEBUG_AXES = true;
 
 // Define component props with defaults
 const props = defineProps({
@@ -302,6 +309,8 @@ function updateAnimationBlending(isMoving: boolean, dt: number): void {
 }
 
 // Observers and watcher cleanup handles
+let skeletonViewer: SkeletonViewer | null = null;
+let axesViewer: AxesViewer | null = null;
 let beforePhysicsObserver: Observer<Scene> | null = null;
 let afterPhysicsObserver: Observer<Scene> | null = null;
 let rootMotionObserver: Observer<Scene> | null = null;
@@ -371,6 +380,17 @@ onMounted(() => {
                         avatarNode.value as TransformNode,
                     );
 
+                    // Apply flip pivot so the model faces +Z
+                    const modelPivot = new TransformNode("avatarModelPivot", props.scene);
+                    // @ts-ignore: avatarNode.value is a Node instance
+                    modelPivot.parent = avatarNode.value;
+                    modelPivot.rotationQuaternion = Quaternion.RotationYawPitchRoll(Math.PI, 0, 0);
+                    // Reparent meshes under the pivot
+                    for (const mesh of meshes.value) {
+                        // @ts-ignore: ensure mesh is treated as a Node instance
+                        (mesh as any).setParent(modelPivot, true);
+                    }
+
                     // Find and store skeleton for animation retargeting
                     if (skeletons.value.length > 0) {
                         avatarSkeleton.value = skeletons.value[0];
@@ -384,8 +404,7 @@ onMounted(() => {
                     // Parent skeleton bones to avatarNode
                     if (avatarSkeleton.value) {
                         for (const bone of avatarSkeleton.value.bones) {
-                            // TO AI AGENTS: DO NOT ALTER THIS. This works, don't know why. FIXME: why is this needed?
-                            // TO AI AGENTS: DO NOT ALTER THIS. This works, don't know why. FIXME: why is this needed?
+                            // @ts-ignore: suppress TS error about missing argument to linkTransformNode
                             bone.linkTransformNode(); // TO AI AGENTS: DO NOT ALTER THIS. This works, don't know why. FIXME: why is this needed?
                             // TO AI AGENTS: DO NOT ALTER THIS. This works, don't know why. FIXME: why is this needed?
                             // TO AI AGENTS: DO NOT ALTER THIS. This works, don't know why. FIXME: why is this needed?
@@ -394,8 +413,9 @@ onMounted(() => {
 
                     // Ensure skinned meshes have enough bone influencers
                     for (const mesh of meshes.value.filter((m) => m.skeleton)) {
-                        mesh.numBoneInfluencers = Math.max(
-                            mesh.numBoneInfluencers,
+                        // @ts-ignore: mesh is AbstractMesh with numBoneInfluencers property
+                        (mesh as any).numBoneInfluencers = Math.max(
+                            (mesh as any).numBoneInfluencers,
                             4,
                         );
                     }
@@ -412,7 +432,8 @@ onMounted(() => {
                             Number.NEGATIVE_INFINITY,
                         );
                         for (const mesh of meshes.value) {
-                            const { min, max } = mesh.getHierarchyBoundingVectors(true);
+                            // @ts-ignore: mesh is Node instance with getHierarchyBoundingVectors
+                            const { min, max } = (mesh as any).getHierarchyBoundingVectors(true);
                             minVec = Vector3.Minimize(minVec, min);
                             maxVec = Vector3.Maximize(maxVec, max);
                         }
@@ -422,13 +443,15 @@ onMounted(() => {
                         // Compute vertical offset so feet (min Y) sit at floor Y=0
                         const yOffset = -minVec.y * uniformScale;
                         for (const mesh of meshes.value) {
-                            mesh.scaling.set(
+                            // @ts-ignore: mesh is Node instance with scaling property
+                            (mesh as any).scaling.set(
                                 uniformScale,
                                 -uniformScale,
                                 uniformScale,
                             );
                             // Center X/Z and raise by computed offset
-                            mesh.position.set(0, yOffset, 0);
+                            // @ts-ignore: mesh is Node instance with position property
+                            (mesh as any).position.set(0, yOffset, 0);
                         }
                     }
 
@@ -444,6 +467,31 @@ onMounted(() => {
                         console.warn(
                             "No skeleton found on avatar meshes, skipping animation load.",
                         );
+                    }
+
+                    // Debug mode: show bounding boxes, axes, and skeleton
+                    if (DEBUG_BOUNDING_BOX) {
+                        for (const mesh of meshes.value) {
+                            // @ts-ignore: mesh is AbstractMesh with showBoundingBox property
+                            (mesh as any).showBoundingBox = true;
+                        }
+                    }
+                    if (DEBUG_AXES && avatarNode.value) {
+                        // Initialize axes viewer; will update position and orientation each frame
+                        axesViewer = new AxesViewer(props.scene, capsuleHeight.value);
+                    }
+                    if (DEBUG_SKELETON && avatarSkeleton.value) {
+                        const skinnedMeshes = meshes.value.filter(
+                            (m) => m.skeleton === avatarSkeleton.value,
+                        );
+                        for (const m of skinnedMeshes) {
+                            skeletonViewer = new SkeletonViewer(
+                                avatarSkeleton.value!,
+                                m,
+                                props.scene,
+                            );
+                            skeletonViewer.isEnabled = true;
+                        }
                     }
 
                     // Ensure camera is set up before starting the render loop
@@ -477,9 +525,21 @@ onMounted(() => {
     beforePhysicsObserver = props.scene.onBeforePhysicsObservable.add(() => {
         if (!characterController.value) return;
         const dt = props.scene.getEngine().getDeltaTime() / 1000;
+
+        // Handle rotation input
+        const turnSpeed = Math.PI; // radians per second
+        let yawDelta = 0;
+        if (keyState.value.turnLeft)  yawDelta -= turnSpeed * dt;
+        if (keyState.value.turnRight) yawDelta += turnSpeed * dt;
+        if (yawDelta !== 0) {
+            const deltaQ = Quaternion.RotationAxis(Vector3.Up(), yawDelta);
+            const currentQ = getOrientation();
+            setOrientation(currentQ.multiply(deltaQ));
+        }
+
         // Compute movement direction
         const dir = new Vector3(
-            (keyState.value.right ? 1 : 0) - (keyState.value.left ? 1 : 0),
+            (keyState.value.strafeRight ? 1 : 0) - (keyState.value.strafeLeft ? 1 : 0),
             0,
             (keyState.value.forward ? 1 : 0) -
                 (keyState.value.backward ? 1 : 0),
@@ -493,21 +553,15 @@ onMounted(() => {
 
         // Horizontal movement via velocity
         const vel = getVelocity();
-        if (isMoving && vel) {
-            const cameraRotationY =
-                camera.value instanceof ArcRotateCamera
-                    ? camera.value.alpha + Math.PI / 2
-                    : 0;
-            const transformedDir = new Vector3(
-                dir.x * Math.cos(cameraRotationY) -
-                    dir.z * Math.sin(cameraRotationY),
-                0,
-                dir.x * Math.sin(cameraRotationY) +
-                    dir.z * Math.cos(cameraRotationY),
-            );
-            const speed = 4; // or customize per-character
-            const horiz = transformedDir.normalize().scale(speed);
-            setVelocity(new Vector3(horiz.x, vel.y, horiz.z));
+        if (isMoving && vel && avatarNode.value) {
+            // Movement relative to capsule's facing via getDirection
+            const node = avatarNode.value;
+            const forward = node.getDirection(Vector3.Forward());
+            const right   = node.getDirection(Vector3.Right());
+            const moveWS  = forward.scale(dir.z).add(right.scale(dir.x)).normalize();
+            const speed   = 4; // customize per-character
+            // preserve vertical velocity
+            setVelocity(moveWS.scale(speed).add(new Vector3(0, vel.y, 0)));
         } else if (vel) {
             setVelocity(new Vector3(0, vel.y, 0));
         }
@@ -550,6 +604,16 @@ onMounted(() => {
                 ),
             );
         }
+        // Debug axes update: position and orient axes to match avatar
+        if (DEBUG_AXES && axesViewer && avatarNode.value) {
+            const node = avatarNode.value;
+            axesViewer.update(
+                node.absolutePosition,
+                node.getDirection(Vector3.Right()),
+                node.getDirection(Vector3.Up()),
+                node.getDirection(Vector3.Forward()),
+            );
+        }
     });
     // Prevent unwanted root motion sliding by resetting root bone position each frame
     rootMotionObserver = props.scene.onBeforeRenderObservable.add(() => {
@@ -576,6 +640,15 @@ onUnmounted(() => {
     // Cleanup Vue watchers
     connectionStatusWatcher && connectionStatusWatcher();
     entityDataWatcher && entityDataWatcher();
+    // Dispose debug viewers
+    if (skeletonViewer) {
+        skeletonViewer.dispose();
+        skeletonViewer = null;
+    }
+    if (axesViewer) {
+        axesViewer.dispose();
+        axesViewer = null;
+    }
     avatarNode.value?.dispose();
     avatarEntity.cleanup();
 });

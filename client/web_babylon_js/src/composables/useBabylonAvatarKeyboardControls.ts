@@ -10,10 +10,12 @@ export function useBabylonAvatarKeyboardControls(scene: Scene | undefined) {
     const keyState = ref({
         forward: false,
         backward: false,
-        left: false,
-        right: false,
+        strafeLeft: false,
+        strafeRight: false,
         jump: false,
         run: false,
+        turnLeft: false,
+        turnRight: false,
     });
 
     // Observer handle for keyboard events
@@ -34,11 +36,11 @@ export function useBabylonAvatarKeyboardControls(scene: Scene | undefined) {
                     break;
                 case "KeyA":
                 case "ArrowLeft":
-                    keyState.value.left = isDown;
+                    keyState.value.strafeLeft = isDown;
                     break;
                 case "KeyD":
                 case "ArrowRight":
-                    keyState.value.right = isDown;
+                    keyState.value.strafeRight = isDown;
                     break;
                 case "Space":
                     keyState.value.jump = isDown;
@@ -46,6 +48,12 @@ export function useBabylonAvatarKeyboardControls(scene: Scene | undefined) {
                 case "ShiftLeft":
                 case "ShiftRight":
                     keyState.value.run = isDown;
+                    break;
+                case "KeyQ":
+                    keyState.value.turnLeft = isDown;
+                    break;
+                case "KeyE":
+                    keyState.value.turnRight = isDown;
                     break;
             }
         });
@@ -56,10 +64,12 @@ export function useBabylonAvatarKeyboardControls(scene: Scene | undefined) {
         const resetKeys = () => {
             keyState.value.forward = false;
             keyState.value.backward = false;
-            keyState.value.left = false;
-            keyState.value.right = false;
+            keyState.value.strafeLeft = false;
+            keyState.value.strafeRight = false;
             keyState.value.jump = false;
             keyState.value.run = false;
+            keyState.value.turnLeft = false;
+            keyState.value.turnRight = false;
         };
 
         watch(focused, (isFocused) => {

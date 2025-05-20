@@ -1,12 +1,11 @@
 import { shallowRef, markRaw, ref, type Ref } from "vue";
 import type {
     Scene,
-    TransformNode,
     AbstractMesh,
     Skeleton,
     AnimationGroup,
 } from "@babylonjs/core";
-import { ImportMeshAsync } from "@babylonjs/core";
+import { ImportMeshAsync, TransformNode } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
 import { useAsset } from "@vircadia/world-sdk/browser/vue";
 
@@ -64,7 +63,7 @@ export function useBabylonAvatarModelLoader(def: AvatarModelDefinition) {
                 skeletons: result.skeletons.map((s) => s.name),
                 animationGroups: result.animationGroups.map((g) => g.name),
             });
-            // Parent imported meshes under the avatar physics node
+            // Parent meshes under the provided parent node
             for (const mesh of result.meshes) {
                 mesh.setParent(parentNode, true);
             }

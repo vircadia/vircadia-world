@@ -47,7 +47,7 @@ export const useAppStore = defineStore("app", {
             debugBoundingBox: true,
             debugSkeleton: true,
             debugAxes: true,
-            moveSpeed: 4,
+            walkSpeed: 1.65,
             turnSpeed: Math.PI,
             blendDuration: 0.15,  // seconds for animation blend transition
             gravity: -9.8,        // gravity acceleration (units per second squared)

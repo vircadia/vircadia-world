@@ -65,7 +65,8 @@ export function useBabylonAvatarModelLoader(def: AvatarModelDefinition) {
             });
             // Parent meshes under the provided parent node
             for (const mesh of result.meshes) {
-                mesh.setParent(parentNode, true);
+                // attach via the parent accessor so the mesh inherits position & rotation
+                mesh.parent = parentNode;
             }
 
             // mark raw and expose

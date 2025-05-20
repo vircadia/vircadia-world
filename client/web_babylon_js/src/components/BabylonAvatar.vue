@@ -34,7 +34,7 @@ import { SkeletonViewer, AxesViewer } from "@babylonjs/core/Debug";
 
 import { z } from "zod";
 
-import { useBabylonAvatarKeyboardControls } from "../composables/useBabylonAvatarKeyboardControls";
+import { useBabylonAvatarKeyboardMouseControls } from "../composables/useBabylonAvatarKeyboardMouseControls";
 import { useBabylonAvatarEntity } from "../composables/useBabylonAvatarEntity";
 import { useBabylonAvatarPhysicsController } from "../composables/useBabylonAvatarPhysicsController";
 import { useBabylonAvatarCameraController } from "../composables/useBabylonAvatarCameraController";
@@ -68,7 +68,7 @@ const {
     debugBoundingBox,
     debugSkeleton,
     debugAxes,
-    moveSpeed,
+    walkSpeed,
     turnSpeed,
     blendDuration,
     gravity,
@@ -138,7 +138,7 @@ const {
     capsuleRadius,
     slopeLimit,
 );
-const { keyState } = useBabylonAvatarKeyboardControls(props.scene);
+const { keyState } = useBabylonAvatarKeyboardMouseControls(props.scene);
 const {
     avatarEntity,
     isRetrieving,
@@ -414,41 +414,6 @@ onMounted(() => {
                             4,
                         );
                     }
-                    // Scale meshes to fit capsule
-                    {
-                        let minVec = new Vector3(
-                            Number.POSITIVE_INFINITY,
-                            Number.POSITIVE_INFINITY,
-                            Number.POSITIVE_INFINITY,
-                        );
-                        let maxVec = new Vector3(
-                            Number.NEGATIVE_INFINITY,
-                            Number.NEGATIVE_INFINITY,
-                            Number.NEGATIVE_INFINITY,
-                        );
-                        for (const mesh of meshes.value) {
-                            // @ts-ignore: mesh is Node instance with getHierarchyBoundingVectors
-                            const { min, max } = (mesh as any).getHierarchyBoundingVectors(true);
-                            minVec = Vector3.Minimize(minVec, min);
-                            maxVec = Vector3.Maximize(maxVec, max);
-                        }
-                        // Compute scale to fit capsule height
-                        const modelHeight = maxVec.y - minVec.y;
-                        const uniformScale = capsuleHeight.value / modelHeight;
-                        // Compute vertical offset so feet (min Y) sit at floor Y=0
-                        const yOffset = -minVec.y * uniformScale;
-                        for (const mesh of meshes.value) {
-                            // @ts-ignore: mesh is Node instance with scaling property
-                            (mesh as any).scaling.set(
-                                uniformScale,
-                                -uniformScale,
-                                uniformScale,
-                            );
-                            // Center X/Z and raise by computed offset
-                            // @ts-ignore: mesh is Node instance with position property
-                            (mesh as any).position.set(0, yOffset, 0);
-                        }
-                    }
 
                     if (avatarSkeleton.value) {
                         // Load animations
@@ -556,7 +521,7 @@ onMounted(() => {
             const forward = avatarNode.value.getDirection(Vector3.Forward());
             const right   = avatarNode.value.getDirection(Vector3.Right());
             const moveWS  = forward.scale(dir.z).add(right.scale(dir.x)).normalize();
-            const speed   = moveSpeed.value; // use store value
+            const speed   = walkSpeed.value; // use store value
             // preserve vertical velocity
             setVelocity(moveWS.scale(speed).add(new Vector3(0, vel.y, 0)));
         } else if (vel) {
@@ -616,7 +581,8 @@ onMounted(() => {
     rootMotionObserver = props.scene.onBeforeRenderObservable.add(() => {
         if (avatarSkeleton.value && avatarSkeleton.value.bones.length > 0) {
             const rootBone = avatarSkeleton.value.bones[0];
-            rootBone.position.set(0, 0, 0);
+            rootBone.position.set(0,0,0);
+            // rootBone.rotationQuaternion?.set(0,0,0,1);
         }
     });
 });

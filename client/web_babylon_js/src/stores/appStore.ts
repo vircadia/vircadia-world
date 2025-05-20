@@ -44,6 +44,13 @@ export const useAppStore = defineStore("app", {
             capsuleRadius: 0.3,
             slopeLimit: 45,
             jumpSpeed: 5,
+            debugBoundingBox: true,
+            debugSkeleton: true,
+            debugAxes: true,
+            moveSpeed: 4,
+            turnSpeed: Math.PI,
+            blendDuration: 0.15,  // seconds for animation blend transition
+            gravity: -9.8,        // gravity acceleration (units per second squared)
             animations: [
                 {
                     fileName: "babylon.avatar.animation.f.idle.1.glb",

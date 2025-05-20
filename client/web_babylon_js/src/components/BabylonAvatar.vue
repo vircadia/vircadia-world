@@ -46,9 +46,7 @@ import type {
 } from "../composables/useBabylonAvatarPhysicsController";
 
 // Debug bounding box, skeleton, and axes
-const DEBUG_BOUNDING_BOX = true;
-const DEBUG_SKELETON = true;
-const DEBUG_AXES = true;
+// removed; now using debug flags from store (debugBoundingBox, debugSkeleton, debugAxes)
 
 // Define component props with defaults
 const props = defineProps({
@@ -67,6 +65,13 @@ const {
     capsuleRadius,
     slopeLimit,
     jumpSpeed,
+    debugBoundingBox,
+    debugSkeleton,
+    debugAxes,
+    moveSpeed,
+    turnSpeed,
+    blendDuration,
+    gravity,
     initialPosition: storePosition,
     initialRotation: storeRotation,
     initialCameraOrientation: storeCameraOrientation,
@@ -181,7 +186,7 @@ const { meshes, skeletons, animationGroups, loadModel } =
 
 // Replace the existing localAnimGroups and animation-related code
 const blendWeight = ref(0); // 0 = idle, 1 = walk
-const blendDuration = 0.15; // seconds for transition between animations
+// removed local blendDuration; using store value for blendDuration
 
 // Initialize and manage blended animations
 let idleAnimation: AnimationGroup | null = null;
@@ -293,7 +298,7 @@ function updateAnimationBlending(isMoving: boolean, dt: number): void {
     }
 
     // Compute weight change based on transition duration
-    const change = dt / blendDuration;
+    const change = dt / blendDuration.value;
     // Move weight toward target
     if (targetWeight > blendWeight.value) {
         blendWeight.value += change;
@@ -470,17 +475,17 @@ onMounted(() => {
                     }
 
                     // Debug mode: show bounding boxes, axes, and skeleton
-                    if (DEBUG_BOUNDING_BOX) {
+                    if (debugBoundingBox.value) {
                         for (const mesh of meshes.value) {
                             // @ts-ignore: mesh is AbstractMesh with showBoundingBox property
                             (mesh as any).showBoundingBox = true;
                         }
                     }
-                    if (DEBUG_AXES && avatarNode.value) {
+                    if (debugAxes.value && avatarNode.value) {
                         // Initialize axes viewer; will update position and orientation each frame
                         axesViewer = new AxesViewer(props.scene, capsuleHeight.value);
                     }
-                    if (DEBUG_SKELETON && avatarSkeleton.value) {
+                    if (debugSkeleton.value && avatarSkeleton.value) {
                         const skinnedMeshes = meshes.value.filter(
                             (m) => m.skeleton === avatarSkeleton.value,
                         );
@@ -527,10 +532,9 @@ onMounted(() => {
         const dt = props.scene.getEngine().getDeltaTime() / 1000;
 
         // Handle rotation input
-        const turnSpeed = Math.PI; // radians per second
         let yawDelta = 0;
-        if (keyState.value.turnLeft)  yawDelta -= turnSpeed * dt;
-        if (keyState.value.turnRight) yawDelta += turnSpeed * dt;
+        if (keyState.value.turnLeft)  yawDelta -= turnSpeed.value * dt;
+        if (keyState.value.turnRight) yawDelta += turnSpeed.value * dt;
         if (yawDelta !== 0) {
             const deltaQ = Quaternion.RotationAxis(Vector3.Up(), yawDelta);
             const currentQ = getOrientation();
@@ -559,7 +563,7 @@ onMounted(() => {
             const forward = node.getDirection(Vector3.Forward());
             const right   = node.getDirection(Vector3.Right());
             const moveWS  = forward.scale(dir.z).add(right.scale(dir.x)).normalize();
-            const speed   = 4; // customize per-character
+            const speed   = moveSpeed.value; // use store value
             // preserve vertical velocity
             setVelocity(moveWS.scale(speed).add(new Vector3(0, vel.y, 0)));
         } else if (vel) {
@@ -583,7 +587,7 @@ onMounted(() => {
         // Apply manual gravity to vertical velocity
         const velAfter = getVelocity();
         if (velAfter) {
-            velAfter.y += -9.8 * dt;
+            velAfter.y += gravity.value * dt;
             setVelocity(velAfter);
         }
         // Integrate physics and sync transforms
@@ -605,7 +609,7 @@ onMounted(() => {
             );
         }
         // Debug axes update: position and orient axes to match avatar
-        if (DEBUG_AXES && axesViewer && avatarNode.value) {
+        if (debugAxes.value && axesViewer && avatarNode.value) {
             const node = avatarNode.value;
             axesViewer.update(
                 node.absolutePosition,

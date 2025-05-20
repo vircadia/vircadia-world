@@ -66,6 +66,7 @@ import {
     PhysicsShapeType,
     HavokPlugin,
 } from "@babylonjs/core";
+
 import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
 
 // Get Vircadia context once in setup
@@ -115,27 +116,24 @@ const initializePhysics = async (
     }
 };
 
-const loadInspector = async (scene: Scene): Promise<void> => {
-    if (import.meta.env.DEV) {
-        await import("@babylonjs/inspector");
-        scene.debugLayer.show({ embedMode: true });
-        return;
-    }
-    console.warn("Inspector is only available in development mode");
-};
-
-const hideInspector = (scene: Scene): void => {
-    scene.debugLayer.hide();
-};
-
 // Add function to toggle the inspector
 const toggleInspector = async (): Promise<void> => {
     if (!scene) return;
+
     if (!isInspectorVisible.value) {
-        await loadInspector(scene);
-        isInspectorVisible.value = true;
+        if (import.meta.env.DEV) {
+            // Dynamically load debug layer and inspector modules
+            await Promise.all([
+                import("@babylonjs/core/Debug/debugLayer"),
+                import("@babylonjs/inspector"),
+            ]);
+            scene.debugLayer.show({ embedMode: true });
+            isInspectorVisible.value = true;
+        } else {
+            console.warn("Inspector is only available in development mode");
+        }
     } else {
-        hideInspector(scene);
+        scene.debugLayer.hide();
         isInspectorVisible.value = false;
     }
 };

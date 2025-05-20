@@ -4,9 +4,9 @@
     "": {
       "name": "vircadia-world-cli",
       "dependencies": {
-        "@babylonjs/core": "8.8.1",
-        "@babylonjs/inspector": "8.8.1",
-        "@babylonjs/loaders": "8.8.1",
+        "@babylonjs/core": "8.8.5",
+        "@babylonjs/inspector": "8.8.5",
+        "@babylonjs/loaders": "8.8.5",
         "jsonwebtoken": "^9.0.2",
         "postgres": "^3.4.5",
         "zod": "^3.24.3",
@@ -22,15 +22,15 @@
     },
   },
   "packages": {
-    "@babylonjs/core": ["@babylonjs/core@8.8.1", "", {}, "sha512-Atgm6bBoeQffJsOREVSLwHAZv0mELjUnHCvwgdpR4sF+fpmDfeIFQNZZeIXQ9iL+YzHjYbs1SfvN4LFPP+CKTA=="],
+    "@babylonjs/core": ["@babylonjs/core@8.8.5", "", {}, "sha512-IrOwzSrE/9WfkgDwhdR4AET7Z1+ftJCZW5sPIdUJFBLT2n6M0Gc3aOyTunwGObDsGbRUZFdZTR+S2rI/YEKfdw=="],
 
     "@babylonjs/gui": ["@babylonjs/gui@8.6.1", "", { "peerDependencies": { "@babylonjs/core": "^8.0.0" } }, "sha512-LuOY5if9jajfSdfjmeaRCFzYQIto6q7AeS6CH/HnOuY7ZAPTx2ITrFGB1sB3DevvLdpPbG4zmpwR5Zf3d1rGhQ=="],
 
     "@babylonjs/gui-editor": ["@babylonjs/gui-editor@8.6.1", "", { "peerDependencies": { "@babylonjs/core": "^8.0.0", "@babylonjs/gui": "^8.0.0", "@types/react": ">=16.7.3", "@types/react-dom": ">=16.0.9" } }, "sha512-de082M6qgWFw+lhPdBZtiHNT2m6H+MkUcKMbKKPKExf4yw2Zgidc+IxuFmhYrVx9/dnzI7+FUcdIiQ4R5ajmbw=="],
 
-    "@babylonjs/inspector": ["@babylonjs/inspector@8.8.1", "", { "dependencies": { "@fortawesome/fontawesome-svg-core": "^6.1.0", "@fortawesome/free-regular-svg-icons": "^6.0.0", "@fortawesome/free-solid-svg-icons": "^6.0.0" }, "peerDependencies": { "@babylonjs/core": "^8.0.0", "@babylonjs/gui": "^8.0.0", "@babylonjs/gui-editor": "^8.0.0", "@babylonjs/loaders": "^8.0.0", "@babylonjs/materials": "^8.0.0", "@babylonjs/serializers": "^8.0.0", "@types/react": ">=16.7.3", "@types/react-dom": ">=16.0.9" } }, "sha512-MNEuA/rDXwP6SDDuq2DeBeMwU2kYJ/WhcGzFfl5AJ2E+BxuUs/II2fyegsch26/3vykYknUeZdudglQFX3wfNQ=="],
+    "@babylonjs/inspector": ["@babylonjs/inspector@8.8.5", "", { "dependencies": { "@fortawesome/fontawesome-svg-core": "^6.1.0", "@fortawesome/free-regular-svg-icons": "^6.0.0", "@fortawesome/free-solid-svg-icons": "^6.0.0" }, "peerDependencies": { "@babylonjs/core": "^8.0.0", "@babylonjs/gui": "^8.0.0", "@babylonjs/gui-editor": "^8.0.0", "@babylonjs/loaders": "^8.0.0", "@babylonjs/materials": "^8.0.0", "@babylonjs/serializers": "^8.0.0", "@types/react": ">=16.7.3", "@types/react-dom": ">=16.0.9" } }, "sha512-r0RKeu1Xh/622TyIZTE4g86iXriyhQFiQeZ5Ffh11JxQ2ZOerEm99PmylwXpVutLTHNX6xhMhTHoZO7gUGdQ4Q=="],
 
-    "@babylonjs/loaders": ["@babylonjs/loaders@8.8.1", "", { "peerDependencies": { "@babylonjs/core": "^8.0.0", "babylonjs-gltf2interface": "^8.0.0" } }, "sha512-JxJ854qsgDiZgbuVwIs6k5PpXlaKRIaZ6fTEZec0zz3QSuis48IKcsthryoy6bVHtMn04s5Vemu7Df8YNfkQzQ=="],
+    "@babylonjs/loaders": ["@babylonjs/loaders@8.8.5", "", { "peerDependencies": { "@babylonjs/core": "^8.0.0", "babylonjs-gltf2interface": "^8.0.0" } }, "sha512-LMiM9+RNf3I3u2XhEUiwB6vwt2QiSXPw0IHqQezVzJu+Ezek86QBEihlsfuVWAJScvJUyHry+en7EL9UmPRgqA=="],
 
     "@babylonjs/materials": ["@babylonjs/materials@8.6.1", "", { "peerDependencies": { "@babylonjs/core": "^8.0.0" } }, "sha512-uq/agEd0ArINlCX3JB5CNAb77AZT5DYuoR4e3QM8OtxcmZKNTNGJl7co4Hf6hWScNwqoq4EGtvMmgbt/ul95OQ=="],
 

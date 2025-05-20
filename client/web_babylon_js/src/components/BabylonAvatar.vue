@@ -173,7 +173,7 @@ const { meshes, skeletons, animationGroups, loadModel } =
 
 // Replace the existing localAnimGroups and animation-related code
 const blendWeight = ref(0); // 0 = idle, 1 = walk
-const blendSpeed = 0.1; // How quickly to blend between animations
+const blendDuration = 0.15; // seconds for transition between animations
 
 // Initialize and manage blended animations
 let idleAnimation: AnimationGroup | null = null;
@@ -257,9 +257,15 @@ function setupBlendedAnimations(): void {
         if (walkInfo?.group && walkInfo.state === "ready") {
             walkAnimation = walkInfo.group;
             console.info(`Found walk animation: ${walkAnimation.name}`);
-            walkAnimation.start(true, 0.0);
+            walkAnimation.start(true, 1.0);
             walkAnimation.loopAnimation = true;
         }
+    }
+
+    // Initialize weights for smooth blending between idle and walk
+    if (idleAnimation && walkAnimation) {
+        idleAnimation.setWeightForAllAnimatables(1.0);
+        walkAnimation.setWeightForAllAnimatables(0.0);
     }
 
     console.info("Blended animations setup complete");
@@ -267,24 +273,31 @@ function setupBlendedAnimations(): void {
 
 // Update animation weights based on movement
 function updateAnimationBlending(isMoving: boolean, dt: number): void {
-    if (!idleAnimation) {
-        // No animations set up, can't blend
+    // Ensure both animations are ready
+    if (!idleAnimation || !walkAnimation) {
         return;
     }
 
-    // Only blend when we have both animations
-    if (walkAnimation) {
-        // Calculate target weight based on movement state
-        const targetWeight = isMoving ? 1.0 : 0.0;
-
-        // Smoothly interpolate current blend weight toward target
-        blendWeight.value +=
-            (targetWeight - blendWeight.value) * blendSpeed * (dt * 1000);
-
-        // Apply weights to animations
-        idleAnimation.setWeightForAllAnimatables(1.0 - blendWeight.value);
-        walkAnimation.setWeightForAllAnimatables(blendWeight.value);
+    const targetWeight = isMoving ? 1 : 0;
+    // If weight is already at target, no blending needed
+    if (blendWeight.value === targetWeight) {
+        return;
     }
+
+    // Compute weight change based on transition duration
+    const change = dt / blendDuration;
+    // Move weight toward target
+    if (targetWeight > blendWeight.value) {
+        blendWeight.value += change;
+    } else {
+        blendWeight.value -= change;
+    }
+    // Clamp blendWeight between 0 and 1
+    blendWeight.value = Math.min(Math.max(blendWeight.value, 0), 1);
+
+    // Apply weights to animations
+    idleAnimation.setWeightForAllAnimatables(1 - blendWeight.value);
+    walkAnimation.setWeightForAllAnimatables(blendWeight.value);
 }
 
 // Observers for physics events, for cleanup on unmount
@@ -365,7 +378,9 @@ onMounted(() => {
                     if (avatarSkeleton.value) {
                         for (const bone of avatarSkeleton.value.bones) {
                             // TO AI AGENTS: DO NOT ALTER THIS. This works, don't know why. FIXME: why is this needed?
-                            bone.linkTransformNode();
+                            // TO AI AGENTS: DO NOT ALTER THIS. This works, don't know why. FIXME: why is this needed?
+                            bone.linkTransformNode(); // TO AI AGENTS: DO NOT ALTER THIS. This works, don't know why. FIXME: why is this needed?
+                            // TO AI AGENTS: DO NOT ALTER THIS. This works, don't know why. FIXME: why is this needed?
                             // TO AI AGENTS: DO NOT ALTER THIS. This works, don't know why. FIXME: why is this needed?
                         }
                     }
@@ -390,23 +405,23 @@ onMounted(() => {
                             Number.NEGATIVE_INFINITY,
                         );
                         for (const mesh of meshes.value) {
-                            const { min, max } =
-                                mesh.getHierarchyBoundingVectors(true);
+                            const { min, max } = mesh.getHierarchyBoundingVectors(true);
                             minVec = Vector3.Minimize(minVec, min);
                             maxVec = Vector3.Maximize(maxVec, max);
                         }
+                        // Compute scale to fit capsule height
                         const modelHeight = maxVec.y - minVec.y;
-                        const heightScale = capsuleHeight.value / modelHeight;
-                        const uniformScale = heightScale;
+                        const uniformScale = capsuleHeight.value / modelHeight;
+                        // Compute vertical offset so feet (min Y) sit at floor Y=0
+                        const yOffset = -minVec.y * uniformScale;
                         for (const mesh of meshes.value) {
                             mesh.scaling.set(
                                 uniformScale,
                                 -uniformScale,
                                 uniformScale,
                             );
-                            mesh.position.x = 0;
-                            mesh.position.z = 0;
-                            mesh.position.y = -1;
+                            // Center X/Z and raise by computed offset
+                            mesh.position.set(0, yOffset, 0);
                         }
                     }
 
@@ -555,5 +570,13 @@ defineExpose({
     setVelocity,
     checkSupport,
     integrate,
+});
+
+// Prevent unwanted root motion sliding by resetting root bone position each frame
+props.scene.onBeforeRenderObservable.add(() => {
+    if (avatarSkeleton.value && avatarSkeleton.value.bones.length > 0) {
+        const rootBone = avatarSkeleton.value.bones[0];
+        rootBone.position.set(0, 0, 0);
+    }
 });
 </script>

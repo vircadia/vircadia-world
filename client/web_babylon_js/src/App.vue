@@ -64,8 +64,9 @@ import {
     Color3,
     PhysicsAggregate,
     PhysicsShapeType,
-    HavokPlugin,
+    HavokPlugin
 } from "@babylonjs/core";
+import { Inspector } from "@babylonjs/inspector";
 
 import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
 
@@ -122,18 +123,13 @@ const toggleInspector = async (): Promise<void> => {
 
     if (!isInspectorVisible.value) {
         if (import.meta.env.DEV) {
-            // Dynamically load debug layer and inspector modules
-            await Promise.all([
-                import("@babylonjs/core/Debug/debugLayer"),
-                import("@babylonjs/inspector"),
-            ]);
-            scene.debugLayer.show({ embedMode: true });
+            Inspector.Show(scene, { embedMode: true });
             isInspectorVisible.value = true;
         } else {
             console.warn("Inspector is only available in development mode");
         }
     } else {
-        scene.debugLayer.hide();
+        Inspector.Hide();
         isInspectorVisible.value = false;
     }
 };

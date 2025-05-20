@@ -163,9 +163,10 @@ const {
             const p = getPosition();
             return p ? vectorToObj(p) : initialPosition.value;
         })(),
-        rotation: characterController.value
-            ? quatToObj(getOrientation())
-            : initialRotation.value,
+        rotation: (() => {
+            const q = getOrientation();
+            return q ? quatToObj(q) : initialRotation.value;
+        })(),
         cameraOrientation: cameraOrientation.value,
     }),
 );
@@ -385,17 +386,6 @@ onMounted(() => {
                         avatarNode.value as TransformNode,
                     );
 
-                    // Apply flip pivot so the model faces +Z
-                    const modelPivot = new TransformNode("avatarModelPivot", props.scene);
-                    // @ts-ignore: avatarNode.value is a Node instance
-                    modelPivot.parent = avatarNode.value;
-                    modelPivot.rotationQuaternion = Quaternion.RotationYawPitchRoll(Math.PI, 0, 0);
-                    // Reparent meshes under the pivot
-                    for (const mesh of meshes.value) {
-                        // @ts-ignore: ensure mesh is treated as a Node instance
-                        (mesh as any).setParent(modelPivot, true);
-                    }
-
                     // Find and store skeleton for animation retargeting
                     if (skeletons.value.length > 0) {
                         avatarSkeleton.value = skeletons.value[0];
@@ -538,6 +528,10 @@ onMounted(() => {
         if (yawDelta !== 0) {
             const deltaQ = Quaternion.RotationAxis(Vector3.Up(), yawDelta);
             const currentQ = getOrientation();
+            if (!currentQ) {
+                console.error("No current orientation found.");
+                return;
+            }
             setOrientation(currentQ.multiply(deltaQ));
         }
 
@@ -559,9 +553,8 @@ onMounted(() => {
         const vel = getVelocity();
         if (isMoving && vel && avatarNode.value) {
             // Movement relative to capsule's facing via getDirection
-            const node = avatarNode.value;
-            const forward = node.getDirection(Vector3.Forward());
-            const right   = node.getDirection(Vector3.Right());
+            const forward = avatarNode.value.getDirection(Vector3.Forward());
+            const right   = avatarNode.value.getDirection(Vector3.Right());
             const moveWS  = forward.scale(dir.z).add(right.scale(dir.x)).normalize();
             const speed   = moveSpeed.value; // use store value
             // preserve vertical velocity

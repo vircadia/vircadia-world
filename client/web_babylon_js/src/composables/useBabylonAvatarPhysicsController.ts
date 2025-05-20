@@ -32,13 +32,12 @@ export function useBabylonAvatarPhysicsController(
 ) {
     const avatarNode = ref<TransformNode | null>(null);
     const characterController = ref<PhysicsCharacterController | null>(null);
-    const characterOrientation = ref(Quaternion.Identity());
 
     /**
      * Create the visual capsule and physics controller
      */
     function createController() {
-        if (!scene || !scene.physicsEnabled) return;
+        if (!scene) return;
 
         // Create visual capsule
         const capsule = MeshBuilder.CreateCapsule(
@@ -64,14 +63,12 @@ export function useBabylonAvatarPhysicsController(
             initialPosition.value.y,
             initialPosition.value.z,
         );
-        characterOrientation.value = new Quaternion(
+        avatarNode.value.rotationQuaternion = new Quaternion(
             initialRotation.value.x,
             initialRotation.value.y,
             initialRotation.value.z,
             initialRotation.value.w,
         );
-        avatarNode.value.rotationQuaternion =
-            characterOrientation.value.clone();
 
         // Create the physics character controller
         characterController.value = new PhysicsCharacterController(
@@ -101,8 +98,6 @@ export function useBabylonAvatarPhysicsController(
         if (pos) {
             avatarNode.value.position = pos.clone();
         }
-        avatarNode.value.rotationQuaternion =
-            characterOrientation.value.clone();
     }
 
     // Low-level primitives
@@ -116,11 +111,10 @@ export function useBabylonAvatarPhysicsController(
         node.position = pos.clone();
         controller.setPosition(pos.clone());
     }
-    function getOrientation(): Quaternion {
-        return characterOrientation.value.clone();
+    function getOrientation(): Quaternion | undefined {
+        return avatarNode.value?.rotationQuaternion?.clone();
     }
     function setOrientation(q: Quaternion) {
-        characterOrientation.value = q.clone();
         if (avatarNode.value) {
             avatarNode.value.rotationQuaternion = q.clone();
         }

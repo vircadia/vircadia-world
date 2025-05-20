@@ -1,7 +1,6 @@
 import { ref, type Ref } from "vue";
 import { PhysicsAggregate, PhysicsShapeType, Vector3 } from "@babylonjs/core";
 import type { Scene, AbstractMesh } from "@babylonjs/core";
-import { CannonJSPlugin } from "@babylonjs/core/Physics/Plugins/cannonJSPlugin";
 import type { BabylonModelDefinition } from "./types";
 
 // Composable for applying/removing physics to a Babylon model
@@ -27,11 +26,6 @@ export function useBabylonModelPhysics(
             return;
         }
 
-        // Initialize physics engine on scene if not already
-        if (!scene.isPhysicsEnabled) {
-            console.log("Initializing physics engine on scene");
-            scene.enablePhysics(new Vector3(0, -9.8, 0), new CannonJSPlugin());
-        }
         // Clean up any existing physics
         removePhysics();
 

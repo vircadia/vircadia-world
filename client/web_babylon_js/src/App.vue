@@ -17,6 +17,7 @@
                 <BabylonAvatar
                     :scene="scene"
                     @ready="startRenderLoop"
+                    @dispose="stopRenderLoop"
                     ref="avatarRef"
                 />
 
@@ -145,6 +146,13 @@ const startRenderLoop = () => {
 
     console.log("Starting render loop after avatar is ready");
     engine.runRenderLoop(() => scene?.render());
+};
+
+// Stop the render loop when the avatar unmounts
+const stopRenderLoop = () => {
+    if (!engine || !scene) return;
+    console.log("Stopping render loop before avatar unmount");
+    engine.stopRenderLoop();
 };
 
 // Keyboard event handler for inspector toggle

@@ -8,6 +8,7 @@ import {
     onMounted,
     onUnmounted,
     watch,
+    type WatchStopHandle,
     inject,
     toRefs,
     type Ref,
@@ -47,7 +48,7 @@ const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
 });
 
-const emit = defineEmits<{ ready: [] }>();
+const emit = defineEmits<{ ready: []; dispose: [] }>();
 
 // Load avatar configuration from global store
 const appStore = useAppStore();
@@ -300,21 +301,26 @@ function updateAnimationBlending(isMoving: boolean, dt: number): void {
     walkAnimation.setWeightForAllAnimatables(blendWeight.value);
 }
 
-// Observers for physics events, for cleanup on unmount
+// Observers and watcher cleanup handles
 let beforePhysicsObserver: Observer<Scene> | null = null;
 let afterPhysicsObserver: Observer<Scene> | null = null;
+let rootMotionObserver: Observer<Scene> | null = null;
+let connectionStatusWatcher: WatchStopHandle | null = null;
+let entityDataWatcher: WatchStopHandle | null = null;
 
 // Lifecycle hooks
 onMounted(() => {
     const retrieveAvatar = () => avatarEntity.executeRetrieve();
+    // Watch for connection established
     if (vircadiaWorld.connectionInfo.value.status === "connected") {
         retrieveAvatar();
     } else {
-        watch(
+        connectionStatusWatcher = watch(
             () => vircadiaWorld.connectionInfo.value.status,
             (status) => {
                 if (status === "connected") {
                     retrieveAvatar();
+                    connectionStatusWatcher && connectionStatusWatcher();
                 }
             },
         );
@@ -340,7 +346,8 @@ onMounted(() => {
         { immediate: false },
     );
 
-    watch(
+    // Watch for entity data changes
+    entityDataWatcher = watch(
         () => avatarEntity.entityData.value,
         async (data) => {
             const meta = data?.meta__data;
@@ -439,13 +446,14 @@ onMounted(() => {
                         );
                     }
 
+                    // Ensure camera is set up before starting the render loop
+                    setupCamera();
                     emit("ready");
                 } else {
                     console.warn(
                         "Avatar node not initialized, skipping model load",
                     );
                 }
-                setupCamera();
             } else if (meta && characterController.value) {
                 // Remote update, apply if present
                 if (meta.position) {
@@ -543,15 +551,31 @@ onMounted(() => {
             );
         }
     });
+    // Prevent unwanted root motion sliding by resetting root bone position each frame
+    rootMotionObserver = props.scene.onBeforeRenderObservable.add(() => {
+        if (avatarSkeleton.value && avatarSkeleton.value.bones.length > 0) {
+            const rootBone = avatarSkeleton.value.bones[0];
+            rootBone.position.set(0, 0, 0);
+        }
+    });
 });
 
 onUnmounted(() => {
+    emit('dispose');
     if (beforePhysicsObserver) {
         props.scene.onBeforePhysicsObservable.remove(beforePhysicsObserver);
     }
     if (afterPhysicsObserver) {
         props.scene.onAfterPhysicsObservable.remove(afterPhysicsObserver);
     }
+    
+
+    if (rootMotionObserver) {
+        props.scene.onBeforeRenderObservable.remove(rootMotionObserver);
+    }
+    // Cleanup Vue watchers
+    connectionStatusWatcher && connectionStatusWatcher();
+    entityDataWatcher && entityDataWatcher();
     avatarNode.value?.dispose();
     avatarEntity.cleanup();
 });
@@ -570,13 +594,5 @@ defineExpose({
     setVelocity,
     checkSupport,
     integrate,
-});
-
-// Prevent unwanted root motion sliding by resetting root bone position each frame
-props.scene.onBeforeRenderObservable.add(() => {
-    if (avatarSkeleton.value && avatarSkeleton.value.bones.length > 0) {
-        const rootBone = avatarSkeleton.value.bones[0];
-        rootBone.position.set(0, 0, 0);
-    }
 });
 </script>

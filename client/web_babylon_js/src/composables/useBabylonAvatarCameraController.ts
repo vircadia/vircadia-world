@@ -1,5 +1,5 @@
 import { ref, onUnmounted, type Ref } from "vue";
-import type { Scene } from "@babylonjs/core";
+import type { Scene, Observer, Camera } from "@babylonjs/core";
 import { ArcRotateCamera, Vector3 } from "@babylonjs/core";
 
 // Camera orientation shape
@@ -20,6 +20,7 @@ export function useBabylonAvatarCameraController(
     throttledUpdate: () => void,
 ) {
     const camera = ref<ArcRotateCamera | null>(null);
+    let viewMatrixObserver: Observer<Camera> | null = null;
 
     // Create and attach the camera
     function setupCamera() {
@@ -40,7 +41,7 @@ export function useBabylonAvatarCameraController(
         camera.value = cam;
         cam.attachControl(scene.getEngine().getRenderingCanvas(), true);
         scene.activeCamera = cam;
-        cam.onViewMatrixChangedObservable.add(() => {
+        viewMatrixObserver = cam.onViewMatrixChangedObservable.add(() => {
             cameraOrientation.value = {
                 alpha: cam.alpha,
                 beta: cam.beta,
@@ -71,6 +72,10 @@ export function useBabylonAvatarCameraController(
 
     // Clean up on unmount
     onUnmounted(() => {
+        if (viewMatrixObserver && camera.value) {
+            camera.value.onViewMatrixChangedObservable.remove(viewMatrixObserver);
+            viewMatrixObserver = null;
+        }
         camera.value?.dispose();
     });
 

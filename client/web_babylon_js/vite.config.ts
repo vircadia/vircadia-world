@@ -44,6 +44,7 @@ export default defineConfig(({ command }) => {
         },
         optimizeDeps: {
             exclude: [
+                "@babylonjs/core",
                 "@babylonjs/havok",
                 "@babylonjs/core/Shaders/default.vertex",
                 "@babylonjs/core/Shaders/default.fragment",

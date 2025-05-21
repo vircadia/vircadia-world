@@ -32,6 +32,22 @@
                 <TestAvatar :scene="scene" />
             </template>
         </main>
+        <!-- WebRTC Test launcher -->
+        <v-btn style="position: fixed; top: 10px; right: 10px;" fab color="primary" @click="webrtcDialog = true">
+            WebRTC
+        </v-btn>
+        <v-dialog v-model="webrtcDialog" max-width="400">
+            <v-card>
+                <v-card-title>WebRTC Test</v-card-title>
+                <v-card-text>
+                    <WebRTCTest />
+                </v-card-text>
+                <v-card-actions>
+                    <v-spacer />
+                    <v-btn text @click="webrtcDialog = false">Close</v-btn>
+                </v-card-actions>
+            </v-card>
+        </v-dialog>
     </v-app>
 </template>
 
@@ -44,12 +60,16 @@ import BabylonAvatar from "./components/BabylonAvatar.vue";
 import BabylonModel from "./components/BabylonModel.vue";
 // @ts-ignore: used in template
 import TestAvatar from "./components/TestAvatar.vue";
+// @ts-ignore: used in template
+import WebRTCTest from "./components/WebRTCTest.vue";
 // mark as used at runtime for template
 void BabylonAvatar;
 // mark as used at runtime for template
 void BabylonModel;
 // mark as used at runtime for template
 void TestAvatar;
+// mark as used at runtime for template
+void WebRTCTest;
 import { useBabylonEnvironment } from "./composables/useBabylonEnvironment";
 import { useAppStore } from "@/stores/appStore";
 // BabylonJS
@@ -64,7 +84,7 @@ import {
     Color3,
     PhysicsAggregate,
     PhysicsShapeType,
-    HavokPlugin
+    HavokPlugin,
 } from "@babylonjs/core";
 import { Inspector } from "@babylonjs/inspector";
 
@@ -201,6 +221,9 @@ const snackbarText = computed(() => {
     }
     return "";
 });
+
+// State for WebRTC dialog
+const webrtcDialog = ref(false);
 
 // Initialize BabylonJS
 const initializeBabylon = async () => {

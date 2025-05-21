@@ -5,7 +5,7 @@ import type {
     Skeleton,
     AnimationGroup,
 } from "@babylonjs/core";
-import { ImportMeshAsync, TransformNode } from "@babylonjs/core";
+import { ImportMeshAsync } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
 import { useAsset } from "@vircadia/world-sdk/browser/vue";
 
@@ -32,9 +32,9 @@ export function useBabylonAvatarModelLoader(def: AvatarModelDefinition) {
     });
 
     /**
-     * Load the model into the given scene and parent under parentNode
+     * Load the model into the given scene
      */
-    async function loadModel(scene: Scene, parentNode: TransformNode) {
+    async function loadModel(scene: Scene) {
         // fetch the blob URL via useAsset
         await asset.executeLoad();
         const assetData = asset.assetData.value;
@@ -63,13 +63,7 @@ export function useBabylonAvatarModelLoader(def: AvatarModelDefinition) {
                 skeletons: result.skeletons.map((s) => s.name),
                 animationGroups: result.animationGroups.map((g) => g.name),
             });
-            // Parent meshes under the provided parent node
-            for (const mesh of result.meshes) {
-                // attach via the parent accessor so the mesh inherits position & rotation
-                mesh.parent = parentNode;
-            }
-
-            // mark raw and expose
+            // Removed parenting logic: composable only loads meshes; parenting to be handled externally
             meshes.value = result.meshes.map((m) => markRaw(m));
             skeletons.value = result.skeletons.map((s) => markRaw(s));
             animationGroups.value = result.animationGroups.map((g) =>

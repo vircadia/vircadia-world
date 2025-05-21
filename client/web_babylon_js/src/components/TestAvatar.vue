@@ -171,5 +171,15 @@ onMounted(async () => {
             originalModelSkeleton.name,
         );
     }
+
+    // Move avatar back and forth slowly
+    const amplitude = 2; // distance in units
+    const speed = Math.PI / 4; // radians per second
+    let elapsedTime = 0;
+    props.scene.onBeforeRenderObservable.add(() => {
+        const deltaTime = props.scene.getEngine().getDeltaTime() / 1000;
+        elapsedTime += deltaTime;
+        root.position.x = Math.sin(elapsedTime * speed) * amplitude;
+    });
 });
 </script> 

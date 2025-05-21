@@ -72,6 +72,7 @@ const {
     turnSpeed,
     blendDuration,
     gravity,
+    meshPivotPoint,
     initialPosition: storePosition,
     initialRotation: storeRotation,
     initialCameraOrientation: storeCameraOrientation,
@@ -228,11 +229,11 @@ function setupBlendedAnimations(): void {
 
     // Look for idle and walk animations in successfully loaded animations
     const idleFileName = animations.value.find((anim) =>
-        anim.fileName.toLowerCase().includes("idle"),
+        anim.fileName.toLowerCase().includes("idle.1.glb"),
     )?.fileName;
 
     const walkFileName = animations.value.find((anim) =>
-        anim.fileName.toLowerCase().includes("walk"),
+        anim.fileName.toLowerCase().includes("walk.1.glb"),
     )?.fileName;
 
     if (
@@ -241,7 +242,20 @@ function setupBlendedAnimations(): void {
     ) {
         const animInfo = animationsMap.value.get(idleFileName);
         if (animInfo?.group && animInfo.state === "ready") {
-            idleAnimation = animInfo.group;
+            // Retarget idle animation to model skeleton via clone
+            const originalIdleGroup = animInfo.group;
+            const modelTransforms = meshes.value.flatMap((m) => m.getChildTransformNodes(false));
+            const retargetedIdle = originalIdleGroup.clone(
+                `${originalIdleGroup.name}-retargeted`,
+                (oldTarget) => {
+                    const target = modelTransforms.find((node) => node.name === oldTarget.name);
+                    if (!target) {
+                        console.warn(`[BabylonAvatar] No retarget target for ${oldTarget.name}`);
+                    }
+                    return target;
+                }
+            );
+            idleAnimation = retargetedIdle;
             console.info(`Found idle animation: ${idleAnimation.name}`);
             idleAnimation.start(true, 1.0);
             idleAnimation.loopAnimation = true;
@@ -269,7 +283,20 @@ function setupBlendedAnimations(): void {
     ) {
         const walkInfo = animationsMap.value.get(walkFileName);
         if (walkInfo?.group && walkInfo.state === "ready") {
-            walkAnimation = walkInfo.group;
+            // Retarget walk animation to model skeleton via clone
+            const originalWalkGroup = walkInfo.group;
+            const modelTransformsWalk = meshes.value.flatMap((m) => m.getChildTransformNodes(false));
+            const retargetedWalk = originalWalkGroup.clone(
+                `${originalWalkGroup.name}-retargeted`,
+                (oldTarget) => {
+                    const target = modelTransformsWalk.find((node) => node.name === oldTarget.name);
+                    if (!target) {
+                        console.warn(`[BabylonAvatar] No retarget target for ${oldTarget.name}`);
+                    }
+                    return target;
+                }
+            );
+            walkAnimation = retargetedWalk;
             console.info(`Found walk animation: ${walkAnimation.name}`);
             walkAnimation.start(true, 1.0);
             walkAnimation.loopAnimation = true;
@@ -367,6 +394,7 @@ onMounted(() => {
         async (data) => {
             const meta = data?.meta__data;
             if (meta && !characterController.value) {
+                console.info("Loading avatar model...");
                 // First create, use defaults when missing
                 if (meta.position) {
                     initialPosition.value = meta.position;
@@ -381,10 +409,16 @@ onMounted(() => {
                 createController();
                 // load and parent the avatar mesh under the physics root
                 if (avatarNode.value) {
-                    await loadModel(
-                        props.scene,
-                        avatarNode.value as TransformNode,
-                    );
+                    await loadModel(props.scene);
+
+                    // Parent only top-level meshes under avatarNode to preserve hierarchy
+                    const rootMeshes = meshes.value.filter((m) => !m.parent);
+                    for (const mesh of rootMeshes) {
+                        if (meshPivotPoint.value === "bottom") {
+                            mesh.position.y = -capsuleHeight.value/2;
+                        }
+                        mesh.parent = avatarNode.value as TransformNode;
+                    }
 
                     // Find and store skeleton for animation retargeting
                     if (skeletons.value.length > 0) {
@@ -396,26 +430,14 @@ onMounted(() => {
                         avatarSkeleton.value = skeletonMesh?.skeleton || null;
                     }
 
-                    // Parent skeleton bones to avatarNode
                     if (avatarSkeleton.value) {
-                        for (const bone of avatarSkeleton.value.bones) {
-                            // @ts-ignore: suppress TS error about missing argument to linkTransformNode
-                            bone.linkTransformNode(); // TO AI AGENTS: DO NOT ALTER THIS. This works, don't know why. FIXME: why is this needed?
-                            // TO AI AGENTS: DO NOT ALTER THIS. This works, don't know why. FIXME: why is this needed?
-                            // TO AI AGENTS: DO NOT ALTER THIS. This works, don't know why. FIXME: why is this needed?
+                        // Ensure skinned meshes have enough bone influencers
+                        for (const mesh of meshes.value.filter((m) => m.skeleton)) {
+                            (mesh as any).numBoneInfluencers = Math.max(
+                                (mesh as any).numBoneInfluencers,
+                                4,
+                            );
                         }
-                    }
-
-                    // Ensure skinned meshes have enough bone influencers
-                    for (const mesh of meshes.value.filter((m) => m.skeleton)) {
-                        // @ts-ignore: mesh is AbstractMesh with numBoneInfluencers property
-                        (mesh as any).numBoneInfluencers = Math.max(
-                            (mesh as any).numBoneInfluencers,
-                            4,
-                        );
-                    }
-
-                    if (avatarSkeleton.value) {
                         // Load animations
                         console.info("Loading animations...");
                         await loadAnimations();
@@ -581,7 +603,7 @@ onMounted(() => {
     rootMotionObserver = props.scene.onBeforeRenderObservable.add(() => {
         if (avatarSkeleton.value && avatarSkeleton.value.bones.length > 0) {
             const rootBone = avatarSkeleton.value.bones[0];
-            rootBone.position.set(0,0,0);
+            // rootBone.position.set(0,0,0);
             // rootBone.rotationQuaternion?.set(0,0,0,1);
         }
     });

@@ -32,7 +32,7 @@ export const useAppStore = defineStore("app", {
         avatarDefinition: {
             entityName: "babylon.avatar.glb",
             modelFileName: "babylon.avatar.glb",
-            initialPosition: { x: 0, y: 1, z: -5 },
+            initialPosition: { x: 0, y: 0, z: -5 },
             initialRotation: { x: 0, y: 0, z: 0, w: 1 },
             initialCameraOrientation: {
                 alpha: -Math.PI / 2,
@@ -50,8 +50,8 @@ export const useAppStore = defineStore("app", {
             debugAxes: false,
             walkSpeed: 1.47,
             turnSpeed: Math.PI,
-            blendDuration: 0.15,  // seconds for animation blend transition
-            gravity: -9.8,        // gravity acceleration (units per second squared)
+            blendDuration: 0.15, // seconds for animation blend transition
+            gravity: -9.8, // gravity acceleration (units per second squared)
             animations: [
                 {
                     fileName: "babylon.avatar.animation.f.idle.1.glb",

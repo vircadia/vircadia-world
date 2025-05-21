@@ -23,7 +23,7 @@ import {
     CharacterSupportedState,
     type AnimationGroup,
     type Scene,
-    TransformNode,
+    type TransformNode,
     type Observer,
     type Skeleton,
 } from "@babylonjs/core";
@@ -244,16 +244,22 @@ function setupBlendedAnimations(): void {
         if (animInfo?.group && animInfo.state === "ready") {
             // Retarget idle animation to model skeleton via clone
             const originalIdleGroup = animInfo.group;
-            const modelTransforms = meshes.value.flatMap((m) => m.getChildTransformNodes(false));
+            const modelTransforms = meshes.value.flatMap((m) =>
+                m.getChildTransformNodes(false),
+            );
             const retargetedIdle = originalIdleGroup.clone(
                 `${originalIdleGroup.name}-retargeted`,
                 (oldTarget) => {
-                    const target = modelTransforms.find((node) => node.name === oldTarget.name);
+                    const target = modelTransforms.find(
+                        (node) => node.name === oldTarget.name,
+                    );
                     if (!target) {
-                        console.warn(`[BabylonAvatar] No retarget target for ${oldTarget.name}`);
+                        console.warn(
+                            `[BabylonAvatar] No retarget target for ${oldTarget.name}`,
+                        );
                     }
                     return target;
-                }
+                },
             );
             idleAnimation = retargetedIdle;
             console.info(`Found idle animation: ${idleAnimation.name}`);
@@ -285,16 +291,22 @@ function setupBlendedAnimations(): void {
         if (walkInfo?.group && walkInfo.state === "ready") {
             // Retarget walk animation to model skeleton via clone
             const originalWalkGroup = walkInfo.group;
-            const modelTransformsWalk = meshes.value.flatMap((m) => m.getChildTransformNodes(false));
+            const modelTransformsWalk = meshes.value.flatMap((m) =>
+                m.getChildTransformNodes(false),
+            );
             const retargetedWalk = originalWalkGroup.clone(
                 `${originalWalkGroup.name}-retargeted`,
                 (oldTarget) => {
-                    const target = modelTransformsWalk.find((node) => node.name === oldTarget.name);
+                    const target = modelTransformsWalk.find(
+                        (node) => node.name === oldTarget.name,
+                    );
                     if (!target) {
-                        console.warn(`[BabylonAvatar] No retarget target for ${oldTarget.name}`);
+                        console.warn(
+                            `[BabylonAvatar] No retarget target for ${oldTarget.name}`,
+                        );
                     }
                     return target;
-                }
+                },
             );
             walkAnimation = retargetedWalk;
             console.info(`Found walk animation: ${walkAnimation.name}`);
@@ -415,7 +427,7 @@ onMounted(() => {
                     const rootMeshes = meshes.value.filter((m) => !m.parent);
                     for (const mesh of rootMeshes) {
                         if (meshPivotPoint.value === "bottom") {
-                            mesh.position.y = -capsuleHeight.value/2;
+                            mesh.position.y = -capsuleHeight.value / 2;
                         }
                         mesh.parent = avatarNode.value as TransformNode;
                     }
@@ -432,7 +444,9 @@ onMounted(() => {
 
                     if (avatarSkeleton.value) {
                         // Ensure skinned meshes have enough bone influencers
-                        for (const mesh of meshes.value.filter((m) => m.skeleton)) {
+                        for (const mesh of meshes.value.filter(
+                            (m) => m.skeleton,
+                        )) {
                             (mesh as any).numBoneInfluencers = Math.max(
                                 (mesh as any).numBoneInfluencers,
                                 4,
@@ -460,7 +474,10 @@ onMounted(() => {
                     }
                     if (debugAxes.value && avatarNode.value) {
                         // Initialize axes viewer; will update position and orientation each frame
-                        axesViewer = new AxesViewer(props.scene, capsuleHeight.value);
+                        axesViewer = new AxesViewer(
+                            props.scene,
+                            capsuleHeight.value,
+                        );
                     }
                     if (debugSkeleton.value && avatarSkeleton.value) {
                         const skinnedMeshes = meshes.value.filter(
@@ -510,7 +527,7 @@ onMounted(() => {
 
         // Handle rotation input
         let yawDelta = 0;
-        if (keyState.value.turnLeft)  yawDelta -= turnSpeed.value * dt;
+        if (keyState.value.turnLeft) yawDelta -= turnSpeed.value * dt;
         if (keyState.value.turnRight) yawDelta += turnSpeed.value * dt;
         if (yawDelta !== 0) {
             const deltaQ = Quaternion.RotationAxis(Vector3.Up(), yawDelta);
@@ -524,7 +541,8 @@ onMounted(() => {
 
         // Compute movement direction
         const dir = new Vector3(
-            (keyState.value.strafeRight ? 1 : 0) - (keyState.value.strafeLeft ? 1 : 0),
+            (keyState.value.strafeRight ? 1 : 0) -
+                (keyState.value.strafeLeft ? 1 : 0),
             0,
             (keyState.value.forward ? 1 : 0) -
                 (keyState.value.backward ? 1 : 0),
@@ -541,9 +559,12 @@ onMounted(() => {
         if (isMoving && vel && avatarNode.value) {
             // Movement relative to capsule's facing via getDirection
             const forward = avatarNode.value.getDirection(Vector3.Forward());
-            const right   = avatarNode.value.getDirection(Vector3.Right());
-            const moveWS  = forward.scale(dir.z).add(right.scale(dir.x)).normalize();
-            const speed   = walkSpeed.value; // use store value
+            const right = avatarNode.value.getDirection(Vector3.Right());
+            const moveWS = forward
+                .scale(dir.z)
+                .add(right.scale(dir.x))
+                .normalize();
+            const speed = walkSpeed.value; // use store value
             // preserve vertical velocity
             setVelocity(moveWS.scale(speed).add(new Vector3(0, vel.y, 0)));
         } else if (vel) {
@@ -610,14 +631,13 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-    emit('dispose');
+    emit("dispose");
     if (beforePhysicsObserver) {
         props.scene.onBeforePhysicsObservable.remove(beforePhysicsObserver);
     }
     if (afterPhysicsObserver) {
         props.scene.onAfterPhysicsObservable.remove(afterPhysicsObserver);
     }
-    
 
     if (rootMotionObserver) {
         props.scene.onBeforeRenderObservable.remove(rootMotionObserver);

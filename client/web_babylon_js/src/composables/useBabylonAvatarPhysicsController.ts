@@ -8,6 +8,7 @@ import {
     PhysicsCharacterController,
     StandardMaterial,
     Color3,
+    PhysicsShapeCapsule,
 } from "@babylonjs/core";
 
 // Helper types for positions and rotations
@@ -51,6 +52,8 @@ export function useBabylonAvatarPhysicsController(
         // Hide the physics capsule so the avatar model is visible instead
         capsule.isVisible = false;
 
+        const physicsShape = PhysicsShapeCapsule.FromMesh(capsule);
+
         // Create parent transform node
         const node = new TransformNode("avatarNode", scene);
         avatarNode.value = node;
@@ -74,6 +77,7 @@ export function useBabylonAvatarPhysicsController(
         characterController.value = new PhysicsCharacterController(
             avatarNode.value.position.clone(),
             {
+                shape: physicsShape,
                 capsuleHeight: capsuleHeight.value,
                 capsuleRadius: capsuleRadius.value,
             },

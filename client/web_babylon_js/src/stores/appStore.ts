@@ -41,7 +41,7 @@ export const useAppStore = defineStore("app", {
             },
             meshPivotPoint: "bottom" as "bottom" | "center",
             throttleInterval: 500,
-            capsuleHeight: 1.7,
+            capsuleHeight: 1.8,
             capsuleRadius: 0.3,
             slopeLimit: 45,
             jumpSpeed: 5,

@@ -90,6 +90,9 @@ export function useBabylonAvatarPhysicsController(
                 (slopeLimit.value * Math.PI) / 180,
             );
             characterController.value.maxCastIterations = 20;
+            // Reduce contact tolerance and keep distance for more accurate ground contact
+            characterController.value.keepContactTolerance = 0.001;
+            characterController.value.keepDistance = 0.01;
         }
     }
 

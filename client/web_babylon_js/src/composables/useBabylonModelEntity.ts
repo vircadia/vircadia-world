@@ -4,37 +4,30 @@ import {
     useEntity,
     useVircadiaInstance,
 } from "@vircadia/world-sdk/browser/vue";
-import type { BabylonModelDefinition } from "./types";
+import type { ZodSchema } from "zod";
 
 // Manages Vircadia entity metadata for a 3D model: retrieval, creation, and debounced updates.
-export function useBabylonModelEntity(
-    def: BabylonModelDefinition,
-    position: Ref<{ x: number; y: number; z: number }>,
-    rotation: Ref<{ x: number; y: number; z: number; w: number }>,
+export function useBabylonModelEntity<M>(
+    entityNameRef: Ref<string>,
+    throttleInterval: number,
+    metaDataSchema: ZodSchema<M>,
+    getInitialMeta: () => M,
+    getCurrentMeta: () => M,
 ) {
     const vircadia = inject(useVircadiaInstance());
     if (!vircadia) {
         throw new Error("Vircadia instance not found");
     }
 
-    // Reactive entity name, defaulting to fileName
-    const entityName = ref(def.entityName || def.fileName);
-
     // Initialize useEntity for metadata sync
     const entity = useEntity({
-        entityName,
+        entityName: entityNameRef,
         selectClause: "general__entity_name, meta__data",
         insertClause:
             "(general__entity_name, meta__data) VALUES ($1, $2) RETURNING general__entity_name",
-        insertParams: [
-            entityName.value,
-            JSON.stringify({
-                type: { value: "Model" },
-                modelURL: { value: def.fileName },
-                position: def.position ? { value: def.position } : undefined,
-                rotation: def.rotation ? { value: def.rotation } : undefined,
-            }),
-        ],
+        insertParams: [entityNameRef.value, JSON.stringify(getInitialMeta())],
+        metaDataSchema,
+        defaultMetaData: getInitialMeta(),
     });
 
     // Separate loading states for entity operations
@@ -46,7 +39,7 @@ export function useBabylonModelEntity(
     function safeExecuteUpdate(
         query: string,
         params: unknown[],
-        retryInterval: number = def.throttleInterval ?? 1000,
+        retryInterval: number = throttleInterval,
     ): void {
         if (
             entity.retrieving.value ||
@@ -74,28 +67,21 @@ export function useBabylonModelEntity(
         });
     }
 
-    // Debounced update of position/rotation metadata
+    // Debounced update of metadata
     const debouncedUpdate = useDebounceFn(() => {
         if (!entity.entityData.value?.general__entity_name) {
             console.warn("Cannot update entity: No entity name available");
             return;
         }
-        const metaData = entity.entityData.value.meta__data || {};
-        const updatedMeta = {
-            ...metaData,
-            position: { value: position.value },
-            rotation: { value: rotation.value },
-        };
-        console.log("Updating entity position and rotation:", updatedMeta);
+        const updatedMeta = getCurrentMeta();
         safeExecuteUpdate("meta__data = $2", [JSON.stringify(updatedMeta)]);
-    }, def.throttleInterval ?? 1000);
+    }, throttleInterval);
 
-    // Watch local transforms and push updates
-    watch(position, () => debouncedUpdate(), { deep: true });
-    watch(rotation, () => debouncedUpdate(), { deep: true });
+    // Watch local metadata and push updates
+    watch(getCurrentMeta, () => debouncedUpdate(), { deep: true });
 
     return {
-        entityName,
+        entityName: entityNameRef,
         entity,
         debouncedUpdate,
         isRetrieving,

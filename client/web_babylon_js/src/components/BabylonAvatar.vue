@@ -5,6 +5,7 @@
 <script setup lang="ts">
 import {
     ref,
+    reactive,
     onMounted,
     onUnmounted,
     watch,
@@ -73,19 +74,14 @@ const {
     blendDuration,
     gravity,
     meshPivotPoint,
-    initialPosition: storePosition,
-    initialRotation: storeRotation,
-    initialCameraOrientation: storeCameraOrientation,
+    initialAvatarCameraOrientation,
+    initialAvatarPosition,
+    initialAvatarRotation,
     modelFileName,
     animations,
 } = toRefs(avatarDefinition);
 
-// Reactive local transform state from store
-const initialPosition: Ref<PositionObj> = ref(storePosition.value);
-const initialRotation: Ref<RotationObj> = ref(storeRotation.value);
-const cameraOrientation = ref(storeCameraOrientation.value);
-
-// Zod schemas (kept local per request)
+// Zod schemas
 const Vector3Schema = z.object({ x: z.number(), y: z.number(), z: z.number() });
 const QuaternionSchema = z.object({
     x: z.number(),
@@ -99,15 +95,28 @@ const CameraSchema = z.object({
     radius: z.number(),
 });
 
-// Replace PhysicsAvatarMetaSchema without FieldValue wrappers
-const PhysicsAvatarMetaSchema = z.object({
+const AvatarMetadataSchema = z.object({
     type: z.literal(entityName.value),
     position: Vector3Schema,
-    rotation: QuaternionSchema.optional(),
-    cameraOrientation: CameraSchema.optional(),
+    rotation: QuaternionSchema,
+    cameraOrientation: CameraSchema,
     modelURL: z.string().optional(),
 });
-type PhysicsAvatarMeta = z.infer<typeof PhysicsAvatarMetaSchema>;
+type AvatarMetadata = z.infer<typeof AvatarMetadataSchema>;
+
+// Reactive metadata object for transforms
+const metadata = reactive<AvatarMetadata>({
+    type: entityName.value,
+    position: initialAvatarPosition.value,
+    rotation: initialAvatarRotation.value,
+    cameraOrientation: initialAvatarCameraOrientation.value,
+});
+// Destructure refs for physics & camera controllers
+const {
+    position: initialPosition,
+    rotation: initialRotation,
+    cameraOrientation,
+} = toRefs(metadata);
 
 // Helpers
 function vectorToObj(v: Vector3): PositionObj {
@@ -148,10 +157,10 @@ const {
     hasError,
     errorMessage,
     throttledUpdate,
-} = useBabylonAvatarEntity<PhysicsAvatarMeta>(
+} = useBabylonAvatarEntity<AvatarMetadata>(
     ref(entityName.value),
     throttleInterval.value,
-    PhysicsAvatarMetaSchema,
+    AvatarMetadataSchema,
     () => ({
         type: entityName.value,
         position: initialPosition.value,
@@ -374,7 +383,7 @@ onMounted(() => {
             (status) => {
                 if (status === "connected") {
                     retrieveAvatar();
-                    connectionStatusWatcher && connectionStatusWatcher();
+                    connectionStatusWatcher?.();
                 }
             },
         );
@@ -643,8 +652,8 @@ onUnmounted(() => {
         props.scene.onBeforeRenderObservable.remove(rootMotionObserver);
     }
     // Cleanup Vue watchers
-    connectionStatusWatcher && connectionStatusWatcher();
-    entityDataWatcher && entityDataWatcher();
+    connectionStatusWatcher?.();
+    entityDataWatcher?.();
     // Dispose debug viewers
     if (skeletonViewer) {
         skeletonViewer.dispose();

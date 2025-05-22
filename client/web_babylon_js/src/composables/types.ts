@@ -4,6 +4,7 @@ export interface BabylonModelDefinition {
     position?: { x: number; y: number; z: number };
     rotation?: { x: number; y: number; z: number; w: number };
     throttleInterval?: number;
+    syncMode?: "push" | "pull";
     enablePhysics?: boolean;
     physicsType?: "box" | "convexHull" | "mesh";
     physicsOptions?: {

@@ -34,14 +34,14 @@ export const useAppStore = defineStore("app", {
         // avatar configuration
         avatarDefinition: {
             entityName: "babylon.avatar.glb",
-            modelFileName: "babylon.avatar.glb",
-            initialPosition: { x: 0, y: 0, z: -5 },
-            initialRotation: { x: 0, y: 0, z: 0, w: 1 },
-            initialCameraOrientation: {
+            initialAvatarPosition: { x: 0, y: 0, z: -5 },
+            initialAvatarRotation: { x: 0, y: 0, z: 0, w: 1 },
+            initialAvatarCameraOrientation: {
                 alpha: -Math.PI / 2,
                 beta: Math.PI / 3,
                 radius: 5,
             },
+            modelFileName: "babylon.avatar.glb",
             meshPivotPoint: "bottom" as "bottom" | "center",
             throttleInterval: 500,
             capsuleHeight: 1.8,

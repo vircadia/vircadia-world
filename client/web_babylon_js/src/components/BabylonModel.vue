@@ -4,6 +4,7 @@
 
 <script setup lang="ts">
 import { ref, watch, onUnmounted, inject, computed } from "vue";
+import { z } from "zod";
 import type { Scene } from "@babylonjs/core";
 import type { BabylonModelDefinition } from "../composables/types";
 import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
@@ -14,7 +15,10 @@ import { useBabylonModelPhysics } from "../composables/useBabylonModelPhysics";
 const props = defineProps<{
     def: BabylonModelDefinition;
     scene: Scene | null;
+    syncMode: "push" | "pull";
 }>();
+// Sync mode: 'push' (default) or 'pull'
+const isPusher = props.def.syncMode !== "pull";
 
 // --- Set up Babylon model pipelines ---
 // Reactive local transform state
@@ -22,7 +26,23 @@ const position = ref(props.def.position ?? { x: 0, y: 0, z: 0 });
 const rotation = ref(props.def.rotation ?? { x: 0, y: 0, z: 0, w: 1 });
 
 // 1. Asset loader is now managed by useBabylonModelLoader
-// 2. Entity synchronization
+// 2. Entity synchronization (generic metadata)
+// Define metadata schema & type
+const ModelMetadataSchema = z.object({
+    type: z.literal("Model"),
+    modelURL: z.string(),
+    position: z.object({ x: z.number(), y: z.number(), z: z.number() }),
+    rotation: z.object({
+        x: z.number(),
+        y: z.number(),
+        z: z.number(),
+        w: z.number(),
+    }),
+});
+type ModelMetadata = z.infer<typeof ModelMetadataSchema>;
+
+// Initialize generic entity sync
+const entityNameRef = ref(props.def.entityName || props.def.fileName);
 const {
     entityName,
     entity,
@@ -30,7 +50,23 @@ const {
     isRetrieving,
     isCreating,
     isUpdating,
-} = useBabylonModelEntity(props.def, position, rotation);
+} = useBabylonModelEntity<ModelMetadata>(
+    entityNameRef,
+    props.def.throttleInterval ?? 1000,
+    ModelMetadataSchema,
+    () => ({
+        type: "Model",
+        modelURL: props.def.fileName,
+        position: position.value,
+        rotation: rotation.value,
+    }),
+    () => ({
+        type: "Model",
+        modelURL: props.def.fileName,
+        position: position.value,
+        rotation: rotation.value,
+    }),
+);
 
 // 3. Model loader and asset management
 const { meshes, loadModel, asset } = useBabylonModelLoader(props.def);
@@ -65,23 +101,25 @@ watch(
     { immediate: true },
 );
 
-// Ensure entity exists: if retrieve completes with no data, create then retrieve again
-const stopWatchCreate = watch(
-    [
-        () => entity.retrieving.value,
-        () => entity.error.value,
-        () => entity.entityData.value,
-    ],
-    ([retrieving, error, data], [wasRetrieving]) => {
-        if (wasRetrieving && !retrieving) {
-            if (!data && !error) {
-                entity.executeCreate().then(() => entity.executeRetrieve());
+// Ensure entity exists: if retrieve completes with no data, create then retrieve again (push mode only)
+if (isPusher) {
+    const stopWatchCreate = watch(
+        [
+            () => entity.retrieving.value,
+            () => entity.error.value,
+            () => entity.entityData.value,
+        ],
+        ([retrieving, error, data], [wasRetrieving]) => {
+            if (wasRetrieving && !retrieving) {
+                if (!data && !error) {
+                    entity.executeCreate().then(() => entity.executeRetrieve());
+                }
+                stopWatchCreate();
             }
-            stopWatchCreate();
-        }
-    },
-    { immediate: false },
-);
+        },
+        { immediate: false },
+    );
+}
 
 // When asset blob URL is ready, load the 3D model and apply physics if enabled
 // Asset loading and model loading is handled inside useBabylonModelLoader
@@ -115,9 +153,11 @@ watch(
     },
 );
 
-// When transforms change, update entity metadata
-watch(position, debouncedUpdate, { deep: true });
-watch(rotation, debouncedUpdate, { deep: true });
+// When transforms change, update entity metadata (push mode only)
+if (isPusher) {
+    watch(position, debouncedUpdate, { deep: true });
+    watch(rotation, debouncedUpdate, { deep: true });
+}
 
 // Clean up on unmount
 onUnmounted(() => {

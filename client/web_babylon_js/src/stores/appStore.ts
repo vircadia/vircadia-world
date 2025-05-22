@@ -28,6 +28,9 @@ export const useAppStore = defineStore("app", {
         ] as BabylonModelDefinition[],
         // HDR environment list
         hdrList: ["babylon.level.hdr.1k.hdr"] as string[],
+        // IDs for session and agent
+        sessionId: null as string | null,
+        agentId: null as string | null,
         // avatar configuration
         avatarDefinition: {
             entityName: "babylon.avatar.glb",
@@ -192,6 +195,14 @@ export const useAppStore = defineStore("app", {
         // clear the error
         clearError() {
             this.error = null;
+        },
+        // set the session ID
+        setSessionId(id: string | null) {
+            this.sessionId = id;
+        },
+        // set the agent ID
+        setAgentId(id: string | null) {
+            this.agentId = id;
         },
     },
 });

@@ -99,7 +99,18 @@ if (!vircadiaWorld) {
 const connectionStatus = computed(
     () => vircadiaWorld.connectionInfo.value.status,
 );
+const sessionId = computed(() => vircadiaWorld.connectionInfo.value.sessionId);
+const agentId = computed(() => vircadiaWorld.connectionInfo.value.agentId);
+
 const appStore = useAppStore();
+
+// sync session and agent IDs from Vircadia to the app store
+watch(sessionId, (newSessionId) => {
+    appStore.setSessionId(newSessionId ?? null);
+});
+watch(agentId, (newAgentId) => {
+    appStore.setAgentId(newAgentId ?? null);
+});
 
 // BabylonJS Setup - use variables instead of refs
 const renderCanvas = ref<HTMLCanvasElement | null>(null);

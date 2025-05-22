@@ -748,6 +748,16 @@ export class WorldApiManager {
                         debug: serverConfiguration.VRCA_SERVER_DEBUG,
                         type: "debug",
                     });
+
+                    // Send session info to client via WebSocket using typed message
+                    ws.send(
+                        JSON.stringify(
+                            new Communication.WebSocket.SessionInfoMessage({
+                                agentId: sessionData.agentId,
+                                sessionId: sessionData.sessionId,
+                            }),
+                        ),
+                    );
                 },
                 close: (
                     ws: ServerWebSocket<WebSocketData>,

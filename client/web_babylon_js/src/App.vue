@@ -13,12 +13,21 @@
             
             <!-- Only render entities when scene is available -->
             <template v-if="sceneInitialized && scene && connectionStatus === 'connected'">
-                <!-- BabylonAvatar component -->
-                <BabylonAvatar
+                <!-- BabylonMyAvatar component -->
+                <BabylonMyAvatar
                     :scene="scene"
                     @ready="startRenderLoop"
                     @dispose="stopRenderLoop"
                     ref="avatarRef"
+                />
+
+                <!-- BabylonOtherAvatar components for other users -->
+                <BabylonOtherAvatar
+                    v-for="otherSessionId in otherAvatarSessionIds"
+                    :key="otherSessionId"
+                    :scene="scene"
+                    :session-id="otherSessionId"
+                    ref="otherAvatarRefs"
                 />
 
                 <!-- BabylonModel components -->
@@ -53,11 +62,14 @@
 <script setup lang="ts">
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/consistent-type-imports */
 import { computed, watch, ref, onMounted, onUnmounted, inject } from "vue";
-import BabylonAvatar from "./components/BabylonAvatar.vue";
+import BabylonMyAvatar from "./components/BabylonMyAvatar.vue";
+import BabylonOtherAvatar from "./components/BabylonOtherAvatar.vue";
 import BabylonModel from "./components/BabylonModel.vue";
 import WebRTCTest from "./components/WebRTCTest.vue";
 // mark as used at runtime for template
-void BabylonAvatar;
+void BabylonMyAvatar;
+// mark as used at runtime for template
+void BabylonOtherAvatar;
 // mark as used at runtime for template
 void BabylonModel;
 // mark as used at runtime for template
@@ -110,8 +122,75 @@ const sceneInitialized = ref(false);
 // Track inspector state
 const isInspectorVisible = ref(false);
 // Track if avatar is ready
-const avatarRef = ref<InstanceType<typeof BabylonAvatar> | null>(null);
+const avatarRef = ref<InstanceType<typeof BabylonMyAvatar> | null>(null);
+const otherAvatarRefs = ref<(InstanceType<typeof BabylonOtherAvatar> | null)[]>(
+    [],
+);
 const modelRefs = ref<(InstanceType<typeof BabylonModel> | null)[]>([]);
+
+// Track other avatars
+const otherAvatarSessionIds = ref<string[]>([]);
+
+// Polling interval for discovering other avatars
+let avatarDiscoveryInterval: number | null = null;
+
+// Poll for other avatars every 500ms
+async function pollForOtherAvatars() {
+    if (
+        !vircadiaWorld ||
+        vircadiaWorld.connectionInfo.value.status !== "connected"
+    ) {
+        return;
+    }
+
+    try {
+        const query = `SELECT general__entity_name FROM entity.entities WHERE general__entity_name LIKE 'avatar:%'`;
+
+        const result = await vircadiaWorld.client.Utilities.Connection.query<
+            Array<{ general__entity_name: string }>
+        >({
+            query,
+            timeoutMs: 10000,
+        });
+
+        if (result.result) {
+            const currentSessionId = sessionId.value;
+            const foundSessionIds: string[] = [];
+
+            for (const entity of result.result) {
+                // Extract session ID from entity name (format: "avatar:sessionId")
+                const match =
+                    entity.general__entity_name.match(/^avatar:(.+)$/);
+                if (match && match[1] !== currentSessionId) {
+                    foundSessionIds.push(match[1]);
+                }
+            }
+
+            // Update the list of other avatar session IDs
+            otherAvatarSessionIds.value = foundSessionIds;
+        }
+    } catch (error) {
+        console.warn("Error polling for other avatars:", error);
+    }
+}
+
+// Start avatar discovery polling
+function startAvatarDiscovery() {
+    if (avatarDiscoveryInterval) {
+        return;
+    }
+
+    // Poll every 500ms for other avatars
+    avatarDiscoveryInterval = setInterval(pollForOtherAvatars, 500);
+}
+
+// Stop avatar discovery polling
+function stopAvatarDiscovery() {
+    if (avatarDiscoveryInterval) {
+        clearInterval(avatarDiscoveryInterval);
+        avatarDiscoveryInterval = null;
+    }
+}
 
 // Inline physics initialization and inspector helpers
 let havokInstance: unknown = null;
@@ -185,6 +264,12 @@ const avatarLoading = computed(
     () =>
         (avatarRef.value?.isCreating || avatarRef.value?.isRetrieving) ?? false,
 );
+const otherAvatarsLoading = computed(
+    () =>
+        otherAvatarRefs.value.some(
+            (avatar) => avatar && !avatar.isModelLoaded,
+        ) ?? false,
+);
 const modelsLoading = computed(() =>
     modelRefs.value.some(
         (m) =>
@@ -195,10 +280,13 @@ const modelsLoading = computed(() =>
     ),
 );
 
-// Global loading state: environment, avatar, or models
+// Global loading state: environment, avatar, other avatars, or models
 const isLoading = computed(
     () =>
-        environmentLoading.value || avatarLoading.value || modelsLoading.value,
+        environmentLoading.value ||
+        avatarLoading.value ||
+        otherAvatarsLoading.value ||
+        modelsLoading.value,
 );
 
 // snackbarVisible is driven by connection status and loading, add noop setter to satisfy v-model
@@ -326,6 +414,10 @@ onUnmounted(() => {
     window.removeEventListener("resize", handleResize);
     // Remove keyboard event listener
     window.removeEventListener("keydown", handleKeyDown);
+
+    // Stop avatar discovery polling
+    stopAvatarDiscovery();
+
     console.log("Disposing BabylonJS scene and engine...");
     scene?.dispose();
     engine?.dispose();
@@ -342,8 +434,14 @@ watch(
         if (status !== prevStatus) {
             if (status === "connected") {
                 console.log("Connected to Vircadia server");
+                // Start avatar discovery when connected
+                startAvatarDiscovery();
             } else if (status === "disconnected") {
                 console.log("Disconnected from Vircadia server");
+                // Stop avatar discovery when disconnected
+                stopAvatarDiscovery();
+                // Clear other avatars list
+                otherAvatarSessionIds.value = [];
             } else if (status === "connecting") {
                 console.log("Connecting to Vircadia server...");
             }

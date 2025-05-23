@@ -312,7 +312,7 @@ const avatarSkeleton: Ref<Skeleton | null> = ref(null);
 // Get Vircadia instance
 const vircadiaWorld = inject(useVircadiaInstance());
 if (!vircadiaWorld) {
-    throw new Error("Vircadia instance not found in BabylonAvatar");
+    throw new Error("Vircadia instance not found in BabylonMyAvatar");
 }
 
 // Animation loader composable
@@ -367,7 +367,7 @@ function setupBlendedAnimations(): void {
                     );
                     if (!target) {
                         console.warn(
-                            `[BabylonAvatar] No retarget target for ${oldTarget.name}`,
+                            `[BabylonMyAvatar] No retarget target for ${oldTarget.name}`,
                         );
                     }
                     return target;
@@ -414,7 +414,7 @@ function setupBlendedAnimations(): void {
                     );
                     if (!target) {
                         console.warn(
-                            `[BabylonAvatar] No retarget target for ${oldTarget.name}`,
+                            `[BabylonMyAvatar] No retarget target for ${oldTarget.name}`,
                         );
                     }
                     return target;

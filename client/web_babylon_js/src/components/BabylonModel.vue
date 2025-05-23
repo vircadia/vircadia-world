@@ -41,7 +41,7 @@ if (!vircadia) {
 const appStore = useAppStore();
 const { sessionId } = toRefs(appStore);
 
-// Setup model entity inline (similar to BabylonAvatar.vue)
+// Setup model entity inline (similar to BabylonMyAvatar.vue)
 const getInitialMeta: () => ModelMetadata = () => ({
     type: "Model" as const,
     modelFileName: props.def.fileName,

@@ -6,9 +6,14 @@
 import { ref, watch, onUnmounted, inject, computed } from "vue";
 import { z } from "zod";
 import type { Scene } from "@babylonjs/core";
-import type { BabylonModelDefinition } from "../composables/schemas";
+import type {
+    BabylonModelDefinition,
+    ModelMetadata,
+} from "../composables/schemas";
+import { ModelMetadataSchema } from "../composables/schemas";
 import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
-import { useBabylonModelEntity } from "../composables/useBabylonModelEntity";
+import { useEntity } from "@vircadia/world-sdk/browser/vue";
+import { useDebounceFn } from "@vueuse/core";
 import { useBabylonModelLoader } from "../composables/useBabylonModelLoader";
 import { useBabylonModelPhysics } from "../composables/useBabylonModelPhysics";
 
@@ -28,45 +33,54 @@ const rotation = ref(props.def.rotation ?? { x: 0, y: 0, z: 0, w: 1 });
 // 1. Asset loader is now managed by useBabylonModelLoader
 // 2. Entity synchronization (generic metadata)
 // Define metadata schema & type
-const ModelMetadataSchema = z.object({
-    type: z.literal("Model"),
-    modelURL: z.string(),
-    position: z.object({ x: z.number(), y: z.number(), z: z.number() }),
-    rotation: z.object({
-        x: z.number(),
-        y: z.number(),
-        z: z.number(),
-        w: z.number(),
-    }),
-});
-type ModelMetadata = z.infer<typeof ModelMetadataSchema>;
 
 // Initialize generic entity sync
 const entityNameRef = ref(props.def.entityName || props.def.fileName);
-const {
-    entityName,
-    entity,
-    debouncedUpdate,
-    isRetrieving,
-    isCreating,
-    isUpdating,
-} = useBabylonModelEntity<ModelMetadata>(
-    entityNameRef,
-    props.def.throttleInterval ?? 1000,
-    ModelMetadataSchema,
-    () => ({
-        type: "Model",
-        modelURL: props.def.fileName,
-        position: position.value,
-        rotation: rotation.value,
-    }),
-    () => ({
-        type: "Model",
-        modelURL: props.def.fileName,
-        position: position.value,
-        rotation: rotation.value,
-    }),
-);
+
+// Vircadia connection manager
+const vircadia = inject(useVircadiaInstance());
+if (!vircadia) {
+    throw new Error("Vircadia instance not found");
+}
+
+// Setup model entity inline (similar to BabylonAvatar.vue)
+const getInitialMeta = () => ({
+    type: "Model" as const,
+    modelFileName: props.def.fileName,
+    position: position.value,
+    rotation: rotation.value,
+});
+
+const getCurrentMeta = () => ({
+    type: "Model" as const,
+    modelFileName: props.def.fileName,
+    position: position.value,
+    rotation: rotation.value,
+});
+
+const entity = useEntity({
+    entityName: entityNameRef,
+    selectClause: "general__entity_name, meta__data",
+    insertClause:
+        "(general__entity_name, meta__data) VALUES ($1, $2) RETURNING general__entity_name",
+    insertParams: [entityNameRef.value, JSON.stringify(getInitialMeta())],
+    metaDataSchema: ModelMetadataSchema,
+    defaultMetaData: getInitialMeta(),
+});
+
+// Debounced update of metadata - simplified since useEntity now handles concurrency
+const debouncedUpdate = useDebounceFn(() => {
+    if (!entity.entityData.value?.general__entity_name) {
+        console.warn("Cannot update entity: No entity name available");
+        return;
+    }
+    const updatedMeta = getCurrentMeta();
+    entity
+        .executeUpdate("meta__data = $1", [JSON.stringify(updatedMeta)])
+        .catch((e: unknown) => {
+            console.error("Entity update failed:", e);
+        });
+}, props.def.throttleInterval ?? 1000);
 
 // 3. Model loader and asset management
 const { meshes, loadModel, asset } = useBabylonModelLoader(props.def);
@@ -76,12 +90,6 @@ const { applyPhysics, removePhysics } = useBabylonModelPhysics(
     meshes,
     props.def,
 );
-
-// Vircadia connection manager
-const vircadia = inject(useVircadiaInstance());
-if (!vircadia) {
-    throw new Error("Vircadia instance not found");
-}
 
 // --- Orchestration ---
 // When scene becomes available, load asset and retrieve entity metadata
@@ -173,8 +181,8 @@ onUnmounted(() => {
 // isLoading combines asset loading and initial entity retrieval/creation only
 defineExpose({
     isAssetLoading: asset.loading,
-    isEntityRetrieving: isRetrieving,
-    isEntityCreating: isCreating,
-    isEntityUpdating: isUpdating,
+    isEntityRetrieving: entity.retrieving,
+    isEntityCreating: entity.creating,
+    isEntityUpdating: entity.updating,
 });
 </script>

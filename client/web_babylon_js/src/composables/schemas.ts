@@ -23,28 +23,28 @@ export interface BabylonAnimationDefinition {
 }
 
 export const Vector3Schema = z.object({
-    x: z.number(),
-    y: z.number(),
-    z: z.number(),
+    x: z.coerce.number(),
+    y: z.coerce.number(),
+    z: z.coerce.number(),
 });
 
 export const QuaternionSchema = z.object({
-    x: z.number(),
-    y: z.number(),
-    z: z.number(),
-    w: z.number(),
+    x: z.coerce.number(),
+    y: z.coerce.number(),
+    z: z.coerce.number(),
+    w: z.coerce.number(),
 });
 
 // Zod schemas for avatar metadata
 export const CameraSchema = z.object({
-    alpha: z.number(),
-    beta: z.number(),
-    radius: z.number(),
+    alpha: z.coerce.number(),
+    beta: z.coerce.number(),
+    radius: z.coerce.number(),
 });
 
 export const AvatarMetadataSchema = z.object({
     type: z.literal("avatar"),
-    sessionId: z.string().nullable(),
+    sessionId: z.coerce.string().nullable(),
     position: Vector3Schema,
     rotation: QuaternionSchema,
     cameraOrientation: CameraSchema,
@@ -54,7 +54,16 @@ export const AvatarMetadataSchema = z.object({
             rotation: QuaternionSchema,
         }),
     ),
-    modelURL: z.string().optional(),
+    modelFileName: z.coerce.string(),
 });
 
 export type AvatarMetadata = z.infer<typeof AvatarMetadataSchema>;
+
+export const ModelMetadataSchema = z.object({
+    type: z.literal("Model"),
+    modelFileName: z.coerce.string(),
+    position: Vector3Schema,
+    rotation: QuaternionSchema,
+});
+
+export type ModelMetadata = z.infer<typeof ModelMetadataSchema>;

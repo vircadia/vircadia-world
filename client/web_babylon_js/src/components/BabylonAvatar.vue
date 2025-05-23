@@ -9,7 +9,6 @@ import {
     onMounted,
     onUnmounted,
     watch,
-    computed,
     type WatchStopHandle,
     inject,
     toRefs,
@@ -97,6 +96,7 @@ const metadata = reactive<AvatarMetadata>({
     rotation: initialAvatarRotation.value,
     cameraOrientation: initialAvatarCameraOrientation.value,
     jointTransforms: {},
+    modelFileName: modelFileName.value,
 });
 // Destructure refs for physics & camera controllers
 const {
@@ -162,6 +162,7 @@ const avatarEntity = useEntity({
         rotation: initialRotation.value,
         cameraOrientation: cameraOrientation.value,
         jointTransforms: {},
+        modelFileName: modelFileName.value,
     },
 });
 const throttledUpdate = useThrottleFn(async () => {

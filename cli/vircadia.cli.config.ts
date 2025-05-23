@@ -86,6 +86,7 @@ const cliEnvSchema = z.object({
         ),
     VRCA_CLI_SERVICE_POSTGRES_SEED_SYSTEM_SQL_DIR: z
         .string()
+        .nullable()
         .default(
             path.join(
                 dirname(fileURLToPath(import.meta.url)),
@@ -98,6 +99,7 @@ const cliEnvSchema = z.object({
         .default(null),
     VRCA_CLI_SERVICE_POSTGRES_SEED_SYSTEM_ASSET_DIR: z
         .string()
+        .nullable()
         .default(
             path.join(
                 dirname(fileURLToPath(import.meta.url)),
@@ -115,6 +117,7 @@ const cliEnvSchema = z.object({
 
     VRCA_CLI_SERVICE_POSTGRES_SYSTEM_RESET_DIR: z
         .string()
+        .nullable()
         .default(
             path.join(
                 dirname(fileURLToPath(import.meta.url)),

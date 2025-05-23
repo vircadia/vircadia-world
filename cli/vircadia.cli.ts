@@ -440,27 +440,29 @@ export namespace Server_CLI {
 
             // Process system reset files
             let systemResetFiles: string[] = [];
-            try {
-                systemResetFiles = await readdir(systemResetDir, {
-                    recursive: true,
-                });
+            if (systemResetDir) {
+                try {
+                    systemResetFiles = await readdir(systemResetDir, {
+                        recursive: true,
+                    });
 
-                if (systemResetFiles.length === 0) {
+                    if (systemResetFiles.length === 0) {
+                        BunLogModule({
+                            message: `No system reset files found in ${systemResetDir}`,
+                            type: "debug",
+                            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                            debug: cliConfiguration.VRCA_CLI_DEBUG,
+                        });
+                    }
+                } catch (error) {
                     BunLogModule({
-                        message: `No system reset files found in ${systemResetDir}`,
-                        type: "debug",
+                        message: `Error accessing system reset directory: ${systemResetDir}`,
+                        type: "warn",
+                        error,
                         suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                         debug: cliConfiguration.VRCA_CLI_DEBUG,
                     });
                 }
-            } catch (error) {
-                BunLogModule({
-                    message: `Error accessing system reset directory: ${systemResetDir}`,
-                    type: "warn",
-                    error,
-                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                    debug: cliConfiguration.VRCA_CLI_DEBUG,
-                });
             }
 
             // Process user reset files
@@ -516,10 +518,16 @@ export namespace Server_CLI {
                 try {
                     // Determine the correct directory for the file
                     const isUserResetFile = userResetFiles.includes(file);
+                    const isSystemResetFile = systemResetFiles.includes(file);
                     const fileDir =
                         isUserResetFile && userResetDir
                             ? userResetDir
-                            : systemResetDir;
+                            : isSystemResetFile && systemResetDir
+                              ? systemResetDir
+                              : null;
+                    if (!fileDir) {
+                        continue;
+                    }
                     const filePath = path.join(fileDir, file);
 
                     const sqlContent = await readFile(filePath, "utf-8");

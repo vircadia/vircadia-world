@@ -33,7 +33,6 @@ export const useAppStore = defineStore("app", {
         agentId: null as string | null,
         // avatar configuration
         avatarDefinition: {
-            entityName: "babylon.avatar.glb",
             initialAvatarPosition: { x: 0, y: 0, z: -5 },
             initialAvatarRotation: { x: 0, y: 0, z: 0, w: 1 },
             initialAvatarCameraOrientation: {

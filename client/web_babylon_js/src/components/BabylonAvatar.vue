@@ -13,6 +13,7 @@ import {
     inject,
     toRefs,
     type Ref,
+    computed,
 } from "vue";
 import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
 
@@ -64,7 +65,6 @@ const emit = defineEmits<{ ready: []; dispose: [] }>();
 const appStore = useAppStore();
 const avatarDefinition = appStore.avatarDefinition;
 const {
-    entityName,
     throttleInterval,
     capsuleHeight,
     capsuleRadius,
@@ -87,6 +87,9 @@ const {
 
 // Reactive sessionId from store
 const { sessionId } = toRefs(appStore);
+
+// Generate dynamic entity name based on session ID
+const entityName = computed(() => `avatar:${sessionId.value}`);
 
 // Reactive metadata object for transforms
 const metadata = reactive<AvatarMetadata>({
@@ -139,7 +142,7 @@ const { keyState } = useBabylonAvatarKeyboardMouseControls(props.scene);
 
 // Setup avatar entity inline
 const avatarEntity = useEntity({
-    entityName: ref(entityName.value),
+    entityName: entityName,
     selectClause: "general__entity_name, meta__data",
     insertClause:
         "(general__entity_name, meta__data) VALUES ($1, $2) RETURNING general__entity_name",

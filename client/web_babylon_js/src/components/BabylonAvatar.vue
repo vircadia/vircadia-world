@@ -9,6 +9,7 @@ import {
     onMounted,
     onUnmounted,
     watch,
+    computed,
     type WatchStopHandle,
     inject,
     toRefs,
@@ -33,10 +34,11 @@ import "@babylonjs/loaders/glTF";
 // Debug viewers import
 import { SkeletonViewer, AxesViewer } from "@babylonjs/core/Debug";
 
-import { z } from "zod";
+import { z, type ZodSchema } from "zod";
+import { useEntity } from "@vircadia/world-sdk/browser/vue";
+import { useThrottleFn } from "@vueuse/core";
 
 import { useBabylonAvatarKeyboardMouseControls } from "../composables/useBabylonAvatarKeyboardMouseControls";
-import { useBabylonAvatarEntity } from "../composables/useBabylonAvatarEntity";
 import { useBabylonAvatarPhysicsController } from "../composables/useBabylonAvatarPhysicsController";
 import { useBabylonAvatarCameraController } from "../composables/useBabylonAvatarCameraController";
 import { useBabylonAvatarModelLoader } from "../composables/useBabylonAvatarModelLoader";
@@ -81,6 +83,9 @@ const {
     animations,
 } = toRefs(avatarDefinition);
 
+// Reactive sessionId from store
+const { sessionId } = toRefs(appStore);
+
 // Zod schemas
 const Vector3Schema = z.object({ x: z.number(), y: z.number(), z: z.number() });
 const QuaternionSchema = z.object({
@@ -96,20 +101,29 @@ const CameraSchema = z.object({
 });
 
 const AvatarMetadataSchema = z.object({
-    type: z.literal(entityName.value),
+    type: z.literal("avatar"),
+    sessionId: z.string().nullable(),
     position: Vector3Schema,
     rotation: QuaternionSchema,
     cameraOrientation: CameraSchema,
+    jointTransforms: z.record(
+        z.object({
+            position: Vector3Schema,
+            rotation: QuaternionSchema,
+        }),
+    ),
     modelURL: z.string().optional(),
 });
 type AvatarMetadata = z.infer<typeof AvatarMetadataSchema>;
 
 // Reactive metadata object for transforms
 const metadata = reactive<AvatarMetadata>({
-    type: entityName.value,
+    type: "avatar",
+    sessionId: sessionId.value,
     position: initialAvatarPosition.value,
     rotation: initialAvatarRotation.value,
     cameraOrientation: initialAvatarCameraOrientation.value,
+    jointTransforms: {},
 });
 // Destructure refs for physics & camera controllers
 const {
@@ -149,26 +163,56 @@ const {
     slopeLimit,
 );
 const { keyState } = useBabylonAvatarKeyboardMouseControls(props.scene);
-const {
-    avatarEntity,
-    isRetrieving,
-    isCreating,
-    isUpdating,
-    hasError,
-    errorMessage,
-    throttledUpdate,
-} = useBabylonAvatarEntity<AvatarMetadata>(
-    ref(entityName.value),
-    throttleInterval.value,
-    AvatarMetadataSchema,
-    () => ({
-        type: entityName.value,
+
+// Setup avatar entity inline
+const avatarEntity = useEntity({
+    entityName: ref(entityName.value),
+    selectClause: "general__entity_name, meta__data",
+    insertClause:
+        "(general__entity_name, meta__data) VALUES ($1, $2) RETURNING general__entity_name",
+    insertParams: [
+        entityName.value,
+        {
+            type: "avatar",
+            sessionId: sessionId.value,
+            position: initialPosition.value,
+            rotation: initialRotation.value,
+            cameraOrientation: cameraOrientation.value,
+            jointTransforms: {},
+        },
+    ],
+    metaDataSchema: AvatarMetadataSchema,
+    defaultMetaData: {
+        type: "avatar",
+        sessionId: sessionId.value,
         position: initialPosition.value,
         rotation: initialRotation.value,
         cameraOrientation: cameraOrientation.value,
-    }),
-    () => ({
-        type: entityName.value,
+        jointTransforms: {},
+    },
+});
+const throttledUpdate = useThrottleFn(async () => {
+    if (!avatarEntity.entityData.value?.general__entity_name) {
+        return;
+    }
+    // Build current metadata
+    const bones = avatarSkeleton.value?.bones || [];
+    const jointTransforms: Record<
+        string,
+        { position: PositionObj; rotation: RotationObj }
+    > = {};
+    for (const bone of bones) {
+        const mat = bone.getAbsoluteMatrix();
+        const pos = mat.getTranslation();
+        const rot = Quaternion.FromRotationMatrix(mat);
+        jointTransforms[bone.name] = {
+            position: vectorToObj(pos),
+            rotation: quatToObj(rot),
+        };
+    }
+    const updatedMeta = {
+        type: "avatar",
+        sessionId: sessionId.value,
         position: (() => {
             const p = getPosition();
             return p ? vectorToObj(p) : initialPosition.value;
@@ -178,8 +222,12 @@ const {
             return q ? quatToObj(q) : initialRotation.value;
         })(),
         cameraOrientation: cameraOrientation.value,
-    }),
-);
+        jointTransforms,
+    };
+    const success = await avatarEntity.executeUpdate("meta__data = $1", [
+        updatedMeta,
+    ]);
+}, 50);
 
 // Camera controller
 const { camera, setupCamera, updateCameraFromMeta } =
@@ -372,42 +420,24 @@ let connectionStatusWatcher: WatchStopHandle | null = null;
 let entityDataWatcher: WatchStopHandle | null = null;
 
 // Lifecycle hooks
-onMounted(() => {
-    const retrieveAvatar = () => avatarEntity.executeRetrieve();
+onMounted(async () => {
     // Watch for connection established
     if (vircadiaWorld.connectionInfo.value.status === "connected") {
-        retrieveAvatar();
+        if (!(await avatarEntity.exists())) {
+            avatarEntity.executeCreate();
+        }
+        avatarEntity.executeRetrieve();
     } else {
         connectionStatusWatcher = watch(
             () => vircadiaWorld.connectionInfo.value.status,
             (status) => {
                 if (status === "connected") {
-                    retrieveAvatar();
+                    avatarEntity.executeRetrieve();
                     connectionStatusWatcher?.();
                 }
             },
         );
     }
-
-    // Ensure entity exists: create if not found
-    const stopWatchCreate = watch(
-        [
-            () => avatarEntity.retrieving.value,
-            () => avatarEntity.error.value,
-            () => avatarEntity.entityData.value,
-        ],
-        ([retrieving, error, data], [wasRetrieving]) => {
-            if (wasRetrieving && !retrieving) {
-                if (!data && !error) {
-                    avatarEntity
-                        .executeCreate()
-                        .then(() => avatarEntity.executeRetrieve());
-                }
-                stopWatchCreate();
-            }
-        },
-        { immediate: false },
-    );
 
     // Watch for entity data changes
     entityDataWatcher = watch(
@@ -605,8 +635,14 @@ onMounted(() => {
         if (supportAfter) {
             integrate(dt, supportAfter);
         }
-        throttledUpdate();
         updateTransforms();
+
+        // Make sure skeleton is updated before sending metadata
+        if (avatarSkeleton.value) {
+            avatarSkeleton.value.computeAbsoluteMatrices();
+        }
+
+        throttledUpdate();
         // update camera target to follow the avatar
         if (camera.value && avatarNode.value) {
             const node = avatarNode.value;
@@ -668,11 +704,11 @@ onUnmounted(() => {
 });
 
 defineExpose({
-    isRetrieving,
-    isCreating,
-    isUpdating,
-    hasError,
-    errorMessage,
+    isRetrieving: avatarEntity.retrieving.value,
+    isCreating: avatarEntity.creating.value,
+    isUpdating: avatarEntity.updating.value,
+    hasError: avatarEntity.error.value,
+    errorMessage: avatarEntity.error.value,
     getPosition,
     setPosition,
     getOrientation,

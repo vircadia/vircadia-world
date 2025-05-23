@@ -49,8 +49,8 @@ const vircadiaWorld = useVircadia({
 // Make the Vircadia instance available to all components
 app.provide(DEFAULT_VIRCADIA_INSTANCE_KEY, vircadiaWorld);
 
-// Auto-connect to the domain server immediately, do not await
-vircadiaWorld.client.Utilities.Connection.connect();
-
 // Mount the app
 app.mount("#app");
+
+// Auto-connect to the domain server after mounting, do not await
+vircadiaWorld.client.Utilities.Connection.connect();

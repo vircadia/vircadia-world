@@ -30,7 +30,6 @@
                     syncMode="pull"
                     ref="modelRefs"
                 />
-                <TestAvatar :scene="scene" />
             </template>
         </main>
         <!-- WebRTC Test launcher -->
@@ -55,20 +54,13 @@
 <script setup lang="ts">
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/consistent-type-imports */
 import { computed, watch, ref, onMounted, onUnmounted, inject } from "vue";
-// @ts-ignore: used in template
 import BabylonAvatar from "./components/BabylonAvatar.vue";
-// @ts-ignore: used in template
 import BabylonModel from "./components/BabylonModel.vue";
-// @ts-ignore: used in template
-import TestAvatar from "./components/TestAvatar.vue";
-// @ts-ignore: used in template
 import WebRTCTest from "./components/WebRTCTest.vue";
 // mark as used at runtime for template
 void BabylonAvatar;
 // mark as used at runtime for template
 void BabylonModel;
-// mark as used at runtime for template
-void TestAvatar;
 // mark as used at runtime for template
 void WebRTCTest;
 import { useBabylonEnvironment } from "./composables/useBabylonEnvironment";
@@ -103,6 +95,7 @@ const connectionStatus = computed(
 const sessionId = computed(() => vircadiaWorld.connectionInfo.value.sessionId);
 const agentId = computed(() => vircadiaWorld.connectionInfo.value.agentId);
 
+// Store access with error handling for timing issues
 const appStore = useAppStore();
 
 // sync session and agent IDs from Vircadia to the app store
@@ -113,11 +106,6 @@ watch(agentId, (newAgentId) => {
     appStore.setAgentId(newAgentId ?? null);
 });
 
-// BabylonJS Setup - use variables instead of refs
-const renderCanvas = ref<HTMLCanvasElement | null>(null);
-// Using regular variables instead of refs for non-reactive engine and scene
-let engine: WebGPUEngine | null = null;
-let scene: Scene | null = null;
 // Track if scene is initialized for template rendering
 const sceneInitialized = ref(false);
 // Track inspector state
@@ -236,6 +224,12 @@ const snackbarText = computed(() => {
 
 // State for WebRTC dialog
 const webrtcDialog = ref(false);
+
+// BabylonJS Setup - use variables instead of refs
+const renderCanvas = ref<HTMLCanvasElement | null>(null);
+// Using regular variables instead of refs for non-reactive engine and scene
+let engine: WebGPUEngine | null = null;
+let scene: Scene | null = null;
 
 // Initialize BabylonJS
 const initializeBabylon = async () => {

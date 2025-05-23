@@ -24,7 +24,8 @@
             },
             "vue": {
                 "vue": "^3.5.14",
-                "@vueuse/core": "^13.1.0"
+                "@vueuse/core": "^13.1.0",
+                "pinia": "^3.0.2"
             },
             "types": {
                 "@types/bun": "latest",

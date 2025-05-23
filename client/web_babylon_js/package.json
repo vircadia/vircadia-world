@@ -18,7 +18,7 @@
         "@vircadia/world-sdk": "workspace:*",
         "@vueuse/core": "catalog:vue",
         "lodash-es": "^4.17.21",
-        "pinia": "^3.0.2",
+        "pinia": "catalog:vue",
         "vite-plugin-vuetify": "^2.1.1",
         "vue": "catalog:vue",
         "vuetify": "^3.8.5",

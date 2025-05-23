@@ -3,8 +3,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onUnmounted, inject, computed } from "vue";
-import { z } from "zod";
+import { ref, watch, onUnmounted, inject, computed, toRefs } from "vue";
 import type { Scene } from "@babylonjs/core";
 import type {
     BabylonModelDefinition,
@@ -16,19 +15,14 @@ import { useEntity } from "@vircadia/world-sdk/browser/vue";
 import { useDebounceFn } from "@vueuse/core";
 import { useBabylonModelLoader } from "../composables/useBabylonModelLoader";
 import { useBabylonModelPhysics } from "../composables/useBabylonModelPhysics";
+import { useAppStore } from "@/stores/appStore";
 
 const props = defineProps<{
     def: BabylonModelDefinition;
     scene: Scene | null;
-    syncMode: "push" | "pull";
 }>();
-// Sync mode: 'push' (default) or 'pull'
-const isPusher = props.def.syncMode !== "pull";
 
 // --- Set up Babylon model pipelines ---
-// Reactive local transform state
-const position = ref(props.def.position ?? { x: 0, y: 0, z: 0 });
-const rotation = ref(props.def.rotation ?? { x: 0, y: 0, z: 0, w: 1 });
 
 // 1. Asset loader is now managed by useBabylonModelLoader
 // 2. Entity synchronization (generic metadata)
@@ -43,19 +37,17 @@ if (!vircadia) {
     throw new Error("Vircadia instance not found");
 }
 
-// Setup model entity inline (similar to BabylonAvatar.vue)
-const getInitialMeta = () => ({
-    type: "Model" as const,
-    modelFileName: props.def.fileName,
-    position: position.value,
-    rotation: rotation.value,
-});
+// Get current sessionId from app store
+const appStore = useAppStore();
+const { sessionId } = toRefs(appStore);
 
-const getCurrentMeta = () => ({
+// Setup model entity inline (similar to BabylonAvatar.vue)
+const getInitialMeta: () => ModelMetadata = () => ({
     type: "Model" as const,
     modelFileName: props.def.fileName,
-    position: position.value,
-    rotation: rotation.value,
+    position: props.def.position ?? { x: 0, y: 0, z: 0 },
+    rotation: props.def.rotation ?? { x: 0, y: 0, z: 0, w: 1 },
+    ownerSessionId: props.def.ownerSessionId ?? null,
 });
 
 const entity = useEntity({
@@ -63,23 +55,77 @@ const entity = useEntity({
     selectClause: "general__entity_name, meta__data",
     insertClause:
         "(general__entity_name, meta__data) VALUES ($1, $2) RETURNING general__entity_name",
-    insertParams: [entityNameRef.value, JSON.stringify(getInitialMeta())],
+    insertParams: [entityNameRef.value, getInitialMeta()],
     metaDataSchema: ModelMetadataSchema,
     defaultMetaData: getInitialMeta(),
 });
 
-// Debounced update of metadata - simplified since useEntity now handles concurrency
-const debouncedUpdate = useDebounceFn(() => {
+// Debounced update function using JSON path operations for granular updates
+const debouncedUpdate = useDebounceFn(async () => {
     if (!entity.entityData.value?.general__entity_name) {
         console.warn("Cannot update entity: No entity name available");
         return;
     }
-    const updatedMeta = getCurrentMeta();
-    entity
-        .executeUpdate("meta__data = $1", [JSON.stringify(updatedMeta)])
-        .catch((e: unknown) => {
-            console.error("Entity update failed:", e);
-        });
+
+    const currentMeta = entity.entityData.value.meta__data;
+    const newPos = props.def.position ?? { x: 0, y: 0, z: 0 };
+    const newRot = props.def.rotation ?? { x: 0, y: 0, z: 0, w: 1 };
+
+    try {
+        // Update position using JSON path operation
+        if (
+            currentMeta?.position &&
+            (currentMeta.position.x !== newPos.x ||
+                currentMeta.position.y !== newPos.y ||
+                currentMeta.position.z !== newPos.z)
+        ) {
+            await entity.executeUpdate(
+                "meta__data = jsonb_set(meta__data, '{position}', $1)",
+                [newPos],
+            );
+        }
+
+        // Update rotation using JSON path operation
+        if (
+            currentMeta?.rotation &&
+            (currentMeta.rotation.x !== newRot.x ||
+                currentMeta.rotation.y !== newRot.y ||
+                currentMeta.rotation.z !== newRot.z ||
+                currentMeta.rotation.w !== newRot.w)
+        ) {
+            await entity.executeUpdate(
+                "meta__data = jsonb_set(meta__data, '{rotation}', $1)",
+                [JSON.stringify(newRot)],
+            );
+        }
+
+        // Update type if changed
+        if (currentMeta?.type !== "Model") {
+            await entity.executeUpdate(
+                "meta__data = jsonb_set(meta__data, '{type}', $1)",
+                ["Model"],
+            );
+        }
+
+        // Update modelFileName if changed
+        if (currentMeta?.modelFileName !== props.def.fileName) {
+            await entity.executeUpdate(
+                "meta__data = jsonb_set(meta__data, '{modelFileName}', $1)",
+                [props.def.fileName],
+            );
+        }
+
+        // Update ownerSessionId if changed
+        const currentOwnerSessionId = props.def.ownerSessionId ?? null;
+        if (currentMeta?.ownerSessionId !== currentOwnerSessionId) {
+            await entity.executeUpdate(
+                "meta__data = jsonb_set(meta__data, '{ownerSessionId}', $1)",
+                [currentOwnerSessionId],
+            );
+        }
+    } catch (e: unknown) {
+        console.error("Entity update failed:", e);
+    }
 }, props.def.throttleInterval ?? 1000);
 
 // 3. Model loader and asset management
@@ -109,25 +155,30 @@ watch(
     { immediate: true },
 );
 
-// Ensure entity exists: if retrieve completes with no data, create then retrieve again (push mode only)
-if (isPusher) {
-    const stopWatchCreate = watch(
-        [
-            () => entity.retrieving.value,
-            () => entity.error.value,
-            () => entity.entityData.value,
-        ],
-        ([retrieving, error, data], [wasRetrieving]) => {
-            if (wasRetrieving && !retrieving) {
-                if (!data && !error) {
-                    entity.executeCreate().then(() => entity.executeRetrieve());
-                }
-                stopWatchCreate();
-            }
-        },
-        { immediate: false },
+// Computed properties to access metadata values
+const isPusher = computed(() => {
+    return (
+        entity.entityData.value?.meta__data?.ownerSessionId === sessionId.value
     );
-}
+});
+
+// Ensure entity exists: if retrieve completes with no data, create then retrieve again (push mode only)
+watch(
+    [
+        isPusher,
+        () => entity.retrieving.value,
+        () => entity.error.value,
+        () => entity.entityData.value,
+    ],
+    ([isPush, retrieving, error, data], [wasPush, wasRetrieving]) => {
+        if (isPush && wasRetrieving && !retrieving) {
+            if (!data && !error) {
+                entity.executeCreate().then(() => entity.executeRetrieve());
+            }
+        }
+    },
+    { immediate: false },
+);
 
 // When asset blob URL is ready, load the 3D model and apply physics if enabled
 // Asset loading and model loading is handled inside useBabylonModelLoader
@@ -162,10 +213,15 @@ watch(
 );
 
 // When transforms change, update entity metadata (push mode only)
-if (isPusher) {
-    watch(position, debouncedUpdate, { deep: true });
-    watch(rotation, debouncedUpdate, { deep: true });
-}
+watch(
+    [isPusher, () => props.def.position, () => props.def.rotation],
+    ([isPush, pos, rot]) => {
+        if (isPush && pos && rot && entity.entityData.value) {
+            debouncedUpdate();
+        }
+    },
+    { deep: true },
+);
 
 // Clean up on unmount
 onUnmounted(() => {

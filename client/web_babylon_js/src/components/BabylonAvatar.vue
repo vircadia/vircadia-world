@@ -169,38 +169,116 @@ const throttledUpdate = useThrottleFn(async () => {
     if (!avatarEntity.entityData.value?.general__entity_name) {
         return;
     }
-    // Build current metadata
-    const bones = avatarSkeleton.value?.bones || [];
-    const jointTransforms: Record<
-        string,
-        { position: PositionObj; rotation: RotationObj }
-    > = {};
-    for (const bone of bones) {
-        const mat = bone.getAbsoluteMatrix();
-        const pos = mat.getTranslation();
-        const rot = Quaternion.FromRotationMatrix(mat);
-        jointTransforms[bone.name] = {
-            position: vectorToObj(pos),
-            rotation: quatToObj(rot),
-        };
+
+    const currentMeta = avatarEntity.entityData.value.meta__data;
+    if (!currentMeta) {
+        return;
     }
-    const updatedMeta = {
-        type: "avatar",
-        sessionId: sessionId.value,
-        position: (() => {
-            const p = getPosition();
-            return p ? vectorToObj(p) : initialPosition.value;
-        })(),
-        rotation: (() => {
-            const q = getOrientation();
-            return q ? quatToObj(q) : initialRotation.value;
-        })(),
-        cameraOrientation: cameraOrientation.value,
-        jointTransforms,
-    };
-    const success = await avatarEntity.executeUpdate("meta__data = $1", [
-        updatedMeta,
-    ]);
+
+    try {
+        // Get current transform data
+        const currentPos = getPosition();
+        const currentRot = getOrientation();
+
+        // Update position using JSON path operation if changed
+        if (currentPos) {
+            const newPos = vectorToObj(currentPos);
+            if (
+                currentMeta.position &&
+                (currentMeta.position.x !== newPos.x ||
+                    currentMeta.position.y !== newPos.y ||
+                    currentMeta.position.z !== newPos.z)
+            ) {
+                await avatarEntity.executeUpdate(
+                    "meta__data = jsonb_set(meta__data, '{position}', $1)",
+                    [newPos],
+                );
+            }
+        }
+
+        // Update rotation using JSON path operation if changed
+        if (currentRot) {
+            const newRot = quatToObj(currentRot);
+            if (
+                currentMeta.rotation &&
+                (currentMeta.rotation.x !== newRot.x ||
+                    currentMeta.rotation.y !== newRot.y ||
+                    currentMeta.rotation.z !== newRot.z ||
+                    currentMeta.rotation.w !== newRot.w)
+            ) {
+                await avatarEntity.executeUpdate(
+                    "meta__data = jsonb_set(meta__data, '{rotation}', $1)",
+                    [newRot],
+                );
+            }
+        }
+
+        // Update camera orientation using JSON path operation if changed
+        if (
+            currentMeta.cameraOrientation &&
+            (currentMeta.cameraOrientation.alpha !==
+                cameraOrientation.value.alpha ||
+                currentMeta.cameraOrientation.beta !==
+                    cameraOrientation.value.beta ||
+                currentMeta.cameraOrientation.radius !==
+                    cameraOrientation.value.radius)
+        ) {
+            await avatarEntity.executeUpdate(
+                "meta__data = jsonb_set(meta__data, '{cameraOrientation}', $1)",
+                [cameraOrientation.value],
+            );
+        }
+
+        // Update type if changed
+        if (currentMeta.type !== "avatar") {
+            await avatarEntity.executeUpdate(
+                "meta__data = jsonb_set(meta__data, '{type}', $1)",
+                ["avatar"],
+            );
+        }
+
+        // Update sessionId if changed
+        if (currentMeta.sessionId !== sessionId.value) {
+            await avatarEntity.executeUpdate(
+                "meta__data = jsonb_set(meta__data, '{sessionId}', $1)",
+                [sessionId.value],
+            );
+        }
+
+        // Update modelFileName if changed
+        if (currentMeta.modelFileName !== modelFileName.value) {
+            await avatarEntity.executeUpdate(
+                "meta__data = jsonb_set(meta__data, '{modelFileName}', $1)",
+                [modelFileName.value],
+            );
+        }
+
+        // Update joint transforms (full replacement since it's complex nested data)
+        const bones = avatarSkeleton.value?.bones || [];
+        if (bones.length > 0) {
+            const jointTransforms: Record<
+                string,
+                { position: PositionObj; rotation: RotationObj }
+            > = {};
+
+            for (const bone of bones) {
+                const mat = bone.getAbsoluteMatrix();
+                const pos = mat.getTranslation();
+                const rot = Quaternion.FromRotationMatrix(mat);
+                jointTransforms[bone.name] = {
+                    position: vectorToObj(pos),
+                    rotation: quatToObj(rot),
+                };
+            }
+
+            await avatarEntity.executeUpdate(
+                "meta__data = jsonb_set(meta__data, '{jointTransforms}', $1)",
+                [jointTransforms],
+            );
+        }
+    } catch (error) {
+        console.error("Avatar metadata update failed:", error);
+    }
 }, 50);
 
 // Camera controller

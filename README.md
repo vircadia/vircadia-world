@@ -1,5 +1,7 @@
 # Get started
 
+*Note: This is a work in progress and is not yet ready for production use until the version becomes 1.0.0 or higher unless you have direct support from the Vircadia team.*
+
 ## Clone the repository
 
 Be sure to clone recursively:

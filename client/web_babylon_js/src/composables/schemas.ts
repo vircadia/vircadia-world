@@ -6,7 +6,7 @@ export interface BabylonModelDefinition {
     position?: { x: number; y: number; z: number };
     rotation?: { x: number; y: number; z: number; w: number };
     throttleInterval?: number;
-    syncMode?: "push" | "pull";
+    ownerSessionId?: string | null;
     enablePhysics?: boolean;
     physicsType?: "box" | "convexHull" | "mesh";
     physicsOptions?: {
@@ -64,6 +64,7 @@ export const ModelMetadataSchema = z.object({
     modelFileName: z.coerce.string(),
     position: Vector3Schema,
     rotation: QuaternionSchema,
+    ownerSessionId: z.coerce.string().nullable().default(null),
 });
 
 export type ModelMetadata = z.infer<typeof ModelMetadataSchema>;

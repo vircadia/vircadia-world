@@ -27,7 +27,6 @@
                     :key="def.fileName"
                     :def="def"
                     :scene="scene"
-                    syncMode="pull"
                     ref="modelRefs"
                 />
             </template>

@@ -1,7 +1,7 @@
 import { ref, type Ref } from "vue";
 import { PhysicsAggregate, PhysicsShapeType, Vector3 } from "@babylonjs/core";
 import type { Scene, AbstractMesh } from "@babylonjs/core";
-import type { BabylonModelDefinition } from "./types";
+import type { BabylonModelDefinition } from "./schemas";
 
 // Composable for applying/removing physics to a Babylon model
 export function useBabylonModelPhysics(

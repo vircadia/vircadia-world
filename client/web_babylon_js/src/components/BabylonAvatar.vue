@@ -34,7 +34,6 @@ import "@babylonjs/loaders/glTF";
 // Debug viewers import
 import { SkeletonViewer, AxesViewer } from "@babylonjs/core/Debug";
 
-import { z } from "zod";
 import { useEntity } from "@vircadia/world-sdk/browser/vue";
 import { useThrottleFn } from "@vueuse/core";
 
@@ -43,6 +42,10 @@ import { useBabylonAvatarPhysicsController } from "../composables/useBabylonAvat
 import { useBabylonAvatarCameraController } from "../composables/useBabylonAvatarCameraController";
 import { useBabylonAvatarModelLoader } from "../composables/useBabylonAvatarModelLoader";
 import { useBabylonAvatarAnimationLoader } from "../composables/useBabylonAvatarAnimationLoader";
+import {
+    AvatarMetadataSchema,
+    type AvatarMetadata,
+} from "../composables/schemas";
 import type {
     PositionObj,
     RotationObj,
@@ -85,36 +88,6 @@ const {
 
 // Reactive sessionId from store
 const { sessionId } = toRefs(appStore);
-
-// Zod schemas
-const Vector3Schema = z.object({ x: z.number(), y: z.number(), z: z.number() });
-const QuaternionSchema = z.object({
-    x: z.number(),
-    y: z.number(),
-    z: z.number(),
-    w: z.number(),
-});
-const CameraSchema = z.object({
-    alpha: z.number(),
-    beta: z.number(),
-    radius: z.number(),
-});
-
-const AvatarMetadataSchema = z.object({
-    type: z.literal("avatar"),
-    sessionId: z.string().nullable(),
-    position: Vector3Schema,
-    rotation: QuaternionSchema,
-    cameraOrientation: CameraSchema,
-    jointTransforms: z.record(
-        z.object({
-            position: Vector3Schema,
-            rotation: QuaternionSchema,
-        }),
-    ),
-    modelURL: z.string().optional(),
-});
-type AvatarMetadata = z.infer<typeof AvatarMetadataSchema>;
 
 // Reactive metadata object for transforms
 const metadata = reactive<AvatarMetadata>({
@@ -486,10 +459,12 @@ onMounted(async () => {
                         for (const mesh of meshes.value.filter(
                             (m) => m.skeleton,
                         )) {
-                            (mesh as any).numBoneInfluencers = Math.max(
-                                (mesh as any).numBoneInfluencers,
-                                4,
-                            );
+                            if ("numBoneInfluencers" in mesh) {
+                                mesh.numBoneInfluencers = Math.max(
+                                    mesh.numBoneInfluencers || 0,
+                                    4,
+                                );
+                            }
                         }
                         // Load animations
                         console.info("Loading animations...");
@@ -507,8 +482,9 @@ onMounted(async () => {
                     // Debug mode: show bounding boxes, axes, and skeleton
                     if (debugBoundingBox.value) {
                         for (const mesh of meshes.value) {
-                            // @ts-ignore: mesh is AbstractMesh with showBoundingBox property
-                            (mesh as any).showBoundingBox = true;
+                            if ("showBoundingBox" in mesh) {
+                                mesh.showBoundingBox = true;
+                            }
                         }
                     }
                     if (debugAxes.value && avatarNode.value) {
@@ -523,12 +499,14 @@ onMounted(async () => {
                             (m) => m.skeleton === avatarSkeleton.value,
                         );
                         for (const m of skinnedMeshes) {
-                            skeletonViewer = new SkeletonViewer(
-                                avatarSkeleton.value!,
-                                m,
-                                props.scene,
-                            );
-                            skeletonViewer.isEnabled = true;
+                            if (avatarSkeleton.value) {
+                                skeletonViewer = new SkeletonViewer(
+                                    avatarSkeleton.value,
+                                    m,
+                                    props.scene,
+                                );
+                                skeletonViewer.isEnabled = true;
+                            }
                         }
                     }
 

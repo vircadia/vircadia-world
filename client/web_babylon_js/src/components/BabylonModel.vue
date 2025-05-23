@@ -6,7 +6,7 @@
 import { ref, watch, onUnmounted, inject, computed } from "vue";
 import { z } from "zod";
 import type { Scene } from "@babylonjs/core";
-import type { BabylonModelDefinition } from "../composables/types";
+import type { BabylonModelDefinition } from "../composables/schemas";
 import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
 import { useBabylonModelEntity } from "../composables/useBabylonModelEntity";
 import { useBabylonModelLoader } from "../composables/useBabylonModelLoader";

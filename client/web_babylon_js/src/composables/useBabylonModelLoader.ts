@@ -8,7 +8,7 @@ import {
     type BaseTexture,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
-import type { BabylonModelDefinition } from "./types";
+import type { BabylonModelDefinition } from "./schemas";
 import { useAsset } from "@vircadia/world-sdk/browser/vue";
 
 // glTF metadata definitions (copied from useBabylonModel)

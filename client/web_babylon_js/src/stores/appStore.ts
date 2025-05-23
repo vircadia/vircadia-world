@@ -2,7 +2,7 @@ import { defineStore } from "pinia";
 import type {
     BabylonModelDefinition,
     BabylonAnimationDefinition,
-} from "../composables/types";
+} from "../composables/schemas";
 
 export const useAppStore = defineStore("app", {
     state: () => ({

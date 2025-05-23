@@ -2,7 +2,7 @@ import { ref, type Ref } from "vue";
 import { useAsset, type useVircadia } from "@vircadia/world-sdk/browser/vue";
 import type { Scene, AnimationGroup, Skeleton } from "@babylonjs/core";
 import { ImportMeshAsync } from "@babylonjs/core";
-import type { BabylonAnimationDefinition } from "./types";
+import type { BabylonAnimationDefinition } from "./schemas";
 
 export type AnimationState = "idle" | "loading" | "ready" | "error";
 

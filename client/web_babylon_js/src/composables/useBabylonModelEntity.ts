@@ -35,46 +35,18 @@ export function useBabylonModelEntity<M>(
     const isCreating = computed(() => entity.creating.value);
     const isUpdating = computed(() => entity.updating.value);
 
-    // Helper to retry updates when the entity is busy
-    function safeExecuteUpdate(
-        query: string,
-        params: unknown[],
-        retryInterval: number = throttleInterval,
-    ): void {
-        if (
-            entity.retrieving.value ||
-            entity.creating.value ||
-            entity.updating.value
-        ) {
-            console.warn(`Entity busy, retrying update in ${retryInterval}ms`);
-            setTimeout(
-                () => safeExecuteUpdate(query, params, retryInterval),
-                retryInterval,
-            );
-            return;
-        }
-        entity.executeUpdate(query, params).catch((e: unknown) => {
-            console.error("Entity update failed:", e);
-            if (e instanceof Error && e.message.includes("Another operation")) {
-                console.warn(
-                    `Retrying update after failure in ${retryInterval}ms`,
-                );
-                setTimeout(
-                    () => safeExecuteUpdate(query, params, retryInterval),
-                    retryInterval,
-                );
-            }
-        });
-    }
-
-    // Debounced update of metadata
+    // Debounced update of metadata - simplified since useEntity now handles concurrency
     const debouncedUpdate = useDebounceFn(() => {
         if (!entity.entityData.value?.general__entity_name) {
             console.warn("Cannot update entity: No entity name available");
             return;
         }
         const updatedMeta = getCurrentMeta();
-        safeExecuteUpdate("meta__data = $2", [JSON.stringify(updatedMeta)]);
+        entity
+            .executeUpdate("meta__data = $1", [JSON.stringify(updatedMeta)])
+            .catch((e: unknown) => {
+                console.error("Entity update failed:", e);
+            });
     }, throttleInterval);
 
     // Watch local metadata and push updates

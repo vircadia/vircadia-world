@@ -3,14 +3,16 @@
     "version": "1.0.0",
     "type": "module",
     "scripts": {
-        "install:all": "bun run install:cli && bun run install:sdk && bun run install:server:api && bun run install:server:tick",
+        "install:all": "bun run install:repo",
+        "install:repo": "cd ../ && bun install",
         "install:sdk": "cd ../sdk/vircadia-world-sdk-ts && bun install",
         "install:server:api": "cd ../server/service/api/volume/app && bun install",
         "install:server:tick": "cd ../server/service/tick/volume/app && bun install",
         "install:cli": "bun install",
         "install:client:web_babylon_js": "cd ../client/web_babylon_js && bun install",
 
-        "clean:all": "bun run clean:cli && bun run clean:sdk",
+        "clean:all": "bun run clean:repo",
+        "clean:repo": "cd ../ && rm -rf node_modules",
         "clean:sdk": "cd ../sdk/vircadia-world-sdk-ts && rm -rf node_modules && rm -rf dist",
         "clean:client:web_babylon_js": "cd ../client/web_babylon_js && rm -rf node_modules",
         "clean:cli": "rm -rf node_modules",
@@ -47,17 +49,17 @@
         "server:pgweb:access-command": "bun vircadia.cli.ts server:pgweb:access-command"
     },
     "dependencies": {
-        "@babylonjs/core": "8.8.5",
-        "@babylonjs/inspector": "8.8.5",
-        "@babylonjs/loaders": "8.8.5",
-        "jsonwebtoken": "^9.0.2",
-        "postgres": "^3.4.7",
-        "zod": "^3.24.3"
+        "@babylonjs/core": "catalog:babylon",
+        "@babylonjs/inspector": "catalog:babylon",
+        "@babylonjs/loaders": "catalog:babylon",
+        "jsonwebtoken": "catalog:",
+        "postgres": "catalog:",
+        "zod": "catalog:"
     },
     "devDependencies": {
-        "@types/bun": "latest",
-        "@types/jsonwebtoken": "latest",
-        "@types/node": "^22.14.1"
+        "@types/bun": "catalog:types",
+        "@types/jsonwebtoken": "catalog:types",
+        "@types/node": "catalog:types"
     },
     "engines": {
         "bun": ">=1.2.4"

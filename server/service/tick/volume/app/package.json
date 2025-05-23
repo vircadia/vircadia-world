@@ -4,12 +4,12 @@
     "description": "Vircadia World Tick Manager",
     "main": "dist/world.tick.manager.js",
     "dependencies": {
-        "postgres": "^3.4.7",
-        "zod": "^3.24.2"
+        "postgres": "catalog:",
+        "zod": "catalog:"
     },
     "devDependencies": {
-        "@types/node": "22.10.10",
-        "@types/bun": "1.2.10"
+        "@types/node": "catalog:types",
+        "@types/bun": "catalog:types"
     },
     "scripts": {
         "build": "bun build world.tick.manager.ts --target bun --outfile ./dist/world.tick.manager.js",

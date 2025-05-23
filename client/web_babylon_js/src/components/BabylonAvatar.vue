@@ -34,7 +34,7 @@ import "@babylonjs/loaders/glTF";
 // Debug viewers import
 import { SkeletonViewer, AxesViewer } from "@babylonjs/core/Debug";
 
-import { z, type ZodSchema } from "zod";
+import { z } from "zod";
 import { useEntity } from "@vircadia/world-sdk/browser/vue";
 import { useThrottleFn } from "@vueuse/core";
 

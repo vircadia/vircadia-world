@@ -16,7 +16,7 @@ volumes:
 services:
   # Postgres service
   vircadia_world_postgres:
-    image: postgres:17.4-alpine3.21
+    image: postgres:17.5-alpine3.21
     container_name: ${VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME}
     user: "70:70"  # Alpine postgres user (UID:GID)
     restart: always

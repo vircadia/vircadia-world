@@ -306,6 +306,11 @@ CREATE INDEX idx_entity_timestamp_changes ON entity.entities
      ))
     INCLUDE (general__entity_name);
 
+-- 2. Hash-based index for metadata comparison (useful for change detection with large metadata)
+CREATE INDEX idx_entity_metadata_hash ON entity.entities
+    (group__sync, md5(meta__data::text))
+    INCLUDE (general__entity_name);
+
 -- 3. Composite index for asset changes
 CREATE INDEX idx_asset_timestamp_changes ON entity.entity_assets
     (group__sync,

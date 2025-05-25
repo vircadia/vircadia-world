@@ -91,10 +91,14 @@ CREATE INDEX idx_entity_states_updated_at ON tick.entity_states
 -- Space-efficient BRIN index for time-series data
 CREATE INDEX idx_world_ticks_time_brin ON tick.world_ticks USING BRIN (tick__start_time);
 
--- Composite index for tick + sync group lookup patterns
+-- Composite index for tick + sync group lookup patterns (removed meta__data from INCLUDE to avoid size limits)
 CREATE INDEX idx_entity_states_sync_tick_composite ON tick.entity_states
     (group__sync, general__tick_id)
-    INCLUDE (general__entity_name, meta__data);
+    INCLUDE (general__entity_name);
+
+-- Hash-based index for large metadata comparison (useful for detecting changes)
+CREATE INDEX idx_entity_states_metadata_hash ON tick.entity_states
+    (group__sync, general__tick_id, md5(meta__data::text));
 
 -- ============================================================================
 -- 4. FUNCTIONS
@@ -232,6 +236,8 @@ BEGIN
             group__load_priority,
             general__initialized_at,
             general__initialized_by,
+            general__expiry__delete_on_inactive_ms,
+            general__expiry__delete_on_general_ms,
             meta__data,
             group__sync,
             general__created_at,
@@ -248,6 +254,8 @@ BEGIN
             e.group__load_priority,
             e.general__initialized_at,
             e.general__initialized_by,
+            e.general__expiry__delete_on_inactive_ms,
+            e.general__expiry__delete_on_general_ms,
             e.meta__data,
             e.group__sync,
             e.general__created_at,

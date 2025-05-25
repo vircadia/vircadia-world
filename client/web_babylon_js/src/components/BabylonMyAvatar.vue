@@ -4,7 +4,7 @@
 
 <script setup lang="ts">
 // Avatar data transmission intervals
-const AVATAR_DATA_THROTTLE_INTERVAL_MS = 50; // Throttle interval for updates
+const AVATAR_DATA_THROTTLE_INTERVAL_MS = 500; // Throttle interval for updates
 
 import {
     ref,

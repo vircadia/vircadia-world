@@ -4,7 +4,7 @@
 
 <script setup lang="ts">
 // Avatar data transmission intervals
-const AVATAR_DATA_RECEIVE_INTERVAL_MS = 50; // How often to poll for avatar data from server
+const AVATAR_DATA_RECEIVE_INTERVAL_MS = 500; // How often to poll for avatar data from server
 
 import {
     ref,

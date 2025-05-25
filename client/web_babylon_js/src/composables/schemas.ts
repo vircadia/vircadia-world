@@ -48,10 +48,11 @@ export const AvatarMetadataSchema = z.object({
     position: Vector3Schema,
     rotation: QuaternionSchema,
     cameraOrientation: CameraSchema,
-    jointTransforms: z.record(
+    jointTransformsLocal: z.record(
         z.object({
             position: Vector3Schema,
             rotation: QuaternionSchema,
+            scale: Vector3Schema,
         }),
     ),
     modelFileName: z.coerce.string(),

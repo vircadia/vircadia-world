@@ -56,6 +56,21 @@
                 </v-card-actions>
             </v-card>
         </v-dialog>
+        
+        <!-- Debug Joint Overlay -->
+        <v-btn 
+            style="position: fixed; top: 10px; left: 10px;" 
+            fab 
+            color="error" 
+            @click="showDebugOverlay = !showDebugOverlay"
+        >
+            Debug
+        </v-btn>
+        <BabylonDebugOverlay 
+            v-if="showDebugOverlay" 
+            :visible="showDebugOverlay"
+            @close="showDebugOverlay = false"
+        />
     </v-app>
 </template>
 
@@ -66,6 +81,7 @@ import BabylonMyAvatar from "./components/BabylonMyAvatar.vue";
 import BabylonOtherAvatar from "./components/BabylonOtherAvatar.vue";
 import BabylonModel from "./components/BabylonModel.vue";
 import WebRTCTest from "./components/WebRTCTest.vue";
+import BabylonDebugOverlay from "./components/BabylonDebugOverlay.vue";
 // mark as used at runtime for template
 void BabylonMyAvatar;
 // mark as used at runtime for template
@@ -74,6 +90,8 @@ void BabylonOtherAvatar;
 void BabylonModel;
 // mark as used at runtime for template
 void WebRTCTest;
+// mark as used at runtime for template
+void BabylonDebugOverlay;
 import { useBabylonEnvironment } from "./composables/useBabylonEnvironment";
 import { useAppStore } from "@/stores/appStore";
 // BabylonJS
@@ -311,6 +329,9 @@ const snackbarText = computed(() => {
 
 // State for WebRTC dialog
 const webrtcDialog = ref(false);
+
+// State for debug overlay
+const showDebugOverlay = ref(false);
 
 // BabylonJS Setup - use variables instead of refs
 const renderCanvas = ref<HTMLCanvasElement | null>(null);

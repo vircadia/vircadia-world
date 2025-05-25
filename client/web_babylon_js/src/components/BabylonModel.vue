@@ -52,10 +52,6 @@ const getInitialMeta: () => ModelMetadata = () => ({
 
 const entity = useEntity({
     entityName: entityNameRef,
-    selectClause: "general__entity_name, meta__data",
-    insertClause:
-        "(general__entity_name, meta__data) VALUES ($1, $2) RETURNING general__entity_name",
-    insertParams: [entityNameRef.value, getInitialMeta()],
     metaDataSchema: ModelMetadataSchema,
     defaultMetaData: getInitialMeta(),
 });
@@ -145,7 +141,7 @@ watch(
         if (s) {
             await loadModel(s);
             // Always attempt to retrieve existing entity
-            entity.executeRetrieve();
+            entity.executeRetrieve("general__entity_name, meta__data");
             // Apply physics if enabled after model load
             if (props.def.enablePhysics) {
                 applyPhysics(s);
@@ -173,7 +169,16 @@ watch(
     ([isPush, retrieving, error, data], [wasPush, wasRetrieving]) => {
         if (isPush && wasRetrieving && !retrieving) {
             if (!data && !error) {
-                entity.executeCreate().then(() => entity.executeRetrieve());
+                entity
+                    .executeCreate(
+                        "(general__entity_name, meta__data) VALUES ($1, $2) RETURNING general__entity_name",
+                        [entityNameRef.value, getInitialMeta()],
+                    )
+                    .then(() =>
+                        entity.executeRetrieve(
+                            "general__entity_name, meta__data",
+                        ),
+                    );
             }
         }
     },

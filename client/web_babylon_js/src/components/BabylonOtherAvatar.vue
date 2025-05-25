@@ -3,6 +3,9 @@
 </template>
 
 <script setup lang="ts">
+// Avatar data transmission intervals
+const AVATAR_DATA_RECEIVE_INTERVAL_MS = 50; // How often to poll for avatar data from server
+
 import {
     ref,
     onMounted,
@@ -431,8 +434,11 @@ function startPolling() {
         return;
     }
 
-    // Poll avatar data every 300ms (3.33 Hz) for more conservative server load
-    dataPollInterval = setInterval(pollAvatarData, 300);
+    // Poll avatar data at configured interval
+    dataPollInterval = setInterval(
+        pollAvatarData,
+        AVATAR_DATA_RECEIVE_INTERVAL_MS,
+    );
 }
 
 // Stop polling

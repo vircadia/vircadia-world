@@ -3,6 +3,9 @@
 </template>
 
 <script setup lang="ts">
+// Avatar data transmission intervals
+const AVATAR_DATA_THROTTLE_INTERVAL_MS = 50; // Throttle interval for updates
+
 import {
     ref,
     reactive,
@@ -292,7 +295,7 @@ const throttledUpdate = useThrottleFn(async () => {
             );
         }
 
-        // Update joint transforms in LOCAL SPACE - Only send key joints for optimization
+        // Update joint transforms in LOCAL SPACE - Send ALL joints now
         const jointTransformsLocal: Record<
             string,
             {
@@ -302,34 +305,25 @@ const throttledUpdate = useThrottleFn(async () => {
             }
         > = {};
 
-        // Only send key joints: Hips, Spine bones, and upper leg bones
-        const keyJointNames = ["Hips", "Spine", "LeftUpLeg", "RightUpLeg"];
-
         if (avatarSkeleton.value) {
             const bones = avatarSkeleton.value.bones || [];
 
-            for (const jointName of keyJointNames) {
-                // Find the bone that contains this joint name
-                const bone = bones.find((b) =>
-                    b.name.toLowerCase().includes(jointName.toLowerCase()),
-                );
+            // Send ALL bones instead of just key joints
+            for (const bone of bones) {
+                // Use LOCAL matrix for better network efficiency
+                const localMat = bone.getLocalMatrix();
 
-                if (bone) {
-                    // Use LOCAL matrix for better network efficiency
-                    const localMat = bone.getLocalMatrix();
+                // Decompose the matrix to get position, rotation, and scale
+                const pos = new Vector3();
+                const rot = new Quaternion();
+                const scale = new Vector3();
+                localMat.decompose(scale, rot, pos);
 
-                    // Decompose the matrix to get position, rotation, and scale
-                    const pos = new Vector3();
-                    const rot = new Quaternion();
-                    const scale = new Vector3();
-                    localMat.decompose(scale, rot, pos);
-
-                    jointTransformsLocal[bone.name] = {
-                        position: vectorToObj(pos),
-                        rotation: quatToObj(rot),
-                        scale: vectorToObj(scale),
-                    };
-                }
+                jointTransformsLocal[bone.name] = {
+                    position: vectorToObj(pos),
+                    rotation: quatToObj(rot),
+                    scale: vectorToObj(scale),
+                };
             }
         }
 
@@ -342,7 +336,7 @@ const throttledUpdate = useThrottleFn(async () => {
     } catch (error) {
         console.error("Avatar metadata update failed:", error);
     }
-}, 500);
+}, AVATAR_DATA_THROTTLE_INTERVAL_MS);
 
 // Camera controller
 const { camera, setupCamera, updateCameraFromMeta } =
@@ -935,35 +929,19 @@ onMounted(async () => {
                                 }
                             > = {};
 
-                            // Only collect key joints: Hips, Spine bones, and leg bones
-                            const keyJoints = [
-                                "Hips",
-                                "Spine",
-                                "LeftUpLeg",
-                                "RightUpLeg",
-                            ];
+                            // Collect ALL joints now
+                            for (const bone of avatarSkeleton.value.bones) {
+                                const localMat = bone.getLocalMatrix();
+                                const pos = new Vector3();
+                                const rot = new Quaternion();
+                                const scale = new Vector3();
+                                localMat.decompose(scale, rot, pos);
 
-                            for (const jointName of keyJoints) {
-                                const bone = avatarSkeleton.value.bones.find(
-                                    (b) =>
-                                        b.name
-                                            .toLowerCase()
-                                            .includes(jointName.toLowerCase()),
-                                );
-
-                                if (bone) {
-                                    const localMat = bone.getLocalMatrix();
-                                    const pos = new Vector3();
-                                    const rot = new Quaternion();
-                                    const scale = new Vector3();
-                                    localMat.decompose(scale, rot, pos);
-
-                                    joints[bone.name] = {
-                                        position: vectorToObj(pos),
-                                        rotation: quatToObj(rot),
-                                        scale: vectorToObj(scale),
-                                    };
-                                }
+                                joints[bone.name] = {
+                                    position: vectorToObj(pos),
+                                    rotation: quatToObj(rot),
+                                    scale: vectorToObj(scale),
+                                };
                             }
 
                             return {

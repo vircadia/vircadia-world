@@ -1,6 +1,7 @@
 import { createApp } from "vue";
 import App from "./App.vue";
 // Vuetify styles should load before custom styles
+import "@mdi/font/css/materialdesignicons.css";
 import "vuetify/styles";
 import "./assets/main.css";
 import { createPinia } from "pinia";
@@ -24,7 +25,11 @@ const pinia = createPinia();
 app.use(pinia);
 
 // create and register Vuetify instance
-const vuetify = createVuetify();
+const vuetify = createVuetify({
+    icons: {
+        defaultSet: "mdi", // This is already the default value - only for display purposes
+    },
+});
 app.use(vuetify);
 
 // Initialize Vircadia

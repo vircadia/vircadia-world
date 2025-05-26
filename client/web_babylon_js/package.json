@@ -25,6 +25,7 @@
         "zod": "catalog:"
     },
     "devDependencies": {
+        "@mdi/font": "^7.4.47",
         "@tsconfig/node22": "^22.0.1",
         "@types/bun": "catalog:types",
         "@types/lodash-es": "catalog:types",

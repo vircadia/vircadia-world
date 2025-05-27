@@ -71,6 +71,23 @@
         >
             Debug
         </v-btn>
+        
+        <!-- Performance Mode Toggle -->
+        <v-tooltip bottom>
+            <template v-slot:activator="{ props }">
+                <v-btn 
+                    style="position: fixed; top: 10px; left: 80px;" 
+                    fab 
+                    :color="performanceMode === 'low' ? 'warning' : 'success'" 
+                    @click="togglePerformanceMode"
+                    v-bind="props"
+                >
+                    <v-icon>{{ performanceMode === 'low' ? 'mdi-speedometer-slow' : 'mdi-speedometer' }}</v-icon>
+                </v-btn>
+            </template>
+            <span>Performance: {{ performanceMode }} ({{ performanceMode === 'low' ? targetFPS + ' FPS' : 'Max FPS' }})</span>
+        </v-tooltip>
+        
         <BabylonDebugOverlay 
             v-if="showDebugOverlay" 
             :visible="showDebugOverlay"
@@ -126,9 +143,7 @@ if (!vircadiaWorld) {
 
 // Connection count is now managed by WebRTCStatus component
 const webrtcStatus = ref<InstanceType<typeof WebRTCStatus> | null>(null);
-const connectionCount = computed(
-    () => webrtcStatus.value?.connectionCount || 0,
-);
+const connectionCount = computed(() => webrtcStatus.value?.peers.size || 0);
 
 const connectionStatus = computed(
     () => vircadiaWorld.connectionInfo.value.status,
@@ -262,88 +277,12 @@ const toggleInspector = async (): Promise<void> => {
     }
 };
 
-// Start the render loop after avatar is ready
-const startRenderLoop = () => {
-    if (!engine || !scene) return;
-
-    console.log("Starting render loop after avatar is ready");
-    engine.runRenderLoop(() => scene?.render());
-};
-
-// Stop the render loop when the avatar unmounts
-const stopRenderLoop = () => {
-    if (!engine || !scene) return;
-    console.log("Stopping render loop before avatar unmount");
-    engine.stopRenderLoop();
-};
-
-// Keyboard event handler for inspector toggle
-const handleKeyDown = (event: KeyboardEvent) => {
-    if (event.key === "t" && scene) {
-        toggleInspector();
-    }
-};
-
-// Set up environment loader using HDR list from store
-const envLoader = useBabylonEnvironment(appStore.hdrList);
-const loadEnvironments = envLoader.loadAll;
-const environmentLoading = envLoader.isLoading;
-
-// Child component loading states
-const avatarLoading = computed(
-    () =>
-        (avatarRef.value?.isCreating || avatarRef.value?.isRetrieving) ?? false,
-);
-const otherAvatarsLoading = computed(
-    () =>
-        otherAvatarRefs.value.some(
-            (avatar) => avatar && !avatar.isModelLoaded,
-        ) ?? false,
-);
-const modelsLoading = computed(() =>
-    modelRefs.value.some(
-        (m) =>
-            (m?.isEntityCreating ||
-                m?.isEntityRetrieving ||
-                m?.isAssetLoading) ??
-            false,
-    ),
-);
-
-// Global loading state: environment, avatar, other avatars, or models
-const isLoading = computed(
-    () =>
-        environmentLoading.value ||
-        avatarLoading.value ||
-        otherAvatarsLoading.value ||
-        modelsLoading.value,
-);
-
-// snackbarVisible is driven by connection status and loading, add noop setter to satisfy v-model
-const snackbarVisible = computed<boolean>({
-    get: () => connectionStatus.value !== "connected" || isLoading.value,
-    set: (_val: boolean) => {
-        // no-op setter: visibility is derived from connection status and loading
-    },
-});
-const snackbarText = computed(() => {
-    if (isLoading.value) {
-        return "Loading assets or creating entities...";
-    }
-    if (connectionStatus.value === "connecting") {
-        return "Connecting to Vircadia server...";
-    }
-    if (connectionStatus.value === "disconnected") {
-        return "Disconnected from Vircadia server. Will attempt to reconnect...";
-    }
-    return "";
-});
-
-// State for WebRTC dialog
-const webrtcDialog = ref(false);
-
 // State for debug overlay
 const showDebugOverlay = ref(false);
+
+// Performance mode state
+const performanceMode = ref<"normal" | "low">("normal");
+const targetFPS = ref(30); // Target FPS for low performance mode
 
 // BabylonJS Setup - use variables instead of refs
 const renderCanvas = ref<HTMLCanvasElement | null>(null);
@@ -489,6 +428,120 @@ watch(
         }
     },
 );
+
+// Start the render loop after avatar is ready
+const startRenderLoop = () => {
+    if (!engine || !scene) return;
+
+    console.log("Starting render loop after avatar is ready");
+
+    if (performanceMode.value === "normal") {
+        // Normal mode: render as fast as possible
+        engine.runRenderLoop(() => scene?.render());
+    } else {
+        // Low performance mode: render at limited FPS
+        const frameInterval = 1000 / targetFPS.value;
+        let lastFrameTime = 0;
+
+        engine.runRenderLoop(() => {
+            const currentTime = performance.now();
+            const deltaTime = currentTime - lastFrameTime;
+
+            if (deltaTime >= frameInterval) {
+                scene?.render();
+                lastFrameTime = currentTime - (deltaTime % frameInterval);
+            }
+        });
+    }
+};
+
+// Stop the render loop when the avatar unmounts
+const stopRenderLoop = () => {
+    if (!engine || !scene) return;
+    console.log("Stopping render loop before avatar unmount");
+    engine.stopRenderLoop();
+};
+
+// Function to toggle performance mode
+const togglePerformanceMode = () => {
+    performanceMode.value =
+        performanceMode.value === "normal" ? "low" : "normal";
+    console.log(`Performance mode: ${performanceMode.value}`);
+
+    // Restart render loop with new mode
+    if (engine && scene) {
+        stopRenderLoop();
+        startRenderLoop();
+    }
+};
+
+// Keyboard event handler for inspector toggle
+const handleKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "t" && scene) {
+        toggleInspector();
+    } else if (event.key === "p" || event.key === "P") {
+        // Press 'P' to toggle performance mode
+        togglePerformanceMode();
+    }
+};
+
+// Set up environment loader using HDR list from store
+const envLoader = useBabylonEnvironment(appStore.hdrList);
+const loadEnvironments = envLoader.loadAll;
+const environmentLoading = envLoader.isLoading;
+
+// Child component loading states
+const avatarLoading = computed(
+    () =>
+        (avatarRef.value?.isCreating || avatarRef.value?.isRetrieving) ?? false,
+);
+const otherAvatarsLoading = computed(
+    () =>
+        otherAvatarRefs.value.some(
+            (avatar) => avatar && !avatar.isModelLoaded,
+        ) ?? false,
+);
+const modelsLoading = computed(() =>
+    modelRefs.value.some(
+        (m) =>
+            (m?.isEntityCreating ||
+                m?.isEntityRetrieving ||
+                m?.isAssetLoading) ??
+            false,
+    ),
+);
+
+// Global loading state: environment, avatar, other avatars, or models
+const isLoading = computed(
+    () =>
+        environmentLoading.value ||
+        avatarLoading.value ||
+        otherAvatarsLoading.value ||
+        modelsLoading.value,
+);
+
+// snackbarVisible is driven by connection status and loading, add noop setter to satisfy v-model
+const snackbarVisible = computed<boolean>({
+    get: () => connectionStatus.value !== "connected" || isLoading.value,
+    set: (_val: boolean) => {
+        // no-op setter: visibility is derived from connection status and loading
+    },
+});
+const snackbarText = computed(() => {
+    if (isLoading.value) {
+        return "Loading assets or creating entities...";
+    }
+    if (connectionStatus.value === "connecting") {
+        return "Connecting to Vircadia server...";
+    }
+    if (connectionStatus.value === "disconnected") {
+        return "Disconnected from Vircadia server. Will attempt to reconnect...";
+    }
+    return "";
+});
+
+// State for WebRTC dialog
+const webrtcDialog = ref(false);
 </script>
 
 <style>

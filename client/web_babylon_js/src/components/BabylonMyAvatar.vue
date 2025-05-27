@@ -504,7 +504,7 @@ if (!vircadiaWorld) {
     throw new Error("Vircadia instance not found in BabylonMyAvatar");
 }
 
-// Audio stream is now handled by the WebRTCStatus component
+// Audio stream is now handled by the BabylonWebRTC component
 
 // Animation loader composable
 const {
@@ -976,7 +976,7 @@ onMounted(async () => {
 
                         emit("ready");
 
-                        // Audio stream is now initialized by the WebRTCStatus component
+                        // Audio stream is now initialized by the BabylonWebRTC component
                     } else {
                         console.warn(
                             "No skeleton found on avatar meshes, skipping animation load.",

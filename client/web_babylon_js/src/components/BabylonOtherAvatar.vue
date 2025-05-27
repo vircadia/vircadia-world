@@ -70,7 +70,7 @@ if (!vircadiaWorld) {
     throw new Error("Vircadia instance not found in BabylonOtherAvatar");
 }
 
-// Audio playback is now handled by WebRTCStatus component
+// Audio playback is now handled by BabylonWebRTC component
 
 // Asset loader for the avatar model
 const modelFileNameRef: Ref<string> = ref(modelFileName.value);
@@ -469,11 +469,11 @@ watch(
     { immediate: true },
 );
 
-// Audio playback is now handled by the WebRTCStatus component
+// Audio playback is now handled by the BabylonWebRTC component
 
 // Start debug logging
 onMounted(() => {
-    // Audio playback is now handled by the WebRTCStatus component
+    // Audio playback is now handled by the BabylonWebRTC component
 
     // Expose debug data function for overlay
     (

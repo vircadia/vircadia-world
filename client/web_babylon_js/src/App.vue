@@ -59,7 +59,7 @@
         </v-btn>
         
         <v-dialog v-model="webrtcDialog" max-width="500">
-            <WebRTCStatus ref="webrtcStatus" />
+            <BabylonWebRTC ref="webrtcStatus" />
         </v-dialog>
         
         <!-- Debug Joint Overlay -->
@@ -102,7 +102,7 @@ import { computed, watch, ref, onMounted, onUnmounted, inject } from "vue";
 import BabylonMyAvatar from "./components/BabylonMyAvatar.vue";
 import BabylonOtherAvatar from "./components/BabylonOtherAvatar.vue";
 import BabylonModel from "./components/BabylonModel.vue";
-import WebRTCStatus from "./components/WebRTCStatus.vue";
+import BabylonWebRTC from "./components/BabylonWebRTC.vue";
 import BabylonDebugOverlay from "./components/BabylonDebugOverlay.vue";
 // mark as used at runtime for template
 void BabylonMyAvatar;
@@ -111,7 +111,7 @@ void BabylonOtherAvatar;
 // mark as used at runtime for template
 void BabylonModel;
 // mark as used at runtime for template
-void WebRTCStatus;
+void BabylonWebRTC;
 // mark as used at runtime for template
 void BabylonDebugOverlay;
 import { useBabylonEnvironment } from "./composables/useBabylonEnvironment";
@@ -141,8 +141,8 @@ if (!vircadiaWorld) {
     throw new Error("Vircadia instance not found");
 }
 
-// Connection count is now managed by WebRTCStatus component
-const webrtcStatus = ref<InstanceType<typeof WebRTCStatus> | null>(null);
+// Connection count is now managed by BabylonWebRTC component
+const webrtcStatus = ref<InstanceType<typeof BabylonWebRTC> | null>(null);
 const connectionCount = computed(() => webrtcStatus.value?.peers.size || 0);
 
 const connectionStatus = computed(

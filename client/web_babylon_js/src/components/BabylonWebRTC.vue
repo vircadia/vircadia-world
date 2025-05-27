@@ -37,6 +37,41 @@
           </v-list-item-title>
         </v-list-item>
         
+        <!-- Mic Controls -->
+        <v-list-item v-if="localStream">
+          <v-list-item-title class="d-flex align-center">
+            <span class="text-caption mr-2">Microphone:</span>
+            <v-btn
+              :icon="isMuted ? 'mdi-microphone-off' : 'mdi-microphone'"
+              :color="isMuted ? 'error' : 'success'"
+              size="small"
+              variant="flat"
+              @click="toggleMute"
+            />
+            <v-slider
+              v-model="micVolume"
+              :disabled="isMuted"
+              class="ml-4"
+              density="compact"
+              hide-details
+              min="0"
+              max="100"
+              step="1"
+              thumb-label
+              style="max-width: 200px"
+              @update:model-value="updateMicVolume"
+            >
+              <template v-slot:prepend>
+                <v-icon size="small">mdi-volume-low</v-icon>
+              </template>
+              <template v-slot:append>
+                <v-icon size="small">mdi-volume-high</v-icon>
+              </template>
+            </v-slider>
+            <span class="ml-2 text-caption">{{ micVolume }}%</span>
+          </v-list-item-title>
+        </v-list-item>
+        
         <!-- Audio Track Details -->
         <v-list-item v-for="(track, index) in audioTracks" :key="track.id" class="ml-4">
           <v-list-item-title class="text-caption">
@@ -110,6 +145,24 @@
                   >
                     {{ peer.remoteStream ? 'Receiving Audio' : 'No Audio' }}
                   </v-chip>
+                  
+                  <!-- Volume Control for Remote Audio -->
+                  <div v-if="peer.remoteStream" class="mt-2 d-flex align-center">
+                    <v-icon size="small" class="mr-2">mdi-volume-high</v-icon>
+                    <v-slider
+                      :model-value="getPeerVolume(peerId)"
+                      @update:model-value="(value) => setPeerVolume(peerId, value)"
+                      class="flex-grow-1"
+                      density="compact"
+                      hide-details
+                      min="0"
+                      max="100"
+                      step="1"
+                      thumb-label
+                      style="max-width: 200px"
+                    />
+                    <span class="ml-2 text-caption">{{ getPeerVolume(peerId) }}%</span>
+                  </div>
                 </div>
               </div>
               
@@ -184,6 +237,15 @@ const peers = ref<Map<string, PeerInfo>>(new Map());
 const localStream = ref<MediaStream | null>(null);
 const isRefreshing = ref(false);
 const audioElements = ref<Map<string, HTMLAudioElement>>(new Map());
+const isMuted = ref(false);
+const micVolume = ref(100);
+const peerVolumes = ref<Map<string, number>>(new Map());
+
+// Audio processing nodes
+const audioContext = ref<AudioContext | null>(null);
+const gainNode = ref<GainNode | null>(null);
+const source = ref<MediaStreamAudioSourceNode | null>(null);
+const destination = ref<MediaStreamAudioDestinationNode | null>(null);
 
 // Active watchers for cleanup
 const activeWatchers = new Map<string, Array<() => void>>();
@@ -213,7 +275,7 @@ async function initializeLocalStream() {
 
     try {
         console.log("[WebRTC] Requesting user media...");
-        localStream.value = await navigator.mediaDevices.getUserMedia({
+        const rawStream = await navigator.mediaDevices.getUserMedia({
             audio: {
                 echoCancellation: true,
                 noiseSuppression: true,
@@ -221,6 +283,22 @@ async function initializeLocalStream() {
             },
             video: false,
         });
+
+        // Create audio context for volume control
+        audioContext.value = new AudioContext();
+        source.value = audioContext.value.createMediaStreamSource(rawStream);
+        gainNode.value = audioContext.value.createGain();
+        destination.value = audioContext.value.createMediaStreamDestination();
+
+        // Connect the audio graph
+        source.value.connect(gainNode.value);
+        gainNode.value.connect(destination.value);
+
+        // Set initial volume
+        gainNode.value.gain.value = micVolume.value / 100;
+
+        // Use the processed stream as our local stream
+        localStream.value = destination.value.stream;
 
         const audioTracks = localStream.value.getAudioTracks();
         console.log(
@@ -482,7 +560,10 @@ function setupAudioPlayback(remoteSessionId: string, stream: MediaStream) {
     const audio = new Audio();
     audio.srcObject = stream;
     audio.autoplay = true;
-    audio.volume = 1.0;
+
+    // Set volume from stored value or default to 100%
+    const storedVolume = peerVolumes.value.get(remoteSessionId);
+    audio.volume = storedVolume !== undefined ? storedVolume / 100 : 1.0;
 
     // Add to DOM (hidden)
     audio.style.display = "none";
@@ -538,6 +619,9 @@ function disconnectFromPeer(remoteSessionId: string) {
         audioElement.remove();
         audioElements.value.delete(remoteSessionId);
     }
+
+    // Clean up volume setting
+    peerVolumes.value.delete(remoteSessionId);
 
     // Clean up watchers
     const watchers = activeWatchers.get(remoteSessionId);
@@ -706,12 +790,69 @@ onUnmounted(() => {
         }
         localStream.value = null;
     }
+
+    // Clean up audio context
+    if (source.value) {
+        source.value.disconnect();
+        source.value = null;
+    }
+    if (gainNode.value) {
+        gainNode.value.disconnect();
+        gainNode.value = null;
+    }
+    if (destination.value) {
+        destination.value = null;
+    }
+    if (audioContext.value) {
+        audioContext.value.close();
+        audioContext.value = null;
+    }
 });
 
 // Expose peers for parent components
 defineExpose({
     peers,
 });
+
+// Mic controls
+function toggleMute() {
+    isMuted.value = !isMuted.value;
+
+    if (localStream.value) {
+        const audioTracks = localStream.value.getAudioTracks();
+        for (const track of audioTracks) {
+            track.enabled = !isMuted.value;
+        }
+        console.log(
+            `[WebRTC] Microphone ${isMuted.value ? "muted" : "unmuted"}`,
+        );
+    }
+}
+
+function updateMicVolume(value: number) {
+    micVolume.value = value;
+
+    if (gainNode.value) {
+        gainNode.value.gain.value = value / 100;
+        console.log(`[WebRTC] Mic volume set to ${value}%`);
+    }
+}
+
+// Get peer volume
+function getPeerVolume(peerId: string): number {
+    return peerVolumes.value.get(peerId) || 100;
+}
+
+// Set peer volume
+function setPeerVolume(peerId: string, volume: number) {
+    peerVolumes.value.set(peerId, volume);
+
+    const audioElement = audioElements.value.get(peerId);
+    if (audioElement) {
+        audioElement.volume = volume / 100;
+        console.log(`[WebRTC] Volume for ${peerId} set to ${volume}%`);
+    }
+}
 </script>
 
 <style scoped>

@@ -58,7 +58,8 @@
             <v-icon v-else>mdi-phone</v-icon>
         </v-btn>
         
-        <v-dialog v-model="webrtcDialog" max-width="500">
+        <!-- WebRTC dialog with persistent and eager props to keep component mounted -->
+        <v-dialog v-model="webrtcDialog" max-width="500" persistent eager>
             <BabylonWebRTC ref="webrtcStatus" />
         </v-dialog>
         
@@ -179,7 +180,7 @@ const otherAvatarSessionIds = ref<string[]>([]);
 // Polling interval for discovering other avatars
 let avatarDiscoveryInterval: number | null = null;
 
-// Poll for other avatars every 500ms
+// Poll for other avatars every 2000ms
 async function pollForOtherAvatars() {
     if (
         !vircadiaWorld ||
@@ -195,7 +196,7 @@ async function pollForOtherAvatars() {
             Array<{ general__entity_name: string }>
         >({
             query,
-            timeoutMs: 10000,
+            timeoutMs: 30000,
         });
 
         if (result.result) {
@@ -215,7 +216,12 @@ async function pollForOtherAvatars() {
             otherAvatarSessionIds.value = foundSessionIds;
         }
     } catch (error) {
-        console.warn("Error polling for other avatars:", error);
+        // Only log timeout errors at debug level to reduce console spam
+        if (error instanceof Error && error.message.includes("timeout")) {
+            console.debug("Avatar discovery query timed out, will retry");
+        } else {
+            console.warn("Error polling for other avatars:", error);
+        }
     }
 }
 
@@ -225,8 +231,11 @@ function startAvatarDiscovery() {
         return;
     }
 
-    // Poll every 500ms for other avatars
-    avatarDiscoveryInterval = setInterval(pollForOtherAvatars, 500);
+    // Poll using interval from store
+    avatarDiscoveryInterval = setInterval(
+        pollForOtherAvatars,
+        appStore.pollingIntervals.avatarDiscovery,
+    );
 }
 
 // Stop avatar discovery polling
@@ -280,9 +289,9 @@ const toggleInspector = async (): Promise<void> => {
 // State for debug overlay
 const showDebugOverlay = ref(false);
 
-// Performance mode state
-const performanceMode = ref<"normal" | "low">("normal");
-const targetFPS = ref(30); // Target FPS for low performance mode
+// Performance mode from store
+const performanceMode = computed(() => appStore.performanceMode);
+const targetFPS = computed(() => appStore.targetFPS);
 
 // BabylonJS Setup - use variables instead of refs
 const renderCanvas = ref<HTMLCanvasElement | null>(null);
@@ -464,9 +473,8 @@ const stopRenderLoop = () => {
 
 // Function to toggle performance mode
 const togglePerformanceMode = () => {
-    performanceMode.value =
-        performanceMode.value === "normal" ? "low" : "normal";
-    console.log(`Performance mode: ${performanceMode.value}`);
+    appStore.togglePerformanceMode();
+    console.log(`Performance mode: ${appStore.performanceMode}`);
 
     // Restart render loop with new mode
     if (engine && scene) {

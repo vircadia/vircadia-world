@@ -182,6 +182,25 @@ export const useAppStore = defineStore("app", {
                 },
             ] as BabylonAnimationDefinition[],
         },
+        // Performance mode configuration
+        performanceMode: "low" as "normal" | "low",
+        targetFPS: 30, // Target FPS for low performance mode
+
+        // Polling intervals configuration (in milliseconds)
+        pollingIntervals: {
+            // Avatar discovery interval - how often to check for new avatars
+            avatarDiscovery: 2000,
+            // Other avatar data polling - how often to fetch other avatars' position/state
+            otherAvatarData: 1000,
+            // WebRTC signaling polling - how often to check for offers/answers
+            webRTCSignaling: 1500,
+            // WebRTC stale threshold - time before considering signaling data stale
+            webRTCStaleThreshold: 20000,
+            // Spatial audio update interval - how often to update 3D audio positions
+            spatialAudioUpdate: 100,
+            // Debug overlay refresh rate
+            debugOverlayRefresh: 100,
+        },
     }),
     getters: {
         // whether an error is set
@@ -227,6 +246,30 @@ export const useAppStore = defineStore("app", {
         // clear all other avatars metadata
         clearOtherAvatarsMetadata() {
             this.otherAvatarsMetadata = {};
+        },
+        // set performance mode
+        setPerformanceMode(mode: "normal" | "low") {
+            this.performanceMode = mode;
+        },
+        // toggle performance mode
+        togglePerformanceMode() {
+            this.performanceMode =
+                this.performanceMode === "normal" ? "low" : "normal";
+        },
+        // set target FPS
+        setTargetFPS(fps: number) {
+            this.targetFPS = fps;
+        },
+        // set polling interval
+        setPollingInterval(
+            key: keyof typeof this.pollingIntervals,
+            value: number,
+        ) {
+            this.pollingIntervals[key] = value;
+        },
+        // set all polling intervals
+        setPollingIntervals(intervals: Partial<typeof this.pollingIntervals>) {
+            Object.assign(this.pollingIntervals, intervals);
         },
     },
 });

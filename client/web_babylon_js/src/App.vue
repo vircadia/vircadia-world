@@ -40,21 +40,26 @@
                 />
             </template>
         </main>
-        <!-- WebRTC Test launcher -->
-        <v-btn style="position: fixed; top: 10px; right: 10px;" fab color="primary" @click="webrtcDialog = true">
-            WebRTC
+        <!-- WebRTC Status launcher -->
+        <v-btn 
+            style="position: fixed; top: 60px; right: 10px;" 
+            fab 
+            color="primary" 
+            @click="webrtcDialog = true"
+        >
+            <v-badge
+                v-if="connectionCount > 0"
+                :content="connectionCount"
+                color="success"
+                overlap
+            >
+                <v-icon>mdi-phone</v-icon>
+            </v-badge>
+            <v-icon v-else>mdi-phone</v-icon>
         </v-btn>
-        <v-dialog v-model="webrtcDialog" max-width="400">
-            <v-card>
-                <v-card-title>WebRTC Test</v-card-title>
-                <v-card-text>
-                    <WebRTCTest />
-                </v-card-text>
-                <v-card-actions>
-                    <v-spacer />
-                    <v-btn text @click="webrtcDialog = false">Close</v-btn>
-                </v-card-actions>
-            </v-card>
+        
+        <v-dialog v-model="webrtcDialog" max-width="500">
+            <WebRTCStatus ref="webrtcStatus" />
         </v-dialog>
         
         <!-- Debug Joint Overlay -->
@@ -80,7 +85,7 @@ import { computed, watch, ref, onMounted, onUnmounted, inject } from "vue";
 import BabylonMyAvatar from "./components/BabylonMyAvatar.vue";
 import BabylonOtherAvatar from "./components/BabylonOtherAvatar.vue";
 import BabylonModel from "./components/BabylonModel.vue";
-import WebRTCTest from "./components/WebRTCTest.vue";
+import WebRTCStatus from "./components/WebRTCStatus.vue";
 import BabylonDebugOverlay from "./components/BabylonDebugOverlay.vue";
 // mark as used at runtime for template
 void BabylonMyAvatar;
@@ -89,7 +94,7 @@ void BabylonOtherAvatar;
 // mark as used at runtime for template
 void BabylonModel;
 // mark as used at runtime for template
-void WebRTCTest;
+void WebRTCStatus;
 // mark as used at runtime for template
 void BabylonDebugOverlay;
 import { useBabylonEnvironment } from "./composables/useBabylonEnvironment";
@@ -118,6 +123,13 @@ const vircadiaWorld = inject(useVircadiaInstance());
 if (!vircadiaWorld) {
     throw new Error("Vircadia instance not found");
 }
+
+// Connection count is now managed by WebRTCStatus component
+const webrtcStatus = ref<InstanceType<typeof WebRTCStatus> | null>(null);
+const connectionCount = computed(
+    () => webrtcStatus.value?.connectionCount || 0,
+);
+
 const connectionStatus = computed(
     () => vircadiaWorld.connectionInfo.value.status,
 );
@@ -463,6 +475,8 @@ watch(
                 stopAvatarDiscovery();
                 // Clear other avatars list
                 otherAvatarSessionIds.value = [];
+                // Clear other avatars metadata from store
+                appStore.clearOtherAvatarsMetadata();
             } else if (status === "connecting") {
                 console.log("Connecting to Vircadia server...");
             }

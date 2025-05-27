@@ -70,6 +70,8 @@ if (!vircadiaWorld) {
     throw new Error("Vircadia instance not found in BabylonOtherAvatar");
 }
 
+// Audio playback is now handled by WebRTCStatus component
+
 // Asset loader for the avatar model
 const modelFileNameRef: Ref<string> = ref(modelFileName.value);
 const asset = useAsset({
@@ -360,6 +362,9 @@ async function pollAvatarData() {
             try {
                 const metadata = AvatarMetadataSchema.parse(rawMetaData);
 
+                // Push metadata to app store
+                appStore.setOtherAvatarMetadata(props.sessionId, metadata);
+
                 // Debug: Log only when window.debugOtherAvatar is true
                 if ((window as DebugWindow).debugOtherAvatar) {
                     console.log(`[DEBUG] Avatar data for ${props.sessionId}:`, {
@@ -439,6 +444,8 @@ function startPolling() {
         pollAvatarData,
         AVATAR_DATA_RECEIVE_INTERVAL_MS,
     );
+
+    // WebRTC connection is now handled by periodic discovery in useBabylonWebRTC
 }
 
 // Stop polling
@@ -462,8 +469,12 @@ watch(
     { immediate: true },
 );
 
+// Audio playback is now handled by the WebRTCStatus component
+
 // Start debug logging
 onMounted(() => {
+    // Audio playback is now handled by the WebRTCStatus component
+
     // Expose debug data function for overlay
     (
         window as DebugWindow & { __debugOtherAvatarData?: () => unknown }
@@ -618,6 +629,9 @@ onUnmounted(() => {
     if (debugInterval) {
         clearInterval(debugInterval);
     }
+
+    // Remove metadata from store
+    appStore.removeOtherAvatarMetadata(props.sessionId);
 
     // Clean up avatar node and meshes
     if (avatarNode.value) {

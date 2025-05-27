@@ -222,6 +222,21 @@ const throttledUpdate = useThrottleFn(async () => {
         const currentPos = getPosition();
         const currentRot = getOrientation();
 
+        // Prepare the updated metadata object
+        const updatedMetadata: AvatarMetadata = {
+            type: "avatar",
+            sessionId: sessionId.value,
+            position: currentPos
+                ? vectorToObj(currentPos)
+                : initialPosition.value,
+            rotation: currentRot
+                ? quatToObj(currentRot)
+                : initialRotation.value,
+            cameraOrientation: cameraOrientation.value,
+            jointTransformsLocal: {},
+            modelFileName: modelFileName.value,
+        };
+
         // Update position using JSON path operation if changed
         if (currentPos) {
             const newPos = vectorToObj(currentPos);
@@ -327,12 +342,18 @@ const throttledUpdate = useThrottleFn(async () => {
             }
         }
 
+        // Update joint transforms in metadata object
+        updatedMetadata.jointTransformsLocal = jointTransformsLocal;
+
         if (Object.keys(jointTransformsLocal).length > 0) {
             await avatarEntity.executeUpdate(
                 "meta__data = jsonb_set(meta__data, '{jointTransformsLocal}', $1)",
                 [jointTransformsLocal],
             );
         }
+
+        // Push updated metadata to app store
+        appStore.setMyAvatarMetadata(updatedMetadata);
     } catch (error) {
         console.error("Avatar metadata update failed:", error);
     }
@@ -482,6 +503,8 @@ const vircadiaWorld = inject(useVircadiaInstance());
 if (!vircadiaWorld) {
     throw new Error("Vircadia instance not found in BabylonMyAvatar");
 }
+
+// Audio stream is now handled by the WebRTCStatus component
 
 // Animation loader composable
 const {
@@ -952,6 +975,8 @@ onMounted(async () => {
                         };
 
                         emit("ready");
+
+                        // Audio stream is now initialized by the WebRTCStatus component
                     } else {
                         console.warn(
                             "No skeleton found on avatar meshes, skipping animation load.",

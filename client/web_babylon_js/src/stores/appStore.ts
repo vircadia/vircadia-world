@@ -3,6 +3,7 @@ import type {
     BabylonModelDefinition,
     BabylonAnimationDefinition,
 } from "../composables/schemas";
+import type { AvatarMetadata } from "../composables/schemas";
 
 export const useAppStore = defineStore("app", {
     state: () => ({
@@ -31,6 +32,10 @@ export const useAppStore = defineStore("app", {
         // IDs for session and agent
         sessionId: null as string | null,
         agentId: null as string | null,
+        // My avatar metadata
+        myAvatarMetadata: null as AvatarMetadata | null,
+        // Other avatars metadata map (keyed by sessionId)
+        otherAvatarsMetadata: {} as Record<string, AvatarMetadata>,
         // avatar configuration
         avatarDefinition: {
             initialAvatarPosition: { x: 0, y: 0, z: -5 },
@@ -181,6 +186,10 @@ export const useAppStore = defineStore("app", {
     getters: {
         // whether an error is set
         hasError: (state): boolean => state.error !== null,
+        // get other avatar metadata by sessionId
+        getOtherAvatarMetadata: (state) => (sessionId: string) => {
+            return state.otherAvatarsMetadata[sessionId] || null;
+        },
     },
     actions: {
         // set the loading flag
@@ -202,6 +211,22 @@ export const useAppStore = defineStore("app", {
         // set the agent ID
         setAgentId(id: string | null) {
             this.agentId = id;
+        },
+        // set my avatar metadata
+        setMyAvatarMetadata(metadata: AvatarMetadata | null) {
+            this.myAvatarMetadata = metadata;
+        },
+        // set other avatar metadata
+        setOtherAvatarMetadata(sessionId: string, metadata: AvatarMetadata) {
+            this.otherAvatarsMetadata[sessionId] = metadata;
+        },
+        // remove other avatar metadata
+        removeOtherAvatarMetadata(sessionId: string) {
+            delete this.otherAvatarsMetadata[sessionId];
+        },
+        // clear all other avatars metadata
+        clearOtherAvatarsMetadata() {
+            this.otherAvatarsMetadata = {};
         },
     },
 });

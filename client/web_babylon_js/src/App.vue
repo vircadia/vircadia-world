@@ -209,11 +209,36 @@ async function pollForOtherAvatars() {
                     entity.general__entity_name.match(/^avatar:(.+)$/);
                 if (match && match[1] !== currentSessionId) {
                     foundSessionIds.push(match[1]);
+
+                    // Immediately add to metadata store with minimal data
+                    // This allows WebRTC to start connecting right away
+                    if (!appStore.getOtherAvatarMetadata(match[1])) {
+                        console.log(
+                            `[Avatar Discovery] Found new avatar: ${match[1]}`,
+                        );
+                        appStore.setOtherAvatarMetadata(match[1], {
+                            type: "avatar",
+                            sessionId: match[1],
+                            position: { x: 0, y: 0, z: 0 },
+                            rotation: { x: 0, y: 0, z: 0, w: 1 },
+                            cameraOrientation: { alpha: 0, beta: 0, radius: 5 },
+                            modelFileName: "",
+                            jointTransformsLocal: {},
+                        });
+                    }
                 }
             }
 
             // Update the list of other avatar session IDs
             otherAvatarSessionIds.value = foundSessionIds;
+
+            // Remove avatars that are no longer in the discovered list
+            for (const sessionId in appStore.otherAvatarsMetadata) {
+                if (!foundSessionIds.includes(sessionId)) {
+                    console.log(`[Avatar Discovery] Avatar left: ${sessionId}`);
+                    appStore.removeOtherAvatarMetadata(sessionId);
+                }
+            }
         }
     } catch (error) {
         // Only log timeout errors at debug level to reduce console spam
@@ -231,7 +256,10 @@ function startAvatarDiscovery() {
         return;
     }
 
-    // Poll using interval from store
+    // Poll immediately on start
+    pollForOtherAvatars();
+
+    // Then poll using interval from store
     avatarDiscoveryInterval = setInterval(
         pollForOtherAvatars,
         appStore.pollingIntervals.avatarDiscovery,

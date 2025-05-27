@@ -3,9 +3,6 @@
 </template>
 
 <script setup lang="ts">
-// Avatar data transmission intervals
-const AVATAR_DATA_RECEIVE_INTERVAL_MS = 500; // How often to poll for avatar data from server
-
 import {
     ref,
     onMounted,
@@ -333,101 +330,80 @@ let debugInterval: number | null = null;
 
 // Poll for avatar data from the server
 async function pollAvatarData() {
-    if (!vircadiaWorld || !vircadiaWorld.connectionInfo.value.isConnected) {
+    if (
+        !vircadiaWorld ||
+        vircadiaWorld.connectionInfo.value.status !== "connected"
+    ) {
         return;
     }
 
-    // Prevent overlapping requests
     if (isPolling) {
+        console.debug(
+            `Skipping poll for ${props.sessionId} - previous request still in progress`,
+        );
         return;
     }
 
     isPolling = true;
 
     try {
-        const entityName = `avatar:${props.sessionId}`;
-        const query = `SELECT general__entity_name, meta__data FROM entity.entities WHERE general__entity_name = '${entityName}'`;
+        const query = `SELECT general__entity_name, meta__data FROM entity.entities WHERE general__entity_name = 'avatar:${props.sessionId}'`;
 
         const result = await vircadiaWorld.client.Utilities.Connection.query<
-            Array<{ general__entity_name: string; meta__data: AvatarMetadata }>
+            Array<{ general__entity_name: string; meta__data: unknown }>
         >({
             query,
-            timeoutMs: 2000,
+            timeoutMs: 20000, // Increased timeout to 20 seconds
         });
 
         if (result.result && result.result.length > 0) {
-            const rawMetaData = result.result[0].meta__data;
+            const avatarEntity = result.result[0];
+            const rawMetadata = avatarEntity.meta__data;
 
-            // Parse and validate metadata using the schema
-            try {
-                const metadata = AvatarMetadataSchema.parse(rawMetaData);
+            if (rawMetadata && typeof rawMetadata === "object") {
+                try {
+                    // Parse and validate metadata using the schema
+                    const avatarMetadata =
+                        AvatarMetadataSchema.parse(rawMetadata);
 
-                // Push metadata to app store
-                appStore.setOtherAvatarMetadata(props.sessionId, metadata);
+                    appStore.setOtherAvatarMetadata(
+                        props.sessionId,
+                        avatarMetadata,
+                    );
 
-                // Debug: Log only when window.debugOtherAvatar is true
-                if ((window as DebugWindow).debugOtherAvatar) {
-                    console.log(`[DEBUG] Avatar data for ${props.sessionId}:`, {
-                        hasJointData: !!metadata.jointTransformsLocal,
-                        jointCount: metadata.jointTransformsLocal
-                            ? Object.keys(metadata.jointTransformsLocal).length
-                            : 0,
-                        position: metadata.position,
-                        rotation: metadata.rotation,
-                    });
-
-                    // Sample a few key bones
-                    if (metadata.jointTransformsLocal) {
-                        const keyBones = ["Hips", "Spine", "Head"];
-                        const sampleBones: Record<
-                            string,
-                            {
-                                position: PositionObj;
-                                rotation: RotationObj;
-                                scale?: PositionObj;
-                            }
-                        > = {};
-                        for (const boneName of keyBones) {
-                            const boneData = Object.entries(
-                                metadata.jointTransformsLocal,
-                            ).find(([name]) => name.includes(boneName));
-                            if (boneData) {
-                                sampleBones[boneData[0]] = {
-                                    position: boneData[1].position,
-                                    rotation: boneData[1].rotation,
-                                    scale: boneData[1].scale,
-                                };
-                            }
-                        }
-                        console.log("[DEBUG] Sample bones:", sampleBones);
+                    // Update avatar position if model is loaded
+                    if (avatarNode.value && isModelLoaded.value) {
+                        applyAvatarData(avatarMetadata);
                     }
 
-                    // Only log once
-                    (window as DebugWindow).debugOtherAvatar = false;
+                    // Store the last received metadata for debugging
+                    lastReceivedMetadata.value = avatarMetadata;
+                } catch (parseError) {
+                    console.warn(
+                        `Failed to parse avatar metadata for session ${props.sessionId}:`,
+                        parseError,
+                    );
                 }
-
-                // Store the last received metadata for debugging
-                lastReceivedMetadata.value = metadata;
-
-                // Load model if not loaded yet
-                if (!isModelLoaded.value) {
-                    await loadAvatarModel();
-                }
-
-                // Apply data directly (no interpolation)
-                applyAvatarData(metadata);
-            } catch (parseError) {
-                console.warn(
-                    `Failed to parse avatar metadata for session ${props.sessionId}:`,
-                    parseError,
-                );
             }
+        } else {
+            // Avatar entity not found - it may have disconnected
+            console.debug(
+                `Avatar entity not found for session ${props.sessionId}`,
+            );
+            appStore.removeOtherAvatarMetadata(props.sessionId);
         }
     } catch (error) {
-        console.warn(
-            `Error polling avatar data for session ${props.sessionId}:`,
-            error,
-        );
+        // Handle timeout errors gracefully
+        if (error instanceof Error && error.message.includes("timeout")) {
+            console.debug(
+                `Avatar data query timed out for session ${props.sessionId}, will retry`,
+            );
+        } else {
+            console.error(
+                `Error polling avatar data for session ${props.sessionId}:`,
+                error,
+            );
+        }
     } finally {
         isPolling = false;
     }
@@ -442,7 +418,7 @@ function startPolling() {
     // Poll avatar data at configured interval
     dataPollInterval = setInterval(
         pollAvatarData,
-        AVATAR_DATA_RECEIVE_INTERVAL_MS,
+        appStore.pollingIntervals.otherAvatarData,
     );
 
     // WebRTC connection is now handled by periodic discovery in useBabylonWebRTC
@@ -473,6 +449,9 @@ watch(
 
 // Start debug logging
 onMounted(() => {
+    // Load the avatar model when component is mounted
+    loadAvatarModel();
+
     // Audio playback is now handled by the BabylonWebRTC component
 
     // Expose debug data function for overlay

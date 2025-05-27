@@ -583,18 +583,31 @@ function setupAudioPlayback(remoteSessionId: string, stream: MediaStream) {
 
 // Connect to a peer
 async function connectToPeer(remoteSessionId: string) {
+    console.log(
+        `[WebRTC] connectToPeer called for ${remoteSessionId}, local session: ${sessionId.value}`,
+    );
+
     if (!sessionId.value || peers.value.has(remoteSessionId)) {
+        console.log(
+            `[WebRTC] Skipping connection: sessionId=${sessionId.value}, already connected=${peers.value.has(remoteSessionId)}`,
+        );
         return;
     }
 
     console.log(`[WebRTC] Connecting to peer ${remoteSessionId}`);
 
     if (!localStream.value) {
+        console.log(
+            "[WebRTC] Local stream not initialized, initializing now...",
+        );
         await initializeLocalStream();
     }
 
     // Determine who initiates based on session ID comparison
     const isInitiator = sessionId.value < remoteSessionId;
+    console.log(
+        `[WebRTC] Connection role: ${isInitiator ? "initiator" : "responder"}`,
+    );
 
     if (isInitiator) {
         await createOfferConnection(remoteSessionId);
@@ -740,6 +753,12 @@ async function refreshConnections() {
 watch(
     () => appStore.otherAvatarsMetadata,
     async (newMetadata, oldMetadata) => {
+        console.log("[WebRTC] otherAvatarsMetadata changed:", {
+            newKeys: Object.keys(newMetadata),
+            oldKeys: oldMetadata ? Object.keys(oldMetadata) : [],
+            localSessionId: sessionId.value,
+        });
+
         // Connect to new avatars
         for (const sessionId in newMetadata) {
             if (!oldMetadata || !(sessionId in oldMetadata)) {
@@ -763,15 +782,23 @@ watch(
 
 // Initial setup
 onMounted(async () => {
+    console.log("[WebRTC] Component mounted, session ID:", sessionId.value);
+
     // Initialize local stream
     try {
         await initializeLocalStream();
+        console.log("[WebRTC] Local stream initialized successfully");
     } catch (error) {
         console.error("[WebRTC] Failed to initialize on mount:", error);
     }
 
+    // Log current avatars
+    const currentAvatars = Object.keys(appStore.otherAvatarsMetadata);
+    console.log("[WebRTC] Current avatars on mount:", currentAvatars);
+
     // Connect to existing avatars
     for (const sessionId in appStore.otherAvatarsMetadata) {
+        console.log(`[WebRTC] Connecting to existing avatar: ${sessionId}`);
         await connectToPeer(sessionId);
     }
 });

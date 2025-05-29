@@ -14,6 +14,13 @@ or if you've already cloned the repo:
 git submodule update --init --recursive
 ```
 
+Pull any assets with Git LFS:
+
+```sh
+git lfs install
+git lfs pull
+```
+
 ## Deploy
 
 Afterward, use the [CLI](./cli/README.mdx) to deploy the project.

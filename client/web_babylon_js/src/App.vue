@@ -59,7 +59,7 @@
         </v-btn>
         
         <!-- WebRTC dialog with persistent and eager props to keep component mounted -->
-        <v-dialog v-model="webrtcDialog" max-width="500" persistent eager>
+        <v-dialog v-model="webrtcDialog" max-width="500" eager>
             <BabylonWebRTC ref="webrtcStatus" />
         </v-dialog>
         

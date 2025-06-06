@@ -3,7 +3,7 @@ import { BunPostgresClientModule } from "../../sdk/vircadia-world-sdk-ts/bun/src
 import type {
     Entity,
     Tick,
-} from "../../sdk/vircadia-world-sdk-ts/schema/src/index.schema";
+} from "../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 import {
     TEST_SYNC_GROUP,
     DB_TEST_PREFIX,

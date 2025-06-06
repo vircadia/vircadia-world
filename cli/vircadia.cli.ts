@@ -12,7 +12,7 @@ import {
     type Entity,
     Service,
     type Auth,
-} from "../sdk/vircadia-world-sdk-ts/schema/src/index.schema";
+} from "../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 
 // TODO: Optimize the commands, get up and down rebuilds including init to work well.
 

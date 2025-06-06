@@ -166,6 +166,48 @@
                 </div>
               </div>
               
+              <!-- Debug Info -->
+              <div class="mb-3">
+                <strong>Debug Info:</strong>
+                <div class="ml-4 mt-1">
+                  <div class="text-caption">
+                    Entity: {{ peer.debugInfo.entityName }}
+                    <br>
+                    Politeness: {{ peer.debugInfo.isPolite ? 'Polite' : 'Impolite' }}
+                    <br>
+                    Messages Sent: {{ peer.debugInfo.messagesSent }}
+                    <br>
+                    Messages Received: {{ peer.debugInfo.messagesReceived }}
+                    <br>
+                    Last Activity: {{ peer.debugInfo.lastMessageTime ? new Date(peer.debugInfo.lastMessageTime).toLocaleTimeString() : 'Never' }}
+                  </div>
+                  
+                  <!-- Negotiation State -->
+                  <div class="mt-2">
+                    <v-chip 
+                      size="x-small" 
+                      :color="peer.debugInfo.negotiationState.makingOffer ? 'warning' : 'grey'"
+                      class="mr-1"
+                    >
+                      {{ peer.debugInfo.negotiationState.makingOffer ? 'Making Offer' : 'Not Offering' }}
+                    </v-chip>
+                    <v-chip 
+                      size="x-small" 
+                      :color="peer.debugInfo.negotiationState.ignoreOffer ? 'error' : 'grey'"
+                      class="mr-1"
+                    >
+                      {{ peer.debugInfo.negotiationState.ignoreOffer ? 'Ignoring Offers' : 'Accepting Offers' }}
+                    </v-chip>
+                    <v-chip 
+                      size="x-small" 
+                      :color="peer.debugInfo.negotiationState.isSettingRemoteAnswerPending ? 'info' : 'grey'"
+                    >
+                      {{ peer.debugInfo.negotiationState.isSettingRemoteAnswerPending ? 'Setting Answer' : 'Idle' }}
+                    </v-chip>
+                  </div>
+                </div>
+              </div>
+              
               <!-- Debug Actions -->
               <div class="mt-2">
                 <v-btn 
@@ -173,7 +215,7 @@
                   variant="outlined"
                   @click="debugPeer(peerId)"
                 >
-                  Debug Info
+                  Console Debug
                 </v-btn>
               </div>
             </v-expansion-panel-text>
@@ -218,8 +260,24 @@ interface PeerInfo {
     signalingState: RTCSignalingState;
     localTracks: number;
     remoteTracks: number;
-    isInitiator: boolean;
+    cleanup: (() => void) | null;
+    debugInfo: {
+        entityName: string;
+        sessionId: string;
+        isPolite: boolean;
+        lastMessageTime: number;
+        messagesSent: number;
+        messagesReceived: number;
+        negotiationState: {
+            makingOffer: boolean;
+            ignoreOffer: boolean;
+            isSettingRemoteAnswerPending: boolean;
+        };
+    };
 }
+
+// Store webrtc instances separately
+const webrtcInstances = ref(new Map());
 
 // Initialize stores and services
 const appStore = useAppStore();
@@ -228,9 +286,6 @@ const vircadiaWorld = inject(useVircadiaInstance());
 if (!vircadiaWorld) {
     throw new Error("Vircadia instance not found");
 }
-
-// Initialize WebRTC composable
-const rtc = useWebRTC({ instance: vircadiaWorld });
 
 // Component state
 const peers = ref<Map<string, PeerInfo>>(new Map());
@@ -246,9 +301,6 @@ const audioContext = ref<AudioContext | null>(null);
 const gainNode = ref<GainNode | null>(null);
 const source = ref<MediaStreamAudioSourceNode | null>(null);
 const destination = ref<MediaStreamAudioDestinationNode | null>(null);
-
-// Active watchers for cleanup
-const activeWatchers = new Map<string, Array<() => void>>();
 
 // Computed properties
 const sessionId = computed(() => appStore.sessionId);
@@ -310,240 +362,176 @@ async function initializeLocalStream() {
     }
 }
 
-// Create offer-based connection (we initiate)
-async function createOfferConnection(remoteSessionId: string) {
-    if (!sessionId.value || !localStream.value) return;
+// Connect to a peer using perfect negotiation
+async function connectToPeer(remoteSessionId: string) {
+    console.log(
+        `[WebRTC] connectToPeer called for ${remoteSessionId}, local session: ${sessionId.value}`,
+    );
 
-    // Create entity name for this connection (our session ID)
-    const entityId = `${sessionId.value}-to-${remoteSessionId}`;
-    console.log(`[WebRTC] Creating offer connection ${entityId}`);
-
-    const pc = new RTCPeerConnection(rtcConfig);
-
-    // Add local tracks
-    for (const track of localStream.value.getTracks()) {
-        pc.addTrack(track, localStream.value);
+    if (!sessionId.value) {
+        console.error("[WebRTC] Cannot connect without a local session ID");
+        return;
+    }
+    
+    if (peers.value.has(remoteSessionId)) {
+        console.log(
+            `[WebRTC] Already connected to ${remoteSessionId}`,
+        );
+        return;
     }
 
-    // Store peer info
-    const peerInfo: PeerInfo = {
-        pc,
-        remoteStream: null,
-        connectionState: pc.connectionState,
-        iceConnectionState: pc.iceConnectionState,
-        iceGatheringState: pc.iceGatheringState,
-        signalingState: pc.signalingState,
-        localTracks: localStream.value.getTracks().length,
-        remoteTracks: 0,
-        isInitiator: true,
-    };
-    peers.value.set(remoteSessionId, peerInfo);
+    console.log(`[WebRTC] Connecting to peer ${remoteSessionId}`);
 
-    // Set up event handlers
-    setupPeerEventHandlers(pc, remoteSessionId, peerInfo);
+    if (!localStream.value) {
+        console.log(
+            "[WebRTC] Local stream not initialized, initializing now...",
+        );
+        await initializeLocalStream();
+    }
 
-    // Wait for ICE gathering to complete
-    const iceGatheringComplete = new Promise<void>((resolve) => {
-        if (pc.iceGatheringState === "complete") {
-            resolve();
-            return;
+    // Create unique channel ID (both peers use same channel)
+    const channelId = [sessionId.value, remoteSessionId].sort().join("-");
+
+    console.log(`[WebRTC] Connecting with:`, {
+        localSession: sessionId.value,
+        remoteSession: remoteSessionId,
+        channelId,
+        isPolite: sessionId.value < remoteSessionId,
+    });
+
+    // Initialize WebRTC with perfect negotiation
+    const webrtc = useWebRTC({
+        instance: vircadiaWorld,
+        channelId,
+        localSessionId: sessionId.value,
+    });
+
+    try {
+        // Initialize signaling channel
+        await webrtc.initializeSignaling();
+
+        // Create peer connection
+        const pc = new RTCPeerConnection(rtcConfig);
+
+        // Add local tracks
+        if (localStream.value) {
+            for (const track of localStream.value.getTracks()) {
+                pc.addTrack(track, localStream.value);
+            }
         }
+
+        // Store peer info
+        const peerInfo: PeerInfo = {
+            pc,
+            remoteStream: null,
+            connectionState: pc.connectionState,
+            iceConnectionState: pc.iceConnectionState,
+            iceGatheringState: pc.iceGatheringState,
+            signalingState: pc.signalingState,
+            localTracks: localStream.value?.getTracks().length || 0,
+            remoteTracks: 0,
+            cleanup: null,
+            debugInfo: {
+                entityName: `webrtc-${[sessionId.value, remoteSessionId].sort().join("-")}`,
+                sessionId: remoteSessionId,
+                isPolite: sessionId.value < remoteSessionId,
+                lastMessageTime: Date.now(),
+                messagesSent: 0,
+                messagesReceived: 0,
+                negotiationState: {
+                    makingOffer: false,
+                    ignoreOffer: false,
+                    isSettingRemoteAnswerPending: false,
+                },
+            },
+        };
+
+        peers.value.set(remoteSessionId, peerInfo);
+        webrtcInstances.value.set(remoteSessionId, webrtc);
+
+        // Set up event handlers
+        pc.oniceconnectionstatechange = () => {
+            console.log(
+                `[WebRTC] ICE state for ${remoteSessionId}: ${pc.iceConnectionState}`,
+            );
+            peerInfo.iceConnectionState = pc.iceConnectionState;
+        };
 
         pc.onicegatheringstatechange = () => {
             console.log(
                 `[WebRTC] ICE gathering state for ${remoteSessionId}: ${pc.iceGatheringState}`,
             );
-            if (pc.iceGatheringState === "complete") {
-                resolve();
+            peerInfo.iceGatheringState = pc.iceGatheringState;
+        };
+
+        pc.onconnectionstatechange = () => {
+            console.log(
+                `[WebRTC] Connection state for ${remoteSessionId}: ${pc.connectionState}`,
+            );
+            peerInfo.connectionState = pc.connectionState;
+
+            if (
+                pc.connectionState === "failed" ||
+                pc.connectionState === "closed"
+            ) {
+                disconnectFromPeer(remoteSessionId);
             }
         };
 
-        // Timeout after 5 seconds
-        setTimeout(() => resolve(), 5000);
-    });
-
-    // Create offer
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-
-    // Wait for ICE gathering
-    console.log(
-        `[WebRTC] Waiting for ICE gathering to complete for ${remoteSessionId}...`,
-    );
-    await iceGatheringComplete;
-    console.log(
-        `[WebRTC] ICE gathering complete, sending offer for ${remoteSessionId}`,
-    );
-
-    // Send offer through the SDK (SDP now includes ICE candidates)
-    await rtc.createOffer(entityId, {
-        type: offer.type,
-        sdp: pc.localDescription?.sdp || offer.sdp || "",
-    });
-
-    // Watch for answer on the same entity where we created the offer
-    const { answer, retrieving, error } = rtc.waitForAnswer(entityId);
-
-    const unwatch = watch(answer, async (answerData) => {
-        if (answerData && pc.signalingState === "have-local-offer") {
-            console.log(`[WebRTC] Received answer from ${remoteSessionId}`);
-
-            // Handle answer
-            await pc.setRemoteDescription(
-                new RTCSessionDescription(answerData),
+        pc.onsignalingstatechange = () => {
+            console.log(
+                `[WebRTC] Signaling state for ${remoteSessionId}: ${pc.signalingState}`,
             );
-        }
-    });
+            peerInfo.signalingState = pc.signalingState;
+        };
 
-    // Store watcher for cleanup
-    if (!activeWatchers.has(remoteSessionId)) {
-        activeWatchers.set(remoteSessionId, []);
-    }
-    activeWatchers.get(remoteSessionId)?.push(unwatch);
-}
-
-// Handle incoming offer (they initiate)
-async function handleIncomingOffer(remoteSessionId: string) {
-    if (!sessionId.value || !localStream.value) return;
-
-    // Watch for offer from remote peer's entity
-    const remoteEntityId = `${remoteSessionId}-to-${sessionId.value}`;
-    console.log(`[WebRTC] Watching for offer from ${remoteEntityId}`);
-
-    const { offer, retrieving, error } = rtc.waitForOffer(remoteEntityId);
-
-    const unwatch = watch(offer, async (offerData) => {
-        if (
-            offerData &&
-            !peers.value.has(remoteSessionId) &&
-            localStream.value
-        ) {
-            console.log(`[WebRTC] Received offer from ${remoteSessionId}`);
-
-            const pc = new RTCPeerConnection(rtcConfig);
-
-            // Add local tracks
-            for (const track of localStream.value.getTracks()) {
-                pc.addTrack(track, localStream.value);
+        pc.ontrack = (event) => {
+            console.log(`[WebRTC] Received track from ${remoteSessionId}`);
+            if (event.streams[0]) {
+                peerInfo.remoteStream = event.streams[0];
+                peerInfo.remoteTracks = event.streams[0].getTracks().length;
+                setupAudioPlayback(remoteSessionId, event.streams[0]);
             }
+        };
 
-            // Store peer info
-            const peerInfo: PeerInfo = {
-                pc,
-                remoteStream: null,
-                connectionState: pc.connectionState,
-                iceConnectionState: pc.iceConnectionState,
-                iceGatheringState: pc.iceGatheringState,
-                signalingState: pc.signalingState,
-                localTracks: localStream.value.getTracks().length,
-                remoteTracks: 0,
-                isInitiator: false,
-            };
-            peers.value.set(remoteSessionId, peerInfo);
+        // Set up perfect negotiation (handles all offer/answer/ICE logic automatically)
+        const { cleanup } = webrtc.setupPerfectNegotiation(pc);
+        peerInfo.cleanup = cleanup;
 
-            // Set up event handlers
-            setupPeerEventHandlers(pc, remoteSessionId, peerInfo);
-
-            // Set remote description
-            await pc.setRemoteDescription(new RTCSessionDescription(offerData));
-
-            // Wait for ICE gathering to complete
-            const iceGatheringComplete = new Promise<void>((resolve) => {
-                if (pc.iceGatheringState === "complete") {
-                    resolve();
-                    return;
-                }
-
-                pc.onicegatheringstatechange = () => {
-                    console.log(
-                        `[WebRTC] ICE gathering state for ${remoteSessionId}: ${pc.iceGatheringState}`,
-                    );
-                    if (pc.iceGatheringState === "complete") {
-                        resolve();
-                    }
+        // Update debug info periodically from webrtc stats
+        const debugInterval = setInterval(() => {
+            if (webrtc.debugStats?.value) {
+                peerInfo.debugInfo.messagesSent = webrtc.debugStats.value.messagesSent;
+                peerInfo.debugInfo.messagesReceived = webrtc.debugStats.value.messagesReceived;
+                peerInfo.debugInfo.lastMessageTime = webrtc.debugStats.value.lastMessageTime;
+            }
+            if (webrtc.state?.value) {
+                peerInfo.debugInfo.negotiationState = {
+                    makingOffer: webrtc.state.value.makingOffer,
+                    ignoreOffer: webrtc.state.value.ignoreOffer,
+                    isSettingRemoteAnswerPending: webrtc.state.value.isSettingRemoteAnswerPending,
                 };
+            }
+        }, 500);
 
-                // Timeout after 5 seconds
-                setTimeout(() => resolve(), 5000);
-            });
+        // Store interval cleanup
+        const originalCleanup = peerInfo.cleanup;
+        peerInfo.cleanup = () => {
+            clearInterval(debugInterval);
+            if (originalCleanup) originalCleanup();
+        };
 
-            // Create answer
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-
-            // Wait for ICE gathering
-            console.log(
-                `[WebRTC] Waiting for ICE gathering to complete for ${remoteSessionId}...`,
-            );
-            await iceGatheringComplete;
-            console.log(
-                `[WebRTC] ICE gathering complete, sending answer for ${remoteSessionId}`,
-            );
-
-            // Send answer on the same entity where the offer was received
-            await rtc.createAnswer(remoteEntityId, {
-                type: answer.type,
-                sdp: pc.localDescription?.sdp || answer.sdp || "",
-            });
-        }
-    });
-
-    // Store watcher for cleanup
-    if (!activeWatchers.has(remoteSessionId)) {
-        activeWatchers.set(remoteSessionId, []);
+        console.log(
+            `[WebRTC] Perfect negotiation set up for ${remoteSessionId}`,
+        );
+    } catch (error) {
+        console.error(
+            `[WebRTC] Failed to connect to ${remoteSessionId}:`,
+            error,
+        );
+        peers.value.delete(remoteSessionId);
+        throw error;
     }
-    activeWatchers.get(remoteSessionId)?.push(unwatch);
-}
-
-// Set up peer connection event handlers
-function setupPeerEventHandlers(
-    pc: RTCPeerConnection,
-    remoteSessionId: string,
-    peerInfo: PeerInfo,
-) {
-    pc.oniceconnectionstatechange = () => {
-        console.log(
-            `[WebRTC] ICE state for ${remoteSessionId}: ${pc.iceConnectionState}`,
-        );
-        peerInfo.iceConnectionState = pc.iceConnectionState;
-    };
-
-    pc.onicegatheringstatechange = () => {
-        console.log(
-            `[WebRTC] ICE gathering state for ${remoteSessionId}: ${pc.iceGatheringState}`,
-        );
-        peerInfo.iceGatheringState = pc.iceGatheringState;
-    };
-
-    pc.onconnectionstatechange = () => {
-        console.log(
-            `[WebRTC] Connection state for ${remoteSessionId}: ${pc.connectionState}`,
-        );
-        peerInfo.connectionState = pc.connectionState;
-
-        if (
-            pc.connectionState === "failed" ||
-            pc.connectionState === "closed"
-        ) {
-            disconnectFromPeer(remoteSessionId);
-        }
-    };
-
-    pc.onsignalingstatechange = () => {
-        console.log(
-            `[WebRTC] Signaling state for ${remoteSessionId}: ${pc.signalingState}`,
-        );
-        peerInfo.signalingState = pc.signalingState;
-    };
-
-    pc.ontrack = (event) => {
-        console.log(`[WebRTC] Received track from ${remoteSessionId}`);
-        if (event.streams[0]) {
-            peerInfo.remoteStream = event.streams[0];
-            peerInfo.remoteTracks = event.streams[0].getTracks().length;
-            setupAudioPlayback(remoteSessionId, event.streams[0]);
-        }
-    };
 }
 
 // Setup audio playback for remote stream
@@ -581,47 +569,30 @@ function setupAudioPlayback(remoteSessionId: string, stream: MediaStream) {
     });
 }
 
-// Connect to a peer
-async function connectToPeer(remoteSessionId: string) {
-    console.log(
-        `[WebRTC] connectToPeer called for ${remoteSessionId}, local session: ${sessionId.value}`,
-    );
-
-    if (!sessionId.value || peers.value.has(remoteSessionId)) {
-        console.log(
-            `[WebRTC] Skipping connection: sessionId=${sessionId.value}, already connected=${peers.value.has(remoteSessionId)}`,
-        );
-        return;
-    }
-
-    console.log(`[WebRTC] Connecting to peer ${remoteSessionId}`);
-
-    if (!localStream.value) {
-        console.log(
-            "[WebRTC] Local stream not initialized, initializing now...",
-        );
-        await initializeLocalStream();
-    }
-
-    // Determine who initiates based on session ID comparison
-    const isInitiator = sessionId.value < remoteSessionId;
-    console.log(
-        `[WebRTC] Connection role: ${isInitiator ? "initiator" : "responder"}`,
-    );
-
-    if (isInitiator) {
-        await createOfferConnection(remoteSessionId);
-    } else {
-        await handleIncomingOffer(remoteSessionId);
-    }
-}
-
 // Disconnect from a peer
 function disconnectFromPeer(remoteSessionId: string) {
     const peer = peers.value.get(remoteSessionId);
+    const webrtc = webrtcInstances.value.get(remoteSessionId);
+
     if (peer) {
+        // Clean up perfect negotiation handlers
+        if (peer.cleanup) {
+            peer.cleanup();
+        }
+
+        // Close peer connection
         peer.pc.close();
+
+        // Remove from peers map
         peers.value.delete(remoteSessionId);
+    }
+
+    if (webrtc) {
+        // Send session end signal
+        webrtc.sendSessionEnd();
+
+        // Remove from webrtc instances
+        webrtcInstances.value.delete(remoteSessionId);
     }
 
     // Clean up audio element
@@ -635,15 +606,6 @@ function disconnectFromPeer(remoteSessionId: string) {
 
     // Clean up volume setting
     peerVolumes.value.delete(remoteSessionId);
-
-    // Clean up watchers
-    const watchers = activeWatchers.get(remoteSessionId);
-    if (watchers) {
-        for (const unwatch of watchers) {
-            unwatch();
-        }
-        activeWatchers.delete(remoteSessionId);
-    }
 
     console.log(`[WebRTC] Disconnected from ${remoteSessionId}`);
 }
@@ -693,6 +655,7 @@ function getIceColor(state: RTCIceConnectionState): string {
 // Debug peer connection
 function debugPeer(peerId: string) {
     const peer = peers.value.get(peerId);
+    const webrtc = webrtcInstances.value.get(peerId);
     if (!peer) return;
 
     console.log(`[WebRTC Debug] Peer ${peerId}:`, {
@@ -703,7 +666,15 @@ function debugPeer(peerId: string) {
         localTracks: peer.localTracks,
         remoteTracks: peer.remoteTracks,
         hasRemoteStream: !!peer.remoteStream,
-        isInitiator: peer.isInitiator,
+        debugInfo: peer.debugInfo,
+        webrtcStats: webrtc
+            ? {
+                  sessionId: webrtc.sessionId?.value,
+                  isPolite: webrtc.isPolite?.value,
+                  entityName: webrtc.entityName?.value,
+                  debugStats: webrtc.debugStats?.value,
+              }
+            : null,
     });
 
     // Get stats

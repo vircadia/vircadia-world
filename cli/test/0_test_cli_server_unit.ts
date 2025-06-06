@@ -2,7 +2,7 @@ import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { cliConfiguration } from "../vircadia.cli.config";
 import { BunPostgresClientModule } from "../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
 import { serverConfiguration } from "../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
-import { Service } from "../../sdk/vircadia-world-sdk-ts/schema/src/index.schema";
+import { Service } from "../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 import { runCliCommand } from "./helper/helpers";
 import { existsSync, statSync, unlinkSync } from "node:fs";
 

@@ -258,6 +258,59 @@
 
       <v-divider class="my-2" />
 
+      <!-- Database State Debug -->
+      <v-list dense>
+        <v-list-subheader class="d-flex align-center">
+          Database State
+          <v-btn 
+            icon 
+            size="x-small" 
+            variant="text"
+            @click="refreshDatabaseState"
+            :loading="isRefreshingDatabase"
+            class="ml-2"
+          >
+            <v-icon size="small">mdi-refresh</v-icon>
+          </v-btn>
+        </v-list-subheader>
+        
+        <v-expansion-panels v-if="databaseEntities.length > 0" variant="accordion" density="compact">
+          <v-expansion-panel v-for="entity in databaseEntities" :key="entity.entityName">
+            <v-expansion-panel-title>
+              <div class="d-flex align-center" style="width: 100%">
+                <span class="text-caption">{{ entity.entityName }}</span>
+                <v-spacer />
+                <v-chip size="x-small" :color="entity.hasMessages ? 'success' : 'grey'">
+                  {{ entity.messageCount }} msgs
+                </v-chip>
+              </div>
+            </v-expansion-panel-title>
+            
+            <v-expansion-panel-text>
+              <div class="text-caption">
+                <div><strong>Last Update:</strong> {{ entity.lastUpdate ? new Date(entity.lastUpdate).toLocaleString() : 'Never' }}</div>
+                <div class="mt-2"><strong>Messages:</strong></div>
+                <div v-if="entity.messages.length === 0" class="ml-2 text-grey">No messages</div>
+                <div v-for="(msg, idx) in entity.messages" :key="idx" class="ml-2 mt-1">
+                  <div class="d-flex align-center">
+                    <v-chip size="x-small" :color="msg.sessionId === sessionId ? 'primary' : 'secondary'">
+                      {{ msg.type }}
+                    </v-chip>
+                    <span class="ml-2 text-xs">{{ msg.sessionId.substring(0, 8) }}... @ {{ new Date(msg.timestamp).toLocaleTimeString() }}</span>
+                  </div>
+                </div>
+              </div>
+            </v-expansion-panel-text>
+          </v-expansion-panel>
+        </v-expansion-panels>
+        
+        <v-list-item v-if="databaseEntities.length === 0">
+          <v-list-item-title class="text-caption text-grey">No WebRTC entities found</v-list-item-title>
+        </v-list-item>
+      </v-list>
+
+      <v-divider class="my-2" />
+
       <!-- Peer Discovery Debug -->
       <v-list dense>
         <v-list-subheader>Peer Discovery</v-list-subheader>
@@ -447,6 +500,18 @@ const isMuted = ref(false);
 const micVolume = ref(100);
 const peerVolumes = ref<Map<string, number>>(new Map());
 
+// Database debugging state
+interface DatabaseEntity {
+    entityName: string;
+    messages: SignalingMessage[];
+    messageCount: number;
+    hasMessages: boolean;
+    lastUpdate: number | null;
+}
+
+const databaseEntities = ref<DatabaseEntity[]>([]);
+const isRefreshingDatabase = ref(false);
+
 // Audio processing nodes
 const audioContext = ref<AudioContext | null>(null);
 const gainNode = ref<GainNode | null>(null);
@@ -554,12 +619,24 @@ const sendMessage = async (
     } as SignalingMessage;
 
     try {
+        console.log(
+            "[WebRTC DB Debug] Sending message to",
+            webrtc.entityName,
+            ":",
+            fullMessage,
+        );
+
         // Get current messages
         const retrieveResult =
             await vircadiaWorld.client.Utilities.Connection.query({
-                query: "SELECT * FROM general__entity WHERE general__entity_name = $1",
+                query: "SELECT * FROM entity.entities WHERE general__entity_name = $1",
                 parameters: [webrtc.entityName],
             });
+
+        console.log(
+            "[WebRTC DB Debug] Retrieved entity result:",
+            retrieveResult,
+        );
 
         let currentMessages: SignalingMessage[] = [];
         if (
@@ -567,10 +644,17 @@ const sendMessage = async (
             retrieveResult.result.length > 0
         ) {
             const entityData = retrieveResult.result[0] as Entity;
+            console.log("[WebRTC DB Debug] Entity data:", entityData);
             if (entityData.meta__data) {
                 const metaData = entityData.meta__data;
                 currentMessages = metaData.messages?.value || [];
+                console.log(
+                    "[WebRTC DB Debug] Current messages:",
+                    currentMessages,
+                );
             }
+        } else {
+            console.log("[WebRTC DB Debug] No entity found or empty result");
         }
 
         // Add new message and clean old ones
@@ -582,17 +666,22 @@ const sendMessage = async (
             fullMessage,
         ];
 
+        console.log("[WebRTC DB Debug] Updated messages:", updatedMessages);
+
         // Update entity
-        await vircadiaWorld.client.Utilities.Connection.query({
-            query: "UPDATE general__entity SET meta__data = $1 WHERE general__entity_name = $2",
-            parameters: [
-                JSON.stringify({
-                    messages: updatedMessages,
-                    lastUpdate: now,
-                }),
-                webrtc.entityName,
-            ],
-        });
+        const updateResult =
+            await vircadiaWorld.client.Utilities.Connection.query({
+                query: "UPDATE entity.entities SET meta__data = $1 WHERE general__entity_name = $2",
+                parameters: [
+                    {
+                        messages: updatedMessages,
+                        lastUpdate: now,
+                    },
+                    webrtc.entityName,
+                ],
+            });
+
+        console.log("[WebRTC DB Debug] Update result:", updateResult);
 
         // Update debug stats and status
         webrtc.debugStats.messagesSent++;
@@ -627,7 +716,7 @@ const sendAnswer = async (remoteSessionId: string, sdp: string) => {
 
 const sendIceCandidate = async (
     remoteSessionId: string,
-    candidate: string | null,
+    candidate: RTCIceCandidate | null,
     sdpMLineIndex: number | null,
     sdpMid: string | null,
 ) => {
@@ -654,7 +743,7 @@ const initializeSignaling = async (remoteSessionId: string) => {
         // Try to retrieve existing entity
         const retrieveResult =
             await vircadiaWorld.client.Utilities.Connection.query<Entity[]>({
-                query: "SELECT * FROM general__entity WHERE general__entity_name = $1",
+                query: "SELECT * FROM entity.entities WHERE general__entity_name = $1",
                 parameters: [webrtc.entityName],
             });
 
@@ -679,12 +768,12 @@ const initializeSignaling = async (remoteSessionId: string) => {
 
                 if (cleanedMessages.length !== originalCount) {
                     await vircadiaWorld.client.Utilities.Connection.query({
-                        query: "UPDATE general__entity SET meta__data = $1 WHERE general__entity_name = $2",
+                        query: "UPDATE entity.entities SET meta__data = $1 WHERE general__entity_name = $2",
                         parameters: [
-                            JSON.stringify({
+                            {
                                 messages: cleanedMessages,
                                 lastUpdate: Date.now(),
-                            }),
+                            },
                             webrtc.entityName,
                         ],
                     });
@@ -704,13 +793,13 @@ const initializeSignaling = async (remoteSessionId: string) => {
 
         try {
             await vircadiaWorld.client.Utilities.Connection.query({
-                query: "INSERT INTO general__entity (general__entity_name, meta__data) VALUES ($1, $2)",
+                query: "INSERT INTO entity.entities (general__entity_name, meta__data) VALUES ($1, $2)",
                 parameters: [
                     webrtc.entityName,
-                    JSON.stringify({
+                    {
                         messages: [],
                         lastUpdate: Date.now(),
-                    }),
+                    },
                 ],
             });
             updateStatus(remoteSessionId, {
@@ -731,7 +820,7 @@ const initializeSignaling = async (remoteSessionId: string) => {
                 try {
                     const retryResult =
                         await vircadiaWorld.client.Utilities.Connection.query({
-                            query: "SELECT * FROM general__entity WHERE general__entity_name = $1",
+                            query: "SELECT * FROM entity.entities WHERE general__entity_name = $1",
                             parameters: [webrtc.entityName],
                         });
                     if (
@@ -790,7 +879,7 @@ const startPolling = (remoteSessionId: string) => {
         try {
             const retrieveResult =
                 await vircadiaWorld.client.Utilities.Connection.query({
-                    query: "SELECT * FROM general__entity WHERE general__entity_name = $1",
+                    query: "SELECT * FROM entity.entities WHERE general__entity_name = $1",
                     parameters: [webrtc.entityName],
                 });
 
@@ -892,7 +981,7 @@ const setupPerfectNegotiation = (
         if (candidate) {
             await sendIceCandidate(
                 remoteSessionId,
-                JSON.stringify(candidate),
+                candidate,
                 candidate.sdpMLineIndex,
                 candidate.sdpMid,
             );
@@ -947,15 +1036,39 @@ const setupPerfectNegotiation = (
                         !webrtc.isPolite && offerCollision;
 
                     if (offerCollision) {
+                        console.log(
+                            "[WebRTC Perfect Negotiation] Offer collision detected:",
+                            {
+                                isPolite: webrtc.isPolite,
+                                makingOffer: webrtc.state.makingOffer,
+                                signalingState: pc.signalingState,
+                                readyForOffer,
+                                willIgnore: webrtc.state.ignoreOffer,
+                            },
+                        );
+
                         updateStatus(remoteSessionId, {
-                            lastActivity: `Offer collision detected - ${webrtc.isPolite ? "rolling back" : "ignoring"}`,
+                            lastActivity: `Offer collision - ${webrtc.isPolite ? "rolling back (polite)" : "ignoring (impolite)"}`,
                         });
+
+                        // If we're polite, we need to rollback our offer
+                        if (webrtc.isPolite && webrtc.state.makingOffer) {
+                            console.log(
+                                "[WebRTC Perfect Negotiation] Rolling back local offer (polite peer)",
+                            );
+                            webrtc.state.makingOffer = false;
+                            // The signaling state will be updated after setRemoteDescription
+                        }
                     }
 
                     if (webrtc.state.ignoreOffer) {
                         updateStatus(remoteSessionId, {
-                            lastActivity: "Ignoring offer (impolite peer)",
+                            lastActivity:
+                                "Ignoring offer (impolite peer in collision)",
                         });
+                        console.log(
+                            "[WebRTC Perfect Negotiation] Ignoring remote offer (impolite peer)",
+                        );
                         continue;
                     }
 
@@ -1440,6 +1553,9 @@ onMounted(async () => {
         console.error("[WebRTC] Failed to initialize on mount:", error);
     }
 
+    // Refresh database state to see existing entities
+    await refreshDatabaseState();
+
     // Connect to existing avatars
     for (const sessionId in appStore.otherAvatarsMetadata) {
         await connectToPeer(sessionId);
@@ -1447,6 +1563,9 @@ onMounted(async () => {
 
     // Set up periodic discovery to catch missed connections
     discoveryInterval = setInterval(discoverPeers, 2000); // Check every 2 seconds
+
+    // Set up periodic database refresh for debugging
+    setInterval(refreshDatabaseState, 5000); // Refresh every 5 seconds
 });
 
 // Cleanup on unmount
@@ -1533,6 +1652,66 @@ function setPeerVolume(peerId: string, volume: number) {
     const audioElement = audioElements.value.get(peerId);
     if (audioElement) {
         audioElement.volume = volume / 100;
+    }
+}
+
+// Database debugging functions
+async function refreshDatabaseState() {
+    isRefreshingDatabase.value = true;
+
+    try {
+        if (!vircadiaWorld) {
+            throw new Error("Vircadia world instance not available");
+        }
+
+        // Query for all WebRTC entities
+        const result = await vircadiaWorld.client.Utilities.Connection.query({
+            query: "SELECT * FROM entity.entities WHERE general__entity_name LIKE 'webrtc-%'",
+            parameters: [],
+        });
+
+        databaseEntities.value = [];
+
+        if (Array.isArray(result.result)) {
+            for (const entity of result.result as Entity[]) {
+                const entityName = entity.general__entity_name || "unknown";
+                let messages: SignalingMessage[] = [];
+                let lastUpdate: number | null = null;
+
+                if (entity.meta__data) {
+                    try {
+                        const metaData = entity.meta__data;
+                        messages = metaData.messages?.value || [];
+                        lastUpdate = metaData.lastUpdate || null;
+                    } catch (err) {
+                        console.error(
+                            `Failed to parse meta data for ${entityName}:`,
+                            err,
+                        );
+                    }
+                }
+
+                databaseEntities.value.push({
+                    entityName,
+                    messages,
+                    messageCount: messages.length,
+                    hasMessages: messages.length > 0,
+                    lastUpdate,
+                });
+            }
+        }
+
+        console.log(
+            "[WebRTC Database Debug] Found entities:",
+            databaseEntities.value,
+        );
+    } catch (error) {
+        console.error(
+            "[WebRTC Database Debug] Failed to refresh database state:",
+            error,
+        );
+    } finally {
+        isRefreshingDatabase.value = false;
     }
 }
 </script>

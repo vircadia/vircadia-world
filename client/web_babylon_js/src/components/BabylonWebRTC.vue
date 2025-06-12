@@ -119,9 +119,42 @@
             </v-expansion-panel-title>
             
             <v-expansion-panel-text>
+              <!-- Process Status -->
+              <div class="mb-3">
+                <strong>Process Status:</strong>
+                <div class="ml-4 mt-1">
+                  <div class="d-flex flex-wrap gap-1 mb-2">
+                    <v-chip 
+                      size="x-small" 
+                      :color="getProcessStatusColor(peer.processStatus.entityStatus)"
+                    >
+                      Entity: {{ peer.processStatus.entityStatus }}
+                    </v-chip>
+                    <v-chip 
+                      size="x-small" 
+                      :color="getProcessStatusColor(peer.processStatus.signalingStatus)"
+                    >
+                      Signaling: {{ peer.processStatus.signalingStatus }}
+                    </v-chip>
+                    <v-chip 
+                      size="x-small" 
+                      :color="getProcessStatusColor(peer.processStatus.negotiationStatus)"
+                    >
+                      Negotiation: {{ peer.processStatus.negotiationStatus }}
+                    </v-chip>
+                  </div>
+                  <div class="text-caption">
+                    Last Activity: {{ peer.processStatus.lastActivity }}
+                  </div>
+                  <div v-if="peer.processStatus.errorMessage" class="text-caption error--text mt-1">
+                    Error: {{ peer.processStatus.errorMessage }}
+                  </div>
+                </div>
+              </div>
+              
               <!-- Connection Info -->
               <div class="mb-3">
-                <strong>Status:</strong>
+                <strong>Connection Status:</strong>
                 <div class="ml-4 mt-1">
                   <div class="text-caption">
                     Signaling State: {{ peer.signalingState }}
@@ -166,9 +199,9 @@
                 </div>
               </div>
               
-              <!-- Debug Info -->
+              <!-- Perfect Negotiation Debug Info -->
               <div class="mb-3">
-                <strong>Debug Info:</strong>
+                <strong>Perfect Negotiation:</strong>
                 <div class="ml-4 mt-1">
                   <div class="text-caption">
                     Entity: {{ peer.debugInfo.entityName }}
@@ -225,6 +258,29 @@
 
       <v-divider class="my-2" />
 
+      <!-- Peer Discovery Debug -->
+      <v-list dense>
+        <v-list-subheader>Peer Discovery</v-list-subheader>
+        <v-list-item>
+          <v-list-item-title class="text-caption">
+            Known Avatars: {{ Object.keys(appStore.otherAvatarsMetadata).length }}
+          </v-list-item-title>
+        </v-list-item>
+        <v-list-item v-for="(metadata, avatarSessionId) in appStore.otherAvatarsMetadata" :key="avatarSessionId">
+          <v-list-item-title class="text-caption ml-4">
+            {{ avatarSessionId.substring(0, 8) }}... 
+            <v-chip 
+              size="x-small" 
+              :color="peers.has(avatarSessionId) ? 'success' : 'warning'"
+            >
+              {{ peers.has(avatarSessionId) ? 'Connected' : 'Not Connected' }}
+            </v-chip>
+          </v-list-item-title>
+        </v-list-item>
+      </v-list>
+
+      <v-divider class="my-2" />
+
       <!-- Initialize Local Stream -->
       <v-list dense>
         <v-list-subheader>Stream Management</v-list-subheader>
@@ -245,10 +301,74 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, onUnmounted, onMounted, inject } from "vue";
+import {
+    computed,
+    ref,
+    watch,
+    onUnmounted,
+    onMounted,
+    inject,
+    reactive,
+} from "vue";
+import { z } from "zod";
 import { useAppStore } from "@/stores/appStore";
-import { useWebRTC } from "@vircadia/world-sdk/browser/vue";
 import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
+// Entity type definition inline to avoid complex imports
+interface Entity {
+    general__entity_name?: string;
+    meta__data?: {
+        messages?: {
+            value?: SignalingMessage[];
+        };
+        lastUpdate?: number;
+    };
+}
+
+// Enhanced schema to support perfect negotiation
+const signalingMessageSchema = z.discriminatedUnion("type", [
+    z.object({
+        type: z.literal("offer"),
+        sdp: z.string(),
+        sessionId: z.string(),
+        timestamp: z.number(),
+    }),
+    z.object({
+        type: z.literal("answer"),
+        sdp: z.string(),
+        sessionId: z.string(),
+        timestamp: z.number(),
+    }),
+    z.object({
+        type: z.literal("ice-candidate"),
+        candidate: z.string().nullable(),
+        sdpMLineIndex: z.number().nullable(),
+        sdpMid: z.string().nullable(),
+        sessionId: z.string(),
+        timestamp: z.number(),
+    }),
+    z.object({
+        type: z.literal("session-end"),
+        sessionId: z.string(),
+        timestamp: z.number(),
+    }),
+]);
+
+type SignalingMessage = z.infer<typeof signalingMessageSchema>;
+
+// Status tracking for debugging
+interface ProcessStatus {
+    entityStatus: "initializing" | "created" | "retrieved" | "error";
+    signalingStatus: "idle" | "polling" | "error";
+    negotiationStatus:
+        | "idle"
+        | "offering"
+        | "answering"
+        | "connecting"
+        | "connected"
+        | "failed";
+    lastActivity: string;
+    errorMessage: string | null;
+}
 
 // Type definitions
 interface PeerInfo {
@@ -261,6 +381,13 @@ interface PeerInfo {
     localTracks: number;
     remoteTracks: number;
     cleanup: (() => void) | null;
+    processStatus: {
+        entityStatus: string;
+        signalingStatus: string;
+        negotiationStatus: string;
+        lastActivity: string;
+        errorMessage: string | null;
+    };
     debugInfo: {
         entityName: string;
         sessionId: string;
@@ -276,9 +403,6 @@ interface PeerInfo {
     };
 }
 
-// Store webrtc instances separately
-const webrtcInstances = ref(new Map());
-
 // Initialize stores and services
 const appStore = useAppStore();
 const vircadiaWorld = inject(useVircadiaInstance());
@@ -286,6 +410,33 @@ const vircadiaWorld = inject(useVircadiaInstance());
 if (!vircadiaWorld) {
     throw new Error("Vircadia instance not found");
 }
+
+// WebRTC state for each peer connection
+const webrtcState = ref(
+    new Map<
+        string,
+        {
+            sessionId: string;
+            remoteSessionIds: Set<string>;
+            isPolite: boolean;
+            state: {
+                makingOffer: boolean;
+                ignoreOffer: boolean;
+                isSettingRemoteAnswerPending: boolean;
+            };
+            processStatus: ProcessStatus;
+            messageQueue: SignalingMessage[];
+            lastProcessedTimestamp: number;
+            debugStats: {
+                messagesSent: number;
+                messagesReceived: number;
+                lastMessageTime: number;
+            };
+            entityName: string;
+            pollInterval: number | null;
+        }
+    >(),
+);
 
 // Component state
 const peers = ref<Map<string, PeerInfo>>(new Map());
@@ -321,12 +472,10 @@ const rtcConfig: RTCConfiguration = {
 // Initialize local media stream
 async function initializeLocalStream() {
     if (localStream.value) {
-        console.log("[WebRTC] Local stream already initialized");
         return;
     }
 
     try {
-        console.log("[WebRTC] Requesting user media...");
         const rawStream = await navigator.mediaDevices.getUserMedia({
             audio: {
                 echoCancellation: true,
@@ -353,62 +502,589 @@ async function initializeLocalStream() {
         localStream.value = destination.value.stream;
 
         const audioTracks = localStream.value.getAudioTracks();
-        console.log(
-            `[WebRTC] Local stream initialized with ${audioTracks.length} audio tracks`,
-        );
     } catch (error) {
-        console.error("[WebRTC] Failed to get user media:", error);
+        console.error("Failed to get user media:", error);
         throw error;
     }
 }
 
+// WebRTC helper functions inlined from composable
+
+// Update status helper
+const updateStatus = (
+    remoteSessionId: string,
+    updates: Partial<ProcessStatus>,
+) => {
+    const webrtc = webrtcState.value.get(remoteSessionId);
+    if (webrtc) {
+        Object.assign(webrtc.processStatus, updates);
+        if (updates.lastActivity) {
+            webrtc.processStatus.lastActivity = `${new Date().toLocaleTimeString()}: ${updates.lastActivity}`;
+        }
+    }
+};
+
+// Send session end message
+const sendSessionEnd = async (remoteSessionId: string) => {
+    try {
+        await sendMessage(remoteSessionId, {
+            type: "session-end" as const,
+        } as Omit<SignalingMessage, "sessionId" | "timestamp">);
+        updateStatus(remoteSessionId, { lastActivity: "Session end sent" });
+    } catch (err) {
+        updateStatus(remoteSessionId, {
+            errorMessage: "Failed to send session end message",
+            lastActivity: "Session end failed",
+        });
+    }
+};
+
+// Send a signaling message
+const sendMessage = async (
+    remoteSessionId: string,
+    message: Omit<SignalingMessage, "sessionId" | "timestamp">,
+) => {
+    const webrtc = webrtcState.value.get(remoteSessionId);
+    if (!webrtc) return;
+
+    const fullMessage: SignalingMessage = {
+        ...message,
+        sessionId: sessionId.value,
+        timestamp: Date.now(),
+    } as SignalingMessage;
+
+    try {
+        // Get current messages
+        const retrieveResult =
+            await vircadiaWorld.client.Utilities.Connection.query({
+                query: "SELECT * FROM general__entity WHERE general__entity_name = $1",
+                parameters: [webrtc.entityName],
+            });
+
+        let currentMessages: SignalingMessage[] = [];
+        if (
+            Array.isArray(retrieveResult.result) &&
+            retrieveResult.result.length > 0
+        ) {
+            const entityData = retrieveResult.result[0] as Entity;
+            if (entityData.meta__data) {
+                const metaData = entityData.meta__data;
+                currentMessages = metaData.messages?.value || [];
+            }
+        }
+
+        // Add new message and clean old ones
+        const now = Date.now();
+        const updatedMessages = [
+            ...currentMessages.filter(
+                (msg: SignalingMessage) => now - msg.timestamp < 60000,
+            ),
+            fullMessage,
+        ];
+
+        // Update entity
+        await vircadiaWorld.client.Utilities.Connection.query({
+            query: "UPDATE general__entity SET meta__data = $1 WHERE general__entity_name = $2",
+            parameters: [
+                JSON.stringify({
+                    messages: updatedMessages,
+                    lastUpdate: now,
+                }),
+                webrtc.entityName,
+            ],
+        });
+
+        // Update debug stats and status
+        webrtc.debugStats.messagesSent++;
+        webrtc.debugStats.lastMessageTime = now;
+        updateStatus(remoteSessionId, {
+            lastActivity: `Sent ${message.type} message`,
+        });
+    } catch (err) {
+        updateStatus(remoteSessionId, {
+            errorMessage:
+                err instanceof Error ? err.message : "Failed to send message",
+            lastActivity: `Failed to send ${message.type} message`,
+        });
+        throw err;
+    }
+};
+
+// Type-safe message sending functions
+const sendOffer = async (remoteSessionId: string, sdp: string) => {
+    await sendMessage(remoteSessionId, {
+        type: "offer" as const,
+        sdp,
+    } as Omit<SignalingMessage, "sessionId" | "timestamp">);
+};
+
+const sendAnswer = async (remoteSessionId: string, sdp: string) => {
+    await sendMessage(remoteSessionId, {
+        type: "answer" as const,
+        sdp,
+    } as Omit<SignalingMessage, "sessionId" | "timestamp">);
+};
+
+const sendIceCandidate = async (
+    remoteSessionId: string,
+    candidate: string | null,
+    sdpMLineIndex: number | null,
+    sdpMid: string | null,
+) => {
+    await sendMessage(remoteSessionId, {
+        type: "ice-candidate" as const,
+        candidate,
+        sdpMLineIndex,
+        sdpMid,
+    } as Omit<SignalingMessage, "sessionId" | "timestamp">);
+};
+
+// Initialize or retrieve the signaling entity
+const initializeSignaling = async (remoteSessionId: string) => {
+    const webrtc = webrtcState.value.get(remoteSessionId);
+    if (!webrtc) return;
+
+    updateStatus(remoteSessionId, {
+        entityStatus: "initializing",
+        errorMessage: null,
+        lastActivity: "Initializing signaling entity...",
+    });
+
+    try {
+        // Try to retrieve existing entity
+        const retrieveResult =
+            await vircadiaWorld.client.Utilities.Connection.query<Entity[]>({
+                query: "SELECT * FROM general__entity WHERE general__entity_name = $1",
+                parameters: [webrtc.entityName],
+            });
+
+        if (
+            Array.isArray(retrieveResult.result) &&
+            retrieveResult.result.length > 0
+        ) {
+            updateStatus(remoteSessionId, {
+                entityStatus: "retrieved",
+                lastActivity: `Retrieved existing entity: ${webrtc.entityName}`,
+            });
+
+            // If it exists, check for stale sessions and clean them up
+            const entityData = retrieveResult.result[0];
+            if (entityData.meta__data) {
+                const metaData = entityData.meta__data;
+                const originalCount = metaData.messages?.value?.length || 0;
+                const cleanedMessages = (metaData.messages?.value || []).filter(
+                    (msg: SignalingMessage) =>
+                        Date.now() - msg.timestamp < 60000,
+                );
+
+                if (cleanedMessages.length !== originalCount) {
+                    await vircadiaWorld.client.Utilities.Connection.query({
+                        query: "UPDATE general__entity SET meta__data = $1 WHERE general__entity_name = $2",
+                        parameters: [
+                            JSON.stringify({
+                                messages: cleanedMessages,
+                                lastUpdate: Date.now(),
+                            }),
+                            webrtc.entityName,
+                        ],
+                    });
+                    updateStatus(remoteSessionId, {
+                        lastActivity: `Cleaned ${originalCount - cleanedMessages.length} stale messages`,
+                    });
+                }
+            }
+        } else {
+            throw new Error("Entity not found");
+        }
+    } catch (err) {
+        // Entity doesn't exist, create it
+        updateStatus(remoteSessionId, {
+            lastActivity: "Entity not found, creating new...",
+        });
+
+        try {
+            await vircadiaWorld.client.Utilities.Connection.query({
+                query: "INSERT INTO general__entity (general__entity_name, meta__data) VALUES ($1, $2)",
+                parameters: [
+                    webrtc.entityName,
+                    JSON.stringify({
+                        messages: [],
+                        lastUpdate: Date.now(),
+                    }),
+                ],
+            });
+            updateStatus(remoteSessionId, {
+                entityStatus: "created",
+                lastActivity: `Created new entity: ${webrtc.entityName}`,
+            });
+        } catch (createErr) {
+            // Check if error is due to entity already existing (race condition)
+            if (
+                createErr instanceof Error &&
+                createErr.message.includes("duplicate key")
+            ) {
+                updateStatus(remoteSessionId, {
+                    lastActivity:
+                        "Entity exists (race condition), retrieving...",
+                });
+
+                try {
+                    const retryResult =
+                        await vircadiaWorld.client.Utilities.Connection.query({
+                            query: "SELECT * FROM general__entity WHERE general__entity_name = $1",
+                            parameters: [webrtc.entityName],
+                        });
+                    if (
+                        Array.isArray(retryResult.result) &&
+                        retryResult.result.length > 0
+                    ) {
+                        updateStatus(remoteSessionId, {
+                            entityStatus: "retrieved",
+                            lastActivity: "Retrieved after race condition",
+                        });
+                    } else {
+                        throw new Error(
+                            "Failed to retrieve after create conflict",
+                        );
+                    }
+                } catch (retrieveErr) {
+                    updateStatus(remoteSessionId, {
+                        entityStatus: "error",
+                        errorMessage:
+                            retrieveErr instanceof Error
+                                ? retrieveErr.message
+                                : "Failed to retrieve after create conflict",
+                        lastActivity: "Failed to retrieve after race condition",
+                    });
+                    throw retrieveErr;
+                }
+            } else {
+                updateStatus(remoteSessionId, {
+                    entityStatus: "error",
+                    errorMessage:
+                        createErr instanceof Error
+                            ? createErr.message
+                            : "Unknown error",
+                    lastActivity: "Failed to create entity",
+                });
+                throw createErr;
+            }
+        }
+    }
+
+    // Start polling for messages
+    startPolling(remoteSessionId);
+};
+
+// Start polling for messages
+const startPolling = (remoteSessionId: string) => {
+    const webrtc = webrtcState.value.get(remoteSessionId);
+    if (!webrtc || webrtc.pollInterval) return;
+
+    updateStatus(remoteSessionId, {
+        signalingStatus: "polling",
+        lastActivity: "Started polling for messages",
+    });
+
+    const poll = async () => {
+        try {
+            const retrieveResult =
+                await vircadiaWorld.client.Utilities.Connection.query({
+                    query: "SELECT * FROM general__entity WHERE general__entity_name = $1",
+                    parameters: [webrtc.entityName],
+                });
+
+            if (
+                Array.isArray(retrieveResult.result) &&
+                retrieveResult.result.length > 0
+            ) {
+                const entityData = retrieveResult.result[0] as Entity;
+                if (entityData.meta__data) {
+                    const metaData = entityData.meta__data;
+                    const messages = metaData.messages?.value || [];
+
+                    // Filter messages: from other sessions, newer than last processed, and not too old
+                    const now = Date.now();
+                    const newMessages = messages.filter(
+                        (msg: SignalingMessage) =>
+                            msg.sessionId !== sessionId.value &&
+                            msg.timestamp > webrtc.lastProcessedTimestamp &&
+                            now - msg.timestamp < 60000,
+                    );
+
+                    if (newMessages.length > 0) {
+                        webrtc.messageQueue.push(...newMessages);
+                        webrtc.lastProcessedTimestamp = Math.max(
+                            ...newMessages.map(
+                                (msg: SignalingMessage) => msg.timestamp,
+                            ),
+                        );
+
+                        // Update debug stats
+                        webrtc.debugStats.messagesReceived +=
+                            newMessages.length;
+                        webrtc.debugStats.lastMessageTime = now;
+
+                        updateStatus(remoteSessionId, {
+                            lastActivity: `Received ${newMessages.length} message(s) from ${[...new Set(newMessages.map((m: SignalingMessage) => m.sessionId.substring(0, 8)))].join(", ")}`,
+                        });
+                    }
+                }
+            }
+        } catch (err) {
+            updateStatus(remoteSessionId, {
+                errorMessage:
+                    err instanceof Error ? err.message : "Polling error",
+                signalingStatus: "error",
+                lastActivity: "Polling error",
+            });
+        }
+    };
+
+    // Initial poll
+    poll();
+
+    // Set up interval - poll more frequently for better responsiveness
+    webrtc.pollInterval = setInterval(poll, 500);
+};
+
+// Perfect negotiation handlers
+const setupPerfectNegotiation = (
+    remoteSessionId: string,
+    pc: RTCPeerConnection,
+) => {
+    const webrtc = webrtcState.value.get(remoteSessionId);
+    if (!webrtc) return { cleanup: () => {} };
+
+    // Handle negotiation needed
+    pc.onnegotiationneeded = async () => {
+        try {
+            webrtc.state.makingOffer = true;
+            updateStatus(remoteSessionId, {
+                negotiationStatus: "offering",
+                lastActivity: "Creating offer...",
+            });
+
+            await pc.setLocalDescription();
+            const localDesc = pc.localDescription;
+            if (localDesc?.sdp) {
+                await sendOffer(remoteSessionId, localDesc.sdp);
+                updateStatus(remoteSessionId, {
+                    lastActivity: "Offer sent successfully",
+                });
+            }
+        } catch (err) {
+            updateStatus(remoteSessionId, {
+                negotiationStatus: "failed",
+                errorMessage:
+                    err instanceof Error
+                        ? err.message
+                        : "Failed to create offer",
+                lastActivity: "Failed to create offer",
+            });
+        } finally {
+            webrtc.state.makingOffer = false;
+        }
+    };
+
+    // Handle ICE candidates
+    pc.onicecandidate = async ({ candidate }) => {
+        if (candidate) {
+            await sendIceCandidate(
+                remoteSessionId,
+                JSON.stringify(candidate),
+                candidate.sdpMLineIndex,
+                candidate.sdpMid,
+            );
+            updateStatus(remoteSessionId, {
+                lastActivity: "ICE candidate sent",
+            });
+        }
+    };
+
+    // Process incoming messages
+    const processMessages = async () => {
+        while (webrtc.messageQueue.length > 0) {
+            const message = webrtc.messageQueue.shift();
+            if (!message) continue;
+
+            // Track remote session IDs for politeness determination
+            if (message.sessionId !== sessionId.value) {
+                const wasPolite = webrtc.isPolite;
+                webrtc.remoteSessionIds.add(message.sessionId);
+
+                // Update politeness based on session ID comparison
+                const sortedIds = [
+                    sessionId.value,
+                    ...Array.from(webrtc.remoteSessionIds),
+                ].sort();
+                webrtc.isPolite = sortedIds[0] === sessionId.value;
+
+                // Track politeness changes
+                if (wasPolite !== webrtc.isPolite) {
+                    updateStatus(remoteSessionId, {
+                        lastActivity: `Politeness changed: now ${webrtc.isPolite ? "polite" : "impolite"}`,
+                    });
+                }
+            }
+
+            try {
+                if (message.type === "offer" || message.type === "answer") {
+                    const description = {
+                        type: message.type,
+                        sdp: message.sdp,
+                    };
+
+                    // Perfect negotiation collision handling
+                    const readyForOffer =
+                        !webrtc.state.makingOffer &&
+                        (pc.signalingState === "stable" ||
+                            webrtc.state.isSettingRemoteAnswerPending);
+                    const offerCollision =
+                        description.type === "offer" && !readyForOffer;
+
+                    webrtc.state.ignoreOffer =
+                        !webrtc.isPolite && offerCollision;
+
+                    if (offerCollision) {
+                        updateStatus(remoteSessionId, {
+                            lastActivity: `Offer collision detected - ${webrtc.isPolite ? "rolling back" : "ignoring"}`,
+                        });
+                    }
+
+                    if (webrtc.state.ignoreOffer) {
+                        updateStatus(remoteSessionId, {
+                            lastActivity: "Ignoring offer (impolite peer)",
+                        });
+                        continue;
+                    }
+
+                    updateStatus(remoteSessionId, {
+                        negotiationStatus:
+                            description.type === "offer"
+                                ? "answering"
+                                : "connecting",
+                        lastActivity: `Processing ${description.type}...`,
+                    });
+
+                    webrtc.state.isSettingRemoteAnswerPending =
+                        description.type === "answer";
+                    await pc.setRemoteDescription(description);
+                    webrtc.state.isSettingRemoteAnswerPending = false;
+
+                    if (description.type === "offer") {
+                        await pc.setLocalDescription();
+                        const localDesc = pc.localDescription;
+                        if (localDesc?.sdp) {
+                            await sendAnswer(remoteSessionId, localDesc.sdp);
+                            updateStatus(remoteSessionId, {
+                                lastActivity: "Answer sent successfully",
+                            });
+                        }
+                    }
+                } else if (message.type === "ice-candidate") {
+                    try {
+                        const candidate = message.candidate
+                            ? JSON.parse(message.candidate)
+                            : null;
+
+                        if (candidate) {
+                            await pc.addIceCandidate(
+                                new RTCIceCandidate(candidate),
+                            );
+                            updateStatus(remoteSessionId, {
+                                lastActivity: "ICE candidate processed",
+                            });
+                        }
+                    } catch (err) {
+                        if (!webrtc.state.ignoreOffer) {
+                            throw err;
+                        }
+                    }
+                } else if (message.type === "session-end") {
+                    // Handle remote session end - remove from tracking
+                    webrtc.remoteSessionIds.delete(message.sessionId);
+                    pc.close();
+                    updateStatus(remoteSessionId, {
+                        negotiationStatus: "idle",
+                        lastActivity: `Remote session ${message.sessionId.substring(0, 8)} ended`,
+                    });
+                }
+            } catch (err) {
+                updateStatus(remoteSessionId, {
+                    errorMessage:
+                        err instanceof Error
+                            ? err.message
+                            : "Error processing message",
+                    lastActivity: "Message processing failed",
+                });
+            }
+        }
+    };
+
+    // Set up message processing interval
+    const messageInterval = setInterval(processMessages, 100);
+
+    return {
+        cleanup: () => {
+            pc.onnegotiationneeded = null;
+            pc.onicecandidate = null;
+            clearInterval(messageInterval);
+        },
+    };
+};
+
 // Connect to a peer using perfect negotiation
 async function connectToPeer(remoteSessionId: string) {
-    console.log(
-        `[WebRTC] connectToPeer called for ${remoteSessionId}, local session: ${sessionId.value}`,
-    );
-
     if (!sessionId.value) {
-        console.error("[WebRTC] Cannot connect without a local session ID");
-        return;
-    }
-    
-    if (peers.value.has(remoteSessionId)) {
-        console.log(
-            `[WebRTC] Already connected to ${remoteSessionId}`,
-        );
         return;
     }
 
-    console.log(`[WebRTC] Connecting to peer ${remoteSessionId}`);
+    if (peers.value.has(remoteSessionId)) {
+        return;
+    }
 
     if (!localStream.value) {
-        console.log(
-            "[WebRTC] Local stream not initialized, initializing now...",
-        );
         await initializeLocalStream();
     }
 
     // Create unique channel ID (both peers use same channel)
     const channelId = [sessionId.value, remoteSessionId].sort().join("-");
+    const entityName = `webrtc-${channelId}`;
 
-    console.log(`[WebRTC] Connecting with:`, {
-        localSession: sessionId.value,
-        remoteSession: remoteSessionId,
-        channelId,
+    // Initialize WebRTC state for this peer
+    const webrtc = {
+        sessionId: sessionId.value,
+        remoteSessionIds: new Set<string>([remoteSessionId]),
         isPolite: sessionId.value < remoteSessionId,
-    });
+        state: {
+            makingOffer: false,
+            ignoreOffer: false,
+            isSettingRemoteAnswerPending: false,
+        },
+        processStatus: {
+            entityStatus: "initializing" as const,
+            signalingStatus: "idle" as const,
+            negotiationStatus: "idle" as const,
+            lastActivity: "Initializing...",
+            errorMessage: null,
+        },
+        messageQueue: [] as SignalingMessage[],
+        lastProcessedTimestamp: 0,
+        debugStats: {
+            messagesSent: 0,
+            messagesReceived: 0,
+            lastMessageTime: 0,
+        },
+        entityName,
+        pollInterval: null,
+    };
 
-    // Initialize WebRTC with perfect negotiation
-    const webrtc = useWebRTC({
-        instance: vircadiaWorld,
-        channelId,
-        localSessionId: sessionId.value,
-    });
+    webrtcState.value.set(remoteSessionId, webrtc);
 
     try {
         // Initialize signaling channel
-        await webrtc.initializeSignaling();
+        await initializeSignaling(remoteSessionId);
 
         // Create peer connection
         const pc = new RTCPeerConnection(rtcConfig);
@@ -431,43 +1107,30 @@ async function connectToPeer(remoteSessionId: string) {
             localTracks: localStream.value?.getTracks().length || 0,
             remoteTracks: 0,
             cleanup: null,
+            processStatus: webrtc.processStatus,
             debugInfo: {
-                entityName: `webrtc-${[sessionId.value, remoteSessionId].sort().join("-")}`,
+                entityName,
                 sessionId: remoteSessionId,
-                isPolite: sessionId.value < remoteSessionId,
+                isPolite: webrtc.isPolite,
                 lastMessageTime: Date.now(),
                 messagesSent: 0,
                 messagesReceived: 0,
-                negotiationState: {
-                    makingOffer: false,
-                    ignoreOffer: false,
-                    isSettingRemoteAnswerPending: false,
-                },
+                negotiationState: webrtc.state,
             },
         };
 
         peers.value.set(remoteSessionId, peerInfo);
-        webrtcInstances.value.set(remoteSessionId, webrtc);
 
         // Set up event handlers
         pc.oniceconnectionstatechange = () => {
-            console.log(
-                `[WebRTC] ICE state for ${remoteSessionId}: ${pc.iceConnectionState}`,
-            );
             peerInfo.iceConnectionState = pc.iceConnectionState;
         };
 
         pc.onicegatheringstatechange = () => {
-            console.log(
-                `[WebRTC] ICE gathering state for ${remoteSessionId}: ${pc.iceGatheringState}`,
-            );
             peerInfo.iceGatheringState = pc.iceGatheringState;
         };
 
         pc.onconnectionstatechange = () => {
-            console.log(
-                `[WebRTC] Connection state for ${remoteSessionId}: ${pc.connectionState}`,
-            );
             peerInfo.connectionState = pc.connectionState;
 
             if (
@@ -479,14 +1142,10 @@ async function connectToPeer(remoteSessionId: string) {
         };
 
         pc.onsignalingstatechange = () => {
-            console.log(
-                `[WebRTC] Signaling state for ${remoteSessionId}: ${pc.signalingState}`,
-            );
             peerInfo.signalingState = pc.signalingState;
         };
 
         pc.ontrack = (event) => {
-            console.log(`[WebRTC] Received track from ${remoteSessionId}`);
             if (event.streams[0]) {
                 peerInfo.remoteStream = event.streams[0];
                 peerInfo.remoteTracks = event.streams[0].getTracks().length;
@@ -494,23 +1153,21 @@ async function connectToPeer(remoteSessionId: string) {
             }
         };
 
-        // Set up perfect negotiation (handles all offer/answer/ICE logic automatically)
-        const { cleanup } = webrtc.setupPerfectNegotiation(pc);
+        // Set up perfect negotiation
+        const { cleanup } = setupPerfectNegotiation(remoteSessionId, pc);
         peerInfo.cleanup = cleanup;
 
         // Update debug info periodically from webrtc stats
         const debugInterval = setInterval(() => {
-            if (webrtc.debugStats?.value) {
-                peerInfo.debugInfo.messagesSent = webrtc.debugStats.value.messagesSent;
-                peerInfo.debugInfo.messagesReceived = webrtc.debugStats.value.messagesReceived;
-                peerInfo.debugInfo.lastMessageTime = webrtc.debugStats.value.lastMessageTime;
-            }
-            if (webrtc.state?.value) {
-                peerInfo.debugInfo.negotiationState = {
-                    makingOffer: webrtc.state.value.makingOffer,
-                    ignoreOffer: webrtc.state.value.ignoreOffer,
-                    isSettingRemoteAnswerPending: webrtc.state.value.isSettingRemoteAnswerPending,
-                };
+            const currentWebrtc = webrtcState.value.get(remoteSessionId);
+            if (currentWebrtc) {
+                peerInfo.debugInfo.messagesSent =
+                    currentWebrtc.debugStats.messagesSent;
+                peerInfo.debugInfo.messagesReceived =
+                    currentWebrtc.debugStats.messagesReceived;
+                peerInfo.debugInfo.lastMessageTime =
+                    currentWebrtc.debugStats.lastMessageTime;
+                peerInfo.debugInfo.negotiationState = currentWebrtc.state;
             }
         }, 500);
 
@@ -520,16 +1177,9 @@ async function connectToPeer(remoteSessionId: string) {
             clearInterval(debugInterval);
             if (originalCleanup) originalCleanup();
         };
-
-        console.log(
-            `[WebRTC] Perfect negotiation set up for ${remoteSessionId}`,
-        );
     } catch (error) {
-        console.error(
-            `[WebRTC] Failed to connect to ${remoteSessionId}:`,
-            error,
-        );
         peers.value.delete(remoteSessionId);
+        webrtcState.value.delete(remoteSessionId);
         throw error;
     }
 }
@@ -562,17 +1212,14 @@ function setupAudioPlayback(remoteSessionId: string, stream: MediaStream) {
 
     // Try to play
     audio.play().catch((error) => {
-        console.error(
-            `[WebRTC] Failed to play audio for ${remoteSessionId}:`,
-            error,
-        );
+        // Audio play error is expected in some browsers
     });
 }
 
 // Disconnect from a peer
 function disconnectFromPeer(remoteSessionId: string) {
     const peer = peers.value.get(remoteSessionId);
-    const webrtc = webrtcInstances.value.get(remoteSessionId);
+    const webrtc = webrtcState.value.get(remoteSessionId);
 
     if (peer) {
         // Clean up perfect negotiation handlers
@@ -589,10 +1236,15 @@ function disconnectFromPeer(remoteSessionId: string) {
 
     if (webrtc) {
         // Send session end signal
-        webrtc.sendSessionEnd();
+        sendSessionEnd(remoteSessionId);
 
-        // Remove from webrtc instances
-        webrtcInstances.value.delete(remoteSessionId);
+        // Clear polling interval
+        if (webrtc.pollInterval) {
+            clearInterval(webrtc.pollInterval);
+        }
+
+        // Remove from webrtc state
+        webrtcState.value.delete(remoteSessionId);
     }
 
     // Clean up audio element
@@ -606,8 +1258,6 @@ function disconnectFromPeer(remoteSessionId: string) {
 
     // Clean up volume setting
     peerVolumes.value.delete(remoteSessionId);
-
-    console.log(`[WebRTC] Disconnected from ${remoteSessionId}`);
 }
 
 // Get connection state color
@@ -652,10 +1302,33 @@ function getIceColor(state: RTCIceConnectionState): string {
     }
 }
 
+// Get process status color
+function getProcessStatusColor(status: string): string {
+    switch (status) {
+        case "created":
+        case "retrieved":
+        case "polling":
+        case "connected":
+            return "success";
+        case "offering":
+        case "answering":
+        case "connecting":
+            return "warning";
+        case "error":
+        case "failed":
+            return "error";
+        case "initializing":
+        case "idle":
+            return "info";
+        default:
+            return "grey";
+    }
+}
+
 // Debug peer connection
 function debugPeer(peerId: string) {
     const peer = peers.value.get(peerId);
-    const webrtc = webrtcInstances.value.get(peerId);
+    const webrtc = webrtcState.value.get(peerId);
     if (!peer) return;
 
     console.log(`[WebRTC Debug] Peer ${peerId}:`, {
@@ -666,13 +1339,15 @@ function debugPeer(peerId: string) {
         localTracks: peer.localTracks,
         remoteTracks: peer.remoteTracks,
         hasRemoteStream: !!peer.remoteStream,
+        processStatus: peer.processStatus,
         debugInfo: peer.debugInfo,
         webrtcStats: webrtc
             ? {
-                  sessionId: webrtc.sessionId?.value,
-                  isPolite: webrtc.isPolite?.value,
-                  entityName: webrtc.entityName?.value,
-                  debugStats: webrtc.debugStats?.value,
+                  sessionId: webrtc.sessionId,
+                  isPolite: webrtc.isPolite,
+                  entityName: webrtc.entityName,
+                  debugStats: webrtc.debugStats,
+                  processStatus: webrtc.processStatus,
               }
             : null,
     });
@@ -720,20 +1395,23 @@ async function refreshConnections() {
     isRefreshing.value = false;
 }
 
+// Enhanced peer discovery - actively discover peers
+async function discoverPeers() {
+    // Connect to any new avatars we discover
+    for (const remoteSessionId in appStore.otherAvatarsMetadata) {
+        if (!peers.value.has(remoteSessionId)) {
+            await connectToPeer(remoteSessionId);
+        }
+    }
+}
+
 // Watch for changes in other avatars
 watch(
     () => appStore.otherAvatarsMetadata,
     async (newMetadata, oldMetadata) => {
-        console.log("[WebRTC] otherAvatarsMetadata changed:", {
-            newKeys: Object.keys(newMetadata),
-            oldKeys: oldMetadata ? Object.keys(oldMetadata) : [],
-            localSessionId: sessionId.value,
-        });
-
         // Connect to new avatars
         for (const sessionId in newMetadata) {
             if (!oldMetadata || !(sessionId in oldMetadata)) {
-                console.log(`[WebRTC] New avatar detected: ${sessionId}`);
                 await connectToPeer(sessionId);
             }
         }
@@ -742,7 +1420,6 @@ watch(
         if (oldMetadata) {
             for (const sessionId in oldMetadata) {
                 if (!(sessionId in newMetadata)) {
-                    console.log(`[WebRTC] Avatar left: ${sessionId}`);
                     disconnectFromPeer(sessionId);
                 }
             }
@@ -751,35 +1428,47 @@ watch(
     { deep: true },
 );
 
+// Periodic peer discovery - this helps with the bidirectional discovery issue
+let discoveryInterval: number | null = null;
+
 // Initial setup
 onMounted(async () => {
-    console.log("[WebRTC] Component mounted, session ID:", sessionId.value);
-
     // Initialize local stream
     try {
         await initializeLocalStream();
-        console.log("[WebRTC] Local stream initialized successfully");
     } catch (error) {
         console.error("[WebRTC] Failed to initialize on mount:", error);
     }
 
-    // Log current avatars
-    const currentAvatars = Object.keys(appStore.otherAvatarsMetadata);
-    console.log("[WebRTC] Current avatars on mount:", currentAvatars);
-
     // Connect to existing avatars
     for (const sessionId in appStore.otherAvatarsMetadata) {
-        console.log(`[WebRTC] Connecting to existing avatar: ${sessionId}`);
         await connectToPeer(sessionId);
     }
+
+    // Set up periodic discovery to catch missed connections
+    discoveryInterval = setInterval(discoverPeers, 2000); // Check every 2 seconds
 });
 
 // Cleanup on unmount
 onUnmounted(() => {
+    // Clear discovery interval
+    if (discoveryInterval) {
+        clearInterval(discoveryInterval);
+    }
+
     // Close all peer connections
     for (const [sessionId, _] of peers.value) {
         disconnectFromPeer(sessionId);
     }
+
+    // Clean up all WebRTC state
+    for (const [sessionId, webrtc] of webrtcState.value) {
+        if (webrtc.pollInterval) {
+            clearInterval(webrtc.pollInterval);
+        }
+        sendSessionEnd(sessionId);
+    }
+    webrtcState.value.clear();
 
     // Stop local stream
     if (localStream.value) {
@@ -821,9 +1510,6 @@ function toggleMute() {
         for (const track of audioTracks) {
             track.enabled = !isMuted.value;
         }
-        console.log(
-            `[WebRTC] Microphone ${isMuted.value ? "muted" : "unmuted"}`,
-        );
     }
 }
 
@@ -832,7 +1518,6 @@ function updateMicVolume(value: number) {
 
     if (gainNode.value) {
         gainNode.value.gain.value = value / 100;
-        console.log(`[WebRTC] Mic volume set to ${value}%`);
     }
 }
 
@@ -848,7 +1533,6 @@ function setPeerVolume(peerId: string, volume: number) {
     const audioElement = audioElements.value.get(peerId);
     if (audioElement) {
         audioElement.volume = volume / 100;
-        console.log(`[WebRTC] Volume for ${peerId} set to ${volume}%`);
     }
 }
 </script>

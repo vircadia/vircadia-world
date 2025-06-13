@@ -69,3 +69,48 @@ export const ModelMetadataSchema = z.object({
 });
 
 export type ModelMetadata = z.infer<typeof ModelMetadataSchema>;
+
+// Zod schemas for WebRTC signaling
+export const SignalingMessageSchema = z.discriminatedUnion("type", [
+    z.object({
+        type: z.literal("offer"),
+        sdp: z.string(),
+        sessionId: z.string(),
+        timestamp: z.number(),
+    }),
+    z.object({
+        type: z.literal("answer"),
+        sdp: z.string(),
+        sessionId: z.string(),
+        timestamp: z.number(),
+    }),
+    z.object({
+        type: z.literal("ice-candidate"),
+        candidate: z.string().nullable(),
+        sdpMLineIndex: z.number().nullable(),
+        sdpMid: z.string().nullable(),
+        sessionId: z.string(),
+        timestamp: z.number(),
+    }),
+    z.object({
+        type: z.literal("session-end"),
+        sessionId: z.string(),
+        timestamp: z.number(),
+    }),
+]);
+
+export type SignalingMessage = z.infer<typeof SignalingMessageSchema>;
+
+export const WebRTCMetadataSchema = z.object({
+    messages: z.array(SignalingMessageSchema).optional().default([]),
+    lastUpdate: z.number().optional(),
+});
+
+export type WebRTCMetadata = z.infer<typeof WebRTCMetadataSchema>;
+
+export const WebRTCEntitySchema = z.object({
+    general__entity_name: z.string().optional(),
+    meta__data: WebRTCMetadataSchema.optional(),
+});
+
+export type WebRTCEntity = z.infer<typeof WebRTCEntitySchema>;

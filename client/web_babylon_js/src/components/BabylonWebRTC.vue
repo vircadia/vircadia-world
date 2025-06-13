@@ -366,47 +366,8 @@ import {
 import { z } from "zod";
 import { useAppStore } from "@/stores/appStore";
 import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
-// Entity type definition inline to avoid complex imports
-interface Entity {
-    general__entity_name?: string;
-    meta__data?: {
-        messages?: {
-            value?: SignalingMessage[];
-        };
-        lastUpdate?: number;
-    };
-}
-
-// Enhanced schema to support perfect negotiation
-const signalingMessageSchema = z.discriminatedUnion("type", [
-    z.object({
-        type: z.literal("offer"),
-        sdp: z.string(),
-        sessionId: z.string(),
-        timestamp: z.number(),
-    }),
-    z.object({
-        type: z.literal("answer"),
-        sdp: z.string(),
-        sessionId: z.string(),
-        timestamp: z.number(),
-    }),
-    z.object({
-        type: z.literal("ice-candidate"),
-        candidate: z.string().nullable(),
-        sdpMLineIndex: z.number().nullable(),
-        sdpMid: z.string().nullable(),
-        sessionId: z.string(),
-        timestamp: z.number(),
-    }),
-    z.object({
-        type: z.literal("session-end"),
-        sessionId: z.string(),
-        timestamp: z.number(),
-    }),
-]);
-
-type SignalingMessage = z.infer<typeof signalingMessageSchema>;
+import { WebRTCEntitySchema } from "@/composables/schemas";
+import type { SignalingMessage, WebRTCEntity } from "@/composables/schemas";
 
 // Status tracking for debugging
 interface ProcessStatus {
@@ -643,11 +604,11 @@ const sendMessage = async (
             Array.isArray(retrieveResult.result) &&
             retrieveResult.result.length > 0
         ) {
-            const entityData = retrieveResult.result[0] as Entity;
-            console.log("[WebRTC DB Debug] Entity data:", entityData);
-            if (entityData.meta__data) {
-                const metaData = entityData.meta__data;
-                currentMessages = metaData.messages?.value || [];
+            const parsedEntity = WebRTCEntitySchema.safeParse(
+                retrieveResult.result[0],
+            );
+            if (parsedEntity.success && parsedEntity.data.meta__data) {
+                currentMessages = parsedEntity.data.meta__data.messages;
                 console.log(
                     "[WebRTC DB Debug] Current messages:",
                     currentMessages,
@@ -742,7 +703,9 @@ const initializeSignaling = async (remoteSessionId: string) => {
     try {
         // Try to retrieve existing entity
         const retrieveResult =
-            await vircadiaWorld.client.Utilities.Connection.query<Entity[]>({
+            await vircadiaWorld.client.Utilities.Connection.query<
+                WebRTCEntity[]
+            >({
                 query: "SELECT * FROM entity.entities WHERE general__entity_name = $1",
                 parameters: [webrtc.entityName],
             });
@@ -757,11 +720,13 @@ const initializeSignaling = async (remoteSessionId: string) => {
             });
 
             // If it exists, check for stale sessions and clean them up
-            const entityData = retrieveResult.result[0];
+            const entityData = WebRTCEntitySchema.parse(
+                retrieveResult.result[0],
+            );
             if (entityData.meta__data) {
                 const metaData = entityData.meta__data;
-                const originalCount = metaData.messages?.value?.length || 0;
-                const cleanedMessages = (metaData.messages?.value || []).filter(
+                const originalCount = metaData.messages.length;
+                const cleanedMessages = (metaData.messages || []).filter(
                     (msg: SignalingMessage) =>
                         Date.now() - msg.timestamp < 60000,
                 );
@@ -887,10 +852,12 @@ const startPolling = (remoteSessionId: string) => {
                 Array.isArray(retrieveResult.result) &&
                 retrieveResult.result.length > 0
             ) {
-                const entityData = retrieveResult.result[0] as Entity;
-                if (entityData.meta__data) {
-                    const metaData = entityData.meta__data;
-                    const messages = metaData.messages?.value || [];
+                const parsedEntity = WebRTCEntitySchema.safeParse(
+                    retrieveResult.result[0],
+                );
+                if (parsedEntity.success && parsedEntity.data.meta__data) {
+                    const metaData = parsedEntity.data.meta__data;
+                    const messages = metaData.messages || [];
 
                     // Filter messages: from other sessions, newer than last processed, and not too old
                     const now = Date.now();
@@ -1673,15 +1640,16 @@ async function refreshDatabaseState() {
         databaseEntities.value = [];
 
         if (Array.isArray(result.result)) {
-            for (const entity of result.result as Entity[]) {
+            for (const entity of result.result as WebRTCEntity[]) {
                 const entityName = entity.general__entity_name || "unknown";
                 let messages: SignalingMessage[] = [];
                 let lastUpdate: number | null = null;
+                const parsedEntity = WebRTCEntitySchema.safeParse(entity);
 
-                if (entity.meta__data) {
+                if (parsedEntity.success && parsedEntity.data.meta__data) {
                     try {
-                        const metaData = entity.meta__data;
-                        messages = metaData.messages?.value || [];
+                        const metaData = parsedEntity.data.meta__data;
+                        messages = metaData.messages || [];
                         lastUpdate = metaData.lastUpdate || null;
                     } catch (err) {
                         console.error(

@@ -45,8 +45,8 @@ CREATE TABLE entity.entities (
     general__semantic_version TEXT NOT NULL DEFAULT '1.0.0',
     general__initialized_at TIMESTAMPTZ DEFAULT NULL,
     general__initialized_by UUID DEFAULT NULL,
-    general__expiry__delete_on_inactive_ms BIGINT DEFAULT NULL, -- Time in milliseconds after which the entity will be deleted if it is inactive
-    general__expiry__delete_ms BIGINT DEFAULT NULL, -- Time in milliseconds after which the entity will be deleted even if it is active
+    general__expiry__delete_since_updated_at_ms BIGINT DEFAULT NULL, -- Time in milliseconds after which the entity will be deleted if it is inactive
+    general__expiry__delete_since_created_at_ms BIGINT DEFAULT NULL, -- Time in milliseconds after which the entity will be deleted even if it is active
     meta__data JSONB NOT NULL DEFAULT '{}'::jsonb,
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
     group__load_priority INTEGER NOT NULL DEFAULT 1,

@@ -5,6 +5,7 @@ import {
     Service,
     type Auth,
     type Tick,
+    type Config,
 } from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 import { BunPostgresClientModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
 import type { Server } from "bun";
@@ -18,6 +19,8 @@ export class WorldStateManager {
     private superUserSql: postgres.Sql | null = null;
     private processingTicks: Set<string> = new Set(); // Track which sync groups are currently processing
     private pendingTicks: Map<string, boolean> = new Map(); // Track pending ticks for sync groups
+    private entityExpiryIntervalId: Timer | null = null;
+    private entityConfig: Config.I_EntityConfig | null = null;
 
     async initialize() {
         try {
@@ -78,6 +81,17 @@ export class WorldStateManager {
                                 processing: Array.from(this.processingTicks),
                                 pending: Object.fromEntries(this.pendingTicks),
                             },
+                            entityExpiry: {
+                                enabled: !!this.entityConfig,
+                                intervalActive: !!this.entityExpiryIntervalId,
+                                configuration: this.entityConfig
+                                    ? {
+                                          checkIntervalMs:
+                                              this.entityConfig
+                                                  .entity_config__expiry_check_interval_ms,
+                                      }
+                                    : null,
+                            },
                             memory: {
                                 heapUsed: process.memoryUsage().heapUsed,
                             },
@@ -125,6 +139,28 @@ export class WorldStateManager {
                 this.syncGroups.set(group.general__sync_group, group);
             }
 
+            // Get entity configuration from the database
+            const [entityConfigData] = await this.superUserSql<
+                [Config.I_EntityConfig]
+            >`
+                SELECT * FROM config.entity_config LIMIT 1
+            `;
+
+            if (entityConfigData) {
+                this.entityConfig = entityConfigData;
+
+                // Start entity expiry checking interval
+                this.startEntityExpiryChecking();
+            } else {
+                BunLogModule({
+                    message: "No entity configuration found in database",
+                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                    suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                    type: "warning",
+                    prefix: LOG_PREFIX,
+                });
+            }
+
             await this.superUserSql`LISTEN tick_captured`;
             this.superUserSql.listen("tick_captured", (payload) => {
                 this.handleTickCapturedNotification(payload);
@@ -141,11 +177,18 @@ export class WorldStateManager {
             }
 
             BunLogModule({
-                message: `World State Manager initialized successfully with ${this.syncGroups.size} sync groups`,
+                message: `World State Manager initialized successfully with ${this.syncGroups.size} sync groups and entity expiry checking`,
                 debug: serverConfiguration.VRCA_SERVER_DEBUG,
                 suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "success",
                 prefix: LOG_PREFIX,
+                data: {
+                    syncGroups: this.syncGroups.size,
+                    entityExpiryEnabled: !!this.entityConfig,
+                    entityExpiryInterval:
+                        this.entityConfig
+                            ?.entity_config__expiry_check_interval_ms,
+                },
             });
         } catch (error) {
             BunLogModule({
@@ -416,10 +459,166 @@ export class WorldStateManager {
         }
     }
 
+    private startEntityExpiryChecking() {
+        if (!this.entityConfig) {
+            BunLogModule({
+                message:
+                    "Cannot start entity expiry checking without configuration",
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                type: "error",
+                prefix: LOG_PREFIX,
+            });
+            return;
+        }
+
+        // Clear any existing interval
+        if (this.entityExpiryIntervalId) {
+            clearTimeout(this.entityExpiryIntervalId);
+        }
+
+        // Start the expiry checking interval
+        this.entityExpiryIntervalId = setInterval(() => {
+            this.checkExpiredEntities().catch((error) => {
+                BunLogModule({
+                    message: `Error in entity expiry checking: ${error}`,
+                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                    suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                    type: "error",
+                    prefix: LOG_PREFIX,
+                });
+            });
+        }, this.entityConfig.entity_config__expiry_check_interval_ms);
+
+        BunLogModule({
+            message: `Entity expiry checking started with interval: ${this.entityConfig.entity_config__expiry_check_interval_ms}ms`,
+            debug: serverConfiguration.VRCA_SERVER_DEBUG,
+            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+            type: "debug",
+            prefix: LOG_PREFIX,
+        });
+    }
+
+    private async checkExpiredEntities() {
+        if (!this.superUserSql) {
+            return;
+        }
+
+        try {
+            BunLogModule({
+                message:
+                    "Checking for expired entities using entity-specific expiry settings",
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                type: "debug",
+                prefix: LOG_PREFIX,
+            });
+
+            // Find expired entities using their individual expiry settings
+            const expiredEntities = await this.superUserSql<
+                Array<{
+                    general__entity_name: string;
+                    general__updated_at: Date;
+                    general__created_at: Date;
+                    general__expiry__delete_since_updated_at_ms: number | null;
+                    general__expiry__delete_since_created_at_ms: number | null;
+                    expiry_reason: string;
+                }>
+            >`
+                SELECT 
+                    general__entity_name,
+                    general__updated_at,
+                    general__created_at,
+                    general__expiry__delete_since_updated_at_ms,
+                    general__expiry__delete_since_created_at_ms,
+                    CASE 
+                        WHEN general__expiry__delete_since_updated_at_ms IS NOT NULL 
+                             AND EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - general__updated_at)) * 1000 > general__expiry__delete_since_updated_at_ms 
+                        THEN 'inactivity'
+                        WHEN general__expiry__delete_since_created_at_ms IS NOT NULL 
+                             AND EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - general__created_at)) * 1000 > general__expiry__delete_since_created_at_ms 
+                        THEN 'general_expiry'
+                        ELSE 'unknown'
+                    END as expiry_reason
+                FROM entity.entities 
+                WHERE 
+                    (
+                        (general__expiry__delete_since_updated_at_ms IS NOT NULL 
+                         AND EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - general__updated_at)) * 1000 > general__expiry__delete_since_updated_at_ms)
+                        OR 
+                        (general__expiry__delete_since_created_at_ms IS NOT NULL 
+                         AND EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - general__created_at)) * 1000 > general__expiry__delete_since_created_at_ms)
+                    )
+            `;
+
+            if (expiredEntities.length > 0) {
+                BunLogModule({
+                    message: `Found ${expiredEntities.length} expired entities`,
+                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                    suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                    type: "info",
+                    prefix: LOG_PREFIX,
+                    data: {
+                        expiredEntities: expiredEntities.map((e) => ({
+                            name: e.general__entity_name,
+                            reason: e.expiry_reason,
+                            lastUpdated: e.general__updated_at,
+                            created: e.general__created_at,
+                            inactiveExpiryMs:
+                                e.general__expiry__delete_since_updated_at_ms,
+                            generalExpiryMs:
+                                e.general__expiry__delete_since_created_at_ms,
+                        })),
+                    },
+                });
+
+                // Delete expired entities (they're truly expired based on their own settings)
+                const entityNames = expiredEntities.map(
+                    (e) => e.general__entity_name,
+                );
+
+                await this.superUserSql`
+                    DELETE FROM entity.entities 
+                    WHERE general__entity_name = ANY(${entityNames})
+                `;
+
+                BunLogModule({
+                    message: `Successfully deleted ${expiredEntities.length} expired entities`,
+                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                    suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                    type: "success",
+                    prefix: LOG_PREFIX,
+                });
+            } else {
+                BunLogModule({
+                    message: "No expired entities found",
+                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                    suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                    type: "debug",
+                    prefix: LOG_PREFIX,
+                });
+            }
+        } catch (error) {
+            BunLogModule({
+                message: `Error checking expired entities: ${error}`,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                type: "error",
+                prefix: LOG_PREFIX,
+            });
+        }
+    }
+
     stop() {
         for (const [syncGroup, intervalId] of this.intervalIds.entries()) {
             clearTimeout(intervalId);
             this.intervalIds.delete(syncGroup);
+        }
+
+        // Clear entity expiry interval
+        if (this.entityExpiryIntervalId) {
+            clearInterval(this.entityExpiryIntervalId);
+            this.entityExpiryIntervalId = null;
         }
 
         BunLogModule({

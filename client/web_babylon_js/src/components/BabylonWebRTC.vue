@@ -350,6 +350,31 @@
             Stream is active and shared with all connected peers
           </v-list-item-title>
         </v-list-item>
+        
+        <!-- Spatial Audio Status -->
+        <v-list-item>
+          <v-list-item-title class="d-flex align-center">
+            <v-icon 
+              :color="spatialAudio.isInitialized ? 'success' : 'grey'" 
+              class="mr-2"
+            >
+              mdi-surround-sound
+            </v-icon>
+            <span class="text-caption">
+              Spatial Audio: 
+              <v-chip 
+                :color="spatialAudio.isInitialized ? 'success' : 'grey'" 
+                size="x-small"
+                variant="flat"
+              >
+                {{ spatialAudio.isInitialized ? 'Active' : 'Inactive' }}
+              </v-chip>
+              <span v-if="spatialAudio.activePeerCount > 0" class="ml-2">
+                ({{ spatialAudio.activePeerCount }} peer{{ spatialAudio.activePeerCount > 1 ? 's' : '' }})
+              </span>
+            </span>
+          </v-list-item-title>
+        </v-list-item>
       </v-list>
 
       <v-divider class="my-2" />
@@ -393,6 +418,7 @@ declare global {
 import { computed, ref, watch, onUnmounted, onMounted, inject } from "vue";
 import { useAppStore } from "@/stores/appStore";
 import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
+import { useWebRTCSpatialAudio } from "@/composables/useWebRTCSpatialAudio";
 import {
     WebRTCMessageEntitySchema,
     createMessageEntityName,
@@ -497,6 +523,13 @@ const gainNode = ref<GainNode | null>(null);
 const source = ref<MediaStreamAudioSourceNode | null>(null);
 const destination = ref<MediaStreamAudioDestinationNode | null>(null);
 
+// Initialize spatial audio
+const spatialAudio = useWebRTCSpatialAudio({
+    refDistance: 2, // Conversation distance in meters
+    maxDistance: 50, // Max hearing range in meters
+    rolloffFactor: 1.5, // How quickly volume drops with distance
+});
+
 // Computed properties for session management
 const baseSessionId = computed(() => appStore.sessionId);
 const fullSessionId = computed(() => {
@@ -504,9 +537,6 @@ const fullSessionId = computed(() => {
     if (!base) return null;
     return `${base}-${instanceId}`;
 });
-
-// Legacy alias for backward compatibility
-const sessionId = computed(() => fullSessionId.value);
 
 const audioTracks = computed(() => {
     if (!localStream.value) return [];
@@ -957,45 +987,6 @@ const setupPerfectNegotiation = (
     };
 };
 
-// MESSAGE PROCESSING LOGIC - SIMPLIFIED
-
-const processMessage = async (
-    fromSession: string,
-    message: ProcessedMessage,
-    pc: RTCPeerConnection,
-) => {
-    // This function is now simplified and moved into setupPerfectNegotiation
-    // Keep this for backward compatibility but it's no longer used
-    console.warn(
-        "[WebRTC] processMessage called - should use setupPerfectNegotiation instead",
-    );
-};
-
-const handleOfferAnswer = async (
-    fromSession: string,
-    message: ProcessedMessage,
-    pc: RTCPeerConnection,
-    peerInfo: PeerInfo,
-) => {
-    // This function is now simplified and moved into setupPerfectNegotiation
-    // Keep this for backward compatibility but it's no longer used
-    console.warn(
-        "[WebRTC] handleOfferAnswer called - should use setupPerfectNegotiation instead",
-    );
-};
-
-const handleIceCandidate = async (
-    message: ProcessedMessage,
-    pc: RTCPeerConnection,
-    peerInfo: PeerInfo,
-) => {
-    // This function is now simplified and moved into setupPerfectNegotiation
-    // Keep this for backward compatibility but it's no longer used
-    console.warn(
-        "[WebRTC] handleIceCandidate called - should use setupPerfectNegotiation instead",
-    );
-};
-
 // PEER MANAGEMENT WITH AUTOMATIC DISCOVERY
 
 // Manage peer connections based on discovered peers
@@ -1171,7 +1162,10 @@ function disconnectFromPeer(remoteSessionId: string) {
         console.error("Failed to send session end:", err);
     });
 
-    // Clean up audio
+    // Clean up spatial audio
+    spatialAudio.removePeerAudio(remoteSessionId);
+
+    // Clean up regular audio (fallback compatibility)
     const audioElement = audioElements.value.get(remoteSessionId);
     if (audioElement) {
         audioElement.pause();
@@ -1184,36 +1178,59 @@ function disconnectFromPeer(remoteSessionId: string) {
     peerVolumes.value.delete(remoteSessionId);
 }
 
-// Setup audio playback for remote stream
+// Setup spatial audio playback for remote stream
 function setupAudioPlayback(remoteSessionId: string, stream: MediaStream) {
-    // Remove existing audio element if any
+    // Remove existing audio if any
     const existingAudio = audioElements.value.get(remoteSessionId);
     if (existingAudio) {
         existingAudio.pause();
         existingAudio.srcObject = null;
         existingAudio.remove();
+        audioElements.value.delete(remoteSessionId);
     }
 
-    // Create new audio element
-    const audio = new Audio();
-    audio.srcObject = stream;
-    audio.autoplay = true;
+    // Remove existing spatial audio node if any
+    spatialAudio.removePeerAudio(remoteSessionId);
 
-    // Set volume from stored value or default to 100%
-    const storedVolume = peerVolumes.value.get(remoteSessionId);
-    audio.volume = storedVolume !== undefined ? storedVolume / 100 : 1.0;
+    try {
+        // Get stored volume or default to 100%
+        const storedVolume = peerVolumes.value.get(remoteSessionId) || 100;
 
-    // Add to DOM (hidden)
-    audio.style.display = "none";
-    document.body.appendChild(audio);
+        // Create spatial audio node
+        const audio = spatialAudio.createPeerAudioNode(
+            remoteSessionId,
+            stream,
+            storedVolume,
+        );
 
-    // Store reference
-    audioElements.value.set(remoteSessionId, audio);
+        // Store reference for compatibility with existing volume controls
+        audioElements.value.set(remoteSessionId, audio);
 
-    // Try to play
-    audio.play().catch((error) => {
-        console.warn("Audio autoplay blocked:", error);
-    });
+        console.log(
+            `[WebRTC] Set up spatial audio for peer: ${remoteSessionId.substring(0, 8)}...`,
+        );
+    } catch (error) {
+        console.error(
+            `[WebRTC] Failed to set up spatial audio for peer ${remoteSessionId}:`,
+            error,
+        );
+
+        // Fallback to regular audio if spatial audio fails
+        const audio = new Audio();
+        audio.srcObject = stream;
+        audio.autoplay = true;
+        audio.style.display = "none";
+        document.body.appendChild(audio);
+
+        const storedVolume = peerVolumes.value.get(remoteSessionId);
+        audio.volume = storedVolume !== undefined ? storedVolume / 100 : 1.0;
+
+        audioElements.value.set(remoteSessionId, audio);
+
+        audio.play().catch((playError) => {
+            console.warn("Audio autoplay blocked:", playError);
+        });
+    }
 }
 
 // UI HELPER FUNCTIONS
@@ -1381,9 +1398,20 @@ function getPeerVolume(peerId: string): number {
 function setPeerVolume(peerId: string, volume: number) {
     peerVolumes.value.set(peerId, volume);
 
-    const audioElement = audioElements.value.get(peerId);
-    if (audioElement) {
-        audioElement.volume = volume / 100;
+    // Try spatial audio first
+    try {
+        spatialAudio.setPeerVolume(peerId, volume);
+    } catch (error) {
+        console.warn(
+            `[WebRTC] Failed to set spatial audio volume for peer ${peerId}:`,
+            error,
+        );
+
+        // Fallback to regular audio element
+        const audioElement = audioElements.value.get(peerId);
+        if (audioElement) {
+            audioElement.volume = volume / 100;
+        }
     }
 }
 
@@ -1497,6 +1525,9 @@ onMounted(async () => {
 
     // Initialize component immediately
     try {
+        // Initialize spatial audio
+        spatialAudio.initialize();
+
         await initializeLocalStream();
         await announcePeerPresence();
         await manageConnections();
@@ -1529,6 +1560,9 @@ onUnmounted(async () => {
         }
         localStream.value = null;
     }
+
+    // Clean up spatial audio
+    spatialAudio.cleanup();
 
     // Clean up audio context
     if (source.value) {

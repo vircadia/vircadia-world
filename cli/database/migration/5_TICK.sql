@@ -31,10 +31,10 @@ CREATE TABLE tick.world_ticks (
     tick__db__is_delayed boolean,
 
     -- Manager-specific metrics
-    tick__manager__start_time timestamptz,
-    tick__manager__end_time timestamptz,
-    tick__manager__duration_ms double precision,
-    tick__manager__is_delayed boolean,
+    tick__service__start_time timestamptz,
+    tick__service__end_time timestamptz,
+    tick__service__duration_ms double precision,
+    tick__service__is_delayed boolean,
 
     -- Add unique constraint for sync_group + tick number combination
     UNIQUE (group__sync, tick__number)

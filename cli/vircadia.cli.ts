@@ -84,16 +84,16 @@ export namespace Server_CLI {
             VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_PUBLIC_AVAILABLE_AT:
                 serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_PUBLIC_AVAILABLE_AT.toString(),
 
-            VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_CONTAINER_NAME:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_CONTAINER_NAME,
-            VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_INTERNAL:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_INTERNAL,
-            VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_INTERNAL:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_INTERNAL.toString(),
-            VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_EXTERNAL:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
-            VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_EXTERNAL:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString(),
+            VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_CONTAINER_NAME:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_CONTAINER_NAME,
+            VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_INTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_INTERNAL,
+            VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_INTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_INTERNAL.toString(),
+            VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_EXTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
+            VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString(),
         };
 
         // Construct the command
@@ -349,7 +349,7 @@ export namespace Server_CLI {
         };
     }
 
-    export async function isWorldTickManagerHealthy(
+    export async function isWorldStateManagerHealthy(
         wait?:
             | {
                   interval: number;
@@ -373,13 +373,13 @@ export namespace Server_CLI {
                   ? wait
                   : null;
 
-        const checkWorldTickManager = async (): Promise<{
+        const checkWorldStateManager = async (): Promise<{
             isHealthy: boolean;
             error?: Error;
         }> => {
             try {
                 // Host-side health check: fetch stats with x-forwarded-for header
-                const url = `http://${cliConfiguration.VRCA_CLI_SERVICE_WORLD_TICK_MANAGER_HOST}:${cliConfiguration.VRCA_CLI_SERVICE_WORLD_TICK_MANAGER_PORT}${Service.Tick.Stats_Endpoint.path}`;
+                const url = `http://${cliConfiguration.VRCA_CLI_SERVICE_WORLD_STATE_MANAGER_HOST}:${cliConfiguration.VRCA_CLI_SERVICE_WORLD_STATE_MANAGER_PORT}${Service.State.Stats_Endpoint.path}`;
                 const response = await fetch(url, {
                     headers: { "x-forwarded-for": "127.0.0.1" },
                 });
@@ -391,7 +391,7 @@ export namespace Server_CLI {
 
         // If waiting is not enabled, just check once
         if (!waitConfig) {
-            return await checkWorldTickManager();
+            return await checkWorldStateManager();
         }
 
         // With waiting enabled, retry until timeout
@@ -399,7 +399,7 @@ export namespace Server_CLI {
         let lastError: Error | undefined;
 
         while (Date.now() - startTime < waitConfig.timeout) {
-            const result = await checkWorldTickManager();
+            const result = await checkWorldStateManager();
             if (result.isHealthy) {
                 return result;
             }
@@ -1914,10 +1914,10 @@ if (import.meta.main) {
                 );
                 break;
 
-            case "server:world-tick-manager:health":
+            case "server:world-state-manager:health":
                 await runHealthCommand(
-                    "World Tick Manager",
-                    Server_CLI.isWorldTickManagerHealthy,
+                    "World State Manager",
+                    Server_CLI.isWorldStateManagerHealthy,
                     additionalArgs,
                 );
                 break;

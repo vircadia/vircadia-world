@@ -9,9 +9,9 @@ import {
 import { BunPostgresClientModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
 import type { Server } from "bun";
 
-const LOG_PREFIX = "World Tick Manager";
+const LOG_PREFIX = "World State Manager";
 
-export class WorldTickManager {
+export class WorldStateManager {
     private intervalIds: Map<string, Timer> = new Map();
     private syncGroups: Map<string, Auth.SyncGroup.I_SyncGroup> = new Map();
     private tickCounts: Map<string, number> = new Map();
@@ -22,7 +22,7 @@ export class WorldTickManager {
     async initialize() {
         try {
             BunLogModule({
-                message: "Initializing World Tick Manager",
+                message: "Initializing World State Manager",
                 debug: serverConfiguration.VRCA_SERVER_DEBUG,
                 suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "debug",
@@ -31,8 +31,8 @@ export class WorldTickManager {
 
             Bun.serve({
                 hostname:
-                    serverConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_INTERNAL,
-                port: serverConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_INTERNAL,
+                    serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_INTERNAL,
+                port: serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_INTERNAL,
                 development: serverConfiguration.VRCA_SERVER_DEBUG,
 
                 websocket: {
@@ -46,9 +46,9 @@ export class WorldTickManager {
                     // Handle stats
                     if (
                         url.pathname.startsWith(
-                            Service.Tick.Stats_Endpoint.path,
+                            Service.State.Stats_Endpoint.path,
                         ) &&
-                        req.method === Service.Tick.Stats_Endpoint.method
+                        req.method === Service.State.Stats_Endpoint.method
                     ) {
                         const requestIP =
                             req.headers.get("x-forwarded-for")?.split(",")[0] ||
@@ -62,7 +62,7 @@ export class WorldTickManager {
                             requestIP !== "localhost"
                         ) {
                             return Response.json(
-                                Service.Tick.Stats_Endpoint.createError(
+                                Service.State.Stats_Endpoint.createError(
                                     "Forbidden.",
                                 ),
                             );
@@ -89,7 +89,7 @@ export class WorldTickManager {
 
                         // Create response with additional data and return
                         const responseData =
-                            Service.Tick.Stats_Endpoint.createSuccess(
+                            Service.State.Stats_Endpoint.createSuccess(
                                 standardStatsData,
                             );
 
@@ -141,7 +141,7 @@ export class WorldTickManager {
             }
 
             BunLogModule({
-                message: `World Tick Manager initialized successfully with ${this.syncGroups.size} sync groups`,
+                message: `World State Manager initialized successfully with ${this.syncGroups.size} sync groups`,
                 debug: serverConfiguration.VRCA_SERVER_DEBUG,
                 suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "success",
@@ -149,7 +149,7 @@ export class WorldTickManager {
             });
         } catch (error) {
             BunLogModule({
-                message: `Failed to initialize tick manager: ${error}`,
+                message: `Failed to initialize state manager: ${error}`,
                 debug: serverConfiguration.VRCA_SERVER_DEBUG,
                 suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "error",
@@ -398,16 +398,16 @@ export class WorldTickManager {
             await this.superUserSql`
                 UPDATE tick.world_ticks
                 SET 
-                    tick__manager__start_time = ${startTime},
-                    tick__manager__end_time = ${endTime},
-                    tick__manager__duration_ms = ${durationMs},
-                    tick__manager__is_delayed = ${isDelayed}
+                    tick__service__start_time = ${startTime},
+                    tick__service__end_time = ${endTime},
+                    tick__service__duration_ms = ${durationMs},
+                    tick__service__is_delayed = ${isDelayed}
                 WHERE general__tick_id = ${tickId}
             `;
         } catch (error) {
             // Log but don't throw to avoid affecting tick processing
             BunLogModule({
-                message: `Error updating tick manager metrics: ${error}`,
+                message: `Error updating state manager metrics: ${error}`,
                 debug: serverConfiguration.VRCA_SERVER_DEBUG,
                 suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "error",
@@ -423,7 +423,7 @@ export class WorldTickManager {
         }
 
         BunLogModule({
-            message: "World Tick Manager stopped",
+            message: "World State Manager stopped",
             debug: serverConfiguration.VRCA_SERVER_DEBUG,
             suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
             type: "debug",
@@ -470,19 +470,19 @@ export class WorldTickManager {
 if (import.meta.main) {
     try {
         BunLogModule({
-            message: "Starting World Tick Manager",
+            message: "Starting World State Manager",
             debug: serverConfiguration.VRCA_SERVER_DEBUG,
             suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
             type: "info",
             prefix: LOG_PREFIX,
         });
-        const manager = new WorldTickManager();
+        const manager = new WorldStateManager();
         await manager.initialize();
 
         // Handle cleanup on process termination
         process.on("SIGINT", () => {
             BunLogModule({
-                message: "\nReceived SIGINT. Cleaning up tick manager...",
+                message: "\nReceived SIGINT. Cleaning up state manager...",
                 debug: serverConfiguration.VRCA_SERVER_DEBUG,
                 suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "debug",
@@ -494,7 +494,7 @@ if (import.meta.main) {
 
         process.on("SIGTERM", () => {
             BunLogModule({
-                message: "\nReceived SIGTERM. Cleaning up tick manager...",
+                message: "\nReceived SIGTERM. Cleaning up state manager...",
                 debug: serverConfiguration.VRCA_SERVER_DEBUG,
                 suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "debug",
@@ -505,7 +505,7 @@ if (import.meta.main) {
         });
 
         BunLogModule({
-            message: "World Tick Manager running as standalone process",
+            message: "World State Manager running as standalone process",
             debug: serverConfiguration.VRCA_SERVER_DEBUG,
             suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
             type: "success",
@@ -513,7 +513,7 @@ if (import.meta.main) {
         });
     } catch (error) {
         BunLogModule({
-            message: `Failed to start World Tick Manager: ${error}`,
+            message: `Failed to start World State Manager: ${error}`,
             type: "error",
             suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
             debug: serverConfiguration.VRCA_SERVER_DEBUG,

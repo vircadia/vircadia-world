@@ -1,8 +1,8 @@
 {
-    "name": "world-tick-manager",
+    "name": "world-state-manager",
     "version": "1.0.0",
-    "description": "Vircadia World Tick Manager",
-    "main": "dist/world.tick.manager.js",
+    "description": "Vircadia World State Manager",
+    "main": "dist/world.state.manager.js",
     "dependencies": {
         "postgres": "catalog:",
         "zod": "catalog:"
@@ -12,8 +12,8 @@
         "@types/bun": "catalog:types"
     },
     "scripts": {
-        "build": "bun build world.tick.manager.ts --target bun --outfile ./dist/world.tick.manager.js",
-        "start": "bun ./dist/world.tick.manager.js",
+        "build": "bun build world.state.manager.ts --target bun --outfile ./dist/world.state.manager.js",
+        "start": "bun ./dist/world.state.manager.js",
         "deploy": "bun run build && bun run start"
     }
 }

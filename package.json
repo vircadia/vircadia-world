@@ -7,7 +7,7 @@
             "client/web_babylon_js",
             "sdk/vircadia-world-sdk-ts",
             "server/service/api/volume/app",
-            "server/service/tick/volume/app"
+            "server/service/state/volume/app"
         ],
         "catalog": {
             "postgres": "^3.4.7",

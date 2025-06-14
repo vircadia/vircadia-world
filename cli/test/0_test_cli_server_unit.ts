@@ -51,7 +51,7 @@ describe("Container ops tests", () => {
             await runCliCommand(
                 "server:run-command",
                 "up",
-                Service.E_Service.WORLD_TICK_MANAGER,
+                Service.E_Service.WORLD_STATE_MANAGER,
                 "-d",
             );
         }, 120000);
@@ -149,7 +149,7 @@ describe("Container ops tests", () => {
                 "down",
                 Service.E_Service.PGWEB,
                 Service.E_Service.WORLD_API_MANAGER,
-                Service.E_Service.WORLD_TICK_MANAGER,
+                Service.E_Service.WORLD_STATE_MANAGER,
             );
 
             await runCliCommand("server:postgres:wipe");
@@ -179,7 +179,7 @@ describe("Container ops tests", () => {
             await runCliCommand(
                 "server:run-command",
                 "up",
-                Service.E_Service.WORLD_TICK_MANAGER,
+                Service.E_Service.WORLD_STATE_MANAGER,
                 "-d",
             );
         }, 120000);

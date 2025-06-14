@@ -151,15 +151,15 @@ const cliEnvSchema = z.object({
             serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_PUBLIC_AVAILABLE_AT,
         ),
 
-    VRCA_CLI_SERVICE_WORLD_TICK_MANAGER_HOST: z
+    VRCA_CLI_SERVICE_WORLD_STATE_MANAGER_HOST: z
         .string()
         .default(
-            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
         ),
-    VRCA_CLI_SERVICE_WORLD_TICK_MANAGER_PORT: z.coerce
+    VRCA_CLI_SERVICE_WORLD_STATE_MANAGER_PORT: z.coerce
         .number()
         .default(
-            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_EXTERNAL,
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL,
         ),
 });
 export const cliConfiguration = cliEnvSchema.parse(process.env);

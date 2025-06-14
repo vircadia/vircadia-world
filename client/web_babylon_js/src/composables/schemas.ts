@@ -130,6 +130,15 @@ export const WebRTCMessageEntitySchema = z.object({
 
 export type WebRTCMessageEntity = z.infer<typeof WebRTCMessageEntitySchema>;
 
+// Schema for peer discovery entities used for heartbeating
+export const PeerDiscoveryEntitySchema = z.object({
+    sessionId: z.string(), // Unique per-tab session ID
+    timestamp: z.number(),
+    status: z.enum(["online", "offline"]),
+});
+
+export type PeerDiscoveryEntity = z.infer<typeof PeerDiscoveryEntitySchema>;
+
 // Helper functions for message entity naming
 export const createMessageEntityName = (
     fromSession: string,

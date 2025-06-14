@@ -19,7 +19,31 @@
       <v-list dense>
         <v-list-subheader>Local Session</v-list-subheader>
         <v-list-item>
-          <v-list-item-title>Session ID: {{ sessionId || 'Not connected' }}</v-list-item-title>
+          <v-list-item-title>
+            Base Session: {{ baseSessionId || 'Not connected' }}
+          </v-list-item-title>
+        </v-list-item>
+        <v-list-item>
+          <v-list-item-title>
+            Instance ID: {{ instanceId }}
+          </v-list-item-title>
+        </v-list-item>
+        <v-list-item>
+          <v-list-item-title>
+            Full Session: {{ fullSessionId || 'Not ready' }}
+          </v-list-item-title>
+        </v-list-item>
+        <v-list-item>
+          <v-list-item-title>
+            Status: 
+            <v-chip 
+              color="success"
+              size="small"
+              variant="flat"
+            >
+              Ready
+            </v-chip>
+          </v-list-item-title>
         </v-list-item>
         <v-list-item>
           <v-list-item-title>
@@ -175,30 +199,6 @@
                     <br>
                     Last Message Check: {{ new Date(peer.lastMessageCheck).toLocaleTimeString() }}
                   </div>
-                  
-                  <!-- Negotiation State -->
-                  <div class="mt-2">
-                    <v-chip 
-                      size="x-small" 
-                      :color="peer.state.makingOffer ? 'warning' : 'grey'"
-                      class="mr-1"
-                    >
-                      {{ peer.state.makingOffer ? 'Making Offer' : 'Not Offering' }}
-                    </v-chip>
-                    <v-chip 
-                      size="x-small" 
-                      :color="peer.state.ignoreOffer ? 'error' : 'grey'"
-                      class="mr-1"
-                    >
-                      {{ peer.state.ignoreOffer ? 'Ignoring Offers' : 'Accepting Offers' }}
-                    </v-chip>
-                    <v-chip 
-                      size="x-small" 
-                      :color="peer.state.isSettingRemoteAnswerPending ? 'info' : 'grey'"
-                    >
-                      {{ peer.state.isSettingRemoteAnswerPending ? 'Setting Answer' : 'Idle' }}
-                    </v-chip>
-                  </div>
                 </div>
               </div>
               
@@ -268,22 +268,26 @@
 
       <!-- Peer Discovery Debug -->
       <v-list dense>
-        <v-list-subheader>Peer Discovery</v-list-subheader>
+        <v-list-subheader>Peer Discovery (Automatic)</v-list-subheader>
         <v-list-item>
           <v-list-item-title class="text-caption">
-            Known Avatars: {{ Object.keys(appStore.otherAvatarsMetadata).length }}
+            Discovered Peers: {{ discoveredPeers.size }}
           </v-list-item-title>
         </v-list-item>
-        <v-list-item v-for="(metadata, avatarSessionId) in appStore.otherAvatarsMetadata" :key="avatarSessionId">
+        <v-list-item v-for="peerId in Array.from(discoveredPeers)" :key="peerId">
           <v-list-item-title class="text-caption ml-4">
-            {{ avatarSessionId.substring(0, 8) }}... 
+            {{ peerId.substring(0, 8) }}... 
             <v-chip 
               size="x-small" 
-              :color="peers.has(avatarSessionId) ? 'success' : 'warning'"
+              :color="peers.has(peerId) ? 'success' : 'warning'"
             >
-              {{ peers.has(avatarSessionId) ? 'Connected' : 'Not Connected' }}
+              {{ peers.has(peerId) ? 'Connected' : 'Discovered' }}
             </v-chip>
           </v-list-item-title>
+        </v-list-item>
+        
+        <v-list-item v-if="discoveredPeers.size === 0">
+          <v-list-item-title class="text-caption text-grey ml-4">No peers discovered</v-list-item-title>
         </v-list-item>
       </v-list>
 
@@ -321,20 +325,30 @@ import {
     WebRTCMessageEntitySchema,
     createMessageEntityName,
     getIncomingMessagePattern,
+    PeerDiscoveryEntitySchema,
 } from "@/composables/schemas";
-import type { WebRTCMessageEntity } from "@/composables/schemas";
+import type {
+    WebRTCMessageEntity,
+    PeerDiscoveryEntity,
+} from "@/composables/schemas";
 
-// Simplified peer info interface
+// Helper to generate a random string for instance-specific identifiers
+function generateRandomString(length: number): string {
+    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+    let result = "";
+    for (let i = 0; i < length; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+}
+
+// Enhanced peer info interface with simplified state
 interface PeerInfo {
     pc: RTCPeerConnection;
     remoteStream: MediaStream | null;
     isPolite: boolean;
-    state: {
-        makingOffer: boolean;
-        ignoreOffer: boolean;
-        isSettingRemoteAnswerPending: boolean;
-    };
     lastMessageCheck: number;
+    lastProcessedTimestamp: number;
     cleanup: (() => void) | null;
 }
 
@@ -350,7 +364,6 @@ interface IceCandidatePayload {
 }
 
 interface SessionEndPayload {
-    // Empty payload - using Record<string, never> to satisfy linter
     [key: string]: never;
 }
 
@@ -376,6 +389,9 @@ if (!vircadiaWorld) {
     throw new Error("Vircadia instance not found");
 }
 
+// Generate a unique instance ID for this component instance to allow multiple tabs
+const instanceId = generateRandomString(6);
+
 // Component state
 const peers = ref<Map<string, PeerInfo>>(new Map());
 const localStream = ref<MediaStream | null>(null);
@@ -384,6 +400,7 @@ const audioElements = ref<Map<string, HTMLAudioElement>>(new Map());
 const isMuted = ref(false);
 const micVolume = ref(100);
 const peerVolumes = ref<Map<string, number>>(new Map());
+const discoveredPeers = ref<Set<string>>(new Set());
 
 // Database debugging state
 interface MessageEntityInfo {
@@ -404,26 +421,16 @@ const gainNode = ref<GainNode | null>(null);
 const source = ref<MediaStreamAudioSourceNode | null>(null);
 const destination = ref<MediaStreamAudioDestinationNode | null>(null);
 
-// Computed properties
-const sessionId = computed(() => {
-    const baseSessionId = appStore.sessionId;
-    if (!baseSessionId) {
-        return null;
-    }
-    const urlParams = new URLSearchParams(window.location.search);
-    const suffix = urlParams.get("webrtc_id_suffix");
-    if (suffix) {
-        const modifiedId = `${baseSessionId}-${suffix}`;
-        if (!window.webrtcSessionIdLogged) {
-            console.log(
-                `[WebRTC] Using modified session ID for testing: ${modifiedId}`,
-            );
-            window.webrtcSessionIdLogged = true;
-        }
-        return modifiedId;
-    }
-    return baseSessionId;
+// Computed properties for session management
+const baseSessionId = computed(() => appStore.sessionId);
+const fullSessionId = computed(() => {
+    const base = baseSessionId.value;
+    if (!base) return null;
+    return `${base}-${instanceId}`;
 });
+
+// Legacy alias for backward compatibility
+const sessionId = computed(() => fullSessionId.value);
 
 const audioTracks = computed(() => {
     if (!localStream.value) return [];
@@ -439,6 +446,92 @@ const rtcConfig: RTCConfiguration = {
     iceCandidatePoolSize: 10,
 };
 
+// PEER DISCOVERY FUNCTIONS
+
+// Announce our presence to other peers
+const announcePeerPresence = async () => {
+    if (!fullSessionId.value || !vircadiaWorld) return;
+
+    const entityName = `webrtc-peer-${fullSessionId.value}`;
+    const discoveryData: PeerDiscoveryEntity = {
+        sessionId: fullSessionId.value,
+        timestamp: Date.now(),
+        status: "online",
+    };
+
+    try {
+        // Use UPSERT to update existing or create new
+        await vircadiaWorld.client.Utilities.Connection.query({
+            query: `
+                INSERT INTO entity.entities (general__entity_name, meta__data) 
+                VALUES ($1, $2)
+                ON CONFLICT (general__entity_name) 
+                DO UPDATE SET meta__data = $2
+            `,
+            parameters: [entityName, discoveryData],
+        });
+    } catch (error) {
+        console.error("[WebRTC] Failed to announce presence:", error);
+    }
+};
+
+// Discover other peers
+const discoverPeers = async (): Promise<string[]> => {
+    if (!vircadiaWorld || !fullSessionId.value) return [];
+
+    try {
+        const cutoffTime = Date.now() - 30000; // 30 seconds ago
+
+        const result = await vircadiaWorld.client.Utilities.Connection.query({
+            query: `
+                SELECT meta__data FROM entity.entities 
+                WHERE general__entity_name LIKE 'webrtc-peer-%'
+                AND meta__data->>'status' = 'online'
+                AND CAST(meta__data->>'timestamp' AS BIGINT) > $1
+            `,
+            parameters: [cutoffTime],
+        });
+
+        const activePeers: string[] = [];
+
+        if (Array.isArray(result.result)) {
+            for (const entity of result.result) {
+                const discoveryData = PeerDiscoveryEntitySchema.safeParse(
+                    entity.meta__data,
+                );
+
+                if (
+                    discoveryData.success &&
+                    discoveryData.data.sessionId !== fullSessionId.value
+                ) {
+                    activePeers.push(discoveryData.data.sessionId);
+                }
+            }
+        }
+
+        return activePeers;
+    } catch (error) {
+        console.error("[WebRTC] Failed to discover peers:", error);
+        return [];
+    }
+};
+
+// Clean up peer discovery entries when leaving
+const announcePeerDeparture = async () => {
+    if (!fullSessionId.value || !vircadiaWorld) return;
+
+    const entityName = `webrtc-peer-${fullSessionId.value}`;
+
+    try {
+        await vircadiaWorld.client.Utilities.Connection.query({
+            query: "DELETE FROM entity.entities WHERE general__entity_name = $1",
+            parameters: [entityName],
+        });
+    } catch (error) {
+        console.error("[WebRTC] Failed to announce departure:", error);
+    }
+};
+
 // CORE MESSAGE FUNCTIONS
 
 // Send a message by creating an individual entity
@@ -447,11 +540,11 @@ const sendMessage = async (
     type: "offer" | "answer" | "ice-candidate" | "session-end",
     payload: Record<string, unknown>,
 ) => {
-    if (!sessionId.value || !vircadiaWorld) return;
+    if (!fullSessionId.value || !vircadiaWorld) return;
 
     const timestamp = Date.now();
     const entityName = createMessageEntityName(
-        sessionId.value,
+        fullSessionId.value,
         toSession,
         type,
         timestamp,
@@ -465,7 +558,7 @@ const sendMessage = async (
                 {
                     type,
                     payload,
-                    fromSession: sessionId.value,
+                    fromSession: fullSessionId.value,
                     toSession,
                     timestamp,
                     processed: false,
@@ -482,22 +575,30 @@ const sendMessage = async (
     }
 };
 
-// Receive messages by querying for unprocessed messages directed at us
-const receiveMessages = async (): Promise<WebRTCMessageEntity[]> => {
-    if (!sessionId.value || !vircadiaWorld) return [];
+// Receive messages for a specific peer, filtering by their last processed timestamp
+const receiveMessagesForPeer = async (
+    remoteSessionId: string,
+): Promise<WebRTCMessageEntity[]> => {
+    const currentSessionId = fullSessionId.value;
+    if (!currentSessionId || !vircadiaWorld) return [];
+
+    const peerInfo = peers.value.get(remoteSessionId);
+    const lastProcessed = peerInfo?.lastProcessedTimestamp || 0;
 
     try {
         const result = await vircadiaWorld.client.Utilities.Connection.query({
             query: `
                 SELECT * FROM entity.entities 
                 WHERE general__entity_name LIKE $1 
+                AND meta__data->>'fromSession' = $2
                 AND meta__data->>'processed' = 'false'
-                AND CAST(meta__data->>'timestamp' AS BIGINT) > $2
+                AND CAST(meta__data->>'timestamp' AS BIGINT) > $3
                 ORDER BY meta__data->>'timestamp' ASC
             `,
             parameters: [
-                getIncomingMessagePattern(sessionId.value),
-                Date.now() - 60000, // Only messages from last minute
+                getIncomingMessagePattern(currentSessionId),
+                remoteSessionId,
+                Math.max(lastProcessed, Date.now() - 60000),
             ],
         });
 
@@ -508,7 +609,7 @@ const receiveMessages = async (): Promise<WebRTCMessageEntity[]> => {
         }
         return [];
     } catch (error) {
-        console.error("[WebRTC] Failed to receive messages:", error);
+        console.error("[WebRTC] Failed to receive messages for peer:", error);
         return [];
     }
 };
@@ -590,7 +691,7 @@ const processMessage = async (
             break;
 
         case "ice-candidate":
-            await handleIceCandidate(message, pc);
+            await handleIceCandidate(message, pc, peerInfo);
             break;
 
         case "session-end":
@@ -617,73 +718,80 @@ const handleOfferAnswer = async (
         sdp: payload.sdp,
     };
 
-    // Perfect negotiation collision detection
-    const readyForOffer =
-        !peerInfo.state.makingOffer &&
-        (pc.signalingState === "stable" ||
-            peerInfo.state.isSettingRemoteAnswerPending);
+    try {
+        // Simple approach: polite peer accepts everything, impolite peer ignores offers when not stable
+        if (message.type === "offer") {
+            if (!peerInfo.isPolite && pc.signalingState !== "stable") {
+                console.log(
+                    "[WebRTC] Impolite peer ignoring offer in non-stable state",
+                );
+                return;
+            }
 
-    const offerCollision = description.type === "offer" && !readyForOffer;
+            await pc.setRemoteDescription(description);
+            await pc.setLocalDescription();
 
-    peerInfo.state.ignoreOffer = !peerInfo.isPolite && offerCollision;
-
-    if (peerInfo.state.ignoreOffer) {
-        console.log("[WebRTC] Ignoring offer (impolite peer in collision)");
-        return;
-    }
-
-    if (offerCollision && peerInfo.isPolite) {
-        console.log("[WebRTC] Rolling back offer (polite peer in collision)");
-        peerInfo.state.makingOffer = false;
-    }
-
-    peerInfo.state.isSettingRemoteAnswerPending = description.type === "answer";
-    await pc.setRemoteDescription(description);
-    peerInfo.state.isSettingRemoteAnswerPending = false;
-
-    if (description.type === "offer") {
-        await pc.setLocalDescription();
-        if (pc.localDescription?.sdp) {
-            await sendAnswer(fromSession, pc.localDescription.sdp);
+            if (pc.localDescription?.sdp) {
+                await sendAnswer(fromSession, pc.localDescription.sdp);
+            }
+        } else {
+            // Handle answer
+            if (pc.signalingState === "have-local-offer") {
+                await pc.setRemoteDescription(description);
+            } else {
+                console.log(
+                    `[WebRTC] Ignoring answer in wrong state: ${pc.signalingState}`,
+                );
+            }
         }
+    } catch (error) {
+        console.error(`[WebRTC] Failed to process ${description.type}:`, error);
     }
 };
 
 const handleIceCandidate = async (
     message: ProcessedMessage,
     pc: RTCPeerConnection,
+    peerInfo: PeerInfo,
 ) => {
     if (message.type !== "ice-candidate") return;
 
     const payload = message.payload as IceCandidatePayload;
     if (payload.candidate) {
-        const candidate = new RTCIceCandidate(JSON.parse(payload.candidate));
-        await pc.addIceCandidate(candidate);
+        try {
+            const candidate = new RTCIceCandidate(
+                JSON.parse(payload.candidate),
+            );
+            await pc.addIceCandidate(candidate);
+            console.log("[WebRTC] ICE candidate added successfully");
+        } catch (error) {
+            // Ignore ICE candidate errors - they're often harmless
+            console.log(
+                "[WebRTC] ICE candidate ignored:",
+                error instanceof Error ? error.message : String(error),
+            );
+        }
     }
 };
 
 // SIMPLIFIED PERFECT NEGOTIATION
 
-const setupPerfectNegotiation = (
+const setupSimplifiedNegotiation = (
     remoteSessionId: string,
     pc: RTCPeerConnection,
 ) => {
     const peerInfo = peers.value.get(remoteSessionId);
     if (!peerInfo) return { cleanup: () => {} };
 
-    // Handle negotiation needed
+    // Simple negotiation - just handle offers/answers directly
     pc.onnegotiationneeded = async () => {
         try {
-            peerInfo.state.makingOffer = true;
             await pc.setLocalDescription();
-
             if (pc.localDescription?.sdp) {
                 await sendOffer(remoteSessionId, pc.localDescription.sdp);
             }
         } catch (error) {
             console.error("[WebRTC] Failed to create offer:", error);
-        } finally {
-            peerInfo.state.makingOffer = false;
         }
     };
 
@@ -696,16 +804,21 @@ const setupPerfectNegotiation = (
 
     // Process incoming messages for this peer
     const processMessages = async () => {
-        const messages = await receiveMessages();
+        const messages = await receiveMessagesForPeer(remoteSessionId);
+        if (messages.length === 0) return;
+
+        console.log(
+            `[WebRTC] Processing ${messages.length} messages for ${remoteSessionId.substring(0, 8)}...`,
+        );
 
         for (const messageEntity of messages) {
             const message = messageEntity.meta__data;
-
-            // Only process messages from this specific peer
-            if (message.fromSession !== remoteSessionId) continue;
-
             try {
-                // Type assertion since we know the message structure from our schema
+                peerInfo.lastProcessedTimestamp = Math.max(
+                    peerInfo.lastProcessedTimestamp,
+                    message.timestamp,
+                );
+
                 await processMessage(
                     remoteSessionId,
                     message as ProcessedMessage,
@@ -729,6 +842,42 @@ const setupPerfectNegotiation = (
             clearInterval(messageInterval);
         },
     };
+};
+
+// PEER MANAGEMENT WITH AUTOMATIC DISCOVERY
+
+// Manage peer connections based on discovered peers
+const manageConnections = async () => {
+    try {
+        const activePeers = await discoverPeers();
+        const currentPeers = new Set(peers.value.keys());
+        const newPeers = new Set(activePeers);
+
+        // Connect to new peers
+        for (const peerId of newPeers) {
+            if (!currentPeers.has(peerId)) {
+                console.log(
+                    `[WebRTC] Connecting to newly discovered peer: ${peerId.substring(0, 8)}...`,
+                );
+                await connectToPeer(peerId);
+            }
+        }
+
+        // Disconnect from peers that are no longer active
+        for (const peerId of currentPeers) {
+            if (!newPeers.has(peerId)) {
+                console.log(
+                    `[WebRTC] Peer ${peerId.substring(0, 8)}... no longer active, disconnecting`,
+                );
+                disconnectFromPeer(peerId);
+            }
+        }
+
+        // Update discovered peers for UI
+        discoveredPeers.value = newPeers;
+    } catch (error) {
+        console.error("[WebRTC] Failed to manage connections:", error);
+    }
 };
 
 // Initialize local media stream
@@ -777,7 +926,8 @@ async function initializeLocalStream() {
 // PEER CONNECTION MANAGEMENT
 
 async function connectToPeer(remoteSessionId: string) {
-    if (!sessionId.value || peers.value.has(remoteSessionId)) {
+    const currentSessionId = fullSessionId.value;
+    if (!currentSessionId || peers.value.has(remoteSessionId)) {
         return;
     }
 
@@ -799,17 +949,13 @@ async function connectToPeer(remoteSessionId: string) {
         }
     }
 
-    // Create simplified peer info
+    // Create enhanced peer info
     const peerInfo: PeerInfo = {
         pc,
         remoteStream: null,
-        isPolite: sessionId.value < remoteSessionId,
-        state: {
-            makingOffer: false,
-            ignoreOffer: false,
-            isSettingRemoteAnswerPending: false,
-        },
+        isPolite: currentSessionId < remoteSessionId,
         lastMessageCheck: Date.now(),
+        lastProcessedTimestamp: Date.now(),
         cleanup: null,
     };
 
@@ -845,7 +991,7 @@ async function connectToPeer(remoteSessionId: string) {
     };
 
     // Set up perfect negotiation
-    const { cleanup } = setupPerfectNegotiation(remoteSessionId, pc);
+    const { cleanup } = setupSimplifiedNegotiation(remoteSessionId, pc);
     peerInfo.cleanup = cleanup;
 
     console.log(
@@ -972,7 +1118,6 @@ function debugPeer(peerId: string) {
         isPolite: peer.isPolite,
         hasRemoteStream: !!peer.remoteStream,
         lastMessageCheck: new Date(peer.lastMessageCheck),
-        state: peer.state,
     });
 
     // Get WebRTC stats
@@ -1097,78 +1242,61 @@ async function refreshConnections() {
     // Wait a bit before reconnecting
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
-    // Reconnect to all avatars
-    for (const sessionId in appStore.otherAvatarsMetadata) {
-        await connectToPeer(sessionId);
-    }
+    // Discover and connect to peers
+    await manageConnections();
 
     isRefreshing.value = false;
 }
 
 // LIFECYCLE MANAGEMENT
 
-// Watch for changes in other avatars
+// Debug logging for session changes
 watch(
-    () => appStore.otherAvatarsMetadata,
-    async (newMetadata, oldMetadata) => {
-        // Connect to new avatars
-        for (const sessionId in newMetadata) {
-            if (!oldMetadata || !(sessionId in oldMetadata)) {
-                await connectToPeer(sessionId);
-            }
-        }
-
-        // Disconnect from removed avatars
-        if (oldMetadata) {
-            for (const sessionId in oldMetadata) {
-                if (!(sessionId in newMetadata)) {
-                    disconnectFromPeer(sessionId);
-                }
-            }
+    fullSessionId,
+    (newId, oldId) => {
+        if (newId !== oldId) {
+            console.log(`[WebRTC] Session ID changed: ${oldId} -> ${newId}`);
         }
     },
-    { deep: true },
+    { immediate: true },
 );
 
-onMounted(async () => {
-    console.log("[WebRTC] Component mounted");
+// Track intervals for cleanup
+const intervals: number[] = [];
 
+onMounted(async () => {
+    console.log(
+        `[WebRTC] Component mounted with session: ${fullSessionId.value}`,
+    );
+
+    // Start periodic tasks immediately since component only renders when session is ready
+    console.log("[WebRTC] Setting up periodic tasks");
+    intervals.push(setInterval(announcePeerPresence, 10000)); // Announce every 10 seconds
+    intervals.push(setInterval(manageConnections, 5000)); // Check for peers every 5 seconds
+    intervals.push(setInterval(cleanupOldMessages, 30000)); // Cleanup every 30 seconds
+    intervals.push(setInterval(refreshDatabaseState, 5000)); // Database debug every 5 seconds
+
+    // Initialize component immediately
     try {
         await initializeLocalStream();
+        await announcePeerPresence();
+        await manageConnections();
+        console.log("[WebRTC] Component initialized successfully");
     } catch (error) {
-        console.error("[WebRTC] Failed to initialize on mount:", error);
-    }
-
-    // Connect to existing avatars
-    for (const sessionId in appStore.otherAvatarsMetadata) {
-        await connectToPeer(sessionId);
-    }
-
-    // Set up periodic cleanup
-    setInterval(cleanupOldMessages, 30000); // Every 30 seconds
-    setInterval(refreshDatabaseState, 5000); // Every 5 seconds
-
-    // Handle test peer connection from URL parameters
-    if (sessionId.value) {
-        const urlParams = new URLSearchParams(window.location.search);
-        const testPeerSuffix = urlParams.get("webrtc_test_peer_suffix");
-        const baseSessionId = appStore.sessionId;
-
-        if (testPeerSuffix && baseSessionId) {
-            const remoteSessionId = `${baseSessionId}-${testPeerSuffix}`;
-
-            if (remoteSessionId !== sessionId.value) {
-                console.log(
-                    `[WebRTC Test] Attempting to connect to test peer: ${remoteSessionId}`,
-                );
-                await connectToPeer(remoteSessionId);
-            }
-        }
+        console.error("[WebRTC] Failed to initialize:", error);
     }
 });
 
-onUnmounted(() => {
+onUnmounted(async () => {
     console.log("[WebRTC] Component unmounting");
+
+    // Clear all intervals
+    for (const interval of intervals) {
+        clearInterval(interval);
+    }
+
+    // Announce departure
+    await announcePeerDeparture();
 
     // Close all peer connections
     for (const [sessionId] of peers.value) {

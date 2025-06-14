@@ -58,9 +58,9 @@
             <v-icon v-else>mdi-phone</v-icon>
         </v-btn>
         
-        <!-- WebRTC dialog with persistent and eager props to keep component mounted -->
+        <!-- WebRTC dialog - only render when session is ready -->
         <v-dialog v-model="webrtcDialog" max-width="500" eager>
-            <BabylonWebRTC ref="webrtcStatus" />
+            <BabylonWebRTC v-if="sessionId" ref="webrtcStatus" />
         </v-dialog>
         
         <!-- Debug Joint Overlay -->

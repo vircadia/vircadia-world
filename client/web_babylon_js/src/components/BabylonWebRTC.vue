@@ -654,7 +654,8 @@ const sendMessage = async (
         await vircadiaWorld.client.Utilities.Connection.query({
             query: `INSERT INTO entity.entities 
                     (general__entity_name, meta__data, general__expiry__delete_since_created_at_ms) 
-                    VALUES ($1, $2, $3)`,
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (general__entity_name) DO NOTHING`,
             parameters: [
                 entityName,
                 {
@@ -1084,6 +1085,10 @@ async function connectToPeer(remoteSessionId: string) {
         for (const track of localStream.value.getTracks()) {
             pc.addTrack(track, localStream.value);
         }
+        // Mark as sending audio to this peer
+        appStore.setPeerAudioState(remoteSessionId, {
+            isSending: true,
+        });
     }
 
     // Create enhanced peer info
@@ -1170,6 +1175,9 @@ function disconnectFromPeer(remoteSessionId: string) {
 
     // Clean up volume setting
     peerVolumes.value.delete(remoteSessionId);
+
+    // Remove from app store
+    appStore.removePeerAudioState(remoteSessionId);
 }
 
 // Setup spatial audio playback for remote stream
@@ -1200,6 +1208,13 @@ function setupAudioPlayback(remoteSessionId: string, stream: MediaStream) {
         // Store reference for compatibility with existing volume controls
         audioElements.value.set(remoteSessionId, audio);
 
+        // Update app store with audio state
+        appStore.setPeerAudioState(remoteSessionId, {
+            isReceiving: true,
+            volume: storedVolume,
+            isMuted: false,
+        });
+
         console.log(
             `[WebRTC] Set up spatial audio for peer: ${remoteSessionId.substring(0, 8)}...`,
         );
@@ -1220,6 +1235,13 @@ function setupAudioPlayback(remoteSessionId: string, stream: MediaStream) {
         audio.volume = storedVolume !== undefined ? storedVolume / 100 : 1.0;
 
         audioElements.value.set(remoteSessionId, audio);
+
+        // Update app store even for fallback audio
+        appStore.setPeerAudioState(remoteSessionId, {
+            isReceiving: true,
+            volume: storedVolume !== undefined ? storedVolume : 100,
+            isMuted: false,
+        });
 
         audio.play().catch((playError) => {
             console.warn("Audio autoplay blocked:", playError);
@@ -1392,6 +1414,9 @@ function getPeerVolume(peerId: string): number {
 function setPeerVolume(peerId: string, volume: number) {
     peerVolumes.value.set(peerId, volume);
 
+    // Update app store
+    appStore.setPeerVolume(peerId, volume);
+
     // Try spatial audio first
     try {
         spatialAudio.setPeerVolume(peerId, volume);
@@ -1521,6 +1546,7 @@ onMounted(async () => {
     try {
         // Initialize spatial audio
         spatialAudio.initialize();
+        appStore.setSpatialAudioEnabled(true);
 
         await initializeLocalStream();
         await announcePeerPresence();
@@ -1557,6 +1583,8 @@ onUnmounted(async () => {
 
     // Clean up spatial audio
     spatialAudio.cleanup();
+    appStore.setSpatialAudioEnabled(false);
+    appStore.clearPeerAudioStates();
 
     // Clean up audio context
     if (source.value) {
@@ -1579,6 +1607,11 @@ onUnmounted(async () => {
 // Expose peers for parent components
 defineExpose({
     peers,
+    toggleMute,
+    updateMicVolume,
+    setPeerVolume,
+    micVolume,
+    isMuted,
 });
 
 // TROUBLESHOOTING FUNCTIONS

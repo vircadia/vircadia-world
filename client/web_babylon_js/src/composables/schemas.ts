@@ -130,6 +130,15 @@ export const WebRTCMessageEntitySchema = z.object({
 
 export type WebRTCMessageEntity = z.infer<typeof WebRTCMessageEntitySchema>;
 
+// Spatial audio interface
+export interface PeerAudioState {
+    sessionId: string;
+    volume: number;
+    isMuted: boolean;
+    isReceiving: boolean;
+    isSending: boolean;
+}
+
 // Schema for peer discovery entities used for heartbeating
 export const PeerDiscoveryEntitySchema = z.object({
     sessionId: z.string(), // Unique per-tab session ID
@@ -146,7 +155,9 @@ export const createMessageEntityName = (
     type: string,
     timestamp: number,
 ) => {
-    return `webrtc-msg-${fromSession}-${toSession}-${type}-${timestamp}`;
+    // Add a random component to ensure uniqueness
+    const randomId = Math.random().toString(36).substring(2, 8);
+    return `webrtc-msg-${fromSession}-${toSession}-${type}-${timestamp}-${randomId}`;
 };
 
 export const getIncomingMessagePattern = (mySession: string) => {

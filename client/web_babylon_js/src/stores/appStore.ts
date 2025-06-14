@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import type {
     BabylonModelDefinition,
     BabylonAnimationDefinition,
+    PeerAudioState,
 } from "../composables/schemas";
 import type { AvatarMetadata } from "../composables/schemas";
 
@@ -202,6 +203,9 @@ export const useAppStore = defineStore("app", {
             // Debug overlay refresh rate
             debugOverlayRefresh: 100,
         },
+        // Spatial audio state
+        spatialAudioEnabled: false,
+        peerAudioStates: {} as Record<string, PeerAudioState>,
     }),
     getters: {
         // whether an error is set
@@ -214,6 +218,24 @@ export const useAppStore = defineStore("app", {
         // get other avatar metadata by sessionId
         getOtherAvatarMetadata: (state) => (sessionId: string) => {
             return state.otherAvatarsMetadata[sessionId] || null;
+        },
+        // get active audio connections count
+        activeAudioConnectionsCount: (state): number => {
+            return Object.values(state.peerAudioStates).filter(
+                (peer) => peer.isReceiving || peer.isSending,
+            ).length;
+        },
+        // get peer audio state
+        getPeerAudioState:
+            (state) =>
+            (sessionId: string): PeerAudioState | null => {
+                return state.peerAudioStates[sessionId] || null;
+            },
+        // get all active peer audio states
+        activePeerAudioStates: (state): PeerAudioState[] => {
+            return Object.values(state.peerAudioStates).filter(
+                (peer) => peer.isReceiving || peer.isSending,
+            );
         },
     },
     actions: {
@@ -292,6 +314,38 @@ export const useAppStore = defineStore("app", {
             }
             this.instanceId = result;
             return result;
+        },
+        // Spatial audio actions
+        setSpatialAudioEnabled(enabled: boolean) {
+            this.spatialAudioEnabled = enabled;
+        },
+        setPeerAudioState(sessionId: string, state: Partial<PeerAudioState>) {
+            if (!this.peerAudioStates[sessionId]) {
+                this.peerAudioStates[sessionId] = {
+                    sessionId,
+                    volume: 100,
+                    isMuted: false,
+                    isReceiving: false,
+                    isSending: false,
+                };
+            }
+            Object.assign(this.peerAudioStates[sessionId], state);
+        },
+        removePeerAudioState(sessionId: string) {
+            delete this.peerAudioStates[sessionId];
+        },
+        setPeerVolume(sessionId: string, volume: number) {
+            if (this.peerAudioStates[sessionId]) {
+                this.peerAudioStates[sessionId].volume = volume;
+            }
+        },
+        setPeerMuted(sessionId: string, muted: boolean) {
+            if (this.peerAudioStates[sessionId]) {
+                this.peerAudioStates[sessionId].isMuted = muted;
+            }
+        },
+        clearPeerAudioStates() {
+            this.peerAudioStates = {};
         },
     },
 });

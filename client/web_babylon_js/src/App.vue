@@ -40,55 +40,82 @@
                 />
             </template>
         </main>
-        <!-- WebRTC Status launcher -->
-        <v-btn 
-            style="position: fixed; top: 60px; right: 10px;" 
-            fab 
-            color="primary" 
-            @click="webrtcDialog = true"
-        >
-            <v-badge
-                v-if="connectionCount > 0"
-                :content="connectionCount"
-                color="success"
-                overlap
-            >
-                <v-icon>mdi-phone</v-icon>
-            </v-badge>
-            <v-icon v-else>mdi-phone</v-icon>
-        </v-btn>
+        <!-- WebRTC component (hidden, just for functionality) -->
+        <BabylonWebRTC 
+            v-if="sessionId && appStore.instanceId" 
+            :instance-id="appStore.instanceId" 
+            ref="webrtcStatus" 
+            style="display: none;"
+        />
         
-        <!-- WebRTC dialog - only render when session is ready -->
-        <v-dialog v-model="webrtcDialog" max-width="500" eager>
-            <BabylonWebRTC v-if="sessionId && appStore.instanceId" :instance-id="appStore.instanceId" ref="webrtcStatus" />
+        <!-- Floating Control Toolbar -->
+        <div class="floating-toolbar">
+            <!-- Debug Controls -->
+            <v-tooltip bottom>
+                <template v-slot:activator="{ props }">
+                    <v-btn 
+                        fab 
+                        small
+                        color="error" 
+                        @click="showDebugOverlay = !showDebugOverlay"
+                        v-bind="props"
+                        class="toolbar-btn"
+                    >
+                        <v-icon>mdi-bug</v-icon>
+                    </v-btn>
+                </template>
+                <span>Toggle Debug Overlay</span>
+            </v-tooltip>
+            
+            <!-- Performance Mode Toggle -->
+            <v-tooltip bottom>
+                <template v-slot:activator="{ props }">
+                    <v-btn 
+                        fab 
+                        small
+                        :color="performanceMode === 'low' ? 'warning' : 'success'" 
+                        @click="togglePerformanceMode"
+                        v-bind="props"
+                        class="toolbar-btn"
+                    >
+                        <v-icon>{{ performanceMode === 'low' ? 'mdi-speedometer-slow' : 'mdi-speedometer' }}</v-icon>
+                    </v-btn>
+                </template>
+                <span>Performance: {{ performanceMode }} ({{ performanceMode === 'low' ? targetFPS + ' FPS' : 'Max FPS' }})</span>
+            </v-tooltip>
+            
+            <!-- Audio Controls -->
+            <v-tooltip bottom>
+                <template v-slot:activator="{ props }">
+                    <v-btn 
+                        fab 
+                        small
+                        color="primary" 
+                        @click="audioDialog = true"
+                        v-bind="props"
+                        class="toolbar-btn"
+                    >
+                        <v-badge
+                            v-if="activeAudioCount > 0"
+                            :content="activeAudioCount"
+                            color="success"
+                            overlap
+                        >
+                            <v-icon>mdi-headphones</v-icon>
+                        </v-badge>
+                        <v-icon v-else>mdi-headphones</v-icon>
+                    </v-btn>
+                </template>
+                <span>Audio Controls ({{ activeAudioCount }} active)</span>
+            </v-tooltip>
+        </div>
+        
+        <!-- Audio controls dialog -->
+        <v-dialog v-model="audioDialog" max-width="600" eager>
+            <AudioControlsDialog :webrtc-ref="webrtcStatus" />
         </v-dialog>
         
         <!-- Debug Joint Overlay -->
-        <v-btn 
-            style="position: fixed; top: 10px; left: 10px;" 
-            fab 
-            color="error" 
-            @click="showDebugOverlay = !showDebugOverlay"
-        >
-            Debug
-        </v-btn>
-        
-        <!-- Performance Mode Toggle -->
-        <v-tooltip bottom>
-            <template v-slot:activator="{ props }">
-                <v-btn 
-                    style="position: fixed; top: 10px; left: 80px;" 
-                    fab 
-                    :color="performanceMode === 'low' ? 'warning' : 'success'" 
-                    @click="togglePerformanceMode"
-                    v-bind="props"
-                >
-                    <v-icon>{{ performanceMode === 'low' ? 'mdi-speedometer-slow' : 'mdi-speedometer' }}</v-icon>
-                </v-btn>
-            </template>
-            <span>Performance: {{ performanceMode }} ({{ performanceMode === 'low' ? targetFPS + ' FPS' : 'Max FPS' }})</span>
-        </v-tooltip>
-        
         <BabylonDebugOverlay 
             v-if="showDebugOverlay" 
             :visible="showDebugOverlay"
@@ -105,6 +132,7 @@ import BabylonOtherAvatar from "./components/BabylonOtherAvatar.vue";
 import BabylonModel from "./components/BabylonModel.vue";
 import BabylonWebRTC from "./components/BabylonWebRTC.vue";
 import BabylonDebugOverlay from "./components/BabylonDebugOverlay.vue";
+import AudioControlsDialog from "./components/AudioControlsDialog.vue";
 // mark as used at runtime for template
 void BabylonMyAvatar;
 // mark as used at runtime for template
@@ -115,6 +143,8 @@ void BabylonModel;
 void BabylonWebRTC;
 // mark as used at runtime for template
 void BabylonDebugOverlay;
+// mark as used at runtime for template
+void AudioControlsDialog;
 import { useBabylonEnvironment } from "./composables/useBabylonEnvironment";
 import { useAppStore } from "@/stores/appStore";
 // BabylonJS
@@ -145,6 +175,9 @@ if (!vircadiaWorld) {
 // Connection count is now managed by BabylonWebRTC component
 const webrtcStatus = ref<InstanceType<typeof BabylonWebRTC> | null>(null);
 const connectionCount = computed(() => webrtcStatus.value?.peers.size || 0);
+
+// Active audio connections from app store
+const activeAudioCount = computed(() => appStore.activeAudioConnectionsCount);
 
 const connectionStatus = computed(
     () => vircadiaWorld.connectionInfo.value.status,
@@ -582,6 +615,9 @@ const snackbarText = computed(() => {
 
 // State for WebRTC dialog
 const webrtcDialog = ref(false);
+
+// State for Audio dialog
+const audioDialog = ref(false);
 </script>
 
 <style>
@@ -593,5 +629,53 @@ main {
 }
 #renderCanvas {
     width: 100%; height: 100%; display: block; touch-action: none; outline: none;
+}
+
+/* Floating Toolbar Styles */
+.floating-toolbar {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 1000;
+    padding: 8px;
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 28px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.toolbar-btn {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+    transition: all 0.2s ease !important;
+}
+
+.toolbar-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* Responsive design for smaller screens */
+@media (max-width: 768px) {
+    .floating-toolbar {
+        top: 12px;
+        right: 12px;
+        gap: 6px;
+        padding: 6px;
+    }
+}
+
+@media (max-width: 480px) {
+    .floating-toolbar {
+        flex-direction: row;
+        top: 8px;
+        right: 8px;
+        left: 8px;
+        justify-content: center;
+        border-radius: 24px;
+    }
 }
 </style>

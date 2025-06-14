@@ -463,12 +463,12 @@ const announcePeerPresence = async () => {
         // Use UPSERT to update existing or create new
         await vircadiaWorld.client.Utilities.Connection.query({
             query: `
-                INSERT INTO entity.entities (general__entity_name, meta__data) 
-                VALUES ($1, $2)
+                INSERT INTO entity.entities (general__entity_name, meta__data, general__expiry__delete_since_updated_at_ms) 
+                VALUES ($1, $2, $3)
                 ON CONFLICT (general__entity_name) 
-                DO UPDATE SET meta__data = $2
+                DO UPDATE SET meta__data = $2, general__expiry__delete_since_updated_at_ms = $3
             `,
-            parameters: [entityName, discoveryData],
+            parameters: [entityName, discoveryData, 30000], // Delete after 30 seconds of inactivity
         });
     } catch (error) {
         console.error("[WebRTC] Failed to announce presence:", error);
@@ -552,7 +552,9 @@ const sendMessage = async (
 
     try {
         await vircadiaWorld.client.Utilities.Connection.query({
-            query: "INSERT INTO entity.entities (general__entity_name, meta__data) VALUES ($1, $2)",
+            query: `INSERT INTO entity.entities 
+                    (general__entity_name, meta__data, general__expiry__delete_since_created_at_ms) 
+                    VALUES ($1, $2, $3)`,
             parameters: [
                 entityName,
                 {
@@ -563,11 +565,12 @@ const sendMessage = async (
                     timestamp,
                     processed: false,
                 },
+                300000, // Delete after 5 minutes (300000ms)
             ],
         });
 
         console.log(
-            `[WebRTC] Sent ${type} message to ${toSession.substring(0, 8)}...`,
+            `[WebRTC] Sent ${type} message to ${toSession.substring(0, 8)}... at ${timestamp}`,
         );
     } catch (error) {
         console.error(`[WebRTC] Failed to send ${type} message:`, error);
@@ -628,27 +631,6 @@ const markMessageProcessed = async (entityName: string) => {
     }
 };
 
-// Clean up old messages (older than 5 minutes)
-const cleanupOldMessages = async () => {
-    if (!vircadiaWorld) return;
-
-    const cutoffTime = Date.now() - 300000; // 5 minutes ago
-
-    try {
-        await vircadiaWorld.client.Utilities.Connection.query({
-            query: `
-                DELETE FROM entity.entities 
-                WHERE general__entity_name LIKE 'webrtc-msg-%'
-                AND CAST(meta__data->>'timestamp' AS BIGINT) < $1
-            `,
-            parameters: [cutoffTime],
-        });
-        console.log("[WebRTC] Cleaned up old message entities");
-    } catch (error) {
-        console.error("[WebRTC] Failed to cleanup old messages:", error);
-    }
-};
-
 // TYPE-SAFE MESSAGE SENDERS
 
 const sendOffer = async (toSession: string, sdp: string) => {
@@ -683,6 +665,12 @@ const processMessage = async (
 ) => {
     const peerInfo = peers.value.get(fromSession);
     if (!peerInfo) return;
+
+    const now = Date.now();
+    const delay = now - message.timestamp;
+    console.log(
+        `[WebRTC] Processing ${message.type} from ${fromSession.substring(0, 8)}... (delay: ${delay}ms, pc state: ${pc.signalingState})`,
+    );
 
     switch (message.type) {
         case "offer":
@@ -719,13 +707,30 @@ const handleOfferAnswer = async (
     };
 
     try {
-        // Simple approach: polite peer accepts everything, impolite peer ignores offers when not stable
         if (message.type === "offer") {
-            if (!peerInfo.isPolite && pc.signalingState !== "stable") {
+            // Handle offer collision - proper perfect negotiation
+            const offerCollision = pc.signalingState !== "stable";
+
+            if (offerCollision && !peerInfo.isPolite) {
+                // Impolite peer ignores offer collision
                 console.log(
-                    "[WebRTC] Impolite peer ignoring offer in non-stable state",
+                    `[WebRTC] Impolite peer ignoring offer collision (state: ${pc.signalingState})`,
                 );
                 return;
+            }
+
+            if (offerCollision && peerInfo.isPolite) {
+                // Polite peer rolls back its offer
+                console.log(
+                    `[WebRTC] Polite peer rolling back offer collision (state: ${pc.signalingState})`,
+                );
+                try {
+                    await pc.setLocalDescription({ type: "rollback" });
+                    console.log("[WebRTC] Rollback completed successfully");
+                } catch (rollbackError) {
+                    console.error("[WebRTC] Rollback failed:", rollbackError);
+                    // Continue anyway, might still work
+                }
             }
 
             await pc.setRemoteDescription(description);
@@ -783,15 +788,45 @@ const setupSimplifiedNegotiation = (
     const peerInfo = peers.value.get(remoteSessionId);
     if (!peerInfo) return { cleanup: () => {} };
 
-    // Simple negotiation - just handle offers/answers directly
+    // Perfect negotiation with proper state management
+    let makingOffer = false;
+
     pc.onnegotiationneeded = async () => {
         try {
+            // Prevent re-entrant calls during negotiation
+            if (makingOffer) {
+                console.log(
+                    `[WebRTC] Skipping negotiation (makingOffer: ${makingOffer}, state: ${pc.signalingState})`,
+                );
+                return;
+            }
+
+            makingOffer = true;
+            console.log(
+                `[WebRTC] Starting negotiation for ${remoteSessionId.substring(0, 8)}... (${peerInfo.isPolite ? "polite" : "impolite"})`,
+            );
+
+            // Add deterministic delay based on session ID to reduce collision probability
+            // Impolite peer gets slightly longer delay to let polite peer go first
+            const baseDelay = peerInfo.isPolite ? 10 : 50;
+            const sessionHash =
+                fullSessionId.value?.split("").reduce((hash, char) => {
+                    return (
+                        ((hash << 5) - hash + char.charCodeAt(0)) & 0xffffffff
+                    );
+                }, 0) || 0;
+            const delay = baseDelay + (Math.abs(sessionHash) % 50);
+
+            await new Promise((resolve) => setTimeout(resolve, delay));
+
             await pc.setLocalDescription();
             if (pc.localDescription?.sdp) {
                 await sendOffer(remoteSessionId, pc.localDescription.sdp);
             }
         } catch (error) {
             console.error("[WebRTC] Failed to create offer:", error);
+        } finally {
+            makingOffer = false;
         }
     };
 
@@ -1273,7 +1308,6 @@ onMounted(async () => {
     console.log("[WebRTC] Setting up periodic tasks");
     intervals.push(setInterval(announcePeerPresence, 10000)); // Announce every 10 seconds
     intervals.push(setInterval(manageConnections, 5000)); // Check for peers every 5 seconds
-    intervals.push(setInterval(cleanupOldMessages, 30000)); // Cleanup every 30 seconds
     intervals.push(setInterval(refreshDatabaseState, 5000)); // Database debug every 5 seconds
 
     // Initialize component immediately

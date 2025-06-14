@@ -60,7 +60,7 @@
         
         <!-- WebRTC dialog - only render when session is ready -->
         <v-dialog v-model="webrtcDialog" max-width="500" eager>
-            <BabylonWebRTC v-if="sessionId" ref="webrtcStatus" />
+            <BabylonWebRTC v-if="sessionId && appStore.instanceId" :instance-id="appStore.instanceId" ref="webrtcStatus" />
         </v-dialog>
         
         <!-- Debug Joint Overlay -->
@@ -200,14 +200,14 @@ async function pollForOtherAvatars() {
         });
 
         if (result.result) {
-            const currentSessionId = sessionId.value;
+            const currentFullSessionId = appStore.fullSessionId;
             const foundSessionIds: string[] = [];
 
             for (const entity of result.result) {
-                // Extract session ID from entity name (format: "avatar:sessionId")
+                // Extract full session ID from entity name (format: "avatar:sessionId-instanceId")
                 const match =
                     entity.general__entity_name.match(/^avatar:(.+)$/);
-                if (match && match[1] !== currentSessionId) {
+                if (match && match[1] !== currentFullSessionId) {
                     foundSessionIds.push(match[1]);
 
                     // Immediately add to metadata store with minimal data
@@ -218,7 +218,7 @@ async function pollForOtherAvatars() {
                         );
                         appStore.setOtherAvatarMetadata(match[1], {
                             type: "avatar",
-                            sessionId: match[1],
+                            sessionId: match[1], // This is now the fullSessionId (sessionId-instanceId)
                             position: { x: 0, y: 0, z: 0 },
                             rotation: { x: 0, y: 0, z: 0, w: 1 },
                             cameraOrientation: { alpha: 0, beta: 0, radius: 5 },
@@ -413,6 +413,10 @@ const initializeBabylon = async () => {
 const handleResize = () => engine?.resize();
 
 onMounted(async () => {
+    // Generate instance ID for this browser tab/instance
+    const instanceId = appStore.generateInstanceId();
+    console.log(`[App] Generated instance ID: ${instanceId}`);
+
     await initializeBabylon();
 
     // Add keyboard event listener for inspector toggle

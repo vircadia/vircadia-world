@@ -25,7 +25,7 @@
         </v-list-item>
         <v-list-item>
           <v-list-item-title>
-            Instance ID: {{ instanceId }}
+            Instance ID: {{ props.instanceId }}
           </v-list-item-title>
         </v-list-item>
         <v-list-item>
@@ -430,15 +430,12 @@ import type {
     PeerDiscoveryEntity,
 } from "@/composables/schemas";
 
-// Helper to generate a random string for instance-specific identifiers
-function generateRandomString(length: number): string {
-    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-    let result = "";
-    for (let i = 0; i < length; i++) {
-        result += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return result;
+// Props for the component
+interface Props {
+    instanceId: string;
 }
+
+const props = defineProps<Props>();
 
 // Enhanced peer info interface with simplified state
 interface PeerInfo {
@@ -487,9 +484,6 @@ if (!vircadiaWorld) {
     throw new Error("Vircadia instance not found");
 }
 
-// Generate a unique instance ID for this component instance to allow multiple tabs
-const instanceId = generateRandomString(6);
-
 // Component state
 const peers = ref<Map<string, PeerInfo>>(new Map());
 const localStream = ref<MediaStream | null>(null);
@@ -535,7 +529,7 @@ const baseSessionId = computed(() => appStore.sessionId);
 const fullSessionId = computed(() => {
     const base = baseSessionId.value;
     if (!base) return null;
-    return `${base}-${instanceId}`;
+    return `${base}-${props.instanceId}`;
 });
 
 const audioTracks = computed(() => {

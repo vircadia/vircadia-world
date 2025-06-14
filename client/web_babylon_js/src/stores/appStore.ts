@@ -29,9 +29,10 @@ export const useAppStore = defineStore("app", {
         ] as BabylonModelDefinition[],
         // HDR environment list
         hdrList: ["babylon.level.hdr.1k.hdr"] as string[],
-        // IDs for session and agent
+        // IDs for session, agent, and instance
         sessionId: null as string | null,
         agentId: null as string | null,
+        instanceId: null as string | null,
         // My avatar metadata
         myAvatarMetadata: null as AvatarMetadata | null,
         // Other avatars metadata map (keyed by sessionId)
@@ -205,6 +206,11 @@ export const useAppStore = defineStore("app", {
     getters: {
         // whether an error is set
         hasError: (state): boolean => state.error !== null,
+        // get full session ID (sessionId + instanceId)
+        fullSessionId: (state): string | null => {
+            if (!state.sessionId || !state.instanceId) return null;
+            return `${state.sessionId}-${state.instanceId}`;
+        },
         // get other avatar metadata by sessionId
         getOtherAvatarMetadata: (state) => (sessionId: string) => {
             return state.otherAvatarsMetadata[sessionId] || null;
@@ -230,6 +236,10 @@ export const useAppStore = defineStore("app", {
         // set the agent ID
         setAgentId(id: string | null) {
             this.agentId = id;
+        },
+        // set the instance ID
+        setInstanceId(id: string | null) {
+            this.instanceId = id;
         },
         // set my avatar metadata
         setMyAvatarMetadata(metadata: AvatarMetadata | null) {
@@ -270,6 +280,18 @@ export const useAppStore = defineStore("app", {
         // set all polling intervals
         setPollingIntervals(intervals: Partial<typeof this.pollingIntervals>) {
             Object.assign(this.pollingIntervals, intervals);
+        },
+        // generate and set a new instance ID
+        generateInstanceId() {
+            const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+            let result = "";
+            for (let i = 0; i < 6; i++) {
+                result += chars.charAt(
+                    Math.floor(Math.random() * chars.length),
+                );
+            }
+            this.instanceId = result;
+            return result;
         },
     },
 });

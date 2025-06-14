@@ -91,16 +91,17 @@ const {
     animations,
 } = toRefs(avatarDefinition);
 
-// Reactive sessionId from store
+// Reactive sessionId and fullSessionId from store
 const { sessionId } = toRefs(appStore);
+const fullSessionId = computed(() => appStore.fullSessionId);
 
-// Generate dynamic entity name based on session ID
-const entityName = computed(() => `avatar:${sessionId.value}`);
+// Generate dynamic entity name based on full session ID (includes instanceId)
+const entityName = computed(() => `avatar:${fullSessionId.value}`);
 
 // Reactive metadata object for transforms
 const metadata = reactive<AvatarMetadata>({
     type: "avatar",
-    sessionId: sessionId.value,
+    sessionId: fullSessionId.value,
     position: initialAvatarPosition.value,
     rotation: initialAvatarRotation.value,
     cameraOrientation: initialAvatarCameraOrientation.value,
@@ -199,7 +200,7 @@ const avatarEntity = useEntity({
     metaDataSchema: AvatarMetadataSchema,
     defaultMetaData: {
         type: "avatar",
-        sessionId: sessionId.value,
+        sessionId: fullSessionId.value,
         position: initialPosition.value,
         rotation: initialRotation.value,
         cameraOrientation: cameraOrientation.value,
@@ -225,7 +226,7 @@ const throttledUpdate = useThrottleFn(async () => {
         // Prepare the updated metadata object
         const updatedMetadata: AvatarMetadata = {
             type: "avatar",
-            sessionId: sessionId.value,
+            sessionId: fullSessionId.value,
             position: currentPos
                 ? vectorToObj(currentPos)
                 : initialPosition.value,
@@ -295,10 +296,10 @@ const throttledUpdate = useThrottleFn(async () => {
         }
 
         // Update sessionId if changed
-        if (currentMeta.sessionId !== sessionId.value) {
+        if (currentMeta.sessionId !== fullSessionId.value) {
             await avatarEntity.executeUpdate(
                 "meta__data = jsonb_set(meta__data, '{sessionId}', $1)",
-                [sessionId.value],
+                [fullSessionId.value],
             );
         }
 

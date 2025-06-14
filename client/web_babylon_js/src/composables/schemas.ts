@@ -114,3 +114,32 @@ export const WebRTCEntitySchema = z.object({
 });
 
 export type WebRTCEntity = z.infer<typeof WebRTCEntitySchema>;
+
+// New schema for individual WebRTC message entities
+export const WebRTCMessageEntitySchema = z.object({
+    general__entity_name: z.string(),
+    meta__data: z.object({
+        type: z.enum(["offer", "answer", "ice-candidate", "session-end"]),
+        payload: z.any(), // SDP string, ICE candidate object, etc.
+        fromSession: z.string(),
+        toSession: z.string(),
+        timestamp: z.number(),
+        processed: z.boolean().default(false),
+    }),
+});
+
+export type WebRTCMessageEntity = z.infer<typeof WebRTCMessageEntitySchema>;
+
+// Helper functions for message entity naming
+export const createMessageEntityName = (
+    fromSession: string,
+    toSession: string,
+    type: string,
+    timestamp: number,
+) => {
+    return `webrtc-msg-${fromSession}-${toSession}-${type}-${timestamp}`;
+};
+
+export const getIncomingMessagePattern = (mySession: string) => {
+    return `webrtc-msg-%-${mySession}-%`;
+};

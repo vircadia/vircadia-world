@@ -109,6 +109,37 @@ interface DebugWindow extends Window {
     debugOtherAvatar?: boolean;
 }
 
+// Helper function to retrieve metadata for an entity
+async function retrieveEntityMetadata(
+    entityName: string,
+): Promise<Map<string, unknown> | null> {
+    if (!vircadiaWorld) {
+        console.error("Vircadia instance not found");
+        return null;
+    }
+
+    try {
+        // Fetch all metadata for this entity
+        const metadataResult =
+            await vircadiaWorld.client.Utilities.Connection.query({
+                query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1",
+                parameters: [entityName],
+            });
+
+        if (Array.isArray(metadataResult.result)) {
+            // Reconstruct metadata map from rows
+            const metadataMap = new Map<string, unknown>();
+            for (const row of metadataResult.result) {
+                metadataMap.set(row.metadata__key, row.metadata__value);
+            }
+            return metadataMap;
+        }
+    } catch (e) {
+        console.error("Failed to retrieve metadata:", e);
+    }
+    return null;
+}
+
 // Load the avatar model
 async function loadAvatarModel() {
     if (isModelLoaded.value) {
@@ -347,24 +378,30 @@ async function pollAvatarData() {
     isPolling = true;
 
     try {
-        const query = `SELECT general__entity_name, meta__data FROM entity.entities WHERE general__entity_name = 'avatar:${props.sessionId}'`;
+        const entityName = `avatar:${props.sessionId}`;
 
-        const result = await vircadiaWorld.client.Utilities.Connection.query<
-            Array<{ general__entity_name: string; meta__data: unknown }>
-        >({
-            query,
-            timeoutMs: 20000, // Increased timeout to 20 seconds
-        });
+        // First check if entity exists
+        const entityResult =
+            await vircadiaWorld.client.Utilities.Connection.query({
+                query: "SELECT general__entity_name FROM entity.entities WHERE general__entity_name = $1",
+                parameters: [entityName],
+                timeoutMs: 20000, // Increased timeout to 20 seconds
+            });
 
-        if (result.result && result.result.length > 0) {
-            const avatarEntity = result.result[0];
-            const rawMetadata = avatarEntity.meta__data;
+        if (
+            Array.isArray(entityResult.result) &&
+            entityResult.result.length > 0
+        ) {
+            // Fetch all metadata for this entity
+            const metadata = await retrieveEntityMetadata(entityName);
 
-            if (rawMetadata && typeof rawMetadata === "object") {
+            if (metadata && metadata.size > 0) {
                 try {
+                    // Convert Map to object for validation
+                    const metaObj = Object.fromEntries(metadata);
+
                     // Parse and validate metadata using the schema
-                    const avatarMetadata =
-                        AvatarMetadataSchema.parse(rawMetadata);
+                    const avatarMetadata = AvatarMetadataSchema.parse(metaObj);
 
                     appStore.setOtherAvatarMetadata(
                         props.sessionId,

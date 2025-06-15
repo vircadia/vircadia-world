@@ -420,15 +420,13 @@ import { useAppStore } from "@/stores/appStore";
 import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
 import { useWebRTCSpatialAudio } from "@/composables/useWebRTCSpatialAudio";
 import {
-    WebRTCMessageEntitySchema,
-    createMessageEntityName,
-    getIncomingMessagePattern,
+    WebRTCMessageSchema,
+    createWebRTCSessionEntityName,
+    createWebRTCMessageKey,
+    getWebRTCSessionPattern,
     PeerDiscoveryEntitySchema,
 } from "@/composables/schemas";
-import type {
-    WebRTCMessageEntity,
-    PeerDiscoveryEntity,
-} from "@/composables/schemas";
+import type { WebRTCMessage, PeerDiscoveryEntity } from "@/composables/schemas";
 
 // Props for the component
 interface Props {
@@ -474,6 +472,11 @@ interface ProcessedMessage {
     toSession: string;
     timestamp: number;
     processed: boolean;
+}
+
+// Extended message type with metadata key for processing
+interface WebRTCMessageWithKey extends WebRTCMessage {
+    metadataKey: string;
 }
 
 // Initialize stores and services
@@ -560,16 +563,27 @@ const announcePeerPresence = async () => {
     };
 
     try {
-        // Use UPSERT to update existing or create new
+        // First, create or update the entity
         await vircadiaWorld.client.Utilities.Connection.query({
             query: `
-                INSERT INTO entity.entities (general__entity_name, meta__data, general__expiry__delete_since_updated_at_ms) 
+                INSERT INTO entity.entities (general__entity_name, group__sync, general__expiry__delete_since_updated_at_ms) 
                 VALUES ($1, $2, $3)
                 ON CONFLICT (general__entity_name) 
-                DO UPDATE SET meta__data = $2, general__expiry__delete_since_updated_at_ms = $3
+                DO UPDATE SET general__expiry__delete_since_updated_at_ms = $3
             `,
-            parameters: [entityName, discoveryData, 30000], // Delete after 30 seconds of inactivity
+            parameters: [entityName, "public.NORMAL", 30000], // Delete after 30 seconds of inactivity
         });
+
+        // Then update metadata using the new entity_metadata table
+        for (const [key, value] of Object.entries(discoveryData)) {
+            await vircadiaWorld.client.Utilities.Connection.query({
+                query: `INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync)
+                        VALUES ($1, $2, $3, $4)
+                        ON CONFLICT (general__entity_name, metadata__key) 
+                        DO UPDATE SET metadata__value = EXCLUDED.metadata__value`,
+                parameters: [entityName, key, value, "public.NORMAL"],
+            });
+        }
     } catch (error) {
         console.error("[WebRTC] Failed to announce presence:", error);
     }
@@ -582,29 +596,51 @@ const discoverPeers = async (): Promise<string[]> => {
     try {
         const cutoffTime = Date.now() - 30000; // 30 seconds ago
 
-        const result = await vircadiaWorld.client.Utilities.Connection.query({
-            query: `
-                SELECT meta__data FROM entity.entities 
+        // First get all webrtc-peer entities
+        const entitiesResult =
+            await vircadiaWorld.client.Utilities.Connection.query({
+                query: `
+                SELECT general__entity_name FROM entity.entities 
                 WHERE general__entity_name LIKE 'webrtc-peer-%'
-                AND meta__data->>'status' = 'online'
-                AND CAST(meta__data->>'timestamp' AS BIGINT) > $1
             `,
-            parameters: [cutoffTime],
-        });
+                parameters: [],
+            });
 
         const activePeers: string[] = [];
 
-        if (Array.isArray(result.result)) {
-            for (const entity of result.result) {
-                const discoveryData = PeerDiscoveryEntitySchema.safeParse(
-                    entity.meta__data,
-                );
+        if (Array.isArray(entitiesResult.result)) {
+            for (const entity of entitiesResult.result) {
+                const entityName = entity.general__entity_name;
 
-                if (
-                    discoveryData.success &&
-                    discoveryData.data.sessionId !== fullSessionId.value
-                ) {
-                    activePeers.push(discoveryData.data.sessionId);
+                // Get metadata for this entity
+                const metadataResult =
+                    await vircadiaWorld.client.Utilities.Connection.query({
+                        query: `
+                        SELECT metadata__key, metadata__value 
+                        FROM entity.entity_metadata 
+                        WHERE general__entity_name = $1
+                    `,
+                        parameters: [entityName],
+                    });
+
+                if (Array.isArray(metadataResult.result)) {
+                    // Reconstruct discovery data from metadata
+                    const discoveryData: Record<string, unknown> = {};
+                    for (const row of metadataResult.result) {
+                        discoveryData[row.metadata__key] = row.metadata__value;
+                    }
+
+                    const parsed =
+                        PeerDiscoveryEntitySchema.safeParse(discoveryData);
+
+                    if (
+                        parsed.success &&
+                        parsed.data.sessionId !== fullSessionId.value &&
+                        parsed.data.status === "online" &&
+                        parsed.data.timestamp > cutoffTime
+                    ) {
+                        activePeers.push(parsed.data.sessionId);
+                    }
                 }
             }
         }
@@ -634,7 +670,7 @@ const announcePeerDeparture = async () => {
 
 // CORE MESSAGE FUNCTIONS
 
-// Send a message by creating an individual entity
+// Send a message by adding it as metadata to the WebRTC session entity
 const sendMessage = async (
     toSession: string,
     type: "offer" | "answer" | "ice-candidate" | "session-end",
@@ -643,30 +679,68 @@ const sendMessage = async (
     if (!fullSessionId.value || !vircadiaWorld) return;
 
     const timestamp = Date.now();
-    const entityName = createMessageEntityName(
+    const sessionEntityName = createWebRTCSessionEntityName(
         fullSessionId.value,
         toSession,
+    );
+    const messageKey = createWebRTCMessageKey(
         type,
         timestamp,
+        fullSessionId.value,
     );
 
     try {
+        // First ensure the session entity exists
         await vircadiaWorld.client.Utilities.Connection.query({
             query: `INSERT INTO entity.entities 
-                    (general__entity_name, meta__data, general__expiry__delete_since_created_at_ms) 
+                    (general__entity_name, group__sync, general__expiry__delete_since_updated_at_ms) 
                     VALUES ($1, $2, $3)
-                    ON CONFLICT (general__entity_name) DO NOTHING`,
+                    ON CONFLICT (general__entity_name) 
+                    DO UPDATE SET general__expiry__delete_since_updated_at_ms = $3`,
             parameters: [
-                entityName,
-                {
-                    type,
-                    payload,
-                    fromSession: fullSessionId.value,
-                    toSession,
-                    timestamp,
-                    processed: false,
-                },
-                300000, // Delete after 5 minutes (300000ms)
+                sessionEntityName,
+                "public.NORMAL",
+                600000, // Delete after 10 minutes of inactivity
+            ],
+        });
+
+        // Create the message object
+        const message: WebRTCMessage = {
+            type,
+            payload,
+            fromSession: fullSessionId.value,
+            toSession,
+            timestamp,
+            processed: false,
+        };
+
+        // Store the message as a metadata entry
+        await vircadiaWorld.client.Utilities.Connection.query({
+            query: `INSERT INTO entity.entity_metadata 
+                    (general__entity_name, metadata__key, metadata__value, group__sync)
+                    VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (general__entity_name, metadata__key) 
+                    DO UPDATE SET metadata__value = $3`,
+            parameters: [
+                sessionEntityName,
+                messageKey,
+                JSON.stringify(message),
+                "public.NORMAL",
+            ],
+        });
+
+        // Update session metadata
+        await vircadiaWorld.client.Utilities.Connection.query({
+            query: `INSERT INTO entity.entity_metadata 
+                    (general__entity_name, metadata__key, metadata__value, group__sync)
+                    VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (general__entity_name, metadata__key) 
+                    DO UPDATE SET metadata__value = $3`,
+            parameters: [
+                sessionEntityName,
+                "lastActivity",
+                timestamp,
+                "public.NORMAL",
             ],
         });
 
@@ -682,7 +756,7 @@ const sendMessage = async (
 // Receive messages for a specific peer, filtering by their last processed timestamp
 const receiveMessagesForPeer = async (
     remoteSessionId: string,
-): Promise<WebRTCMessageEntity[]> => {
+): Promise<WebRTCMessageWithKey[]> => {
     const currentSessionId = fullSessionId.value;
     if (!currentSessionId || !vircadiaWorld) return [];
 
@@ -696,50 +770,94 @@ const receiveMessagesForPeer = async (
 
     try {
         // Use a more recent cutoff to avoid processing very old messages
-        // This helps avoid messages from previous sessions after a refresh
         const cutoffTime = Math.max(
             lastProcessed,
             Date.now() - 30000, // Only messages from last 30 seconds
             (peerInfo?.lastMessageCheck || Date.now()) - 10000, // Or since 10 seconds before we started checking
         );
 
-        const result = await vircadiaWorld.client.Utilities.Connection.query({
-            query: `
-                SELECT * FROM entity.entities 
-                WHERE general__entity_name LIKE $1 
-                AND meta__data->>'fromSession' = $2
-                AND meta__data->>'processed' = 'false'
-                AND CAST(meta__data->>'timestamp' AS BIGINT) > $3
-                ORDER BY meta__data->>'timestamp' ASC
-            `,
-            parameters: [
-                getIncomingMessagePattern(currentSessionId),
-                remoteSessionId,
-                cutoffTime,
-            ],
-        });
+        // Get the session entity name
+        const sessionEntityName = createWebRTCSessionEntityName(
+            currentSessionId,
+            remoteSessionId,
+        );
 
-        if (Array.isArray(result.result)) {
-            return result.result.map((entity) =>
-                WebRTCMessageEntitySchema.parse(entity),
-            );
+        // Get all message metadata for this session
+        const metadataResult =
+            await vircadiaWorld.client.Utilities.Connection.query({
+                query: `
+                    SELECT metadata__key, metadata__value 
+                    FROM entity.entity_metadata 
+                    WHERE general__entity_name = $1
+                    AND metadata__key LIKE 'msg-%'
+                `,
+                parameters: [sessionEntityName],
+            });
+
+        const messages: WebRTCMessageWithKey[] = [];
+
+        if (Array.isArray(metadataResult.result)) {
+            for (const row of metadataResult.result) {
+                try {
+                    // Parse the message
+                    const message = JSON.parse(
+                        row.metadata__value,
+                    ) as WebRTCMessage;
+
+                    // Check if this message matches our criteria
+                    if (
+                        message.fromSession === remoteSessionId &&
+                        message.toSession === currentSessionId &&
+                        !message.processed &&
+                        message.timestamp > cutoffTime
+                    ) {
+                        // Add the metadata key for later processing
+                        const messageWithKey: WebRTCMessageWithKey = {
+                            ...message,
+                            metadataKey: row.metadata__key,
+                        };
+                        messages.push(messageWithKey);
+                    }
+                } catch (error) {
+                    console.warn(
+                        `[WebRTC] Failed to parse message ${row.metadata__key}:`,
+                        error,
+                    );
+                }
+            }
         }
-        return [];
+
+        // Sort messages by timestamp
+        messages.sort((a, b) => a.timestamp - b.timestamp);
+
+        return messages;
     } catch (error) {
         console.error("[WebRTC] Failed to receive messages for peer:", error);
-
         return [];
     }
 };
 
-// Mark a message as processed
-const markMessageProcessed = async (entityName: string) => {
+// Mark a message as processed by updating the metadata entry
+const markMessageProcessed = async (
+    sessionEntityName: string,
+    messageKey: string,
+    message: WebRTCMessage,
+) => {
     if (!vircadiaWorld) return;
 
     try {
+        // Update the message with processed = true
+        const updatedMessage = { ...message, processed: true };
+
         await vircadiaWorld.client.Utilities.Connection.query({
-            query: "UPDATE entity.entities SET meta__data = meta__data || $1 WHERE general__entity_name = $2",
-            parameters: [{ processed: true }, entityName],
+            query: `UPDATE entity.entity_metadata 
+                    SET metadata__value = $1 
+                    WHERE general__entity_name = $2 AND metadata__key = $3`,
+            parameters: [
+                JSON.stringify(updatedMessage),
+                sessionEntityName,
+                messageKey,
+            ],
         });
     } catch (error) {
         console.error("[WebRTC] Failed to mark message as processed:", error);
@@ -748,15 +866,36 @@ const markMessageProcessed = async (entityName: string) => {
 
 // Clean up messages from a specific peer that no longer exists
 const cleanupPeerMessages = async (peerSessionId: string) => {
-    if (!vircadiaWorld) return;
+    if (!vircadiaWorld || !fullSessionId.value) return;
 
     try {
-        // Delete all messages from this peer
+        // Get the session entity name
+        const sessionEntityName = createWebRTCSessionEntityName(
+            fullSessionId.value,
+            peerSessionId,
+        );
+
+        // Delete all message metadata entries for this session
         await vircadiaWorld.client.Utilities.Connection.query({
-            query: `DELETE FROM entity.entities 
-                    WHERE general__entity_name LIKE 'webrtc-msg-%' 
-                    AND meta__data->>'fromSession' = $1`,
-            parameters: [peerSessionId],
+            query: `
+                DELETE FROM entity.entity_metadata 
+                WHERE general__entity_name = $1 
+                AND metadata__key LIKE 'msg-%'
+            `,
+            parameters: [sessionEntityName],
+        });
+
+        // Optionally, delete the entire session entity if no longer needed
+        await vircadiaWorld.client.Utilities.Connection.query({
+            query: `
+                DELETE FROM entity.entities 
+                WHERE general__entity_name = $1
+                AND NOT EXISTS (
+                    SELECT 1 FROM entity.entity_metadata 
+                    WHERE general__entity_name = $1
+                )
+            `,
+            parameters: [sessionEntityName],
         });
 
         console.log(
@@ -933,6 +1072,9 @@ const setupPerfectNegotiation = (
     const maxProcessingErrors = 5;
 
     const pollForMessages = async () => {
+        const currentSessionId = fullSessionId.value;
+        if (!currentSessionId) return;
+
         // Check if peer still exists in our map
         if (!peers.value.has(remoteSessionId)) {
             console.log(
@@ -965,7 +1107,7 @@ const setupPerfectNegotiation = (
                 messageProcessingErrors = 0; // Reset error count on successful message retrieval
 
                 // Process messages in order with timeout protection
-                for (const messageEntity of messages) {
+                for (const messageWithKey of messages) {
                     try {
                         // Add timeout to message processing
                         const processTimeout = new Promise((_, reject) => {
@@ -979,23 +1121,29 @@ const setupPerfectNegotiation = (
                         });
 
                         const processMessage = processIncomingMessage(
-                            messageEntity.meta__data as ProcessedMessage,
+                            messageWithKey as ProcessedMessage,
                         );
 
                         await Promise.race([processMessage, processTimeout]);
 
                         // Only mark as processed if processing was successful
+                        const sessionEntityName = createWebRTCSessionEntityName(
+                            currentSessionId,
+                            remoteSessionId,
+                        );
                         await markMessageProcessed(
-                            messageEntity.general__entity_name,
+                            sessionEntityName,
+                            messageWithKey.metadataKey,
+                            messageWithKey,
                         );
 
                         peerInfo.lastProcessedTimestamp = Math.max(
                             peerInfo.lastProcessedTimestamp,
-                            messageEntity.meta__data.timestamp,
+                            messageWithKey.timestamp,
                         );
 
                         console.log(
-                            `[WebRTC] Successfully processed ${messageEntity.meta__data.type} message from ${remoteSessionId.substring(0, 8)}...`,
+                            `[WebRTC] Successfully processed ${messageWithKey.type} message from ${remoteSessionId.substring(0, 8)}...`,
                         );
                     } catch (error) {
                         console.error(
@@ -1009,8 +1157,15 @@ const setupPerfectNegotiation = (
                             console.warn(
                                 "[WebRTC] Too many processing errors, marking message as processed to prevent infinite loops",
                             );
+                            const sessionEntityName =
+                                createWebRTCSessionEntityName(
+                                    currentSessionId,
+                                    remoteSessionId,
+                                );
                             await markMessageProcessed(
-                                messageEntity.general__entity_name,
+                                sessionEntityName,
+                                messageWithKey.metadataKey,
+                                messageWithKey,
                             );
                             messageProcessingErrors = 0; // Reset counter
                         }
@@ -1600,33 +1755,58 @@ async function refreshDatabaseState() {
             return;
         }
 
-        const result = await vircadiaWorld.client.Utilities.Connection.query({
-            query: "SELECT * FROM entity.entities WHERE general__entity_name LIKE 'webrtc-msg-%' ORDER BY meta__data->>'timestamp' DESC LIMIT 20",
-            parameters: [],
-        });
+        // Get all webrtc session entities
+        const entitiesResult =
+            await vircadiaWorld.client.Utilities.Connection.query({
+                query: "SELECT general__entity_name FROM entity.entities WHERE general__entity_name LIKE 'webrtc-session-%' ORDER BY general__created_at DESC LIMIT 20",
+                parameters: [],
+            });
 
         messageEntities.value = [];
 
-        if (Array.isArray(result.result)) {
-            for (const entity of result.result) {
-                try {
-                    const parsed = WebRTCMessageEntitySchema.parse(entity);
-                    messageEntities.value.push({
-                        entityName: parsed.general__entity_name,
-                        type: parsed.meta__data.type,
-                        fromSession: parsed.meta__data.fromSession,
-                        toSession: parsed.meta__data.toSession,
-                        timestamp: parsed.meta__data.timestamp,
-                        processed: parsed.meta__data.processed,
+        if (Array.isArray(entitiesResult.result)) {
+            for (const entity of entitiesResult.result) {
+                const entityName = entity.general__entity_name;
+
+                // Get all message metadata for this session
+                const metadataResult =
+                    await vircadiaWorld.client.Utilities.Connection.query({
+                        query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1 AND metadata__key LIKE 'msg-%'",
+                        parameters: [entityName],
                     });
-                } catch (err) {
-                    console.error("Failed to parse message entity:", err);
+
+                if (Array.isArray(metadataResult.result)) {
+                    // Process each message
+                    for (const row of metadataResult.result) {
+                        try {
+                            const message = JSON.parse(
+                                row.metadata__value,
+                            ) as WebRTCMessage;
+
+                            messageEntities.value.push({
+                                entityName: `${entityName}:${row.metadata__key}`,
+                                type: message.type,
+                                fromSession: message.fromSession,
+                                toSession: message.toSession,
+                                timestamp: message.timestamp,
+                                processed: message.processed,
+                            });
+                        } catch (error) {
+                            console.warn(
+                                `[WebRTC Database Debug] Failed to parse message ${row.metadata__key}:`,
+                                error,
+                            );
+                        }
+                    }
                 }
             }
         }
 
+        // Sort by timestamp
+        messageEntities.value.sort((a, b) => b.timestamp - a.timestamp);
+
         console.log(
-            `[WebRTC Database Debug] Found ${messageEntities.value.length} message entities`,
+            `[WebRTC Database Debug] Found ${messageEntities.value.length} messages`,
         );
     } catch (error) {
         console.error(
@@ -1782,25 +1962,107 @@ async function cleanupStaleMessages() {
         // Delete messages older than 5 minutes (300000ms)
         const cutoffTime = Date.now() - 300000;
 
-        const result = await vircadiaWorld.client.Utilities.Connection.query({
-            query: `DELETE FROM entity.entities 
-                   WHERE general__entity_name LIKE 'webrtc-msg-%' 
-                   AND CAST(meta__data->>'timestamp' AS BIGINT) < $1`,
-            parameters: [cutoffTime],
-        });
+        // Find all WebRTC session entities
+        const sessionEntitiesResult =
+            await vircadiaWorld.client.Utilities.Connection.query({
+                query: "SELECT general__entity_name FROM entity.entities WHERE general__entity_name LIKE 'webrtc-session-%'",
+                parameters: [],
+            });
 
-        console.log(
-            "[WebRTC Cleanup] Cleaned up stale messages. Result:",
-            result,
-        );
+        let deletedCount = 0;
+        if (Array.isArray(sessionEntitiesResult.result)) {
+            for (const entity of sessionEntitiesResult.result) {
+                const entityName = entity.general__entity_name;
+
+                // Get all message metadata for this session
+                const messagesResult =
+                    await vircadiaWorld.client.Utilities.Connection.query({
+                        query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1 AND metadata__key LIKE 'msg-%'",
+                        parameters: [entityName],
+                    });
+
+                if (Array.isArray(messagesResult.result)) {
+                    for (const row of messagesResult.result) {
+                        try {
+                            const message = JSON.parse(
+                                row.metadata__value,
+                            ) as WebRTCMessage;
+
+                            // Delete old messages
+                            if (message.timestamp < cutoffTime) {
+                                await vircadiaWorld.client.Utilities.Connection.query(
+                                    {
+                                        query: "DELETE FROM entity.entity_metadata WHERE general__entity_name = $1 AND metadata__key = $2",
+                                        parameters: [
+                                            entityName,
+                                            row.metadata__key,
+                                        ],
+                                    },
+                                );
+                                deletedCount++;
+                            }
+                        } catch (error) {
+                            // If we can't parse it, delete it
+                            await vircadiaWorld.client.Utilities.Connection.query(
+                                {
+                                    query: "DELETE FROM entity.entity_metadata WHERE general__entity_name = $1 AND metadata__key = $2",
+                                    parameters: [entityName, row.metadata__key],
+                                },
+                            );
+                            deletedCount++;
+                        }
+                    }
+                }
+
+                // Clean up empty session entities
+                const remainingMetadata =
+                    await vircadiaWorld.client.Utilities.Connection.query({
+                        query: "SELECT COUNT(*) as count FROM entity.entity_metadata WHERE general__entity_name = $1",
+                        parameters: [entityName],
+                    });
+
+                if (
+                    Array.isArray(remainingMetadata.result) &&
+                    remainingMetadata.result[0]?.count === 0
+                ) {
+                    await vircadiaWorld.client.Utilities.Connection.query({
+                        query: "DELETE FROM entity.entities WHERE general__entity_name = $1",
+                        parameters: [entityName],
+                    });
+                }
+            }
+        }
+
+        console.log(`[WebRTC Cleanup] Deleted ${deletedCount} stale messages`);
 
         // Also clean up old peer discovery entries
-        await vircadiaWorld.client.Utilities.Connection.query({
-            query: `DELETE FROM entity.entities 
-                   WHERE general__entity_name LIKE 'webrtc-peer-%' 
-                   AND CAST(meta__data->>'timestamp' AS BIGINT) < $1`,
-            parameters: [cutoffTime],
-        });
+        const oldPeersResult =
+            await vircadiaWorld.client.Utilities.Connection.query({
+                query: `
+                SELECT DISTINCT e.general__entity_name 
+                FROM entity.entities e
+                JOIN entity.entity_metadata m ON e.general__entity_name = m.general__entity_name
+                WHERE e.general__entity_name LIKE 'webrtc-peer-%' 
+                AND m.metadata__key = 'timestamp'
+                AND CAST(m.metadata__value AS BIGINT) < $1
+            `,
+                parameters: [cutoffTime],
+            });
+
+        let deletedPeersCount = 0;
+        if (Array.isArray(oldPeersResult.result)) {
+            for (const entity of oldPeersResult.result) {
+                await vircadiaWorld.client.Utilities.Connection.query({
+                    query: "DELETE FROM entity.entities WHERE general__entity_name = $1",
+                    parameters: [entity.general__entity_name],
+                });
+                deletedPeersCount++;
+            }
+        }
+
+        console.log(
+            `[WebRTC Cleanup] Deleted ${deletedPeersCount} stale peer discovery entries`,
+        );
 
         // Refresh the database state to show updated list
         await refreshDatabaseState();

@@ -47,10 +47,7 @@ import { useBabylonAvatarPhysicsController } from "../composables/useBabylonAvat
 import { useBabylonAvatarCameraController } from "../composables/useBabylonAvatarCameraController";
 import { useBabylonAvatarModelLoader } from "../composables/useBabylonAvatarModelLoader";
 import { useBabylonAvatarAnimationLoader } from "../composables/useBabylonAvatarAnimationLoader";
-import {
-    AvatarMetadataSchema,
-    type AvatarMetadata,
-} from "../composables/schemas";
+import type { AvatarMetadata } from "../composables/schemas";
 import type {
     PositionObj,
     RotationObj,
@@ -97,22 +94,44 @@ const fullSessionId = computed(() => appStore.fullSessionId);
 // Generate dynamic entity name based on full session ID (includes instanceId)
 const entityName = computed(() => `avatar:${fullSessionId.value}`);
 
-// Reactive metadata object for transforms
-const metadata = reactive<AvatarMetadata>({
-    type: "avatar",
-    sessionId: fullSessionId.value,
-    position: initialAvatarPosition.value,
-    rotation: initialAvatarRotation.value,
-    cameraOrientation: initialAvatarCameraOrientation.value,
-    jointTransformsLocal: {},
-    modelFileName: modelFileName.value,
+// Simple metadata map that directly corresponds to database entries
+const metadataMap = reactive(
+    new Map<string, unknown>([
+        ["type", "avatar"],
+        ["sessionId", fullSessionId.value],
+        ["position", initialAvatarPosition.value],
+        ["rotation", initialAvatarRotation.value],
+        ["cameraOrientation", initialAvatarCameraOrientation.value],
+        ["jointTransformsLocal", {}],
+        ["modelFileName", modelFileName.value],
+    ]),
+);
+
+// Direct refs to specific metadata values for easier access
+const position = computed({
+    get: () => metadataMap.get("position") as PositionObj,
+    set: (value) => metadataMap.set("position", value),
 });
-// Destructure refs for physics & camera controllers
-const {
-    position: initialPosition,
-    rotation: initialRotation,
-    cameraOrientation,
-} = toRefs(metadata);
+
+const rotation = computed({
+    get: () => metadataMap.get("rotation") as RotationObj,
+    set: (value) => metadataMap.set("rotation", value),
+});
+
+const cameraOrientation = computed({
+    get: () =>
+        metadataMap.get("cameraOrientation") as {
+            alpha: number;
+            beta: number;
+            radius: number;
+        },
+    set: (value) => metadataMap.set("cameraOrientation", value),
+});
+
+// Watch for fullSessionId changes and update metadata map
+watch(fullSessionId, (newSessionId) => {
+    metadataMap.set("sessionId", newSessionId);
+});
 
 // Helpers
 function vectorToObj(v: Vector3): PositionObj {
@@ -185,8 +204,8 @@ const {
     integrate,
 } = useBabylonAvatarPhysicsController(
     props.scene,
-    initialPosition,
-    initialRotation,
+    position,
+    rotation,
     capsuleHeight,
     capsuleRadius,
     slopeLimit,
@@ -196,11 +215,6 @@ const { keyState } = useBabylonAvatarKeyboardMouseControls(props.scene);
 // Throttled update function using direct queries
 const throttledUpdate = useThrottleFn(async () => {
     if (!entityData.value?.general__entity_name) {
-        return;
-    }
-
-    const currentMeta = entityData.value.meta__data;
-    if (!currentMeta) {
         return;
     }
 
@@ -215,93 +229,42 @@ const throttledUpdate = useThrottleFn(async () => {
         const currentPos = getPosition();
         const currentRot = getOrientation();
 
-        // Prepare the updated metadata object
-        const updatedMetadata: AvatarMetadata = {
-            type: "avatar",
-            sessionId: fullSessionId.value,
-            position: currentPos
-                ? vectorToObj(currentPos)
-                : initialPosition.value,
-            rotation: currentRot
-                ? quatToObj(currentRot)
-                : initialRotation.value,
-            cameraOrientation: cameraOrientation.value,
-            jointTransformsLocal: {},
-            modelFileName: modelFileName.value,
+        // Helper function to update metadata
+        const updateMetadata = async (key: string, value: unknown) => {
+            await vircadiaWorld.client.Utilities.Connection.query({
+                query: `INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync)
+                        VALUES ($1, $2, $3, $4)
+                        ON CONFLICT (general__entity_name, metadata__key) 
+                        DO UPDATE SET metadata__value = EXCLUDED.metadata__value`,
+                parameters: [entityName.value, key, value, "public.NORMAL"],
+            });
+            // Update local map
+            metadataMap.set(key, value);
         };
 
-        // Update position using JSON path operation if changed
+        // Update position if changed
         if (currentPos) {
             const newPos = vectorToObj(currentPos);
-            if (
-                currentMeta.position &&
-                (currentMeta.position.x !== newPos.x ||
-                    currentMeta.position.y !== newPos.y ||
-                    currentMeta.position.z !== newPos.z)
-            ) {
-                await vircadiaWorld.client.Utilities.Connection.query({
-                    query: "UPDATE entity.entities SET meta__data = jsonb_set(meta__data, '{position}', $1) WHERE general__entity_name = $2",
-                    parameters: [newPos, entityName.value],
-                });
-            }
+            await updateMetadata("position", newPos);
         }
 
-        // Update rotation using JSON path operation if changed
+        // Update rotation if changed
         if (currentRot) {
             const newRot = quatToObj(currentRot);
-            if (
-                currentMeta.rotation &&
-                (currentMeta.rotation.x !== newRot.x ||
-                    currentMeta.rotation.y !== newRot.y ||
-                    currentMeta.rotation.z !== newRot.z ||
-                    currentMeta.rotation.w !== newRot.w)
-            ) {
-                await vircadiaWorld.client.Utilities.Connection.query({
-                    query: "UPDATE entity.entities SET meta__data = jsonb_set(meta__data, '{rotation}', $1) WHERE general__entity_name = $2",
-                    parameters: [newRot, entityName.value],
-                });
-            }
+            await updateMetadata("rotation", newRot);
         }
 
-        // Update camera orientation using JSON path operation if changed
-        if (
-            currentMeta.cameraOrientation &&
-            (currentMeta.cameraOrientation.alpha !==
-                cameraOrientation.value.alpha ||
-                currentMeta.cameraOrientation.beta !==
-                    cameraOrientation.value.beta ||
-                currentMeta.cameraOrientation.radius !==
-                    cameraOrientation.value.radius)
-        ) {
-            await vircadiaWorld.client.Utilities.Connection.query({
-                query: "UPDATE entity.entities SET meta__data = jsonb_set(meta__data, '{cameraOrientation}', $1) WHERE general__entity_name = $2",
-                parameters: [cameraOrientation.value, entityName.value],
-            });
-        }
+        // Update camera orientation
+        await updateMetadata("cameraOrientation", cameraOrientation.value);
 
-        // Update type if changed
-        if (currentMeta.type !== "avatar") {
-            await vircadiaWorld.client.Utilities.Connection.query({
-                query: "UPDATE entity.entities SET meta__data = jsonb_set(meta__data, '{type}', $1) WHERE general__entity_name = $2",
-                parameters: ["avatar", entityName.value],
-            });
-        }
+        // Update type
+        await updateMetadata("type", "avatar");
 
-        // Update sessionId if changed
-        if (currentMeta.sessionId !== fullSessionId.value) {
-            await vircadiaWorld.client.Utilities.Connection.query({
-                query: "UPDATE entity.entities SET meta__data = jsonb_set(meta__data, '{sessionId}', $1) WHERE general__entity_name = $2",
-                parameters: [fullSessionId.value, entityName.value],
-            });
-        }
+        // Update sessionId
+        await updateMetadata("sessionId", fullSessionId.value);
 
-        // Update modelFileName if changed
-        if (currentMeta.modelFileName !== modelFileName.value) {
-            await vircadiaWorld.client.Utilities.Connection.query({
-                query: "UPDATE entity.entities SET meta__data = jsonb_set(meta__data, '{modelFileName}', $1) WHERE general__entity_name = $2",
-                parameters: [modelFileName.value, entityName.value],
-            });
-        }
+        // Update modelFileName
+        await updateMetadata("modelFileName", modelFileName.value);
 
         // Update joint transforms in LOCAL SPACE - Send ALL joints now
         const jointTransformsLocal: Record<
@@ -335,18 +298,18 @@ const throttledUpdate = useThrottleFn(async () => {
             }
         }
 
-        // Update joint transforms in metadata object
-        updatedMetadata.jointTransformsLocal = jointTransformsLocal;
-
         if (Object.keys(jointTransformsLocal).length > 0) {
-            await vircadiaWorld.client.Utilities.Connection.query({
-                query: "UPDATE entity.entities SET meta__data = jsonb_set(meta__data, '{jointTransformsLocal}', $1) WHERE general__entity_name = $2",
-                parameters: [jointTransformsLocal, entityName.value],
-            });
+            await updateMetadata("jointTransformsLocal", jointTransformsLocal);
+        }
+
+        // Update local entity data for consistency
+        if (entityData.value) {
+            entityData.value.metadata = new Map(metadataMap);
         }
 
         // Push updated metadata to app store
-        appStore.setMyAvatarMetadata(updatedMetadata);
+        // The store will safely validate and fill in any missing defaults
+        appStore.setMyAvatarMetadata(metadataMap);
     } catch (error) {
         console.error("Avatar metadata update failed:", error);
     } finally {
@@ -501,11 +464,42 @@ if (!vircadiaWorld) {
 
 const entityData = ref<{
     general__entity_name: string;
-    meta__data: AvatarMetadata;
+    metadata: Map<string, unknown>;
 } | null>(null);
 const isRetrieving = ref(false);
 const isCreating = ref(false);
 const isUpdating = ref(false);
+
+// Helper function to retrieve metadata for an entity
+async function retrieveEntityMetadata(
+    entityName: string,
+): Promise<Map<string, unknown> | null> {
+    if (!vircadiaWorld) {
+        console.error("Vircadia instance not found");
+        return null;
+    }
+
+    try {
+        // Fetch all metadata for this entity
+        const metadataResult =
+            await vircadiaWorld.client.Utilities.Connection.query({
+                query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1",
+                parameters: [entityName],
+            });
+
+        if (Array.isArray(metadataResult.result)) {
+            // Reconstruct metadata map from rows
+            const metadataMap = new Map<string, unknown>();
+            for (const row of metadataResult.result) {
+                metadataMap.set(row.metadata__key, row.metadata__value);
+            }
+            return metadataMap;
+        }
+    } catch (e) {
+        console.error("Failed to retrieve metadata:", e);
+    }
+    return null;
+}
 
 // Audio stream is now handled by the BabylonWebRTC component
 
@@ -680,22 +674,36 @@ onMounted(async () => {
         if (!exists) {
             isCreating.value = true;
             try {
+                // First create the entity
                 await vircadiaWorld.client.Utilities.Connection.query({
-                    query: "INSERT INTO entity.entities (general__entity_name, meta__data, general__expiry__delete_since_updated_at_ms) VALUES ($1, $2, $3) RETURNING general__entity_name",
+                    query: "INSERT INTO entity.entities (general__entity_name, group__sync, general__expiry__delete_since_updated_at_ms) VALUES ($1, $2, $3) RETURNING general__entity_name",
                     parameters: [
                         entityName.value,
-                        {
-                            type: "avatar",
-                            sessionId: sessionId.value,
-                            position: initialPosition.value,
-                            rotation: initialRotation.value,
-                            cameraOrientation: cameraOrientation.value,
-                            jointTransformsLocal: {},
-                            modelFileName: modelFileName.value,
-                        },
+                        "public.NORMAL",
                         120000, // 120 seconds timeout for inactivity
                     ],
                 });
+
+                // Then insert metadata rows
+                const metadataInserts = Array.from(metadataMap.entries()).map(
+                    ([key, value]) => ({
+                        key,
+                        value,
+                    }),
+                );
+
+                for (const { key, value } of metadataInserts) {
+                    await vircadiaWorld.client.Utilities.Connection.query({
+                        query: `INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync)
+                                VALUES ($1, $2, $3, $4)`,
+                        parameters: [
+                            entityName.value,
+                            key,
+                            value,
+                            "public.NORMAL",
+                        ],
+                    });
+                }
             } catch (e) {
                 console.error("Failed to create avatar entity:", e);
             } finally {
@@ -706,23 +714,24 @@ onMounted(async () => {
         // Retrieve entity data
         isRetrieving.value = true;
         try {
-            const result =
+            // First check if entity exists
+            const entityResult =
                 await vircadiaWorld.client.Utilities.Connection.query({
-                    query: "SELECT general__entity_name, meta__data FROM entity.entities WHERE general__entity_name = $1",
+                    query: "SELECT general__entity_name FROM entity.entities WHERE general__entity_name = $1",
                     parameters: [entityName.value],
                 });
 
-            if (Array.isArray(result.result) && result.result.length > 0) {
-                const data = result.result[0];
-                // Validate with schema
-                const parsed = AvatarMetadataSchema.safeParse(data.meta__data);
-                if (parsed.success) {
+            if (
+                Array.isArray(entityResult.result) &&
+                entityResult.result.length > 0
+            ) {
+                // Fetch all metadata for this entity
+                const metadata = await retrieveEntityMetadata(entityName.value);
+                if (metadata) {
                     entityData.value = {
-                        general__entity_name: data.general__entity_name,
-                        meta__data: parsed.data,
+                        general__entity_name: entityName.value,
+                        metadata: metadata,
                     };
-                } else {
-                    console.warn("Invalid avatar metadata:", parsed.error);
                 }
             }
         } catch (e) {
@@ -738,34 +747,28 @@ onMounted(async () => {
                     // Retrieve entity data when connected
                     isRetrieving.value = true;
                     try {
-                        const result =
+                        // First check if entity exists
+                        const entityResult =
                             await vircadiaWorld.client.Utilities.Connection.query(
                                 {
-                                    query: "SELECT general__entity_name, meta__data FROM entity.entities WHERE general__entity_name = $1",
+                                    query: "SELECT general__entity_name FROM entity.entities WHERE general__entity_name = $1",
                                     parameters: [entityName.value],
                                 },
                             );
 
                         if (
-                            Array.isArray(result.result) &&
-                            result.result.length > 0
+                            Array.isArray(entityResult.result) &&
+                            entityResult.result.length > 0
                         ) {
-                            const data = result.result[0];
-                            // Validate with schema
-                            const parsed = AvatarMetadataSchema.safeParse(
-                                data.meta__data,
+                            // Fetch all metadata for this entity
+                            const metadata = await retrieveEntityMetadata(
+                                entityName.value,
                             );
-                            if (parsed.success) {
+                            if (metadata) {
                                 entityData.value = {
-                                    general__entity_name:
-                                        data.general__entity_name,
-                                    meta__data: parsed.data,
+                                    general__entity_name: entityName.value,
+                                    metadata: metadata,
                                 };
-                            } else {
-                                console.warn(
-                                    "Invalid avatar metadata:",
-                                    parsed.error,
-                                );
                             }
                         }
                     } catch (e) {
@@ -783,19 +786,28 @@ onMounted(async () => {
     entityDataWatcher = watch(
         () => entityData.value,
         async (data) => {
-            const meta = data?.meta__data;
+            const meta = data?.metadata;
             if (meta && !characterController.value) {
                 console.info("Loading avatar model...");
                 // First create, use defaults when missing
-                if (meta.position) {
-                    initialPosition.value = meta.position;
+                const metaPosition = meta.get("position") as
+                    | PositionObj
+                    | undefined;
+                if (metaPosition) {
+                    position.value = metaPosition;
                 }
-                if (meta.rotation) {
-                    initialRotation.value = meta.rotation;
+                const metaRotation = meta.get("rotation") as
+                    | RotationObj
+                    | undefined;
+                if (metaRotation) {
+                    rotation.value = metaRotation;
                 }
                 // Apply saved camera orientation on initial load
-                if (meta.cameraOrientation) {
-                    cameraOrientation.value = meta.cameraOrientation;
+                const metaCameraOrientation = meta.get("cameraOrientation") as
+                    | { alpha: number; beta: number; radius: number }
+                    | undefined;
+                if (metaCameraOrientation) {
+                    cameraOrientation.value = metaCameraOrientation;
                 }
                 createController();
                 // load and parent the avatar mesh under the physics root
@@ -1108,17 +1120,26 @@ onMounted(async () => {
                 }
             } else if (meta && characterController.value) {
                 // Remote update, apply if present
-                if (meta.position) {
-                    const p = meta.position;
+                const metaPosition = meta.get("position") as
+                    | PositionObj
+                    | undefined;
+                if (metaPosition) {
+                    const p = metaPosition;
                     setPosition(new Vector3(p.x, p.y, p.z));
                 }
-                if (meta.rotation) {
-                    const r = meta.rotation;
+                const metaRotation = meta.get("rotation") as
+                    | RotationObj
+                    | undefined;
+                if (metaRotation) {
+                    const r = metaRotation;
                     setOrientation(new Quaternion(r.x, r.y, r.z, r.w));
                 }
                 updateTransforms();
-                if (meta.cameraOrientation) {
-                    updateCameraFromMeta(meta.cameraOrientation);
+                const metaCameraOrientation = meta.get("cameraOrientation") as
+                    | { alpha: number; beta: number; radius: number }
+                    | undefined;
+                if (metaCameraOrientation) {
+                    updateCameraFromMeta(metaCameraOrientation);
                 }
             }
         },

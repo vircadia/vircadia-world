@@ -55,7 +55,39 @@ const getInitialMeta: () => ModelMetadata = () => ({
     ownerSessionId: props.def.ownerSessionId ?? null,
 });
 
-// Debounced update function using JSON path operations for granular updates
+// Helper function to retrieve metadata for an entity
+async function retrieveEntityMetadata(
+    entityName: string,
+): Promise<Map<string, unknown> | null> {
+    if (!vircadia) {
+        console.error("Vircadia instance not found");
+        return null;
+    }
+
+    try {
+        // Fetch all metadata for this entity
+        const metadataResult = await vircadia.client.Utilities.Connection.query(
+            {
+                query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1",
+                parameters: [entityName],
+            },
+        );
+
+        if (Array.isArray(metadataResult.result)) {
+            // Reconstruct metadata map from rows
+            const metadataMap = new Map<string, unknown>();
+            for (const row of metadataResult.result) {
+                metadataMap.set(row.metadata__key, row.metadata__value);
+            }
+            return metadataMap;
+        }
+    } catch (e) {
+        console.error("Failed to retrieve metadata:", e);
+    }
+    return null;
+}
+
+// Debounced update function using metadata table for granular updates
 const debouncedUpdate = useDebounceFn(async () => {
     if (!entityMetadata.value || !entityNameRef.value) {
         console.warn("Cannot update entity: No entity data available");
@@ -69,20 +101,28 @@ const debouncedUpdate = useDebounceFn(async () => {
     try {
         isUpdating.value = true;
 
-        // Update position using JSON path operation
+        // Helper function to update metadata
+        const updateMetadata = async (key: string, value: unknown) => {
+            await vircadia.client.Utilities.Connection.query({
+                query: `INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync)
+                        VALUES ($1, $2, $3, $4)
+                        ON CONFLICT (general__entity_name, metadata__key) 
+                        DO UPDATE SET metadata__value = EXCLUDED.metadata__value`,
+                parameters: [entityNameRef.value, key, value, "public.NORMAL"],
+            });
+        };
+
+        // Update position if changed
         if (
             currentMeta.position &&
             (currentMeta.position.x !== newPos.x ||
                 currentMeta.position.y !== newPos.y ||
                 currentMeta.position.z !== newPos.z)
         ) {
-            await vircadia.client.Utilities.Connection.query({
-                query: "UPDATE entity.entities SET meta__data = jsonb_set(meta__data, '{position}', $1) WHERE general__entity_name = $2",
-                parameters: [newPos, entityNameRef.value],
-            });
+            await updateMetadata("position", newPos);
         }
 
-        // Update rotation using JSON path operation
+        // Update rotation if changed
         if (
             currentMeta.rotation &&
             (currentMeta.rotation.x !== newRot.x ||
@@ -90,35 +130,23 @@ const debouncedUpdate = useDebounceFn(async () => {
                 currentMeta.rotation.z !== newRot.z ||
                 currentMeta.rotation.w !== newRot.w)
         ) {
-            await vircadia.client.Utilities.Connection.query({
-                query: "UPDATE entity.entities SET meta__data = jsonb_set(meta__data, '{rotation}', $1) WHERE general__entity_name = $2",
-                parameters: [JSON.stringify(newRot), entityNameRef.value],
-            });
+            await updateMetadata("rotation", newRot);
         }
 
         // Update type if changed
         if (currentMeta.type !== "Model") {
-            await vircadia.client.Utilities.Connection.query({
-                query: "UPDATE entity.entities SET meta__data = jsonb_set(meta__data, '{type}', $1) WHERE general__entity_name = $2",
-                parameters: ["Model", entityNameRef.value],
-            });
+            await updateMetadata("type", "Model");
         }
 
         // Update modelFileName if changed
         if (currentMeta.modelFileName !== props.def.fileName) {
-            await vircadia.client.Utilities.Connection.query({
-                query: "UPDATE entity.entities SET meta__data = jsonb_set(meta__data, '{modelFileName}', $1) WHERE general__entity_name = $2",
-                parameters: [props.def.fileName, entityNameRef.value],
-            });
+            await updateMetadata("modelFileName", props.def.fileName);
         }
 
         // Update ownerSessionId if changed
         const currentOwnerSessionId = props.def.ownerSessionId ?? null;
         if (currentMeta.ownerSessionId !== currentOwnerSessionId) {
-            await vircadia.client.Utilities.Connection.query({
-                query: "UPDATE entity.entities SET meta__data = jsonb_set(meta__data, '{ownerSessionId}', $1) WHERE general__entity_name = $2",
-                parameters: [currentOwnerSessionId, entityNameRef.value],
-            });
+            await updateMetadata("ownerSessionId", currentOwnerSessionId);
         }
     } catch (e: unknown) {
         console.error("Entity update failed:", e);
@@ -147,24 +175,35 @@ watch(
             // Always attempt to retrieve existing entity
             isRetrieving.value = true;
             try {
-                const result = await vircadia.client.Utilities.Connection.query(
-                    {
-                        query: "SELECT general__entity_name, meta__data FROM entity.entities WHERE general__entity_name = $1",
+                // First check if entity exists
+                const entityResult =
+                    await vircadia.client.Utilities.Connection.query({
+                        query: "SELECT general__entity_name FROM entity.entities WHERE general__entity_name = $1",
                         parameters: [entityNameRef.value],
-                    },
-                );
+                    });
 
-                if (Array.isArray(result.result) && result.result.length > 0) {
-                    const data = result.result[0];
-                    // Validate with schema
-                    const parsed = ModelMetadataSchema.safeParse(
-                        data.meta__data,
+                if (
+                    Array.isArray(entityResult.result) &&
+                    entityResult.result.length > 0
+                ) {
+                    // Fetch all metadata for this entity
+                    const metadata = await retrieveEntityMetadata(
+                        entityNameRef.value,
                     );
-                    if (parsed.success) {
-                        entityMetadata.value = parsed.data;
-                    } else {
-                        console.warn("Invalid model metadata:", parsed.error);
-                        entityMetadata.value = null;
+                    if (metadata) {
+                        // Convert Map to object for validation
+                        const metaObj = Object.fromEntries(metadata);
+                        // Validate with schema
+                        const parsed = ModelMetadataSchema.safeParse(metaObj);
+                        if (parsed.success) {
+                            entityMetadata.value = parsed.data;
+                        } else {
+                            console.warn(
+                                "Invalid model metadata:",
+                                parsed.error,
+                            );
+                            entityMetadata.value = null;
+                        }
                     }
                 } else {
                     entityMetadata.value = null;
@@ -198,21 +237,52 @@ watch(
                 // Create entity
                 isCreating.value = true;
                 try {
-                    const result =
+                    // First create the entity
+                    await vircadia.client.Utilities.Connection.query({
+                        query: "INSERT INTO entity.entities (general__entity_name, group__sync, general__expiry__delete_since_updated_at_ms) VALUES ($1, $2, $3) RETURNING general__entity_name",
+                        parameters: [
+                            entityNameRef.value,
+                            "public.NORMAL",
+                            120000, // 120 seconds timeout for inactivity
+                        ],
+                    });
+
+                    // Then insert metadata rows
+                    const initialMeta = getInitialMeta();
+                    const metadataInserts = [
+                        { key: "type", value: initialMeta.type },
+                        {
+                            key: "modelFileName",
+                            value: initialMeta.modelFileName,
+                        },
+                        { key: "position", value: initialMeta.position },
+                        { key: "rotation", value: initialMeta.rotation },
+                        {
+                            key: "ownerSessionId",
+                            value: initialMeta.ownerSessionId,
+                        },
+                    ];
+
+                    for (const { key, value } of metadataInserts) {
                         await vircadia.client.Utilities.Connection.query({
-                            query: "INSERT INTO entity.entities (general__entity_name, meta__data) VALUES ($1, $2) RETURNING general__entity_name, meta__data",
-                            parameters: [entityNameRef.value, getInitialMeta()],
+                            query: `INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync)
+                                    VALUES ($1, $2, $3, $4)`,
+                            parameters: [
+                                entityNameRef.value,
+                                key,
+                                value,
+                                "public.NORMAL",
+                            ],
                         });
+                    }
 
                     // Retrieve again to get the created entity
-                    if (
-                        Array.isArray(result.result) &&
-                        result.result.length > 0
-                    ) {
-                        const data = result.result[0];
-                        const parsed = ModelMetadataSchema.safeParse(
-                            data.meta__data,
-                        );
+                    const metadata = await retrieveEntityMetadata(
+                        entityNameRef.value,
+                    );
+                    if (metadata) {
+                        const metaObj = Object.fromEntries(metadata);
+                        const parsed = ModelMetadataSchema.safeParse(metaObj);
                         if (parsed.success) {
                             entityMetadata.value = parsed.data;
                         }

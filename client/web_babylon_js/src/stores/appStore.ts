@@ -5,6 +5,10 @@ import type {
     PeerAudioState,
 } from "../composables/schemas";
 import type { AvatarMetadata } from "../composables/schemas";
+import {
+    parseAvatarMetadata,
+    validateAvatarMetadataUpdate,
+} from "../composables/schemas";
 
 export const useAppStore = defineStore("app", {
     state: () => ({
@@ -264,12 +268,60 @@ export const useAppStore = defineStore("app", {
             this.instanceId = id;
         },
         // set my avatar metadata
-        setMyAvatarMetadata(metadata: AvatarMetadata | null) {
-            this.myAvatarMetadata = metadata;
+        setMyAvatarMetadata(
+            metadata: AvatarMetadata | Map<string, unknown> | unknown,
+        ) {
+            if (metadata === null) {
+                this.myAvatarMetadata = null;
+            } else {
+                try {
+                    // Use the safe parser to validate and fill in defaults
+                    this.myAvatarMetadata = parseAvatarMetadata(metadata);
+                } catch (error) {
+                    console.error("Invalid avatar metadata:", error);
+                    // Keep existing metadata if validation fails
+                }
+            }
+        },
+        // update my avatar metadata partially
+        updateMyAvatarMetadata(partialMetadata: Partial<AvatarMetadata>) {
+            if (!this.myAvatarMetadata) {
+                // If no metadata exists, create new with defaults
+                this.setMyAvatarMetadata(partialMetadata);
+            } else {
+                try {
+                    // Validate the partial update
+                    const validatedUpdate =
+                        validateAvatarMetadataUpdate(partialMetadata);
+                    // Merge with existing metadata
+                    const merged = {
+                        ...this.myAvatarMetadata,
+                        ...validatedUpdate,
+                    };
+                    // Re-validate the complete object
+                    this.myAvatarMetadata = parseAvatarMetadata(merged);
+                } catch (error) {
+                    console.error("Invalid avatar metadata update:", error);
+                    // Keep existing metadata if validation fails
+                }
+            }
         },
         // set other avatar metadata
-        setOtherAvatarMetadata(sessionId: string, metadata: AvatarMetadata) {
-            this.otherAvatarsMetadata[sessionId] = metadata;
+        setOtherAvatarMetadata(
+            sessionId: string,
+            metadata: AvatarMetadata | Map<string, unknown> | unknown,
+        ) {
+            try {
+                // Use the safe parser to validate and fill in defaults
+                this.otherAvatarsMetadata[sessionId] =
+                    parseAvatarMetadata(metadata);
+            } catch (error) {
+                console.error(
+                    `Invalid avatar metadata for session ${sessionId}:`,
+                    error,
+                );
+                // Don't set invalid metadata
+            }
         },
         // remove other avatar metadata
         removeOtherAvatarMetadata(sessionId: string) {

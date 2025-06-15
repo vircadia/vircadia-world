@@ -369,8 +369,8 @@
               >
                 {{ spatialAudio.isInitialized ? 'Active' : 'Inactive' }}
               </v-chip>
-              <span v-if="spatialAudio.activePeerCount > 0" class="ml-2">
-                ({{ spatialAudio.activePeerCount }} peer{{ spatialAudio.activePeerCount > 1 ? 's' : '' }})
+              <span v-if="spatialAudio.activePeerCount.value > 0" class="ml-2">
+                ({{ spatialAudio.activePeerCount }} peer{{ spatialAudio.activePeerCount.value > 1 ? 's' : '' }})
               </span>
             </span>
           </v-list-item-title>
@@ -686,10 +686,23 @@ const receiveMessagesForPeer = async (
     const currentSessionId = fullSessionId.value;
     if (!currentSessionId || !vircadiaWorld) return [];
 
+    // Check if peer still exists before querying
+    if (!peers.value.has(remoteSessionId)) {
+        return [];
+    }
+
     const peerInfo = peers.value.get(remoteSessionId);
     const lastProcessed = peerInfo?.lastProcessedTimestamp || 0;
 
     try {
+        // Use a more recent cutoff to avoid processing very old messages
+        // This helps avoid messages from previous sessions after a refresh
+        const cutoffTime = Math.max(
+            lastProcessed,
+            Date.now() - 30000, // Only messages from last 30 seconds
+            (peerInfo?.lastMessageCheck || Date.now()) - 10000, // Or since 10 seconds before we started checking
+        );
+
         const result = await vircadiaWorld.client.Utilities.Connection.query({
             query: `
                 SELECT * FROM entity.entities 
@@ -702,7 +715,7 @@ const receiveMessagesForPeer = async (
             parameters: [
                 getIncomingMessagePattern(currentSessionId),
                 remoteSessionId,
-                Math.max(lastProcessed, Date.now() - 60000),
+                cutoffTime,
             ],
         });
 
@@ -714,6 +727,7 @@ const receiveMessagesForPeer = async (
         return [];
     } catch (error) {
         console.error("[WebRTC] Failed to receive messages for peer:", error);
+
         return [];
     }
 };
@@ -729,6 +743,30 @@ const markMessageProcessed = async (entityName: string) => {
         });
     } catch (error) {
         console.error("[WebRTC] Failed to mark message as processed:", error);
+    }
+};
+
+// Clean up messages from a specific peer that no longer exists
+const cleanupPeerMessages = async (peerSessionId: string) => {
+    if (!vircadiaWorld) return;
+
+    try {
+        // Delete all messages from this peer
+        await vircadiaWorld.client.Utilities.Connection.query({
+            query: `DELETE FROM entity.entities 
+                    WHERE general__entity_name LIKE 'webrtc-msg-%' 
+                    AND meta__data->>'fromSession' = $1`,
+            parameters: [peerSessionId],
+        });
+
+        console.log(
+            `[WebRTC] Cleaned up stale messages from peer: ${peerSessionId.substring(0, 8)}...`,
+        );
+    } catch (error) {
+        console.error(
+            `[WebRTC] Failed to clean up messages from peer ${peerSessionId}:`,
+            error,
+        );
     }
 };
 
@@ -799,13 +837,24 @@ const setupPerfectNegotiation = (
     // Process incoming messages using perfect negotiation pattern
     const processIncomingMessage = async (message: ProcessedMessage) => {
         try {
-            const { type, payload } = message;
+            const { type, payload, fromSession, timestamp } = message;
 
             if (type === "offer" || type === "answer") {
                 const description = {
                     type: type as RTCSdpType,
                     sdp: (payload as OfferAnswerPayload).sdp,
                 };
+
+                // Check if this is a stale answer for a stable connection
+                if (
+                    description.type === "answer" &&
+                    pc.signalingState === "stable"
+                ) {
+                    console.log(
+                        `[WebRTC] Ignoring stale ${type} - connection already stable`,
+                    );
+                    return;
+                }
 
                 // Perfect negotiation collision detection
                 const readyForOffer =
@@ -821,6 +870,17 @@ const setupPerfectNegotiation = (
                 if (ignoreOffer) {
                     console.log(
                         "[WebRTC] Impolite peer ignoring offer collision",
+                    );
+                    return;
+                }
+
+                // Additional state validation before setting remote description
+                if (
+                    description.type === "answer" &&
+                    pc.signalingState !== "have-local-offer"
+                ) {
+                    console.log(
+                        `[WebRTC] Ignoring answer - wrong signaling state: ${pc.signalingState}`,
                     );
                     return;
                 }
@@ -873,6 +933,28 @@ const setupPerfectNegotiation = (
     const maxProcessingErrors = 5;
 
     const pollForMessages = async () => {
+        // Check if peer still exists in our map
+        if (!peers.value.has(remoteSessionId)) {
+            console.log(
+                `[WebRTC] Stopping poll for disconnected peer: ${remoteSessionId.substring(0, 8)}...`,
+            );
+            return;
+        }
+
+        // Check if peer still exists in discovery
+        if (!discoveredPeers.value.has(remoteSessionId)) {
+            consecutiveEmptyPolls++;
+
+            // If peer has been missing from discovery for too long, disconnect
+            if (consecutiveEmptyPolls > 10) {
+                console.log(
+                    `[WebRTC] Peer ${remoteSessionId.substring(0, 8)}... no longer in discovery, disconnecting`,
+                );
+                disconnectFromPeer(remoteSessionId);
+                return;
+            }
+        }
+
         try {
             const messages = await receiveMessagesForPeer(remoteSessionId);
 
@@ -947,6 +1029,22 @@ const setupPerfectNegotiation = (
                 }
             }
         } catch (error) {
+            // Check if it's a "peer doesn't exist" type error
+            const errorMessage =
+                error instanceof Error ? error.message : String(error);
+
+            if (
+                errorMessage.includes("no rows") ||
+                errorMessage.includes("not found")
+            ) {
+                // Peer likely doesn't exist anymore
+                console.log(
+                    `[WebRTC] Peer ${remoteSessionId.substring(0, 8)}... appears to be gone, stopping polls`,
+                );
+                disconnectFromPeer(remoteSessionId);
+                return;
+            }
+
             console.error("[WebRTC] Error polling for messages:", error);
             messageProcessingErrors++;
 
@@ -959,17 +1057,19 @@ const setupPerfectNegotiation = (
     };
 
     // Start message polling
-    const messageTimer = setInterval(pollForMessages, pollInterval);
+    let messageTimer = setInterval(pollForMessages, pollInterval);
 
     // Adaptive polling - adjust interval based on activity
     const adaptiveTimer = setInterval(() => {
-        clearInterval(messageTimer);
-        const newTimer = setInterval(pollForMessages, pollInterval);
-        // Store the new timer reference for cleanup
-        peerInfo.cleanup = () => {
-            clearInterval(newTimer);
+        // Check if peer still exists before adjusting timer
+        if (!peers.value.has(remoteSessionId)) {
+            clearInterval(messageTimer);
             clearInterval(adaptiveTimer);
-        };
+            return;
+        }
+
+        clearInterval(messageTimer);
+        messageTimer = setInterval(pollForMessages, pollInterval);
     }, 5000);
 
     return {
@@ -991,6 +1091,40 @@ const manageConnections = async () => {
         const currentPeers = new Set(peers.value.keys());
         const newPeers = new Set(activePeers);
 
+        // Check for peers with same base ID but different instance (indicates a refresh)
+        for (const newPeerId of newPeers) {
+            const newBaseId = newPeerId.split("-").slice(0, 5).join("-");
+
+            for (const currentPeerId of currentPeers) {
+                const currentBaseId = currentPeerId
+                    .split("-")
+                    .slice(0, 5)
+                    .join("-");
+
+                if (
+                    newBaseId === currentBaseId &&
+                    newPeerId !== currentPeerId
+                ) {
+                    console.log(
+                        `[WebRTC] Detected peer refresh: ${currentPeerId.substring(0, 8)}... -> ${newPeerId.substring(0, 8)}...`,
+                    );
+
+                    // Disconnect old session
+                    disconnectFromPeer(currentPeerId);
+
+                    // Clean up messages from old session
+                    try {
+                        await cleanupPeerMessages(currentPeerId);
+                    } catch (error) {
+                        console.error(
+                            `[WebRTC] Failed to clean up messages for old session ${currentPeerId}:`,
+                            error,
+                        );
+                    }
+                }
+            }
+        }
+
         // Connect to new peers
         for (const peerId of newPeers) {
             if (!currentPeers.has(peerId)) {
@@ -1008,6 +1142,16 @@ const manageConnections = async () => {
                     `[WebRTC] Peer ${peerId.substring(0, 8)}... no longer active, disconnecting`,
                 );
                 disconnectFromPeer(peerId);
+
+                // Clean up any stale messages from this peer
+                try {
+                    await cleanupPeerMessages(peerId);
+                } catch (error) {
+                    console.error(
+                        `[WebRTC] Failed to clean up messages for peer ${peerId}:`,
+                        error,
+                    );
+                }
             }
         }
 
@@ -1076,6 +1220,15 @@ async function connectToPeer(remoteSessionId: string) {
     console.log(
         `[WebRTC] Connecting to peer: ${remoteSessionId.substring(0, 8)}...`,
     );
+
+    // Clean up any stale messages before connecting
+    try {
+        await cleanupPeerMessages(remoteSessionId);
+    } catch (error) {
+        console.log(
+            `[WebRTC] No stale messages to clean for ${remoteSessionId.substring(0, 8)}...`,
+        );
+    }
 
     // Create peer connection
     const pc = new RTCPeerConnection(rtcConfig);

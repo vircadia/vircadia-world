@@ -368,10 +368,12 @@ function applyAvatarData(
 
 // Polling intervals
 let dataPollInterval: number | null = null;
-let isPolling = false; // Add flag to prevent overlapping requests
+let jointPollInterval: number | null = null;
+let isPollingData = false; // Flag to prevent overlapping general data requests
+let isPollingJoints = false; // Flag to prevent overlapping joint requests
 let debugInterval: number | null = null;
 
-// Poll for avatar data from the server
+// Poll for general avatar data from the server (position, rotation, etc.)
 async function pollAvatarData() {
     if (
         !vircadiaWorld ||
@@ -380,14 +382,14 @@ async function pollAvatarData() {
         return;
     }
 
-    if (isPolling) {
+    if (isPollingData) {
         console.debug(
-            `Skipping poll for ${props.sessionId} - previous request still in progress`,
+            `Skipping data poll for ${props.sessionId} - previous request still in progress`,
         );
         return;
     }
 
-    isPolling = true;
+    isPollingData = true;
 
     try {
         const entityName = `avatar:${props.sessionId}`;
@@ -420,106 +422,14 @@ async function pollAvatarData() {
                         avatarMetadata,
                     );
 
-                    // Now fetch joint metadata - only fetch updates since last poll
-                    let jointQuery: string;
-                    let jointParameters: unknown[];
-
-                    if (lastPollTimestamp.value) {
-                        // Incremental update - only fetch joints updated since last poll
-                        jointQuery = `
-                            SELECT metadata__key, metadata__value, general__updated_at
-                            FROM entity.entity_metadata 
-                            WHERE general__entity_name = $1 
-                            AND metadata__key LIKE 'joint:%'
-                            AND metadata__value->>'type' = 'avatarJoint'
-                            AND general__updated_at > $2
-                            ORDER BY general__updated_at DESC`;
-                        jointParameters = [
-                            entityName,
-                            lastPollTimestamp.value.toISOString(),
-                        ];
-                    } else {
-                        // Initial fetch - get all joints
-                        jointQuery = `
-                            SELECT metadata__key, metadata__value, general__updated_at
-                            FROM entity.entity_metadata 
-                            WHERE general__entity_name = $1 
-                            AND metadata__key LIKE 'joint:%'
-                            AND metadata__value->>'type' = 'avatarJoint'
-                            ORDER BY general__updated_at DESC`;
-                        jointParameters = [entityName];
-                    }
-
-                    const jointResult =
-                        await vircadiaWorld.client.Utilities.Connection.query({
-                            query: jointQuery,
-                            parameters: jointParameters,
-                        });
-
-                    // If this is an incremental update, start with existing joints
-                    const joints = lastPollTimestamp.value
-                        ? new Map(lastReceivedJoints.value)
-                        : new Map<string, AvatarJointMetadata>();
-
-                    let newestUpdateTime: Date | null = lastPollTimestamp.value;
-
-                    if (Array.isArray(jointResult.result)) {
-                        for (const row of jointResult.result) {
-                            try {
-                                // Parse each joint metadata
-                                const jointData =
-                                    AvatarJointMetadataSchema.parse(
-                                        row.metadata__value,
-                                    );
-                                joints.set(jointData.jointName, jointData);
-
-                                // Track the newest update time
-                                if (row.general__updated_at) {
-                                    const updateTime = new Date(
-                                        row.general__updated_at,
-                                    );
-                                    if (
-                                        !newestUpdateTime ||
-                                        updateTime > newestUpdateTime
-                                    ) {
-                                        newestUpdateTime = updateTime;
-                                    }
-                                }
-                            } catch (parseError) {
-                                console.warn(
-                                    `Failed to parse joint metadata for ${row.metadata__key}:`,
-                                    parseError,
-                                );
-                            }
-                        }
-
-                        // Log incremental update info for debugging
-                        if (
-                            lastPollTimestamp.value &&
-                            jointResult.result.length > 0
-                        ) {
-                            console.debug(
-                                `Incremental update for ${props.sessionId}: ${jointResult.result.length} joints updated since ${lastPollTimestamp.value.toISOString()}`,
-                            );
-                        }
-                    }
-
-                    // Update the last poll timestamp
-                    if (newestUpdateTime) {
-                        lastPollTimestamp.value = newestUpdateTime;
-                    } else if (!lastPollTimestamp.value) {
-                        // If no joints were found and this is the first poll, set to current time
-                        lastPollTimestamp.value = new Date();
-                    }
-
-                    // Update avatar position and joints if model is loaded
+                    // Update avatar position if model is loaded
                     if (avatarNode.value && isModelLoaded.value) {
-                        applyAvatarData(avatarMetadata, joints);
+                        // Apply only position and rotation data (joints will be handled separately)
+                        applyAvatarData(avatarMetadata, new Map());
                     }
 
                     // Store the last received metadata for debugging
                     lastReceivedMetadata.value = avatarMetadata;
-                    lastReceivedJoints.value = joints;
                 } catch (parseError) {
                     console.warn(
                         `Failed to parse avatar metadata for session ${props.sessionId}:`,
@@ -550,20 +460,192 @@ async function pollAvatarData() {
             );
         }
     } finally {
-        isPolling = false;
+        isPollingData = false;
+    }
+}
+
+// Poll for joint data from the server (skeleton bones)
+async function pollJointData() {
+    if (
+        !vircadiaWorld ||
+        vircadiaWorld.connectionInfo.value.status !== "connected"
+    ) {
+        return;
+    }
+
+    if (isPollingJoints) {
+        console.debug(
+            `Skipping joint poll for ${props.sessionId} - previous request still in progress`,
+        );
+        return;
+    }
+
+    isPollingJoints = true;
+
+    try {
+        const entityName = `avatar:${props.sessionId}`;
+
+        // First check if entity exists
+        const entityResult =
+            await vircadiaWorld.client.Utilities.Connection.query({
+                query: "SELECT general__entity_name FROM entity.entities WHERE general__entity_name = $1",
+                parameters: [entityName],
+                timeoutMs: 20000, // Increased timeout to 20 seconds
+            });
+
+        if (
+            Array.isArray(entityResult.result) &&
+            entityResult.result.length > 0
+        ) {
+            // Fetch joint metadata - only fetch updates since last poll
+            let jointQuery: string;
+            let jointParameters: unknown[];
+
+            if (lastPollTimestamp.value) {
+                // Incremental update - only fetch joints updated since last poll
+                jointQuery = `
+                    SELECT metadata__key, metadata__value, general__updated_at
+                    FROM entity.entity_metadata 
+                    WHERE general__entity_name = $1 
+                    AND metadata__key LIKE 'joint:%'
+                    AND metadata__value->>'type' = 'avatarJoint'
+                    AND general__updated_at > $2
+                    ORDER BY general__updated_at DESC`;
+                jointParameters = [
+                    entityName,
+                    lastPollTimestamp.value.toISOString(),
+                ];
+            } else {
+                // Initial fetch - get all joints
+                jointQuery = `
+                    SELECT metadata__key, metadata__value, general__updated_at
+                    FROM entity.entity_metadata 
+                    WHERE general__entity_name = $1 
+                    AND metadata__key LIKE 'joint:%'
+                    AND metadata__value->>'type' = 'avatarJoint'
+                    ORDER BY general__updated_at DESC`;
+                jointParameters = [entityName];
+            }
+
+            const jointResult =
+                await vircadiaWorld.client.Utilities.Connection.query({
+                    query: jointQuery,
+                    parameters: jointParameters,
+                });
+
+            // If this is an incremental update, start with existing joints
+            const joints = lastPollTimestamp.value
+                ? new Map(lastReceivedJoints.value)
+                : new Map<string, AvatarJointMetadata>();
+
+            let newestUpdateTime: Date | null = lastPollTimestamp.value;
+
+            if (Array.isArray(jointResult.result)) {
+                for (const row of jointResult.result) {
+                    try {
+                        // Parse each joint metadata
+                        const jointData = AvatarJointMetadataSchema.parse(
+                            row.metadata__value,
+                        );
+                        joints.set(jointData.jointName, jointData);
+
+                        // Track the newest update time
+                        if (row.general__updated_at) {
+                            const updateTime = new Date(
+                                row.general__updated_at,
+                            );
+                            if (
+                                !newestUpdateTime ||
+                                updateTime > newestUpdateTime
+                            ) {
+                                newestUpdateTime = updateTime;
+                            }
+                        }
+                    } catch (parseError) {
+                        console.warn(
+                            `Failed to parse joint metadata for ${row.metadata__key}:`,
+                            parseError,
+                        );
+                    }
+                }
+
+                // Log incremental update info for debugging
+                if (lastPollTimestamp.value && jointResult.result.length > 0) {
+                    console.debug(
+                        `Incremental joint update for ${props.sessionId}: ${jointResult.result.length} joints updated since ${lastPollTimestamp.value.toISOString()}`,
+                    );
+                }
+            }
+
+            // Update the last poll timestamp
+            if (newestUpdateTime) {
+                lastPollTimestamp.value = newestUpdateTime;
+            } else if (!lastPollTimestamp.value) {
+                // If no joints were found and this is the first poll, set to current time
+                lastPollTimestamp.value = new Date();
+            }
+
+            // Update avatar joints if model is loaded
+            if (
+                avatarNode.value &&
+                isModelLoaded.value &&
+                lastReceivedMetadata.value
+            ) {
+                applyAvatarData(lastReceivedMetadata.value, joints);
+            }
+
+            // Store the last received joints for debugging
+            lastReceivedJoints.value = joints;
+        } else {
+            // Avatar entity not found - skip this poll cycle
+            console.debug(
+                `Avatar entity not found for joint poll ${props.sessionId}, skipping update`,
+            );
+            // Reset the last poll timestamp when avatar is not found
+            lastPollTimestamp.value = null;
+            return;
+        }
+    } catch (error) {
+        // Handle timeout errors gracefully
+        if (error instanceof Error && error.message.includes("timeout")) {
+            console.debug(
+                `Joint data query timed out for session ${props.sessionId}, will retry`,
+            );
+        } else {
+            console.error(
+                `Error polling joint data for session ${props.sessionId}:`,
+                error,
+            );
+        }
+    } finally {
+        isPollingJoints = false;
     }
 }
 
 // Start polling when connected
 function startPolling() {
-    if (dataPollInterval) {
+    if (dataPollInterval || jointPollInterval) {
         return;
     }
 
-    // Poll avatar data at configured interval
+    // Initial poll to get data immediately
+    pollAvatarData();
+    pollJointData();
+
+    // Poll general avatar data at configured interval (position, rotation, etc.)
     dataPollInterval = setInterval(
         pollAvatarData,
         appStore.pollingIntervals.otherAvatarData,
+    );
+
+    // Poll joint data at a separate, less frequent interval
+    jointPollInterval = setInterval(
+        pollJointData,
+        appStore.pollingIntervals.otherAvatarJointData,
+    );
+
+    console.debug(
+        `Started split polling for avatar ${props.sessionId}: data every ${appStore.pollingIntervals.otherAvatarData}ms, joints every ${appStore.pollingIntervals.otherAvatarJointData}ms`,
     );
 
     // WebRTC connection is now handled by periodic discovery in useBabylonWebRTC
@@ -574,6 +656,11 @@ function stopPolling() {
     if (dataPollInterval) {
         clearInterval(dataPollInterval);
         dataPollInterval = null;
+    }
+
+    if (jointPollInterval) {
+        clearInterval(jointPollInterval);
+        jointPollInterval = null;
     }
 }
 

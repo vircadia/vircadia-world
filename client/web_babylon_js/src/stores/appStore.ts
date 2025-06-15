@@ -197,8 +197,10 @@ export const useAppStore = defineStore("app", {
             // Avatar discovery interval - how often to check for new avatars
             avatarDiscovery: 2000,
             // Other avatar data polling - how often to fetch other avatars' position/state
+            otherAvatarData: 100,
+            // Other avatar joint data polling - how often to fetch other avatars' skeleton joints
             // Using incremental updates (only fetches joints updated since last poll)
-            otherAvatarData: 500,
+            otherAvatarJointData: 1000,
             // WebRTC signaling polling - how often to check for offers/answers
             webRTCSignaling: 1500,
             // WebRTC stale threshold - time before considering signaling data stale

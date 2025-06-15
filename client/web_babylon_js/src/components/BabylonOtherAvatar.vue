@@ -386,11 +386,12 @@ async function pollAvatarData() {
                 }
             }
         } else {
-            // Avatar entity not found - it may have disconnected
+            // Avatar entity not found - skip this poll cycle
+            // Avatar lifecycle (add/remove) is managed by App.vue
             console.debug(
-                `Avatar entity not found for session ${props.sessionId}`,
+                `Avatar entity not found for session ${props.sessionId}, skipping update`,
             );
-            appStore.removeOtherAvatarMetadata(props.sessionId);
+            return;
         }
     } catch (error) {
         // Handle timeout errors gracefully

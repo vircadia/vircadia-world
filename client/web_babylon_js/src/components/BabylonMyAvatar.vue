@@ -681,7 +681,7 @@ onMounted(async () => {
             isCreating.value = true;
             try {
                 await vircadiaWorld.client.Utilities.Connection.query({
-                    query: "INSERT INTO entity.entities (general__entity_name, meta__data) VALUES ($1, $2) RETURNING general__entity_name",
+                    query: "INSERT INTO entity.entities (general__entity_name, meta__data, general__expiry__delete_since_updated_at_ms) VALUES ($1, $2, $3) RETURNING general__entity_name",
                     parameters: [
                         entityName.value,
                         {
@@ -693,6 +693,7 @@ onMounted(async () => {
                             jointTransformsLocal: {},
                             modelFileName: modelFileName.value,
                         },
+                        120000, // 120 seconds timeout for inactivity
                     ],
                 });
             } catch (e) {

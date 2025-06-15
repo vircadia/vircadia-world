@@ -31,7 +31,9 @@ import { useAsset } from "@vircadia/world-sdk/browser/vue";
 import { ImportMeshAsync } from "@babylonjs/core";
 import {
     AvatarMetadataSchema,
+    AvatarJointMetadataSchema,
     type AvatarMetadata,
+    type AvatarJointMetadata,
 } from "../composables/schemas";
 import type {
     PositionObj,
@@ -60,6 +62,15 @@ const isModelLoaded = ref(false);
 
 // Store last received metadata for debugging
 const lastReceivedMetadata: Ref<AvatarMetadata | null> = ref(null);
+// Store last received joint metadata map
+const lastReceivedJoints: Ref<Map<string, AvatarJointMetadata>> = ref(
+    new Map(),
+);
+
+// Track the last successful poll timestamp for incremental updates
+// This optimization allows us to only fetch joints that have been updated since
+// the last poll, reducing data transfer and allowing more frequent polling
+const lastPollTimestamp: Ref<Date | null> = ref(null);
 
 // Get Vircadia instance
 const vircadiaWorld = inject(useVircadiaInstance());
@@ -237,7 +248,10 @@ async function loadAvatarModel() {
 }
 
 // Apply avatar metadata to the model
-function applyAvatarData(metadata: AvatarMetadata) {
+function applyAvatarData(
+    metadata: AvatarMetadata,
+    joints: Map<string, AvatarJointMetadata>,
+) {
     if (!avatarNode.value || !isModelLoaded.value) {
         return;
     }
@@ -253,8 +267,8 @@ function applyAvatarData(metadata: AvatarMetadata) {
         avatarNode.value.rotationQuaternion = rot;
     }
 
-    // Apply joint transforms if available (now in LOCAL SPACE)
-    if (metadata.jointTransformsLocal && avatarSkeleton.value) {
+    // Apply joint transforms if available (now from individual metadata entries)
+    if (joints.size > 0 && avatarSkeleton.value) {
         const bones = avatarSkeleton.value.bones;
 
         // Debug: Check if skeleton is properly bound to meshes
@@ -273,29 +287,27 @@ function applyAvatarData(metadata: AvatarMetadata) {
         // Update bones with data
         for (const bone of bones) {
             // Try exact match first
-            let jointTransform = metadata.jointTransformsLocal[bone.name];
+            let jointMetadata = joints.get(bone.name);
 
             // If no exact match, try to find a matching joint by checking if bone name contains joint name
-            if (!jointTransform) {
-                const jointNames = Object.keys(metadata.jointTransformsLocal);
-                for (const jointName of jointNames) {
+            if (!jointMetadata) {
+                for (const [jointName, metadata] of joints) {
                     if (
                         bone.name.includes(jointName) ||
                         jointName.includes(bone.name)
                     ) {
-                        jointTransform =
-                            metadata.jointTransformsLocal[jointName];
+                        jointMetadata = metadata;
                         break;
                     }
                 }
             }
 
-            if (jointTransform) {
+            if (jointMetadata) {
                 // Bone has new data - apply it
-                const bonePos = objToVector(jointTransform.position);
-                const boneRot = objToQuat(jointTransform.rotation);
-                const boneScale = jointTransform.scale
-                    ? objToVector(jointTransform.scale)
+                const bonePos = objToVector(jointMetadata.position);
+                const boneRot = objToQuat(jointMetadata.rotation);
+                const boneScale = jointMetadata.scale
+                    ? objToVector(jointMetadata.scale)
                     : Vector3.One();
 
                 // Set transforms in LOCAL space
@@ -408,13 +420,106 @@ async function pollAvatarData() {
                         avatarMetadata,
                     );
 
-                    // Update avatar position if model is loaded
+                    // Now fetch joint metadata - only fetch updates since last poll
+                    let jointQuery: string;
+                    let jointParameters: unknown[];
+
+                    if (lastPollTimestamp.value) {
+                        // Incremental update - only fetch joints updated since last poll
+                        jointQuery = `
+                            SELECT metadata__key, metadata__value, general__updated_at
+                            FROM entity.entity_metadata 
+                            WHERE general__entity_name = $1 
+                            AND metadata__key LIKE 'joint:%'
+                            AND metadata__value->>'type' = 'avatarJoint'
+                            AND general__updated_at > $2
+                            ORDER BY general__updated_at DESC`;
+                        jointParameters = [
+                            entityName,
+                            lastPollTimestamp.value.toISOString(),
+                        ];
+                    } else {
+                        // Initial fetch - get all joints
+                        jointQuery = `
+                            SELECT metadata__key, metadata__value, general__updated_at
+                            FROM entity.entity_metadata 
+                            WHERE general__entity_name = $1 
+                            AND metadata__key LIKE 'joint:%'
+                            AND metadata__value->>'type' = 'avatarJoint'
+                            ORDER BY general__updated_at DESC`;
+                        jointParameters = [entityName];
+                    }
+
+                    const jointResult =
+                        await vircadiaWorld.client.Utilities.Connection.query({
+                            query: jointQuery,
+                            parameters: jointParameters,
+                        });
+
+                    // If this is an incremental update, start with existing joints
+                    const joints = lastPollTimestamp.value
+                        ? new Map(lastReceivedJoints.value)
+                        : new Map<string, AvatarJointMetadata>();
+
+                    let newestUpdateTime: Date | null = lastPollTimestamp.value;
+
+                    if (Array.isArray(jointResult.result)) {
+                        for (const row of jointResult.result) {
+                            try {
+                                // Parse each joint metadata
+                                const jointData =
+                                    AvatarJointMetadataSchema.parse(
+                                        row.metadata__value,
+                                    );
+                                joints.set(jointData.jointName, jointData);
+
+                                // Track the newest update time
+                                if (row.general__updated_at) {
+                                    const updateTime = new Date(
+                                        row.general__updated_at,
+                                    );
+                                    if (
+                                        !newestUpdateTime ||
+                                        updateTime > newestUpdateTime
+                                    ) {
+                                        newestUpdateTime = updateTime;
+                                    }
+                                }
+                            } catch (parseError) {
+                                console.warn(
+                                    `Failed to parse joint metadata for ${row.metadata__key}:`,
+                                    parseError,
+                                );
+                            }
+                        }
+
+                        // Log incremental update info for debugging
+                        if (
+                            lastPollTimestamp.value &&
+                            jointResult.result.length > 0
+                        ) {
+                            console.debug(
+                                `Incremental update for ${props.sessionId}: ${jointResult.result.length} joints updated since ${lastPollTimestamp.value.toISOString()}`,
+                            );
+                        }
+                    }
+
+                    // Update the last poll timestamp
+                    if (newestUpdateTime) {
+                        lastPollTimestamp.value = newestUpdateTime;
+                    } else if (!lastPollTimestamp.value) {
+                        // If no joints were found and this is the first poll, set to current time
+                        lastPollTimestamp.value = new Date();
+                    }
+
+                    // Update avatar position and joints if model is loaded
                     if (avatarNode.value && isModelLoaded.value) {
-                        applyAvatarData(avatarMetadata);
+                        applyAvatarData(avatarMetadata, joints);
                     }
 
                     // Store the last received metadata for debugging
                     lastReceivedMetadata.value = avatarMetadata;
+                    lastReceivedJoints.value = joints;
                 } catch (parseError) {
                     console.warn(
                         `Failed to parse avatar metadata for session ${props.sessionId}:`,
@@ -428,6 +533,8 @@ async function pollAvatarData() {
             console.debug(
                 `Avatar entity not found for session ${props.sessionId}, skipping update`,
             );
+            // Reset the last poll timestamp when avatar is not found
+            lastPollTimestamp.value = null;
             return;
         }
     } catch (error) {
@@ -539,36 +646,31 @@ onMounted(() => {
                 };
 
                 // Last received values from server
-                if (lastReceivedMetadata.value?.jointTransformsLocal) {
+                if (lastReceivedJoints.value.size > 0) {
                     // Try exact match first
-                    let jointTransform =
-                        lastReceivedMetadata.value.jointTransformsLocal[
-                            bone.name
-                        ];
+                    let jointMetadata = lastReceivedJoints.value.get(bone.name);
 
                     // If no exact match, try to find a matching joint by checking if bone name contains joint name
-                    if (!jointTransform) {
-                        const jointNames = Object.keys(
-                            lastReceivedMetadata.value.jointTransformsLocal,
-                        );
-                        for (const jointName of jointNames) {
+                    if (!jointMetadata) {
+                        for (const [
+                            jointName,
+                            metadata,
+                        ] of lastReceivedJoints.value) {
                             if (
                                 bone.name.includes(jointName) ||
                                 jointName.includes(bone.name)
                             ) {
-                                jointTransform =
-                                    lastReceivedMetadata.value
-                                        .jointTransformsLocal[jointName];
+                                jointMetadata = metadata;
                                 break;
                             }
                         }
                     }
 
-                    if (jointTransform) {
+                    if (jointMetadata) {
                         lastReceivedValues[bone.name] = {
-                            position: jointTransform.position,
-                            rotation: jointTransform.rotation,
-                            scale: jointTransform.scale,
+                            position: jointMetadata.position,
+                            rotation: jointMetadata.rotation,
+                            scale: jointMetadata.scale,
                         };
                     }
                 }

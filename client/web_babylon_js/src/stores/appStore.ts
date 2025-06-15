@@ -6,8 +6,8 @@ import type {
 } from "../composables/schemas";
 import type { AvatarMetadata } from "../composables/schemas";
 import {
-    parseAvatarMetadata,
-    validateAvatarMetadataUpdate,
+    AvatarMetadataSchema,
+    AvatarMetadataWithDefaultsSchema,
 } from "../composables/schemas";
 
 export const useAppStore = defineStore("app", {
@@ -197,7 +197,8 @@ export const useAppStore = defineStore("app", {
             // Avatar discovery interval - how often to check for new avatars
             avatarDiscovery: 2000,
             // Other avatar data polling - how often to fetch other avatars' position/state
-            otherAvatarData: 1000,
+            // Using incremental updates (only fetches joints updated since last poll)
+            otherAvatarData: 500,
             // WebRTC signaling polling - how often to check for offers/answers
             webRTCSignaling: 1500,
             // WebRTC stale threshold - time before considering signaling data stale
@@ -206,6 +207,10 @@ export const useAppStore = defineStore("app", {
             spatialAudioUpdate: 100,
             // Debug overlay refresh rate
             debugOverlayRefresh: 100,
+            // Avatar data transmission intervals (position, rotation, camera)
+            avatarData: 100,
+            // Avatar joint data transmission interval (skeleton bones) - less frequent
+            avatarJointData: 1000,
         },
         // Spatial audio state
         spatialAudioEnabled: false,
@@ -276,7 +281,8 @@ export const useAppStore = defineStore("app", {
             } else {
                 try {
                     // Use the safe parser to validate and fill in defaults
-                    this.myAvatarMetadata = parseAvatarMetadata(metadata);
+                    this.myAvatarMetadata =
+                        AvatarMetadataWithDefaultsSchema.parse(metadata);
                 } catch (error) {
                     console.error("Invalid avatar metadata:", error);
                     // Keep existing metadata if validation fails
@@ -292,14 +298,15 @@ export const useAppStore = defineStore("app", {
                 try {
                     // Validate the partial update
                     const validatedUpdate =
-                        validateAvatarMetadataUpdate(partialMetadata);
+                        AvatarMetadataSchema.partial().parse(partialMetadata);
                     // Merge with existing metadata
                     const merged = {
                         ...this.myAvatarMetadata,
                         ...validatedUpdate,
                     };
                     // Re-validate the complete object
-                    this.myAvatarMetadata = parseAvatarMetadata(merged);
+                    this.myAvatarMetadata =
+                        AvatarMetadataWithDefaultsSchema.parse(merged);
                 } catch (error) {
                     console.error("Invalid avatar metadata update:", error);
                     // Keep existing metadata if validation fails
@@ -314,7 +321,7 @@ export const useAppStore = defineStore("app", {
             try {
                 // Use the safe parser to validate and fill in defaults
                 this.otherAvatarsMetadata[sessionId] =
-                    parseAvatarMetadata(metadata);
+                    AvatarMetadataWithDefaultsSchema.parse(metadata);
             } catch (error) {
                 console.error(
                     `Invalid avatar metadata for session ${sessionId}:`,

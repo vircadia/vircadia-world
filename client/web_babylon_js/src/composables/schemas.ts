@@ -35,6 +35,18 @@ export const QuaternionSchema = z.object({
     w: z.coerce.number(),
 });
 
+// Schema for individual avatar joint metadata
+export const AvatarJointMetadataSchema = z.object({
+    type: z.literal("avatarJoint"),
+    sessionId: z.coerce.string(),
+    jointName: z.coerce.string(),
+    position: Vector3Schema,
+    rotation: QuaternionSchema,
+    scale: Vector3Schema,
+});
+
+export type AvatarJointMetadata = z.infer<typeof AvatarJointMetadataSchema>;
+
 // Zod schemas for avatar metadata
 export const CameraSchema = z.object({
     alpha: z.coerce.number(),
@@ -48,69 +60,42 @@ export const AvatarMetadataSchema = z.object({
     position: Vector3Schema,
     rotation: QuaternionSchema,
     cameraOrientation: CameraSchema,
-    jointTransformsLocal: z.record(
-        z.object({
-            position: Vector3Schema,
-            rotation: QuaternionSchema,
-            scale: Vector3Schema,
-        }),
-    ),
     modelFileName: z.coerce.string(),
 });
 
 export type AvatarMetadata = z.infer<typeof AvatarMetadataSchema>;
 
-// Schema with defaults for safer avatar metadata handling
-export const AvatarMetadataWithDefaultsSchema = z.object({
-    type: z.literal("avatar").default("avatar"),
-    sessionId: z.coerce.string().nullable().default(null),
-    position: Vector3Schema.default({ x: 0, y: 0, z: -5 }),
-    rotation: QuaternionSchema.default({ x: 0, y: 0, z: 0, w: 1 }),
-    cameraOrientation: CameraSchema.default({
-        alpha: -Math.PI / 2,
-        beta: Math.PI / 3,
-        radius: 5,
+// Schema with defaults and automatic Map/object conversion
+export const AvatarMetadataWithDefaultsSchema = z.preprocess(
+    (data) => {
+        // Convert Map to object if needed
+        if (data instanceof Map) {
+            return Object.fromEntries(data);
+        }
+        // Ensure we have an object
+        if (typeof data === "object" && data !== null) {
+            return data;
+        }
+        // Return empty object for invalid inputs
+        return {};
+    },
+    z.object({
+        type: z.literal("avatar").default("avatar"),
+        sessionId: z.coerce.string().nullable().default(null),
+        position: Vector3Schema.default({ x: 0, y: 0, z: -5 }),
+        rotation: QuaternionSchema.default({ x: 0, y: 0, z: 0, w: 1 }),
+        cameraOrientation: CameraSchema.default({
+            alpha: -Math.PI / 2,
+            beta: Math.PI / 3,
+            radius: 5,
+        }),
+        modelFileName: z.coerce.string().default("babylon.avatar.glb"),
     }),
-    jointTransformsLocal: z
-        .record(
-            z.object({
-                position: Vector3Schema,
-                rotation: QuaternionSchema,
-                scale: Vector3Schema,
-            }),
-        )
-        .default({}),
-    modelFileName: z.coerce.string().default("babylon.avatar.glb"),
-});
+);
 
 export type AvatarMetadataWithDefaults = z.infer<
     typeof AvatarMetadataWithDefaultsSchema
 >;
-
-// Helper function to safely convert Map or object to validated AvatarMetadata
-export function parseAvatarMetadata(
-    data: Map<string, unknown> | Record<string, unknown> | unknown,
-): AvatarMetadataWithDefaults {
-    // Convert Map to object if needed
-    const obj =
-        data instanceof Map
-            ? Object.fromEntries(data)
-            : typeof data === "object" && data !== null
-              ? data
-              : {};
-
-    // Parse with defaults
-    return AvatarMetadataWithDefaultsSchema.parse(obj);
-}
-
-// Helper to validate partial updates
-export function validateAvatarMetadataUpdate(
-    update: Partial<AvatarMetadata>,
-): Partial<AvatarMetadata> {
-    // Create a partial schema that validates only provided fields
-    const partialSchema = AvatarMetadataSchema.partial();
-    return partialSchema.parse(update);
-}
 
 export const ModelMetadataSchema = z.object({
     type: z.literal("Model"),

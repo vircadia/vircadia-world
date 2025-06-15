@@ -256,7 +256,7 @@ async function pollForOtherAvatars() {
                             rotation: { x: 0, y: 0, z: 0, w: 1 },
                             cameraOrientation: { alpha: 0, beta: 0, radius: 5 },
                             modelFileName: "",
-                            jointTransformsLocal: {},
+                            // joints are now stored as separate metadata entries
                         });
                     }
                 }

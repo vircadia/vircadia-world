@@ -60,6 +60,26 @@ CREATE TABLE tick.entity_states (
         REFERENCES tick.world_ticks(general__tick_id) ON DELETE CASCADE
 );
 
+-- 2.3 ENTITY METADATA STATES TABLE
+CREATE TABLE tick.entity_metadata_states (
+    LIKE entity.entity_metadata INCLUDING DEFAULTS EXCLUDING CONSTRAINTS,
+
+    -- Additional metadata for state tracking
+    general__tick_id uuid NOT NULL,
+    general__metadata_state_id uuid DEFAULT uuid_generate_v4(),
+
+    -- Override the primary key
+    CONSTRAINT entity_metadata_states_pkey PRIMARY KEY (general__metadata_state_id),
+
+    -- Add foreign key constraint for sync_group
+    CONSTRAINT entity_metadata_states_sync_group_fkey FOREIGN KEY (group__sync)
+        REFERENCES auth.sync_groups(general__sync_group),
+
+    -- Add foreign key constraint to world_ticks with cascade delete
+    CONSTRAINT entity_metadata_states_tick_fkey FOREIGN KEY (general__tick_id)
+        REFERENCES tick.world_ticks(general__tick_id) ON DELETE CASCADE
+);
+
 -- ============================================================================
 -- 3. INDEXES
 -- ============================================================================
@@ -78,6 +98,13 @@ CREATE INDEX idx_entity_states_sync_tick ON tick.entity_states (group__sync, gen
 -- Fast lookups of entity states by tick and entity ID
 CREATE INDEX idx_entity_states_tick_entity_name ON tick.entity_states (general__tick_id, general__entity_name);
 
+-- 3.3 ENTITY METADATA STATES INDEXES
+CREATE INDEX entity_metadata_states_lookup_idx ON tick.entity_metadata_states (general__entity_name, metadata__key, general__tick_id);
+CREATE INDEX entity_metadata_states_tick_idx ON tick.entity_metadata_states (general__tick_id);
+CREATE INDEX entity_metadata_states_sync_group_tick_idx ON tick.entity_metadata_states (group__sync, general__tick_id DESC);
+CREATE INDEX idx_entity_metadata_states_key ON tick.entity_metadata_states (metadata__key);
+CREATE INDEX idx_entity_metadata_states_updated ON tick.entity_metadata_states (general__updated_at);
+
 -- Optimized index for finding latest ticks by sync group with covering columns
 CREATE INDEX idx_world_ticks_sync_number_covering ON tick.world_ticks
     (group__sync, tick__number DESC)
@@ -91,14 +118,10 @@ CREATE INDEX idx_entity_states_updated_at ON tick.entity_states
 -- Space-efficient BRIN index for time-series data
 CREATE INDEX idx_world_ticks_time_brin ON tick.world_ticks USING BRIN (tick__start_time);
 
--- Composite index for tick + sync group lookup patterns (removed meta__data from INCLUDE to avoid size limits)
+-- Composite index for tick + sync group lookup patterns
 CREATE INDEX idx_entity_states_sync_tick_composite ON tick.entity_states
     (group__sync, general__tick_id)
     INCLUDE (general__entity_name);
-
--- Hash-based index for large metadata comparison (useful for detecting changes)
-CREATE INDEX idx_entity_states_metadata_hash ON tick.entity_states
-    (group__sync, general__tick_id, md5(meta__data::text));
 
 -- ============================================================================
 -- 4. FUNCTIONS
@@ -238,15 +261,12 @@ BEGIN
             general__initialized_by,
             general__expiry__delete_since_updated_at_ms,
             general__expiry__delete_since_created_at_ms,
-            meta__data,
             group__sync,
             general__created_at,
             general__created_by,
             general__updated_at,
             general__updated_by,
-            general__tick_id,
-            -- Include the timestamp columns from the source table if they exist
-            meta_data_updated_at
+            general__tick_id
         )
         SELECT
             e.general__entity_name,
@@ -256,20 +276,51 @@ BEGIN
             e.general__initialized_by,
             e.general__expiry__delete_since_updated_at_ms,
             e.general__expiry__delete_since_created_at_ms,
-            e.meta__data,
             e.group__sync,
             e.general__created_at,
             e.general__created_by,
             e.general__updated_at,
             e.general__updated_by,
-            v_tick_id,
-            -- Copy timestamp columns if they exist in the source table
-            e.meta_data_updated_at
+            v_tick_id
         FROM entity.entities e
         WHERE e.group__sync = p_sync_group
         RETURNING 1
     )
     SELECT COUNT(*) INTO v_entity_states_processed FROM entity_snapshot;
+
+    -- Capture entity metadata states
+    WITH metadata_snapshot AS (
+        INSERT INTO tick.entity_metadata_states (
+            general__entity_name,
+            metadata__key,
+            metadata__value,
+            group__sync,
+            general__created_at,
+            general__created_by,
+            general__updated_at,
+            general__updated_by,
+            general__tick_id
+        )
+        SELECT
+            em.general__entity_name,
+            em.metadata__key,
+            em.metadata__value,
+            em.group__sync,
+            em.general__created_at,
+            em.general__created_by,
+            em.general__updated_at,
+            em.general__updated_by,
+            v_tick_id
+        FROM entity.entity_metadata em
+        WHERE em.group__sync = p_sync_group
+        RETURNING 1
+    )
+    SELECT COUNT(*) INTO v_entity_states_processed 
+    FROM (
+        SELECT 1 FROM entity_snapshot
+        UNION ALL
+        SELECT 1 FROM metadata_snapshot
+    ) combined;
 
     -- Calculate tick duration, delay & headroom
     v_end_time := clock_timestamp();
@@ -337,6 +388,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- 5.1 ENABLE ROW LEVEL SECURITY ON ALL TABLES
 ALTER TABLE tick.world_ticks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tick.entity_states ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tick.entity_metadata_states ENABLE ROW LEVEL SECURITY;
 
 -- ============================================================================
 -- 6. POLICIES
@@ -394,6 +446,32 @@ CREATE POLICY "entity_states_insert_policy" ON tick.entity_states
     WITH CHECK (auth.is_admin_agent());
 
 CREATE POLICY "entity_states_delete_policy" ON tick.entity_states
+    FOR DELETE
+    USING (auth.is_admin_agent());
+
+-- 6.3 ENTITY METADATA STATES POLICIES
+CREATE POLICY "entity_metadata_states_read_policy" ON tick.entity_metadata_states
+    FOR SELECT
+    USING (
+        auth.is_admin_agent()
+        OR auth.is_system_agent()
+        OR EXISTS (
+            SELECT 1
+            FROM auth.active_sync_group_sessions sess
+            WHERE sess.auth__agent_id = auth.current_agent_id()
+              AND sess.group__sync = tick.entity_metadata_states.group__sync
+        )
+    );
+
+CREATE POLICY "entity_metadata_states_update_policy" ON tick.entity_metadata_states
+    FOR UPDATE
+    USING (auth.is_admin_agent());
+
+CREATE POLICY "entity_metadata_states_insert_policy" ON tick.entity_metadata_states
+    FOR INSERT
+    WITH CHECK (auth.is_admin_agent());
+
+CREATE POLICY "entity_metadata_states_delete_policy" ON tick.entity_metadata_states
     FOR DELETE
     USING (auth.is_admin_agent());
 

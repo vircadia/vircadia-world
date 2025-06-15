@@ -11,7 +11,6 @@ import type {
 } from "../composables/schemas";
 import { ModelMetadataSchema } from "../composables/schemas";
 import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
-import { useEntity } from "@vircadia/world-sdk/browser/vue";
 import { useDebounceFn } from "@vueuse/core";
 import { useBabylonModelLoader } from "../composables/useBabylonModelLoader";
 import { useBabylonModelPhysics } from "../composables/useBabylonModelPhysics";
@@ -41,6 +40,12 @@ if (!vircadia) {
 const appStore = useAppStore();
 const { sessionId } = toRefs(appStore);
 
+// Entity state management
+const entityMetadata = ref<ModelMetadata | null>(null);
+const isRetrieving = ref(false);
+const isCreating = ref(false);
+const isUpdating = ref(false);
+
 // Setup model entity inline (similar to BabylonMyAvatar.vue)
 const getInitialMeta: () => ModelMetadata = () => ({
     type: "Model" as const,
@@ -50,77 +55,75 @@ const getInitialMeta: () => ModelMetadata = () => ({
     ownerSessionId: props.def.ownerSessionId ?? null,
 });
 
-const entity = useEntity({
-    entityName: entityNameRef,
-    metaDataSchema: ModelMetadataSchema,
-    defaultMetaData: getInitialMeta(),
-});
-
 // Debounced update function using JSON path operations for granular updates
 const debouncedUpdate = useDebounceFn(async () => {
-    if (!entity.entityData.value?.general__entity_name) {
-        console.warn("Cannot update entity: No entity name available");
+    if (!entityMetadata.value || !entityNameRef.value) {
+        console.warn("Cannot update entity: No entity data available");
         return;
     }
 
-    const currentMeta = entity.entityData.value.meta__data;
+    const currentMeta = entityMetadata.value;
     const newPos = props.def.position ?? { x: 0, y: 0, z: 0 };
     const newRot = props.def.rotation ?? { x: 0, y: 0, z: 0, w: 1 };
 
     try {
+        isUpdating.value = true;
+
         // Update position using JSON path operation
         if (
-            currentMeta?.position &&
+            currentMeta.position &&
             (currentMeta.position.x !== newPos.x ||
                 currentMeta.position.y !== newPos.y ||
                 currentMeta.position.z !== newPos.z)
         ) {
-            await entity.executeUpdate(
-                "meta__data = jsonb_set(meta__data, '{position}', $1)",
-                [newPos],
-            );
+            await vircadia.client.Utilities.Connection.query({
+                query: "UPDATE entity.entities SET meta__data = jsonb_set(meta__data, '{position}', $1) WHERE general__entity_name = $2",
+                parameters: [newPos, entityNameRef.value],
+            });
         }
 
         // Update rotation using JSON path operation
         if (
-            currentMeta?.rotation &&
+            currentMeta.rotation &&
             (currentMeta.rotation.x !== newRot.x ||
                 currentMeta.rotation.y !== newRot.y ||
                 currentMeta.rotation.z !== newRot.z ||
                 currentMeta.rotation.w !== newRot.w)
         ) {
-            await entity.executeUpdate(
-                "meta__data = jsonb_set(meta__data, '{rotation}', $1)",
-                [JSON.stringify(newRot)],
-            );
+            await vircadia.client.Utilities.Connection.query({
+                query: "UPDATE entity.entities SET meta__data = jsonb_set(meta__data, '{rotation}', $1) WHERE general__entity_name = $2",
+                parameters: [JSON.stringify(newRot), entityNameRef.value],
+            });
         }
 
         // Update type if changed
-        if (currentMeta?.type !== "Model") {
-            await entity.executeUpdate(
-                "meta__data = jsonb_set(meta__data, '{type}', $1)",
-                ["Model"],
-            );
+        if (currentMeta.type !== "Model") {
+            await vircadia.client.Utilities.Connection.query({
+                query: "UPDATE entity.entities SET meta__data = jsonb_set(meta__data, '{type}', $1) WHERE general__entity_name = $2",
+                parameters: ["Model", entityNameRef.value],
+            });
         }
 
         // Update modelFileName if changed
-        if (currentMeta?.modelFileName !== props.def.fileName) {
-            await entity.executeUpdate(
-                "meta__data = jsonb_set(meta__data, '{modelFileName}', $1)",
-                [props.def.fileName],
-            );
+        if (currentMeta.modelFileName !== props.def.fileName) {
+            await vircadia.client.Utilities.Connection.query({
+                query: "UPDATE entity.entities SET meta__data = jsonb_set(meta__data, '{modelFileName}', $1) WHERE general__entity_name = $2",
+                parameters: [props.def.fileName, entityNameRef.value],
+            });
         }
 
         // Update ownerSessionId if changed
         const currentOwnerSessionId = props.def.ownerSessionId ?? null;
-        if (currentMeta?.ownerSessionId !== currentOwnerSessionId) {
-            await entity.executeUpdate(
-                "meta__data = jsonb_set(meta__data, '{ownerSessionId}', $1)",
-                [currentOwnerSessionId],
-            );
+        if (currentMeta.ownerSessionId !== currentOwnerSessionId) {
+            await vircadia.client.Utilities.Connection.query({
+                query: "UPDATE entity.entities SET meta__data = jsonb_set(meta__data, '{ownerSessionId}', $1) WHERE general__entity_name = $2",
+                parameters: [currentOwnerSessionId, entityNameRef.value],
+            });
         }
     } catch (e: unknown) {
         console.error("Entity update failed:", e);
+    } finally {
+        isUpdating.value = false;
     }
 }, props.def.throttleInterval ?? 1000);
 
@@ -140,8 +143,38 @@ watch(
     async (s) => {
         if (s) {
             await loadModel(s);
+
             // Always attempt to retrieve existing entity
-            entity.executeRetrieve("general__entity_name, meta__data");
+            isRetrieving.value = true;
+            try {
+                const result = await vircadia.client.Utilities.Connection.query(
+                    {
+                        query: "SELECT general__entity_name, meta__data FROM entity.entities WHERE general__entity_name = $1",
+                        parameters: [entityNameRef.value],
+                    },
+                );
+
+                if (Array.isArray(result.result) && result.result.length > 0) {
+                    const data = result.result[0];
+                    // Validate with schema
+                    const parsed = ModelMetadataSchema.safeParse(
+                        data.meta__data,
+                    );
+                    if (parsed.success) {
+                        entityMetadata.value = parsed.data;
+                    } else {
+                        console.warn("Invalid model metadata:", parsed.error);
+                        entityMetadata.value = null;
+                    }
+                } else {
+                    entityMetadata.value = null;
+                }
+            } catch (e) {
+                console.error("Entity retrieve failed:", e);
+            } finally {
+                isRetrieving.value = false;
+            }
+
             // Apply physics if enabled after model load
             if (props.def.enablePhysics) {
                 applyPhysics(s);
@@ -153,32 +186,42 @@ watch(
 
 // Computed properties to access metadata values
 const isPusher = computed(() => {
-    return (
-        entity.entityData.value?.meta__data?.ownerSessionId === sessionId.value
-    );
+    return entityMetadata.value?.ownerSessionId === sessionId.value;
 });
 
 // Ensure entity exists: if retrieve completes with no data, create then retrieve again (push mode only)
 watch(
-    [
-        isPusher,
-        () => entity.retrieving.value,
-        () => entity.error.value,
-        () => entity.entityData.value,
-    ],
-    ([isPush, retrieving, error, data], [wasPush, wasRetrieving]) => {
+    [isPusher, () => isRetrieving.value, () => entityMetadata.value],
+    async ([isPush, retrieving, metadata], [wasPush, wasRetrieving]) => {
         if (isPush && wasRetrieving && !retrieving) {
-            if (!data && !error) {
-                entity
-                    .executeCreate(
-                        "(general__entity_name, meta__data) VALUES ($1, $2) RETURNING general__entity_name",
-                        [entityNameRef.value, getInitialMeta()],
-                    )
-                    .then(() =>
-                        entity.executeRetrieve(
-                            "general__entity_name, meta__data",
-                        ),
-                    );
+            if (!metadata) {
+                // Create entity
+                isCreating.value = true;
+                try {
+                    const result =
+                        await vircadia.client.Utilities.Connection.query({
+                            query: "INSERT INTO entity.entities (general__entity_name, meta__data) VALUES ($1, $2) RETURNING general__entity_name, meta__data",
+                            parameters: [entityNameRef.value, getInitialMeta()],
+                        });
+
+                    // Retrieve again to get the created entity
+                    if (
+                        Array.isArray(result.result) &&
+                        result.result.length > 0
+                    ) {
+                        const data = result.result[0];
+                        const parsed = ModelMetadataSchema.safeParse(
+                            data.meta__data,
+                        );
+                        if (parsed.success) {
+                            entityMetadata.value = parsed.data;
+                        }
+                    }
+                } catch (e) {
+                    console.error("Entity create failed:", e);
+                } finally {
+                    isCreating.value = false;
+                }
             }
         }
     },
@@ -221,7 +264,7 @@ watch(
 watch(
     [isPusher, () => props.def.position, () => props.def.rotation],
     ([isPush, pos, rot]) => {
-        if (isPush && pos && rot && entity.entityData.value) {
+        if (isPush && pos && rot && entityMetadata.value) {
             debouncedUpdate();
         }
     },
@@ -230,7 +273,6 @@ watch(
 
 // Clean up on unmount
 onUnmounted(() => {
-    entity.cleanup();
     asset.cleanup();
     removePhysics();
     for (const m of meshes.value) {
@@ -242,8 +284,8 @@ onUnmounted(() => {
 // isLoading combines asset loading and initial entity retrieval/creation only
 defineExpose({
     isAssetLoading: asset.loading,
-    isEntityRetrieving: entity.retrieving,
-    isEntityCreating: entity.creating,
-    isEntityUpdating: entity.updating,
+    isEntityRetrieving: isRetrieving,
+    isEntityCreating: isCreating,
+    isEntityUpdating: isUpdating,
 });
 </script>

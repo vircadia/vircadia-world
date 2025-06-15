@@ -40,7 +40,6 @@ import "@babylonjs/loaders/glTF";
 // Debug viewers import
 import { SkeletonViewer, AxesViewer } from "@babylonjs/core/Debug";
 
-import { useEntity } from "@vircadia/world-sdk/browser/vue";
 import { useThrottleFn } from "@vueuse/core";
 
 import { useBabylonAvatarKeyboardMouseControls } from "../composables/useBabylonAvatarKeyboardMouseControls";
@@ -194,31 +193,24 @@ const {
 );
 const { keyState } = useBabylonAvatarKeyboardMouseControls(props.scene);
 
-// Setup avatar entity inline
-const avatarEntity = useEntity({
-    entityName: entityName,
-    metaDataSchema: AvatarMetadataSchema,
-    defaultMetaData: {
-        type: "avatar",
-        sessionId: fullSessionId.value,
-        position: initialPosition.value,
-        rotation: initialRotation.value,
-        cameraOrientation: cameraOrientation.value,
-        jointTransformsLocal: {},
-        modelFileName: modelFileName.value,
-    },
-});
+// Throttled update function using direct queries
 const throttledUpdate = useThrottleFn(async () => {
-    if (!avatarEntity.entityData.value?.general__entity_name) {
+    if (!entityData.value?.general__entity_name) {
         return;
     }
 
-    const currentMeta = avatarEntity.entityData.value.meta__data;
+    const currentMeta = entityData.value.meta__data;
     if (!currentMeta) {
         return;
     }
 
     try {
+        if (!vircadiaWorld) {
+            throw new Error("Vircadia instance not found in BabylonMyAvatar");
+        }
+
+        isUpdating.value = true;
+
         // Get current transform data
         const currentPos = getPosition();
         const currentRot = getOrientation();
@@ -247,10 +239,10 @@ const throttledUpdate = useThrottleFn(async () => {
                     currentMeta.position.y !== newPos.y ||
                     currentMeta.position.z !== newPos.z)
             ) {
-                await avatarEntity.executeUpdate(
-                    "meta__data = jsonb_set(meta__data, '{position}', $1)",
-                    [newPos],
-                );
+                await vircadiaWorld.client.Utilities.Connection.query({
+                    query: "UPDATE entity.entities SET meta__data = jsonb_set(meta__data, '{position}', $1) WHERE general__entity_name = $2",
+                    parameters: [newPos, entityName.value],
+                });
             }
         }
 
@@ -264,10 +256,10 @@ const throttledUpdate = useThrottleFn(async () => {
                     currentMeta.rotation.z !== newRot.z ||
                     currentMeta.rotation.w !== newRot.w)
             ) {
-                await avatarEntity.executeUpdate(
-                    "meta__data = jsonb_set(meta__data, '{rotation}', $1)",
-                    [newRot],
-                );
+                await vircadiaWorld.client.Utilities.Connection.query({
+                    query: "UPDATE entity.entities SET meta__data = jsonb_set(meta__data, '{rotation}', $1) WHERE general__entity_name = $2",
+                    parameters: [newRot, entityName.value],
+                });
             }
         }
 
@@ -281,34 +273,34 @@ const throttledUpdate = useThrottleFn(async () => {
                 currentMeta.cameraOrientation.radius !==
                     cameraOrientation.value.radius)
         ) {
-            await avatarEntity.executeUpdate(
-                "meta__data = jsonb_set(meta__data, '{cameraOrientation}', $1)",
-                [cameraOrientation.value],
-            );
+            await vircadiaWorld.client.Utilities.Connection.query({
+                query: "UPDATE entity.entities SET meta__data = jsonb_set(meta__data, '{cameraOrientation}', $1) WHERE general__entity_name = $2",
+                parameters: [cameraOrientation.value, entityName.value],
+            });
         }
 
         // Update type if changed
         if (currentMeta.type !== "avatar") {
-            await avatarEntity.executeUpdate(
-                "meta__data = jsonb_set(meta__data, '{type}', $1)",
-                ["avatar"],
-            );
+            await vircadiaWorld.client.Utilities.Connection.query({
+                query: "UPDATE entity.entities SET meta__data = jsonb_set(meta__data, '{type}', $1) WHERE general__entity_name = $2",
+                parameters: ["avatar", entityName.value],
+            });
         }
 
         // Update sessionId if changed
         if (currentMeta.sessionId !== fullSessionId.value) {
-            await avatarEntity.executeUpdate(
-                "meta__data = jsonb_set(meta__data, '{sessionId}', $1)",
-                [fullSessionId.value],
-            );
+            await vircadiaWorld.client.Utilities.Connection.query({
+                query: "UPDATE entity.entities SET meta__data = jsonb_set(meta__data, '{sessionId}', $1) WHERE general__entity_name = $2",
+                parameters: [fullSessionId.value, entityName.value],
+            });
         }
 
         // Update modelFileName if changed
         if (currentMeta.modelFileName !== modelFileName.value) {
-            await avatarEntity.executeUpdate(
-                "meta__data = jsonb_set(meta__data, '{modelFileName}', $1)",
-                [modelFileName.value],
-            );
+            await vircadiaWorld.client.Utilities.Connection.query({
+                query: "UPDATE entity.entities SET meta__data = jsonb_set(meta__data, '{modelFileName}', $1) WHERE general__entity_name = $2",
+                parameters: [modelFileName.value, entityName.value],
+            });
         }
 
         // Update joint transforms in LOCAL SPACE - Send ALL joints now
@@ -347,16 +339,18 @@ const throttledUpdate = useThrottleFn(async () => {
         updatedMetadata.jointTransformsLocal = jointTransformsLocal;
 
         if (Object.keys(jointTransformsLocal).length > 0) {
-            await avatarEntity.executeUpdate(
-                "meta__data = jsonb_set(meta__data, '{jointTransformsLocal}', $1)",
-                [jointTransformsLocal],
-            );
+            await vircadiaWorld.client.Utilities.Connection.query({
+                query: "UPDATE entity.entities SET meta__data = jsonb_set(meta__data, '{jointTransformsLocal}', $1) WHERE general__entity_name = $2",
+                parameters: [jointTransformsLocal, entityName.value],
+            });
         }
 
         // Push updated metadata to app store
         appStore.setMyAvatarMetadata(updatedMetadata);
     } catch (error) {
         console.error("Avatar metadata update failed:", error);
+    } finally {
+        isUpdating.value = false;
     }
 }, AVATAR_DATA_THROTTLE_INTERVAL_MS);
 
@@ -504,6 +498,14 @@ const vircadiaWorld = inject(useVircadiaInstance());
 if (!vircadiaWorld) {
     throw new Error("Vircadia instance not found in BabylonMyAvatar");
 }
+
+const entityData = ref<{
+    general__entity_name: string;
+    meta__data: AvatarMetadata;
+} | null>(null);
+const isRetrieving = ref(false);
+const isCreating = ref(false);
+const isUpdating = ref(false);
 
 // Audio stream is now handled by the BabylonWebRTC component
 
@@ -664,32 +666,112 @@ let debugInterval: number | null = null;
 onMounted(async () => {
     // Watch for connection established
     if (vircadiaWorld.connectionInfo.value.status === "connected") {
-        if (!(await avatarEntity.exists())) {
-            await avatarEntity.executeCreate(
-                "(general__entity_name, meta__data) VALUES ($1, $2) RETURNING general__entity_name",
-                [
-                    entityName.value,
-                    {
-                        type: "avatar",
-                        sessionId: sessionId.value,
-                        position: initialPosition.value,
-                        rotation: initialRotation.value,
-                        cameraOrientation: cameraOrientation.value,
-                        jointTransformsLocal: {},
-                        modelFileName: modelFileName.value,
-                    },
-                ],
-            );
+        // Check if entity exists
+        const existsResult =
+            await vircadiaWorld.client.Utilities.Connection.query({
+                query: "SELECT 1 FROM entity.entities WHERE general__entity_name = $1",
+                parameters: [entityName.value],
+            });
+
+        const exists =
+            Array.isArray(existsResult.result) &&
+            existsResult.result.length > 0;
+
+        if (!exists) {
+            isCreating.value = true;
+            try {
+                await vircadiaWorld.client.Utilities.Connection.query({
+                    query: "INSERT INTO entity.entities (general__entity_name, meta__data) VALUES ($1, $2) RETURNING general__entity_name",
+                    parameters: [
+                        entityName.value,
+                        {
+                            type: "avatar",
+                            sessionId: sessionId.value,
+                            position: initialPosition.value,
+                            rotation: initialRotation.value,
+                            cameraOrientation: cameraOrientation.value,
+                            jointTransformsLocal: {},
+                            modelFileName: modelFileName.value,
+                        },
+                    ],
+                });
+            } catch (e) {
+                console.error("Failed to create avatar entity:", e);
+            } finally {
+                isCreating.value = false;
+            }
         }
-        avatarEntity.executeRetrieve("general__entity_name, meta__data");
+
+        // Retrieve entity data
+        isRetrieving.value = true;
+        try {
+            const result =
+                await vircadiaWorld.client.Utilities.Connection.query({
+                    query: "SELECT general__entity_name, meta__data FROM entity.entities WHERE general__entity_name = $1",
+                    parameters: [entityName.value],
+                });
+
+            if (Array.isArray(result.result) && result.result.length > 0) {
+                const data = result.result[0];
+                // Validate with schema
+                const parsed = AvatarMetadataSchema.safeParse(data.meta__data);
+                if (parsed.success) {
+                    entityData.value = {
+                        general__entity_name: data.general__entity_name,
+                        meta__data: parsed.data,
+                    };
+                } else {
+                    console.warn("Invalid avatar metadata:", parsed.error);
+                }
+            }
+        } catch (e) {
+            console.error("Failed to retrieve avatar entity:", e);
+        } finally {
+            isRetrieving.value = false;
+        }
     } else {
         connectionStatusWatcher = watch(
             () => vircadiaWorld.connectionInfo.value.status,
-            (status) => {
+            async (status) => {
                 if (status === "connected") {
-                    avatarEntity.executeRetrieve(
-                        "general__entity_name, meta__data",
-                    );
+                    // Retrieve entity data when connected
+                    isRetrieving.value = true;
+                    try {
+                        const result =
+                            await vircadiaWorld.client.Utilities.Connection.query(
+                                {
+                                    query: "SELECT general__entity_name, meta__data FROM entity.entities WHERE general__entity_name = $1",
+                                    parameters: [entityName.value],
+                                },
+                            );
+
+                        if (
+                            Array.isArray(result.result) &&
+                            result.result.length > 0
+                        ) {
+                            const data = result.result[0];
+                            // Validate with schema
+                            const parsed = AvatarMetadataSchema.safeParse(
+                                data.meta__data,
+                            );
+                            if (parsed.success) {
+                                entityData.value = {
+                                    general__entity_name:
+                                        data.general__entity_name,
+                                    meta__data: parsed.data,
+                                };
+                            } else {
+                                console.warn(
+                                    "Invalid avatar metadata:",
+                                    parsed.error,
+                                );
+                            }
+                        }
+                    } catch (e) {
+                        console.error("Failed to retrieve avatar entity:", e);
+                    } finally {
+                        isRetrieving.value = false;
+                    }
                     connectionStatusWatcher?.();
                 }
             },
@@ -698,7 +780,7 @@ onMounted(async () => {
 
     // Watch for entity data changes
     entityDataWatcher = watch(
-        () => avatarEntity.entityData.value,
+        () => entityData.value,
         async (data) => {
             const meta = data?.meta__data;
             if (meta && !characterController.value) {
@@ -1420,15 +1502,14 @@ onUnmounted(() => {
         axesViewer = null;
     }
     avatarNode.value?.dispose();
-    avatarEntity.cleanup();
 });
 
 defineExpose({
-    isRetrieving: avatarEntity.retrieving.value,
-    isCreating: avatarEntity.creating.value,
-    isUpdating: avatarEntity.updating.value,
-    hasError: avatarEntity.error.value,
-    errorMessage: avatarEntity.error.value,
+    isRetrieving,
+    isCreating,
+    isUpdating,
+    hasError: computed(() => false), // We don't track errors separately now
+    errorMessage: computed(() => null), // No error tracking
     getPosition,
     setPosition,
     getOrientation,

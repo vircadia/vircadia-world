@@ -20,6 +20,7 @@ export class WorldStateManager {
     private processingTicks: Set<string> = new Set(); // Track which sync groups are currently processing
     private pendingTicks: Map<string, boolean> = new Map(); // Track pending ticks for sync groups
     private entityExpiryIntervalId: Timer | null = null;
+    private metadataExpiryIntervalId: Timer | null = null;
     private entityConfig: Config.I_EntityConfig | null = null;
 
     async initialize() {
@@ -92,6 +93,17 @@ export class WorldStateManager {
                                       }
                                     : null,
                             },
+                            metadataExpiry: {
+                                enabled: !!this.entityConfig,
+                                intervalActive: !!this.metadataExpiryIntervalId,
+                                configuration: this.entityConfig
+                                    ? {
+                                          checkIntervalMs:
+                                              this.entityConfig
+                                                  .entity_config__metadata_expiry_check_interval_ms,
+                                      }
+                                    : null,
+                            },
                             memory: {
                                 heapUsed: process.memoryUsage().heapUsed,
                             },
@@ -151,6 +163,8 @@ export class WorldStateManager {
 
                 // Start entity expiry checking interval
                 this.startEntityExpiryChecking();
+                // Start metadata expiry checking interval
+                this.startMetadataExpiryChecking();
             } else {
                 BunLogModule({
                     message: "No entity configuration found in database",
@@ -177,7 +191,7 @@ export class WorldStateManager {
             }
 
             BunLogModule({
-                message: `World State Manager initialized successfully with ${this.syncGroups.size} sync groups and entity expiry checking`,
+                message: `World State Manager initialized successfully with ${this.syncGroups.size} sync groups, entity expiry checking, and metadata expiry checking`,
                 debug: serverConfiguration.VRCA_SERVER_DEBUG,
                 suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "success",
@@ -188,6 +202,9 @@ export class WorldStateManager {
                     entityExpiryInterval:
                         this.entityConfig
                             ?.entity_config__expiry_check_interval_ms,
+                    metadataExpiryInterval:
+                        this.entityConfig
+                            ?.entity_config__metadata_expiry_check_interval_ms,
                 },
             });
         } catch (error) {
@@ -609,6 +626,164 @@ export class WorldStateManager {
         }
     }
 
+    private startMetadataExpiryChecking() {
+        if (!this.entityConfig) {
+            BunLogModule({
+                message:
+                    "Cannot start metadata expiry checking without configuration",
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                type: "error",
+                prefix: LOG_PREFIX,
+            });
+            return;
+        }
+
+        // Clear any existing interval
+        if (this.metadataExpiryIntervalId) {
+            clearTimeout(this.metadataExpiryIntervalId);
+        }
+
+        // Start the expiry checking interval
+        this.metadataExpiryIntervalId = setInterval(() => {
+            this.checkExpiredMetadata().catch((error) => {
+                BunLogModule({
+                    message: `Error in metadata expiry checking: ${error}`,
+                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                    suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                    type: "error",
+                    prefix: LOG_PREFIX,
+                });
+            });
+        }, this.entityConfig.entity_config__metadata_expiry_check_interval_ms);
+
+        BunLogModule({
+            message: `Metadata expiry checking started with interval: ${this.entityConfig.entity_config__metadata_expiry_check_interval_ms}ms`,
+            debug: serverConfiguration.VRCA_SERVER_DEBUG,
+            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+            type: "debug",
+            prefix: LOG_PREFIX,
+        });
+    }
+
+    private async checkExpiredMetadata() {
+        if (!this.superUserSql) {
+            return;
+        }
+
+        try {
+            BunLogModule({
+                message:
+                    "Checking for expired metadata using metadata-specific expiry settings",
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                type: "debug",
+                prefix: LOG_PREFIX,
+            });
+
+            // Find expired metadata using their individual expiry settings
+            const expiredMetadata = await this.superUserSql<
+                Array<{
+                    general__entity_name: string;
+                    metadata__key: string;
+                    general__updated_at: Date;
+                    general__created_at: Date;
+                    general__expiry__delete_since_updated_at_ms: number | null;
+                    general__expiry__delete_since_created_at_ms: number | null;
+                    expiry_reason: string;
+                }>
+            >`
+                SELECT 
+                    general__entity_name,
+                    metadata__key,
+                    general__updated_at,
+                    general__created_at,
+                    general__expiry__delete_since_updated_at_ms,
+                    general__expiry__delete_since_created_at_ms,
+                    CASE 
+                        WHEN general__expiry__delete_since_updated_at_ms IS NOT NULL 
+                             AND EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - general__updated_at)) * 1000 > general__expiry__delete_since_updated_at_ms 
+                        THEN 'inactivity'
+                        WHEN general__expiry__delete_since_created_at_ms IS NOT NULL 
+                             AND EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - general__created_at)) * 1000 > general__expiry__delete_since_created_at_ms 
+                        THEN 'general_expiry'
+                        ELSE 'unknown'
+                    END as expiry_reason
+                FROM entity.entity_metadata 
+                WHERE 
+                    (
+                        (general__expiry__delete_since_updated_at_ms IS NOT NULL 
+                         AND EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - general__updated_at)) * 1000 > general__expiry__delete_since_updated_at_ms)
+                        OR 
+                        (general__expiry__delete_since_created_at_ms IS NOT NULL 
+                         AND EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - general__created_at)) * 1000 > general__expiry__delete_since_created_at_ms)
+                    )
+            `;
+
+            if (expiredMetadata.length > 0) {
+                BunLogModule({
+                    message: `Found ${expiredMetadata.length} expired metadata entries`,
+                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                    suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                    type: "info",
+                    prefix: LOG_PREFIX,
+                    data: {
+                        expiredMetadata: expiredMetadata.map((m) => ({
+                            entityName: m.general__entity_name,
+                            metadataKey: m.metadata__key,
+                            reason: m.expiry_reason,
+                            lastUpdated: m.general__updated_at,
+                            created: m.general__created_at,
+                            inactiveExpiryMs:
+                                m.general__expiry__delete_since_updated_at_ms,
+                            generalExpiryMs:
+                                m.general__expiry__delete_since_created_at_ms,
+                        })),
+                    },
+                });
+
+                // Delete expired metadata entries
+                const metadataToDelete = expiredMetadata.map((m) => ({
+                    entity_name: m.general__entity_name,
+                    metadata_key: m.metadata__key,
+                }));
+
+                // Delete using composite primary key
+                for (const metadata of metadataToDelete) {
+                    await this.superUserSql`
+                        DELETE FROM entity.entity_metadata 
+                        WHERE general__entity_name = ${metadata.entity_name}
+                          AND metadata__key = ${metadata.metadata_key}
+                    `;
+                }
+
+                BunLogModule({
+                    message: `Successfully deleted ${expiredMetadata.length} expired metadata entries`,
+                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                    suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                    type: "success",
+                    prefix: LOG_PREFIX,
+                });
+            } else {
+                BunLogModule({
+                    message: "No expired metadata found",
+                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                    suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                    type: "debug",
+                    prefix: LOG_PREFIX,
+                });
+            }
+        } catch (error) {
+            BunLogModule({
+                message: `Error checking expired metadata: ${error}`,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                type: "error",
+                prefix: LOG_PREFIX,
+            });
+        }
+    }
+
     stop() {
         for (const [syncGroup, intervalId] of this.intervalIds.entries()) {
             clearTimeout(intervalId);
@@ -619,6 +794,12 @@ export class WorldStateManager {
         if (this.entityExpiryIntervalId) {
             clearInterval(this.entityExpiryIntervalId);
             this.entityExpiryIntervalId = null;
+        }
+
+        // Clear metadata expiry interval
+        if (this.metadataExpiryIntervalId) {
+            clearInterval(this.metadataExpiryIntervalId);
+            this.metadataExpiryIntervalId = null;
         }
 
         BunLogModule({

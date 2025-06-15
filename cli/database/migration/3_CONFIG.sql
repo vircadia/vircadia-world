@@ -15,7 +15,8 @@ CREATE TYPE config.operation_enum AS ENUM ('INSERT', 'UPDATE', 'DELETE');
 -- Entity Configuration
 CREATE TABLE config.entity_config (
     entity_config__script_compilation_timeout_ms INTEGER NOT NULL,
-    entity_config__expiry_check_interval_ms INTEGER NOT NULL
+    entity_config__expiry_check_interval_ms INTEGER NOT NULL,
+    entity_config__metadata_expiry_check_interval_ms INTEGER NOT NULL
 );
 
 -- Network Configuration
@@ -76,10 +77,12 @@ INSERT INTO config.auth_config (
 -- Entity Configuration
 INSERT INTO config.entity_config (
     entity_config__script_compilation_timeout_ms,
-    entity_config__expiry_check_interval_ms
+    entity_config__expiry_check_interval_ms,
+    entity_config__metadata_expiry_check_interval_ms
 ) VALUES (
     30000,    -- 30 seconds for script compilation timeout
-    1000     -- Check for expired entities every 1 second
+    1000,     -- Check for expired entities every 1 second
+    1000      -- Check for expired metadata every 1 second
 );
 
 -- Database Version Configuration

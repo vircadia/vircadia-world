@@ -68,6 +68,8 @@ CREATE TABLE entity.entity_metadata (
     metadata__key TEXT NOT NULL,
     metadata__value JSONB NOT NULL,
     group__sync TEXT NOT NULL,
+    general__expiry__delete_since_updated_at_ms BIGINT DEFAULT NULL, -- Time in milliseconds after which the metadata will be deleted if it is inactive
+    general__expiry__delete_since_created_at_ms BIGINT DEFAULT NULL, -- Time in milliseconds after which the metadata will be deleted even if it is active
     
     PRIMARY KEY (general__entity_name, metadata__key),
     CONSTRAINT fk_entity_metadata_entity FOREIGN KEY (general__entity_name) 
@@ -82,6 +84,8 @@ CREATE INDEX idx_entity_metadata_updated ON entity.entity_metadata(general__upda
 CREATE INDEX idx_entity_metadata_entity_updated ON entity.entity_metadata(general__entity_name, general__updated_at);
 CREATE INDEX idx_entity_metadata_sync_group ON entity.entity_metadata(group__sync);
 CREATE INDEX idx_entity_metadata_value_gin ON entity.entity_metadata USING gin(metadata__value);
+CREATE INDEX idx_entity_metadata_expiry_updated ON entity.entity_metadata(general__expiry__delete_since_updated_at_ms) WHERE general__expiry__delete_since_updated_at_ms IS NOT NULL;
+CREATE INDEX idx_entity_metadata_expiry_created ON entity.entity_metadata(general__expiry__delete_since_created_at_ms) WHERE general__expiry__delete_since_created_at_ms IS NOT NULL;
 
 ALTER TABLE entity.entity_metadata ENABLE ROW LEVEL SECURITY;
 

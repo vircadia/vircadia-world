@@ -251,7 +251,7 @@ BEGIN
         false
     );
 
-    -- Capture entity states (now including timestamp columns)
+    -- Capture entity states and metadata states in a single CTE
     WITH entity_snapshot AS (
         INSERT INTO tick.entity_states (
             general__entity_name,
@@ -285,11 +285,8 @@ BEGIN
         FROM entity.entities e
         WHERE e.group__sync = p_sync_group
         RETURNING 1
-    )
-    SELECT COUNT(*) INTO v_entity_states_processed FROM entity_snapshot;
-
-    -- Capture entity metadata states
-    WITH metadata_snapshot AS (
+    ),
+    metadata_snapshot AS (
         INSERT INTO tick.entity_metadata_states (
             general__entity_name,
             metadata__key,

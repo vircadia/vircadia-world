@@ -173,7 +173,7 @@
 <script setup lang="ts">
 import { ref, computed, inject } from "vue";
 import { useAppStore } from "@/stores/appStore";
-import type { PeerAudioState } from "@/stores/appStore";
+import type { PeerAudioState } from "@/composables/schemas";
 
 // Props
 interface Props {

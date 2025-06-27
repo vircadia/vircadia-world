@@ -49,6 +49,26 @@ export function useWebRTCSpatialAudio(options: SpatialAudioOptions = {}) {
 
             // Set initial listener position
             updateListenerPosition();
+
+            // Resume audio context if suspended (due to browser autoplay policies)
+            if (audioContext.value.state === "suspended") {
+                console.log(
+                    "[SpatialAudio] Audio context suspended, attempting to resume...",
+                );
+                audioContext.value
+                    .resume()
+                    .then(() => {
+                        console.log(
+                            "[SpatialAudio] Audio context resumed successfully",
+                        );
+                    })
+                    .catch((error) => {
+                        console.error(
+                            "[SpatialAudio] Failed to resume audio context:",
+                            error,
+                        );
+                    });
+            }
         } catch (error) {
             console.error(
                 "[SpatialAudio] Failed to initialize audio context:",
@@ -175,6 +195,10 @@ export function useWebRTCSpatialAudio(options: SpatialAudioOptions = {}) {
             audio.srcObject = remoteStream;
             audio.autoplay = true;
             audio.style.display = "none"; // Hidden
+            // CRITICAL: Mute the audio element to prevent double playback
+            // Audio should only play through Web Audio API for spatial processing
+            audio.muted = true;
+            audio.volume = 0;
             document.body.appendChild(audio);
 
             // Create Web Audio nodes
@@ -390,6 +414,31 @@ export function useWebRTCSpatialAudio(options: SpatialAudioOptions = {}) {
         isInitialized.value = false;
     }
 
+    // Resume audio context on user interaction (needed for browser autoplay policies)
+    async function resumeContext() {
+        if (!audioContext.value) {
+            console.warn("[SpatialAudio] No audio context to resume");
+            return false;
+        }
+
+        try {
+            if (audioContext.value.state === "suspended") {
+                await audioContext.value.resume();
+                console.log(
+                    "[SpatialAudio] Audio context resumed after user interaction",
+                );
+                return true;
+            }
+            return audioContext.value.state === "running";
+        } catch (error) {
+            console.error(
+                "[SpatialAudio] Failed to resume audio context:",
+                error,
+            );
+            return false;
+        }
+    }
+
     // Watch for my avatar position changes
     watch(
         () => appStore.myAvatarMetadata,
@@ -438,5 +487,8 @@ export function useWebRTCSpatialAudio(options: SpatialAudioOptions = {}) {
 
         // Settings
         settings,
+
+        // Resume context
+        resumeContext,
     };
 }

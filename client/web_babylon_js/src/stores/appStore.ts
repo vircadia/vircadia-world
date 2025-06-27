@@ -197,10 +197,10 @@ export const useAppStore = defineStore("app", {
             // Avatar discovery interval - how often to check for new avatars
             avatarDiscovery: 2000,
             // Other avatar data polling - how often to fetch other avatars' position/state
-            otherAvatarData: 100,
+            otherAvatarData: 1000,
             // Other avatar joint data polling - how often to fetch other avatars' skeleton joints
             // Using incremental updates (only fetches joints updated since last poll)
-            otherAvatarJointData: 1000,
+            otherAvatarJointData: 2500,
             // WebRTC signaling polling - how often to check for offers/answers
             webRTCSignaling: 1500,
             // WebRTC stale threshold - time before considering signaling data stale
@@ -210,9 +210,9 @@ export const useAppStore = defineStore("app", {
             // Debug overlay refresh rate
             debugOverlayRefresh: 100,
             // Avatar data transmission intervals (position, rotation, camera)
-            avatarData: 100,
+            avatarData: 1000,
             // Avatar joint data transmission interval (skeleton bones) - less frequent
-            avatarJointData: 1000,
+            avatarJointData: 2500,
         },
         // Spatial audio state
         spatialAudioEnabled: false,

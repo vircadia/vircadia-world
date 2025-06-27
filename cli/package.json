@@ -22,8 +22,7 @@
         "build:server:api": "cd ../server/service/api/volume/app && bun run build",
         "build:server:state": "cd ../server/service/state/volume/app && bun run build",
 
-        "dev:client:web_babylon_js:1": "export VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN=$(bun run server:postgres:system-token true) && cd ../client/web_babylon_js/ && bun run dev",
-        "dev:client:web_babylon_js:2": "export VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN=$(bun run server:postgres:system-token true) && export VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST=0.0.0.0 && export VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT=5173 && cd ../client/web_babylon_js/ && bun run dev",
+        "dev:client:web_babylon_js": "export VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN=$(bun run server:postgres:system-token true) && cd ../client/web_babylon_js/ && bun run dev",
 
         "test:0_cli_server_unit": "bun test ./test/0_test_cli_server_unit.ts",
         "test:1_db_unit": "bun run server:run-command down vircadia_world_api_manager vircadia_world_state_manager && bun test ./test/1_test_db_unit.ts && bun run server:run-command up vircadia_world_api_manager vircadia_world_state_manager -d",
@@ -63,7 +62,7 @@
         "@types/node": "catalog:types"
     },
     "engines": {
-        "bun": ">=1.2.4"
+        "bun": ">=1.2.7"
     },
     "module": "index.ts",
     "peerDependencies": {

@@ -8,6 +8,7 @@ import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { sign } from "jsonwebtoken";
 import { BunPostgresClientModule } from "../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
+import { input } from "@inquirer/prompts";
 import {
     type Entity,
     Service,
@@ -2118,6 +2119,40 @@ if (import.meta.main) {
                     args: additionalArgs,
                 });
                 break;
+
+            case "client:set-uri": {
+                // Get the current URI from environment
+                const currentUri =
+                    process.env
+                        .VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI ||
+                    "localhost:3020";
+
+                // Use inquirer to prompt user
+                const newUri = await input({
+                    message: "Enter World API URI:",
+                    default: currentUri,
+                });
+
+                // Set it as an environment variable for the current session
+                process.env.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI =
+                    newUri;
+
+                BunLogModule({
+                    message: `World API URI set to: ${newUri} (for current session only)`,
+                    type: "success",
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                });
+
+                BunLogModule({
+                    message: `To persist this setting, add the following to your shell profile:\nexport VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI="${newUri}"`,
+                    type: "info",
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                });
+
+                break;
+            }
 
             // HOT SYNC MODULE
 

@@ -109,6 +109,9 @@ CREATE TABLE auth.auth_providers (
     provider__token_url TEXT,                       -- OAuth token endpoint
     provider__userinfo_url TEXT,                    -- OAuth userinfo endpoint
     provider__scope TEXT[],                         -- Required OAuth scopes
+    provider__redirect_uris TEXT[],                 -- Allowed redirect URIs for OAuth
+    provider__issuer TEXT,                          -- Identity provider issuer URL
+    provider__jwks_uri TEXT,                        -- JSON Web Key Set endpoint for token validation
     provider__metadata JSONB,                       -- Additional provider-specific configuration
     provider__icon_url TEXT,                        -- URL to provider's icon
     provider__jwt_secret TEXT NOT NULL,             -- JWT signing secret for this provider
@@ -165,6 +168,27 @@ CREATE TABLE auth.sync_groups (
     network__packet_timing_variance_ms INTEGER NOT NULL
 ) INHERITS (auth._template);
 ALTER TABLE auth.sync_groups ENABLE ROW LEVEL SECURITY;
+
+-- OAuth State Cache Table (for PKCE verifiers and other temporary OAuth data)
+CREATE TABLE auth.oauth_state_cache (
+    cache_key TEXT PRIMARY KEY,
+    cache_value TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE auth.oauth_state_cache ENABLE ROW LEVEL SECURITY;
+
+-- Create an index for cleanup of expired entries
+CREATE INDEX idx_oauth_state_cache_expires_at ON auth.oauth_state_cache(expires_at);
+
+-- Function to clean up expired OAuth state cache entries
+CREATE OR REPLACE FUNCTION auth.cleanup_expired_oauth_state_cache()
+RETURNS void AS $$
+BEGIN
+    DELETE FROM auth.oauth_state_cache
+    WHERE expires_at < NOW();
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Sync Group Roles Table
 CREATE TABLE auth.agent_sync_group_roles (

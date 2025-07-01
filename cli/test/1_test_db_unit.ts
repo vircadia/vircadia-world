@@ -1,3 +1,4 @@
+import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import type postgres from "postgres";
 import { BunPostgresClientModule } from "../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
 import type {

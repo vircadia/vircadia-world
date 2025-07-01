@@ -4,11 +4,11 @@
     "": {
       "name": "vircadia-world-cli",
       "dependencies": {
-        "@babylonjs/core": "8.6.1",
-        "@babylonjs/inspector": "8.6.1",
-        "@babylonjs/loaders": "8.6.1",
+        "@babylonjs/core": "8.8.5",
+        "@babylonjs/inspector": "8.8.5",
+        "@babylonjs/loaders": "8.8.5",
         "jsonwebtoken": "^9.0.2",
-        "postgres": "^3.4.5",
+        "postgres": "^3.4.7",
         "zod": "^3.24.3",
       },
       "devDependencies": {
@@ -22,15 +22,15 @@
     },
   },
   "packages": {
-    "@babylonjs/core": ["@babylonjs/core@8.6.1", "", {}, "sha512-7/VhqaDPdtav0vGoGJ7XwGGzhcoeY4M3/C4ROsqHdD8lpsFvG94CDzmIRON+FGSB3mOCB59Vs84SPSpW18Unlg=="],
+    "@babylonjs/core": ["@babylonjs/core@8.8.5", "", {}, "sha512-IrOwzSrE/9WfkgDwhdR4AET7Z1+ftJCZW5sPIdUJFBLT2n6M0Gc3aOyTunwGObDsGbRUZFdZTR+S2rI/YEKfdw=="],
 
     "@babylonjs/gui": ["@babylonjs/gui@8.6.1", "", { "peerDependencies": { "@babylonjs/core": "^8.0.0" } }, "sha512-LuOY5if9jajfSdfjmeaRCFzYQIto6q7AeS6CH/HnOuY7ZAPTx2ITrFGB1sB3DevvLdpPbG4zmpwR5Zf3d1rGhQ=="],
 
     "@babylonjs/gui-editor": ["@babylonjs/gui-editor@8.6.1", "", { "peerDependencies": { "@babylonjs/core": "^8.0.0", "@babylonjs/gui": "^8.0.0", "@types/react": ">=16.7.3", "@types/react-dom": ">=16.0.9" } }, "sha512-de082M6qgWFw+lhPdBZtiHNT2m6H+MkUcKMbKKPKExf4yw2Zgidc+IxuFmhYrVx9/dnzI7+FUcdIiQ4R5ajmbw=="],
 
-    "@babylonjs/inspector": ["@babylonjs/inspector@8.6.1", "", { "dependencies": { "@fortawesome/fontawesome-svg-core": "^6.1.0", "@fortawesome/free-regular-svg-icons": "^6.0.0", "@fortawesome/free-solid-svg-icons": "^6.0.0" }, "peerDependencies": { "@babylonjs/core": "^8.0.0", "@babylonjs/gui": "^8.0.0", "@babylonjs/gui-editor": "^8.0.0", "@babylonjs/loaders": "^8.0.0", "@babylonjs/materials": "^8.0.0", "@babylonjs/serializers": "^8.0.0", "@types/react": ">=16.7.3", "@types/react-dom": ">=16.0.9" } }, "sha512-vsnOT5UMxQFHDBBDNt5WenojObC8/ByOsO3JYLrU1Qc+puw2Hc/63xIB6+oMCorBku6lt7Mh/J9PHrtRGSjBDA=="],
+    "@babylonjs/inspector": ["@babylonjs/inspector@8.8.5", "", { "dependencies": { "@fortawesome/fontawesome-svg-core": "^6.1.0", "@fortawesome/free-regular-svg-icons": "^6.0.0", "@fortawesome/free-solid-svg-icons": "^6.0.0" }, "peerDependencies": { "@babylonjs/core": "^8.0.0", "@babylonjs/gui": "^8.0.0", "@babylonjs/gui-editor": "^8.0.0", "@babylonjs/loaders": "^8.0.0", "@babylonjs/materials": "^8.0.0", "@babylonjs/serializers": "^8.0.0", "@types/react": ">=16.7.3", "@types/react-dom": ">=16.0.9" } }, "sha512-r0RKeu1Xh/622TyIZTE4g86iXriyhQFiQeZ5Ffh11JxQ2ZOerEm99PmylwXpVutLTHNX6xhMhTHoZO7gUGdQ4Q=="],
 
-    "@babylonjs/loaders": ["@babylonjs/loaders@8.6.1", "", { "peerDependencies": { "@babylonjs/core": "^8.0.0", "babylonjs-gltf2interface": "^8.0.0" } }, "sha512-Kv5gYJz5KNLF3txBFDrrxT77qOeHF2msKBI6dVAgRFIuJ60CaC881gWOZl3TkgMDDlUrtyzGMTd8A+coBBAIDg=="],
+    "@babylonjs/loaders": ["@babylonjs/loaders@8.8.5", "", { "peerDependencies": { "@babylonjs/core": "^8.0.0", "babylonjs-gltf2interface": "^8.0.0" } }, "sha512-LMiM9+RNf3I3u2XhEUiwB6vwt2QiSXPw0IHqQezVzJu+Ezek86QBEihlsfuVWAJScvJUyHry+en7EL9UmPRgqA=="],
 
     "@babylonjs/materials": ["@babylonjs/materials@8.6.1", "", { "peerDependencies": { "@babylonjs/core": "^8.0.0" } }, "sha512-uq/agEd0ArINlCX3JB5CNAb77AZT5DYuoR4e3QM8OtxcmZKNTNGJl7co4Hf6hWScNwqoq4EGtvMmgbt/ul95OQ=="],
 
@@ -88,7 +88,7 @@
 
     "ms": ["ms@2.1.3", "", {}, "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA=="],
 
-    "postgres": ["postgres@3.4.5", "", {}, "sha512-cDWgoah1Gez9rN3H4165peY9qfpEo+SA61oQv65O3cRUE1pOEoJWwddwcqKE8XZYjbblOJlYDlLV4h67HrEVDg=="],
+    "postgres": ["postgres@3.4.7", "", {}, "sha512-Jtc2612XINuBjIl/QTWsV5UvE8UHuNblcO3vVADSrKsrc6RqGX6lOW1cEo3CM2v0XG4Nat8nI+YM7/f26VxXLw=="],
 
     "safe-buffer": ["safe-buffer@5.2.1", "", {}, "sha512-rp3So07KcdmmKbGvgaNxQSJr7bGVSVk5S9Eq1F+ppbRo70+YeaDxkw5Dd8NPN+GD6bjnYm2VuPuCXmpuYvmCXQ=="],
 

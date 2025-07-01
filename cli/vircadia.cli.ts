@@ -8,11 +8,12 @@ import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { sign } from "jsonwebtoken";
 import { BunPostgresClientModule } from "../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
+import { input } from "@inquirer/prompts";
 import {
     type Entity,
     Service,
     type Auth,
-} from "../sdk/vircadia-world-sdk-ts/schema/src/index.schema";
+} from "../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 
 // TODO: Optimize the commands, get up and down rebuilds including init to work well.
 
@@ -84,16 +85,16 @@ export namespace Server_CLI {
             VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_PUBLIC_AVAILABLE_AT:
                 serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_PUBLIC_AVAILABLE_AT.toString(),
 
-            VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_CONTAINER_NAME:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_CONTAINER_NAME,
-            VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_INTERNAL:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_INTERNAL,
-            VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_INTERNAL:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_INTERNAL.toString(),
-            VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_EXTERNAL:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
-            VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_EXTERNAL:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString(),
+            VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_CONTAINER_NAME:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_CONTAINER_NAME,
+            VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_INTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_INTERNAL,
+            VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_INTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_INTERNAL.toString(),
+            VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_EXTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
+            VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString(),
         };
 
         // Construct the command
@@ -349,7 +350,7 @@ export namespace Server_CLI {
         };
     }
 
-    export async function isWorldTickManagerHealthy(
+    export async function isWorldStateManagerHealthy(
         wait?:
             | {
                   interval: number;
@@ -373,13 +374,13 @@ export namespace Server_CLI {
                   ? wait
                   : null;
 
-        const checkWorldTickManager = async (): Promise<{
+        const checkWorldStateManager = async (): Promise<{
             isHealthy: boolean;
             error?: Error;
         }> => {
             try {
                 // Host-side health check: fetch stats with x-forwarded-for header
-                const url = `http://${cliConfiguration.VRCA_CLI_SERVICE_WORLD_TICK_MANAGER_HOST}:${cliConfiguration.VRCA_CLI_SERVICE_WORLD_TICK_MANAGER_PORT}${Service.Tick.Stats_Endpoint.path}`;
+                const url = `http://${cliConfiguration.VRCA_CLI_SERVICE_WORLD_STATE_MANAGER_HOST}:${cliConfiguration.VRCA_CLI_SERVICE_WORLD_STATE_MANAGER_PORT}${Service.State.Stats_Endpoint.path}`;
                 const response = await fetch(url, {
                     headers: { "x-forwarded-for": "127.0.0.1" },
                 });
@@ -391,7 +392,7 @@ export namespace Server_CLI {
 
         // If waiting is not enabled, just check once
         if (!waitConfig) {
-            return await checkWorldTickManager();
+            return await checkWorldStateManager();
         }
 
         // With waiting enabled, retry until timeout
@@ -399,7 +400,7 @@ export namespace Server_CLI {
         let lastError: Error | undefined;
 
         while (Date.now() - startTime < waitConfig.timeout) {
-            const result = await checkWorldTickManager();
+            const result = await checkWorldStateManager();
             if (result.isHealthy) {
                 return result;
             }
@@ -440,27 +441,29 @@ export namespace Server_CLI {
 
             // Process system reset files
             let systemResetFiles: string[] = [];
-            try {
-                systemResetFiles = await readdir(systemResetDir, {
-                    recursive: true,
-                });
+            if (systemResetDir) {
+                try {
+                    systemResetFiles = await readdir(systemResetDir, {
+                        recursive: true,
+                    });
 
-                if (systemResetFiles.length === 0) {
+                    if (systemResetFiles.length === 0) {
+                        BunLogModule({
+                            message: `No system reset files found in ${systemResetDir}`,
+                            type: "debug",
+                            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                            debug: cliConfiguration.VRCA_CLI_DEBUG,
+                        });
+                    }
+                } catch (error) {
                     BunLogModule({
-                        message: `No system reset files found in ${systemResetDir}`,
-                        type: "debug",
+                        message: `Error accessing system reset directory: ${systemResetDir}`,
+                        type: "warn",
+                        error,
                         suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                         debug: cliConfiguration.VRCA_CLI_DEBUG,
                     });
                 }
-            } catch (error) {
-                BunLogModule({
-                    message: `Error accessing system reset directory: ${systemResetDir}`,
-                    type: "warn",
-                    error,
-                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                    debug: cliConfiguration.VRCA_CLI_DEBUG,
-                });
             }
 
             // Process user reset files
@@ -516,10 +519,16 @@ export namespace Server_CLI {
                 try {
                     // Determine the correct directory for the file
                     const isUserResetFile = userResetFiles.includes(file);
+                    const isSystemResetFile = systemResetFiles.includes(file);
                     const fileDir =
                         isUserResetFile && userResetDir
                             ? userResetDir
-                            : systemResetDir;
+                            : isSystemResetFile && systemResetDir
+                              ? systemResetDir
+                              : null;
+                    if (!fileDir) {
+                        continue;
+                    }
                     const filePath = path.join(fileDir, file);
 
                     const sqlContent = await readFile(filePath, "utf-8");
@@ -1906,10 +1915,10 @@ if (import.meta.main) {
                 );
                 break;
 
-            case "server:world-tick-manager:health":
+            case "server:world-state-manager:health":
                 await runHealthCommand(
-                    "World Tick Manager",
-                    Server_CLI.isWorldTickManagerHealthy,
+                    "World State Manager",
+                    Server_CLI.isWorldStateManagerHealthy,
                     additionalArgs,
                 );
                 break;
@@ -2110,6 +2119,40 @@ if (import.meta.main) {
                     args: additionalArgs,
                 });
                 break;
+
+            case "client:set-uri": {
+                // Get the current URI from environment
+                const currentUri =
+                    process.env
+                        .VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI ||
+                    "localhost:3020";
+
+                // Use inquirer to prompt user
+                const newUri = await input({
+                    message: "Enter World API URI:",
+                    default: currentUri,
+                });
+
+                // Set it as an environment variable for the current session
+                process.env.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI =
+                    newUri;
+
+                BunLogModule({
+                    message: `World API URI set to: ${newUri} (for current session only)`,
+                    type: "success",
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                });
+
+                BunLogModule({
+                    message: `To persist this setting, add the following to your shell profile:\nexport VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI="${newUri}"`,
+                    type: "info",
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                });
+
+                break;
+            }
 
             // HOT SYNC MODULE
 

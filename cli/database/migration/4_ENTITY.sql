@@ -45,13 +45,13 @@ CREATE TABLE entity.entities (
     general__semantic_version TEXT NOT NULL DEFAULT '1.0.0',
     general__initialized_at TIMESTAMPTZ DEFAULT NULL,
     general__initialized_by UUID DEFAULT NULL,
-    meta__data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    meta__data JSONB DEFAULT NULL,
+    general__expiry__delete_since_updated_at_ms BIGINT DEFAULT NULL, -- Time in milliseconds after which the entity will be deleted if it is inactive
+    general__expiry__delete_since_created_at_ms BIGINT DEFAULT NULL, -- Time in milliseconds after which the entity will be deleted even if it is active
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
     group__load_priority INTEGER NOT NULL DEFAULT 1,
 
-    CONSTRAINT fk_entities_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group),
-
-    meta_data_updated_at timestamptz NOT NULL DEFAULT now()
+    CONSTRAINT fk_entities_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group)
 ) INHERITS (entity._template);
 
 CREATE INDEX idx_entities_load_priority ON entity.entities(group__load_priority) WHERE group__load_priority IS NOT NULL;
@@ -60,6 +60,35 @@ CREATE INDEX idx_entities_updated_at ON entity.entities(general__updated_at);
 CREATE INDEX idx_entities_semantic_version ON entity.entities(general__semantic_version);
 
 ALTER TABLE entity.entities ENABLE ROW LEVEL SECURITY;
+
+
+-- 4.4 ENTITY METADATA TABLE
+-- ============================================================================
+CREATE TABLE entity.entity_metadata (
+    general__entity_name TEXT NOT NULL,
+    metadata__key TEXT NOT NULL,
+    metadata__value JSONB NOT NULL,
+    group__sync TEXT NOT NULL,
+    general__expiry__delete_since_updated_at_ms BIGINT DEFAULT NULL, -- Time in milliseconds after which the metadata will be deleted if it is inactive
+    general__expiry__delete_since_created_at_ms BIGINT DEFAULT NULL, -- Time in milliseconds after which the metadata will be deleted even if it is active
+    
+    PRIMARY KEY (general__entity_name, metadata__key),
+    CONSTRAINT fk_entity_metadata_entity FOREIGN KEY (general__entity_name) 
+        REFERENCES entity.entities(general__entity_name) ON DELETE CASCADE,
+    CONSTRAINT fk_entity_metadata_sync_group FOREIGN KEY (group__sync) 
+        REFERENCES auth.sync_groups(general__sync_group)
+) INHERITS (entity._template);
+
+-- Indexes for efficient queries
+CREATE INDEX idx_entity_metadata_key ON entity.entity_metadata(metadata__key);
+CREATE INDEX idx_entity_metadata_updated ON entity.entity_metadata(general__updated_at);
+CREATE INDEX idx_entity_metadata_entity_updated ON entity.entity_metadata(general__entity_name, general__updated_at);
+CREATE INDEX idx_entity_metadata_sync_group ON entity.entity_metadata(group__sync);
+CREATE INDEX idx_entity_metadata_value_gin ON entity.entity_metadata USING gin(metadata__value);
+CREATE INDEX idx_entity_metadata_expiry_updated ON entity.entity_metadata(general__expiry__delete_since_updated_at_ms) WHERE general__expiry__delete_since_updated_at_ms IS NOT NULL;
+CREATE INDEX idx_entity_metadata_expiry_created ON entity.entity_metadata(general__expiry__delete_since_created_at_ms) WHERE general__expiry__delete_since_created_at_ms IS NOT NULL;
+
+ALTER TABLE entity.entity_metadata ENABLE ROW LEVEL SECURITY;
 
 
 -- ============================================================================
@@ -100,6 +129,16 @@ CREATE TRIGGER update_audit_columns
 -- Trigger for updating audit columns
 CREATE TRIGGER update_audit_columns
     BEFORE UPDATE ON entity.entities
+    FOR EACH ROW
+    EXECUTE FUNCTION entity.update_audit_columns();
+
+
+-- 6.4 ENTITY METADATA TRIGGERS
+-- ============================================================================
+
+-- Update audit columns trigger for entity_metadata
+CREATE TRIGGER update_audit_columns
+    BEFORE UPDATE ON entity.entity_metadata
     FOR EACH ROW
     EXECUTE FUNCTION entity.update_audit_columns();
 
@@ -253,28 +292,77 @@ CREATE POLICY "entities_delete_policy" ON entity.entities
         )
     );
 
+
+-- 7.5 ENTITY METADATA POLICIES
+-- ============================================================================
+-- Grant table permissions to vircadia_agent_proxy for entity_metadata
+GRANT SELECT, INSERT, UPDATE, DELETE ON entity.entity_metadata TO vircadia_agent_proxy;
+
+CREATE POLICY "entity_metadata_read_policy" ON entity.entity_metadata
+    FOR SELECT
+    TO PUBLIC
+    USING (
+        auth.is_admin_agent()
+        OR auth.is_system_agent()
+        OR EXISTS (
+            SELECT 1
+            FROM auth.active_sync_group_sessions sess
+            WHERE sess.auth__agent_id = auth.current_agent_id()
+              AND sess.group__sync = entity.entity_metadata.group__sync
+              AND sess.permissions__can_read = true
+        )
+    );
+
+CREATE POLICY "entity_metadata_update_policy" ON entity.entity_metadata
+    FOR UPDATE
+    TO PUBLIC
+    USING (
+        auth.is_admin_agent()
+        OR auth.is_system_agent()
+        OR EXISTS (
+            SELECT 1
+            FROM auth.active_sync_group_sessions sess
+            WHERE sess.auth__agent_id = auth.current_agent_id()
+              AND sess.group__sync = entity.entity_metadata.group__sync
+              AND sess.permissions__can_update = true
+        )
+    );
+
+CREATE POLICY "entity_metadata_insert_policy" ON entity.entity_metadata
+    FOR INSERT
+    TO PUBLIC
+    WITH CHECK (
+        auth.is_admin_agent()
+        OR auth.is_system_agent()
+        OR EXISTS (
+            SELECT 1
+            FROM auth.active_sync_group_sessions sess
+            WHERE sess.auth__agent_id = auth.current_agent_id()
+              AND sess.group__sync = entity.entity_metadata.group__sync
+              AND sess.permissions__can_insert = true
+        )
+    );
+
+CREATE POLICY "entity_metadata_delete_policy" ON entity.entity_metadata
+    FOR DELETE
+    TO PUBLIC
+    USING (
+        auth.is_admin_agent()
+        OR auth.is_system_agent()
+        OR EXISTS (
+            SELECT 1
+            FROM auth.active_sync_group_sessions sess
+            WHERE sess.auth__agent_id = auth.current_agent_id()
+              AND sess.group__sync = entity.entity_metadata.group__sync
+              AND sess.permissions__can_delete = true
+        )
+    );
+
 -- ============================================================================
 -- TRIGGERS TO UPDATE TIMESTAMPS WHEN SPECIFIC COLUMNS CHANGE
 -- ============================================================================
 
--- 1. Trigger for entity.entities
-CREATE OR REPLACE FUNCTION entity.update_entity_timestamps()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF TG_OP = 'UPDATE' THEN
-        IF NEW.meta__data IS DISTINCT FROM OLD.meta__data THEN
-            NEW.meta_data_updated_at = now();
-        END IF;
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER update_entity_timestamps
-BEFORE UPDATE ON entity.entities
-FOR EACH ROW EXECUTE FUNCTION entity.update_entity_timestamps();
-
--- 3. Trigger for entity.entity_assets
+-- 1. Trigger for entity.entity_assets
 CREATE OR REPLACE FUNCTION entity.update_asset_timestamps()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -297,12 +385,13 @@ FOR EACH ROW EXECUTE FUNCTION entity.update_asset_timestamps();
 
 -- 1. Index for entity changes
 CREATE INDEX idx_entity_timestamp_changes ON entity.entities
-    (group__sync,
-     GREATEST(
-        meta_data_updated_at,
-        general__updated_at
-     ))
+    (group__sync, general__updated_at)
     INCLUDE (general__entity_name);
+
+-- 2. Index for metadata changes
+CREATE INDEX idx_entity_metadata_changes ON entity.entity_metadata
+    (group__sync, general__updated_at)
+    INCLUDE (general__entity_name, metadata__key);
 
 -- 3. Composite index for asset changes
 CREATE INDEX idx_asset_timestamp_changes ON entity.entity_assets

@@ -2,7 +2,7 @@ import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { cliConfiguration } from "../vircadia.cli.config";
 import { BunPostgresClientModule } from "../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
 import { serverConfiguration } from "../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
-import { Service } from "../../sdk/vircadia-world-sdk-ts/schema/src/index.schema";
+import { Service } from "../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 import { runCliCommand } from "./helper/helpers";
 import { existsSync, statSync, unlinkSync } from "node:fs";
 
@@ -51,7 +51,7 @@ describe("Container ops tests", () => {
             await runCliCommand(
                 "server:run-command",
                 "up",
-                Service.E_Service.WORLD_TICK_MANAGER,
+                Service.E_Service.WORLD_STATE_MANAGER,
                 "-d",
             );
         }, 120000);
@@ -149,7 +149,7 @@ describe("Container ops tests", () => {
                 "down",
                 Service.E_Service.PGWEB,
                 Service.E_Service.WORLD_API_MANAGER,
-                Service.E_Service.WORLD_TICK_MANAGER,
+                Service.E_Service.WORLD_STATE_MANAGER,
             );
 
             await runCliCommand("server:postgres:wipe");
@@ -179,7 +179,7 @@ describe("Container ops tests", () => {
             await runCliCommand(
                 "server:run-command",
                 "up",
-                Service.E_Service.WORLD_TICK_MANAGER,
+                Service.E_Service.WORLD_STATE_MANAGER,
                 "-d",
             );
         }, 120000);

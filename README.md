@@ -1,5 +1,7 @@
 # Get started
 
+*Note: This is a work in progress and is not yet ready for production use until the version becomes 1.0.0 or higher unless you have direct support from the Vircadia team.*
+
 ## Clone the repository
 
 Be sure to clone recursively:
@@ -12,6 +14,13 @@ or if you've already cloned the repo:
 git submodule update --init --recursive
 ```
 
+Pull any assets with Git LFS:
+
+```sh
+git lfs install
+git lfs pull
+```
+
 ## Deploy
 
 Afterward, use the [CLI](./cli/README.mdx) to deploy the project.
@@ -20,8 +29,6 @@ Afterward, use the [CLI](./cli/README.mdx) to deploy the project.
 
 See the main [website](https://vircadia.com) for more information.
 
-## Vircadia Quantum
+## Next
 
-The fast track branch for testing the latest features. (coming soon...)
-
-<!-- TODO: We should remove all the SDK submods, and mount the ENTIRE repo to docker but only use the workingdirs, so that we only have one version of files needed. -->
+The `next` branch is where new updates are merged before being pushed to `master`.

@@ -1,54 +1,153 @@
 <template>
-    <main>
-        <div v-if="connectionStatus === 'connecting'" class="connection-status">
-            Connecting to Vircadia server...
-        </div>
-        <div v-if="connectionStatus === 'disconnected'" class="connection-status">
-            Disconnected from Vircadia server. Will attempt to reconnect...
-        </div>
-        <canvas ref="renderCanvas" id="renderCanvas"></canvas>
-        
-        <!-- Entities loading indicator -->
-        <div v-if="isLoading" class="overlay loading-indicator">
-            Loading assets or creating entities...
-        </div>
-        
-        <!-- Only render entities when scene is available -->
-        <template v-if="sceneInitialized && scene && connectionStatus === 'connected'">
-            <!-- Add PhysicsAvatar component -->
-            <PhysicsAvatar
-                :scene="scene"
-                entity-name="physics.avatar.entity"
-                :initial-position="{ x: 0, y: 1, z: 4 }"
-                :initial-rotation="{ x: 0, y: 0, z: 0, w: 1 }"
-                :initial-camera-orientation="{ alpha: -Math.PI/2, beta: Math.PI/3, radius: 5 }"
-                @ready="startRenderLoop"
-                ref="avatarRef"
-            />
+    <v-app>
+        <main>
+            <canvas ref="renderCanvas" id="renderCanvas"></canvas>
             
-            <BabylonModel
-                v-for="(model, index) in modelDefinitions"
-                :key="model.fileName"
-                :scene="scene"
-                :fileName="model.fileName"
-                :position="model.position"
-                :rotation="model.rotation"
-                :throttle-interval="model.throttleInterval"
-                :enable-physics="model.enablePhysics"
-                :physics-type="model.physicsType"
-                :physics-options="model.physicsOptions"
-                :ref="(el: any) => modelRefs[index] = el"
-            />
-        </template>
-    </main>
+            <!-- Snackbar for loading and connection status -->
+            <v-snackbar v-model="snackbarVisible" :timeout="0" top>
+                <div class="d-flex align-center">
+                    <v-progress-circular v-if="isLoading" indeterminate color="white" size="24" class="mr-2" />
+                    {{ snackbarText }}
+                </div>
+            </v-snackbar>
+            
+            <!-- Only render entities when scene is available -->
+            <template v-if="sceneInitialized && scene && connectionStatus === 'connected'">
+                <!-- BabylonMyAvatar component -->
+                <BabylonMyAvatar
+                    :scene="scene"
+                    @ready="startRenderLoop"
+                    @dispose="stopRenderLoop"
+                    ref="avatarRef"
+                />
+
+                <!-- BabylonOtherAvatar components for other users -->
+                <BabylonOtherAvatar
+                    v-for="otherSessionId in otherAvatarSessionIds"
+                    :key="otherSessionId"
+                    :scene="scene"
+                    :session-id="otherSessionId"
+                    ref="otherAvatarRefs"
+                />
+
+                <!-- BabylonModel components -->
+                <BabylonModel
+                    v-for="def in appStore.modelDefinitions"
+                    :key="def.fileName"
+                    :def="def"
+                    :scene="scene"
+                    ref="modelRefs"
+                />
+            </template>
+        </main>
+        <!-- WebRTC component (hidden, just for functionality) -->
+        <BabylonWebRTC 
+            v-if="sessionId && appStore.instanceId" 
+            :instance-id="appStore.instanceId" 
+            ref="webrtcStatus" 
+            style="display: none;"
+        />
+        
+        <!-- Floating Control Toolbar -->
+        <div class="floating-toolbar">
+            <!-- Debug Controls -->
+            <v-tooltip bottom>
+                <template v-slot:activator="{ props }">
+                    <v-btn 
+                        fab 
+                        small
+                        color="error" 
+                        @click="showDebugOverlay = !showDebugOverlay"
+                        v-bind="props"
+                        class="toolbar-btn"
+                    >
+                        <v-icon>mdi-bug</v-icon>
+                    </v-btn>
+                </template>
+                <span>Toggle Debug Overlay</span>
+            </v-tooltip>
+            
+            <!-- Performance Mode Toggle -->
+            <v-tooltip bottom>
+                <template v-slot:activator="{ props }">
+                    <v-btn 
+                        fab 
+                        small
+                        :color="performanceMode === 'low' ? 'warning' : 'success'" 
+                        @click="togglePerformanceMode"
+                        v-bind="props"
+                        class="toolbar-btn"
+                    >
+                        <v-icon>{{ performanceMode === 'low' ? 'mdi-speedometer-slow' : 'mdi-speedometer' }}</v-icon>
+                    </v-btn>
+                </template>
+                <span>Performance: {{ performanceMode }} ({{ performanceMode === 'low' ? targetFPS + ' FPS' : 'Max FPS' }})</span>
+            </v-tooltip>
+            
+            <!-- Audio Controls -->
+            <v-tooltip bottom>
+                <template v-slot:activator="{ props }">
+                    <v-btn 
+                        fab 
+                        small
+                        color="primary" 
+                        @click="audioDialog = true"
+                        v-bind="props"
+                        class="toolbar-btn"
+                    >
+                        <v-badge
+                            v-if="activeAudioCount > 0"
+                            :content="activeAudioCount"
+                            color="success"
+                            overlap
+                        >
+                            <v-icon>mdi-headphones</v-icon>
+                        </v-badge>
+                        <v-icon v-else>mdi-headphones</v-icon>
+                    </v-btn>
+                </template>
+                <span>Audio Controls ({{ activeAudioCount }} active)</span>
+            </v-tooltip>
+        </div>
+        
+        <!-- Audio controls dialog -->
+        <v-dialog v-model="audioDialog" max-width="600" eager>
+            <AudioControlsDialog :webrtc-ref="webrtcStatus" />
+        </v-dialog>
+        
+        <!-- Debug Joint Overlay -->
+        <BabylonDebugOverlay 
+            v-if="showDebugOverlay" 
+            :visible="showDebugOverlay"
+            @close="showDebugOverlay = false"
+        />
+    </v-app>
 </template>
 
 <script setup lang="ts">
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import { inject, computed, watch, ref, onMounted, onUnmounted } from "vue";
+/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/consistent-type-imports */
+import { computed, watch, ref, onMounted, onUnmounted, inject } from "vue";
+import BabylonMyAvatar from "./components/BabylonMyAvatar.vue";
+import BabylonOtherAvatar from "./components/BabylonOtherAvatar.vue";
 import BabylonModel from "./components/BabylonModel.vue";
-import PhysicsAvatar from "./components/PhysicsAvatar.vue";
-import type { BabylonModelDefinition } from "./components/BabylonModel.vue";
+import BabylonWebRTC from "./components/BabylonWebRTC.vue";
+import BabylonDebugOverlay from "./components/BabylonDebugOverlay.vue";
+import AudioControlsDialog from "./components/AudioControlsDialog.vue";
+// mark as used at runtime for template
+void BabylonMyAvatar;
+// mark as used at runtime for template
+void BabylonOtherAvatar;
+// mark as used at runtime for template
+void BabylonModel;
+// mark as used at runtime for template
+void BabylonWebRTC;
+// mark as used at runtime for template
+void BabylonDebugOverlay;
+// mark as used at runtime for template
+void AudioControlsDialog;
+import { useBabylonEnvironment } from "./composables/useBabylonEnvironment";
+import { useAppStore } from "@/stores/appStore";
+// BabylonJS
 import {
     Scene,
     Vector3,
@@ -62,22 +161,151 @@ import {
     PhysicsShapeType,
     HavokPlugin,
 } from "@babylonjs/core";
-import { useVircadiaContext } from "@/composables/useVircadiaContext";
-import { useEnvironmentLoader } from "./composables/useEnvironmentLoader";
+import { Inspector } from "@babylonjs/inspector";
 
-const { connectionStatus } = useVircadiaContext();
+import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
 
-// BabylonJS Setup - use variables instead of refs
-const renderCanvas = ref<HTMLCanvasElement | null>(null);
-// Using regular variables instead of refs for non-reactive engine and scene
-let engine: WebGPUEngine | null = null;
-let scene: Scene | null = null;
+// Get Vircadia context once in setup
+const vircadiaWorld = inject(useVircadiaInstance());
+
+if (!vircadiaWorld) {
+    throw new Error("Vircadia instance not found");
+}
+
+// Connection count is now managed by BabylonWebRTC component
+const webrtcStatus = ref<InstanceType<typeof BabylonWebRTC> | null>(null);
+const connectionCount = computed(() => webrtcStatus.value?.peers.size || 0);
+
+// Active audio connections from app store
+const activeAudioCount = computed(() => appStore.activeAudioConnectionsCount);
+
+const connectionStatus = computed(
+    () => vircadiaWorld.connectionInfo.value.status,
+);
+const sessionId = computed(() => vircadiaWorld.connectionInfo.value.sessionId);
+const agentId = computed(() => vircadiaWorld.connectionInfo.value.agentId);
+
+// Store access with error handling for timing issues
+const appStore = useAppStore();
+
+// sync session and agent IDs from Vircadia to the app store
+watch(sessionId, (newSessionId) => {
+    appStore.setSessionId(newSessionId ?? null);
+});
+watch(agentId, (newAgentId) => {
+    appStore.setAgentId(newAgentId ?? null);
+});
+
 // Track if scene is initialized for template rendering
 const sceneInitialized = ref(false);
 // Track inspector state
 const isInspectorVisible = ref(false);
 // Track if avatar is ready
-const avatarRef = ref<InstanceType<typeof PhysicsAvatar> | null>(null);
+const avatarRef = ref<InstanceType<typeof BabylonMyAvatar> | null>(null);
+const otherAvatarRefs = ref<(InstanceType<typeof BabylonOtherAvatar> | null)[]>(
+    [],
+);
+const modelRefs = ref<(InstanceType<typeof BabylonModel> | null)[]>([]);
+
+// Track other avatars
+const otherAvatarSessionIds = ref<string[]>([]);
+
+// Polling interval for discovering other avatars
+let avatarDiscoveryInterval: number | null = null;
+
+// Poll for other avatars every 2000ms
+async function pollForOtherAvatars() {
+    if (
+        !vircadiaWorld ||
+        vircadiaWorld.connectionInfo.value.status !== "connected"
+    ) {
+        return;
+    }
+
+    try {
+        const query = `SELECT general__entity_name FROM entity.entities WHERE general__entity_name LIKE 'avatar:%'`;
+
+        const result = await vircadiaWorld.client.Utilities.Connection.query<
+            Array<{ general__entity_name: string }>
+        >({
+            query,
+            timeoutMs: 30000,
+        });
+
+        if (result.result) {
+            const currentFullSessionId = appStore.fullSessionId;
+            const foundSessionIds: string[] = [];
+
+            for (const entity of result.result) {
+                // Extract full session ID from entity name (format: "avatar:sessionId-instanceId")
+                const match =
+                    entity.general__entity_name.match(/^avatar:(.+)$/);
+                if (match && match[1] !== currentFullSessionId) {
+                    foundSessionIds.push(match[1]);
+
+                    // Immediately add to metadata store with minimal data
+                    // This allows WebRTC to start connecting right away
+                    if (!appStore.getOtherAvatarMetadata(match[1])) {
+                        console.log(
+                            `[Avatar Discovery] Found new avatar: ${match[1]}`,
+                        );
+                        appStore.setOtherAvatarMetadata(match[1], {
+                            type: "avatar",
+                            sessionId: match[1], // This is now the fullSessionId (sessionId-instanceId)
+                            position: { x: 0, y: 0, z: 0 },
+                            rotation: { x: 0, y: 0, z: 0, w: 1 },
+                            cameraOrientation: { alpha: 0, beta: 0, radius: 5 },
+                            modelFileName: "",
+                            // joints are now stored as separate metadata entries
+                        });
+                    }
+                }
+            }
+
+            // Update the list of other avatar session IDs
+            otherAvatarSessionIds.value = foundSessionIds;
+
+            // Remove avatars that are no longer in the discovered list
+            for (const sessionId in appStore.otherAvatarsMetadata) {
+                if (!foundSessionIds.includes(sessionId)) {
+                    console.log(`[Avatar Discovery] Avatar left: ${sessionId}`);
+                    appStore.removeOtherAvatarMetadata(sessionId);
+                }
+            }
+        }
+    } catch (error) {
+        // Only log timeout errors at debug level to reduce console spam
+        if (error instanceof Error && error.message.includes("timeout")) {
+            console.debug("Avatar discovery query timed out, will retry");
+        } else {
+            console.warn("Error polling for other avatars:", error);
+        }
+    }
+}
+
+// Start avatar discovery polling
+function startAvatarDiscovery() {
+    if (avatarDiscoveryInterval) {
+        return;
+    }
+
+    // Poll immediately on start
+    pollForOtherAvatars();
+
+    // Then poll using interval from store
+    avatarDiscoveryInterval = setInterval(
+        pollForOtherAvatars,
+        appStore.pollingIntervals.avatarDiscovery,
+    );
+}
+
+// Stop avatar discovery polling
+function stopAvatarDiscovery() {
+    if (avatarDiscoveryInterval) {
+        clearInterval(avatarDiscoveryInterval);
+        avatarDiscoveryInterval = null;
+    }
+}
 
 // Inline physics initialization and inspector helpers
 let havokInstance: unknown = null;
@@ -102,75 +330,35 @@ const initializePhysics = async (
     }
 };
 
-const loadInspector = async (scene: Scene): Promise<void> => {
-    if (import.meta.env.DEV) {
-        await import("@babylonjs/inspector");
-        scene.debugLayer.show({ embedMode: true });
-        return;
-    }
-    console.warn("Inspector is only available in development mode");
-};
-
-const hideInspector = (scene: Scene): void => {
-    scene.debugLayer.hide();
-};
-
 // Add function to toggle the inspector
 const toggleInspector = async (): Promise<void> => {
     if (!scene) return;
+
     if (!isInspectorVisible.value) {
-        await loadInspector(scene);
-        isInspectorVisible.value = true;
+        if (import.meta.env.DEV) {
+            Inspector.Show(scene, { embedMode: true });
+            isInspectorVisible.value = true;
+        } else {
+            console.warn("Inspector is only available in development mode");
+        }
     } else {
-        hideInspector(scene);
+        Inspector.Hide();
         isInspectorVisible.value = false;
     }
 };
 
-// Start the render loop after avatar is ready
-const startRenderLoop = () => {
-    if (!engine || !scene) return;
+// State for debug overlay
+const showDebugOverlay = ref(false);
 
-    console.log("Starting render loop after avatar is ready");
-    engine.runRenderLoop(() => scene?.render());
-};
+// Performance mode from store
+const performanceMode = computed(() => appStore.performanceMode);
+const targetFPS = computed(() => appStore.targetFPS);
 
-// Keyboard event handler for inspector toggle
-const handleKeyDown = (event: KeyboardEvent) => {
-    if (event.key === "t" && scene) {
-        toggleInspector();
-    }
-};
-
-const { loadAll: loadEnvironments, isLoading: environmentLoading } =
-    useEnvironmentLoader(["babylon.level.test.hdr.1k.hdr"]);
-
-const modelDefinitions = ref<BabylonModelDefinition[]>([
-    {
-        fileName: "babylon.level.test.glb",
-        position: { x: 0, y: 0, z: 0 },
-        rotation: { x: 0, y: 0, z: 0, w: 1 },
-        throttleInterval: 10,
-        enablePhysics: true,
-        physicsType: "mesh",
-        physicsOptions: {
-            mass: 0,
-            friction: 0.5,
-            restitution: 0.3,
-        },
-    },
-]);
-
-// Store references to model components
-const modelRefs = ref<(InstanceType<typeof BabylonModel> | null)[]>([]);
-
-// Simplified loading state from all model components and environment loading
-const isLoading = computed(() => {
-    return (
-        modelRefs.value.some((ref) => ref?.isLoading) ||
-        environmentLoading.value
-    );
-});
+// BabylonJS Setup - use variables instead of refs
+const renderCanvas = ref<HTMLCanvasElement | null>(null);
+// Using regular variables instead of refs for non-reactive engine and scene
+let engine: WebGPUEngine | null = null;
+let scene: Scene | null = null;
 
 // Initialize BabylonJS
 const initializeBabylon = async () => {
@@ -258,10 +446,11 @@ const initializeBabylon = async () => {
 const handleResize = () => engine?.resize();
 
 onMounted(async () => {
-    await initializeBabylon();
+    // Generate instance ID for this browser tab/instance
+    const instanceId = appStore.generateInstanceId();
+    console.log(`[App] Generated instance ID: ${instanceId}`);
 
-    // Initialize model refs array
-    modelRefs.value = Array(modelDefinitions.value.length).fill(null);
+    await initializeBabylon();
 
     // Add keyboard event listener for inspector toggle
     window.addEventListener("keydown", handleKeyDown);
@@ -271,6 +460,10 @@ onUnmounted(() => {
     window.removeEventListener("resize", handleResize);
     // Remove keyboard event listener
     window.removeEventListener("keydown", handleKeyDown);
+
+    // Stop avatar discovery polling
+    stopAvatarDiscovery();
+
     console.log("Disposing BabylonJS scene and engine...");
     scene?.dispose();
     engine?.dispose();
@@ -287,18 +480,144 @@ watch(
         if (status !== prevStatus) {
             if (status === "connected") {
                 console.log("Connected to Vircadia server");
+                // Start avatar discovery when connected
+                startAvatarDiscovery();
             } else if (status === "disconnected") {
                 console.log("Disconnected from Vircadia server");
+                // Stop avatar discovery when disconnected
+                stopAvatarDiscovery();
+                // Clear other avatars list
+                otherAvatarSessionIds.value = [];
+                // Clear other avatars metadata from store
+                appStore.clearOtherAvatarsMetadata();
             } else if (status === "connecting") {
                 console.log("Connecting to Vircadia server...");
             }
         }
         // Load environments when scene is initialized and connected
         if (initialized && status === "connected" && scene) {
-            loadEnvironments(scene);
+            const s = scene; // narrow scene
+            loadEnvironments(s);
+            // BabylonModel components auto-load themselves when scene is set
         }
     },
 );
+
+// Start the render loop after avatar is ready
+const startRenderLoop = () => {
+    if (!engine || !scene) return;
+
+    console.log("Starting render loop after avatar is ready");
+
+    if (performanceMode.value === "normal") {
+        // Normal mode: render as fast as possible
+        engine.runRenderLoop(() => scene?.render());
+    } else {
+        // Low performance mode: render at limited FPS
+        const frameInterval = 1000 / targetFPS.value;
+        let lastFrameTime = 0;
+
+        engine.runRenderLoop(() => {
+            const currentTime = performance.now();
+            const deltaTime = currentTime - lastFrameTime;
+
+            if (deltaTime >= frameInterval) {
+                scene?.render();
+                lastFrameTime = currentTime - (deltaTime % frameInterval);
+            }
+        });
+    }
+};
+
+// Stop the render loop when the avatar unmounts
+const stopRenderLoop = () => {
+    if (!engine || !scene) return;
+    console.log("Stopping render loop before avatar unmount");
+    engine.stopRenderLoop();
+};
+
+// Function to toggle performance mode
+const togglePerformanceMode = () => {
+    appStore.togglePerformanceMode();
+    console.log(`Performance mode: ${appStore.performanceMode}`);
+
+    // Restart render loop with new mode
+    if (engine && scene) {
+        stopRenderLoop();
+        startRenderLoop();
+    }
+};
+
+// Keyboard event handler for inspector toggle
+const handleKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "t" && scene) {
+        toggleInspector();
+    } else if (event.key === "p" || event.key === "P") {
+        // Press 'P' to toggle performance mode
+        togglePerformanceMode();
+    }
+};
+
+// Set up environment loader using HDR list from store
+const envLoader = useBabylonEnvironment(appStore.hdrList);
+const loadEnvironments = envLoader.loadAll;
+const environmentLoading = envLoader.isLoading;
+
+// Child component loading states
+const avatarLoading = computed(
+    () =>
+        (avatarRef.value?.isCreating || avatarRef.value?.isRetrieving) ?? false,
+);
+const otherAvatarsLoading = computed(
+    () =>
+        otherAvatarRefs.value.some(
+            (avatar) => avatar && !avatar.isModelLoaded,
+        ) ?? false,
+);
+const modelsLoading = computed(() =>
+    modelRefs.value.some(
+        (m) =>
+            (m?.isEntityCreating ||
+                m?.isEntityRetrieving ||
+                m?.isAssetLoading) ??
+            false,
+    ),
+);
+
+// Global loading state: environment, avatar, other avatars, or models
+const isLoading = computed(
+    () =>
+        environmentLoading.value ||
+        avatarLoading.value ||
+        otherAvatarsLoading.value ||
+        modelsLoading.value,
+);
+
+// snackbarVisible is driven by connection status and loading, add noop setter to satisfy v-model
+const snackbarVisible = computed<boolean>({
+    get: () => connectionStatus.value !== "connected" || isLoading.value,
+    set: (_val: boolean) => {
+        // no-op setter: visibility is derived from connection status and loading
+    },
+});
+const snackbarText = computed(() => {
+    if (isLoading.value) {
+        return "Loading assets or creating entities...";
+    }
+    if (connectionStatus.value === "connecting") {
+        return "Connecting to Vircadia server...";
+    }
+    if (connectionStatus.value === "disconnected") {
+        return "Disconnected from Vircadia server. Will attempt to reconnect...";
+    }
+    return "";
+});
+
+// State for WebRTC dialog
+const webrtcDialog = ref(false);
+
+// State for Audio dialog
+const audioDialog = ref(false);
 </script>
 
 <style>
@@ -311,25 +630,52 @@ main {
 #renderCanvas {
     width: 100%; height: 100%; display: block; touch-action: none; outline: none;
 }
-.connection-status {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background-color: rgba(0, 0, 0, 0.7);
-    color: white;
-    padding: 20px;
-    border-radius: 5px;
-    font-family: sans-serif;
-    text-align: center;
+
+/* Floating Toolbar Styles */
+.floating-toolbar {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 1000;
+    padding: 8px;
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 28px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
 }
-.connection-status.error {
-    background-color: rgba(120, 0, 0, 0.7);
+
+.toolbar-btn {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+    transition: all 0.2s ease !important;
 }
-.overlay {
-    position: absolute; left: 10px; color: white; background: rgba(0,0,0,0.7); padding: 8px; border-radius: 4px; font-family: sans-serif; font-size: 14px; z-index: 10; /* Ensure overlay is on top */
+
+.toolbar-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
 }
-.loading-indicator {
-    top: 10px;
+
+/* Responsive design for smaller screens */
+@media (max-width: 768px) {
+    .floating-toolbar {
+        top: 12px;
+        right: 12px;
+        gap: 6px;
+        padding: 6px;
+    }
+}
+
+@media (max-width: 480px) {
+    .floating-toolbar {
+        flex-direction: row;
+        top: 8px;
+        right: 8px;
+        left: 8px;
+        justify-content: center;
+        border-radius: 24px;
+    }
 }
 </style>

@@ -3,7 +3,7 @@ import { sign } from "jsonwebtoken";
 import { expect } from "bun:test";
 import { BunLogModule } from "../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
 import { cliConfiguration } from "../../vircadia.cli.config";
-import type { Auth } from "../../../sdk/vircadia-world-sdk-ts/schema/src/index.schema";
+import type { Auth } from "../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 
 export const TEST_SYNC_GROUP = "public.REALTIME";
 export const DB_TEST_PREFIX = "RESERVED_vtw908ncjw98t3t8kgr8y9ngv3w8b_db_test_";

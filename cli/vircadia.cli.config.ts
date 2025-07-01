@@ -86,6 +86,7 @@ const cliEnvSchema = z.object({
         ),
     VRCA_CLI_SERVICE_POSTGRES_SEED_SYSTEM_SQL_DIR: z
         .string()
+        .nullable()
         .default(
             path.join(
                 dirname(fileURLToPath(import.meta.url)),
@@ -98,6 +99,7 @@ const cliEnvSchema = z.object({
         .default(null),
     VRCA_CLI_SERVICE_POSTGRES_SEED_SYSTEM_ASSET_DIR: z
         .string()
+        .nullable()
         .default(
             path.join(
                 dirname(fileURLToPath(import.meta.url)),
@@ -115,6 +117,7 @@ const cliEnvSchema = z.object({
 
     VRCA_CLI_SERVICE_POSTGRES_SYSTEM_RESET_DIR: z
         .string()
+        .nullable()
         .default(
             path.join(
                 dirname(fileURLToPath(import.meta.url)),
@@ -148,15 +151,15 @@ const cliEnvSchema = z.object({
             serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_PUBLIC_AVAILABLE_AT,
         ),
 
-    VRCA_CLI_SERVICE_WORLD_TICK_MANAGER_HOST: z
+    VRCA_CLI_SERVICE_WORLD_STATE_MANAGER_HOST: z
         .string()
         .default(
-            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
         ),
-    VRCA_CLI_SERVICE_WORLD_TICK_MANAGER_PORT: z.coerce
+    VRCA_CLI_SERVICE_WORLD_STATE_MANAGER_PORT: z.coerce
         .number()
         .default(
-            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_EXTERNAL,
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL,
         ),
 });
 export const cliConfiguration = cliEnvSchema.parse(process.env);

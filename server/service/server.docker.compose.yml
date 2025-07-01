@@ -16,7 +16,7 @@ volumes:
 services:
   # Postgres service
   vircadia_world_postgres:
-    image: postgres:17.4-alpine3.21
+    image: postgres:17.5-alpine3.21
     container_name: ${VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME}
     user: "70:70"  # Alpine postgres user (UID:GID)
     restart: always
@@ -86,7 +86,7 @@ services:
 
   # API service
   vircadia_world_api_manager:
-    image: oven/bun:1.2.11-alpine
+    image: oven/bun:1.2.17-alpine
     container_name: ${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_CONTAINER_NAME}
     user: "1000:1000"  # Run as non-root user
     restart: always
@@ -127,19 +127,19 @@ services:
       - vircadia_internal_network
       - vircadia_public_network
 
-  # Tick service
-  vircadia_world_tick_manager:
-    image: oven/bun:1.2.11-alpine
-    container_name: ${VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_CONTAINER_NAME}
+  # State service
+  vircadia_world_state_manager:
+    image: oven/bun:1.2.17-alpine
+    container_name: ${VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_CONTAINER_NAME}
     user: "1000:1000"  # Run as non-root user
     restart: always
     read_only: true
     ports:
-      - "${VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_INTERNAL}"
+      - "${VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_INTERNAL}"
     volumes:
-      - ./tick/volume/app:/app
+      - ./state/volume/app:/app
     working_dir: /app
-    command: ["bun", "run", "dist/world.tick.manager.js"]
+    command: ["bun", "run", "dist/world.state.manager.js"]
     environment:
       VRCA_SERVER_DEBUG: ${VRCA_SERVER_DEBUG}
       VRCA_SERVER_SUPPRESS: ${VRCA_SERVER_SUPPRESS}
@@ -152,14 +152,14 @@ services:
       VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD: ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD}
       VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD: ${VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD}
 
-      VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_INTERNAL: ${VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_HOST_CONTAINER_BIND_INTERNAL}
-      VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_INTERNAL: ${VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_INTERNAL}
+      VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_INTERNAL: ${VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_INTERNAL}
+      VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_INTERNAL: ${VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_INTERNAL}
     depends_on:
       vircadia_world_postgres:
         condition: service_healthy
         restart: true
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider http://127.0.0.1:${VRCA_SERVER_SERVICE_WORLD_TICK_MANAGER_PORT_CONTAINER_BIND_INTERNAL}/stats"]
+      test: ["CMD-SHELL", "wget --spider http://127.0.0.1:${VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_INTERNAL}/stats"]
       interval: 10s
       timeout: 10s
       retries: 3

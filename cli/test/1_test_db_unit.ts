@@ -16,7 +16,6 @@ import {
     runCliCommand,
 } from "./helper/helpers";
 import { cliConfiguration } from "../vircadia.cli.config";
-import { serverConfiguration } from "../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
 import { BunLogModule } from "../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
 import type { BunFile } from "bun";
 import { NullEngine, Scene, ImportMeshAsync } from "@babylonjs/core";
@@ -47,8 +46,8 @@ describe("DB", () => {
         BunLogModule({
             message: "Getting super user client...",
             type: "debug",
-            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-            debug: serverConfiguration.VRCA_SERVER_DEBUG,
+            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+            debug: cliConfiguration.VRCA_CLI_DEBUG,
         });
         superUserSql = await BunPostgresClientModule.getInstance({
             debug: cliConfiguration.VRCA_CLI_DEBUG,

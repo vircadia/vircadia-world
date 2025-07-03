@@ -2,17 +2,17 @@
 // ============================== IMPORTS, TYPES, AND INTERFACES ==============================
 // =============================================================================
 
-import { BunLogModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
+import type { Server, ServerWebSocket } from "bun";
+import { verify } from "jsonwebtoken";
 import type postgres from "postgres";
 import { serverConfiguration } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
+import { BunLogModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
+import { BunPostgresClientModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
 import {
     Auth,
     Communication,
     Service,
 } from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
-import type { Server, ServerWebSocket } from "bun";
-import { BunPostgresClientModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
-import { verify } from "jsonwebtoken";
 import {
     AzureADAuthService,
     createAzureADConfig,
@@ -317,6 +317,46 @@ export class WorldApiManager {
 
     private CONNECTION_HEARTBEAT_INTERVAL = 500;
 
+    // Add CORS helper function
+    private addCorsHeaders(response: Response, req: Request): Response {
+        const origin = req.headers.get("origin");
+
+        // Allow requests from localhost development servers
+        if (
+            origin &&
+            (origin.includes("localhost") || origin.includes("127.0.0.1"))
+        ) {
+            response.headers.set("Access-Control-Allow-Origin", origin);
+        } else {
+            // In production, you might want to restrict this to specific domains
+            response.headers.set("Access-Control-Allow-Origin", "*");
+        }
+
+        response.headers.set(
+            "Access-Control-Allow-Methods",
+            "GET, POST, PUT, DELETE, OPTIONS",
+        );
+        response.headers.set(
+            "Access-Control-Allow-Headers",
+            "Content-Type, Authorization",
+        );
+        response.headers.set("Access-Control-Allow-Credentials", "true");
+
+        return response;
+    }
+
+    // Helper function to create JSON response with CORS headers
+    private createJsonResponse(
+        data: unknown,
+        req: Request,
+        status?: number,
+    ): Response {
+        const response = status
+            ? Response.json(data, { status })
+            : Response.json(data);
+        return this.addCorsHeaders(response, req);
+    }
+
     async validateJWT(data: {
         provider: string;
         token: string;
@@ -551,6 +591,12 @@ export class WorldApiManager {
             fetch: async (req: Request, server: Server) => {
                 const url = new URL(req.url);
 
+                // Handle CORS preflight requests
+                if (req.method === "OPTIONS") {
+                    const response = new Response(null, req, 204);
+                    return this.addCorsHeaders(response, req);
+                }
+
                 if (!superUserSql || !proxyUserSql) {
                     BunLogModule({
                         message: "No database connection available",
@@ -558,9 +604,10 @@ export class WorldApiManager {
                         suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                         type: "error",
                     });
-                    return new Response("Internal server error", {
+                    const response = new Response("Internal server error", {
                         status: 500,
                     });
+                    return this.addCorsHeaders(response, req);
                 }
 
                 // Handle stats
@@ -606,11 +653,12 @@ export class WorldApiManager {
                             suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                             type: "debug",
                         });
-                        return Response.json(
+                        const response = Response.json(
                             Service.API.Stats_Endpoint.createError(
                                 "Forbidden.",
                             ),
                         );
+                        return this.addCorsHeaders(response, req);
                     }
 
                     // Record current system metrics before gathering stats
@@ -629,7 +677,7 @@ export class WorldApiManager {
                     // Gather stats information
                     const systemMetrics =
                         this.metricsCollector.getSystemMetrics();
-                    return Response.json(
+                    const response = Response.json(
                         Service.API.Stats_Endpoint.createSuccess({
                             uptime: process.uptime(),
                             connections: systemMetrics.connections,
@@ -639,6 +687,7 @@ export class WorldApiManager {
                             queries: this.metricsCollector.getMetrics(),
                         }),
                     );
+                    return this.addCorsHeaders(response, req);
                 }
 
                 // Handle WebSocket upgrade
@@ -765,29 +814,35 @@ export class WorldApiManager {
 
                                 // Validate required fields
                                 if (!body.token) {
-                                    return Response.json(
+                                    const response = Response.json(
                                         Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
                                             "No token provided",
                                         ),
-                                        { status: 401 },
+                                        req,
+                                        401,
                                     );
+                                    return this.addCorsHeaders(response, req);
                                 }
 
                                 if (!body.provider) {
-                                    return Response.json(
+                                    const response = Response.json(
                                         Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
                                             "No provider specified",
                                         ),
-                                        { status: 400 },
+                                        req,
+                                        400,
                                     );
+                                    return this.addCorsHeaders(response, req);
                                 }
                             } catch (error) {
-                                return Response.json(
+                                const response = Response.json(
                                     Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
                                         "Invalid request body",
                                     ),
-                                    { status: 400 },
+                                    req,
+                                    400,
                                 );
+                                return this.addCorsHeaders(response, req);
                             }
 
                             const { token, provider } = body;
@@ -798,12 +853,14 @@ export class WorldApiManager {
                             });
 
                             if (!jwtValidationResult.isValid) {
-                                return Response.json(
+                                const response = Response.json(
                                     Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
                                         `Invalid token: ${jwtValidationResult.errorReason}`,
                                     ),
-                                    { status: 401 },
+                                    req,
+                                    401,
                                 );
+                                return this.addCorsHeaders(response, req);
                             }
 
                             try {
@@ -817,10 +874,14 @@ export class WorldApiManager {
                                                 `;
 
                                     if (!sessionValidationResult.agent_id) {
-                                        return Response.json(
+                                        const response = Response.json(
                                             Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
                                                 "Invalid session",
                                             ),
+                                        );
+                                        return this.addCorsHeaders(
+                                            response,
+                                            req,
                                         );
                                     }
 
@@ -837,12 +898,13 @@ export class WorldApiManager {
                                         },
                                     });
 
-                                    return Response.json(
+                                    const response = Response.json(
                                         Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createSuccess(
                                             jwtValidationResult.agentId,
                                             jwtValidationResult.sessionId,
                                         ),
                                     );
+                                    return this.addCorsHeaders(response, req);
                                 });
                             } catch (error) {
                                 BunLogModule({
@@ -859,11 +921,12 @@ export class WorldApiManager {
                                                 : String(error),
                                     },
                                 });
-                                return Response.json(
+                                const response = Response.json(
                                     Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
                                         "Failed to validate session",
                                     ),
                                 );
+                                return this.addCorsHeaders(response, req);
                             }
                         }
 
@@ -872,22 +935,26 @@ export class WorldApiManager {
                             Communication.REST.Endpoint.AUTH_OAUTH_AUTHORIZE
                                 .path && req.method === "GET": {
                             if (!this.azureADService) {
-                                return Response.json(
+                                const response = Response.json(
                                     Communication.REST.Endpoint.AUTH_OAUTH_AUTHORIZE.createError(
                                         "Azure AD provider not configured",
                                     ),
-                                    { status: 503 },
+                                    req,
+                                    503,
                                 );
+                                return this.addCorsHeaders(response, req);
                             }
 
                             const provider = url.searchParams.get("provider");
                             if (provider !== Auth.E_Provider.AZURE) {
-                                return Response.json(
+                                const response = Response.json(
                                     Communication.REST.Endpoint.AUTH_OAUTH_AUTHORIZE.createError(
                                         "Unsupported provider",
                                     ),
-                                    { status: 400 },
+                                    req,
+                                    400,
                                 );
+                                return this.addCorsHeaders(response, req);
                             }
 
                             try {
@@ -901,11 +968,12 @@ export class WorldApiManager {
                                         state,
                                     );
 
-                                return Response.json(
+                                const response = Response.json(
                                     Communication.REST.Endpoint.AUTH_OAUTH_AUTHORIZE.createSuccess(
                                         authUrl,
                                     ),
                                 );
+                                return this.addCorsHeaders(response, req);
                             } catch (error) {
                                 BunLogModule({
                                     message:
@@ -917,12 +985,14 @@ export class WorldApiManager {
                                     type: "error",
                                     prefix: LOG_PREFIX,
                                 });
-                                return Response.json(
+                                const response = Response.json(
                                     Communication.REST.Endpoint.AUTH_OAUTH_AUTHORIZE.createError(
                                         "Failed to generate authorization URL",
                                     ),
-                                    { status: 500 },
+                                    req,
+                                    500,
                                 );
+                                return this.addCorsHeaders(response, req);
                             }
                         }
 
@@ -931,11 +1001,12 @@ export class WorldApiManager {
                             Communication.REST.Endpoint.AUTH_OAUTH_CALLBACK
                                 .path && req.method === "GET": {
                             if (!this.azureADService) {
-                                return Response.json(
+                                return this.createJsonResponse(
                                     Communication.REST.Endpoint.AUTH_OAUTH_CALLBACK.createError(
                                         "Azure AD provider not configured",
                                     ),
-                                    { status: 503 },
+                                    req,
+                                    503,
                                 );
                             }
 
@@ -944,20 +1015,22 @@ export class WorldApiManager {
                             const provider = url.searchParams.get("provider");
 
                             if (!code || !state) {
-                                return Response.json(
+                                return this.createJsonResponse(
                                     Communication.REST.Endpoint.AUTH_OAUTH_CALLBACK.createError(
                                         "Missing code or state parameter",
                                     ),
-                                    { status: 400 },
+                                    req,
+                                    400,
                                 );
                             }
 
                             if (provider !== Auth.E_Provider.AZURE) {
-                                return Response.json(
+                                return this.createJsonResponse(
                                     Communication.REST.Endpoint.AUTH_OAUTH_CALLBACK.createError(
                                         "Unsupported provider",
                                     ),
-                                    { status: 400 },
+                                    req,
+                                    400,
                                 );
                             }
 
@@ -986,7 +1059,7 @@ export class WorldApiManager {
                                             tokenResponse,
                                         );
 
-                                    return Response.json(
+                                    return this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_OAUTH_CALLBACK.createSuccess(
                                             {
                                                 token: result.jwt,
@@ -995,6 +1068,7 @@ export class WorldApiManager {
                                                 provider: Auth.E_Provider.AZURE,
                                             },
                                         ),
+                                        req,
                                     );
                                 }
 
@@ -1009,7 +1083,7 @@ export class WorldApiManager {
                                         tokenResponse,
                                     );
 
-                                    return Response.json(
+                                    return this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_OAUTH_CALLBACK.createSuccess(
                                             {
                                                 token: "",
@@ -1019,6 +1093,7 @@ export class WorldApiManager {
                                                 provider: Auth.E_Provider.AZURE,
                                             },
                                         ),
+                                        req,
                                     );
                                 }
 
@@ -1033,13 +1108,14 @@ export class WorldApiManager {
                                     type: "error",
                                     prefix: LOG_PREFIX,
                                 });
-                                return Response.json(
+                                return this.createJsonResponse(
                                     Communication.REST.Endpoint.AUTH_OAUTH_CALLBACK.createError(
                                         error instanceof Error
                                             ? error.message
                                             : "OAuth callback failed",
                                     ),
-                                    { status: 500 },
+                                    req,
+                                    500,
                                 );
                             }
                         }
@@ -1053,11 +1129,12 @@ export class WorldApiManager {
                                 const { sessionId } = body;
 
                                 if (!sessionId) {
-                                    return Response.json(
+                                    return this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_LOGOUT.createError(
                                             "No session ID provided",
                                         ),
-                                        { status: 400 },
+                                        req,
+                                        400,
                                     );
                                 }
 
@@ -1067,8 +1144,9 @@ export class WorldApiManager {
                                     );
                                 }
 
-                                return Response.json(
+                                return this.createJsonResponse(
                                     Communication.REST.Endpoint.AUTH_LOGOUT.createSuccess(),
+                                    req,
                                 );
                             } catch (error) {
                                 BunLogModule({
@@ -1080,11 +1158,12 @@ export class WorldApiManager {
                                     type: "error",
                                     prefix: LOG_PREFIX,
                                 });
-                                return Response.json(
+                                return this.createJsonResponse(
                                     Communication.REST.Endpoint.AUTH_LOGOUT.createError(
                                         "Logout failed",
                                     ),
-                                    { status: 500 },
+                                    req,
+                                    500,
                                 );
                             }
                         }
@@ -1094,11 +1173,12 @@ export class WorldApiManager {
                             Communication.REST.Endpoint.AUTH_LINK_PROVIDER
                                 .path && req.method === "POST": {
                             if (!this.azureADService) {
-                                return Response.json(
+                                return this.createJsonResponse(
                                     Communication.REST.Endpoint.AUTH_LINK_PROVIDER.createError(
                                         "Azure AD provider not configured",
                                     ),
-                                    { status: 503 },
+                                    req,
+                                    503,
                                 );
                             }
 
@@ -1107,11 +1187,12 @@ export class WorldApiManager {
                                 const { provider, sessionId } = body;
 
                                 if (provider !== Auth.E_Provider.AZURE) {
-                                    return Response.json(
+                                    return this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_LINK_PROVIDER.createError(
                                             "Unsupported provider",
                                         ),
-                                        { status: 400 },
+                                        req,
+                                        400,
                                     );
                                 }
 
@@ -1123,11 +1204,12 @@ export class WorldApiManager {
                                 `;
 
                                 if (!sessionResult?.agent_id) {
-                                    return Response.json(
+                                    return this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_LINK_PROVIDER.createError(
                                             "Invalid session",
                                         ),
-                                        { status: 401 },
+                                        req,
+                                        401,
                                     );
                                 }
 
@@ -1143,10 +1225,11 @@ export class WorldApiManager {
                                         state,
                                     );
 
-                                return Response.json(
+                                return this.createJsonResponse(
                                     Communication.REST.Endpoint.AUTH_LINK_PROVIDER.createSuccess(
                                         authUrl,
                                     ),
+                                    req,
                                 );
                             } catch (error) {
                                 BunLogModule({
@@ -1158,11 +1241,12 @@ export class WorldApiManager {
                                     type: "error",
                                     prefix: LOG_PREFIX,
                                 });
-                                return Response.json(
+                                return this.createJsonResponse(
                                     Communication.REST.Endpoint.AUTH_LINK_PROVIDER.createError(
                                         "Failed to link provider",
                                     ),
-                                    { status: 500 },
+                                    req,
+                                    500,
                                 );
                             }
                         }
@@ -1177,11 +1261,12 @@ export class WorldApiManager {
                                     body;
 
                                 if (provider !== Auth.E_Provider.AZURE) {
-                                    return Response.json(
+                                    return this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_UNLINK_PROVIDER.createError(
                                             "Unsupported provider",
                                         ),
-                                        { status: 400 },
+                                        req,
+                                        400,
                                     );
                                 }
 
@@ -1193,11 +1278,12 @@ export class WorldApiManager {
                                 `;
 
                                 if (!sessionResult?.agent_id) {
-                                    return Response.json(
+                                    return this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_UNLINK_PROVIDER.createError(
                                             "Invalid session",
                                         ),
-                                        { status: 401 },
+                                        req,
+                                        401,
                                     );
                                 }
 
@@ -1209,8 +1295,9 @@ export class WorldApiManager {
                                       AND auth__provider_uid = ${providerUid}
                                 `;
 
-                                return Response.json(
+                                return this.createJsonResponse(
                                     Communication.REST.Endpoint.AUTH_UNLINK_PROVIDER.createSuccess(),
+                                    req,
                                 );
                             } catch (error) {
                                 BunLogModule({
@@ -1222,11 +1309,12 @@ export class WorldApiManager {
                                     type: "error",
                                     prefix: LOG_PREFIX,
                                 });
-                                return Response.json(
+                                return this.createJsonResponse(
                                     Communication.REST.Endpoint.AUTH_UNLINK_PROVIDER.createError(
                                         "Failed to unlink provider",
                                     ),
-                                    { status: 500 },
+                                    req,
+                                    500,
                                 );
                             }
                         }
@@ -1240,11 +1328,12 @@ export class WorldApiManager {
                                     url.searchParams.get("sessionId");
 
                                 if (!sessionId) {
-                                    return Response.json(
+                                    return this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_LIST_PROVIDERS.createError(
                                             "No session ID provided",
                                         ),
-                                        { status: 400 },
+                                        req,
+                                        400,
                                     );
                                 }
 
@@ -1256,11 +1345,12 @@ export class WorldApiManager {
                                 `;
 
                                 if (!sessionResult?.agent_id) {
-                                    return Response.json(
+                                    return this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_LIST_PROVIDERS.createError(
                                             "Invalid session",
                                         ),
-                                        { status: 401 },
+                                        req,
+                                        401,
                                     );
                                 }
 
@@ -1279,10 +1369,11 @@ export class WorldApiManager {
                                     WHERE auth__agent_id = ${sessionResult.agent_id}::UUID
                                 `;
 
-                                return Response.json(
+                                return this.createJsonResponse(
                                     Communication.REST.Endpoint.AUTH_LIST_PROVIDERS.createSuccess(
                                         providers,
                                     ),
+                                    req,
                                 );
                             } catch (error) {
                                 BunLogModule({
@@ -1294,23 +1385,27 @@ export class WorldApiManager {
                                     type: "error",
                                     prefix: LOG_PREFIX,
                                 });
-                                return Response.json(
+                                return this.createJsonResponse(
                                     Communication.REST.Endpoint.AUTH_LIST_PROVIDERS.createError(
                                         "Failed to list providers",
                                     ),
-                                    { status: 500 },
+                                    req,
+                                    500,
                                 );
                             }
                         }
 
-                        default:
-                            return new Response("Not Found", {
+                        default: {
+                            const response = new Response("Not Found", {
                                 status: 404,
                             });
+                            return this.addCorsHeaders(response, req);
+                        }
                     }
                 }
 
-                return new Response("Not Found", { status: 404 });
+                const response = new Response("Not Found", { status: 404 });
+                return this.addCorsHeaders(response, req);
             },
             // #endregion
 

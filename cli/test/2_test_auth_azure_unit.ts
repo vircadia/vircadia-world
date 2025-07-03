@@ -16,6 +16,7 @@ import {
     cleanupTestAccounts,
 } from "./helper/helpers";
 import { cliConfiguration } from "../vircadia.cli.config";
+import { Service } from "../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 import { serverConfiguration } from "../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
 import { BunLogModule } from "../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
 import { WorldApiManager } from "../../server/service/api/volume/app/world.api.manager";
@@ -101,15 +102,14 @@ describe("Azure AD Authentication", () => {
     beforeAll(async () => {
         await runCliCommand("server:run-command", "up", "-d");
         // Wait longer for services to be ready
-        await Bun.sleep(3000);
+        await Bun.sleep(1000);
 
         BunLogModule({
-            message: "Getting super user client for Azure AD tests...",
+            message: "Getting super user client...",
             type: "debug",
-            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-            debug: serverConfiguration.VRCA_SERVER_DEBUG,
+            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+            debug: cliConfiguration.VRCA_CLI_DEBUG,
         });
-
         superUserSql = await BunPostgresClientModule.getInstance({
             debug: cliConfiguration.VRCA_CLI_DEBUG,
             suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
@@ -123,6 +123,12 @@ describe("Azure AD Authentication", () => {
                 password:
                     cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
             },
+        });
+        BunLogModule({
+            message: "Super user client obtained.",
+            type: "debug",
+            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+            debug: cliConfiguration.VRCA_CLI_DEBUG,
         });
 
         // Clean up any existing test data
@@ -222,21 +228,21 @@ describe("Azure AD Authentication", () => {
             // Give the server time to start
             await Bun.sleep(1000);
 
-            apiServerUrl = `http://${serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_INTERNAL}:${serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_INTERNAL}`;
+            apiServerUrl = `http://${serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL}:${serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL}`;
 
             BunLogModule({
                 message: "Azure AD test setup complete",
                 type: "debug",
-                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                debug: cliConfiguration.VRCA_CLI_DEBUG,
             });
         } catch (error) {
             BunLogModule({
                 message: "Failed to initialize Azure AD test setup",
                 error,
                 type: "error",
-                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-                debug: true,
+                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                debug: cliConfiguration.VRCA_CLI_DEBUG,
             });
             throw error;
         }
@@ -250,6 +256,18 @@ describe("Azure AD Authentication", () => {
                 WHERE cache_key LIKE 'pkce_verifier_%'
             `;
         }
+    });
+
+    describe("Can connect to the API server", () => {
+        test("should be able to connect to the API server", async () => {
+            const response = await fetch(
+                `${apiServerUrl}${Service.API.Stats_Endpoint.path}`,
+                {
+                    method: "GET",
+                },
+            );
+            expect(response.status).toBe(200);
+        });
     });
 
     describe("OAuth State Management", () => {
@@ -513,7 +531,7 @@ describe("Azure AD Authentication", () => {
                     general__agent_profile_id,
                     profile__username,
                     auth__email
-                ) VALUES 
+                ) VALUES
                     (${agentId1}::UUID, ${`${DB_TEST_PREFIX}User 1`}, ${`${DB_TEST_PREFIX}user1@test.com`}),
                     (${agentId2}::UUID, ${`${DB_TEST_PREFIX}User 2`}, ${`${DB_TEST_PREFIX}user2@test.com`})
             `;

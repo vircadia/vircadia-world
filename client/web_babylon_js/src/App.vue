@@ -50,6 +50,9 @@
         
         <!-- Floating Control Toolbar -->
         <div class="floating-toolbar">
+            <!-- Azure AD Login -->
+            <AzureADLoginButton ref="azureAuthRef" />
+            
             <!-- Debug Controls -->
             <v-tooltip bottom>
                 <template v-slot:activator="{ props }">
@@ -112,7 +115,7 @@
         
         <!-- Audio controls dialog -->
         <v-dialog v-model="audioDialog" max-width="600" eager>
-            <AudioControlsDialog :webrtc-ref="webrtcStatus" />
+            <AudioControlsDialog :webrtc-ref="webrtcStatus!" />
         </v-dialog>
         
         <!-- Debug Joint Overlay -->
@@ -133,6 +136,7 @@ import BabylonModel from "./components/BabylonModel.vue";
 import BabylonWebRTC from "./components/BabylonWebRTC.vue";
 import BabylonDebugOverlay from "./components/BabylonDebugOverlay.vue";
 import AudioControlsDialog from "./components/AudioControlsDialog.vue";
+import AzureADLoginButton from "./components/AzureADLoginButton.vue";
 // mark as used at runtime for template
 void BabylonMyAvatar;
 // mark as used at runtime for template
@@ -145,8 +149,11 @@ void BabylonWebRTC;
 void BabylonDebugOverlay;
 // mark as used at runtime for template
 void AudioControlsDialog;
+// mark as used at runtime for template
+void AzureADLoginButton;
 import { useBabylonEnvironment } from "./composables/useBabylonEnvironment";
 import { useAppStore } from "@/stores/appStore";
+import { useAuthStore } from "@/stores/authStore";
 // BabylonJS
 import {
     Scene,
@@ -187,6 +194,7 @@ const agentId = computed(() => vircadiaWorld.connectionInfo.value.agentId);
 
 // Store access with error handling for timing issues
 const appStore = useAppStore();
+const authStore = useAuthStore();
 
 // sync session and agent IDs from Vircadia to the app store
 watch(sessionId, (newSessionId) => {
@@ -206,6 +214,7 @@ const otherAvatarRefs = ref<(InstanceType<typeof BabylonOtherAvatar> | null)[]>(
     [],
 );
 const modelRefs = ref<(InstanceType<typeof BabylonModel> | null)[]>([]);
+const azureAuthRef = ref<InstanceType<typeof AzureADLoginButton> | null>(null);
 
 // Track other avatars
 const otherAvatarSessionIds = ref<string[]>([]);
@@ -449,6 +458,8 @@ onMounted(async () => {
     // Generate instance ID for this browser tab/instance
     const instanceId = appStore.generateInstanceId();
     console.log(`[App] Generated instance ID: ${instanceId}`);
+
+    // Azure AD OAuth callback is now handled automatically by authStore during initialization
 
     await initializeBabylon();
 

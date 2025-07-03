@@ -11,14 +11,15 @@
         "type-check": "vue-tsc --build"
     },
     "dependencies": {
+        "@azure/msal-browser": "^4.14.0",
         "@babylonjs/core": "catalog:babylon",
         "@babylonjs/havok": "catalog:babylon",
         "@babylonjs/inspector": "catalog:babylon",
         "@babylonjs/loaders": "catalog:babylon",
         "@vircadia/world-sdk": "workspace:*",
-        "@vueuse/core": "catalog:vue",
+        "@vueuse/core": "^13.5.0",
         "lodash-es": "^4.17.21",
-        "pinia": "catalog:vue",
+        "pinia": "^3.0.3",
         "vite-plugin-vuetify": "^2.1.1",
         "vue": "catalog:vue",
         "vuetify": "^3.8.5",

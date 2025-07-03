@@ -149,10 +149,15 @@ export class AzureADAuthService {
             BunLogModule({
                 prefix: LOG_PREFIX,
                 message: "Generated authorization URL",
-                debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                debug: true, // Force debug for troubleshooting
+                suppress: false,
                 type: "debug",
-                data: { state, authUrl },
+                data: {
+                    state,
+                    authUrl,
+                    authUrlLength: authUrl?.length,
+                    authUrlType: typeof authUrl,
+                },
             });
 
             return authUrl;
@@ -683,6 +688,13 @@ export async function createAzureADConfig(
         `;
 
         if (!config) {
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "No Azure AD configuration found in database",
+                debug: true,
+                suppress: false,
+                type: "error",
+            });
             throw new Error(
                 "Azure AD provider configuration not found or disabled",
             );

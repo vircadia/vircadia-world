@@ -547,25 +547,53 @@ export class WorldApiManager {
 
             // Initialize Azure AD service
             try {
+                BunLogModule({
+                    message: "Attempting to initialize Azure AD service",
+                    debug: true,
+                    suppress: false,
+                    type: "debug",
+                    prefix: LOG_PREFIX,
+                });
+
                 const azureConfig = await createAzureADConfig(superUserSql);
+
+                BunLogModule({
+                    message: "Azure AD config loaded",
+                    debug: true,
+                    suppress: false,
+                    type: "debug",
+                    prefix: LOG_PREFIX,
+                    data: {
+                        hasClientId: !!azureConfig.clientId,
+                        hasClientSecret: !!azureConfig.clientSecret,
+                        tenantId: azureConfig.tenantId,
+                        redirectUri: azureConfig.redirectUri,
+                        scopes: azureConfig.scopes,
+                    },
+                });
+
                 this.azureADService = new AzureADAuthService(
                     azureConfig,
                     superUserSql,
                 );
+
                 BunLogModule({
-                    message: "Azure AD service initialized",
-                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                    suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-                    type: "debug",
+                    message: "Azure AD service initialized successfully",
+                    debug: true,
+                    suppress: false,
+                    type: "success",
+                    prefix: LOG_PREFIX,
                 });
             } catch (error) {
                 BunLogModule({
-                    message: "Azure AD provider not configured or disabled",
-                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                    suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-                    type: "warn",
+                    message: "Azure AD provider initialization failed",
+                    debug: true,
+                    suppress: false,
+                    type: "error",
+                    prefix: LOG_PREFIX,
                     data: {
                         error: error instanceof Error ? error.message : error,
+                        stack: error instanceof Error ? error.stack : undefined,
                     },
                 });
             }
@@ -941,6 +969,13 @@ export class WorldApiManager {
                             Communication.REST.Endpoint.AUTH_OAUTH_AUTHORIZE
                                 .path && req.method === "GET": {
                             if (!this.azureADService) {
+                                BunLogModule({
+                                    message: "Azure AD service not available",
+                                    debug: true,
+                                    suppress: false,
+                                    type: "error",
+                                    prefix: LOG_PREFIX,
+                                });
                                 const response = this.createJsonResponse(
                                     Communication.REST.Endpoint.AUTH_OAUTH_AUTHORIZE.createError(
                                         "Azure AD provider not configured",
@@ -969,16 +1004,47 @@ export class WorldApiManager {
                                     action: "login" as const,
                                 };
 
+                                BunLogModule({
+                                    message:
+                                        "OAuth authorize endpoint - generating auth URL",
+                                    debug: true, // Force debug for troubleshooting
+                                    suppress: false,
+                                    type: "debug",
+                                    prefix: LOG_PREFIX,
+                                    data: { state },
+                                });
+
                                 const authUrl =
                                     await this.azureADService.getAuthorizationUrl(
                                         state,
                                     );
 
-                                const response = Response.json(
+                                BunLogModule({
+                                    message:
+                                        "OAuth authorize endpoint - auth URL generated",
+                                    debug: true, // Force debug for troubleshooting
+                                    suppress: false,
+                                    type: "debug",
+                                    prefix: LOG_PREFIX,
+                                    data: { authUrl },
+                                });
+
+                                const responseData =
                                     Communication.REST.Endpoint.AUTH_OAUTH_AUTHORIZE.createSuccess(
                                         authUrl,
-                                    ),
-                                );
+                                    );
+
+                                BunLogModule({
+                                    message:
+                                        "OAuth authorize endpoint - response data",
+                                    debug: true, // Force debug for troubleshooting
+                                    suppress: false,
+                                    type: "debug",
+                                    prefix: LOG_PREFIX,
+                                    data: { responseData },
+                                });
+
+                                const response = Response.json(responseData);
                                 return this.addCorsHeaders(response, req);
                             } catch (error) {
                                 BunLogModule({

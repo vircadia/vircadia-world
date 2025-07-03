@@ -56,19 +56,43 @@ export const useAuthStore = defineStore("auth", () => {
                 `${getApiUrl()}/world/rest/auth/oauth/authorize?provider=azure`,
             );
 
+            // Debug: Log response details
+            console.log("Auth URL Response:", {
+                status: response.status,
+                statusText: response.statusText,
+                headers: Object.fromEntries(response.headers.entries()),
+                url: response.url,
+            });
+
             if (!response.ok) {
-                throw new Error("Failed to get authorization URL");
+                const errorText = await response.text();
+                console.error("Auth URL Error Response:", errorText);
+                throw new Error(
+                    `Failed to get authorization URL: ${response.status} ${response.statusText}`,
+                );
             }
 
             const data = await response.json();
-            if (data.data?.authorizationUrl) {
+
+            // Debug: Log the full response data
+            console.log("Auth URL Response Data:", data);
+            console.log("Data structure:", {
+                hasData: !!data,
+                hasDataData: !!data?.data,
+                hasAuthorizationUrl: !!data?.data?.authorizationUrl,
+                hasSuccess: !!data?.success,
+                hasRedirectUrl: !!data?.redirectUrl,
+                actualStructure: JSON.stringify(data, null, 2),
+            });
+
+            if (data.success && data.redirectUrl) {
                 // Store current URL to return to after auth
                 sessionStorage.setItem(
                     "vircadia-auth-return-url",
                     window.location.href,
                 );
                 // Redirect to Azure AD
-                window.location.href = data.data.authorizationUrl;
+                window.location.href = data.redirectUrl;
             } else {
                 throw new Error("No authorization URL received");
             }
@@ -97,23 +121,30 @@ export const useAuthStore = defineStore("auth", () => {
             }
 
             const data = await response.json();
-            if (data.data) {
+
+            // Debug: Log callback response
+            console.log("OAuth Callback Response Data:", data);
+
+            // Check both potential response formats
+            const responseData = data?.data || (data?.success ? data : null);
+
+            if (responseData?.token) {
                 // Store session information
-                sessionToken.value = data.data.token;
-                sessionId.value = data.data.sessionId;
-                agentId.value = data.data.agentId;
+                sessionToken.value = responseData.token;
+                sessionId.value = responseData.sessionId;
+                agentId.value = responseData.agentId;
 
                 // Create a minimal account object for UI display
                 account.value = {
-                    homeAccountId: data.data.agentId,
+                    homeAccountId: responseData.agentId,
                     environment: "azure",
                     tenantId: "",
-                    username: data.data.email || "User",
-                    localAccountId: data.data.agentId,
-                    name: data.data.displayName,
+                    username: responseData.email || "User",
+                    localAccountId: responseData.agentId,
+                    name: responseData.displayName,
                     idTokenClaims: {
-                        email: data.data.email,
-                        name: data.data.displayName,
+                        email: responseData.email,
+                        name: responseData.displayName,
                     },
                 } as AccountInfo;
 

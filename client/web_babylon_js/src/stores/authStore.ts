@@ -53,7 +53,7 @@ export const useAuthStore = defineStore("auth", () => {
         try {
             // Get authorization URL from server
             const response = await fetch(
-                `${getApiUrl()}/api/auth/oauth/authorize?provider=azure`,
+                `${getApiUrl()}/world/rest/auth/oauth/authorize?provider=azure`,
             );
 
             if (!response.ok) {
@@ -88,7 +88,7 @@ export const useAuthStore = defineStore("auth", () => {
         try {
             // Send code to server for token exchange
             const response = await fetch(
-                `${getApiUrl()}/api/auth/oauth/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}&provider=azure`,
+                `${getApiUrl()}/world/rest/auth/oauth/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}&provider=azure`,
             );
 
             if (!response.ok) {
@@ -136,7 +136,7 @@ export const useAuthStore = defineStore("auth", () => {
     const logout = async () => {
         if (sessionId.value) {
             try {
-                await fetch(`${getApiUrl()}/api/auth/logout`, {
+                await fetch(`${getApiUrl()}/world/rest/auth/logout`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ sessionId: sessionId.value }),

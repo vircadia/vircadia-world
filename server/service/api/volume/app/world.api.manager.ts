@@ -593,7 +593,7 @@ export class WorldApiManager {
 
                 // Handle CORS preflight requests
                 if (req.method === "OPTIONS") {
-                    const response = new Response(null, req, 204);
+                    const response = new Response(null, { status: 204 });
                     return this.addCorsHeaders(response, req);
                 }
 
@@ -814,7 +814,7 @@ export class WorldApiManager {
 
                                 // Validate required fields
                                 if (!body.token) {
-                                    const response = Response.json(
+                                    const response = this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
                                             "No token provided",
                                         ),
@@ -825,7 +825,7 @@ export class WorldApiManager {
                                 }
 
                                 if (!body.provider) {
-                                    const response = Response.json(
+                                    const response = this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
                                             "No provider specified",
                                         ),
@@ -835,7 +835,7 @@ export class WorldApiManager {
                                     return this.addCorsHeaders(response, req);
                                 }
                             } catch (error) {
-                                const response = Response.json(
+                                const response = this.createJsonResponse(
                                     Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
                                         "Invalid request body",
                                     ),
@@ -853,7 +853,7 @@ export class WorldApiManager {
                             });
 
                             if (!jwtValidationResult.isValid) {
-                                const response = Response.json(
+                                const response = this.createJsonResponse(
                                     Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
                                         `Invalid token: ${jwtValidationResult.errorReason}`,
                                     ),
@@ -874,11 +874,14 @@ export class WorldApiManager {
                                                 `;
 
                                     if (!sessionValidationResult.agent_id) {
-                                        const response = Response.json(
-                                            Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
-                                                "Invalid session",
-                                            ),
-                                        );
+                                        const response =
+                                            this.createJsonResponse(
+                                                Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
+                                                    "Invalid session",
+                                                ),
+                                                req,
+                                                401,
+                                            );
                                         return this.addCorsHeaders(
                                             response,
                                             req,
@@ -898,11 +901,12 @@ export class WorldApiManager {
                                         },
                                     });
 
-                                    const response = Response.json(
+                                    const response = this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createSuccess(
                                             jwtValidationResult.agentId,
                                             jwtValidationResult.sessionId,
                                         ),
+                                        req,
                                     );
                                     return this.addCorsHeaders(response, req);
                                 });
@@ -921,10 +925,12 @@ export class WorldApiManager {
                                                 : String(error),
                                     },
                                 });
-                                const response = Response.json(
+                                const response = this.createJsonResponse(
                                     Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
                                         "Failed to validate session",
                                     ),
+                                    req,
+                                    500,
                                 );
                                 return this.addCorsHeaders(response, req);
                             }
@@ -935,7 +941,7 @@ export class WorldApiManager {
                             Communication.REST.Endpoint.AUTH_OAUTH_AUTHORIZE
                                 .path && req.method === "GET": {
                             if (!this.azureADService) {
-                                const response = Response.json(
+                                const response = this.createJsonResponse(
                                     Communication.REST.Endpoint.AUTH_OAUTH_AUTHORIZE.createError(
                                         "Azure AD provider not configured",
                                     ),
@@ -947,7 +953,7 @@ export class WorldApiManager {
 
                             const provider = url.searchParams.get("provider");
                             if (provider !== Auth.E_Provider.AZURE) {
-                                const response = Response.json(
+                                const response = this.createJsonResponse(
                                     Communication.REST.Endpoint.AUTH_OAUTH_AUTHORIZE.createError(
                                         "Unsupported provider",
                                     ),
@@ -985,7 +991,7 @@ export class WorldApiManager {
                                     type: "error",
                                     prefix: LOG_PREFIX,
                                 });
-                                const response = Response.json(
+                                const response = this.createJsonResponse(
                                     Communication.REST.Endpoint.AUTH_OAUTH_AUTHORIZE.createError(
                                         "Failed to generate authorization URL",
                                     ),

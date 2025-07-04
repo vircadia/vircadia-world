@@ -778,6 +778,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_auth_providers TO vircadia_ag
 GRANT SELECT, INSERT, UPDATE, DELETE ON auth.sync_groups TO vircadia_agent_proxy;
 GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_sync_group_roles TO vircadia_agent_proxy;
 GRANT SELECT, INSERT, UPDATE, DELETE ON auth.agent_sessions TO vircadia_agent_proxy;
+GRANT SELECT, INSERT, UPDATE, DELETE ON auth.oauth_state_cache TO vircadia_agent_proxy;
 
 -- Grant view permissions
 GRANT SELECT ON auth.active_sync_group_sessions TO vircadia_agent_proxy;

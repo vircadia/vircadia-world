@@ -41,13 +41,44 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, watch, onMounted } from "vue";
 import { useAuthStore } from "@/stores/authStore";
 
 const authStore = useAuthStore();
 
+// Refresh account data on mount and when authentication state changes
+onMounted(() => {
+    if (authStore.isAuthenticated && !authStore.account) {
+        console.log("Authenticated but no account data, refreshing...");
+        authStore.refreshAccountData();
+    }
+});
+
+watch(
+    () => authStore.isAuthenticated,
+    (newVal) => {
+        if (newVal && !authStore.account) {
+            console.log(
+                "Authentication state changed, refreshing account data...",
+            );
+            authStore.refreshAccountData();
+        }
+    },
+);
+
 const username = computed(() => {
-    if (!authStore.account) return "Unknown User";
+    if (!authStore.account) return "Not signed in";
+
+    // Debug logging
+    console.log("Computing username - account data:", {
+        account: authStore.account,
+        username: authStore.account.username,
+        name: authStore.account.name,
+        idTokenClaims: authStore.account.idTokenClaims,
+        localAccountId: authStore.account.localAccountId,
+        isAuthenticated: authStore.isAuthenticated,
+        sessionToken: authStore.sessionToken,
+    });
 
     // Try different properties in order of preference
     return (
@@ -55,8 +86,7 @@ const username = computed(() => {
         authStore.account.name ||
         authStore.account.idTokenClaims?.preferred_username ||
         authStore.account.idTokenClaims?.name ||
-        authStore.account.localAccountId ||
-        "Unknown User"
+        authStore.account.localAccountId
     );
 });
 

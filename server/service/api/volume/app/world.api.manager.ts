@@ -1316,23 +1316,25 @@ export class WorldApiManager {
                                                 agentId: result.agentId,
                                                 sessionId: result.sessionId,
                                                 hasJwt: !!result.jwt,
+                                                email: result.email,
+                                                displayName: result.displayName,
+                                                username: result.username,
                                             },
                                         });
 
-                                        const response =
-                                            this.createJsonResponse(
-                                                Communication.REST.Endpoint.AUTH_OAUTH_CALLBACK.createSuccess(
-                                                    {
-                                                        token: result.jwt,
-                                                        agentId: result.agentId,
-                                                        sessionId:
-                                                            result.sessionId,
-                                                        provider:
-                                                            Auth.E_Provider
-                                                                .AZURE,
-                                                    },
-                                                ),
-                                                req,
+                                        const successResponse =
+                                            Communication.REST.Endpoint.AUTH_OAUTH_CALLBACK.createSuccess(
+                                                {
+                                                    token: result.jwt,
+                                                    agentId: result.agentId,
+                                                    sessionId: result.sessionId,
+                                                    provider:
+                                                        Auth.E_Provider.AZURE,
+                                                    email: result.email,
+                                                    displayName:
+                                                        result.displayName,
+                                                    username: result.username,
+                                                },
                                             );
 
                                         BunLogModule({
@@ -1341,7 +1343,26 @@ export class WorldApiManager {
                                             suppress: false,
                                             type: "debug",
                                             prefix: LOG_PREFIX,
+                                            data: {
+                                                responseStructure:
+                                                    successResponse,
+                                                responseKeys:
+                                                    Object.keys(
+                                                        successResponse,
+                                                    ),
+                                                hasSuccess:
+                                                    "success" in
+                                                    successResponse,
+                                                hasData:
+                                                    "data" in successResponse,
+                                            },
                                         });
+
+                                        const response =
+                                            this.createJsonResponse(
+                                                successResponse,
+                                                req,
+                                            );
 
                                         return response;
                                     }

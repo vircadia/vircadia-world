@@ -633,6 +633,9 @@ export class AzureADAuthService {
         agentId: string;
         sessionId: string;
         jwt: string;
+        email: string;
+        displayName: string;
+        username: string;
     }> {
         try {
             // Start a transaction
@@ -680,6 +683,23 @@ export class AzureADAuthService {
                     // New user, create agent and provider records
                     agentId = randomUUID();
 
+                    // Generate a username from email or displayName
+                    let username = userInfo.displayName;
+                    if (!username && userInfo.email) {
+                        // Extract username part from email (before @)
+                        username = userInfo.email.split("@")[0];
+                        // Make it more readable by replacing dots and underscores with spaces
+                        username = username.replace(/[._]/g, " ");
+                        // Capitalize first letter of each word
+                        username = username.replace(/\b\w/g, (char) =>
+                            char.toUpperCase(),
+                        );
+                    }
+                    if (!username) {
+                        // Fallback to a generated username
+                        username = `User${Math.floor(Math.random() * 10000)}`;
+                    }
+
                     // Create agent profile
                     await tx`
                         INSERT INTO auth.agent_profiles (
@@ -691,7 +711,7 @@ export class AzureADAuthService {
                             profile__last_seen_at
                         ) VALUES (
                             ${agentId}::UUID,
-                            ${userInfo.displayName || userInfo.email},
+                            ${username},
                             ${userInfo.email},
                             false,
                             false,
@@ -723,18 +743,43 @@ export class AzureADAuthService {
                     `;
                 }
 
+                // Fetch the actual profile data from database and provider metadata
+                const [profile] = await tx<
+                    [
+                        {
+                            profile__username: string;
+                            auth__email: string;
+                            azure_display_name: string | null;
+                        },
+                    ]
+                >`
+                    SELECT 
+                        p.profile__username, 
+                        p.auth__email,
+                        ap.auth__metadata->>'displayName' as azure_display_name
+                    FROM auth.agent_profiles p
+                    LEFT JOIN auth.agent_auth_providers ap 
+                        ON p.general__agent_profile_id = ap.auth__agent_id 
+                        AND ap.auth__provider_name = 'azure'
+                    WHERE p.general__agent_profile_id = ${agentId}::UUID
+                `;
+
+                if (!profile) {
+                    throw new Error("Failed to fetch created/updated profile");
+                }
+
                 // Create a new session
                 const sessionId = randomUUID();
                 const expiresAt = new Date();
                 expiresAt.setHours(expiresAt.getHours() + 24); // 24 hour session
 
-                // Create JWT token
+                // Create JWT token - use profile email for consistency
                 const jwt = sign(
                     {
                         sessionId,
                         agentId,
                         provider: Auth.E_Provider.AZURE,
-                        email: userInfo.email,
+                        email: profile.auth__email,
                     },
                     this.config.jwtSecret,
                     {
@@ -765,6 +810,12 @@ export class AzureADAuthService {
                     agentId,
                     sessionId,
                     jwt,
+                    email: profile.auth__email,
+                    displayName:
+                        profile.azure_display_name ||
+                        userInfo.displayName ||
+                        profile.profile__username,
+                    username: profile.profile__username,
                 };
             });
         } catch (error) {

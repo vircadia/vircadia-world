@@ -1209,8 +1209,78 @@ onMounted(async () => {
                             return {
                                 sessionId: sessionId.value,
                                 boneCount: avatarSkeleton.value.bones.length,
+                                position: position.value
+                                    ? { ...position.value }
+                                    : { x: 0, y: 0, z: 0 },
+                                rotation: rotation.value
+                                    ? { ...rotation.value }
+                                    : { x: 0, y: 0, z: 0, w: 1 },
                                 joints,
                             };
+                        };
+
+                        // Add function to set avatar transform from debug overlay
+                        (
+                            window as DebugWindow & {
+                                __debugSetMyAvatarTransform?: (
+                                    position: {
+                                        x: number;
+                                        y: number;
+                                        z: number;
+                                    },
+                                    rotation: {
+                                        x: number;
+                                        y: number;
+                                        z: number;
+                                        w: number;
+                                    },
+                                ) => void;
+                            }
+                        ).__debugSetMyAvatarTransform = (
+                            newPosition,
+                            newRotation,
+                        ) => {
+                            if (
+                                !characterController.value ||
+                                !avatarNode.value
+                            ) {
+                                console.error(
+                                    "Character controller or avatar node not available",
+                                );
+                                return;
+                            }
+
+                            // Set position
+                            setPosition(
+                                new Vector3(
+                                    newPosition.x,
+                                    newPosition.y,
+                                    newPosition.z,
+                                ),
+                            );
+                            position.value = { ...newPosition };
+
+                            // Set rotation
+                            setOrientation(
+                                new Quaternion(
+                                    newRotation.x,
+                                    newRotation.y,
+                                    newRotation.z,
+                                    newRotation.w,
+                                ),
+                            );
+                            rotation.value = { ...newRotation };
+
+                            // Force update transforms
+                            updateTransforms();
+
+                            // Update entity metadata
+                            throttledUpdate();
+
+                            console.log("[Debug] Avatar transform updated", {
+                                position: newPosition,
+                                rotation: newRotation,
+                            });
                         };
 
                         emit("ready");

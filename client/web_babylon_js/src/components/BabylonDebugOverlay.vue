@@ -12,6 +12,115 @@
                 <div class="session-id">Session: {{ myAvatarData.sessionId }}</div>
                 <div class="bone-count">Bones: {{ myAvatarData.boneCount }}</div>
                 
+                <!-- Position and Rotation Controls -->
+                <div class="transform-controls">
+                    <h5>Transform</h5>
+                    
+                    <!-- Position Inputs -->
+                    <div class="control-group">
+                        <label>Position:</label>
+                        <div class="input-row">
+                            <v-text-field
+                                v-model.number="editPosition.x"
+                                label="X"
+                                type="number"
+                                step="0.1"
+                                hide-details
+                                density="compact"
+                                variant="outlined"
+                                @keyup.enter="applyTransform"
+                            />
+                            <v-text-field
+                                v-model.number="editPosition.y"
+                                label="Y"
+                                type="number"
+                                step="0.1"
+                                hide-details
+                                density="compact"
+                                variant="outlined"
+                                @keyup.enter="applyTransform"
+                            />
+                            <v-text-field
+                                v-model.number="editPosition.z"
+                                label="Z"
+                                type="number"
+                                step="0.1"
+                                hide-details
+                                density="compact"
+                                variant="outlined"
+                                @keyup.enter="applyTransform"
+                            />
+                        </div>
+                        <div class="current-value">Current: {{ formatVector(myAvatarData.position || { x: 0, y: 0, z: 0 }) }}</div>
+                    </div>
+                    
+                    <!-- Rotation Inputs (Quaternion) -->
+                    <div class="control-group">
+                        <label>Rotation (Quaternion):</label>
+                        <div class="input-row quaternion">
+                            <v-text-field
+                                v-model.number="editRotation.x"
+                                label="X"
+                                type="number"
+                                step="0.01"
+                                hide-details
+                                density="compact"
+                                variant="outlined"
+                                @keyup.enter="applyTransform"
+                            />
+                            <v-text-field
+                                v-model.number="editRotation.y"
+                                label="Y"
+                                type="number"
+                                step="0.01"
+                                hide-details
+                                density="compact"
+                                variant="outlined"
+                                @keyup.enter="applyTransform"
+                            />
+                            <v-text-field
+                                v-model.number="editRotation.z"
+                                label="Z"
+                                type="number"
+                                step="0.01"
+                                hide-details
+                                density="compact"
+                                variant="outlined"
+                                @keyup.enter="applyTransform"
+                            />
+                            <v-text-field
+                                v-model.number="editRotation.w"
+                                label="W"
+                                type="number"
+                                step="0.01"
+                                hide-details
+                                density="compact"
+                                variant="outlined"
+                                @keyup.enter="applyTransform"
+                            />
+                        </div>
+                        <div class="current-value">Current: {{ formatRotation(myAvatarData.rotation || { x: 0, y: 0, z: 0, w: 1 }) }}</div>
+                    </div>
+                    
+                    <div class="transform-buttons">
+                        <v-btn
+                            size="small"
+                            color="primary"
+                            @click="applyTransform"
+                            :disabled="!canApplyTransform"
+                        >
+                            Apply
+                        </v-btn>
+                        <v-btn
+                            size="small"
+                            variant="outlined"
+                            @click="resetTransform"
+                        >
+                            Reset
+                        </v-btn>
+                    </div>
+                </div>
+                
                 <div class="joint-list">
                     <div v-for="[name, joint] in sortedJoints(myAvatarData.joints || {})" :key="name" 
                          :class="['joint-item', { 'primary-joint': isPrimaryJoint(name) }]">
@@ -102,6 +211,8 @@ interface JointTransform {
 interface AvatarDebugData {
     sessionId: string;
     boneCount: number;
+    position?: { x: number; y: number; z: number };
+    rotation?: { x: number; y: number; z: number; w: number };
     joints?: Record<string, JointTransform>; // For backward compatibility with MyAvatar
     currentEngineState?: Record<string, JointTransform>; // For OtherAvatar current state
     lastReceivedValues?: Record<string, JointTransform>; // For OtherAvatar received values
@@ -160,6 +271,26 @@ const secondaryKeyBones = [
 
 const keyBones = [...primaryKeyBones, ...secondaryKeyBones];
 
+// Editable position and rotation
+const editPosition = ref({ x: 0, y: 0, z: 0 });
+const editRotation = ref({ x: 0, y: 0, z: 0, w: 1 });
+
+// Check if we can apply transform (i.e., values have changed)
+const canApplyTransform = computed(() => {
+    const pos = myAvatarData.value.position || { x: 0, y: 0, z: 0 };
+    const rot = myAvatarData.value.rotation || { x: 0, y: 0, z: 0, w: 1 };
+
+    return (
+        editPosition.value.x !== pos.x ||
+        editPosition.value.y !== pos.y ||
+        editPosition.value.z !== pos.z ||
+        editRotation.value.x !== rot.x ||
+        editRotation.value.y !== rot.y ||
+        editRotation.value.z !== rot.z ||
+        editRotation.value.w !== rot.w
+    );
+});
+
 // Format helpers
 function formatVector(v: { x: number; y: number; z: number }): string {
     return `${v.x.toFixed(2)}, ${v.y.toFixed(2)}, ${v.z.toFixed(2)}`;
@@ -185,6 +316,10 @@ function formatTimestamp(timestamp: string | null): string {
 interface DebugWindow extends Window {
     __debugMyAvatarData?: () => AvatarDebugData | null;
     __debugOtherAvatarData?: () => AvatarDebugData | null;
+    __debugSetMyAvatarTransform?: (
+        position: { x: number; y: number; z: number },
+        rotation: { x: number; y: number; z: number; w: number },
+    ) => void;
 }
 
 // Data collection from window globals
@@ -197,8 +332,18 @@ function refreshData() {
             myAvatarData.value = {
                 sessionId: data.sessionId,
                 boneCount: data.boneCount,
+                position: data.position,
+                rotation: data.rotation,
                 joints: data.joints ? filterKeyBones(data.joints) : {},
             };
+
+            // Update edit fields with current values
+            if (data.position) {
+                editPosition.value = { ...data.position };
+            }
+            if (data.rotation) {
+                editRotation.value = { ...data.rotation };
+            }
         }
     }
 
@@ -313,6 +458,33 @@ onMounted(() => {
 onUnmounted(() => {
     stopAutoRefresh();
 });
+
+// Apply transform changes
+function applyTransform() {
+    const debugWindow = window as DebugWindow;
+    if (debugWindow.__debugSetMyAvatarTransform) {
+        debugWindow.__debugSetMyAvatarTransform(
+            { ...editPosition.value },
+            { ...editRotation.value },
+        );
+
+        // Refresh data to show the applied changes
+        setTimeout(refreshData, 100);
+    } else {
+        console.error(
+            "__debugSetMyAvatarTransform function not found on window",
+        );
+    }
+}
+
+// Reset transform to current values
+function resetTransform() {
+    const pos = myAvatarData.value.position || { x: 0, y: 0, z: 0 };
+    const rot = myAvatarData.value.rotation || { x: 0, y: 0, z: 0, w: 1 };
+
+    editPosition.value = { ...pos };
+    editRotation.value = { ...rot };
+}
 </script>
 
 <style scoped>
@@ -397,6 +569,77 @@ onUnmounted(() => {
     margin-bottom: 5px;
     color: #888;
     font-size: 11px;
+}
+
+.transform-controls {
+    margin: 15px 0;
+    padding: 15px;
+    border: 1px solid #444;
+    border-radius: 4px;
+    background: rgba(0, 255, 0, 0.05);
+}
+
+.transform-controls h5 {
+    margin: 0 0 15px 0;
+    color: #0f0;
+    font-size: 14px;
+}
+
+.control-group {
+    margin-bottom: 20px;
+}
+
+.control-group label {
+    display: block;
+    margin-bottom: 8px;
+    color: #0ff;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.input-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 5px;
+}
+
+.input-row.quaternion {
+    /* Quaternion has 4 inputs, so make them slightly smaller */
+}
+
+.input-row :deep(.v-input) {
+    flex: 1;
+}
+
+.input-row :deep(.v-field__input) {
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: #0f0;
+}
+
+.input-row :deep(.v-field--variant-outlined) {
+    --v-field-border-color: #444;
+}
+
+.input-row :deep(.v-field--focused) {
+    --v-field-border-color: #0ff;
+}
+
+.current-value {
+    font-size: 11px;
+    color: #888;
+    margin-top: 2px;
+    font-style: italic;
+}
+
+.transform-buttons {
+    display: flex;
+    gap: 10px;
+    margin-top: 15px;
+}
+
+.transform-buttons :deep(.v-btn) {
+    font-size: 12px;
 }
 
 .data-section {

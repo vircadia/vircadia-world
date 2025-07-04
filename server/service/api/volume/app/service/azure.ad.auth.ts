@@ -8,6 +8,7 @@ import {
     type AuthorizationUrlRequest,
     type AuthorizationCodeRequest,
     type AccountInfo,
+    type AuthenticationResult,
     CryptoProvider,
 } from "@azure/msal-node";
 import { BunLogModule } from "../../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
@@ -110,28 +111,119 @@ export class AzureADAuthService {
                 "base64url",
             );
 
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Generating authorization URL",
+                debug: true,
+                suppress: false,
+                type: "debug",
+                data: {
+                    state,
+                    stateParam,
+                },
+            });
+
             // Generate PKCE codes
             const { verifier, challenge } =
                 await this.cryptoProvider.generatePkceCodes();
 
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "PKCE codes generated",
+                debug: true,
+                suppress: false,
+                type: "debug",
+                data: {
+                    verifierLength: verifier?.length,
+                    challengeLength: challenge?.length,
+                },
+            });
+
             // Store the verifier in cache for later use during token exchange
             const cacheKey = `pkce_verifier_${stateParam}`;
+
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Storing PKCE verifier in cache",
+                debug: true,
+                suppress: false,
+                type: "debug",
+                data: {
+                    cacheKey,
+                    expiresIn: "10 minutes",
+                },
+            });
+
             // Note: In production, you'd want to store this in a secure cache like Redis
             // For now, we'll store it in the database with expiry
-            await this.db`
-                INSERT INTO auth.oauth_state_cache (
-                    cache_key,
-                    cache_value,
-                    expires_at
-                ) VALUES (
-                    ${cacheKey},
-                    ${verifier},
-                    NOW() + INTERVAL '10 minutes'
-                )
-                ON CONFLICT (cache_key) DO UPDATE
-                SET cache_value = EXCLUDED.cache_value,
-                    expires_at = EXCLUDED.expires_at
-            `;
+            try {
+                await this.db`
+                    INSERT INTO auth.oauth_state_cache (
+                        cache_key,
+                        cache_value,
+                        expires_at
+                    ) VALUES (
+                        ${cacheKey},
+                        ${verifier},
+                        NOW() + INTERVAL '10 minutes'
+                    )
+                    ON CONFLICT (cache_key) DO UPDATE
+                    SET cache_value = EXCLUDED.cache_value,
+                        expires_at = EXCLUDED.expires_at
+                `;
+
+                BunLogModule({
+                    prefix: LOG_PREFIX,
+                    message: "PKCE verifier stored successfully",
+                    debug: true,
+                    suppress: false,
+                    type: "success",
+                    data: {
+                        cacheKey,
+                    },
+                });
+
+                // Verify it was stored
+                const verifyStore = await this.db`
+                    SELECT cache_key, expires_at::text as expires_at
+                    FROM auth.oauth_state_cache
+                    WHERE cache_key = ${cacheKey}
+                `;
+
+                BunLogModule({
+                    prefix: LOG_PREFIX,
+                    message: "PKCE verifier storage verification",
+                    debug: true,
+                    suppress: false,
+                    type: "debug",
+                    data: {
+                        stored: verifyStore.length > 0,
+                        entry: verifyStore[0],
+                    },
+                });
+            } catch (dbError) {
+                BunLogModule({
+                    prefix: LOG_PREFIX,
+                    message: "Failed to store PKCE verifier",
+                    debug: true,
+                    suppress: false,
+                    type: "error",
+                    data: {
+                        error:
+                            dbError instanceof Error
+                                ? dbError.message
+                                : String(dbError),
+                        stack:
+                            dbError instanceof Error
+                                ? dbError.stack
+                                : undefined,
+                        cacheKey,
+                    },
+                });
+                throw new Error(
+                    `Failed to store PKCE verifier: ${dbError instanceof Error ? dbError.message : String(dbError)}`,
+                );
+            }
 
             const authCodeUrlParameters: AuthorizationUrlRequest = {
                 scopes: this.config.scopes,
@@ -142,6 +234,22 @@ export class AzureADAuthService {
                 prompt: "select_account", // Force account selection
             };
 
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Creating auth URL with parameters",
+                debug: true,
+                suppress: false,
+                type: "debug",
+                data: {
+                    scopes: authCodeUrlParameters.scopes,
+                    redirectUri: authCodeUrlParameters.redirectUri,
+                    hasState: !!authCodeUrlParameters.state,
+                    hasChallenge: !!authCodeUrlParameters.codeChallenge,
+                    codeChallengeMethod:
+                        authCodeUrlParameters.codeChallengeMethod,
+                },
+            });
+
             const authUrl = await this.msalClient.getAuthCodeUrl(
                 authCodeUrlParameters,
             );
@@ -151,7 +259,7 @@ export class AzureADAuthService {
                 message: "Generated authorization URL",
                 debug: true, // Force debug for troubleshooting
                 suppress: false,
-                type: "debug",
+                type: "success",
                 data: {
                     state,
                     authUrl,
@@ -166,9 +274,15 @@ export class AzureADAuthService {
                 prefix: LOG_PREFIX,
                 message: "Failed to generate authorization URL",
                 error,
-                debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                debug: true, // Force debug
+                suppress: false,
                 type: "error",
+                data: {
+                    errorMessage:
+                        error instanceof Error ? error.message : String(error),
+                    errorName: error instanceof Error ? error.name : undefined,
+                    stack: error instanceof Error ? error.stack : undefined,
+                },
             });
             throw error;
         }
@@ -182,25 +296,182 @@ export class AzureADAuthService {
         state: string,
     ): Promise<I_TokenResponse> {
         try {
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Starting token exchange",
+                debug: true, // Force debug for troubleshooting
+                suppress: false,
+                type: "debug",
+                data: {
+                    codeLength: code?.length,
+                    state,
+                    hasCode: !!code,
+                    hasState: !!state,
+                },
+            });
+
             // Retrieve the PKCE verifier from cache
             const cacheKey = `pkce_verifier_${state}`;
-            const [cacheResult] = await this.db<[{ cache_value: string }]>`
-                SELECT cache_value FROM auth.oauth_state_cache
-                WHERE cache_key = ${cacheKey}
-                  AND expires_at > NOW()
-            `;
+
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Looking up PKCE verifier",
+                debug: true,
+                suppress: false,
+                type: "debug",
+                data: { cacheKey },
+            });
+
+            let cacheResult: { cache_value: string } | undefined;
+            try {
+                const results = await this.db<[{ cache_value: string }]>`
+                    SELECT cache_value FROM auth.oauth_state_cache
+                    WHERE cache_key = ${cacheKey}
+                      AND expires_at > NOW()
+                `;
+
+                cacheResult = results?.[0];
+
+                BunLogModule({
+                    prefix: LOG_PREFIX,
+                    message: "PKCE verifier query result",
+                    debug: true,
+                    suppress: false,
+                    type: "debug",
+                    data: {
+                        found: !!cacheResult,
+                        hasValue: !!cacheResult?.cache_value,
+                        cacheKey,
+                    },
+                });
+
+                // Also check for expired entries for debugging
+                const expiredCheck = await this.db<
+                    [{ count: number; min_expires_at: string }]
+                >`
+                    SELECT COUNT(*) as count, MIN(expires_at)::text as min_expires_at
+                    FROM auth.oauth_state_cache
+                    WHERE cache_key = ${cacheKey}
+                      AND expires_at <= NOW()
+                `;
+
+                if (expiredCheck?.[0]?.count > 0) {
+                    BunLogModule({
+                        prefix: LOG_PREFIX,
+                        message: "Found expired PKCE verifier entries",
+                        debug: true,
+                        suppress: false,
+                        type: "warning",
+                        data: {
+                            expiredCount: expiredCheck[0].count,
+                            oldestExpiry: expiredCheck[0].min_expires_at,
+                            cacheKey,
+                        },
+                    });
+                }
+            } catch (dbError) {
+                BunLogModule({
+                    prefix: LOG_PREFIX,
+                    message: "Database error while retrieving PKCE verifier",
+                    debug: true,
+                    suppress: false,
+                    type: "error",
+                    data: {
+                        error:
+                            dbError instanceof Error
+                                ? dbError.message
+                                : String(dbError),
+                        stack:
+                            dbError instanceof Error
+                                ? dbError.stack
+                                : undefined,
+                        cacheKey,
+                    },
+                });
+                throw new Error(
+                    `Failed to retrieve PKCE verifier: ${dbError instanceof Error ? dbError.message : String(dbError)}`,
+                );
+            }
 
             if (!cacheResult?.cache_value) {
+                // Check if any entries exist for debugging
+                const allEntries = await this.db<
+                    [
+                        {
+                            cache_key: string;
+                            expires_at: string;
+                            created_at: string;
+                        },
+                    ]
+                >`
+                    SELECT cache_key, expires_at::text, created_at::text
+                    FROM auth.oauth_state_cache
+                    ORDER BY created_at DESC
+                    LIMIT 10
+                `;
+
+                BunLogModule({
+                    prefix: LOG_PREFIX,
+                    message:
+                        "PKCE verifier not found in cache - showing recent entries",
+                    debug: true,
+                    suppress: false,
+                    type: "error",
+                    data: {
+                        cacheKey,
+                        recentEntries: allEntries,
+                        totalEntries: allEntries.length,
+                    },
+                });
                 throw new Error("PKCE verifier not found or expired");
             }
 
             const verifier = cacheResult.cache_value;
 
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "PKCE verifier retrieved successfully",
+                debug: true,
+                suppress: false,
+                type: "debug",
+                data: {
+                    verifierLength: verifier?.length,
+                    cacheKey,
+                },
+            });
+
             // Clean up the cache entry
-            await this.db`
-                DELETE FROM auth.oauth_state_cache
-                WHERE cache_key = ${cacheKey}
-            `;
+            try {
+                await this.db`
+                    DELETE FROM auth.oauth_state_cache
+                    WHERE cache_key = ${cacheKey}
+                `;
+
+                BunLogModule({
+                    prefix: LOG_PREFIX,
+                    message: "PKCE verifier cache entry cleaned up",
+                    debug: true,
+                    suppress: false,
+                    type: "debug",
+                    data: { cacheKey },
+                });
+            } catch (deleteError) {
+                BunLogModule({
+                    prefix: LOG_PREFIX,
+                    message: "Failed to clean up PKCE verifier cache entry",
+                    debug: true,
+                    suppress: false,
+                    type: "warning",
+                    data: {
+                        error:
+                            deleteError instanceof Error
+                                ? deleteError.message
+                                : String(deleteError),
+                        cacheKey,
+                    },
+                });
+                // Don't throw here, continue with token exchange
+            }
 
             const tokenRequest: AuthorizationCodeRequest = {
                 code,
@@ -209,20 +480,75 @@ export class AzureADAuthService {
                 codeVerifier: verifier,
             };
 
-            const response =
-                await this.msalClient.acquireTokenByCode(tokenRequest);
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Calling MSAL acquireTokenByCode",
+                debug: true,
+                suppress: false,
+                type: "debug",
+                data: {
+                    hasCode: !!tokenRequest.code,
+                    scopes: tokenRequest.scopes,
+                    redirectUri: tokenRequest.redirectUri,
+                    hasCodeVerifier: !!tokenRequest.codeVerifier,
+                    codeVerifierLength: tokenRequest.codeVerifier?.length,
+                },
+            });
+
+            let response: AuthenticationResult | null;
+            try {
+                response =
+                    await this.msalClient.acquireTokenByCode(tokenRequest);
+            } catch (msalError) {
+                BunLogModule({
+                    prefix: LOG_PREFIX,
+                    message: "MSAL token acquisition failed",
+                    debug: true,
+                    suppress: false,
+                    type: "error",
+                    data: {
+                        error:
+                            msalError instanceof Error
+                                ? msalError.message
+                                : String(msalError),
+                        errorName:
+                            msalError instanceof Error
+                                ? msalError.name
+                                : undefined,
+                        stack:
+                            msalError instanceof Error
+                                ? msalError.stack
+                                : undefined,
+                    },
+                });
+                throw new Error(
+                    `Token acquisition failed: ${msalError instanceof Error ? msalError.message : String(msalError)}`,
+                );
+            }
 
             if (!response) {
-                throw new Error("Failed to acquire token");
+                BunLogModule({
+                    prefix: LOG_PREFIX,
+                    message: "MSAL returned null response",
+                    debug: true,
+                    suppress: false,
+                    type: "error",
+                });
+                throw new Error("Failed to acquire token - null response");
             }
 
             BunLogModule({
                 prefix: LOG_PREFIX,
                 message: "Successfully exchanged code for tokens",
-                debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-                type: "debug",
-                data: { account: response.account },
+                debug: true, // Force debug
+                suppress: false,
+                type: "success",
+                data: {
+                    account: response.account,
+                    hasAccessToken: !!response.accessToken,
+                    hasIdToken: !!response.idToken,
+                    expiresOn: response.expiresOn,
+                },
             });
 
             return {
@@ -237,9 +563,18 @@ export class AzureADAuthService {
                 prefix: LOG_PREFIX,
                 message: "Failed to exchange code for tokens",
                 error,
-                debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                debug: true, // Force debug
+                suppress: false,
                 type: "error",
+                data: {
+                    errorMessage:
+                        error instanceof Error ? error.message : String(error),
+                    errorName: error instanceof Error ? error.name : undefined,
+                    errorStack:
+                        error instanceof Error ? error.stack : undefined,
+                    code: `${code?.substring(0, 20)}...`, // Log partial code for debugging
+                    state,
+                },
             });
             throw error;
         }

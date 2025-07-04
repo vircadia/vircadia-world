@@ -63,21 +63,6 @@ const clientBrowserEnvSchema = z.object({
     // Development Web Babylon JS Client
     VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST: z.string().default("0.0.0.0"),
     VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT: z.coerce.number().default(3066),
-
-    // Azure AD Authentication
-    VRCA_CLIENT_WEB_BABYLON_JS_AZURE_AD_CLIENT_ID: z
-        .string()
-        .default("a03cf169-60e1-449a-8d83-b0d7790727d7"),
-    VRCA_CLIENT_WEB_BABYLON_JS_AZURE_AD_TENANT_ID: z
-        .string()
-        .default("c02e7900-f6c1-4f0c-849b-667c5fa3b41e"),
-    VRCA_CLIENT_WEB_BABYLON_JS_AZURE_AD_REDIRECT_URI: z
-        .string()
-        .default("http://localhost:3066/"),
-    VRCA_CLIENT_WEB_BABYLON_JS_AZURE_AD_SCOPE: z.string().default("user.read"),
-    VRCA_CLIENT_WEB_BABYLON_JS_AZURE_AD_RESPONSE_TYPE: z
-        .string()
-        .default("code"),
 });
 
 // Parse client environment variables

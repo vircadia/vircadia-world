@@ -110,14 +110,36 @@ export const useAuthStore = defineStore("auth", () => {
         authError.value = null;
 
         try {
+            // Debug: Log the callback URL being constructed
+            const callbackUrl = `${getApiUrl()}/world/rest/auth/oauth/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}&provider=azure`;
+            console.log("OAuth Callback - Request URL:", callbackUrl);
+            console.log("OAuth Callback - API Base URL:", getApiUrl());
+
             // Send code to server for token exchange
-            const response = await fetch(
-                `${getApiUrl()}/world/rest/auth/oauth/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}&provider=azure`,
+            const response = await fetch(callbackUrl);
+
+            // Debug: Log response details
+            console.log("OAuth Callback - Response status:", response.status);
+            console.log(
+                "OAuth Callback - Response headers:",
+                Object.fromEntries(response.headers.entries()),
             );
 
             if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.errorMessage || "Authentication failed");
+                const errorText = await response.text();
+                console.error("OAuth Callback - Error response:", errorText);
+                try {
+                    const error = JSON.parse(errorText);
+                    throw new Error(
+                        error.errorMessage ||
+                            error.error ||
+                            "Authentication failed",
+                    );
+                } catch (parseError) {
+                    throw new Error(
+                        `Authentication failed: ${response.status} ${response.statusText}`,
+                    );
+                }
             }
 
             const data = await response.json();

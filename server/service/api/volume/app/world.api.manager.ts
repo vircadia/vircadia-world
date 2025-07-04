@@ -617,295 +617,265 @@ export class WorldApiManager {
 
             // #region API -> HTTP Routes
             fetch: async (req: Request, server: Server) => {
-                const url = new URL(req.url);
+                try {
+                    const url = new URL(req.url);
 
-                // Handle CORS preflight requests
-                if (req.method === "OPTIONS") {
-                    const response = new Response(null, { status: 204 });
-                    return this.addCorsHeaders(response, req);
-                }
+                    // Handle CORS preflight requests
+                    if (req.method === "OPTIONS") {
+                        const response = new Response(null, { status: 204 });
+                        return this.addCorsHeaders(response, req);
+                    }
 
-                if (!superUserSql || !proxyUserSql) {
-                    BunLogModule({
-                        message: "No database connection available",
-                        debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                        suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-                        type: "error",
-                    });
-                    const response = new Response("Internal server error", {
-                        status: 500,
-                    });
-                    return this.addCorsHeaders(response, req);
-                }
+                    if (!superUserSql || !proxyUserSql) {
+                        BunLogModule({
+                            message: "No database connection available",
+                            debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                            type: "error",
+                        });
+                        const response = new Response("Internal server error", {
+                            status: 500,
+                        });
+                        return this.addCorsHeaders(response, req);
+                    }
 
-                // Handle stats
-                if (
-                    url.pathname.startsWith(Service.API.Stats_Endpoint.path) &&
-                    req.method === Service.API.Stats_Endpoint.method
-                ) {
-                    const requestIP =
-                        req.headers.get("x-forwarded-for")?.split(",")[0] ||
-                        server.requestIP(req)?.address ||
-                        "";
+                    // Handle stats
+                    if (
+                        url.pathname.startsWith(
+                            Service.API.Stats_Endpoint.path,
+                        ) &&
+                        req.method === Service.API.Stats_Endpoint.method
+                    ) {
+                        const requestIP =
+                            req.headers.get("x-forwarded-for")?.split(",")[0] ||
+                            server.requestIP(req)?.address ||
+                            "";
 
-                    // Log the detected IP for debugging
-                    BunLogModule({
-                        prefix: LOG_PREFIX,
-                        message: `Stats endpoint access attempt from IP: ${requestIP}`,
-                        debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                        suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-                        type: "debug",
-                        data: {
-                            requestIP,
-                            xForwardedFor: req.headers.get("x-forwarded-for"),
-                            serverRequestIP: server.requestIP(req)?.address,
-                        },
-                    });
-
-                    // Allow access from localhost and Docker internal networks
-                    const isLocalhost =
-                        requestIP === "127.0.0.1" ||
-                        requestIP === "::1" ||
-                        requestIP === "localhost";
-                    const isDockerInternal =
-                        requestIP.startsWith("172.") ||
-                        requestIP.startsWith("192.168.") ||
-                        requestIP.startsWith("10.") ||
-                        requestIP === "::ffff:127.0.0.1";
-
-                    if (!isLocalhost && !isDockerInternal) {
+                        // Log the detected IP for debugging
                         BunLogModule({
                             prefix: LOG_PREFIX,
-                            message: `Stats endpoint access denied for IP: ${requestIP}`,
+                            message: `Stats endpoint access attempt from IP: ${requestIP}`,
                             debug: serverConfiguration.VRCA_SERVER_DEBUG,
                             suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                             type: "debug",
+                            data: {
+                                requestIP,
+                                xForwardedFor:
+                                    req.headers.get("x-forwarded-for"),
+                                serverRequestIP: server.requestIP(req)?.address,
+                            },
                         });
+
+                        // Allow access from localhost and Docker internal networks
+                        const isLocalhost =
+                            requestIP === "127.0.0.1" ||
+                            requestIP === "::1" ||
+                            requestIP === "localhost";
+                        const isDockerInternal =
+                            requestIP.startsWith("172.") ||
+                            requestIP.startsWith("192.168.") ||
+                            requestIP.startsWith("10.") ||
+                            requestIP === "::ffff:127.0.0.1";
+
+                        if (!isLocalhost && !isDockerInternal) {
+                            BunLogModule({
+                                prefix: LOG_PREFIX,
+                                message: `Stats endpoint access denied for IP: ${requestIP}`,
+                                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                                suppress:
+                                    serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                type: "debug",
+                            });
+                            const response = Response.json(
+                                Service.API.Stats_Endpoint.createError(
+                                    "Forbidden.",
+                                ),
+                            );
+                            return this.addCorsHeaders(response, req);
+                        }
+
+                        // Record current system metrics before gathering stats
+                        const currentMemory = process.memoryUsage();
+                        const currentCpu = process.cpuUsage();
+                        const dbConnectionCount =
+                            Number(!!superUserSql) + Number(!!proxyUserSql);
+
+                        this.metricsCollector.recordSystemMetrics(
+                            currentCpu,
+                            currentMemory,
+                            this.activeSessions.size,
+                            dbConnectionCount,
+                        );
+
+                        // Gather stats information
+                        const systemMetrics =
+                            this.metricsCollector.getSystemMetrics();
                         const response = Response.json(
-                            Service.API.Stats_Endpoint.createError(
-                                "Forbidden.",
-                            ),
+                            Service.API.Stats_Endpoint.createSuccess({
+                                uptime: process.uptime(),
+                                connections: systemMetrics.connections,
+                                database: systemMetrics.database,
+                                memory: systemMetrics.memory,
+                                cpu: systemMetrics.cpu,
+                                queries: this.metricsCollector.getMetrics(),
+                            }),
                         );
                         return this.addCorsHeaders(response, req);
                     }
 
-                    // Record current system metrics before gathering stats
-                    const currentMemory = process.memoryUsage();
-                    const currentCpu = process.cpuUsage();
-                    const dbConnectionCount =
-                        Number(!!superUserSql) + Number(!!proxyUserSql);
+                    // Handle WebSocket upgrade
+                    if (
+                        url.pathname.startsWith(Communication.WS_UPGRADE_PATH)
+                    ) {
+                        const url = new URL(req.url);
+                        const token = url.searchParams.get("token");
+                        const provider = url.searchParams.get("provider");
 
-                    this.metricsCollector.recordSystemMetrics(
-                        currentCpu,
-                        currentMemory,
-                        this.activeSessions.size,
-                        dbConnectionCount,
-                    );
+                        // Handle missing token first
+                        if (!token) {
+                            BunLogModule({
+                                prefix: LOG_PREFIX,
+                                message: "No token found in query parameters",
+                                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                                suppress:
+                                    serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                type: "debug",
+                            });
+                            return new Response(
+                                "Authentication required: No token provided",
+                                {
+                                    status: 401,
+                                },
+                            );
+                        }
 
-                    // Gather stats information
-                    const systemMetrics =
-                        this.metricsCollector.getSystemMetrics();
-                    const response = Response.json(
-                        Service.API.Stats_Endpoint.createSuccess({
-                            uptime: process.uptime(),
-                            connections: systemMetrics.connections,
-                            database: systemMetrics.database,
-                            memory: systemMetrics.memory,
-                            cpu: systemMetrics.cpu,
-                            queries: this.metricsCollector.getMetrics(),
-                        }),
-                    );
-                    return this.addCorsHeaders(response, req);
-                }
-
-                // Handle WebSocket upgrade
-                if (url.pathname.startsWith(Communication.WS_UPGRADE_PATH)) {
-                    const url = new URL(req.url);
-                    const token = url.searchParams.get("token");
-                    const provider = url.searchParams.get("provider");
-
-                    // Handle missing token first
-                    if (!token) {
-                        BunLogModule({
-                            prefix: LOG_PREFIX,
-                            message: "No token found in query parameters",
-                            debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-                            type: "debug",
-                        });
-                        return new Response(
-                            "Authentication required: No token provided",
-                            {
+                        // Handle missing provider
+                        if (!provider) {
+                            BunLogModule({
+                                prefix: LOG_PREFIX,
+                                message:
+                                    "No provider found in query parameters",
+                                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                                suppress:
+                                    serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                type: "debug",
+                            });
+                            return new Response("Provider required", {
                                 status: 401,
-                            },
-                        );
-                    }
+                            });
+                        }
 
-                    // Handle missing provider
-                    if (!provider) {
-                        BunLogModule({
-                            prefix: LOG_PREFIX,
-                            message: "No provider found in query parameters",
-                            debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-                            type: "debug",
-                        });
-                        return new Response("Provider required", {
-                            status: 401,
-                        });
-                    }
-
-                    const jwtValidationResult = await this.validateJWT({
-                        provider,
-                        token,
-                    });
-
-                    if (!jwtValidationResult.isValid) {
-                        BunLogModule({
-                            prefix: LOG_PREFIX,
-                            message: `Token JWT validation failed: ${jwtValidationResult.errorReason}`,
-                            debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-                            type: "debug",
-                        });
-                        return new Response(
-                            `Invalid token: ${jwtValidationResult.errorReason}`,
-                            {
-                                status: 401,
-                            },
-                        );
-                    }
-
-                    const sessionValidationResult = await superUserSql<
-                        [{ agent_id: string }]
-                    >`
-                            SELECT * FROM auth.validate_session_id(${jwtValidationResult.sessionId}::UUID) as agent_id
-                        `;
-
-                    if (!sessionValidationResult[0].agent_id) {
-                        BunLogModule({
-                            prefix: LOG_PREFIX,
-                            message: "WS Upgrade Session validation failed",
-                            debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-                            type: "debug",
-                        });
-                        return new Response("Invalid session", {
-                            status: 401,
-                        });
-                    }
-
-                    // Only attempt upgrade if validation passes
-                    const upgraded = server.upgrade(req, {
-                        data: {
+                        const jwtValidationResult = await this.validateJWT({
+                            provider,
                             token,
-                            agentId: jwtValidationResult.agentId,
-                            sessionId: jwtValidationResult.sessionId,
-                        },
-                    });
+                        });
 
-                    if (!upgraded) {
-                        BunLogModule({
-                            prefix: LOG_PREFIX,
-                            message: "WebSocket upgrade failed",
-                            debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                        if (!jwtValidationResult.isValid) {
+                            BunLogModule({
+                                prefix: LOG_PREFIX,
+                                message: `Token JWT validation failed: ${jwtValidationResult.errorReason}`,
+                                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                                suppress:
+                                    serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                type: "debug",
+                            });
+                            return new Response(
+                                `Invalid token: ${jwtValidationResult.errorReason}`,
+                                {
+                                    status: 401,
+                                },
+                            );
+                        }
+
+                        const sessionValidationResult = await superUserSql<
+                            [{ agent_id: string }]
+                        >`
+                                SELECT * FROM auth.validate_session_id(${jwtValidationResult.sessionId}::UUID) as agent_id
+                            `;
+
+                        if (!sessionValidationResult[0].agent_id) {
+                            BunLogModule({
+                                prefix: LOG_PREFIX,
+                                message: "WS Upgrade Session validation failed",
+                                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                                suppress:
+                                    serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                type: "debug",
+                            });
+                            return new Response("Invalid session", {
+                                status: 401,
+                            });
+                        }
+
+                        // Only attempt upgrade if validation passes
+                        const upgraded = server.upgrade(req, {
                             data: {
                                 token,
                                 agentId: jwtValidationResult.agentId,
                                 sessionId: jwtValidationResult.sessionId,
                             },
-                            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-                            type: "error",
                         });
-                        return new Response("WebSocket upgrade failed", {
-                            status: 500,
-                        });
+
+                        if (!upgraded) {
+                            BunLogModule({
+                                prefix: LOG_PREFIX,
+                                message: "WebSocket upgrade failed",
+                                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                                data: {
+                                    token,
+                                    agentId: jwtValidationResult.agentId,
+                                    sessionId: jwtValidationResult.sessionId,
+                                },
+                                suppress:
+                                    serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                type: "error",
+                            });
+                            return new Response("WebSocket upgrade failed", {
+                                status: 500,
+                            });
+                        }
+
+                        return undefined;
                     }
 
-                    return undefined;
-                }
+                    // Handle HTTP routes
+                    // TODO: This code could be cleaned up.
+                    BunLogModule({
+                        message: "Checking REST endpoints",
+                        debug: true, // Force debug for troubleshooting
+                        suppress: false,
+                        type: "debug",
+                        prefix: LOG_PREFIX,
+                        data: {
+                            pathname: url.pathname,
+                            REST_BASE_PATH: Communication.REST_BASE_PATH,
+                            startsWithREST: url.pathname.startsWith(
+                                Communication.REST_BASE_PATH,
+                            ),
+                            method: req.method,
+                        },
+                    });
 
-                // Handle HTTP routes
-                // TODO: This code could be cleaned up.
-                if (url.pathname.startsWith(Communication.REST_BASE_PATH)) {
-                    switch (true) {
-                        case url.pathname ===
-                            Communication.REST.Endpoint.AUTH_SESSION_VALIDATE
-                                .path && req.method === "POST": {
-                            // Parse request body to get token and provider
-                            let body: {
-                                token: string;
-                                provider: string;
-                            };
-                            try {
-                                body = await req.json();
+                    if (url.pathname.startsWith(Communication.REST_BASE_PATH)) {
+                        switch (true) {
+                            case url.pathname ===
+                                Communication.REST.Endpoint
+                                    .AUTH_SESSION_VALIDATE.path &&
+                                req.method === "POST": {
+                                // Parse request body to get token and provider
+                                let body: {
+                                    token: string;
+                                    provider: string;
+                                };
+                                try {
+                                    body = await req.json();
 
-                                // Validate required fields
-                                if (!body.token) {
-                                    const response = this.createJsonResponse(
-                                        Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
-                                            "No token provided",
-                                        ),
-                                        req,
-                                        401,
-                                    );
-                                    return this.addCorsHeaders(response, req);
-                                }
-
-                                if (!body.provider) {
-                                    const response = this.createJsonResponse(
-                                        Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
-                                            "No provider specified",
-                                        ),
-                                        req,
-                                        400,
-                                    );
-                                    return this.addCorsHeaders(response, req);
-                                }
-                            } catch (error) {
-                                const response = this.createJsonResponse(
-                                    Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
-                                        "Invalid request body",
-                                    ),
-                                    req,
-                                    400,
-                                );
-                                return this.addCorsHeaders(response, req);
-                            }
-
-                            const { token, provider } = body;
-
-                            const jwtValidationResult = await this.validateJWT({
-                                provider,
-                                token,
-                            });
-
-                            if (!jwtValidationResult.isValid) {
-                                const response = this.createJsonResponse(
-                                    Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
-                                        `Invalid token: ${jwtValidationResult.errorReason}`,
-                                    ),
-                                    req,
-                                    401,
-                                );
-                                return this.addCorsHeaders(response, req);
-                            }
-
-                            try {
-                                // Wrap the entire validation logic in a transaction
-                                return await superUserSql.begin(async (tx) => {
-                                    // Execute validation within the same transaction context
-                                    const [sessionValidationResult] = await tx<
-                                        [{ agent_id: string }]
-                                    >`
-                                                    SELECT * FROM auth.validate_session_id(${jwtValidationResult.sessionId}::UUID) as agent_id
-                                                `;
-
-                                    if (!sessionValidationResult.agent_id) {
+                                    // Validate required fields
+                                    if (!body.token) {
                                         const response =
                                             this.createJsonResponse(
                                                 Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
-                                                    "Invalid session",
+                                                    "No token provided",
                                                 ),
                                                 req,
                                                 401,
@@ -916,568 +886,841 @@ export class WorldApiManager {
                                         );
                                     }
 
+                                    if (!body.provider) {
+                                        const response =
+                                            this.createJsonResponse(
+                                                Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
+                                                    "No provider specified",
+                                                ),
+                                                req,
+                                                400,
+                                            );
+                                        return this.addCorsHeaders(
+                                            response,
+                                            req,
+                                        );
+                                    }
+                                } catch (error) {
+                                    const response = this.createJsonResponse(
+                                        Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
+                                            "Invalid request body",
+                                        ),
+                                        req,
+                                        400,
+                                    );
+                                    return this.addCorsHeaders(response, req);
+                                }
+
+                                const { token, provider } = body;
+
+                                const jwtValidationResult =
+                                    await this.validateJWT({
+                                        provider,
+                                        token,
+                                    });
+
+                                if (!jwtValidationResult.isValid) {
+                                    const response = this.createJsonResponse(
+                                        Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
+                                            `Invalid token: ${jwtValidationResult.errorReason}`,
+                                        ),
+                                        req,
+                                        401,
+                                    );
+                                    return this.addCorsHeaders(response, req);
+                                }
+
+                                try {
+                                    // Wrap the entire validation logic in a transaction
+                                    return await superUserSql.begin(
+                                        async (tx) => {
+                                            // Execute validation within the same transaction context
+                                            const [sessionValidationResult] =
+                                                await tx<
+                                                    [{ agent_id: string }]
+                                                >`
+                                                SELECT * FROM auth.validate_session_id(${jwtValidationResult.sessionId}::UUID) as agent_id
+                                            `;
+
+                                            if (
+                                                !sessionValidationResult.agent_id
+                                            ) {
+                                                const response =
+                                                    this.createJsonResponse(
+                                                        Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
+                                                            "Invalid session",
+                                                        ),
+                                                        req,
+                                                        401,
+                                                    );
+                                                return this.addCorsHeaders(
+                                                    response,
+                                                    req,
+                                                );
+                                            }
+
+                                            BunLogModule({
+                                                message:
+                                                    "Auth endpoint - Session validation result",
+                                                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                                                suppress:
+                                                    serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                                type: "debug",
+                                                prefix: LOG_PREFIX,
+                                                data: {
+                                                    jwtValidationResult,
+                                                },
+                                            });
+
+                                            const response =
+                                                this.createJsonResponse(
+                                                    Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createSuccess(
+                                                        jwtValidationResult.agentId,
+                                                        jwtValidationResult.sessionId,
+                                                    ),
+                                                    req,
+                                                );
+                                            return this.addCorsHeaders(
+                                                response,
+                                                req,
+                                            );
+                                        },
+                                    );
+                                } catch (error) {
                                     BunLogModule({
-                                        message:
-                                            "Auth endpoint - Session validation result",
+                                        message: "Failed to validate session",
                                         debug: serverConfiguration.VRCA_SERVER_DEBUG,
                                         suppress:
                                             serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                        type: "error",
+                                        prefix: LOG_PREFIX,
+                                        data: {
+                                            error:
+                                                error instanceof Error
+                                                    ? error.message
+                                                    : String(error),
+                                        },
+                                    });
+                                    const response = this.createJsonResponse(
+                                        Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
+                                            "Failed to validate session",
+                                        ),
+                                        req,
+                                        500,
+                                    );
+                                    return this.addCorsHeaders(response, req);
+                                }
+                            }
+
+                            // OAuth Authorization endpoint
+                            case url.pathname ===
+                                Communication.REST.Endpoint.AUTH_OAUTH_AUTHORIZE
+                                    .path && req.method === "GET": {
+                                if (!this.azureADService) {
+                                    BunLogModule({
+                                        message:
+                                            "Azure AD service not available",
+                                        debug: true,
+                                        suppress: false,
+                                        type: "error",
+                                        prefix: LOG_PREFIX,
+                                    });
+                                    const response = this.createJsonResponse(
+                                        Communication.REST.Endpoint.AUTH_OAUTH_AUTHORIZE.createError(
+                                            "Azure AD provider not configured",
+                                        ),
+                                        req,
+                                        503,
+                                    );
+                                    return this.addCorsHeaders(response, req);
+                                }
+
+                                const provider =
+                                    url.searchParams.get("provider");
+                                if (provider !== Auth.E_Provider.AZURE) {
+                                    const response = this.createJsonResponse(
+                                        Communication.REST.Endpoint.AUTH_OAUTH_AUTHORIZE.createError(
+                                            "Unsupported provider",
+                                        ),
+                                        req,
+                                        400,
+                                    );
+                                    return this.addCorsHeaders(response, req);
+                                }
+
+                                try {
+                                    const state = {
+                                        provider: Auth.E_Provider.AZURE,
+                                        action: "login" as const,
+                                    };
+
+                                    BunLogModule({
+                                        message:
+                                            "OAuth authorize endpoint - generating auth URL",
+                                        debug: true, // Force debug for troubleshooting
+                                        suppress: false,
+                                        type: "debug",
+                                        prefix: LOG_PREFIX,
+                                        data: { state },
+                                    });
+
+                                    const authUrl =
+                                        await this.azureADService.getAuthorizationUrl(
+                                            state,
+                                        );
+
+                                    BunLogModule({
+                                        message:
+                                            "OAuth authorize endpoint - auth URL generated",
+                                        debug: true, // Force debug for troubleshooting
+                                        suppress: false,
+                                        type: "debug",
+                                        prefix: LOG_PREFIX,
+                                        data: { authUrl },
+                                    });
+
+                                    const responseData =
+                                        Communication.REST.Endpoint.AUTH_OAUTH_AUTHORIZE.createSuccess(
+                                            authUrl,
+                                        );
+
+                                    BunLogModule({
+                                        message:
+                                            "OAuth authorize endpoint - response data",
+                                        debug: true, // Force debug for troubleshooting
+                                        suppress: false,
+                                        type: "debug",
+                                        prefix: LOG_PREFIX,
+                                        data: { responseData },
+                                    });
+
+                                    const response =
+                                        Response.json(responseData);
+                                    return this.addCorsHeaders(response, req);
+                                } catch (error) {
+                                    BunLogModule({
+                                        message:
+                                            "Failed to generate authorization URL",
+                                        error,
+                                        debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                                        suppress:
+                                            serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                        type: "error",
+                                        prefix: LOG_PREFIX,
+                                    });
+                                    const response = this.createJsonResponse(
+                                        Communication.REST.Endpoint.AUTH_OAUTH_AUTHORIZE.createError(
+                                            "Failed to generate authorization URL",
+                                        ),
+                                        req,
+                                        500,
+                                    );
+                                    return this.addCorsHeaders(response, req);
+                                }
+                            }
+
+                            // OAuth Callback endpoint
+                            case url.pathname ===
+                                Communication.REST.Endpoint.AUTH_OAUTH_CALLBACK
+                                    .path && req.method === "GET": {
+                                // Add initial logging
+                                BunLogModule({
+                                    message: "OAuth callback endpoint hit",
+                                    debug: true, // Force debug for troubleshooting
+                                    suppress: false,
+                                    type: "debug",
+                                    prefix: LOG_PREFIX,
+                                    data: {
+                                        url: url.toString(),
+                                        pathname: url.pathname,
+                                        searchParams: Object.fromEntries(
+                                            url.searchParams,
+                                        ),
+                                        hasAzureADService:
+                                            !!this.azureADService,
+                                        origin: req.headers.get("origin"),
+                                        referer: req.headers.get("referer"),
+                                        userAgent:
+                                            req.headers.get("user-agent"),
+                                    },
+                                });
+
+                                if (!this.azureADService) {
+                                    BunLogModule({
+                                        message:
+                                            "Azure AD service not initialized",
+                                        debug: true,
+                                        suppress: false,
+                                        type: "error",
+                                        prefix: LOG_PREFIX,
+                                    });
+                                    return this.createJsonResponse(
+                                        Communication.REST.Endpoint.AUTH_OAUTH_CALLBACK.createError(
+                                            "Azure AD provider not configured",
+                                        ),
+                                        req,
+                                        503,
+                                    );
+                                }
+
+                                const code = url.searchParams.get("code");
+                                const state = url.searchParams.get("state");
+                                const provider =
+                                    url.searchParams.get("provider");
+
+                                BunLogModule({
+                                    message:
+                                        "OAuth callback - extracted parameters",
+                                    debug: true,
+                                    suppress: false,
+                                    type: "debug",
+                                    prefix: LOG_PREFIX,
+                                    data: {
+                                        hasCode: !!code,
+                                        codeLength: code?.length,
+                                        state,
+                                        provider,
+                                    },
+                                });
+
+                                if (!code || !state) {
+                                    BunLogModule({
+                                        message:
+                                            "Missing code or state parameter",
+                                        debug: true,
+                                        suppress: false,
+                                        type: "error",
+                                        prefix: LOG_PREFIX,
+                                        data: { code: !!code, state: !!state },
+                                    });
+                                    return this.createJsonResponse(
+                                        Communication.REST.Endpoint.AUTH_OAUTH_CALLBACK.createError(
+                                            "Missing code or state parameter",
+                                        ),
+                                        req,
+                                        400,
+                                    );
+                                }
+
+                                if (provider !== Auth.E_Provider.AZURE) {
+                                    BunLogModule({
+                                        message: "Unsupported provider",
+                                        debug: true,
+                                        suppress: false,
+                                        type: "error",
+                                        prefix: LOG_PREFIX,
+                                        data: { provider },
+                                    });
+                                    return this.createJsonResponse(
+                                        Communication.REST.Endpoint.AUTH_OAUTH_CALLBACK.createError(
+                                            "Unsupported provider",
+                                        ),
+                                        req,
+                                        400,
+                                    );
+                                }
+
+                                try {
+                                    BunLogModule({
+                                        message: "Parsing OAuth state",
+                                        debug: true,
+                                        suppress: false,
+                                        type: "debug",
+                                        prefix: LOG_PREFIX,
+                                        data: { state },
+                                    });
+
+                                    // Parse state to determine action
+                                    const stateData = parseOAuthState(state);
+
+                                    BunLogModule({
+                                        message: "State parsed successfully",
+                                        debug: true,
+                                        suppress: false,
+                                        type: "debug",
+                                        prefix: LOG_PREFIX,
+                                        data: { stateData },
+                                    });
+
+                                    BunLogModule({
+                                        message: "Starting token exchange",
+                                        debug: true,
+                                        suppress: false,
+                                        type: "debug",
+                                        prefix: LOG_PREFIX,
+                                    });
+
+                                    // Exchange code for tokens
+                                    const tokenResponse =
+                                        await this.azureADService.exchangeCodeForTokens(
+                                            code,
+                                            state,
+                                        );
+
+                                    BunLogModule({
+                                        message: "Token exchange completed",
+                                        debug: true,
+                                        suppress: false,
                                         type: "debug",
                                         prefix: LOG_PREFIX,
                                         data: {
-                                            jwtValidationResult,
+                                            hasAccessToken:
+                                                !!tokenResponse.accessToken,
+                                            hasIdToken: !!tokenResponse.idToken,
+                                            hasAccount: !!tokenResponse.account,
                                         },
                                     });
 
-                                    const response = this.createJsonResponse(
-                                        Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createSuccess(
-                                            jwtValidationResult.agentId,
-                                            jwtValidationResult.sessionId,
-                                        ),
-                                        req,
-                                    );
-                                    return this.addCorsHeaders(response, req);
-                                });
-                            } catch (error) {
-                                BunLogModule({
-                                    message: "Failed to validate session",
-                                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                                    suppress:
-                                        serverConfiguration.VRCA_SERVER_SUPPRESS,
-                                    type: "error",
-                                    prefix: LOG_PREFIX,
-                                    data: {
-                                        error:
-                                            error instanceof Error
-                                                ? error.message
-                                                : String(error),
-                                    },
-                                });
-                                const response = this.createJsonResponse(
-                                    Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
-                                        "Failed to validate session",
-                                    ),
-                                    req,
-                                    500,
-                                );
-                                return this.addCorsHeaders(response, req);
-                            }
-                        }
+                                    // Get user info
+                                    const userInfo =
+                                        await this.azureADService.getUserInfo(
+                                            tokenResponse.accessToken,
+                                        );
 
-                        // OAuth Authorization endpoint
-                        case url.pathname ===
-                            Communication.REST.Endpoint.AUTH_OAUTH_AUTHORIZE
-                                .path && req.method === "GET": {
-                            if (!this.azureADService) {
-                                BunLogModule({
-                                    message: "Azure AD service not available",
-                                    debug: true,
-                                    suppress: false,
-                                    type: "error",
-                                    prefix: LOG_PREFIX,
-                                });
-                                const response = this.createJsonResponse(
-                                    Communication.REST.Endpoint.AUTH_OAUTH_AUTHORIZE.createError(
-                                        "Azure AD provider not configured",
-                                    ),
-                                    req,
-                                    503,
-                                );
-                                return this.addCorsHeaders(response, req);
-                            }
+                                    BunLogModule({
+                                        message: "User info retrieved",
+                                        debug: true,
+                                        suppress: false,
+                                        type: "debug",
+                                        prefix: LOG_PREFIX,
+                                        data: {
+                                            userId: userInfo.id,
+                                            email: userInfo.email,
+                                        },
+                                    });
 
-                            const provider = url.searchParams.get("provider");
-                            if (provider !== Auth.E_Provider.AZURE) {
-                                const response = this.createJsonResponse(
-                                    Communication.REST.Endpoint.AUTH_OAUTH_AUTHORIZE.createError(
-                                        "Unsupported provider",
-                                    ),
-                                    req,
-                                    400,
-                                );
-                                return this.addCorsHeaders(response, req);
-                            }
+                                    if (stateData.action === "login") {
+                                        BunLogModule({
+                                            message: "Processing login action",
+                                            debug: true,
+                                            suppress: false,
+                                            type: "debug",
+                                            prefix: LOG_PREFIX,
+                                        });
 
-                            try {
-                                const state = {
-                                    provider: Auth.E_Provider.AZURE,
-                                    action: "login" as const,
-                                };
+                                        // Create or update user
+                                        const result =
+                                            await this.azureADService.createOrUpdateUser(
+                                                userInfo,
+                                                tokenResponse,
+                                            );
 
-                                BunLogModule({
-                                    message:
-                                        "OAuth authorize endpoint - generating auth URL",
-                                    debug: true, // Force debug for troubleshooting
-                                    suppress: false,
-                                    type: "debug",
-                                    prefix: LOG_PREFIX,
-                                    data: { state },
-                                });
+                                        BunLogModule({
+                                            message:
+                                                "User created/updated successfully",
+                                            debug: true,
+                                            suppress: false,
+                                            type: "debug",
+                                            prefix: LOG_PREFIX,
+                                            data: {
+                                                agentId: result.agentId,
+                                                sessionId: result.sessionId,
+                                                hasJwt: !!result.jwt,
+                                            },
+                                        });
 
-                                const authUrl =
-                                    await this.azureADService.getAuthorizationUrl(
-                                        state,
-                                    );
+                                        const response =
+                                            this.createJsonResponse(
+                                                Communication.REST.Endpoint.AUTH_OAUTH_CALLBACK.createSuccess(
+                                                    {
+                                                        token: result.jwt,
+                                                        agentId: result.agentId,
+                                                        sessionId:
+                                                            result.sessionId,
+                                                        provider:
+                                                            Auth.E_Provider
+                                                                .AZURE,
+                                                    },
+                                                ),
+                                                req,
+                                            );
 
-                                BunLogModule({
-                                    message:
-                                        "OAuth authorize endpoint - auth URL generated",
-                                    debug: true, // Force debug for troubleshooting
-                                    suppress: false,
-                                    type: "debug",
-                                    prefix: LOG_PREFIX,
-                                    data: { authUrl },
-                                });
+                                        BunLogModule({
+                                            message: "Sending success response",
+                                            debug: true,
+                                            suppress: false,
+                                            type: "debug",
+                                            prefix: LOG_PREFIX,
+                                        });
 
-                                const responseData =
-                                    Communication.REST.Endpoint.AUTH_OAUTH_AUTHORIZE.createSuccess(
-                                        authUrl,
-                                    );
+                                        return response;
+                                    }
 
-                                BunLogModule({
-                                    message:
-                                        "OAuth authorize endpoint - response data",
-                                    debug: true, // Force debug for troubleshooting
-                                    suppress: false,
-                                    type: "debug",
-                                    prefix: LOG_PREFIX,
-                                    data: { responseData },
-                                });
-
-                                const response = Response.json(responseData);
-                                return this.addCorsHeaders(response, req);
-                            } catch (error) {
-                                BunLogModule({
-                                    message:
-                                        "Failed to generate authorization URL",
-                                    error,
-                                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                                    suppress:
-                                        serverConfiguration.VRCA_SERVER_SUPPRESS,
-                                    type: "error",
-                                    prefix: LOG_PREFIX,
-                                });
-                                const response = this.createJsonResponse(
-                                    Communication.REST.Endpoint.AUTH_OAUTH_AUTHORIZE.createError(
-                                        "Failed to generate authorization URL",
-                                    ),
-                                    req,
-                                    500,
-                                );
-                                return this.addCorsHeaders(response, req);
-                            }
-                        }
-
-                        // OAuth Callback endpoint
-                        case url.pathname ===
-                            Communication.REST.Endpoint.AUTH_OAUTH_CALLBACK
-                                .path && req.method === "GET": {
-                            if (!this.azureADService) {
-                                return this.createJsonResponse(
-                                    Communication.REST.Endpoint.AUTH_OAUTH_CALLBACK.createError(
-                                        "Azure AD provider not configured",
-                                    ),
-                                    req,
-                                    503,
-                                );
-                            }
-
-                            const code = url.searchParams.get("code");
-                            const state = url.searchParams.get("state");
-                            const provider = url.searchParams.get("provider");
-
-                            if (!code || !state) {
-                                return this.createJsonResponse(
-                                    Communication.REST.Endpoint.AUTH_OAUTH_CALLBACK.createError(
-                                        "Missing code or state parameter",
-                                    ),
-                                    req,
-                                    400,
-                                );
-                            }
-
-                            if (provider !== Auth.E_Provider.AZURE) {
-                                return this.createJsonResponse(
-                                    Communication.REST.Endpoint.AUTH_OAUTH_CALLBACK.createError(
-                                        "Unsupported provider",
-                                    ),
-                                    req,
-                                    400,
-                                );
-                            }
-
-                            try {
-                                // Parse state to determine action
-                                const stateData = parseOAuthState(state);
-
-                                // Exchange code for tokens
-                                const tokenResponse =
-                                    await this.azureADService.exchangeCodeForTokens(
-                                        code,
-                                        state,
-                                    );
-
-                                // Get user info
-                                const userInfo =
-                                    await this.azureADService.getUserInfo(
-                                        tokenResponse.accessToken,
-                                    );
-
-                                if (stateData.action === "login") {
-                                    // Create or update user
-                                    const result =
-                                        await this.azureADService.createOrUpdateUser(
+                                    if (
+                                        stateData.action === "link" &&
+                                        stateData.agentId
+                                    ) {
+                                        // Link provider to existing account
+                                        await this.azureADService.linkProvider(
+                                            stateData.agentId,
                                             userInfo,
                                             tokenResponse,
                                         );
 
+                                        return this.createJsonResponse(
+                                            Communication.REST.Endpoint.AUTH_OAUTH_CALLBACK.createSuccess(
+                                                {
+                                                    token: "",
+                                                    agentId: stateData.agentId,
+                                                    sessionId:
+                                                        stateData.sessionId ||
+                                                        "",
+                                                    provider:
+                                                        Auth.E_Provider.AZURE,
+                                                },
+                                            ),
+                                            req,
+                                        );
+                                    }
+
+                                    throw new Error("Invalid state action");
+                                } catch (error) {
+                                    BunLogModule({
+                                        message: "OAuth callback failed",
+                                        error,
+                                        debug: true, // Force debug
+                                        suppress: false,
+                                        type: "error",
+                                        prefix: LOG_PREFIX,
+                                        data: {
+                                            errorMessage:
+                                                error instanceof Error
+                                                    ? error.message
+                                                    : String(error),
+                                            errorStack:
+                                                error instanceof Error
+                                                    ? error.stack
+                                                    : undefined,
+                                            errorName:
+                                                error instanceof Error
+                                                    ? error.name
+                                                    : undefined,
+                                        },
+                                    });
                                     return this.createJsonResponse(
-                                        Communication.REST.Endpoint.AUTH_OAUTH_CALLBACK.createSuccess(
-                                            {
-                                                token: result.jwt,
-                                                agentId: result.agentId,
-                                                sessionId: result.sessionId,
-                                                provider: Auth.E_Provider.AZURE,
-                                            },
+                                        Communication.REST.Endpoint.AUTH_OAUTH_CALLBACK.createError(
+                                            error instanceof Error
+                                                ? error.message
+                                                : "OAuth callback failed",
                                         ),
                                         req,
+                                        500,
                                     );
                                 }
-
-                                if (
-                                    stateData.action === "link" &&
-                                    stateData.agentId
-                                ) {
-                                    // Link provider to existing account
-                                    await this.azureADService.linkProvider(
-                                        stateData.agentId,
-                                        userInfo,
-                                        tokenResponse,
-                                    );
-
-                                    return this.createJsonResponse(
-                                        Communication.REST.Endpoint.AUTH_OAUTH_CALLBACK.createSuccess(
-                                            {
-                                                token: "",
-                                                agentId: stateData.agentId,
-                                                sessionId:
-                                                    stateData.sessionId || "",
-                                                provider: Auth.E_Provider.AZURE,
-                                            },
-                                        ),
-                                        req,
-                                    );
-                                }
-
-                                throw new Error("Invalid state action");
-                            } catch (error) {
-                                BunLogModule({
-                                    message: "OAuth callback failed",
-                                    error,
-                                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                                    suppress:
-                                        serverConfiguration.VRCA_SERVER_SUPPRESS,
-                                    type: "error",
-                                    prefix: LOG_PREFIX,
-                                });
-                                return this.createJsonResponse(
-                                    Communication.REST.Endpoint.AUTH_OAUTH_CALLBACK.createError(
-                                        error instanceof Error
-                                            ? error.message
-                                            : "OAuth callback failed",
-                                    ),
-                                    req,
-                                    500,
-                                );
                             }
-                        }
 
-                        // Logout endpoint
-                        case url.pathname ===
-                            Communication.REST.Endpoint.AUTH_LOGOUT.path &&
-                            req.method === "POST": {
-                            try {
-                                const body = await req.json();
-                                const { sessionId } = body;
+                            // Logout endpoint
+                            case url.pathname ===
+                                Communication.REST.Endpoint.AUTH_LOGOUT.path &&
+                                req.method === "POST": {
+                                try {
+                                    const body = await req.json();
+                                    const { sessionId } = body;
 
-                                if (!sessionId) {
+                                    if (!sessionId) {
+                                        return this.createJsonResponse(
+                                            Communication.REST.Endpoint.AUTH_LOGOUT.createError(
+                                                "No session ID provided",
+                                            ),
+                                            req,
+                                            400,
+                                        );
+                                    }
+
+                                    if (this.azureADService) {
+                                        await this.azureADService.signOut(
+                                            sessionId,
+                                        );
+                                    }
+
+                                    return this.createJsonResponse(
+                                        Communication.REST.Endpoint.AUTH_LOGOUT.createSuccess(),
+                                        req,
+                                    );
+                                } catch (error) {
+                                    BunLogModule({
+                                        message: "Logout failed",
+                                        error,
+                                        debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                                        suppress:
+                                            serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                        type: "error",
+                                        prefix: LOG_PREFIX,
+                                    });
                                     return this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_LOGOUT.createError(
-                                            "No session ID provided",
+                                            "Logout failed",
                                         ),
                                         req,
-                                        400,
+                                        500,
+                                    );
+                                }
+                            }
+
+                            // Link provider endpoint
+                            case url.pathname ===
+                                Communication.REST.Endpoint.AUTH_LINK_PROVIDER
+                                    .path && req.method === "POST": {
+                                if (!this.azureADService) {
+                                    return this.createJsonResponse(
+                                        Communication.REST.Endpoint.AUTH_LINK_PROVIDER.createError(
+                                            "Azure AD provider not configured",
+                                        ),
+                                        req,
+                                        503,
                                     );
                                 }
 
-                                if (this.azureADService) {
-                                    await this.azureADService.signOut(
+                                try {
+                                    const body = await req.json();
+                                    const { provider, sessionId } = body;
+
+                                    if (provider !== Auth.E_Provider.AZURE) {
+                                        return this.createJsonResponse(
+                                            Communication.REST.Endpoint.AUTH_LINK_PROVIDER.createError(
+                                                "Unsupported provider",
+                                            ),
+                                            req,
+                                            400,
+                                        );
+                                    }
+
+                                    // Validate session and get agent ID
+                                    const [sessionResult] = await superUserSql<
+                                        [{ agent_id: string }]
+                                    >`
+                                        SELECT * FROM auth.validate_session_id(${sessionId}::UUID) as agent_id
+                                    `;
+
+                                    if (!sessionResult?.agent_id) {
+                                        return this.createJsonResponse(
+                                            Communication.REST.Endpoint.AUTH_LINK_PROVIDER.createError(
+                                                "Invalid session",
+                                            ),
+                                            req,
+                                            401,
+                                        );
+                                    }
+
+                                    const state = {
+                                        provider: Auth.E_Provider.AZURE,
+                                        action: "link" as const,
+                                        agentId: sessionResult.agent_id,
                                         sessionId,
+                                    };
+
+                                    const authUrl =
+                                        await this.azureADService.getAuthorizationUrl(
+                                            state,
+                                        );
+
+                                    return this.createJsonResponse(
+                                        Communication.REST.Endpoint.AUTH_LINK_PROVIDER.createSuccess(
+                                            authUrl,
+                                        ),
+                                        req,
                                     );
-                                }
-
-                                return this.createJsonResponse(
-                                    Communication.REST.Endpoint.AUTH_LOGOUT.createSuccess(),
-                                    req,
-                                );
-                            } catch (error) {
-                                BunLogModule({
-                                    message: "Logout failed",
-                                    error,
-                                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                                    suppress:
-                                        serverConfiguration.VRCA_SERVER_SUPPRESS,
-                                    type: "error",
-                                    prefix: LOG_PREFIX,
-                                });
-                                return this.createJsonResponse(
-                                    Communication.REST.Endpoint.AUTH_LOGOUT.createError(
-                                        "Logout failed",
-                                    ),
-                                    req,
-                                    500,
-                                );
-                            }
-                        }
-
-                        // Link provider endpoint
-                        case url.pathname ===
-                            Communication.REST.Endpoint.AUTH_LINK_PROVIDER
-                                .path && req.method === "POST": {
-                            if (!this.azureADService) {
-                                return this.createJsonResponse(
-                                    Communication.REST.Endpoint.AUTH_LINK_PROVIDER.createError(
-                                        "Azure AD provider not configured",
-                                    ),
-                                    req,
-                                    503,
-                                );
-                            }
-
-                            try {
-                                const body = await req.json();
-                                const { provider, sessionId } = body;
-
-                                if (provider !== Auth.E_Provider.AZURE) {
+                                } catch (error) {
+                                    BunLogModule({
+                                        message: "Failed to link provider",
+                                        error,
+                                        debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                                        suppress:
+                                            serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                        type: "error",
+                                        prefix: LOG_PREFIX,
+                                    });
                                     return this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_LINK_PROVIDER.createError(
-                                            "Unsupported provider",
+                                            "Failed to link provider",
                                         ),
                                         req,
-                                        400,
+                                        500,
                                     );
                                 }
-
-                                // Validate session and get agent ID
-                                const [sessionResult] = await superUserSql<
-                                    [{ agent_id: string }]
-                                >`
-                                    SELECT * FROM auth.validate_session_id(${sessionId}::UUID) as agent_id
-                                `;
-
-                                if (!sessionResult?.agent_id) {
-                                    return this.createJsonResponse(
-                                        Communication.REST.Endpoint.AUTH_LINK_PROVIDER.createError(
-                                            "Invalid session",
-                                        ),
-                                        req,
-                                        401,
-                                    );
-                                }
-
-                                const state = {
-                                    provider: Auth.E_Provider.AZURE,
-                                    action: "link" as const,
-                                    agentId: sessionResult.agent_id,
-                                    sessionId,
-                                };
-
-                                const authUrl =
-                                    await this.azureADService.getAuthorizationUrl(
-                                        state,
-                                    );
-
-                                return this.createJsonResponse(
-                                    Communication.REST.Endpoint.AUTH_LINK_PROVIDER.createSuccess(
-                                        authUrl,
-                                    ),
-                                    req,
-                                );
-                            } catch (error) {
-                                BunLogModule({
-                                    message: "Failed to link provider",
-                                    error,
-                                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                                    suppress:
-                                        serverConfiguration.VRCA_SERVER_SUPPRESS,
-                                    type: "error",
-                                    prefix: LOG_PREFIX,
-                                });
-                                return this.createJsonResponse(
-                                    Communication.REST.Endpoint.AUTH_LINK_PROVIDER.createError(
-                                        "Failed to link provider",
-                                    ),
-                                    req,
-                                    500,
-                                );
                             }
-                        }
 
-                        // Unlink provider endpoint
-                        case url.pathname ===
-                            Communication.REST.Endpoint.AUTH_UNLINK_PROVIDER
-                                .path && req.method === "POST": {
-                            try {
-                                const body = await req.json();
-                                const { provider, providerUid, sessionId } =
-                                    body;
+                            // Unlink provider endpoint
+                            case url.pathname ===
+                                Communication.REST.Endpoint.AUTH_UNLINK_PROVIDER
+                                    .path && req.method === "POST": {
+                                try {
+                                    const body = await req.json();
+                                    const { provider, providerUid, sessionId } =
+                                        body;
 
-                                if (provider !== Auth.E_Provider.AZURE) {
+                                    if (provider !== Auth.E_Provider.AZURE) {
+                                        return this.createJsonResponse(
+                                            Communication.REST.Endpoint.AUTH_UNLINK_PROVIDER.createError(
+                                                "Unsupported provider",
+                                            ),
+                                            req,
+                                            400,
+                                        );
+                                    }
+
+                                    // Validate session and get agent ID
+                                    const [sessionResult] = await superUserSql<
+                                        [{ agent_id: string }]
+                                    >`
+                                        SELECT * FROM auth.validate_session_id(${sessionId}::UUID) as agent_id
+                                    `;
+
+                                    if (!sessionResult?.agent_id) {
+                                        return this.createJsonResponse(
+                                            Communication.REST.Endpoint.AUTH_UNLINK_PROVIDER.createError(
+                                                "Invalid session",
+                                            ),
+                                            req,
+                                            401,
+                                        );
+                                    }
+
+                                    // Unlink the provider
+                                    await superUserSql`
+                                        DELETE FROM auth.agent_auth_providers
+                                        WHERE auth__agent_id = ${sessionResult.agent_id}::UUID
+                                          AND auth__provider_name = ${provider}
+                                          AND auth__provider_uid = ${providerUid}
+                                    `;
+
+                                    return this.createJsonResponse(
+                                        Communication.REST.Endpoint.AUTH_UNLINK_PROVIDER.createSuccess(),
+                                        req,
+                                    );
+                                } catch (error) {
+                                    BunLogModule({
+                                        message: "Failed to unlink provider",
+                                        error,
+                                        debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                                        suppress:
+                                            serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                        type: "error",
+                                        prefix: LOG_PREFIX,
+                                    });
                                     return this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_UNLINK_PROVIDER.createError(
-                                            "Unsupported provider",
+                                            "Failed to unlink provider",
                                         ),
                                         req,
-                                        400,
+                                        500,
                                     );
                                 }
-
-                                // Validate session and get agent ID
-                                const [sessionResult] = await superUserSql<
-                                    [{ agent_id: string }]
-                                >`
-                                    SELECT * FROM auth.validate_session_id(${sessionId}::UUID) as agent_id
-                                `;
-
-                                if (!sessionResult?.agent_id) {
-                                    return this.createJsonResponse(
-                                        Communication.REST.Endpoint.AUTH_UNLINK_PROVIDER.createError(
-                                            "Invalid session",
-                                        ),
-                                        req,
-                                        401,
-                                    );
-                                }
-
-                                // Unlink the provider
-                                await superUserSql`
-                                    DELETE FROM auth.agent_auth_providers
-                                    WHERE auth__agent_id = ${sessionResult.agent_id}::UUID
-                                      AND auth__provider_name = ${provider}
-                                      AND auth__provider_uid = ${providerUid}
-                                `;
-
-                                return this.createJsonResponse(
-                                    Communication.REST.Endpoint.AUTH_UNLINK_PROVIDER.createSuccess(),
-                                    req,
-                                );
-                            } catch (error) {
-                                BunLogModule({
-                                    message: "Failed to unlink provider",
-                                    error,
-                                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                                    suppress:
-                                        serverConfiguration.VRCA_SERVER_SUPPRESS,
-                                    type: "error",
-                                    prefix: LOG_PREFIX,
-                                });
-                                return this.createJsonResponse(
-                                    Communication.REST.Endpoint.AUTH_UNLINK_PROVIDER.createError(
-                                        "Failed to unlink provider",
-                                    ),
-                                    req,
-                                    500,
-                                );
                             }
-                        }
 
-                        // List providers endpoint
-                        case url.pathname ===
-                            Communication.REST.Endpoint.AUTH_LIST_PROVIDERS
-                                .path && req.method === "GET": {
-                            try {
-                                const sessionId =
-                                    url.searchParams.get("sessionId");
+                            // List providers endpoint
+                            case url.pathname ===
+                                Communication.REST.Endpoint.AUTH_LIST_PROVIDERS
+                                    .path && req.method === "GET": {
+                                try {
+                                    const sessionId =
+                                        url.searchParams.get("sessionId");
 
-                                if (!sessionId) {
+                                    if (!sessionId) {
+                                        return this.createJsonResponse(
+                                            Communication.REST.Endpoint.AUTH_LIST_PROVIDERS.createError(
+                                                "No session ID provided",
+                                            ),
+                                            req,
+                                            400,
+                                        );
+                                    }
+
+                                    // Validate session and get agent ID
+                                    const [sessionResult] = await superUserSql<
+                                        [{ agent_id: string }]
+                                    >`
+                                        SELECT * FROM auth.validate_session_id(${sessionId}::UUID) as agent_id
+                                    `;
+
+                                    if (!sessionResult?.agent_id) {
+                                        return this.createJsonResponse(
+                                            Communication.REST.Endpoint.AUTH_LIST_PROVIDERS.createError(
+                                                "Invalid session",
+                                            ),
+                                            req,
+                                            401,
+                                        );
+                                    }
+
+                                    // Get linked providers
+                                    const providers = await superUserSql`
+                                        SELECT 
+                                            auth__provider_name,
+                                            auth__provider_uid,
+                                            auth__provider_email,
+                                            auth__is_verified,
+                                            auth__last_login_at,
+                                            auth__metadata,
+                                            general__created_at,
+                                            general__updated_at
+                                        FROM auth.agent_auth_providers
+                                        WHERE auth__agent_id = ${sessionResult.agent_id}::UUID
+                                    `;
+
+                                    return this.createJsonResponse(
+                                        Communication.REST.Endpoint.AUTH_LIST_PROVIDERS.createSuccess(
+                                            providers,
+                                        ),
+                                        req,
+                                    );
+                                } catch (error) {
+                                    BunLogModule({
+                                        message: "Failed to list providers",
+                                        error,
+                                        debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                                        suppress:
+                                            serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                        type: "error",
+                                        prefix: LOG_PREFIX,
+                                    });
                                     return this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_LIST_PROVIDERS.createError(
-                                            "No session ID provided",
+                                            "Failed to list providers",
                                         ),
                                         req,
-                                        400,
+                                        500,
                                     );
                                 }
-
-                                // Validate session and get agent ID
-                                const [sessionResult] = await superUserSql<
-                                    [{ agent_id: string }]
-                                >`
-                                    SELECT * FROM auth.validate_session_id(${sessionId}::UUID) as agent_id
-                                `;
-
-                                if (!sessionResult?.agent_id) {
-                                    return this.createJsonResponse(
-                                        Communication.REST.Endpoint.AUTH_LIST_PROVIDERS.createError(
-                                            "Invalid session",
-                                        ),
-                                        req,
-                                        401,
-                                    );
-                                }
-
-                                // Get linked providers
-                                const providers = await superUserSql`
-                                    SELECT 
-                                        auth__provider_name,
-                                        auth__provider_uid,
-                                        auth__provider_email,
-                                        auth__is_verified,
-                                        auth__last_login_at,
-                                        auth__metadata,
-                                        general__created_at,
-                                        general__updated_at
-                                    FROM auth.agent_auth_providers
-                                    WHERE auth__agent_id = ${sessionResult.agent_id}::UUID
-                                `;
-
-                                return this.createJsonResponse(
-                                    Communication.REST.Endpoint.AUTH_LIST_PROVIDERS.createSuccess(
-                                        providers,
-                                    ),
-                                    req,
-                                );
-                            } catch (error) {
-                                BunLogModule({
-                                    message: "Failed to list providers",
-                                    error,
-                                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                                    suppress:
-                                        serverConfiguration.VRCA_SERVER_SUPPRESS,
-                                    type: "error",
-                                    prefix: LOG_PREFIX,
-                                });
-                                return this.createJsonResponse(
-                                    Communication.REST.Endpoint.AUTH_LIST_PROVIDERS.createError(
-                                        "Failed to list providers",
-                                    ),
-                                    req,
-                                    500,
-                                );
                             }
-                        }
 
-                        default: {
-                            const response = new Response("Not Found", {
-                                status: 404,
-                            });
-                            return this.addCorsHeaders(response, req);
+                            default: {
+                                const response = new Response("Not Found", {
+                                    status: 404,
+                                });
+                                return this.addCorsHeaders(response, req);
+                            }
                         }
                     }
-                }
 
-                const response = new Response("Not Found", { status: 404 });
-                return this.addCorsHeaders(response, req);
+                    const response = new Response("Not Found", { status: 404 });
+                    return this.addCorsHeaders(response, req);
+                } catch (error) {
+                    BunLogModule({
+                        type: "error",
+                        message: "Unexpected error in fetch handler",
+                        error: error,
+                        suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                        debug: true, // Force debug for troubleshooting
+                        prefix: LOG_PREFIX,
+                        data: {
+                            url: req.url,
+                            method: req.method,
+                            error:
+                                error instanceof Error
+                                    ? error.message
+                                    : String(error),
+                            stack:
+                                error instanceof Error
+                                    ? error.stack
+                                    : undefined,
+                        },
+                    });
+                    const response = new Response("Internal server error", {
+                        status: 500,
+                    });
+                    return this.addCorsHeaders(response, req);
+                }
             },
             // #endregion
 
@@ -1810,6 +2053,7 @@ export class WorldApiManager {
 
         BunLogModule({
             message: "Bun HTTP+WS World API Server running.",
+            prefix: LOG_PREFIX,
             type: "success",
             debug: serverConfiguration.VRCA_SERVER_DEBUG,
             suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,

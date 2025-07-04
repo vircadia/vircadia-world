@@ -1,43 +1,5 @@
 import { z } from "zod";
 
-// Babylon Model Definition schema
-export const BabylonModelDefinitionSchema = z.object({
-    fileName: z.string(),
-    entityName: z.string().optional(),
-    position: z
-        .object({
-            x: z.number(),
-            y: z.number(),
-            z: z.number(),
-        })
-        .optional(),
-    rotation: z
-        .object({
-            x: z.number(),
-            y: z.number(),
-            z: z.number(),
-            w: z.number(),
-        })
-        .optional(),
-    throttleInterval: z.number().optional(),
-    ownerSessionId: z.string().nullable().optional(),
-    enablePhysics: z.boolean().optional(),
-    physicsType: z.enum(["box", "convexHull", "mesh"]).optional(),
-    physicsOptions: z
-        .object({
-            mass: z.number().optional(),
-            friction: z.number().optional(),
-            restitution: z.number().optional(),
-            isKinematic: z.boolean().optional(),
-        })
-        .optional(),
-});
-
-// Export the inferred type
-export type ConfigurableBabylonModelDefinition = z.infer<
-    typeof BabylonModelDefinitionSchema
->;
-
 // Browser Client environment schema
 const clientBrowserEnvSchema = z.object({
     // Web Babylon JS Client
@@ -107,9 +69,79 @@ const clientBrowserEnvSchema = z.object({
         .union([
             z.string().transform((val) => {
                 const parsed = JSON.parse(val);
-                return z.array(BabylonModelDefinitionSchema).parse(parsed);
+                return z
+                    .array(
+                        z.object({
+                            fileName: z.string(),
+                            entityName: z.string().optional(),
+                            position: z
+                                .object({
+                                    x: z.number(),
+                                    y: z.number(),
+                                    z: z.number(),
+                                })
+                                .optional(),
+                            rotation: z
+                                .object({
+                                    x: z.number(),
+                                    y: z.number(),
+                                    z: z.number(),
+                                    w: z.number(),
+                                })
+                                .optional(),
+                            throttleInterval: z.number().optional(),
+                            ownerSessionId: z.string().nullable().optional(),
+                            enablePhysics: z.boolean().optional(),
+                            physicsType: z
+                                .enum(["box", "convexHull", "mesh"])
+                                .optional(),
+                            physicsOptions: z
+                                .object({
+                                    mass: z.number().optional(),
+                                    friction: z.number().optional(),
+                                    restitution: z.number().optional(),
+                                    isKinematic: z.boolean().optional(),
+                                })
+                                .optional(),
+                        }),
+                    )
+                    .parse(parsed);
             }),
-            z.array(BabylonModelDefinitionSchema),
+            z.array(
+                z.object({
+                    fileName: z.string(),
+                    entityName: z.string().optional(),
+                    position: z
+                        .object({
+                            x: z.number(),
+                            y: z.number(),
+                            z: z.number(),
+                        })
+                        .optional(),
+                    rotation: z
+                        .object({
+                            x: z.number(),
+                            y: z.number(),
+                            z: z.number(),
+                            w: z.number(),
+                        })
+                        .optional(),
+                    throttleInterval: z.number().optional(),
+                    ownerSessionId: z.string().nullable().optional(),
+                    enablePhysics: z.boolean().optional(),
+                    physicsType: z
+                        .enum(["box", "convexHull", "mesh"])
+                        .optional(),
+                    physicsOptions: z
+                        .object({
+                            mass: z.number().optional(),
+                            friction: z.number().optional(),
+                            restitution: z.number().optional(),
+                            isKinematic: z.boolean().optional(),
+                        })
+                        .optional(),
+                }),
+            ),
         ])
         .default([
             {
@@ -118,7 +150,7 @@ const clientBrowserEnvSchema = z.object({
                 rotation: { x: 0, y: 0, z: 0, w: 1 },
                 throttleInterval: 10,
                 enablePhysics: true,
-                physicsType: "mesh" as const,
+                physicsType: "mesh",
                 physicsOptions: {
                     mass: 0,
                     friction: 0.5,
@@ -133,5 +165,6 @@ export const clientBrowserConfiguration = clientBrowserEnvSchema.parse(
     // Fix TypeScript error with appropriate typing
     (typeof import.meta !== "undefined"
         ? (import.meta as { env?: Record<string, unknown> }).env
-        : undefined) ?? process.env,
+        : // @ts-ignore
+          undefined) ?? process.env,
 );

@@ -194,7 +194,6 @@ const agentId = computed(() => vircadiaWorld.connectionInfo.value.agentId);
 
 // Store access with error handling for timing issues
 const appStore = useAppStore();
-const authStore = useAuthStore();
 
 // sync session and agent IDs from Vircadia to the app store
 watch(sessionId, (newSessionId) => {

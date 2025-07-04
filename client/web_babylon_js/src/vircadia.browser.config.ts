@@ -1,5 +1,43 @@
 import { z } from "zod";
 
+// Babylon Model Definition schema
+export const BabylonModelDefinitionSchema = z.object({
+    fileName: z.string(),
+    entityName: z.string().optional(),
+    position: z
+        .object({
+            x: z.number(),
+            y: z.number(),
+            z: z.number(),
+        })
+        .optional(),
+    rotation: z
+        .object({
+            x: z.number(),
+            y: z.number(),
+            z: z.number(),
+            w: z.number(),
+        })
+        .optional(),
+    throttleInterval: z.number().optional(),
+    ownerSessionId: z.string().nullable().optional(),
+    enablePhysics: z.boolean().optional(),
+    physicsType: z.enum(["box", "convexHull", "mesh"]).optional(),
+    physicsOptions: z
+        .object({
+            mass: z.number().optional(),
+            friction: z.number().optional(),
+            restitution: z.number().optional(),
+            isKinematic: z.boolean().optional(),
+        })
+        .optional(),
+});
+
+// Export the inferred type
+export type ConfigurableBabylonModelDefinition = z.infer<
+    typeof BabylonModelDefinitionSchema
+>;
+
 // Browser Client environment schema
 const clientBrowserEnvSchema = z.object({
     // Web Babylon JS Client
@@ -63,6 +101,31 @@ const clientBrowserEnvSchema = z.object({
     // Development Web Babylon JS Client
     VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST: z.string().default("0.0.0.0"),
     VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT: z.coerce.number().default(3066),
+
+    // Model definitions
+    VRCA_CLIENT_WEB_BABYLON_JS_MODEL_DEFINITIONS: z
+        .union([
+            z.string().transform((val) => {
+                const parsed = JSON.parse(val);
+                return z.array(BabylonModelDefinitionSchema).parse(parsed);
+            }),
+            z.array(BabylonModelDefinitionSchema),
+        ])
+        .default([
+            {
+                fileName: "babylon.level.glb",
+                position: { x: 0, y: 0, z: 0 },
+                rotation: { x: 0, y: 0, z: 0, w: 1 },
+                throttleInterval: 10,
+                enablePhysics: true,
+                physicsType: "mesh" as const,
+                physicsOptions: {
+                    mass: 0,
+                    friction: 0.5,
+                    restitution: 0.3,
+                },
+            },
+        ]),
 });
 
 // Parse client environment variables

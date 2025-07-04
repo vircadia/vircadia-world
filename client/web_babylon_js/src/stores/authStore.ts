@@ -221,36 +221,6 @@ export const useAuthStore = defineStore("auth", () => {
                 // Set the account value
                 account.value = newAccount;
 
-                // Force sync to localStorage by manually setting items
-                // This ensures data is persisted before redirect
-                try {
-                    localStorage.setItem(
-                        "vircadia-session-token",
-                        responseData.token,
-                    );
-                    localStorage.setItem(
-                        "vircadia-session-id",
-                        responseData.sessionId,
-                    );
-                    localStorage.setItem(
-                        "vircadia-agent-id",
-                        responseData.agentId,
-                    );
-                    // Ensure proper JSON stringification
-                    localStorage.setItem(
-                        "vircadia-account",
-                        JSON.stringify(newAccount),
-                    );
-                } catch (err) {
-                    console.error(
-                        "Failed to save auth data to localStorage:",
-                        err,
-                    );
-                }
-
-                // Add a small delay to ensure localStorage operations complete
-                await new Promise((resolve) => setTimeout(resolve, 100));
-
                 // Redirect back to original page
                 const returnUrl =
                     sessionStorage.getItem("vircadia-auth-return-url") || "/";
@@ -293,66 +263,12 @@ export const useAuthStore = defineStore("auth", () => {
 
     // Initialize - check for OAuth callback
     const initialize = async () => {
-        // Fix corrupted account data if it exists
-        const storedAccount = localStorage.getItem("vircadia-account");
-        if (storedAccount === "[object Object]") {
-            console.warn(
-                "Detected corrupted account data, attempting to recover...",
-            );
-
-            // Try to recover from other stored values
-            const storedToken = localStorage.getItem("vircadia-session-token");
-            const storedAgentId = localStorage.getItem("vircadia-agent-id");
-
-            if (storedToken && storedAgentId) {
-                // Parse JWT to get email
-                try {
-                    const tokenParts = storedToken.split(".");
-                    if (tokenParts.length === 3) {
-                        const payload = JSON.parse(atob(tokenParts[1]));
-                        const email = payload.email || "User";
-
-                        const recoveredAccount: AccountInfo = {
-                            homeAccountId: storedAgentId,
-                            environment: "azure",
-                            tenantId: "",
-                            username: email,
-                            localAccountId: storedAgentId,
-                            name: email,
-                            idTokenClaims: {
-                                email: email,
-                                name: email,
-                                preferred_username: email,
-                            },
-                        } as AccountInfo;
-
-                        account.value = recoveredAccount;
-                        localStorage.setItem(
-                            "vircadia-account",
-                            JSON.stringify(recoveredAccount),
-                        );
-                        console.log(
-                            "Successfully recovered account data:",
-                            recoveredAccount,
-                        );
-                    }
-                } catch (err) {
-                    console.error("Failed to recover account data:", err);
-                    localStorage.removeItem("vircadia-account");
-                }
-            } else {
-                // Can't recover, remove corrupted data
-                localStorage.removeItem("vircadia-account");
-            }
-        }
-
-        // Debug: Check what's in localStorage on initialization
-        console.log("Auth Store Initialize - localStorage state:", {
-            account: localStorage.getItem("vircadia-account"),
-            sessionToken: localStorage.getItem("vircadia-session-token"),
-            sessionId: localStorage.getItem("vircadia-session-id"),
-            agentId: localStorage.getItem("vircadia-agent-id"),
-            parsedAccount: account.value,
+        // Debug: Check state on initialization
+        console.log("Auth Store Initialize - state:", {
+            account: account.value,
+            sessionToken: sessionToken.value,
+            sessionId: sessionId.value,
+            agentId: agentId.value,
             isAuthenticated: isAuthenticated.value,
         });
 
@@ -372,70 +288,14 @@ export const useAuthStore = defineStore("auth", () => {
         }
     };
 
-    // Refresh account data from localStorage
+    // Refresh account data
+    // Note: With useStorage, the reactive values are automatically synced with localStorage
+    // This function is kept for backward compatibility but likely not needed
     const refreshAccountData = () => {
-        const storedAccount = localStorage.getItem("vircadia-account");
-        if (storedAccount && storedAccount !== "[object Object]") {
-            try {
-                const parsed = JSON.parse(storedAccount);
-                account.value = parsed;
-                console.log(
-                    "Account data refreshed from localStorage:",
-                    parsed,
-                );
-            } catch (err) {
-                console.error("Failed to parse stored account data:", err);
-
-                // Try to recover from JWT token
-                const storedToken = localStorage.getItem(
-                    "vircadia-session-token",
-                );
-                const storedAgentId = localStorage.getItem("vircadia-agent-id");
-
-                if (storedToken && storedAgentId) {
-                    try {
-                        const tokenParts = storedToken.split(".");
-                        if (tokenParts.length === 3) {
-                            const payload = JSON.parse(atob(tokenParts[1]));
-                            const email = payload.email || "User";
-
-                            const recoveredAccount: AccountInfo = {
-                                homeAccountId: storedAgentId,
-                                environment: "azure",
-                                tenantId: "",
-                                username: email,
-                                localAccountId: storedAgentId,
-                                name: email,
-                                idTokenClaims: {
-                                    email: email,
-                                    name: email,
-                                    preferred_username: email,
-                                },
-                            } as AccountInfo;
-
-                            account.value = recoveredAccount;
-                            localStorage.setItem(
-                                "vircadia-account",
-                                JSON.stringify(recoveredAccount),
-                            );
-                            console.log(
-                                "Successfully recovered account data in refresh:",
-                                recoveredAccount,
-                            );
-                        }
-                    } catch (err) {
-                        console.error(
-                            "Failed to recover account data in refresh:",
-                            err,
-                        );
-                    }
-                }
-            }
-        } else if (storedAccount === "[object Object]") {
-            // Handle corrupted data
-            console.warn("Corrupted account data detected in refresh");
-            initialize(); // Re-run initialize to fix it
-        }
+        console.log("Account data is automatically synced via useStorage", {
+            account: account.value,
+            isAuthenticated: isAuthenticated.value,
+        });
     };
 
     // Initialize on store creation

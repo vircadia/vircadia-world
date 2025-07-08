@@ -132,6 +132,41 @@ export namespace EnvManager {
             throw new Error(`Failed to unset environment variable: ${error}`);
         }
     }
+
+    export async function getVariable(
+        key: string,
+        envFile: "cli" | "client" = "cli",
+    ): Promise<string | undefined> {
+        try {
+            const envFilePath =
+                envFile === "cli" ? CLI_ENV_FILE_PATH : CLIENT_ENV_FILE_PATH;
+
+            if (!existsSync(envFilePath)) {
+                return undefined;
+            }
+
+            const content = await readFile(envFilePath, "utf-8");
+            const lines = content.split("\n");
+            const keyPattern = new RegExp(`^${key}=(.*)$`);
+
+            for (const line of lines) {
+                const match = line.trim().match(keyPattern);
+                if (match) {
+                    return match[1];
+                }
+            }
+
+            return undefined;
+        } catch (error) {
+            BunLogModule({
+                message: `Failed to read environment variable ${key}: ${error}`,
+                type: "warn",
+                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                debug: cliConfiguration.VRCA_CLI_DEBUG,
+            });
+            return undefined;
+        }
+    }
 }
 
 export namespace Server_CLI {
@@ -2244,18 +2279,35 @@ if (import.meta.main) {
 
                 while (continueConfiguring) {
                     // Get current values from environment (refresh each time)
+                    // Read from client .env first, then process.env, then config defaults
                     const currentUri =
+                        (await EnvManager.getVariable(
+                            "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI",
+                            "client",
+                        )) ||
                         process.env
                             .VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI ||
                         clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI;
 
-                    const currentModelDefinitions = (() => {
-                        const envValue =
+                    const currentModelDefinitions = await (async () => {
+                        // Try client .env first
+                        const clientEnvValue = await EnvManager.getVariable(
+                            "VRCA_CLIENT_WEB_BABYLON_JS_MODEL_DEFINITIONS",
+                            "client",
+                        );
+                        if (clientEnvValue) {
+                            return clientEnvValue;
+                        }
+
+                        // Try process.env
+                        const processEnvValue =
                             process.env
                                 .VRCA_CLIENT_WEB_BABYLON_JS_MODEL_DEFINITIONS;
-                        if (envValue) {
-                            return envValue;
+                        if (processEnvValue) {
+                            return processEnvValue;
                         }
+
+                        // Fall back to config default
                         const configValue =
                             clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_MODEL_DEFINITIONS;
                         return typeof configValue === "string"
@@ -2264,13 +2316,22 @@ if (import.meta.main) {
                     })();
 
                     // Get current CLI environment values
+                    // Read from CLI .env first, then process.env, then config defaults
                     const currentUserSqlDir =
+                        (await EnvManager.getVariable(
+                            "VRCA_CLI_SERVICE_POSTGRES_SEED_USER_SQL_DIR",
+                            "cli",
+                        )) ||
                         process.env
                             .VRCA_CLI_SERVICE_POSTGRES_SEED_USER_SQL_DIR ||
                         cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SEED_USER_SQL_DIR ||
                         "Not set";
 
                     const currentUserAssetDir =
+                        (await EnvManager.getVariable(
+                            "VRCA_CLI_SERVICE_POSTGRES_SEED_USER_ASSET_DIR",
+                            "cli",
+                        )) ||
                         process.env
                             .VRCA_CLI_SERVICE_POSTGRES_SEED_USER_ASSET_DIR ||
                         cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SEED_USER_ASSET_DIR ||

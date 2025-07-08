@@ -167,11 +167,17 @@ export function useBabylonModelLoader(def: BabylonModelDefinition) {
         let lightmapLevel: number | null = null;
         let lightmapMode: glTF.Light.LightmapMode | null = null;
 
-        const dataMesh = meshesArr.find((m) =>
+        // Find ALL lightmap data meshes, not just the first one
+        const dataMeshes = meshesArr.filter((m) =>
             m.name.startsWith(glTF.Lightmap.DATA_MESH_NAME),
         );
+
+        console.log(`Found ${dataMeshes.length} lightmap data meshes`);
+
+        // Process the first data mesh for global metadata
+        const dataMesh = dataMeshes[0];
         if (dataMesh) {
-            console.log(`Found lightmap mesh: ${dataMesh.name}`);
+            console.log(`Processing lightmap metadata from: ${dataMesh.name}`);
             const extras =
                 dataMesh?.metadata?.gltf?.extras ||
                 dataMesh?.parent?.metadata?.gltf?.extras;
@@ -194,8 +200,12 @@ export function useBabylonModelLoader(def: BabylonModelDefinition) {
                     `Found lightmap color space: ${lightmapColorSpace}`,
                 );
             }
-            dataMesh.dispose(true, false);
-            console.log(`Deleted data mesh: ${dataMesh.name}`);
+        }
+
+        // Dispose of ALL lightmap data meshes
+        for (const mesh of dataMeshes) {
+            mesh.dispose(true, false);
+            console.log(`Deleted lightmap data mesh: ${mesh.name}`);
         }
 
         // Set global lightmap mode on scene lights
@@ -219,29 +229,70 @@ export function useBabylonModelLoader(def: BabylonModelDefinition) {
         }
 
         // Apply per-mesh lightmaps
-        for (const mesh of meshesArr) {
+        const nonDataMeshes = meshesArr.filter(
+            (m) => !m.name.startsWith(glTF.Lightmap.DATA_MESH_NAME),
+        );
+        console.log(
+            `Processing ${nonDataMeshes.length} non-data meshes for lightmap application`,
+        );
+
+        for (const mesh of nonDataMeshes) {
             const extras =
                 mesh?.metadata?.gltf?.extras ||
                 mesh?.parent?.metadata?.gltf?.extras;
+
             const metadata = new glTF.Metadata(
                 extras as Partial<glTF.MetadataInterface>,
             );
+
             if (
                 metadata.vircadia_lightmap &&
-                metadata.vircadia_lightmap_texcoord
+                metadata.vircadia_lightmap_texcoord !== null
             ) {
                 const material = scene.materials.find(
                     (m) => m.name === metadata.vircadia_lightmap,
                 );
-                if (!(mesh.material instanceof PBRMaterial)) {
-                    console.error(
-                        `Material for mesh ${mesh.name} is not PBRMaterial. Skipping.`,
+
+                if (!mesh.material) {
+                    console.warn(
+                        `Mesh ${mesh.name} has no material. Skipping.`,
                     );
                     continue;
                 }
+
+                if (!(mesh.material instanceof PBRMaterial)) {
+                    console.warn(
+                        `Material for mesh ${mesh.name} is not PBRMaterial (it's ${mesh.material.getClassName()}). Skipping.`,
+                    );
+                    continue;
+                }
+
+                if (!material) {
+                    console.warn(
+                        `Lightmap material ${metadata.vircadia_lightmap} not found in scene. Skipping mesh ${mesh.name}.`,
+                    );
+                    continue;
+                }
+
+                if (!(material instanceof PBRMaterial)) {
+                    console.warn(
+                        `Lightmap material ${metadata.vircadia_lightmap} is not PBRMaterial (it's ${material.getClassName()}). Skipping mesh ${mesh.name}.`,
+                    );
+                    continue;
+                }
+
                 const mat = material as PBRMaterial;
+
                 await new Promise<void>((resolve) => {
-                    // @ts-ignore: albedoTexture may be nullable, but guarded inside
+                    if (!mat.albedoTexture) {
+                        console.warn(
+                            `Lightmap material ${mat.name} has no albedo texture. Skipping mesh ${mesh.name}.`,
+                        );
+                        resolve();
+                        return;
+                    }
+
+                    // @ts-ignore: albedoTexture may be nullable, but guarded above
                     Texture.WhenAllReady(
                         [mat.albedoTexture as BaseTexture],
                         () => {
@@ -249,35 +300,58 @@ export function useBabylonModelLoader(def: BabylonModelDefinition) {
                                 mat.albedoTexture &&
                                 metadata.vircadia_lightmap_texcoord != null
                             ) {
-                                const albedo = mat.albedoTexture as BaseTexture;
-                                mat.lightmapTexture = albedo;
-                                mat.useLightmapAsShadowmap =
-                                    metadata.vircadia_lightmap_use_as_shadowmap ??
-                                    true;
-                                albedo.coordinatesIndex =
+                                const lightmapTexture =
+                                    mat.albedoTexture as BaseTexture;
+                                const meshMaterial =
+                                    mesh.material as PBRMaterial;
+
+                                // Create a clone of the texture for lightmap use
+                                const lightmapClone = lightmapTexture.clone();
+                                if (!lightmapClone) {
+                                    console.warn(
+                                        `Failed to clone lightmap texture for mesh ${mesh.name}`,
+                                    );
+                                    resolve();
+                                    return;
+                                }
+                                lightmapClone.coordinatesIndex =
                                     metadata.vircadia_lightmap_texcoord;
+
+                                meshMaterial.lightmapTexture = lightmapClone;
+                                meshMaterial.useLightmapAsShadowmap =
+                                    metadata.vircadia_lightmap_use_as_shadowmap ??
+                                    false;
+
+                                console.log(
+                                    `✅ Lightmap applied to mesh: ${mesh.name} with texcoord ${metadata.vircadia_lightmap_texcoord}`,
+                                );
+                            } else {
+                                console.warn(
+                                    `❌ Failed to apply lightmap to mesh ${mesh.name}: albedo=${!!mat.albedoTexture}, texcoord=${metadata.vircadia_lightmap_texcoord}`,
+                                );
                             }
                             resolve();
                         },
                     );
                 });
-                // Apply texture settings
-                const active = mesh.material.getActiveTextures();
-                for (const tex of active) {
-                    if (tex instanceof Texture) {
-                        if (lightmapColorSpace !== null) {
-                            tex.gammaSpace =
-                                lightmapColorSpace !==
-                                glTF.Texture.ColorSpace.LINEAR;
-                        }
-                        if (lightmapLevel !== null) {
-                            tex.level = lightmapLevel;
-                        }
+                // Apply texture settings to lightmap texture specifically
+                const meshMaterial = mesh.material as PBRMaterial;
+                if (meshMaterial.lightmapTexture instanceof Texture) {
+                    const lightmapTex = meshMaterial.lightmapTexture as Texture;
+                    if (lightmapColorSpace !== null) {
+                        lightmapTex.gammaSpace =
+                            lightmapColorSpace !==
+                            glTF.Texture.ColorSpace.LINEAR;
+                    }
+                    if (lightmapLevel !== null) {
+                        lightmapTex.level = lightmapLevel;
                     }
                 }
             }
         }
-        return meshesArr;
+
+        // Return only non-lightmap-data meshes since data meshes were disposed
+        return nonDataMeshes;
     }
 
     return { meshes, loadModel, asset };

@@ -55,6 +55,44 @@ export function useBabylonModelPhysics(
                 ) {
                     continue;
                 }
+
+                // Skip lightmap and other utility meshes
+                if (
+                    mesh.name.includes("lightmapData") ||
+                    mesh.name.includes("lightmap") ||
+                    (mesh.name.includes("_primitive") &&
+                        mesh.name.includes("lightmap"))
+                ) {
+                    console.debug(`Skipping lightmap mesh: ${mesh.name}`);
+                    continue;
+                }
+
+                // Check if mesh has valid geometry (vertices)
+                const geometry = mesh.geometry;
+                if (!geometry) {
+                    console.debug(
+                        `Skipping mesh without geometry: ${mesh.name}`,
+                    );
+                    continue;
+                }
+
+                const verticesData = geometry.getVerticesData("position");
+                if (!verticesData || verticesData.length === 0) {
+                    console.debug(
+                        `Skipping mesh with no vertices: ${mesh.name}`,
+                    );
+                    continue;
+                }
+
+                // Additional check for minimum vertex count for valid physics shapes
+                const vertexCount = verticesData.length / 3; // 3 components per vertex (x,y,z)
+                if (vertexCount < 3) {
+                    console.debug(
+                        `Skipping mesh with insufficient vertices (${vertexCount}): ${mesh.name}`,
+                    );
+                    continue;
+                }
+
                 const aggregate = new PhysicsAggregate(
                     mesh as unknown as import("@babylonjs/core").Mesh,
                     shapeType,

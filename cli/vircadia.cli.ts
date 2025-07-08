@@ -2239,193 +2239,360 @@ if (import.meta.main) {
                 break;
 
             case "configure": {
-                // Get current values from environment
-                const currentUri =
-                    process.env
-                        .VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI ||
-                    clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI;
+                // Configuration loop - keeps showing main menu until user exits
+                let continueConfiguring = true;
 
-                const currentModelDefinitions = (() => {
-                    const envValue =
+                while (continueConfiguring) {
+                    // Get current values from environment (refresh each time)
+                    const currentUri =
                         process.env
-                            .VRCA_CLIENT_WEB_BABYLON_JS_MODEL_DEFINITIONS;
-                    if (envValue) {
-                        return envValue;
-                    }
-                    const configValue =
-                        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_MODEL_DEFINITIONS;
-                    return typeof configValue === "string"
-                        ? configValue
-                        : JSON.stringify(configValue);
-                })();
+                            .VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI ||
+                        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI;
 
-                // First ask what to configure
-                const configOption = await select({
-                    message: "What would you like to configure?",
-                    choices: [
-                        {
-                            name: `World API URI (current: ${currentUri})`,
-                            value: "world-api-uri",
-                        },
-                        {
-                            name: "Model Definitions (JSON configuration)",
-                            value: "model-definitions",
-                        },
-                        {
-                            name: "View all current configuration",
-                            value: "view-all",
-                        },
-                    ],
-                });
+                    const currentModelDefinitions = (() => {
+                        const envValue =
+                            process.env
+                                .VRCA_CLIENT_WEB_BABYLON_JS_MODEL_DEFINITIONS;
+                        if (envValue) {
+                            return envValue;
+                        }
+                        const configValue =
+                            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_MODEL_DEFINITIONS;
+                        return typeof configValue === "string"
+                            ? configValue
+                            : JSON.stringify(configValue);
+                    })();
 
-                if (configOption === "world-api-uri") {
-                    const action = await select({
-                        message:
-                            "What would you like to do with the World API URI?",
+                    // Get current CLI environment values
+                    const currentUserSqlDir =
+                        process.env
+                            .VRCA_CLI_SERVICE_POSTGRES_SEED_USER_SQL_DIR ||
+                        cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SEED_USER_SQL_DIR ||
+                        "Not set";
+
+                    const currentUserAssetDir =
+                        process.env
+                            .VRCA_CLI_SERVICE_POSTGRES_SEED_USER_ASSET_DIR ||
+                        cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SEED_USER_ASSET_DIR ||
+                        "Not set";
+
+                    // First ask what to configure
+                    const configOption = await select({
+                        message: "What would you like to configure?",
                         choices: [
                             {
-                                name: `Set variable in client .env (current: ${currentUri})`,
-                                value: "set",
+                                name: `World API URI (current: ${currentUri})`,
+                                value: "world-api-uri",
                             },
                             {
-                                name: "Unset variable (remove from client .env)",
-                                value: "unset",
+                                name: "Model Definitions (JSON configuration)",
+                                value: "model-definitions",
+                            },
+                            {
+                                name: `User SQL Seed Directory (current: ${currentUserSqlDir})`,
+                                value: "user-sql-dir",
+                            },
+                            {
+                                name: `User Asset Seed Directory (current: ${currentUserAssetDir})`,
+                                value: "user-asset-dir",
+                            },
+                            {
+                                name: "View all current configuration",
+                                value: "view-all",
+                            },
+                            {
+                                name: "Exit configuration",
+                                value: "exit",
                             },
                         ],
                     });
 
-                    if (action === "set") {
-                        const newUri = await input({
-                            message: "Enter World API URI:",
-                            default: currentUri,
-                        });
+                    // Handle exit option
+                    if (configOption === "exit") {
+                        continueConfiguring = false;
+                        break;
+                    }
 
-                        await EnvManager.setVariable(
-                            "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI",
-                            newUri,
-                            "client",
-                        );
-
-                        BunLogModule({
-                            message: `World API URI set to: ${newUri} (persisted to client .env file)`,
-                            type: "success",
-                            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                            debug: cliConfiguration.VRCA_CLI_DEBUG,
-                        });
-                    } else if (action === "unset") {
-                        await EnvManager.unsetVariable(
-                            "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI",
-                            "client",
-                        );
-
-                        BunLogModule({
+                    if (configOption === "world-api-uri") {
+                        const action = await select({
                             message:
-                                "World API URI variable unset (removed from client .env file)",
-                            type: "success",
-                            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                            debug: cliConfiguration.VRCA_CLI_DEBUG,
-                        });
-                    }
-                } else if (configOption === "model-definitions") {
-                    const action = await select({
-                        message:
-                            "What would you like to do with Model Definitions?",
-                        choices: [
-                            {
-                                name: `Set variable in client .env (current: ${currentModelDefinitions})`,
-                                value: "set",
-                            },
-                            {
-                                name: "View current definitions (pretty format)",
-                                value: "view-current",
-                            },
-                            {
-                                name: "Unset variable (remove from client .env)",
-                                value: "unset",
-                            },
-                        ],
-                    });
-
-                    if (action === "set") {
-                        const newDefinitions = await input({
-                            message: "Enter Model Definitions JSON:",
-                            default: currentModelDefinitions,
+                                "What would you like to do with the World API URI?",
+                            choices: [
+                                {
+                                    name: `Set variable in client .env (current: ${currentUri})`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from client .env)",
+                                    value: "unset",
+                                },
+                            ],
                         });
 
-                        // Validate JSON
-                        try {
-                            JSON.parse(newDefinitions);
+                        if (action === "set") {
+                            const newUri = await input({
+                                message: "Enter World API URI:",
+                                default: currentUri,
+                                transformer: (value: string) => value.trim(),
+                            });
+
                             await EnvManager.setVariable(
-                                "VRCA_CLIENT_WEB_BABYLON_JS_MODEL_DEFINITIONS",
-                                newDefinitions,
+                                "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI",
+                                newUri,
                                 "client",
                             );
 
                             BunLogModule({
-                                message: `Model Definitions set to: ${newDefinitions} (persisted to client .env file)`,
+                                message: `World API URI set to: ${newUri} (persisted to client .env file)`,
                                 type: "success",
                                 suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                                 debug: cliConfiguration.VRCA_CLI_DEBUG,
                             });
-                        } catch (error) {
-                            BunLogModule({
-                                message: `Invalid JSON format: ${error}`,
-                                type: "error",
-                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                                debug: cliConfiguration.VRCA_CLI_DEBUG,
-                            });
-                        }
-                    } else if (action === "view-current") {
-                        try {
-                            const parsed = JSON.parse(currentModelDefinitions);
-                            const prettyJson = JSON.stringify(parsed, null, 2);
-                            BunLogModule({
-                                message: "Current Model Definitions:",
-                                type: "info",
-                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                                debug: cliConfiguration.VRCA_CLI_DEBUG,
-                            });
-                            console.log(prettyJson);
-                        } catch {
-                            BunLogModule({
-                                message: `Current Model Definitions (raw): ${currentModelDefinitions}`,
-                                type: "info",
-                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                                debug: cliConfiguration.VRCA_CLI_DEBUG,
-                            });
-                        }
-                    } else if (action === "unset") {
-                        await EnvManager.unsetVariable(
-                            "VRCA_CLIENT_WEB_BABYLON_JS_MODEL_DEFINITIONS",
-                            "client",
-                        );
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI",
+                                "client",
+                            );
 
-                        BunLogModule({
+                            BunLogModule({
+                                message:
+                                    "World API URI variable unset (removed from client .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "model-definitions") {
+                        const action = await select({
                             message:
-                                "Model Definitions variable unset (removed from .env file)",
-                            type: "success",
+                                "What would you like to do with Model Definitions?",
+                            choices: [
+                                {
+                                    name: `Set variable in client .env (current: ${currentModelDefinitions})`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "View current definitions (pretty format)",
+                                    value: "view-current",
+                                },
+                                {
+                                    name: "Unset variable (remove from client .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newDefinitions = await input({
+                                message: "Enter Model Definitions JSON:",
+                                default: currentModelDefinitions,
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            // Validate JSON
+                            try {
+                                JSON.parse(newDefinitions);
+                                await EnvManager.setVariable(
+                                    "VRCA_CLIENT_WEB_BABYLON_JS_MODEL_DEFINITIONS",
+                                    newDefinitions,
+                                    "client",
+                                );
+
+                                BunLogModule({
+                                    message: `Model Definitions set to: ${newDefinitions} (persisted to client .env file)`,
+                                    type: "success",
+                                    suppress:
+                                        cliConfiguration.VRCA_CLI_SUPPRESS,
+                                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                                });
+                            } catch (error) {
+                                BunLogModule({
+                                    message: `Invalid JSON format: ${error}`,
+                                    type: "error",
+                                    suppress:
+                                        cliConfiguration.VRCA_CLI_SUPPRESS,
+                                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                                });
+                            }
+                        } else if (action === "view-current") {
+                            try {
+                                const parsed = JSON.parse(
+                                    currentModelDefinitions,
+                                );
+                                const prettyJson = JSON.stringify(
+                                    parsed,
+                                    null,
+                                    2,
+                                );
+                                BunLogModule({
+                                    message: "Current Model Definitions:",
+                                    type: "info",
+                                    suppress:
+                                        cliConfiguration.VRCA_CLI_SUPPRESS,
+                                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                                });
+                                console.log(prettyJson);
+                            } catch {
+                                BunLogModule({
+                                    message: `Current Model Definitions (raw): ${currentModelDefinitions}`,
+                                    type: "info",
+                                    suppress:
+                                        cliConfiguration.VRCA_CLI_SUPPRESS,
+                                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                                });
+                            }
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_CLIENT_WEB_BABYLON_JS_MODEL_DEFINITIONS",
+                                "client",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "Model Definitions variable unset (removed from .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "user-sql-dir") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with User SQL Seed Directory?",
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env (current: ${currentUserSqlDir})`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newDir = await input({
+                                message: "Enter User SQL Seed Directory path:",
+                                default:
+                                    currentUserSqlDir !== "Not set"
+                                        ? currentUserSqlDir
+                                        : "",
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_CLI_SERVICE_POSTGRES_SEED_USER_SQL_DIR",
+                                newDir,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `User SQL Seed Directory set to: ${newDir} (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_CLI_SERVICE_POSTGRES_SEED_USER_SQL_DIR",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "User SQL Seed Directory variable unset (removed from CLI .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "user-asset-dir") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with User Asset Seed Directory?",
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env (current: ${currentUserAssetDir})`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newDir = await input({
+                                message:
+                                    "Enter User Asset Seed Directory path:",
+                                default:
+                                    currentUserAssetDir !== "Not set"
+                                        ? currentUserAssetDir
+                                        : "",
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_CLI_SERVICE_POSTGRES_SEED_USER_ASSET_DIR",
+                                newDir,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `User Asset Seed Directory set to: ${newDir} (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_CLI_SERVICE_POSTGRES_SEED_USER_ASSET_DIR",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "User Asset Seed Directory variable unset (removed from CLI .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "view-all") {
+                        BunLogModule({
+                            message: "Current Configuration:",
+                            type: "info",
                             suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                             debug: cliConfiguration.VRCA_CLI_DEBUG,
                         });
-                    }
-                } else if (configOption === "view-all") {
-                    BunLogModule({
-                        message: "Current Configuration:",
-                        type: "info",
-                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                        debug: cliConfiguration.VRCA_CLI_DEBUG,
-                    });
 
-                    console.log(`\nWorld API URI: ${currentUri}`);
-                    console.log(`\nModel Definitions:`);
-                    try {
-                        const parsed = JSON.parse(currentModelDefinitions);
-                        console.log(JSON.stringify(parsed, null, 2));
-                    } catch {
-                        console.log(currentModelDefinitions);
-                    }
-                }
+                        console.log(`\nClient Configuration:`);
+                        console.log(`  World API URI: ${currentUri}`);
+                        console.log(`  Model Definitions:`);
+                        try {
+                            const parsed = JSON.parse(currentModelDefinitions);
+                            console.log(
+                                "    " +
+                                    JSON.stringify(parsed, null, 2).replace(
+                                        /\n/g,
+                                        "\n    ",
+                                    ),
+                            );
+                        } catch {
+                            console.log(`    ${currentModelDefinitions}`);
+                        }
 
+                        console.log(`\nCLI Configuration:`);
+                        console.log(
+                            `  User SQL Seed Directory: ${currentUserSqlDir}`,
+                        );
+                        console.log(
+                            `  User Asset Seed Directory: ${currentUserAssetDir}`,
+                        );
+                    }
+                } // Close the while loop
                 break;
             }
 

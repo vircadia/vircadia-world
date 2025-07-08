@@ -19,18 +19,18 @@ The Vircadia World CLI provides a set of commands to manage the Vircadia World's
 ## Quick Start
 
 ```bash
-bun run install:all
-bun run build:sdk
-bun run server:init
+bun run project:init
 ```
 
-Then test your setup by running the following command:
+Be sure to accept the default values for the configuration.
+
+Then test your deployment by running the following command:
 
 ```bash
 bun run server:health-all
 ```
 
-Then run the test client:
+Then run the test client in a new tab:
 
 ```bash
 bun run dev:client:web_babylon_js
@@ -59,6 +59,34 @@ bun run server:rebuild-all
 Currently, there are no warnings about the destructiveness of some of these commands, thus you should understand what you are doing before running them.
 
 :::
+
+### Project Commands
+
+{(() => {
+  const pkg = JSON.parse(packageJson);
+  const commands = Object.entries(pkg.scripts)
+    .filter(([key]) => key.startsWith('project:'))
+    .map(([key, value]) => ({ key, value }));
+  
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Command</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        {commands.map(({key, value}) => (
+          <tr key={key}>
+            <td><code>bun run {key}</code></td>
+            <td>{value}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+})()}
 
 ### Install Commands
 

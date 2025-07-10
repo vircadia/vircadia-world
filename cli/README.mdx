@@ -228,34 +228,6 @@ Currently, there are no warnings about the destructiveness of some of these comm
   );
 })()}
 
-### Client Commands
-
-{(() => {
-  const pkg = JSON.parse(packageJson);
-  const commands = Object.entries(pkg.scripts)
-    .filter(([key]) => key.startsWith('client:'))
-    .map(([key, value]) => ({ key, value }));
-  
-  return (
-    <table>
-      <thead>
-        <tr>
-          <th>Command</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-        {commands.map(({key, value}) => (
-          <tr key={key}>
-            <td><code>bun run {key}</code></td>
-            <td>{value}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-})()}
-
 ### Clean Commands
 
 {(() => {

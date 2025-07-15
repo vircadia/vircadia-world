@@ -9,7 +9,7 @@ import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { sign } from "jsonwebtoken";
 import { BunPostgresClientModule } from "../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
-import { input, select } from "@inquirer/prompts";
+import { input, select, Separator } from "@inquirer/prompts";
 import {
     type Entity,
     Service,
@@ -2339,30 +2339,31 @@ if (import.meta.main) {
 
                     // First ask what to configure
                     const configOption = await select({
-                        message: "What would you like to configure?",
+                        message: "What would you like to configure?\n",
                         choices: [
                             {
-                                name: `World API URI (current: ${currentUri})`,
+                                name: `World API URI\n    Current: ${currentUri}`,
                                 value: "world-api-uri",
                             },
                             {
-                                name: "Model Definitions (JSON configuration)",
+                                name: `Model Definitions (JSON configuration)\n    Current: ${currentModelDefinitions.length > 50 ? currentModelDefinitions.substring(0, 47) + "..." : currentModelDefinitions}`,
                                 value: "model-definitions",
                             },
                             {
-                                name: `User SQL Seed Directory (current: ${currentUserSqlDir})`,
+                                name: `User SQL Seed Directory\n    Current: ${currentUserSqlDir}`,
                                 value: "user-sql-dir",
                             },
                             {
-                                name: `User Asset Seed Directory (current: ${currentUserAssetDir})`,
+                                name: `User Asset Seed Directory\n    Current: ${currentUserAssetDir}`,
                                 value: "user-asset-dir",
                             },
+                            new Separator(),
                             {
-                                name: "View all current configuration",
+                                name: "\x1b[32mView all current configuration\x1b[0m",
                                 value: "view-all",
                             },
                             {
-                                name: "Exit configuration",
+                                name: "\x1b[31mExit configuration\x1b[0m",
                                 value: "exit",
                             },
                         ],
@@ -2377,10 +2378,10 @@ if (import.meta.main) {
                     if (configOption === "world-api-uri") {
                         const action = await select({
                             message:
-                                "What would you like to do with the World API URI?",
+                                "What would you like to do with the World API URI?\n",
                             choices: [
                                 {
-                                    name: `Set variable in client .env (current: ${currentUri})`,
+                                    name: `Set variable in client .env\n    Current: ${currentUri}`,
                                     value: "set",
                                 },
                                 {
@@ -2426,10 +2427,10 @@ if (import.meta.main) {
                     } else if (configOption === "model-definitions") {
                         const action = await select({
                             message:
-                                "What would you like to do with Model Definitions?",
+                                "What would you like to do with Model Definitions?\n",
                             choices: [
                                 {
-                                    name: `Set variable in client .env (current: ${currentModelDefinitions})`,
+                                    name: `Set variable in client .env\n    Current: ${currentModelDefinitions.length > 50 ? currentModelDefinitions.substring(0, 47) + "..." : currentModelDefinitions}`,
                                     value: "set",
                                 },
                                 {
@@ -2519,10 +2520,10 @@ if (import.meta.main) {
                     } else if (configOption === "user-sql-dir") {
                         const action = await select({
                             message:
-                                "What would you like to do with User SQL Seed Directory?",
+                                "What would you like to do with User SQL Seed Directory?\n",
                             choices: [
                                 {
-                                    name: `Set variable in CLI .env (current: ${currentUserSqlDir})`,
+                                    name: `Set variable in CLI .env\n    Current: ${currentUserSqlDir}`,
                                     value: "set",
                                 },
                                 {
@@ -2571,10 +2572,10 @@ if (import.meta.main) {
                     } else if (configOption === "user-asset-dir") {
                         const action = await select({
                             message:
-                                "What would you like to do with User Asset Seed Directory?",
+                                "What would you like to do with User Asset Seed Directory?\n",
                             choices: [
                                 {
-                                    name: `Set variable in CLI .env (current: ${currentUserAssetDir})`,
+                                    name: `Set variable in CLI .env\n    Current: ${currentUserAssetDir}`,
                                     value: "set",
                                 },
                                 {

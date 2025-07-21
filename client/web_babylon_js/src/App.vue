@@ -501,8 +501,6 @@ onMounted(async () => {
     const instanceId = appStore.generateInstanceId();
     console.log(`[App] Generated instance ID: ${instanceId}`);
 
-    // Azure AD OAuth callback is now handled automatically by authStore during initialization
-
     await initializeBabylon();
 
     // Add keyboard event listener for inspector toggle

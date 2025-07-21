@@ -1,9 +1,4 @@
 <template>
-    <div v-if="sceneInitialized && connectionStatus === 'connected'" class="inject-component">
-        <v-chip color="success" class="floating-chip">
-            Using Inject Approach
-        </v-chip>
-    </div>
 </template>
 
 <script setup lang="ts">

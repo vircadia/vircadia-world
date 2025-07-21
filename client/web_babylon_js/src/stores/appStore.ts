@@ -1,4 +1,7 @@
 import { defineStore } from "pinia";
+import { ref, computed } from "vue";
+import { useStorage, StorageSerializers } from "@vueuse/core";
+import type { AccountInfo } from "@azure/msal-browser";
 import type {
     BabylonModelDefinition,
     BabylonAnimationDefinition,
@@ -10,391 +13,740 @@ import {
     AvatarMetadataWithDefaultsSchema,
 } from "../composables/schemas";
 import { clientBrowserConfiguration } from "../vircadia.browser.config";
+import type { Communication } from "@vircadia/world-sdk/browser/vue";
 
-export const useAppStore = defineStore("app", {
-    state: () => ({
-        // global loading indicator
-        loading: false as boolean,
-        // global error message
-        error: null as string | null,
-        // model definitions for environments
-        modelDefinitions:
-            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_MODEL_DEFINITIONS as BabylonModelDefinition[],
-        // HDR environment list
-        hdrList: ["babylon.level.hdr.1k.hdr"] as string[],
-        // IDs for session, agent, and instance
-        sessionId: null as string | null,
-        agentId: null as string | null,
-        instanceId: null as string | null,
-        // My avatar metadata
-        myAvatarMetadata: null as AvatarMetadata | null,
-        // Other avatars metadata map (keyed by sessionId)
-        otherAvatarsMetadata: {} as Record<string, AvatarMetadata>,
-        // avatar configuration
-        avatarDefinition: {
-            initialAvatarPosition: { x: 0, y: 0, z: -5 },
-            initialAvatarRotation: { x: 0, y: 0, z: 0, w: 1 },
-            initialAvatarCameraOrientation: {
-                alpha: -Math.PI / 2,
-                beta: Math.PI / 3,
-                radius: 5,
+export const useAppStore = defineStore("app", () => {
+    // global loading indicator
+    const loading = ref(false);
+    // global error message
+    const error = ref<string | null>(null);
+    // model definitions for environments
+    const modelDefinitions = ref<BabylonModelDefinition[]>(
+        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_MODEL_DEFINITIONS,
+    );
+    // HDR environment list
+    const hdrList = ref<string[]>(["babylon.level.hdr.1k.hdr"]);
+    // IDs for session, agent, and instance
+    const instanceId = ref<string | null>(null);
+    // My avatar metadata
+    const myAvatarMetadata = ref<AvatarMetadata | null>(null);
+    // Other avatars metadata map (keyed by sessionId)
+    const otherAvatarsMetadata = ref<Record<string, AvatarMetadata>>({});
+    // avatar configuration
+    const avatarDefinition = ref({
+        initialAvatarPosition: { x: 0, y: 0, z: -5 },
+        initialAvatarRotation: { x: 0, y: 0, z: 0, w: 1 },
+        initialAvatarCameraOrientation: {
+            alpha: -Math.PI / 2,
+            beta: Math.PI / 3,
+            radius: 5,
+        },
+        modelFileName: "babylon.avatar.glb",
+        meshPivotPoint: "bottom" as "bottom" | "center",
+        throttleInterval: 500,
+        capsuleHeight: 1.8,
+        capsuleRadius: 0.3,
+        slopeLimit: 45,
+        jumpSpeed: 5,
+        debugBoundingBox: false,
+        debugSkeleton: true,
+        debugAxes: false,
+        walkSpeed: 1.47,
+        turnSpeed: Math.PI,
+        blendDuration: 0.15, // seconds for animation blend transition
+        gravity: -9.8, // gravity acceleration (units per second squared)
+        animations: [
+            {
+                fileName: "babylon.avatar.animation.f.idle.1.glb",
             },
-            modelFileName: "babylon.avatar.glb",
-            meshPivotPoint: "bottom" as "bottom" | "center",
-            throttleInterval: 500,
-            capsuleHeight: 1.8,
-            capsuleRadius: 0.3,
-            slopeLimit: 45,
-            jumpSpeed: 5,
-            debugBoundingBox: false,
-            debugSkeleton: true,
-            debugAxes: false,
-            walkSpeed: 1.47,
-            turnSpeed: Math.PI,
-            blendDuration: 0.15, // seconds for animation blend transition
-            gravity: -9.8, // gravity acceleration (units per second squared)
-            animations: [
-                {
-                    fileName: "babylon.avatar.animation.f.idle.1.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.idle.2.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.idle.3.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.idle.4.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.idle.5.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.idle.6.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.idle.7.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.idle.8.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.idle.9.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.idle.10.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.walk.1.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.walk.2.glb",
-                },
-                {
-                    fileName:
-                        "babylon.avatar.animation.f.crouch_strafe_left.glb",
-                },
-                {
-                    fileName:
-                        "babylon.avatar.animation.f.crouch_strafe_right.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.crouch_walk_back.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.crouch_walk.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.falling_idle.1.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.falling_idle.2.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.jog_back.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.jog.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.jump_small.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.jump.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.run_back.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.run_strafe_left.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.run_strafe_right.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.run.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.strafe_left.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.strafe_right.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.talking.1.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.talking.2.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.talking.3.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.talking.4.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.talking.5.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.talking.6.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.walk_back.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.walk_jump.1.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.walk_jump.2.glb",
-                },
-                {
-                    fileName: "babylon.avatar.animation.f.walk_strafe_left.glb",
-                },
-                {
-                    fileName:
-                        "babylon.avatar.animation.f.walk_strafe_right.glb",
-                },
-            ] as BabylonAnimationDefinition[],
-        },
-        // Performance mode configuration
-        performanceMode: "low" as "normal" | "low",
-        targetFPS: 30, // Target FPS for low performance mode
+            {
+                fileName: "babylon.avatar.animation.f.idle.2.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.idle.3.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.idle.4.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.idle.5.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.idle.6.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.idle.7.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.idle.8.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.idle.9.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.idle.10.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.walk.1.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.walk.2.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.crouch_strafe_left.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.crouch_strafe_right.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.crouch_walk_back.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.crouch_walk.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.falling_idle.1.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.falling_idle.2.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.jog_back.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.jog.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.jump_small.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.jump.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.run_back.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.run_strafe_left.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.run_strafe_right.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.run.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.strafe_left.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.strafe_right.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.talking.1.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.talking.2.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.talking.3.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.talking.4.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.talking.5.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.talking.6.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.walk_back.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.walk_jump.1.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.walk_jump.2.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.walk_strafe_left.glb",
+            },
+            {
+                fileName: "babylon.avatar.animation.f.walk_strafe_right.glb",
+            },
+        ] as BabylonAnimationDefinition[],
+    });
+    // Performance mode configuration
+    const performanceMode = ref<"normal" | "low">("low");
+    const targetFPS = ref(30); // Target FPS for low performance mode
 
-        // Polling intervals configuration (in milliseconds)
-        pollingIntervals: {
-            // Avatar discovery interval - how often to check for new avatars
-            avatarDiscovery: 2000,
-            // Other avatar data polling - how often to fetch other avatars' position/state
-            otherAvatarData: 1000,
-            // Other avatar joint data polling - how often to fetch other avatars' skeleton joints
-            // Using incremental updates (only fetches joints updated since last poll)
-            otherAvatarJointData: 2500,
-            // WebRTC signaling polling - how often to check for offers/answers
-            webRTCSignaling: 1500,
-            // WebRTC stale threshold - time before considering signaling data stale
-            webRTCStaleThreshold: 20000,
-            // Spatial audio update interval - how often to update 3D audio positions
-            spatialAudioUpdate: 100,
-            // Debug overlay refresh rate
-            debugOverlayRefresh: 100,
-            // Avatar data transmission intervals (position, rotation, camera)
-            avatarData: 1000,
-            // Avatar joint data transmission interval (skeleton bones) - less frequent
-            avatarJointData: 2500,
+    // Polling intervals configuration (in milliseconds)
+    const pollingIntervals = ref({
+        // Avatar discovery interval - how often to check for new avatars
+        avatarDiscovery: 2000,
+        // Other avatar data polling - how often to fetch other avatars' position/state
+        otherAvatarData: 1000,
+        // Other avatar joint data polling - how often to fetch other avatars' skeleton joints
+        // Using incremental updates (only fetches joints updated since last poll)
+        otherAvatarJointData: 2500,
+        // WebRTC signaling polling - how often to check for offers/answers
+        webRTCSignaling: 1500,
+        // WebRTC stale threshold - time before considering signaling data stale
+        webRTCStaleThreshold: 20000,
+        // Spatial audio update interval - how often to update 3D audio positions
+        spatialAudioUpdate: 100,
+        // Debug overlay refresh rate
+        debugOverlayRefresh: 100,
+        // Avatar data transmission intervals (position, rotation, camera)
+        avatarData: 1000,
+        // Avatar joint data transmission interval (skeleton bones) - less frequent
+        avatarJointData: 2500,
+    });
+    // Spatial audio state
+    const spatialAudioEnabled = ref(false);
+    const peerAudioStates = ref<Record<string, PeerAudioState>>({});
+
+    // Persisted state from authStore
+    const account = useStorage<AccountInfo | null>(
+        "vircadia-account",
+        null,
+        localStorage,
+        {
+            serializer: StorageSerializers.object,
         },
-        // Spatial audio state
-        spatialAudioEnabled: false,
-        peerAudioStates: {} as Record<string, PeerAudioState>,
-    }),
-    getters: {
-        // whether an error is set
-        hasError: (state): boolean => state.error !== null,
-        // get full session ID (sessionId + instanceId)
-        fullSessionId: (state): string | null => {
-            if (!state.sessionId || !state.instanceId) return null;
-            return `${state.sessionId}-${state.instanceId}`;
-        },
-        // get other avatar metadata by sessionId
-        getOtherAvatarMetadata: (state) => (sessionId: string) => {
-            return state.otherAvatarsMetadata[sessionId] || null;
-        },
-        // get active audio connections count
-        activeAudioConnectionsCount: (state): number => {
-            return Object.values(state.peerAudioStates).filter(
-                (peer) => peer.isReceiving || peer.isSending,
-            ).length;
-        },
-        // get peer audio state
-        getPeerAudioState:
-            (state) =>
+    );
+    const sessionToken = useStorage<string | null>(
+        "vircadia-session-token",
+        null,
+        localStorage,
+    );
+    const sessionId = useStorage<string | null>(
+        "vircadia-session-id",
+        null,
+        localStorage,
+    );
+    const agentId = useStorage<string | null>(
+        "vircadia-agent-id",
+        null,
+        localStorage,
+    );
+
+    // Loading state from authStore
+    const isAuthenticating = ref(false);
+    const authError = ref<string | null>(null);
+
+    // whether an error is set
+    const hasError = computed((): boolean => error.value !== null);
+    // get full session ID (sessionId + instanceId)
+    const fullSessionId = computed((): string | null => {
+        if (!sessionId.value || !instanceId.value) return null;
+        return `${sessionId.value}-${instanceId.value}`;
+    });
+    // get other avatar metadata by sessionId
+    const getOtherAvatarMetadata = computed(() => (sessionId: string) => {
+        return otherAvatarsMetadata.value[sessionId] || null;
+    });
+    // get active audio connections count
+    const activeAudioConnectionsCount = computed((): number => {
+        return Object.values(peerAudioStates.value).filter(
+            (peer) => peer.isReceiving || peer.isSending,
+        ).length;
+    });
+    // get peer audio state
+    const getPeerAudioState = computed(
+        () =>
             (sessionId: string): PeerAudioState | null => {
-                return state.peerAudioStates[sessionId] || null;
+                return peerAudioStates.value[sessionId] || null;
             },
-        // get all active peer audio states
-        activePeerAudioStates: (state): PeerAudioState[] => {
-            return Object.values(state.peerAudioStates).filter(
-                (peer) => peer.isReceiving || peer.isSending,
-            );
-        },
-    },
-    actions: {
-        // set the loading flag
-        setLoading(value: boolean) {
-            this.loading = value;
-        },
-        // set a global error message
-        setError(message: string | null) {
-            this.error = message;
-        },
-        // clear the error
-        clearError() {
-            this.error = null;
-        },
-        // set the session ID
-        setSessionId(id: string | null) {
-            this.sessionId = id;
-        },
-        // set the agent ID
-        setAgentId(id: string | null) {
-            this.agentId = id;
-        },
-        // set the instance ID
-        setInstanceId(id: string | null) {
-            this.instanceId = id;
-        },
-        // set my avatar metadata
-        setMyAvatarMetadata(
-            metadata: AvatarMetadata | Map<string, unknown> | unknown,
-        ) {
-            if (metadata === null) {
-                this.myAvatarMetadata = null;
-            } else {
-                try {
-                    // Use the safe parser to validate and fill in defaults
-                    this.myAvatarMetadata =
-                        AvatarMetadataWithDefaultsSchema.parse(metadata);
-                } catch (error) {
-                    console.error("Invalid avatar metadata:", error);
-                    // Keep existing metadata if validation fails
-                }
-            }
-        },
-        // update my avatar metadata partially
-        updateMyAvatarMetadata(partialMetadata: Partial<AvatarMetadata>) {
-            if (!this.myAvatarMetadata) {
-                // If no metadata exists, create new with defaults
-                this.setMyAvatarMetadata(partialMetadata);
-            } else {
-                try {
-                    // Validate the partial update
-                    const validatedUpdate =
-                        AvatarMetadataSchema.partial().parse(partialMetadata);
-                    // Merge with existing metadata
-                    const merged = {
-                        ...this.myAvatarMetadata,
-                        ...validatedUpdate,
-                    };
-                    // Re-validate the complete object
-                    this.myAvatarMetadata =
-                        AvatarMetadataWithDefaultsSchema.parse(merged);
-                } catch (error) {
-                    console.error("Invalid avatar metadata update:", error);
-                    // Keep existing metadata if validation fails
-                }
-            }
-        },
-        // set other avatar metadata
-        setOtherAvatarMetadata(
-            sessionId: string,
-            metadata: AvatarMetadata | Map<string, unknown> | unknown,
-        ) {
+    );
+    // get all active peer audio states
+    const activePeerAudioStates = computed((): PeerAudioState[] => {
+        return Object.values(peerAudioStates.value).filter(
+            (peer) => peer.isReceiving || peer.isSending,
+        );
+    });
+
+    // Computed properties from authStore
+    const isAuthenticated = computed(
+        () => !!sessionToken.value && !!account.value,
+    );
+
+    // set the loading flag
+    function setLoading(value: boolean) {
+        loading.value = value;
+    }
+    // set a global error message
+    function setError(message: string | null) {
+        error.value = message;
+    }
+    // clear the error
+    function clearError() {
+        error.value = null;
+    }
+    // set the session ID
+    function setSessionId(id: string | null) {
+        sessionId.value = id;
+    }
+    // set the agent ID
+    function setAgentId(id: string | null) {
+        agentId.value = id;
+    }
+    // set the instance ID
+    function setInstanceId(id: string | null) {
+        instanceId.value = id;
+    }
+    // set my avatar metadata
+    function setMyAvatarMetadata(
+        metadata: AvatarMetadata | Map<string, unknown> | unknown,
+    ) {
+        if (metadata === null) {
+            myAvatarMetadata.value = null;
+        } else {
             try {
                 // Use the safe parser to validate and fill in defaults
-                this.otherAvatarsMetadata[sessionId] =
+                myAvatarMetadata.value =
                     AvatarMetadataWithDefaultsSchema.parse(metadata);
             } catch (error) {
-                console.error(
-                    `Invalid avatar metadata for session ${sessionId}:`,
-                    error,
-                );
-                // Don't set invalid metadata
+                console.error("Invalid avatar metadata:", error);
+                // Keep existing metadata if validation fails
             }
-        },
-        // remove other avatar metadata
-        removeOtherAvatarMetadata(sessionId: string) {
-            delete this.otherAvatarsMetadata[sessionId];
-        },
-        // clear all other avatars metadata
-        clearOtherAvatarsMetadata() {
-            this.otherAvatarsMetadata = {};
-        },
-        // set performance mode
-        setPerformanceMode(mode: "normal" | "low") {
-            this.performanceMode = mode;
-        },
-        // toggle performance mode
-        togglePerformanceMode() {
-            this.performanceMode =
-                this.performanceMode === "normal" ? "low" : "normal";
-        },
-        // set target FPS
-        setTargetFPS(fps: number) {
-            this.targetFPS = fps;
-        },
-        // set polling interval
-        setPollingInterval(
-            key: keyof typeof this.pollingIntervals,
-            value: number,
-        ) {
-            this.pollingIntervals[key] = value;
-        },
-        // set all polling intervals
-        setPollingIntervals(intervals: Partial<typeof this.pollingIntervals>) {
-            Object.assign(this.pollingIntervals, intervals);
-        },
-        // generate and set a new instance ID
-        generateInstanceId() {
-            const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-            let result = "";
-            for (let i = 0; i < 6; i++) {
-                result += chars.charAt(
-                    Math.floor(Math.random() * chars.length),
-                );
-            }
-            this.instanceId = result;
-            return result;
-        },
-        // Spatial audio actions
-        setSpatialAudioEnabled(enabled: boolean) {
-            this.spatialAudioEnabled = enabled;
-        },
-        setPeerAudioState(sessionId: string, state: Partial<PeerAudioState>) {
-            if (!this.peerAudioStates[sessionId]) {
-                this.peerAudioStates[sessionId] = {
-                    sessionId,
-                    volume: 100,
-                    isMuted: false,
-                    isReceiving: false,
-                    isSending: false,
+        }
+    }
+    // update my avatar metadata partially
+    function updateMyAvatarMetadata(partialMetadata: Partial<AvatarMetadata>) {
+        if (!myAvatarMetadata.value) {
+            // If no metadata exists, create new with defaults
+            setMyAvatarMetadata(partialMetadata);
+        } else {
+            try {
+                // Validate the partial update
+                const validatedUpdate =
+                    AvatarMetadataSchema.partial().parse(partialMetadata);
+                // Merge with existing metadata
+                const merged = {
+                    ...myAvatarMetadata.value,
+                    ...validatedUpdate,
                 };
+                // Re-validate the complete object
+                myAvatarMetadata.value =
+                    AvatarMetadataWithDefaultsSchema.parse(merged);
+            } catch (error) {
+                console.error("Invalid avatar metadata update:", error);
+                // Keep existing metadata if validation fails
             }
-            Object.assign(this.peerAudioStates[sessionId], state);
-        },
-        removePeerAudioState(sessionId: string) {
-            delete this.peerAudioStates[sessionId];
-        },
-        setPeerVolume(sessionId: string, volume: number) {
-            if (this.peerAudioStates[sessionId]) {
-                this.peerAudioStates[sessionId].volume = volume;
+        }
+    }
+    // set other avatar metadata
+    function setOtherAvatarMetadata(
+        sessionId: string,
+        metadata: AvatarMetadata | Map<string, unknown> | unknown,
+    ) {
+        try {
+            // Use the safe parser to validate and fill in defaults
+            otherAvatarsMetadata.value[sessionId] =
+                AvatarMetadataWithDefaultsSchema.parse(metadata);
+        } catch (error) {
+            console.error(
+                `Invalid avatar metadata for session ${sessionId}:`,
+                error,
+            );
+            // Don't set invalid metadata
+        }
+    }
+    // remove other avatar metadata
+    function removeOtherAvatarMetadata(sessionId: string) {
+        delete otherAvatarsMetadata.value[sessionId];
+    }
+    // clear all other avatars metadata
+    function clearOtherAvatarsMetadata() {
+        otherAvatarsMetadata.value = {};
+    }
+    // set performance mode
+    function setPerformanceMode(mode: "normal" | "low") {
+        performanceMode.value = mode;
+    }
+    // toggle performance mode
+    function togglePerformanceMode() {
+        performanceMode.value =
+            performanceMode.value === "normal" ? "low" : "normal";
+    }
+    // set target FPS
+    function setTargetFPS(fps: number) {
+        targetFPS.value = fps;
+    }
+    // set polling interval
+    function setPollingInterval(
+        key: keyof typeof pollingIntervals.value,
+        value: number,
+    ) {
+        pollingIntervals.value[key] = value;
+    }
+    // set all polling intervals
+    function setPollingIntervals(
+        intervals: Partial<typeof pollingIntervals.value>,
+    ) {
+        Object.assign(pollingIntervals.value, intervals);
+    }
+    // generate and set a new instance ID
+    function generateInstanceId() {
+        const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+        let result = "";
+        for (let i = 0; i < 6; i++) {
+            result += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        instanceId.value = result;
+        return result;
+    }
+    // Spatial audio actions
+    function setSpatialAudioEnabled(enabled: boolean) {
+        spatialAudioEnabled.value = enabled;
+    }
+    function setPeerAudioState(
+        sessionId: string,
+        state: Partial<PeerAudioState>,
+    ) {
+        if (!peerAudioStates.value[sessionId]) {
+            peerAudioStates.value[sessionId] = {
+                sessionId,
+                volume: 100,
+                isMuted: false,
+                isReceiving: false,
+                isSending: false,
+            };
+        }
+        Object.assign(peerAudioStates.value[sessionId], state);
+    }
+    function removePeerAudioState(sessionId: string) {
+        delete peerAudioStates.value[sessionId];
+    }
+    function setPeerVolume(sessionId: string, volume: number) {
+        if (peerAudioStates.value[sessionId]) {
+            peerAudioStates.value[sessionId].volume = volume;
+        }
+    }
+    function setPeerMuted(sessionId: string, muted: boolean) {
+        if (peerAudioStates.value[sessionId]) {
+            peerAudioStates.value[sessionId].isMuted = muted;
+        }
+    }
+    function clearPeerAudioStates() {
+        peerAudioStates.value = {};
+    }
+
+    // Helper to construct API URL
+    const getApiUrl = () => {
+        const protocol =
+            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL
+                ? "https"
+                : "http";
+        return `${protocol}://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}`;
+    };
+
+    // Login with server-side OAuth flow
+    const login = async () => {
+        isAuthenticating.value = true;
+        authError.value = null;
+
+        try {
+            // Get authorization URL from server
+            const response = await fetch(
+                `${getApiUrl()}/world/rest/auth/oauth/authorize?provider=azure`,
+            );
+
+            // Debug: Log response details
+            console.log("Auth URL Response:", {
+                status: response.status,
+                statusText: response.statusText,
+                headers: Object.fromEntries(response.headers.entries()),
+                url: response.url,
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error("Auth URL Error Response:", errorText);
+                throw new Error(
+                    `Failed to get authorization URL: ${response.status} ${response.statusText}`,
+                );
             }
-        },
-        setPeerMuted(sessionId: string, muted: boolean) {
-            if (this.peerAudioStates[sessionId]) {
-                this.peerAudioStates[sessionId].isMuted = muted;
+
+            const data = await response.json();
+
+            // Debug: Log the full response data
+            console.log("Auth URL Response Data:", data);
+            console.log("Data structure:", {
+                hasData: !!data,
+                hasDataData: !!data?.data,
+                hasAuthorizationUrl: !!data?.data?.authorizationUrl,
+                hasSuccess: !!data?.success,
+                hasRedirectUrl: !!data?.redirectUrl,
+                actualStructure: JSON.stringify(data, null, 2),
+            });
+
+            if (data.success && data.redirectUrl) {
+                // Store current URL to return to after auth
+                sessionStorage.setItem(
+                    "vircadia-auth-return-url",
+                    window.location.href,
+                );
+                // Redirect to Azure AD
+                window.location.href = data.redirectUrl;
+            } else {
+                throw new Error("No authorization URL received");
             }
-        },
-        clearPeerAudioStates() {
-            this.peerAudioStates = {};
-        },
-    },
+        } catch (err) {
+            console.error("Login failed:", err);
+            authError.value =
+                err instanceof Error ? err.message : "Login failed";
+            isAuthenticating.value = false;
+        }
+    };
+
+    // Handle OAuth callback
+    const handleOAuthCallback = async (code: string, state: string) => {
+        isAuthenticating.value = true;
+        authError.value = null;
+
+        try {
+            // Debug: Log the callback URL being constructed
+            const callbackUrl = `${getApiUrl()}/world/rest/auth/oauth/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}&provider=azure`;
+            console.log("OAuth Callback - Request URL:", callbackUrl);
+            console.log("OAuth Callback - API Base URL:", getApiUrl());
+
+            // Send code to server for token exchange
+            const response = await fetch(callbackUrl);
+
+            // Debug: Log response details
+            console.log("OAuth Callback - Response status:", response.status);
+            console.log(
+                "OAuth Callback - Response headers:",
+                Object.fromEntries(response.headers.entries()),
+            );
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error("OAuth Callback - Error response:", errorText);
+                try {
+                    const error = JSON.parse(errorText);
+                    throw new Error(
+                        error.errorMessage ||
+                            error.error ||
+                            "Authentication failed",
+                    );
+                } catch (parseError) {
+                    throw new Error(
+                        `Authentication failed: ${response.status} ${response.statusText}`,
+                    );
+                }
+            }
+
+            const data = await response.json();
+
+            // Debug: Log callback response
+            console.log("OAuth Callback Response Data:", data);
+            console.log("Response structure:", {
+                hasData: !!data,
+                hasSuccess: data?.success,
+                dataKeys: data ? Object.keys(data) : [],
+                fullData: JSON.stringify(data, null, 2),
+            });
+
+            // Handle the response based on the actual structure
+            // The schema defines the response type in AUTH_OAUTH_CALLBACK.createSuccess
+            type OAuthCallbackSuccessResponse = ReturnType<
+                typeof Communication.REST.Endpoint.AUTH_OAUTH_CALLBACK.createSuccess
+            >;
+            let responseData: Omit<
+                OAuthCallbackSuccessResponse,
+                "success" | "timestamp"
+            >;
+            if (data?.success && data?.data) {
+                // Response is wrapped in { success: true, data: {...} }
+                responseData = data.data;
+            } else if (data?.token) {
+                // Response is the data directly
+                responseData = data;
+            } else {
+                console.error("Unexpected response structure:", data);
+                throw new Error("Invalid response structure");
+            }
+
+            console.log("Extracted response data:", {
+                token: responseData.token ? "present" : "missing",
+                agentId: responseData.agentId,
+                sessionId: responseData.sessionId,
+                email: responseData.email,
+                displayName: responseData.displayName,
+                username: responseData.username,
+            });
+
+            if (responseData?.token) {
+                // Store session information
+                sessionToken.value = responseData.token;
+                sessionId.value = responseData.sessionId;
+                agentId.value = responseData.agentId;
+
+                // Create a minimal account object for UI display
+                const newAccount: AccountInfo = {
+                    homeAccountId: responseData.agentId,
+                    environment: "azure",
+                    tenantId: "",
+                    username:
+                        responseData.username ||
+                        responseData.displayName ||
+                        responseData.email ||
+                        "User",
+                    localAccountId: responseData.agentId,
+                    name:
+                        responseData.displayName ||
+                        responseData.username ||
+                        responseData.email ||
+                        "User",
+                    idTokenClaims: {
+                        email: responseData.email,
+                        name:
+                            responseData.displayName ||
+                            responseData.username ||
+                            responseData.email,
+                        preferred_username: responseData.email,
+                    },
+                } as AccountInfo;
+
+                // Set the account value
+                account.value = newAccount;
+
+                // Redirect back to original page
+                const returnUrl =
+                    sessionStorage.getItem("vircadia-auth-return-url") || "/";
+                sessionStorage.removeItem("vircadia-auth-return-url");
+                window.location.href = returnUrl;
+            }
+        } catch (err) {
+            console.error("OAuth callback failed:", err);
+            authError.value =
+                err instanceof Error ? err.message : "Authentication failed";
+        } finally {
+            isAuthenticating.value = false;
+        }
+    };
+
+    // Logout
+    const logout = async () => {
+        if (sessionId.value) {
+            try {
+                await fetch(`${getApiUrl()}/world/rest/auth/logout`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ sessionId: sessionId.value }),
+                });
+            } catch (err) {
+                console.error("Logout request failed:", err);
+            }
+        }
+
+        // Clear local state
+        account.value = null;
+        sessionToken.value = null;
+        sessionId.value = null;
+        agentId.value = null;
+        authError.value = null;
+    };
+
+    // Get session token for API calls
+    const getSessionToken = () => sessionToken.value;
+
+    // Initialize - check for OAuth callback
+    const initialize = async () => {
+        // Debug: Check state on initialization
+        console.log("Auth Store Initialize - state:", {
+            account: account.value,
+            sessionToken: sessionToken.value,
+            sessionId: sessionId.value,
+            agentId: agentId.value,
+            isAuthenticated: isAuthenticated.value,
+        });
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const code = urlParams.get("code");
+        const state = urlParams.get("state");
+
+        if (code && state) {
+            // We're in an OAuth callback
+            await handleOAuthCallback(code, state);
+            // Clear the URL parameters
+            window.history.replaceState(
+                {},
+                document.title,
+                window.location.pathname,
+            );
+        }
+    };
+
+    // Refresh account data
+    // Note: With useStorage, the reactive values are automatically synced with localStorage
+    // This function is kept for backward compatibility but likely not needed
+    const refreshAccountData = () => {
+        console.log("Account data is automatically synced via useStorage", {
+            account: account.value,
+            isAuthenticated: isAuthenticated.value,
+        });
+    };
+
+    // Initialize on store creation
+    initialize();
+
+    return {
+        loading,
+        error,
+        modelDefinitions,
+        hdrList,
+        instanceId,
+        myAvatarMetadata,
+        otherAvatarsMetadata,
+        avatarDefinition,
+        performanceMode,
+        targetFPS,
+        pollingIntervals,
+        spatialAudioEnabled,
+        peerAudioStates,
+        account,
+        sessionToken,
+        sessionId,
+        agentId,
+        isAuthenticating,
+        authError,
+        hasError,
+        fullSessionId,
+        getOtherAvatarMetadata,
+        activeAudioConnectionsCount,
+        getPeerAudioState,
+        activePeerAudioStates,
+        isAuthenticated,
+        setLoading,
+        setError,
+        clearError,
+        setSessionId,
+        setAgentId,
+        setInstanceId,
+        setMyAvatarMetadata,
+        updateMyAvatarMetadata,
+        setOtherAvatarMetadata,
+        removeOtherAvatarMetadata,
+        clearOtherAvatarsMetadata,
+        setPerformanceMode,
+        togglePerformanceMode,
+        setTargetFPS,
+        setPollingInterval,
+        setPollingIntervals,
+        generateInstanceId,
+        setSpatialAudioEnabled,
+        setPeerAudioState,
+        removePeerAudioState,
+        setPeerVolume,
+        setPeerMuted,
+        clearPeerAudioStates,
+        login,
+        logout,
+        getSessionToken,
+        handleOAuthCallback,
+        refreshAccountData,
+    };
 });

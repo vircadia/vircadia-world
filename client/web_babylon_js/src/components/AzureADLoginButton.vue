@@ -1,11 +1,11 @@
 <template>
     <div class="azure-ad-auth">
         <v-btn
-            v-if="!authStore.isAuthenticated"
+            v-if="!appStore.isAuthenticated"
             color="primary"
             @click="handleLogin"
-            :loading="authStore.isAuthenticating"
-            :disabled="authStore.isAuthenticating"
+            :loading="appStore.isAuthenticating"
+            :disabled="appStore.isAuthenticating"
             prepend-icon="mdi-microsoft"
         >
             Sign in with Microsoft
@@ -27,13 +27,13 @@
         </div>
         
         <v-alert
-            v-if="authStore.authError"
+            v-if="appStore.authError"
             type="error"
             dismissible
             class="mt-2"
-            @click:close="authStore.authError = null"
+            @click:close="appStore.authError = null"
         >
-            {{ authStore.authError }}
+            {{ appStore.authError }}
         </v-alert>
         
 
@@ -42,60 +42,60 @@
 
 <script setup lang="ts">
 import { computed, watch, onMounted } from "vue";
-import { useAuthStore } from "@/stores/authStore";
+import { useAppStore } from "@/stores/appStore";
 
-const authStore = useAuthStore();
+const appStore = useAppStore();
 
 // Refresh account data on mount and when authentication state changes
 onMounted(() => {
-    if (authStore.isAuthenticated && !authStore.account) {
+    if (appStore.isAuthenticated && !appStore.account) {
         console.log("Authenticated but no account data, refreshing...");
-        authStore.refreshAccountData();
+        appStore.refreshAccountData();
     }
 });
 
 watch(
-    () => authStore.isAuthenticated,
+    () => appStore.isAuthenticated,
     (newVal) => {
-        if (newVal && !authStore.account) {
+        if (newVal && !appStore.account) {
             console.log(
                 "Authentication state changed, refreshing account data...",
             );
-            authStore.refreshAccountData();
+            appStore.refreshAccountData();
         }
     },
 );
 
 const username = computed(() => {
-    if (!authStore.account) return "Not signed in";
+    if (!appStore.account) return "Not signed in";
 
     // Debug logging
     console.log("Computing username - account data:", {
-        account: authStore.account,
-        username: authStore.account.username,
-        name: authStore.account.name,
-        idTokenClaims: authStore.account.idTokenClaims,
-        localAccountId: authStore.account.localAccountId,
-        isAuthenticated: authStore.isAuthenticated,
-        sessionToken: authStore.sessionToken,
+        account: appStore.account,
+        username: appStore.account.username,
+        name: appStore.account.name,
+        idTokenClaims: appStore.account.idTokenClaims,
+        localAccountId: appStore.account.localAccountId,
+        isAuthenticated: appStore.isAuthenticated,
+        sessionToken: appStore.sessionToken,
     });
 
     // Try different properties in order of preference
     return (
-        authStore.account.username ||
-        authStore.account.name ||
-        authStore.account.idTokenClaims?.preferred_username ||
-        authStore.account.idTokenClaims?.name ||
-        authStore.account.localAccountId
+        appStore.account.username ||
+        appStore.account.name ||
+        appStore.account.idTokenClaims?.preferred_username ||
+        appStore.account.idTokenClaims?.name ||
+        appStore.account.localAccountId
     );
 });
 
 const handleLogin = () => {
-    authStore.login();
+    appStore.login();
 };
 
 const handleLogout = () => {
-    authStore.logout();
+    appStore.logout();
 };
 </script>
 

@@ -92,15 +92,15 @@
                     <v-btn 
                         fab 
                         small
-                        :color="performanceMode === 'low' ? 'warning' : 'success'" 
+                        :color="appStore.performanceMode === 'low' ? 'warning' : 'success'" 
                         @click="togglePerformanceMode"
                         v-bind="props"
                         class="toolbar-btn"
                     >
-                        <v-icon>{{ performanceMode === 'low' ? 'mdi-speedometer-slow' : 'mdi-speedometer' }}</v-icon>
+                        <v-icon>{{ appStore.performanceMode === 'low' ? 'mdi-speedometer-slow' : 'mdi-speedometer' }}</v-icon>
                     </v-btn>
                 </template>
-                <span>Performance: {{ performanceMode }} ({{ performanceMode === 'low' ? targetFPS + ' FPS' : 'Max FPS' }})</span>
+                <span>Performance: {{ appStore.performanceMode }} ({{ appStore.performanceMode === 'low' ? appStore.targetFPS + ' FPS' : 'Max FPS' }})</span>
             </v-tooltip>
             
             <!-- Audio Controls -->
@@ -152,9 +152,8 @@ import {
     onMounted,
     onUnmounted,
     inject,
-    provide,
     getCurrentInstance,
-    defineComponent,
+    type defineComponent,
 } from "vue";
 import BabylonMyAvatar from "./components/BabylonMyAvatar.vue";
 import BabylonOtherAvatar from "./components/BabylonOtherAvatar.vue";
@@ -384,32 +383,11 @@ const toggleInspector = async (): Promise<void> => {
 // State for debug overlay
 const showDebugOverlay = ref(false);
 
-// Performance mode from store
-const performanceMode = computed(() => appStore.performanceMode);
-const targetFPS = computed(() => appStore.targetFPS);
-
 // BabylonJS Setup - use variables instead of refs
 const renderCanvas = ref<HTMLCanvasElement | null>(null);
 // Using regular variables instead of refs for non-reactive engine and scene
 let engine: WebGPUEngine | null = null;
 let scene: Scene | null = null;
-
-// Provide global access to key resources for user components
-provide(
-    "babylonScene",
-    computed(() => scene),
-);
-provide(
-    "babylonEngine",
-    computed(() => engine),
-);
-provide("renderCanvas", renderCanvas);
-provide("appStore", appStore);
-provide("vircadiaWorld", vircadiaWorld);
-provide("connectionStatus", connectionStatus);
-provide("sessionId", sessionId);
-provide("agentId", agentId);
-provide("sceneInitialized", sceneInitialized);
 
 // Initialize BabylonJS
 const initializeBabylon = async () => {
@@ -560,12 +538,12 @@ const startRenderLoop = () => {
 
     console.log("Starting render loop after avatar is ready");
 
-    if (performanceMode.value === "normal") {
+    if (appStore.performanceMode === "normal") {
         // Normal mode: render as fast as possible
         engine.runRenderLoop(() => scene?.render());
     } else {
         // Low performance mode: render at limited FPS
-        const frameInterval = 1000 / targetFPS.value;
+        const frameInterval = 1000 / appStore.targetFPS;
         let lastFrameTime = 0;
 
         engine.runRenderLoop(() => {

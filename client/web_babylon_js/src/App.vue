@@ -1,5 +1,21 @@
 <template>
     <v-app>
+        <!-- Component Loader -->
+        <template v-for="comp in availableComponents" :key="comp">
+            <component 
+                :is="comp" 
+                :scene="scene"
+                :engine="engine"
+                :canvas="renderCanvas"
+                :app-store="appStore"
+                :vircadia-world="vircadiaWorld"
+                :connection-status="connectionStatus"
+                :session-id="sessionId"
+                :agent-id="agentId"
+                :scene-initialized="sceneInitialized"
+            />
+        </template>
+
         <main>
             <canvas ref="renderCanvas" id="renderCanvas"></canvas>
             
@@ -124,13 +140,6 @@
             :visible="showDebugOverlay"
             @close="showDebugOverlay = false"
         />
-
-        <!-- Component Loader -->
-        <div>
-            <div v-for="comp in availableComponents" :key="comp">
-                <component :is="comp" />
-            </div>
-        </div>
     </v-app>
 </template>
 
@@ -143,6 +152,7 @@ import {
     onMounted,
     onUnmounted,
     inject,
+    provide,
     getCurrentInstance,
     defineComponent,
 } from "vue";
@@ -383,6 +393,23 @@ const renderCanvas = ref<HTMLCanvasElement | null>(null);
 // Using regular variables instead of refs for non-reactive engine and scene
 let engine: WebGPUEngine | null = null;
 let scene: Scene | null = null;
+
+// Provide global access to key resources for user components
+provide(
+    "babylonScene",
+    computed(() => scene),
+);
+provide(
+    "babylonEngine",
+    computed(() => engine),
+);
+provide("renderCanvas", renderCanvas);
+provide("appStore", appStore);
+provide("vircadiaWorld", vircadiaWorld);
+provide("connectionStatus", connectionStatus);
+provide("sessionId", sessionId);
+provide("agentId", agentId);
+provide("sceneInitialized", sceneInitialized);
 
 // Initialize BabylonJS
 const initializeBabylon = async () => {

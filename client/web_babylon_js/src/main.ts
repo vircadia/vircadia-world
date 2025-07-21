@@ -24,6 +24,24 @@ const app = createApp(App);
 const pinia = createPinia();
 app.use(pinia);
 
+// Auto-import and register all components from the @/user folder
+const components = import.meta.glob("./user/*.vue", { eager: true });
+
+Object.entries(components).forEach(([path, definition]) => {
+    const componentName = path
+        .split("/")
+        .pop()
+        ?.replace(/\.\w+$/, "");
+    if (
+        componentName &&
+        definition &&
+        typeof definition === "object" &&
+        "default" in definition
+    ) {
+        app.component(componentName, (definition as { default: any }).default);
+    }
+});
+
 // create and register Vuetify instance
 const vuetify = createVuetify({
     icons: {

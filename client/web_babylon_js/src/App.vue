@@ -124,12 +124,28 @@
             :visible="showDebugOverlay"
             @close="showDebugOverlay = false"
         />
+
+        <!-- Component Loader -->
+        <div>
+            <div v-for="comp in availableComponents" :key="comp">
+                <component :is="comp" />
+            </div>
+        </div>
     </v-app>
 </template>
 
 <script setup lang="ts">
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/consistent-type-imports */
-import { computed, watch, ref, onMounted, onUnmounted, inject } from "vue";
+import {
+    computed,
+    watch,
+    ref,
+    onMounted,
+    onUnmounted,
+    inject,
+    getCurrentInstance,
+    defineComponent,
+} from "vue";
 import BabylonMyAvatar from "./components/BabylonMyAvatar.vue";
 import BabylonOtherAvatar from "./components/BabylonOtherAvatar.vue";
 import BabylonModel from "./components/BabylonModel.vue";
@@ -153,7 +169,7 @@ void AudioControlsDialog;
 void AzureADLoginButton;
 import { useBabylonEnvironment } from "./composables/useBabylonEnvironment";
 import { useAppStore } from "@/stores/appStore";
-import { useAuthStore } from "@/stores/authStore";
+
 // BabylonJS
 import {
     Scene,
@@ -628,6 +644,18 @@ const webrtcDialog = ref(false);
 
 // State for Audio dialog
 const audioDialog = ref(false);
+
+// Component Loader
+const app = getCurrentInstance();
+const availableComponents = ref<
+    (string | ReturnType<typeof defineComponent>)[]
+>([]);
+
+onMounted(() => {
+    if (app) {
+        availableComponents.value = Object.keys(app.appContext.components);
+    }
+});
 </script>
 
 <style>
@@ -666,6 +694,24 @@ main {
 .toolbar-btn:hover {
     transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+}
+
+.component-loader {
+    position: fixed;
+    bottom: 16px;
+    left: 16px;
+    width: 300px;
+    z-index: 1000;
+    background: rgba(0, 0, 0, 0.2);
+    padding: 10px;
+    border-radius: 8px;
+}
+
+.component-container {
+    margin-top: 10px;
+    padding: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
 }
 
 /* Responsive design for smaller screens */

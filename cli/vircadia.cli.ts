@@ -244,6 +244,49 @@ export namespace Server_CLI {
                 serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
             VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL:
                 serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString(),
+
+            VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_CONTAINER_NAME:
+                serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_CONTAINER_NAME,
+            VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL,
+            VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL.toString(),
+
+            VRCA_CLIENT_WEB_BABYLON_JS_DEBUG:
+                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG.toString(),
+            VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS:
+                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS.toString(),
+            VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN:
+                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
+            VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER:
+                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER,
+            VRCA_CLIENT_WEB_BABYLON_JS_META_TITLE_BASE:
+                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_META_TITLE_BASE,
+            VRCA_CLIENT_WEB_BABYLON_JS_META_DESCRIPTION:
+                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_META_DESCRIPTION,
+            VRCA_CLIENT_WEB_BABYLON_JS_META_OG_IMAGE:
+                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_META_OG_IMAGE,
+            VRCA_CLIENT_WEB_BABYLON_JS_META_OG_TYPE:
+                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_META_OG_TYPE,
+            VRCA_CLIENT_WEB_BABYLON_JS_META_FAVICON:
+                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_META_FAVICON,
+            VRCA_CLIENT_WEB_BABYLON_JS_APP_URL:
+                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_APP_URL,
+            VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI:
+                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI,
+            VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL:
+                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL.toString(),
+            VRCA_CLIENT_WEB_BABYLON_JS_PROD_HOST:
+                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_PROD_HOST,
+            VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT:
+                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT.toString(),
+            VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST:
+                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST,
+            VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT:
+                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT.toString(),
+            VRCA_CLIENT_WEB_BABYLON_JS_MODEL_DEFINITIONS: JSON.stringify(
+                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_MODEL_DEFINITIONS,
+            ),
         };
 
         // Construct the command
@@ -550,6 +593,66 @@ export namespace Server_CLI {
 
         while (Date.now() - startTime < waitConfig.timeout) {
             const result = await checkWorldStateManager();
+            if (result.isHealthy) {
+                return result;
+            }
+            lastError = result.error;
+            await Bun.sleep(waitConfig.interval);
+        }
+
+        return {
+            isHealthy: false,
+            error: lastError,
+            waitConfig: waitConfig,
+        };
+    }
+
+    export async function isClientWebBabylonJsHealthy(
+        wait?:
+            | {
+                  interval: number;
+                  timeout: number;
+              }
+            | boolean,
+    ): Promise<{
+        isHealthy: boolean;
+        error?: Error;
+        waitConfig?: {
+            interval: number;
+            timeout: number;
+        };
+    }> {
+        const defaultWait = { interval: 100, timeout: 10000 };
+
+        const waitConfig =
+            wait === true
+                ? defaultWait
+                : wait && typeof wait !== "boolean"
+                  ? wait
+                  : null;
+
+        const checkClientWebBabylonJs = async (): Promise<{
+            isHealthy: boolean;
+            error?: Error;
+        }> => {
+            try {
+                const url = `http://${serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL}:${serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL}`;
+                const response = await fetch(url);
+                return { isHealthy: response.ok };
+            } catch (error: unknown) {
+                return { isHealthy: false, error: error as Error };
+            }
+        };
+
+        if (!waitConfig) {
+            return await checkClientWebBabylonJs();
+        }
+
+        const startTime = Date.now();
+        let lastError: Error | undefined;
+
+        while (Date.now() - startTime < waitConfig.timeout) {
+            const result = await checkClientWebBabylonJs();
             if (result.isHealthy) {
                 return result;
             }
@@ -2072,6 +2175,14 @@ if (import.meta.main) {
                 await runHealthCommand(
                     "World State Manager",
                     Server_CLI.isWorldStateManagerHealthy,
+                    additionalArgs,
+                );
+                break;
+
+            case "server:client-web-babylon-js:health":
+                await runHealthCommand(
+                    "Client Web Babylon JS",
+                    Server_CLI.isClientWebBabylonJsHealthy,
                     additionalArgs,
                 );
                 break;

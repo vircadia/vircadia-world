@@ -170,15 +170,16 @@ services:
 
   # BabylonJS Web Client service
   vircadia_world_client_web_babylon_js:
-    image: oven/bun:1.2.18-alpine
+    image: oven/bun:1.2.19-alpine
     container_name: ${VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_CONTAINER_NAME}
     user: "1000:1000"
     restart: always
+    read_only: true
     ports:
       - "${VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL}:${VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT}"
     volumes:
-      - ../../client/web_babylon_js:/app
-    working_dir: /app
+      - ../..:/app
+    working_dir: /app/client/web_babylon_js
     command: ["bun", "run", "deploy"]
     environment:
       VRCA_CLIENT_WEB_BABYLON_JS_DEBUG: ${VRCA_CLIENT_WEB_BABYLON_JS_DEBUG}

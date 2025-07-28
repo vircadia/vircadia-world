@@ -1,0 +1,159 @@
+# Digital Ocean Kubernetes specific configuration
+# Override default values for Digital Ocean deployment
+
+# Global configuration
+global:
+  imageRegistry: ""
+  storageClass: "do-block-storage"
+
+# PostgreSQL configuration optimized for Digital Ocean
+postgresql:
+  enabled: true
+  auth:
+    database: "vircadia_world"
+    username: "vircadia_admin"
+    # CHANGE THESE PASSWORDS BEFORE DEPLOYMENT!
+    password: "SecurePassword123!"
+    agentProxyUsername: "vircadia_agent"
+    agentProxyPassword: "SecureAgentPassword456!"
+  primary:
+    persistence:
+      enabled: true
+      size: 20Gi
+      storageClass: "do-block-storage"
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "500m"
+      limits:
+        memory: "1Gi"
+        cpu: "1000m"
+
+# PGWEB configuration
+pgweb:
+  enabled: true
+  replicaCount: 1
+  ingress:
+    enabled: true
+    className: "nginx"
+    annotations:
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+      nginx.ingress.kubernetes.io/auth-type: basic
+      nginx.ingress.kubernetes.io/auth-secret: pgweb-basic-auth
+      nginx.ingress.kubernetes.io/auth-realm: 'Authentication Required - PGWeb'
+    hosts:
+      - host: pgweb.your-domain.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: pgweb-tls
+        hosts:
+          - pgweb.your-domain.com
+
+# API Manager configuration for production
+apiManager:
+  enabled: true
+  replicaCount: 3
+  service:
+    type: ClusterIP
+    port: 3000
+    targetPort: 3000
+  ingress:
+    enabled: true
+    className: "nginx"
+    annotations:
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+      nginx.ingress.kubernetes.io/rate-limit: "100"
+      nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    hosts:
+      - host: api.your-domain.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: api-tls
+        hosts:
+          - api.your-domain.com
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "500m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+# State Manager configuration for production
+stateManager:
+  enabled: true
+  replicaCount: 3
+  service:
+    type: ClusterIP
+    port: 3001
+    targetPort: 3001
+  ingress:
+    enabled: true
+    className: "nginx"
+    annotations:
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+      nginx.ingress.kubernetes.io/rate-limit: "100"
+      nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    hosts:
+      - host: state.your-domain.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: state-tls
+        hosts:
+          - state.your-domain.com
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "500m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+# Application configuration
+application:
+  debug: false
+  suppress: false
+  publicHost: "your-domain.com"
+  apiPort: 443
+  statePort: 443
+
+# Security configuration
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+# Node selector for Digital Ocean node pools
+nodeSelector:
+  doks.digitalocean.com/node-pool: "default-pool"
+
+# Affinity rules for high availability
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchExpressions:
+          - key: app.kubernetes.io/name
+            operator: In
+            values:
+            - vircadia-world
+        topologyKey: kubernetes.io/hostname 

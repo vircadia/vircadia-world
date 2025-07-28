@@ -1,0 +1,179 @@
+{{- if .Values.apiManager.ingress.enabled -}}
+{{- $fullName := include "vircadia-world.apiManager.fullname" . -}}
+{{- $svcPort := .Values.apiManager.service.port -}}
+{{- if and .Values.apiManager.ingress.className (not (hasKey .Values.apiManager.ingress.annotations "kubernetes.io/ingress.class")) }}
+  {{- $_ := set .Values.apiManager.ingress.annotations "kubernetes.io/ingress.class" .Values.apiManager.ingress.className}}
+{{- end }}
+{{- if semverCompare ">=1.19-0" .Capabilities.KubeVersion.GitVersion -}}
+apiVersion: networking.k8s.io/v1
+{{- else if semverCompare ">=1.14-0" .Capabilities.KubeVersion.GitVersion -}}
+apiVersion: networking.k8s.io/v1beta1
+{{- else -}}
+apiVersion: extensions/v1beta1
+{{- end }}
+kind: Ingress
+metadata:
+  name: {{ $fullName }}-api
+  labels:
+    {{- include "vircadia-world.labels" . | nindent 4 }}
+  {{- with .Values.apiManager.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if and .Values.apiManager.ingress.className (semverCompare ">=1.18-0" .Capabilities.KubeVersion.GitVersion) }}
+  ingressClassName: {{ .Values.apiManager.ingress.className }}
+  {{- end }}
+  {{- if .Values.apiManager.ingress.tls }}
+  tls:
+    {{- range .Values.apiManager.ingress.tls }}
+    - hosts:
+        {{- range .hosts }}
+        - {{ . | quote }}
+        {{- end }}
+      secretName: {{ .secretName }}
+    {{- end }}
+  {{- end }}
+  rules:
+    {{- range .Values.apiManager.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            {{- if and .pathType (semverCompare ">=1.18-0" $.Capabilities.KubeVersion.GitVersion) }}
+            pathType: {{ .pathType }}
+            {{- end }}
+            backend:
+              {{- if semverCompare ">=1.19-0" $.Capabilities.KubeVersion.GitVersion }}
+              service:
+                name: {{ $fullName }}
+                port:
+                  number: {{ $svcPort }}
+              {{- else }}
+              serviceName: {{ $fullName }}
+              servicePort: {{ $svcPort }}
+              {{- end }}
+          {{- end }}
+    {{- end }}
+---
+{{- end }}
+{{- if .Values.stateManager.ingress.enabled -}}
+{{- $fullName := include "vircadia-world.stateManager.fullname" . -}}
+{{- $svcPort := .Values.stateManager.service.port -}}
+{{- if and .Values.stateManager.ingress.className (not (hasKey .Values.stateManager.ingress.annotations "kubernetes.io/ingress.class")) }}
+  {{- $_ := set .Values.stateManager.ingress.annotations "kubernetes.io/ingress.class" .Values.stateManager.ingress.className}}
+{{- end }}
+{{- if semverCompare ">=1.19-0" .Capabilities.KubeVersion.GitVersion -}}
+apiVersion: networking.k8s.io/v1
+{{- else if semverCompare ">=1.14-0" .Capabilities.KubeVersion.GitVersion -}}
+apiVersion: networking.k8s.io/v1beta1
+{{- else -}}
+apiVersion: extensions/v1beta1
+{{- end }}
+kind: Ingress
+metadata:
+  name: {{ $fullName }}-state
+  labels:
+    {{- include "vircadia-world.labels" . | nindent 4 }}
+  {{- with .Values.stateManager.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if and .Values.stateManager.ingress.className (semverCompare ">=1.18-0" .Capabilities.KubeVersion.GitVersion) }}
+  ingressClassName: {{ .Values.stateManager.ingress.className }}
+  {{- end }}
+  {{- if .Values.stateManager.ingress.tls }}
+  tls:
+    {{- range .Values.stateManager.ingress.tls }}
+    - hosts:
+        {{- range .hosts }}
+        - {{ . | quote }}
+        {{- end }}
+      secretName: {{ .secretName }}
+    {{- end }}
+  {{- end }}
+  rules:
+    {{- range .Values.stateManager.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            {{- if and .pathType (semverCompare ">=1.18-0" $.Capabilities.KubeVersion.GitVersion) }}
+            pathType: {{ .pathType }}
+            {{- end }}
+            backend:
+              {{- if semverCompare ">=1.19-0" $.Capabilities.KubeVersion.GitVersion }}
+              service:
+                name: {{ $fullName }}
+                port:
+                  number: {{ $svcPort }}
+              {{- else }}
+              serviceName: {{ $fullName }}
+              servicePort: {{ $svcPort }}
+              {{- end }}
+          {{- end }}
+    {{- end }}
+---
+{{- end }}
+{{- if .Values.pgweb.ingress.enabled -}}
+{{- $fullName := include "vircadia-world.pgweb.fullname" . -}}
+{{- $svcPort := .Values.pgweb.service.port -}}
+{{- if and .Values.pgweb.ingress.className (not (hasKey .Values.pgweb.ingress.annotations "kubernetes.io/ingress.class")) }}
+  {{- $_ := set .Values.pgweb.ingress.annotations "kubernetes.io/ingress.class" .Values.pgweb.ingress.className}}
+{{- end }}
+{{- if semverCompare ">=1.19-0" .Capabilities.KubeVersion.GitVersion -}}
+apiVersion: networking.k8s.io/v1
+{{- else if semverCompare ">=1.14-0" .Capabilities.KubeVersion.GitVersion -}}
+apiVersion: networking.k8s.io/v1beta1
+{{- else -}}
+apiVersion: extensions/v1beta1
+{{- end }}
+kind: Ingress
+metadata:
+  name: {{ $fullName }}-pgweb
+  labels:
+    {{- include "vircadia-world.labels" . | nindent 4 }}
+  {{- with .Values.pgweb.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if and .Values.pgweb.ingress.className (semverCompare ">=1.18-0" .Capabilities.KubeVersion.GitVersion) }}
+  ingressClassName: {{ .Values.pgweb.ingress.className }}
+  {{- end }}
+  {{- if .Values.pgweb.ingress.tls }}
+  tls:
+    {{- range .Values.pgweb.ingress.tls }}
+    - hosts:
+        {{- range .hosts }}
+        - {{ . | quote }}
+        {{- end }}
+      secretName: {{ .secretName }}
+    {{- end }}
+  {{- end }}
+  rules:
+    {{- range .Values.pgweb.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            {{- if and .pathType (semverCompare ">=1.18-0" $.Capabilities.KubeVersion.GitVersion) }}
+            pathType: {{ .pathType }}
+            {{- end }}
+            backend:
+              {{- if semverCompare ">=1.19-0" $.Capabilities.KubeVersion.GitVersion }}
+              service:
+                name: {{ $fullName }}
+                port:
+                  number: {{ $svcPort }}
+              {{- else }}
+              serviceName: {{ $fullName }}
+              servicePort: {{ $svcPort }}
+              {{- end }}
+          {{- end }}
+    {{- end }}
+{{- end }} 

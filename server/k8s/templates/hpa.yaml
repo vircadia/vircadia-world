@@ -1,0 +1,67 @@
+{{- if .Values.apiManager.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "vircadia-world.apiManager.fullname" . }}
+  labels:
+    {{- include "vircadia-world.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api-manager
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "vircadia-world.apiManager.fullname" . }}
+  minReplicas: {{ .Values.apiManager.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.apiManager.autoscaling.maxReplicas }}
+  metrics:
+    {{- if .Values.apiManager.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.apiManager.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.apiManager.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.apiManager.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+---
+{{- end }}
+{{- if .Values.stateManager.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "vircadia-world.stateManager.fullname" . }}
+  labels:
+    {{- include "vircadia-world.labels" . | nindent 4 }}
+    app.kubernetes.io/component: state-manager
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "vircadia-world.stateManager.fullname" . }}
+  minReplicas: {{ .Values.stateManager.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.stateManager.autoscaling.maxReplicas }}
+  metrics:
+    {{- if .Values.stateManager.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.stateManager.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.stateManager.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.stateManager.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+{{- end }} 

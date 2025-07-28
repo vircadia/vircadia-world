@@ -1,0 +1,118 @@
+{{- if .Values.postgresql.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vircadia-world.postgresql.fullname" . }}
+  labels:
+    {{- include "vircadia-world.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "vircadia-world.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgresql
+  template:
+    metadata:
+      labels:
+        {{- include "vircadia-world.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: postgresql
+    spec:
+      serviceAccountName: {{ include "vircadia-world.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: postgresql
+          image: "{{ .Values.images.postgres.repository }}:{{ .Values.images.postgres.tag }}"
+          imagePullPolicy: {{ .Values.images.postgres.pullPolicy }}
+          ports:
+            - name: postgresql
+              containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "vircadia-world.fullname" . }}-config
+                  key: VRCA_SERVER_SERVICE_POSTGRES_DATABASE
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "vircadia-world.fullname" . }}-config
+                  key: VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vircadia-world.fullname" . }}-secret
+                  key: VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD
+          args:
+            - postgres
+            {{- range splitList "\n" .Values.postgresql.configuration }}
+            {{- if . }}
+            - -c
+            - {{ . }}
+            {{- end }}
+            {{- end }}
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - exec pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" -h 127.0.0.1 -p 5432
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - -e
+                - |
+                  exec pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" -h 127.0.0.1 -p 5432
+                  [ -f /opt/bitnami/postgresql/tmp/.initialized ] || [ -f /bitnami/postgresql/.initialized ]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.postgresql.primary.resources | nindent 12 }}
+          volumeMounts:
+            {{- if .Values.postgresql.primary.persistence.enabled }}
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            {{- end }}
+            - name: tmp
+              mountPath: /tmp
+            - name: run-postgresql
+              mountPath: /var/run/postgresql
+      volumes:
+        {{- if .Values.postgresql.primary.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "vircadia-world.postgresql.fullname" . }}-data
+        {{- end }}
+        - name: tmp
+          emptyDir: {}
+        - name: run-postgresql
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }} 

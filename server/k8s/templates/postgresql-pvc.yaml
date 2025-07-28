@@ -1,0 +1,24 @@
+{{- if .Values.postgresql.enabled }}
+{{- if .Values.postgresql.primary.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "vircadia-world.postgresql.fullname" . }}-data
+  labels:
+    {{- include "vircadia-world.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.postgresql.primary.persistence.size }}
+  {{- if .Values.postgresql.primary.persistence.storageClass }}
+  {{- if (eq "-" .Values.postgresql.primary.persistence.storageClass) }}
+  storageClassName: ""
+  {{- else }}
+  storageClassName: {{ .Values.postgresql.primary.persistence.storageClass }}
+  {{- end }}
+  {{- end }}
+{{- end }}
+{{- end }} 

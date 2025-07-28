@@ -1,0 +1,184 @@
+# Global configuration
+global:
+  imageRegistry: ""
+  storageClass: ""
+
+# Image configurations
+images:
+  postgres:
+    repository: postgres
+    tag: "17.5-alpine3.21"
+    pullPolicy: IfNotPresent
+  pgweb:
+    repository: sosedoff/pgweb
+    tag: "0.16.2"
+    pullPolicy: IfNotPresent
+  bun:
+    repository: oven/bun
+    tag: "1.2.18-alpine"
+    pullPolicy: IfNotPresent
+
+# PostgreSQL configuration
+postgresql:
+  enabled: true
+  auth:
+    database: "vircadia_world"
+    username: "vircadia_admin"
+    password: "changeme123!"
+    agentProxyUsername: "vircadia_agent"
+    agentProxyPassword: "changeme456!"
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClass: ""
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "250m"
+      limits:
+        memory: "512Mi"
+        cpu: "500m"
+  configuration: |
+    wal_level=logical
+    max_wal_size=4GB
+    checkpoint_timeout=5min
+    checkpoint_completion_target=0.9
+
+# PGWEB configuration
+pgweb:
+  enabled: true
+  replicaCount: 1
+  service:
+    type: ClusterIP
+    port: 8081
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: pgweb.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "128Mi"
+      cpu: "100m"
+
+# API Manager configuration
+apiManager:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: oven/bun
+    tag: "1.2.18-alpine"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 3000
+    targetPort: 3000
+  ingress:
+    enabled: true
+    className: ""
+    annotations:
+      nginx.ingress.kubernetes.io/rewrite-target: /
+    hosts:
+      - host: api.vircadia.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+
+# State Manager configuration
+stateManager:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: oven/bun
+    tag: "1.2.18-alpine"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 3001
+    targetPort: 3001
+  ingress:
+    enabled: true
+    className: ""
+    annotations:
+      nginx.ingress.kubernetes.io/rewrite-target: /
+    hosts:
+      - host: state.vircadia.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+
+# Application configuration
+application:
+  debug: false
+  suppress: false
+  publicHost: "vircadia.local"
+  apiPort: 3000
+  statePort: 3001
+
+# Security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+# Service account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# Pod security context
+podSecurityContext:
+  fsGroup: 1000
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Monitoring
+monitoring:
+  enabled: false
+  serviceMonitor:
+    enabled: false
+    labels: {} 

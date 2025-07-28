@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vircadia-world.fullname" . }}-config
+  labels:
+    {{- include "vircadia-world.labels" . | nindent 4 }}
+data:
+  VRCA_SERVER_DEBUG: {{ .Values.application.debug | quote }}
+  VRCA_SERVER_SUPPRESS: {{ .Values.application.suppress | quote }}
+  VRCA_SERVER_SERVICE_POSTGRES_DATABASE: {{ .Values.postgresql.auth.database | quote }}
+  VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME: {{ .Values.postgresql.auth.username | quote }}
+  VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME: {{ .Values.postgresql.auth.agentProxyUsername | quote }}
+  VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_BIND_EXTERNAL: {{ include "vircadia-world.postgresql.fullname" . | quote }}
+  VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL: "5432"
+  VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_INTERNAL: "0.0.0.0"
+  VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_INTERNAL: {{ .Values.apiManager.service.targetPort | quote }}
+  VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_PUBLIC_AVAILABLE_AT: {{ .Values.application.publicHost | quote }}
+  VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_PUBLIC_AVAILABLE_AT: {{ .Values.application.apiPort | quote }}
+  VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_INTERNAL: "0.0.0.0"
+  VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_INTERNAL: {{ .Values.stateManager.service.targetPort | quote }} 

@@ -1047,10 +1047,14 @@ describe("DB", () => {
                 const postScene = new Scene(postEngine);
 
                 try {
+                    if (!retrievedByteaData) {
+                        throw new Error(
+                            "No bytea data retrieved from database.",
+                        );
+                    }
                     // Convert the bytea buffer to base64 for loading
                     const base64FromBytea =
-                        // biome-ignore lint/style/noNonNullAssertion:
-                        Buffer.from(retrievedByteaData!).toString("base64");
+                        Buffer.from(retrievedByteaData).toString("base64");
                     // Use appropriate mimetype for GLB (binary)
                     const retrievedModelUrl = `data:application/octet-stream;base64,${base64FromBytea}`;
 

@@ -318,12 +318,14 @@ export async function cleanupTestAccounts(data: {
             await tx`
                     DELETE FROM auth.agent_profiles 
                     WHERE profile__username LIKE ${`${DB_TEST_PREFIX}%`}
+                    OR auth__email LIKE ${`${DB_TEST_PREFIX}%`}
                 `;
 
             // Verify no test accounts remain
             const remainingProfiles = await tx<Auth.I_Profile[]>`
                     SELECT * FROM auth.agent_profiles
                     WHERE profile__username LIKE ${`${DB_TEST_PREFIX}%`}
+                    OR auth__email LIKE ${`${DB_TEST_PREFIX}%`}
                 `;
             expect(remainingProfiles).toHaveLength(0);
 
@@ -343,6 +345,22 @@ export async function cleanupTestAccounts(data: {
             });
             throw error;
         }
+    });
+}
+
+export async function cleanupTestAuthProviders(data: {
+    superUserSql: postgres.Sql;
+}): Promise<void> {
+    await data.superUserSql.begin(async (tx) => {
+        await tx`
+            DELETE FROM auth.agent_auth_providers 
+            WHERE auth__provider_email LIKE ${`${DB_TEST_PREFIX}%`}
+        `;
+        await tx`
+            DELETE FROM auth.oauth_state_cache 
+            WHERE cache_key LIKE ${`${DB_TEST_PREFIX}%`}
+               OR cache_key LIKE 'pkce_verifier_%'
+        `;
     });
 }
 

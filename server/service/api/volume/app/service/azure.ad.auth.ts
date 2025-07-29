@@ -831,6 +831,16 @@ export class AzureADAuthService {
         }
     }
 
+    // This method is now in `util/auth.ts`
+    // async createAnonymousUser(): Promise<{
+    //     agentId: string;
+    //     sessionId: string;
+    //     jwt: string;
+    // }> { ... }
+
+    // This method is now in `util/auth.ts`
+    // async signOut(sessionId: string): Promise<void> { ... }
+
     /**
      * Link Azure AD account to existing agent
      */
@@ -989,39 +999,8 @@ export class AzureADAuthService {
         }
     }
 
-    /**
-     * Sign out and revoke tokens
-     */
-    async signOut(sessionId: string): Promise<void> {
-        try {
-            // Invalidate the session
-            await this.db`
-                UPDATE auth.agent_sessions
-                SET session__is_active = false,
-                    general__updated_at = NOW()
-                WHERE general__session_id = ${sessionId}::UUID
-            `;
-
-            BunLogModule({
-                prefix: LOG_PREFIX,
-                message: "User signed out successfully",
-                debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-                type: "debug",
-                data: { sessionId },
-            });
-        } catch (error) {
-            BunLogModule({
-                prefix: LOG_PREFIX,
-                message: "Failed to sign out user",
-                error,
-                debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-                type: "error",
-            });
-            throw error;
-        }
-    }
+    // This method is now in `util/auth.ts`
+    // async signOut(sessionId: string): Promise<void> { ... }
 }
 
 // =================================================================================

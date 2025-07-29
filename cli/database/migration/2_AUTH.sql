@@ -205,6 +205,7 @@ ALTER TABLE auth.agent_sync_group_roles ENABLE ROW LEVEL SECURITY;
 -- ============================================================================
 -- 5. UTILITY AND TRIGGER FUNCTIONS
 -- ============================================================================
+
 -- Audit Column Update Function
 CREATE OR REPLACE FUNCTION auth.update_audit_columns()
 RETURNS TRIGGER AS $$
@@ -215,6 +216,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- TODO: Update cleanup_old_sessions() function to automatically wipe anonymous users past a certain inactivity and/or creation period
 -- Session Cleanup Functions
 CREATE OR REPLACE FUNCTION auth.cleanup_old_sessions()
 RETURNS trigger AS $$ 

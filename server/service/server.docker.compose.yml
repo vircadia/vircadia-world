@@ -86,7 +86,7 @@ services:
 
   # API service
   vircadia_world_api_manager:
-    image: oven/bun:1.2.18-alpine
+    image: oven/bun:1.2.19-alpine
     container_name: ${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_CONTAINER_NAME}
     user: "1000:1000"  # Run as non-root user
     restart: always
@@ -129,7 +129,7 @@ services:
 
   # State service
   vircadia_world_state_manager:
-    image: oven/bun:1.2.18-alpine
+    image: oven/bun:1.2.19-alpine
     container_name: ${VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_CONTAINER_NAME}
     user: "1000:1000"  # Run as non-root user
     restart: always

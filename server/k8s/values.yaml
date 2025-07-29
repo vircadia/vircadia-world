@@ -15,7 +15,7 @@ images:
     pullPolicy: IfNotPresent
   bun:
     repository: oven/bun
-    tag: "1.2.18-alpine"
+    tag: "1.2.19-alpine"
     pullPolicy: IfNotPresent
 
 # PostgreSQL configuration
@@ -76,7 +76,7 @@ apiManager:
   replicaCount: 2
   image:
     repository: oven/bun
-    tag: "1.2.18-alpine"
+    tag: "1.2.19-alpine"
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
@@ -112,7 +112,7 @@ stateManager:
   replicaCount: 2
   image:
     repository: oven/bun
-    tag: "1.2.18-alpine"
+    tag: "1.2.19-alpine"
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP

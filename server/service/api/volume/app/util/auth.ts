@@ -90,6 +90,35 @@ export async function createAnonymousUser(db: postgres.Sql): Promise<{
                 )
             `;
 
+            // TODO: Add this to config with groups and mix of the provider perms for each, so defaults are defined there from a JSON structure, use CLI to configure as needed.
+            // Add sync group permissions for anonymous users to access public assets
+            const publicGroups = [
+                "public.REALTIME",
+                "public.NORMAL",
+                "public.BACKGROUND",
+                "public.STATIC",
+            ];
+
+            for (const group of publicGroups) {
+                await tx`
+                    INSERT INTO auth.agent_sync_group_roles (
+                        auth__agent_id,
+                        group__sync,
+                        permissions__can_read,
+                        permissions__can_insert,
+                        permissions__can_update,
+                        permissions__can_delete
+                    ) VALUES (
+                        ${agentId}::UUID,
+                        ${group},
+                        true,    -- Allow read for public assets
+                        true,    -- Allow insert for public assets
+                        true,    -- Allow update for public assets
+                        true     -- Allow delete for public assets
+                    )
+                `;
+            }
+
             return {
                 agentId,
                 sessionId,

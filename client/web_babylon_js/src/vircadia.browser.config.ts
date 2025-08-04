@@ -64,6 +64,8 @@ const clientBrowserEnvSchema = z.object({
     VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST: z.string().default("0.0.0.0"),
     VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT: z.coerce.number().default(3066),
 
+    VRCA_CLIENT_WEB_BABYLON_JS_BUILD_OUTPUT_DIR: z.string().default("dist"),
+
     // Model definitions
     VRCA_CLIENT_WEB_BABYLON_JS_MODEL_DEFINITIONS: z
         .union([

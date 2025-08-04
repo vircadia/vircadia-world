@@ -64,8 +64,6 @@ const vircadiaWorld = useVircadia({
         debug: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
         suppress:
             clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
-        reconnectAttempts: 5,
-        reconnectDelay: 5000,
     },
 });
 
@@ -74,6 +72,3 @@ app.provide(DEFAULT_VIRCADIA_INSTANCE_KEY, vircadiaWorld);
 
 // Mount the app
 app.mount("#app");
-
-// Auto-connect to the domain server after mounting, do not await
-vircadiaWorld.client.Utilities.Connection.connect();

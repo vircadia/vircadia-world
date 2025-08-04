@@ -472,7 +472,7 @@ const { camera, setupCamera, updateCameraFromMeta } =
     );
 
 // Avatar model loader (GLTF/GLB)
-const { meshes, skeletons, animationGroups, loadModel } =
+const { meshes, skeletons, animationGroups, loadModel, asset } =
     useBabylonAvatarModelLoader({ fileName: modelFileName.value });
 
 // Replace the existing localAnimGroups and animation-related code
@@ -1099,6 +1099,7 @@ onMounted(async () => {
                         (
                             window as DebugWindow & {
                                 debugSkeletonState?: () => void;
+                                debugAvatarLoadingState?: () => void;
                             }
                         ).debugSkeletonState = () => {
                             if (!avatarSkeleton.value) {
@@ -1173,6 +1174,168 @@ onMounted(async () => {
                                 );
                             }
                         };
+
+                        // Enhanced debug function for avatar loading state
+                        (
+                            window as DebugWindow & {
+                                debugAvatarLoadingState?: () => void;
+                            }
+                        ).debugAvatarLoadingState = () => {
+                            console.log("=== AVATAR LOADING DEBUG STATE ===");
+                            console.log("Scene initialized:", !!props.scene);
+                            console.log("Avatar node:", !!avatarNode.value);
+                            console.log(
+                                "Character controller:",
+                                !!characterController.value,
+                            );
+                            console.log("Camera:", !!camera.value);
+                            console.log(
+                                "Scene active camera:",
+                                !!props.scene?.activeCamera,
+                            );
+                            console.log("Meshes loaded:", meshes.value.length);
+                            console.log(
+                                "Skeletons loaded:",
+                                skeletons.value.length,
+                            );
+                            console.log(
+                                "Avatar skeleton:",
+                                !!avatarSkeleton.value,
+                            );
+                            console.log("Idle animation:", !!idleAnimation);
+                            console.log("Walk animation:", !!walkAnimation);
+                            console.log(
+                                "Is creating entity:",
+                                isCreating.value,
+                            );
+                            console.log("Entity data:", !!entityData.value);
+                            console.log(
+                                "Full session ID:",
+                                fullSessionId.value,
+                            );
+                            console.log("Entity name:", entityName.value);
+                            console.log("Position:", position.value);
+                            console.log("Rotation:", rotation.value);
+                            console.log(
+                                "Camera orientation:",
+                                cameraOrientation.value,
+                            );
+
+                            // Check if meshes are visible
+                            if (meshes.value.length > 0) {
+                                console.log("Mesh visibility:");
+                                for (const mesh of meshes.value) {
+                                    console.log(
+                                        `- ${mesh.name}: visible=${mesh.isVisible}, enabled=${mesh.isEnabled()}`,
+                                    );
+                                }
+                            }
+
+                            // Check asset loading state
+                            console.log("Asset loading state:", {
+                                assetData: !!asset.assetData.value,
+                                blobUrl: !!asset.assetData.value?.blobUrl,
+                                isLoading: asset.loading.value,
+                                error: asset.error.value,
+                            });
+
+                            return {
+                                sceneOk: !!props.scene,
+                                avatarNodeOk: !!avatarNode.value,
+                                controllerOk: !!characterController.value,
+                                cameraOk: !!camera.value,
+                                meshCount: meshes.value.length,
+                                skeletonOk: !!avatarSkeleton.value,
+                                animationsOk:
+                                    !!idleAnimation && !!walkAnimation,
+                                entityOk: !!entityData.value,
+                            };
+                        };
+
+                        console.log(
+                            "[DEBUG] Avatar debug functions available:",
+                        );
+                        console.log("- window.startLegRotationTest()");
+                        console.log("- window.stopLegRotationTest()");
+                        console.log("- window.debugSkeletonState()");
+                        console.log("- window.debugAvatarLoadingState()");
+
+                        // Camera debug function
+                        (
+                            window as DebugWindow & {
+                                debugCameraView?: () => void;
+                            }
+                        ).debugCameraView = () => {
+                            if (!camera.value || !props.scene) {
+                                console.log("No camera or scene available");
+                                return;
+                            }
+
+                            console.log("=== CAMERA DEBUG ===");
+                            console.log(
+                                "Camera position:",
+                                camera.value.position,
+                            );
+                            console.log(
+                                "Camera target:",
+                                camera.value.getTarget(),
+                            );
+                            console.log("Camera alpha/beta/radius:", {
+                                alpha: camera.value.alpha,
+                                beta: camera.value.beta,
+                                radius: camera.value.radius,
+                            });
+                            console.log(
+                                "Avatar position:",
+                                avatarNode.value?.position,
+                            );
+                            console.log(
+                                "Scene active camera:",
+                                props.scene.activeCamera === camera.value,
+                            );
+                            console.log("Canvas size:", {
+                                width: props.scene.getEngine().getRenderWidth(),
+                                height: props.scene
+                                    .getEngine()
+                                    .getRenderHeight(),
+                            });
+                        };
+
+                        // Render loop debug function
+                        (
+                            window as DebugWindow & {
+                                debugRenderLoop?: () => void;
+                            }
+                        ).debugRenderLoop = () => {
+                            const engine = props.scene?.getEngine();
+                            if (!engine) {
+                                console.log("No engine available");
+                                return;
+                            }
+
+                            console.log("=== RENDER LOOP DEBUG ===");
+                            console.log(
+                                "Engine is running render loop:",
+                                !!engine.runRenderLoop,
+                            );
+                            console.log("FPS:", engine.getFps());
+                            console.log("Scene ready:", props.scene?.isReady());
+                            console.log(
+                                "Scene lights count:",
+                                props.scene?.lights.length,
+                            );
+                            console.log(
+                                "Scene meshes count:",
+                                props.scene?.meshes.length,
+                            );
+                            console.log(
+                                "Engine rendering canvas:",
+                                !!engine.getRenderingCanvas(),
+                            );
+                        };
+
+                        console.log("- window.debugCameraView()");
+                        console.log("- window.debugRenderLoop()");
 
                         // Expose debug data function for overlay
                         (
@@ -1283,6 +1446,9 @@ onMounted(async () => {
                             });
                         };
 
+                        console.log(
+                            "[AVATAR] Emitting ready event after animation setup",
+                        );
                         emit("ready");
 
                         // Audio stream is now initialized by the BabylonWebRTC component
@@ -1325,6 +1491,9 @@ onMounted(async () => {
 
                     // Ensure camera is set up before starting the render loop
                     setupCamera();
+                    console.log(
+                        "[AVATAR] Emitting ready event after camera setup",
+                    );
                     emit("ready");
                 } else {
                     console.warn(

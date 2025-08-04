@@ -38,6 +38,7 @@ export default defineConfig(({ command }) => {
         envPrefix: "VRCA_CLIENT_",
         assetsInclude: ["**/*.vertex", "**/*.fragment"],
         build: {
+            outDir: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_BUILD_OUTPUT_DIR,
             target: "esnext",
             chunkSizeWarningLimit: 3000, // Increased warning limit temporarily
             rollupOptions: {},

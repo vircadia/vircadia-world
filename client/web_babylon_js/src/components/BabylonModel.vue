@@ -170,6 +170,15 @@ watch(
     () => props.scene,
     async (s) => {
         if (s) {
+            // Wait for stable connection before loading assets
+            if (vircadia.connectionInfo.value.status !== "connected") {
+                console.log(
+                    "Waiting for connection before loading model:",
+                    props.def.fileName,
+                );
+                return;
+            }
+
             await loadModel(s);
 
             // Always attempt to retrieve existing entity
@@ -221,6 +230,26 @@ watch(
         }
     },
     { immediate: true },
+);
+
+// Watch for connection status changes and load model when connected
+watch(
+    () => vircadia.connectionInfo.value.status,
+    async (status) => {
+        if (status === "connected" && props.scene) {
+            // Retry loading model when connection becomes available
+            console.log(
+                "Connection established, loading model:",
+                props.def.fileName,
+            );
+            await loadModel(props.scene);
+
+            // Apply physics if enabled after model load
+            if (props.def.enablePhysics) {
+                applyPhysics(props.scene);
+            }
+        }
+    },
 );
 
 // Computed properties to access metadata values

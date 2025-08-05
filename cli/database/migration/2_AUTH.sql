@@ -119,7 +119,13 @@ CREATE TABLE auth.auth_providers (
     provider__session_duration_jwt_string TEXT NOT NULL DEFAULT '24h',
     provider__session_duration_ms BIGINT NOT NULL DEFAULT 86400000,
     provider__session_max_age_ms BIGINT NOT NULL DEFAULT 86400000,
-    provider__session_inactive_expiry_ms BIGINT NOT NULL DEFAULT 3600000
+    provider__session_inactive_expiry_ms BIGINT NOT NULL DEFAULT 3600000,
+    
+    -- Default permissions for sync groups
+    provider__default_permissions__can_read BOOLEAN NOT NULL DEFAULT false,
+    provider__default_permissions__can_insert BOOLEAN NOT NULL DEFAULT false,
+    provider__default_permissions__can_update BOOLEAN NOT NULL DEFAULT false,
+    provider__default_permissions__can_delete BOOLEAN NOT NULL DEFAULT false
 ) INHERITS (auth._template);
 ALTER TABLE auth.auth_providers ENABLE ROW LEVEL SECURITY;
 
@@ -615,7 +621,11 @@ INSERT INTO auth.auth_providers (
     provider__session_duration_jwt_string,
     provider__session_duration_ms,
     provider__session_max_age_ms,
-    provider__session_inactive_expiry_ms
+    provider__session_inactive_expiry_ms,
+    provider__default_permissions__can_read,
+    provider__default_permissions__can_insert,
+    provider__default_permissions__can_update,
+    provider__default_permissions__can_delete
 ) VALUES (
     'system',
     'System Authentication',
@@ -625,7 +635,11 @@ INSERT INTO auth.auth_providers (
     '24h',
     86400000,
     86400000,
-    3600000
+    3600000,
+    true,  -- System provider has full read permissions by default
+    true,  -- System provider has full insert permissions by default
+    true,  -- System provider has full update permissions by default
+    true   -- System provider has full delete permissions by default
 ) ON CONFLICT (provider__name) DO NOTHING;
 
 -- Add anonymous provider to auth_providers table if not exists
@@ -638,7 +652,11 @@ INSERT INTO auth.auth_providers (
     provider__session_duration_jwt_string,
     provider__session_duration_ms,
     provider__session_max_age_ms,
-    provider__session_inactive_expiry_ms
+    provider__session_inactive_expiry_ms,
+    provider__default_permissions__can_read,
+    provider__default_permissions__can_insert,
+    provider__default_permissions__can_update,
+    provider__default_permissions__can_delete
 ) VALUES (
     'anon',
     'Anonymous Authentication',
@@ -648,7 +666,11 @@ INSERT INTO auth.auth_providers (
     '24h',
     86400000,
     86400000,
-    3600000
+    3600000,
+    true,   -- Anonymous users can read public content by default
+    true,   -- Anonymous users can insert public content by default
+    true,   -- Anonymous users can update public content by default
+    true    -- Anonymous users can delete public content by default
 ) ON CONFLICT (provider__name) DO NOTHING;
 
 -- ============================================================================

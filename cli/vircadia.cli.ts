@@ -1527,10 +1527,19 @@ export namespace Server_CLI {
                 {
                     provider__jwt_secret: string;
                     provider__session_duration_ms: number;
+                    provider__default_permissions__can_read: boolean;
+                    provider__default_permissions__can_insert: boolean;
+                    provider__default_permissions__can_update: boolean;
+                    provider__default_permissions__can_delete: boolean;
                 },
             ]
         >`
-            SELECT provider__jwt_secret, provider__session_duration_ms
+            SELECT provider__jwt_secret, 
+                   provider__session_duration_ms,
+                   provider__default_permissions__can_read,
+                   provider__default_permissions__can_insert,
+                   provider__default_permissions__can_update,
+                   provider__default_permissions__can_delete
             FROM auth.auth_providers
             WHERE provider__name = 'system'
             AND provider__enabled = true
@@ -1592,7 +1601,7 @@ export namespace Server_CLI {
             FROM auth.sync_groups
         `;
 
-        // Assign the system agent to all sync groups with full permissions
+        // Assign the system agent to all sync groups with provider default permissions
         for (const group of syncGroups) {
             await sql`
                 INSERT INTO auth.agent_sync_group_roles (
@@ -1605,17 +1614,17 @@ export namespace Server_CLI {
                 ) VALUES (
                     ${systemAgentId},
                     ${group.general__sync_group},
-                    true,
-                    true,
-                    true,
-                    true
+                    ${providerConfig.provider__default_permissions__can_read},
+                    ${providerConfig.provider__default_permissions__can_insert},
+                    ${providerConfig.provider__default_permissions__can_update},
+                    ${providerConfig.provider__default_permissions__can_delete}
                 )
                 ON CONFLICT (auth__agent_id, group__sync) 
                 DO UPDATE SET
-                    permissions__can_read = true,
-                    permissions__can_insert = true,
-                    permissions__can_update = true,
-                    permissions__can_delete = true
+                    permissions__can_read = ${providerConfig.provider__default_permissions__can_read},
+                    permissions__can_insert = ${providerConfig.provider__default_permissions__can_insert},
+                    permissions__can_update = ${providerConfig.provider__default_permissions__can_update},
+                    permissions__can_delete = ${providerConfig.provider__default_permissions__can_delete}
             `;
         }
 

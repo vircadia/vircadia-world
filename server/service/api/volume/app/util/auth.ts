@@ -14,11 +14,23 @@ export async function createAnonymousUser(db: postgres.Sql): Promise<{
 }> {
     try {
         return await db.begin(async (tx) => {
-            // Fetch JWT secret for anon provider
+            // Fetch JWT secret and default permissions for anon provider
             const [providerConfig] = await tx<
-                [{ provider__jwt_secret: string }]
+                [
+                    {
+                        provider__jwt_secret: string;
+                        provider__default_permissions__can_read: boolean;
+                        provider__default_permissions__can_insert: boolean;
+                        provider__default_permissions__can_update: boolean;
+                        provider__default_permissions__can_delete: boolean;
+                    },
+                ]
             >`
-                SELECT provider__jwt_secret
+                SELECT provider__jwt_secret,
+                       provider__default_permissions__can_read,
+                       provider__default_permissions__can_insert,
+                       provider__default_permissions__can_update,
+                       provider__default_permissions__can_delete
                 FROM auth.auth_providers
                 WHERE provider__name = 'anon'
                   AND provider__enabled = true
@@ -111,10 +123,10 @@ export async function createAnonymousUser(db: postgres.Sql): Promise<{
                     ) VALUES (
                         ${agentId}::UUID,
                         ${group},
-                        true,    -- Allow read for public assets
-                        true,    -- Allow insert for public assets
-                        true,    -- Allow update for public assets
-                        true     -- Allow delete for public assets
+                        ${providerConfig.provider__default_permissions__can_read},
+                        ${providerConfig.provider__default_permissions__can_insert},
+                        ${providerConfig.provider__default_permissions__can_update},
+                        ${providerConfig.provider__default_permissions__can_delete}
                     )
                 `;
             }

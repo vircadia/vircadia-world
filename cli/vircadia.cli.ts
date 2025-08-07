@@ -1159,6 +1159,10 @@ export namespace Server_CLI {
 
             BunLogModule({
                 message: "SQL seeding completed successfully",
+                data: {
+                    "System SQL Files": systemSqlFiles.length,
+                    "User SQL Files": userSqlFiles.length,
+                },
                 type: "success",
                 suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                 debug: cliConfiguration.VRCA_CLI_DEBUG,
@@ -1485,6 +1489,11 @@ export namespace Server_CLI {
 
             BunLogModule({
                 message: "Asset seeding completed successfully",
+                data: {
+                    "System Assets": systemAssetFileNames.length,
+                    "User Assets": userAssetFileNames.length,
+                    "Total Assets": allAssetFileNames.length,
+                },
                 type: "success",
                 suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                 debug: cliConfiguration.VRCA_CLI_DEBUG,

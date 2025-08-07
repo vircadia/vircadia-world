@@ -44,6 +44,6 @@
         "@azure/msal-node": "^3.6.1"
     },
     "devDependencies": {
-        "@biomejs/biome": "^2.0.6"
+        "@biomejs/biome": "^2.1.3"
     }
 }

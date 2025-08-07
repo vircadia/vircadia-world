@@ -6,7 +6,7 @@
         "dev": "vite",
         "build": "run-p type-check \"build-only {@}\" --",
         "preview": "vite preview",
-        "deploy": "bun run build-only && bun run preview",
+        "deploy": "bun install && bun run build-only && bun run preview",
         "build-only": "vite build",
         "type-check": "vue-tsc --build"
     },
@@ -38,5 +38,8 @@
         "vite": "catalog:dev",
         "vite-plugin-vue-devtools": "^7.7.2",
         "vue-tsc": "catalog:dev"
+    },
+    "optionalDependencies": {
+        "@rollup/rollup-linux-x64-musl": "^4.9.5"
     }
 }

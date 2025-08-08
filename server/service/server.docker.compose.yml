@@ -172,15 +172,19 @@ services:
   vircadia_world_client_web_babylon_js:
     image: oven/bun:1.2.19-alpine
     container_name: ${VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_CONTAINER_NAME}
-    user: "1000:1000"
+    user: "0:0"
     restart: always
     read_only: false
     ports:
       - "${VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL}:${VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT}"
     volumes:
-      - ../..:/app
+      - ../../:/app
+      # Use container-local node_modules to avoid host-installed (darwin) deps
+      - /app/node_modules
+      - /app/client/web_babylon_js/node_modules
     working_dir: /app/client/web_babylon_js
-    command: ["bun", "run", "deploy"]
+    # Install deps inside the container (linux/arm64/musl) so Rollup native optional deps match platform
+    command: ["/bin/sh", "-lc", "cd /app && bun install && cd /app/client/web_babylon_js && bun run preview"]
     environment:
       VRCA_CLIENT_WEB_BABYLON_JS_DEBUG: ${VRCA_CLIENT_WEB_BABYLON_JS_DEBUG}
       VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS: ${VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS}

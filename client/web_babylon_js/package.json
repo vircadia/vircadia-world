@@ -6,7 +6,7 @@
         "dev": "vite",
         "build-and-check": "run-p type-check \"build-only {@}\" --",
         "preview": "vite preview",
-        "deploy": "bun install && bun run build && bun run preview",
+        "preview-verbose": "vite preview --debug --logLevel debug --clearScreen false",
         "build": "vite build",
         "type-check": "vue-tsc --build"
     },
@@ -31,16 +31,16 @@
         "@types/bun": "catalog:types",
         "@types/lodash-es": "catalog:types",
         "@vitejs/plugin-vue": "catalog:dev",
-        "@vitejs/plugin-vue-jsx": "^4.1.2",
+        "@vitejs/plugin-vue-jsx": "^5.0.1",
         "@vue/tsconfig": "^0.7.0",
         "npm-run-all2": "^7.0.2",
         "typescript": "catalog:",
         "vite": "catalog:dev",
-        "vite-plugin-vue-devtools": "^7.7.2",
+        "vite-plugin-vue-devtools": "^8.0.0",
         "vue-tsc": "catalog:dev"
     },
     "optionalDependencies": {
-        "@rollup/rollup-linux-arm64-musl": "^4.9.5",
-        "@rollup/rollup-linux-x64-musl": "^4.9.5"
+        "@rollup/rollup-linux-arm64-musl": "^4.46.2",
+        "@rollup/rollup-linux-x64-musl": "^4.46.2"
     }
 }

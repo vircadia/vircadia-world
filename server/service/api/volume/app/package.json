@@ -4,6 +4,7 @@
     "description": "Vircadia World API Manager",
     "main": "dist/world.api.manager.js",
     "dependencies": {
+        "@azure/msal-node": "catalog:auth-server",
         "jsonwebtoken": "catalog:",
         "postgres": "catalog:",
         "zod": "catalog:"

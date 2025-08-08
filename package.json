@@ -33,6 +33,9 @@
                 "@types/jsonwebtoken": "latest",
                 "@types/lodash-es": "^4.17.12"
             },
+            "auth-server": {
+                "@azure/msal-node": "^3.6.1"
+            },
             "dev": {
                 "vite": "^7.0.6",
                 "@vitejs/plugin-vue": "^6.0.1",
@@ -40,9 +43,7 @@
             }
         }
     },
-    "dependencies": {
-        "@azure/msal-node": "^3.6.1"
-    },
+    "dependencies": {},
     "devDependencies": {
         "@biomejs/biome": "^2.1.3"
     }

@@ -4,10 +4,10 @@
     "type": "module",
     "scripts": {
         "dev": "vite",
-        "build": "run-p type-check \"build-only {@}\" --",
+        "build-and-check": "run-p type-check \"build-only {@}\" --",
         "preview": "vite preview",
-        "deploy": "bun install && bun run build-only && bun run preview",
-        "build-only": "vite build",
+        "deploy": "bun run preview",
+        "build": "vite build",
         "type-check": "vue-tsc --build"
     },
     "dependencies": {

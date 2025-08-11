@@ -7,11 +7,11 @@
                 <p><strong>Agent ID:</strong> {{ agentId }}</p>
                 <p><strong>Connection:</strong> {{ connectionStatus }}</p>
                 <p><strong>Canvas Size:</strong> {{ canvasSize }}</p>
-                <p><strong>Performance Mode:</strong> {{ appStore?.performanceMode }}</p>
-                <p><strong>Target FPS:</strong> {{ appStore?.targetFPS }}</p>
                 <p><strong>Instance ID:</strong> {{ appStore?.instanceId }}</p>
                 <p><strong>Scene Active Indices:</strong> {{ sceneActiveIndices }}</p>
                 <p><strong>Engine:</strong> {{ engine?.name }}</p>
+                <p><strong>FPS:</strong> {{ fps }}</p>
+                <p><strong>Perf Mode:</strong> {{ performanceMode }}</p>
                 
                 <v-btn @click="createTestCube" color="primary" class="mt-2">
                     Create Test Cube
@@ -42,6 +42,8 @@ interface Props {
     sessionId?: string | null;
     agentId?: string | null;
     sceneInitialized?: boolean;
+    fps?: number;
+    performanceMode?: "normal" | "low";
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -52,6 +54,8 @@ const props = withDefaults(defineProps<Props>(), {
     sessionId: null,
     agentId: null,
     sceneInitialized: false,
+    fps: 0,
+    performanceMode: "low",
 });
 
 // Create a reactive reference for scene statistics
@@ -144,7 +148,6 @@ const logStoreData = () => {
     console.log("App Store Data:", {
         instanceId: props.appStore.instanceId,
         fullSessionId: props.appStore.fullSessionId,
-        performanceMode: props.appStore.performanceMode,
         modelDefinitions: props.appStore.modelDefinitions,
         pollingIntervals: props.appStore.pollingIntervals,
     });

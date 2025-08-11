@@ -16,11 +16,18 @@
                 :session-id="sessionId"
                 :agent-id="agentId"
                 :scene-initialized="sceneInitialized"
+                :fps="fps"
+                :performance-mode="performanceMode"
             />
         </template>
 
         <main>
-            <canvas ref="renderCanvas" id="renderCanvas"></canvas>
+            <BabylonCanvas
+                ref="canvasComponentRef"
+                v-model:performanceMode="performanceMode"
+                v-model:fps="fps"
+                @ready="onCanvasReady"
+            />
             
             <!-- Snackbar for loading and connection status -->
             <v-snackbar v-model="snackbarVisible" :timeout="0" top>
@@ -102,22 +109,7 @@
                 <span>Toggle Debug Overlay</span>
             </v-tooltip>
             
-            <!-- Performance Mode Toggle -->
-            <v-tooltip bottom>
-                <template v-slot:activator="{ props }">
-                    <v-btn 
-                        fab 
-                        small
-                        :color="appStore.performanceMode === 'low' ? 'warning' : 'success'" 
-                        @click="togglePerformanceMode"
-                        v-bind="props"
-                        class="toolbar-btn"
-                    >
-                        <v-icon>{{ appStore.performanceMode === 'low' ? 'mdi-speedometer-slow' : 'mdi-speedometer' }}</v-icon>
-                    </v-btn>
-                </template>
-                <span>Performance: {{ appStore.performanceMode }} ({{ appStore.performanceMode === 'low' ? appStore.targetFPS + ' FPS' : 'Max FPS' }})</span>
-            </v-tooltip>
+            
             
             <!-- Audio Controls -->
             <v-tooltip bottom>
@@ -184,6 +176,7 @@ import BabylonDebugOverlay from "../components/BabylonDebugOverlay.vue";
 import BabylonInspector from "../components/BabylonInspector.vue";
 import AudioControlsDialog from "../components/AudioControlsDialog.vue";
 import IntroScreen from "../components/IntroScreen.vue";
+import BabylonCanvas from "../components/BabylonCanvas.vue";
 // mark as used at runtime for template
 void BabylonMyAvatar;
 // mark as used at runtime for template
@@ -203,21 +196,8 @@ void IntroScreen;
 import { useBabylonEnvironment } from "../composables/useBabylonEnvironment";
 import { useAppStore } from "@/stores/appStore";
 
-// BabylonJS
-import {
-    Scene,
-    Vector3,
-    HemisphericLight,
-    WebGPUEngine,
-    DirectionalLight,
-    MeshBuilder,
-    StandardMaterial,
-    Color3,
-    PhysicsAggregate,
-    PhysicsShapeType,
-    HavokPlugin,
-    ArcRotateCamera,
-} from "@babylonjs/core";
+// BabylonJS types
+import type { Scene, WebGPUEngine } from "@babylonjs/core";
 
 import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
 
@@ -531,155 +511,41 @@ function stopAvatarDiscovery() {
     }
 }
 
-// Inline physics initialization and inspector helpers
-let havokInstance: unknown = null;
-let physicsPlugin: HavokPlugin | null = null;
-
-const initializePhysics = async (
-    scene: Scene,
-    gravityVector: Vector3,
-): Promise<boolean> => {
-    try {
-        if (!havokInstance) {
-            const HavokPhysics = (await import("@babylonjs/havok")).default;
-            havokInstance = await HavokPhysics();
-        }
-        physicsPlugin = new HavokPlugin(true, havokInstance);
-        const enabled = scene.enablePhysics(gravityVector, physicsPlugin);
-        console.log("Physics engine initialized:", enabled);
-        return enabled;
-    } catch (error) {
-        console.error("Error initializing physics engine:", error);
-        return false;
-    }
-};
+// Physics handled by BabylonCanvas
 
 // State for debug overlay
 const showDebugOverlay = ref(false);
 
-// BabylonJS Setup - use variables instead of refs
+// Babylon managed by BabylonCanvas
 const renderCanvas = ref<HTMLCanvasElement | null>(null);
-// Using regular variables instead of refs for non-reactive engine and scene
-let engine: WebGPUEngine | null = null;
-let scene: Scene | null = null;
+const engine = ref<WebGPUEngine | null>(null);
+const scene = ref<Scene | null>(null);
+const canvasComponentRef = ref<InstanceType<typeof BabylonCanvas> | null>(null);
+const performanceMode = ref<"normal" | "low">("low");
+const fps = ref<number>(0);
 
-// Initialize BabylonJS
-const initializeBabylon = async () => {
-    if (!(await navigator.gpu?.requestAdapter())) {
-        console.error("WebGPU not supported.");
-        return false;
-    }
+// FPS sampling removed; now handled by BabylonCanvas via v-model:fps
 
-    if (!renderCanvas.value) {
-        console.error("Canvas not found.");
-        return false;
-    }
-
-    console.log("Initializing BabylonJS with WebGPU...");
-    try {
-        engine = new WebGPUEngine(renderCanvas.value, {
-            antialias: true,
-            adaptToDeviceRatio: true,
-        });
-
-        await engine.initAsync();
-
-        scene = new Scene(engine);
-
-        // Create light
-        new HemisphericLight("light", new Vector3(1, 1, 0), scene);
-
-        // Create a directional light for shadows
-        const directionalLight = new DirectionalLight(
-            "directionalLight",
-            new Vector3(-1, -2, -1),
-            scene,
-        );
-        directionalLight.position = new Vector3(10, 10, 10);
-        directionalLight.intensity = 1.0;
-
-        // Initialize physics first
-        const gravityVector = new Vector3(0, -9.81, 0);
-        const physicsEnabled = await initializePhysics(scene, gravityVector);
-
-        if (physicsEnabled) {
-            // Create a large ground plane after physics is initialized
-            const ground = MeshBuilder.CreateGround(
-                "ground",
-                { width: 1000, height: 1000 },
-                scene,
-            );
-            ground.position = new Vector3(0, -1, 0);
-
-            // Add material to the ground
-            const groundMaterial = new StandardMaterial(
-                "groundMaterial",
-                scene,
-            );
-            groundMaterial.diffuseColor = new Color3(0.2, 0.2, 0.2);
-            groundMaterial.specularColor = new Color3(0.1, 0.1, 0.1);
-            ground.material = groundMaterial;
-
-            // Create a physics aggregate for the ground instead of using impostor
-            new PhysicsAggregate(
-                ground,
-                PhysicsShapeType.BOX,
-                { mass: 0, friction: 0.5, restitution: 0.3 },
-                scene,
-            );
-
-            console.log("Ground plane created with physics");
-        }
-
-        // Note: We no longer start the render loop here
-        // The render loop will be started when PhysicsAvatar is ready
-        window.addEventListener("resize", handleResize);
-
-        // Force initial resize to ensure canvas fills viewport
-        engine.resize();
-
-        // Set scene initialized flag to true
-        sceneInitialized.value = true;
-
-        console.log("BabylonJS initialized successfully.");
-        return true;
-    } catch (error) {
-        console.error("Error initializing BabylonJS:", error);
-        return false;
-    }
-};
-
-const handleResize = () => engine?.resize();
+function onCanvasReady(payload: {
+    scene: Scene;
+    engine: WebGPUEngine;
+    canvas: HTMLCanvasElement;
+}) {
+    scene.value = payload.scene;
+    engine.value = payload.engine;
+    renderCanvas.value = payload.canvas;
+    sceneInitialized.value = true;
+}
 
 onMounted(async () => {
-    // Generate instance ID for this browser tab/instance
     const instanceId = appStore.generateInstanceId();
     console.log(`[App] Generated instance ID: ${instanceId}`);
-
-    // Small delay to ensure DOM is fully rendered
-    await nextTick();
-
-    await initializeBabylon();
-
-    // Add keyboard event listener for performance toggle
-    window.addEventListener("keydown", handleKeyDown);
-
     console.log("[ConnectionManager] Connection manager initialized");
 });
 
 onUnmounted(() => {
-    window.removeEventListener("resize", handleResize);
-    // Remove keyboard event listener
-    window.removeEventListener("keydown", handleKeyDown);
-
     // Stop avatar discovery polling
     stopAvatarDiscovery();
-
-    console.log("Disposing BabylonJS scene and engine...");
-    scene?.dispose();
-    engine?.dispose();
-    scene = null;
-    engine = null;
     sceneInitialized.value = false;
 });
 
@@ -746,9 +612,8 @@ watch(
             }
         }
         // Load environments when scene is initialized and connected
-        if (initialized && status === "connected" && scene) {
-            const s = scene; // narrow scene
-            loadEnvironments(s);
+        if (initialized && status === "connected" && scene.value) {
+            loadEnvironments(scene.value as unknown as Scene);
             // BabylonModel components auto-load themselves when scene is set
         }
     },
@@ -756,58 +621,17 @@ watch(
 
 // Start the render loop after avatar is ready
 const startRenderLoop = () => {
-    if (!engine || !scene) return;
-
     console.log("Starting render loop after avatar is ready");
-
-    // Ensure canvas is properly sized before starting render loop
-    engine.resize();
-
-    if (appStore.performanceMode === "normal") {
-        // Normal mode: render as fast as possible
-        engine.runRenderLoop(() => scene?.render());
-    } else {
-        // Low performance mode: render at limited FPS
-        const frameInterval = 1000 / appStore.targetFPS;
-        let lastFrameTime = 0;
-
-        engine.runRenderLoop(() => {
-            const currentTime = performance.now();
-            const deltaTime = currentTime - lastFrameTime;
-
-            if (deltaTime >= frameInterval) {
-                scene?.render();
-                lastFrameTime = currentTime - (deltaTime % frameInterval);
-            }
-        });
-    }
+    canvasComponentRef.value?.startRenderLoop();
 };
 
 // Stop the render loop when the avatar unmounts
 const stopRenderLoop = () => {
-    if (!engine || !scene) return;
     console.log("Stopping render loop before avatar unmount");
-    engine.stopRenderLoop();
+    canvasComponentRef.value?.stopRenderLoop();
 };
 
-// Function to toggle performance mode
-const togglePerformanceMode = () => {
-    appStore.togglePerformanceMode();
-    console.log(`Performance mode: ${appStore.performanceMode}`);
-
-    // Restart render loop with new mode
-    if (engine && scene) {
-        stopRenderLoop();
-        startRenderLoop();
-    }
-};
-
-// Keyboard event handler for performance toggle
-const handleKeyDown = (event: KeyboardEvent) => {
-    if (event.key === "p" || event.key === "P") {
-        togglePerformanceMode();
-    }
-};
+// Keyboard toggle handled inside BabylonCanvas
 
 // Set up environment loader using HDR list from store
 const envLoader = useBabylonEnvironment(appStore.hdrList);

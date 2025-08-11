@@ -175,9 +175,7 @@ export const useAppStore = defineStore("app", () => {
             },
         ] as BabylonAnimationDefinition[],
     });
-    // Performance mode configuration
-    const performanceMode = ref<"normal" | "low">("low");
-    const targetFPS = ref(30); // Target FPS for low performance mode
+    // Performance mode is now handled exclusively by BabylonCanvas
 
     // Polling intervals configuration (in milliseconds)
     const pollingIntervals = ref({
@@ -367,19 +365,7 @@ export const useAppStore = defineStore("app", () => {
     function clearOtherAvatarsMetadata() {
         otherAvatarsMetadata.value = {};
     }
-    // set performance mode
-    function setPerformanceMode(mode: "normal" | "low") {
-        performanceMode.value = mode;
-    }
-    // toggle performance mode
-    function togglePerformanceMode() {
-        performanceMode.value =
-            performanceMode.value === "normal" ? "low" : "normal";
-    }
-    // set target FPS
-    function setTargetFPS(fps: number) {
-        targetFPS.value = fps;
-    }
+    // Performance controls removed from store
     // set polling interval
     function setPollingInterval(
         key: keyof typeof pollingIntervals.value,
@@ -814,8 +800,6 @@ export const useAppStore = defineStore("app", () => {
         myAvatarMetadata,
         otherAvatarsMetadata,
         avatarDefinition,
-        performanceMode,
-        targetFPS,
         pollingIntervals,
         spatialAudioEnabled,
         peerAudioStates,
@@ -845,9 +829,7 @@ export const useAppStore = defineStore("app", () => {
         setOtherAvatarMetadata,
         removeOtherAvatarMetadata,
         clearOtherAvatarsMetadata,
-        setPerformanceMode,
-        togglePerformanceMode,
-        setTargetFPS,
+
         setPollingInterval,
         setPollingIntervals,
         generateInstanceId,

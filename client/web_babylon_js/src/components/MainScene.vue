@@ -143,6 +143,9 @@
                 </template>
                 <span>Audio Controls ({{ activeAudioCount }} active)</span>
             </v-tooltip>
+
+            <!-- Babylon Inspector Toggle (dev only) -->
+            <BabylonInspector :scene="scene" />
         </div>
         
         <!-- Audio controls dialog -->
@@ -178,6 +181,7 @@ import BabylonOtherAvatar from "../components/BabylonOtherAvatar.vue";
 import BabylonModel from "../components/BabylonModel.vue";
 import BabylonWebRTC from "../components/BabylonWebRTC.vue";
 import BabylonDebugOverlay from "../components/BabylonDebugOverlay.vue";
+import BabylonInspector from "../components/BabylonInspector.vue";
 import AudioControlsDialog from "../components/AudioControlsDialog.vue";
 import IntroScreen from "../components/IntroScreen.vue";
 // mark as used at runtime for template
@@ -190,6 +194,8 @@ void BabylonModel;
 void BabylonWebRTC;
 // mark as used at runtime for template
 void BabylonDebugOverlay;
+// mark as used at runtime for template
+void BabylonInspector;
 // mark as used at runtime for template
 void AudioControlsDialog;
 // mark as used at runtime for template
@@ -212,7 +218,6 @@ import {
     HavokPlugin,
     ArcRotateCamera,
 } from "@babylonjs/core";
-import { Inspector } from "@babylonjs/inspector";
 
 import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
 
@@ -419,8 +424,6 @@ watch(agentId, (newAgentId) => {
 
 // Track if scene is initialized for template rendering
 const sceneInitialized = ref(false);
-// Track inspector state
-const isInspectorVisible = ref(false);
 // Track if avatar is ready
 const avatarRef = ref<InstanceType<typeof BabylonMyAvatar> | null>(null);
 const otherAvatarRefs = ref<(InstanceType<typeof BabylonOtherAvatar> | null)[]>(
@@ -551,23 +554,6 @@ const initializePhysics = async (
     }
 };
 
-// Add function to toggle the inspector
-const toggleInspector = async (): Promise<void> => {
-    if (!scene) return;
-
-    if (!isInspectorVisible.value) {
-        if (import.meta.env.DEV) {
-            Inspector.Show(scene, { embedMode: true });
-            isInspectorVisible.value = true;
-        } else {
-            console.warn("Inspector is only available in development mode");
-        }
-    } else {
-        Inspector.Hide();
-        isInspectorVisible.value = false;
-    }
-};
-
 // State for debug overlay
 const showDebugOverlay = ref(false);
 
@@ -675,7 +661,7 @@ onMounted(async () => {
 
     await initializeBabylon();
 
-    // Add keyboard event listener for inspector toggle
+    // Add keyboard event listener for performance toggle
     window.addEventListener("keydown", handleKeyDown);
 
     console.log("[ConnectionManager] Connection manager initialized");
@@ -816,12 +802,9 @@ const togglePerformanceMode = () => {
     }
 };
 
-// Keyboard event handler for inspector toggle
+// Keyboard event handler for performance toggle
 const handleKeyDown = (event: KeyboardEvent) => {
-    if (event.key === "t" && scene) {
-        toggleInspector();
-    } else if (event.key === "p" || event.key === "P") {
-        // Press 'P' to toggle performance mode
+    if (event.key === "p" || event.key === "P") {
         togglePerformanceMode();
     }
 };

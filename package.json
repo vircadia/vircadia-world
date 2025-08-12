@@ -17,9 +17,9 @@
         },
         "catalogs": {
             "babylon": {
-                "@babylonjs/core": "^8.9.0",
-                "@babylonjs/inspector": "^8.9.0",
-                "@babylonjs/loaders": "^8.9.0",
+                "@babylonjs/core": "^8.22.2",
+                "@babylonjs/inspector": "^8.22.2",
+                "@babylonjs/loaders": "^8.22.2",
                 "@babylonjs/havok": "^1.3.10"
             },
             "vue": {

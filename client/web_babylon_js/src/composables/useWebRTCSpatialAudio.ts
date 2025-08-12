@@ -1,5 +1,6 @@
 import { ref, watch, computed, type Ref } from "vue";
 import { useAppStore } from "@/stores/appStore";
+import type { AvatarMetadata } from "./schemas";
 
 export interface SpatialAudioOptions {
     refDistance?: number;
@@ -18,7 +19,13 @@ export interface PeerAudioNode {
     gain: GainNode;
 }
 
-export function useWebRTCSpatialAudio(options: SpatialAudioOptions = {}) {
+export function useWebRTCSpatialAudio(
+    options: SpatialAudioOptions = {},
+    sources?: {
+        myAvatar?: Ref<AvatarMetadata | null>;
+        otherAvatars?: Ref<Record<string, AvatarMetadata>>;
+    },
+) {
     const appStore = useAppStore();
 
     // Audio context and nodes
@@ -95,11 +102,14 @@ export function useWebRTCSpatialAudio(options: SpatialAudioOptions = {}) {
 
     // Update listener (my avatar) position and orientation
     function updateListenerPosition() {
-        if (!audioContext.value || !appStore.myAvatarMetadata) return;
+        if (!audioContext.value) return;
+
+        const myAvatar = sources?.myAvatar?.value ?? appStore.myAvatarMetadata;
+        if (!myAvatar) return;
 
         const listener = audioContext.value.listener;
-        const pos = appStore.myAvatarMetadata.position;
-        const cam = appStore.myAvatarMetadata.cameraOrientation;
+        const pos = myAvatar.position;
+        const cam = myAvatar.cameraOrientation;
 
         try {
             // Set position
@@ -265,13 +275,9 @@ export function useWebRTCSpatialAudio(options: SpatialAudioOptions = {}) {
         const nodeInfo = peerAudioNodes.value.get(peerId);
         if (!nodeInfo || !audioContext.value) return;
 
-        const peerMetadata = appStore.getOtherAvatarMetadata(peerId);
-        if (!peerMetadata) {
-            console.warn(
-                `[SpatialAudio] No metadata found for peer: ${peerId.substring(0, 8)}...`,
-            );
-            return;
-        }
+        const otherAvatars = sources?.otherAvatars?.value;
+        const peerMetadata = otherAvatars ? otherAvatars[peerId] : undefined;
+        if (!peerMetadata) return;
 
         const pos = peerMetadata.position;
         const panner = nodeInfo.panner;
@@ -297,8 +303,10 @@ export function useWebRTCSpatialAudio(options: SpatialAudioOptions = {}) {
             }
 
             // Calculate distance for debugging
-            if (appStore.myAvatarMetadata) {
-                const myPos = appStore.myAvatarMetadata.position;
+            const myAvatar =
+                sources?.myAvatar?.value ?? appStore.myAvatarMetadata;
+            if (myAvatar) {
+                const myPos = myAvatar.position;
                 const distance = Math.sqrt(
                     (pos.x - myPos.x) ** 2 +
                         (pos.y - myPos.y) ** 2 +
@@ -440,22 +448,34 @@ export function useWebRTCSpatialAudio(options: SpatialAudioOptions = {}) {
     }
 
     // Watch for my avatar position changes
-    watch(
-        () => appStore.myAvatarMetadata,
-        () => {
-            updateListenerPosition();
-        },
-        { deep: true },
-    );
+    if (sources?.myAvatar) {
+        watch(
+            sources.myAvatar,
+            () => {
+                updateListenerPosition();
+            },
+            { deep: true },
+        );
+    } else {
+        watch(
+            () => appStore.myAvatarMetadata,
+            () => {
+                updateListenerPosition();
+            },
+            { deep: true },
+        );
+    }
 
     // Watch for other avatar position changes
-    watch(
-        () => appStore.otherAvatarsMetadata,
-        () => {
-            updateAllPeerPositions();
-        },
-        { deep: true },
-    );
+    if (sources?.otherAvatars) {
+        watch(
+            sources.otherAvatars,
+            () => {
+                updateAllPeerPositions();
+            },
+            { deep: true },
+        );
+    }
 
     // Computed property to get the number of active spatial audio peers
     const activePeerCount = computed(() => peerAudioNodes.value.size);

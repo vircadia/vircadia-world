@@ -30,8 +30,6 @@ export const useAppStore = defineStore("app", () => {
     const instanceId = ref<string | null>(null);
     // My avatar metadata
     const myAvatarMetadata = ref<AvatarMetadata | null>(null);
-    // Other avatars metadata map (keyed by sessionId)
-    const otherAvatarsMetadata = ref<Record<string, AvatarMetadata>>({});
     // avatar configuration
     const avatarDefinition = ref({
         initialAvatarPosition: { x: 0, y: 0, z: -5 },
@@ -246,10 +244,7 @@ export const useAppStore = defineStore("app", () => {
         if (!sessionId.value || !instanceId.value) return null;
         return `${sessionId.value}-${instanceId.value}`;
     });
-    // get other avatar metadata by sessionId
-    const getOtherAvatarMetadata = computed(() => (sessionId: string) => {
-        return otherAvatarsMetadata.value[sessionId] || null;
-    });
+    // Other avatars metadata moved out of the store; managed by components
     // get active audio connections count
     const activeAudioConnectionsCount = computed((): number => {
         return Object.values(peerAudioStates.value).filter(
@@ -340,31 +335,7 @@ export const useAppStore = defineStore("app", () => {
             }
         }
     }
-    // set other avatar metadata
-    function setOtherAvatarMetadata(
-        sessionId: string,
-        metadata: AvatarMetadata | Map<string, unknown> | unknown,
-    ) {
-        try {
-            // Use the safe parser to validate and fill in defaults
-            otherAvatarsMetadata.value[sessionId] =
-                AvatarMetadataWithDefaultsSchema.parse(metadata);
-        } catch (error) {
-            console.error(
-                `Invalid avatar metadata for session ${sessionId}:`,
-                error,
-            );
-            // Don't set invalid metadata
-        }
-    }
-    // remove other avatar metadata
-    function removeOtherAvatarMetadata(sessionId: string) {
-        delete otherAvatarsMetadata.value[sessionId];
-    }
-    // clear all other avatars metadata
-    function clearOtherAvatarsMetadata() {
-        otherAvatarsMetadata.value = {};
-    }
+    // Other avatars metadata helpers removed
     // Performance controls removed from store
     // set polling interval
     function setPollingInterval(
@@ -605,13 +576,13 @@ export const useAppStore = defineStore("app", () => {
                 const errorText = await response.text();
                 console.error("OAuth Callback - Error response:", errorText);
                 try {
-                    const error = JSON.parse(errorText);
+                    const parsedError = JSON.parse(errorText);
                     throw new Error(
-                        error.errorMessage ||
-                            error.error ||
+                        parsedError.errorMessage ||
+                            parsedError.error ||
                             "Authentication failed",
                     );
-                } catch (parseError) {
+                } catch {
                     throw new Error(
                         `Authentication failed: ${response.status} ${response.statusText}`,
                     );
@@ -798,7 +769,6 @@ export const useAppStore = defineStore("app", () => {
         hdrList,
         instanceId,
         myAvatarMetadata,
-        otherAvatarsMetadata,
         avatarDefinition,
         pollingIntervals,
         spatialAudioEnabled,
@@ -813,7 +783,6 @@ export const useAppStore = defineStore("app", () => {
         hasError,
         getCurrentAuthProvider,
         fullSessionId,
-        getOtherAvatarMetadata,
         activeAudioConnectionsCount,
         getPeerAudioState,
         activePeerAudioStates,
@@ -826,9 +795,7 @@ export const useAppStore = defineStore("app", () => {
         setInstanceId,
         setMyAvatarMetadata,
         updateMyAvatarMetadata,
-        setOtherAvatarMetadata,
-        removeOtherAvatarMetadata,
-        clearOtherAvatarsMetadata,
+        // other avatar metadata actions removed
 
         setPollingInterval,
         setPollingIntervals,

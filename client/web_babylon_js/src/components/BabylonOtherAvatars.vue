@@ -5,6 +5,8 @@
         :scene="scene"
         :session-id="otherSessionId"
         ref="otherAvatarRefs"
+        @avatar-metadata="(e: { sessionId: string; metadata: AvatarMetadata }) => { otherAvatarsMetadataLocal[e.sessionId] = e.metadata; emitMetadataUpdate(); }"
+        @avatar-removed="(e: { sessionId: string }) => { delete otherAvatarsMetadataLocal[e.sessionId]; emitMetadataUpdate(); }"
     />
 </template>
 
@@ -21,28 +23,74 @@ import {
 import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
 import { useAppStore } from "@/stores/appStore";
 import BabylonOtherAvatar from "./BabylonOtherAvatar.vue";
+import type { AvatarMetadata } from "@/composables/schemas";
 
-// Props
+// Emits and Props
+const emit = defineEmits<{
+    "update:otherAvatarsMetadata": [Record<string, AvatarMetadata>];
+}>();
+
 const props = defineProps({
     scene: { type: Object, required: true },
+    otherAvatarsMetadata: {
+        type: Object as () => Record<string, AvatarMetadata>,
+        required: false,
+        default: () => ({}),
+    },
 });
 const { scene } = toRefs(props);
+// Mark as used in template
+void scene;
 
 // Store and Vircadia context
 const appStore = useAppStore();
 
-function ensure(value: unknown, message: string) {
+function ensure<T = unknown>(value: unknown, message: string): T {
     if (value == null) throw new Error(message);
-    return value as any;
+    return value as T;
 }
 
-const vircadiaWorld = ensure(
+type VircadiaWorld = {
+    connectionInfo: { value: { status: string } };
+    client: {
+        Utilities: {
+            Connection: {
+                query: (args: {
+                    query: string;
+                    parameters?: unknown[];
+                    timeoutMs?: number;
+                }) => Promise<{
+                    result?: Array<{ general__entity_name: string }>;
+                }>;
+            };
+        };
+    };
+};
+
+const vircadiaWorld = ensure<VircadiaWorld>(
     inject(useVircadiaInstance()),
     "Vircadia instance not found in BabylonOtherAvatars",
 );
 
 // Discovered other avatar session IDs
 const otherAvatarSessionIds = ref<string[]>([]);
+
+// Local metadata map mirrored to parent via v-model
+const otherAvatarsMetadataLocal = ref<Record<string, AvatarMetadata>>({
+    ...props.otherAvatarsMetadata,
+});
+
+watch(
+    () => props.otherAvatarsMetadata,
+    (val) => {
+        otherAvatarsMetadataLocal.value = { ...val };
+    },
+    { deep: true },
+);
+
+function emitMetadataUpdate() {
+    emit("update:otherAvatarsMetadata", { ...otherAvatarsMetadataLocal.value });
+}
 
 // Refs to child components for loading state
 const otherAvatarRefs = ref<(InstanceType<typeof BabylonOtherAvatar> | null)[]>(
@@ -76,16 +124,16 @@ async function pollForOtherAvatars(): Promise<void> {
                     entity.general__entity_name.match(/^avatar:(.+)$/);
                 if (match && match[1] !== currentFullSessionId) {
                     foundSessionIds.push(match[1]);
-
-                    if (!appStore.getOtherAvatarMetadata(match[1])) {
-                        appStore.setOtherAvatarMetadata(match[1], {
+                    if (!otherAvatarsMetadataLocal.value[match[1]]) {
+                        otherAvatarsMetadataLocal.value[match[1]] = {
                             type: "avatar",
                             sessionId: match[1],
                             position: { x: 0, y: 0, z: 0 },
                             rotation: { x: 0, y: 0, z: 0, w: 1 },
                             cameraOrientation: { alpha: 0, beta: 0, radius: 5 },
                             modelFileName: "",
-                        });
+                        } as AvatarMetadata;
+                        emitMetadataUpdate();
                     }
                 }
             }
@@ -94,11 +142,14 @@ async function pollForOtherAvatars(): Promise<void> {
             otherAvatarSessionIds.value = foundSessionIds;
 
             // Remove avatars that are no longer present
-            for (const sessionId in appStore.otherAvatarsMetadata) {
+            for (const sessionId of Object.keys(
+                otherAvatarsMetadataLocal.value,
+            )) {
                 if (!foundSessionIds.includes(sessionId)) {
-                    appStore.removeOtherAvatarMetadata(sessionId);
+                    delete otherAvatarsMetadataLocal.value[sessionId];
                 }
             }
+            emitMetadataUpdate();
         }
     } catch (error) {
         if (error instanceof Error && error.message.includes("timeout")) {
@@ -140,7 +191,8 @@ watch(
         } else if (status === "disconnected") {
             stopAvatarDiscovery();
             otherAvatarSessionIds.value = [];
-            appStore.clearOtherAvatarsMetadata();
+            otherAvatarsMetadataLocal.value = {};
+            emitMetadataUpdate();
         }
     },
     { immediate: true },
@@ -167,6 +219,7 @@ const isLoading = computed<boolean>(() => {
 defineExpose({
     isLoading,
     otherAvatarSessionIds,
+    otherAvatarsMetadata: otherAvatarsMetadataLocal,
 });
 </script>
 

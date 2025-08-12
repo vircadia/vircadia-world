@@ -175,7 +175,7 @@
                     <v-icon size="small" class="mr-2">mdi-volume-high</v-icon>
                     <v-slider
                       :model-value="getPeerVolume(peerId)"
-                      @update:model-value="(value) => setPeerVolume(peerId, value)"
+                      @update:model-value="setPeerVolume(peerId, $event as number)"
                       class="flex-grow-1"
                       density="compact"
                       hide-details
@@ -421,8 +421,11 @@ import {
 import type { WebRTCMessage, PeerDiscoveryEntity } from "@/composables/schemas";
 
 // Props for the component
+import type { AvatarMetadata } from "@/composables/schemas";
+
 interface Props {
     instanceId: string;
+    otherAvatarsMetadata?: Record<string, AvatarMetadata>;
 }
 
 const props = defineProps<Props>();
@@ -513,13 +516,23 @@ const source = ref<MediaStreamAudioSourceNode | null>(null);
 const destination = ref<MediaStreamAudioDestinationNode | null>(null);
 
 // Initialize spatial audio
-const spatialAudio = useWebRTCSpatialAudio({
-    refDistance: 1, // Full volume within 1 meter
-    maxDistance: 30, // Can't hear beyond 30 meters
-    rolloffFactor: 2, // Faster volume falloff for better spatial differentiation
-    panningModel: "HRTF", // Best quality 3D audio
-    distanceModel: "inverse", // Natural distance attenuation
-});
+const spatialAudio = useWebRTCSpatialAudio(
+    {
+        refDistance: 1, // Full volume within 1 meter
+        maxDistance: 30, // Can't hear beyond 30 meters
+        rolloffFactor: 2, // Faster volume falloff for better spatial differentiation
+        panningModel: "HRTF", // Best quality 3D audio
+        distanceModel: "inverse", // Natural distance attenuation
+    },
+    {
+        // Keep my avatar from store; inject only other avatars via prop when provided
+        otherAvatars: computed<Record<string, AvatarMetadata>>(
+            () =>
+                props.otherAvatarsMetadata ??
+                ({} as Record<string, AvatarMetadata>),
+        ),
+    },
+);
 
 // Computed properties for session management
 const baseSessionId = computed(() => appStore.sessionId);

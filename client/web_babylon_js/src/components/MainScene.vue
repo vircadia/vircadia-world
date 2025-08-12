@@ -27,14 +27,18 @@
                 v-model:performanceMode="performanceMode"
                 v-model:fps="fps"
             />
-            
-            <!-- Snackbar for loading and connection status -->
-            <v-snackbar v-model="snackbarVisible" :timeout="0" top>
-                <div class="d-flex align-center">
-                    <v-progress-circular v-if="isLoading" indeterminate color="white" size="24" class="mr-2" />
-                    {{ snackbarText }}
-                </div>
-            </v-snackbar>
+
+            <BabylonSnackbar
+                :scene-initialized="sceneInitialized"
+                :connection-status="connectionStatus"
+                :is-connecting="isConnecting"
+                :environment-loading="environmentLoading"
+                :avatar-loading="avatarLoading"
+                :other-avatars-loading="otherAvatarsLoading"
+                :models-loading="modelsLoading"
+                :is-authenticating="isAuthenticating"
+                :is-authenticated="isAuthenticated"
+            />
             
             <!-- Only render entities when scene is available and connection is stable -->
             <template v-if="sceneInitialized && scene && connectionStatus === 'connected' && !isConnecting">
@@ -47,6 +51,7 @@
                 <!-- Other avatars wrapper -->
                 <BabylonOtherAvatars
                     :scene="sceneNonNull"
+                    v-model:otherAvatarsMetadata="otherAvatarsMetadata"
                     ref="otherAvatarsRef"
                 />
 
@@ -64,6 +69,7 @@
         <BabylonWebRTC 
             v-if="sessionId && appStore.instanceId" 
             :instance-id="appStore.instanceId" 
+            :other-avatars-metadata="otherAvatarsMetadata"
             ref="webrtcStatus" 
             style="display: none;"
         />
@@ -172,6 +178,7 @@ import BabylonInspector from "../components/BabylonInspector.vue";
 import AudioControlsDialog from "../components/AudioControlsDialog.vue";
 import IntroScreen from "../components/IntroScreen.vue";
 import BabylonCanvas from "../components/BabylonCanvas.vue";
+import BabylonSnackbar from "../components/BabylonSnackbar.vue";
 // mark as used at runtime for template
 void BabylonMyAvatar;
 // mark as used at runtime for template
@@ -190,6 +197,8 @@ void BabylonInspector;
 void AudioControlsDialog;
 // mark as used at runtime for template
 void IntroScreen;
+// mark as used at runtime for template
+void BabylonSnackbar;
 import { useBabylonEnvironment } from "../composables/useBabylonEnvironment";
 import { useAppStore } from "@/stores/appStore";
 
@@ -404,6 +413,9 @@ watch(agentId, (newAgentId) => {
 const avatarRef = ref<InstanceType<typeof BabylonMyAvatar> | null>(null);
 type OtherAvatarsExposed = { isLoading: boolean };
 const otherAvatarsRef = ref<OtherAvatarsExposed | null>(null);
+const otherAvatarsMetadata = ref<
+    Record<string, import("@/composables/schemas").AvatarMetadata>
+>({});
 const modelRefs = ref<(InstanceType<typeof BabylonModel> | null)[]>([]);
 
 // Other avatar discovery handled by BabylonOtherAvatars wrapper
@@ -576,68 +588,7 @@ const isLoading = computed(
         modelsLoading.value,
 );
 
-// snackbarVisible is driven by scene initialization, connection status and loading, add noop setter to satisfy v-model
-const snackbarVisible = computed<boolean>({
-    get: () =>
-        !sceneInitialized.value ||
-        connectionStatus.value !== "connected" ||
-        isLoading.value ||
-        isConnecting.value ||
-        !isAuthenticated.value,
-    set: (_val: boolean) => {
-        // no-op setter: visibility is derived from scene initialization, connection status and loading
-    },
-});
-const snackbarText = computed(() => {
-    const states = [];
-
-    // Scene initialization
-    if (!sceneInitialized.value) {
-        states.push("• Scene: Initializing");
-    } else {
-        states.push("• Scene: Ready");
-    }
-
-    // Connection status
-    if (isConnecting.value) {
-        states.push("• Connection: Connecting");
-    } else {
-        states.push(`• Connection: ${connectionStatus.value}`);
-    }
-
-    // Individual loading states
-    if (environmentLoading.value) {
-        states.push("• Environment: Loading");
-    } else {
-        states.push("• Environment: Ready");
-    }
-
-    if (avatarLoading.value) {
-        states.push("• Avatar: Loading");
-    } else {
-        states.push("• Avatar: Ready");
-    }
-
-    if (otherAvatarsLoading.value) {
-        states.push("• Other Avatars: Loading");
-    } else {
-        states.push("• Other Avatars: Ready");
-    }
-
-    if (modelsLoading.value) {
-        states.push("• Models: Loading");
-    } else {
-        states.push("• Models: Ready");
-    }
-
-    if (isAuthenticating.value) {
-        states.push("• Authentication: Authenticating");
-    } else {
-        states.push("• Authentication: Authenticated");
-    }
-
-    return states.join("\n");
-});
+// Snackbar logic moved into BabylonSnackbar component
 
 // State for WebRTC dialog
 const webrtcDialog = ref(false);

@@ -46,7 +46,12 @@ const props = defineProps({
     sessionId: { type: String, required: true },
 });
 
-const emit = defineEmits<{ ready: []; dispose: [] }>();
+const emit = defineEmits<{
+    ready: [];
+    dispose: [];
+    "avatar-metadata": [{ sessionId: string; metadata: AvatarMetadata }];
+    "avatar-removed": [{ sessionId: string }];
+}>();
 
 // Load avatar configuration from global store
 const appStore = useAppStore();
@@ -417,10 +422,10 @@ async function pollAvatarData() {
                     // Parse and validate metadata using the schema
                     const avatarMetadata = AvatarMetadataSchema.parse(metaObj);
 
-                    appStore.setOtherAvatarMetadata(
-                        props.sessionId,
-                        avatarMetadata,
-                    );
+                    emit("avatar-metadata", {
+                        sessionId: props.sessionId,
+                        metadata: avatarMetadata,
+                    });
 
                     // Update avatar position if model is loaded
                     if (avatarNode.value && isModelLoaded.value) {
@@ -836,8 +841,7 @@ onUnmounted(() => {
         clearInterval(debugInterval);
     }
 
-    // Remove metadata from store
-    appStore.removeOtherAvatarMetadata(props.sessionId);
+    emit("avatar-removed", { sessionId: props.sessionId });
 
     // Clean up avatar node and meshes
     if (avatarNode.value) {

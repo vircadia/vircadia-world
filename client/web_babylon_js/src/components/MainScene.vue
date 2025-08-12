@@ -41,19 +41,16 @@
             <template v-if="sceneInitialized && scene && connectionStatus === 'connected' && !isConnecting">
                 <!-- BabylonMyAvatar component -->
                 <BabylonMyAvatar
-                    :scene="scene"
+                    :scene="sceneNonNull"
                     @ready="startRenderLoop"
                     @dispose="stopRenderLoop"
                     ref="avatarRef"
                 />
 
-                <!-- BabylonOtherAvatar components for other users -->
-                <BabylonOtherAvatar
-                    v-for="otherSessionId in otherAvatarSessionIds"
-                    :key="otherSessionId"
-                    :scene="scene"
-                    :session-id="otherSessionId"
-                    ref="otherAvatarRefs"
+                <!-- Other avatars wrapper -->
+                <BabylonOtherAvatars
+                    :scene="sceneNonNull"
+                    ref="otherAvatarsRef"
                 />
 
                 <!-- BabylonModel components -->
@@ -61,7 +58,7 @@
                     v-for="def in appStore.modelDefinitions"
                     :key="def.fileName"
                     :def="def"
-                    :scene="scene"
+                    :scene="sceneNonNull"
                     ref="modelRefs"
                 />
             </template>
@@ -137,12 +134,12 @@
             </v-tooltip>
 
             <!-- Babylon Inspector Toggle (dev only) -->
-            <BabylonInspector :scene="scene" />
+            <BabylonInspector :scene="sceneNonNull" />
         </div>
         
         <!-- Audio controls dialog -->
         <v-dialog v-model="audioDialog" max-width="600" eager>
-            <AudioControlsDialog :webrtc-ref="webrtcStatus!" />
+            <AudioControlsDialog :webrtc-ref="webrtcStatus || undefined" />
         </v-dialog>
         
         <!-- Debug Joint Overlay -->
@@ -170,6 +167,7 @@ import {
 } from "vue";
 import BabylonMyAvatar from "../components/BabylonMyAvatar.vue";
 import BabylonOtherAvatar from "../components/BabylonOtherAvatar.vue";
+import BabylonOtherAvatars from "../components/BabylonOtherAvatars.vue";
 import BabylonModel from "../components/BabylonModel.vue";
 import BabylonWebRTC from "../components/BabylonWebRTC.vue";
 import BabylonDebugOverlay from "../components/BabylonDebugOverlay.vue";
@@ -181,6 +179,8 @@ import BabylonCanvas from "../components/BabylonCanvas.vue";
 void BabylonMyAvatar;
 // mark as used at runtime for template
 void BabylonOtherAvatar;
+// mark as used at runtime for template
+void BabylonOtherAvatars;
 // mark as used at runtime for template
 void BabylonModel;
 // mark as used at runtime for template
@@ -406,110 +406,11 @@ watch(agentId, (newAgentId) => {
 const sceneInitialized = ref(false);
 // Track if avatar is ready
 const avatarRef = ref<InstanceType<typeof BabylonMyAvatar> | null>(null);
-const otherAvatarRefs = ref<(InstanceType<typeof BabylonOtherAvatar> | null)[]>(
-    [],
-);
+type OtherAvatarsExposed = { isLoading: boolean };
+const otherAvatarsRef = ref<OtherAvatarsExposed | null>(null);
 const modelRefs = ref<(InstanceType<typeof BabylonModel> | null)[]>([]);
 
-// Track other avatars
-const otherAvatarSessionIds = ref<string[]>([]);
-
-// Polling interval for discovering other avatars
-let avatarDiscoveryInterval: number | null = null;
-
-// Poll for other avatars every 2000ms
-async function pollForOtherAvatars() {
-    if (
-        !vircadiaWorld ||
-        vircadiaWorld.connectionInfo.value.status !== "connected"
-    ) {
-        return;
-    }
-
-    try {
-        const query = `SELECT general__entity_name FROM entity.entities WHERE general__entity_name LIKE 'avatar:%'`;
-
-        const result = await vircadiaWorld.client.Utilities.Connection.query<
-            Array<{ general__entity_name: string }>
-        >({
-            query,
-            timeoutMs: 30000,
-        });
-
-        if (result.result) {
-            const currentFullSessionId = appStore.fullSessionId;
-            const foundSessionIds: string[] = [];
-
-            for (const entity of result.result) {
-                // Extract full session ID from entity name (format: "avatar:sessionId-instanceId")
-                const match =
-                    entity.general__entity_name.match(/^avatar:(.+)$/);
-                if (match && match[1] !== currentFullSessionId) {
-                    foundSessionIds.push(match[1]);
-
-                    // Immediately add to metadata store with minimal data
-                    // This allows WebRTC to start connecting right away
-                    if (!appStore.getOtherAvatarMetadata(match[1])) {
-                        console.log(
-                            `[Avatar Discovery] Found new avatar: ${match[1]}`,
-                        );
-                        appStore.setOtherAvatarMetadata(match[1], {
-                            type: "avatar",
-                            sessionId: match[1], // This is now the fullSessionId (sessionId-instanceId)
-                            position: { x: 0, y: 0, z: 0 },
-                            rotation: { x: 0, y: 0, z: 0, w: 1 },
-                            cameraOrientation: { alpha: 0, beta: 0, radius: 5 },
-                            modelFileName: "",
-                            // joints are now stored as separate metadata entries
-                        });
-                    }
-                }
-            }
-
-            // Update the list of other avatar session IDs
-            otherAvatarSessionIds.value = foundSessionIds;
-
-            // Remove avatars that are no longer in the discovered list
-            for (const sessionId in appStore.otherAvatarsMetadata) {
-                if (!foundSessionIds.includes(sessionId)) {
-                    console.log(`[Avatar Discovery] Avatar left: ${sessionId}`);
-                    appStore.removeOtherAvatarMetadata(sessionId);
-                }
-            }
-        }
-    } catch (error) {
-        // Only log timeout errors at debug level to reduce console spam
-        if (error instanceof Error && error.message.includes("timeout")) {
-            console.debug("Avatar discovery query timed out, will retry");
-        } else {
-            console.warn("Error polling for other avatars:", error);
-        }
-    }
-}
-
-// Start avatar discovery polling
-function startAvatarDiscovery() {
-    if (avatarDiscoveryInterval) {
-        return;
-    }
-
-    // Poll immediately on start
-    pollForOtherAvatars();
-
-    // Then poll using interval from store
-    avatarDiscoveryInterval = setInterval(
-        pollForOtherAvatars,
-        appStore.pollingIntervals.avatarDiscovery,
-    );
-}
-
-// Stop avatar discovery polling
-function stopAvatarDiscovery() {
-    if (avatarDiscoveryInterval) {
-        clearInterval(avatarDiscoveryInterval);
-        avatarDiscoveryInterval = null;
-    }
-}
+// Other avatar discovery handled by BabylonOtherAvatars wrapper
 
 // Physics handled by BabylonCanvas
 
@@ -520,6 +421,8 @@ const showDebugOverlay = ref(false);
 const renderCanvas = ref<HTMLCanvasElement | null>(null);
 const engine = ref<WebGPUEngine | null>(null);
 const scene = ref<Scene | null>(null);
+const sceneNonNull = computed(() => scene.value as unknown as Scene);
+void sceneNonNull;
 const canvasComponentRef = ref<InstanceType<typeof BabylonCanvas> | null>(null);
 const performanceMode = ref<"normal" | "low">("low");
 const fps = ref<number>(0);
@@ -544,8 +447,6 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-    // Stop avatar discovery polling
-    stopAvatarDiscovery();
     sceneInitialized.value = false;
 });
 
@@ -597,16 +498,8 @@ watch(
         if (status !== prevStatus) {
             if (status === "connected") {
                 console.log("Connected to Vircadia server");
-                // Start avatar discovery when connected
-                startAvatarDiscovery();
             } else if (status === "disconnected") {
                 console.log("Disconnected from Vircadia server");
-                // Stop avatar discovery when disconnected
-                stopAvatarDiscovery();
-                // Clear other avatars list
-                otherAvatarSessionIds.value = [];
-                // Clear other avatars metadata from store
-                appStore.clearOtherAvatarsMetadata();
             } else if (status === "connecting") {
                 console.log("Connecting to Vircadia server...");
             }
@@ -644,10 +537,7 @@ const avatarLoading = computed(
         (avatarRef.value?.isCreating || avatarRef.value?.isRetrieving) ?? false,
 );
 const otherAvatarsLoading = computed(
-    () =>
-        otherAvatarRefs.value.some(
-            (avatar) => avatar && !avatar.isModelLoaded,
-        ) ?? false,
+    () => otherAvatarsRef.value?.isLoading ?? false,
 );
 const modelsLoading = computed(() =>
     modelRefs.value.some(

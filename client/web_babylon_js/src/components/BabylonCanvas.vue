@@ -18,6 +18,7 @@ import {
     HemisphericLight,
     WebGPUEngine,
     DirectionalLight,
+    ArcRotateCamera,
     MeshBuilder,
     StandardMaterial,
     Color3,
@@ -39,6 +40,8 @@ const emit = defineEmits(["update:performanceMode", "update:fps", "ready"]);
 const canvasRef = ref(null);
 let engine = null;
 let scene = null;
+const isReady = ref(false);
+let resizeRaf = 0;
 
 // Physics
 let havokInstance = null;
@@ -60,7 +63,13 @@ async function initializePhysics(targetScene, gravityVector) {
 }
 
 function handleResize() {
-    engine?.resize();
+    if (!engine) return;
+    if (resizeRaf) cancelAnimationFrame(resizeRaf);
+    resizeRaf = requestAnimationFrame(() => {
+        resizeRaf = 0;
+        // Avoid resizing while commands for the previous frame may still reference old swapchain
+        engine.resize();
+    });
 }
 
 // Render loop control
@@ -83,8 +92,7 @@ function startRenderLoop() {
         engine.stopRenderLoop();
     }
 
-    // Ensure canvas sizing before rendering
-    engine.resize();
+    // Resize is handled on mount and via rAF-throttled window resize
 
     const mode = getCurrentPerformanceMode();
     if (mode === "normal") {
@@ -162,6 +170,7 @@ const api = {
     getCanvas: () => canvasRef.value,
     getFps: () => (engine ? engine.getFps() : 0),
     getPerformanceMode: () => getCurrentPerformanceMode(),
+    getIsReady: () => isReady.value,
     startRenderLoop,
     stopRenderLoop,
     togglePerformanceMode,
@@ -173,24 +182,37 @@ defineExpose(api);
 onMounted(async () => {
     await nextTick();
 
-    if (!(await navigator.gpu?.requestAdapter())) {
-        console.error("WebGPU not supported.");
-        return;
-    }
-
     if (!canvasRef.value) {
         console.error("Canvas not found.");
         return;
     }
 
     try {
-        engine = new WebGPUEngine(canvasRef.value, {
-            antialias: true,
-            adaptToDeviceRatio: true,
-        });
-        await engine.initAsync();
+        // Try WebGPU first
+        const adapter = await navigator.gpu?.requestAdapter();
+        if (adapter) {
+            engine = new WebGPUEngine(canvasRef.value, {
+                antialias: true,
+                adaptToDeviceRatio: true,
+            });
+            await engine.initAsync();
+        } else {
+            throw new Error("WebGPU adapter not available");
+        }
 
         scene = new Scene(engine);
+
+        // Basic camera and lighting
+        const defaultCamera = new ArcRotateCamera(
+            "defaultCamera",
+            -Math.PI / 2,
+            Math.PI / 3,
+            8,
+            new Vector3(0, 1, 0),
+            scene,
+        );
+        defaultCamera.attachControl(canvasRef.value, true);
+        scene.activeCamera = defaultCamera;
 
         // Basic lighting
         new HemisphericLight("light", new Vector3(1, 1, 0), scene);
@@ -231,6 +253,7 @@ onMounted(async () => {
 
         // Sizing
         window.addEventListener("resize", handleResize);
+        // Initial size
         engine.resize();
 
         // Hotkey: P toggles performance
@@ -240,10 +263,17 @@ onMounted(async () => {
             }
         });
 
-        // Notify parent we are ready. Parent controls when to start the render loop.
+        // Start rendering immediately so scene is visible without waiting for parent
+        startRenderLoop();
+
+        // Mark ready and notify parent for backward compatibility
+        isReady.value = true;
         emit("ready", { scene, engine, canvas: canvasRef.value, api });
     } catch (error) {
-        console.error("Error initializing BabylonJS:", error);
+        console.error(
+            "WebGPU initialization failed; fallback is disabled.",
+            error,
+        );
     }
 });
 
@@ -254,6 +284,7 @@ onUnmounted(() => {
     engine?.dispose();
     scene = null;
     engine = null;
+    isReady.value = false;
 });
 </script>
 

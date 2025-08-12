@@ -26,7 +26,6 @@
                 ref="canvasComponentRef"
                 v-model:performanceMode="performanceMode"
                 v-model:fps="fps"
-                @ready="onCanvasReady"
             />
             
             <!-- Snackbar for loading and connection status -->
@@ -42,8 +41,6 @@
                 <!-- BabylonMyAvatar component -->
                 <BabylonMyAvatar
                     :scene="sceneNonNull"
-                    @ready="startRenderLoop"
-                    @dispose="stopRenderLoop"
                     ref="avatarRef"
                 />
 
@@ -402,8 +399,7 @@ watch(agentId, (newAgentId) => {
     appStore.setAgentId(newAgentId ?? null);
 });
 
-// Track if scene is initialized for template rendering
-const sceneInitialized = ref(false);
+// Scene readiness derived from BabylonCanvas exposed API
 // Track if avatar is ready
 const avatarRef = ref<InstanceType<typeof BabylonMyAvatar> | null>(null);
 type OtherAvatarsExposed = { isLoading: boolean };
@@ -418,27 +414,51 @@ const modelRefs = ref<(InstanceType<typeof BabylonModel> | null)[]>([]);
 const showDebugOverlay = ref(false);
 
 // Babylon managed by BabylonCanvas
-const renderCanvas = ref<HTMLCanvasElement | null>(null);
-const engine = ref<WebGPUEngine | null>(null);
-const scene = ref<Scene | null>(null);
+// Use the exposed API from BabylonCanvas via a component ref instead of local refs
+type BabylonCanvasExposed = {
+    getScene: () => Scene | null;
+    getEngine: () => WebGPUEngine | null;
+    getCanvas: () => HTMLCanvasElement | null;
+    getFps: () => number;
+    getPerformanceMode: () => "normal" | "low";
+    getIsReady: () => boolean;
+    startRenderLoop: () => void;
+    stopRenderLoop: () => void;
+    togglePerformanceMode: () => void;
+    setPerformanceMode: (mode: "normal" | "low") => void;
+};
+
+const canvasComponentRef = ref<BabylonCanvasExposed | null>(null);
+
+const renderCanvas = computed(
+    () => canvasComponentRef.value?.getCanvas() ?? null,
+);
+// Depend on readiness so these recompute once the canvas initializes
+const engine = computed(
+    () =>
+        (canvasComponentRef.value?.getIsReady()
+            ? canvasComponentRef.value?.getEngine()
+            : null) ?? null,
+);
+const scene = computed(
+    () =>
+        (canvasComponentRef.value?.getIsReady()
+            ? canvasComponentRef.value?.getScene()
+            : null) ?? null,
+);
 const sceneNonNull = computed(() => scene.value as unknown as Scene);
+const sceneInitialized = computed(
+    () => canvasComponentRef.value?.getIsReady() ?? false,
+);
+void renderCanvas;
+void engine;
 void sceneNonNull;
-const canvasComponentRef = ref<InstanceType<typeof BabylonCanvas> | null>(null);
 const performanceMode = ref<"normal" | "low">("low");
 const fps = ref<number>(0);
 
 // FPS sampling removed; now handled by BabylonCanvas via v-model:fps
 
-function onCanvasReady(payload: {
-    scene: Scene;
-    engine: WebGPUEngine;
-    canvas: HTMLCanvasElement;
-}) {
-    scene.value = payload.scene;
-    engine.value = payload.engine;
-    renderCanvas.value = payload.canvas;
-    sceneInitialized.value = true;
-}
+// Ready callback no longer needed; scene readiness comes from the canvas API
 
 onMounted(async () => {
     const instanceId = appStore.generateInstanceId();
@@ -446,9 +466,7 @@ onMounted(async () => {
     console.log("[ConnectionManager] Connection manager initialized");
 });
 
-onUnmounted(() => {
-    sceneInitialized.value = false;
-});
+// No onUnmounted reset needed; canvas manages its own ready state
 
 // Watch for authentication state changes (moved from connectionManager.ts)
 watch(

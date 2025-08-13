@@ -680,28 +680,7 @@ export const useAppStore = defineStore("app", () => {
         }
     };
 
-    // Logout
-    const logout = async () => {
-        if (sessionId.value) {
-            try {
-                await fetch(`${getApiUrl()}/world/rest/auth/logout`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ sessionId: sessionId.value }),
-                });
-            } catch (err) {
-                console.error("Logout request failed:", err);
-            }
-        }
-
-        // Clear local state
-        account.value = null;
-        sessionToken.value = null;
-        sessionId.value = null;
-        agentId.value = null;
-        authProvider.value = "anon"; // Reset to default anon provider
-        authError.value = null;
-    };
+    // Logout handled by VircadiaLogoutButton component
 
     // Get session token for API calls
     const getSessionToken = () => sessionToken.value;
@@ -809,7 +788,6 @@ export const useAppStore = defineStore("app", () => {
         loginWithAzure,
         loginAnonymously,
         loginWithDebugToken,
-        logout,
         getSessionToken,
         handleOAuthCallback,
         refreshAccountData,

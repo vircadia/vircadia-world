@@ -82,14 +82,7 @@
                     <v-icon start>mdi-account-circle</v-icon>
                     {{ username }}
                 </v-chip>
-                <v-btn
-                    color="error"
-                    variant="outlined"
-                    @click="handleLogout"
-                    size="small"
-                >
-                    Sign Out
-                </v-btn>
+                <LogoutButton />
             </div>
             
             <!-- Debug Controls -->
@@ -179,6 +172,7 @@ import AudioControlsDialog from "../components/AudioControlsDialog.vue";
 import IntroScreen from "../components/IntroScreen.vue";
 import BabylonCanvas from "../components/BabylonCanvas.vue";
 import BabylonSnackbar from "../components/BabylonSnackbar.vue";
+import LogoutButton from "../components/LogoutButton.vue";
 // mark as used at runtime for template
 void BabylonMyAvatar;
 // mark as used at runtime for template
@@ -199,6 +193,8 @@ void AudioControlsDialog;
 void IntroScreen;
 // mark as used at runtime for template
 void BabylonSnackbar;
+// mark as used at runtime for template
+void LogoutButton;
 import { useBabylonEnvironment } from "../composables/useBabylonEnvironment";
 import { useAppStore } from "@/stores/appStore";
 
@@ -319,7 +315,12 @@ async function attemptConnection() {
                     "Authentication failed. Please try logging in again.",
                 );
                 // Clear authentication state to redirect back to IntroScreen
-                appStore.logout();
+                appStore.account = null;
+                appStore.sessionToken = null;
+                appStore.sessionId = null;
+                appStore.agentId = null;
+                appStore.authProvider = "anon";
+                appStore.authError = null;
             }
         }
     } finally {
@@ -395,10 +396,6 @@ const username = computed(() => {
         appStore.account.localAccountId
     );
 });
-
-const handleLogout = () => {
-    appStore.logout();
-};
 
 // sync session and agent IDs from Vircadia to the app store
 watch(sessionId, (newSessionId) => {

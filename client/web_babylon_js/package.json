@@ -22,7 +22,7 @@
         "pinia": "^3.0.3",
         "vite-plugin-vuetify": "^2.1.1",
         "vue": "catalog:vue",
-        "vuetify": "^3.9.3",
+        "vuetify": "^3.9.5",
         "zod": "catalog:"
     },
     "devDependencies": {

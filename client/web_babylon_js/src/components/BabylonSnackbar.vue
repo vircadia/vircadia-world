@@ -1,5 +1,5 @@
 <template>
-    <v-snackbar v-model="visible" :timeout="0" top class="app-snackbar">
+    <v-snackbar :model-value="visible" :timeout="-1" location="bottom" class="app-snackbar">
         <div class="d-flex align-center">
             <v-progress-circular
                 v-if="showSpinner"

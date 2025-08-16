@@ -1,6 +1,15 @@
 <template>
-    <VircadiaWorldAuthProvider>
-        <VircadiaWorldProvider v-slot="{ vircadiaWorld, connectionStatus, isConnecting, isAuthenticated, isAuthenticating, accountDisplayName }">
+    <VircadiaWorldAuthProvider v-slot="authProps">
+        <VircadiaWorldProvider 
+            :sessionToken="authProps.sessionToken"
+            :agentId="authProps.agentId"
+            :authProvider="authProps.authProvider"
+            :isAuthenticated="authProps.isAuthenticated"
+            :account="authProps.account"
+            :isAuthenticating="authProps.isAuthenticating"
+            :authError="authProps.authError"
+            :autoConnect="clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT"
+            v-slot="{ vircadiaWorld, connectionStatus, isConnecting, isAuthenticated, isAuthenticating, accountDisplayName }">
         <!-- Component Loader -->
         <template v-for="comp in availableComponents" :key="comp">
             <component 
@@ -195,6 +204,7 @@ void BabylonCanvas;
 void VircadiaWorldProvider;
 import { useBabylonEnvironment } from "../composables/useBabylonEnvironment";
 import { useAppStore } from "@/stores/appStore";
+import { clientBrowserConfiguration } from "@/vircadia.browser.config";
 
 // BabylonJS types
 import type { Scene, WebGPUEngine } from "@babylonjs/core";

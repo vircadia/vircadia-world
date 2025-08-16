@@ -51,6 +51,17 @@ const vuetify = createVuetify({
 app.use(vuetify);
 
 // Initialize Vircadia
+console.log("[Main] Initializing Vircadia client with config", {
+    ssl: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL,
+    apiUri: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI,
+    wsPath: Communication.WS_UPGRADE_PATH,
+    hasDebugToken:
+        !!clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
+    debugProvider:
+        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER,
+    debug: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
+});
+
 const vircadiaWorld = useVircadia({
     config: {
         serverUrl:

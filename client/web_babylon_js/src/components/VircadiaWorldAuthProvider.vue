@@ -1,10 +1,20 @@
 <template>
     <div>
-        <slot v-if="appStore.isAuthenticated" />
+        <slot 
+            v-if="isAuthenticated" 
+            :isAuthenticated="isAuthenticated"
+            :isAuthenticating="isAuthenticating"
+            :authError="authError"
+            :account="account"
+            :sessionToken="sessionToken"
+            :sessionId="sessionId"
+            :agentId="agentId"
+            :authProvider="authProvider"
+        />
         <v-container v-else fluid fill-height class="intro-screen">
             <v-row align="center" justify="center">
                 <v-col cols="12" sm="8" md="6" lg="4">
-                    <v-card class="elevation-12" :loading="appStore.isAuthenticating">
+                    <v-card class="elevation-12" :loading="isAuthenticating">
                         <v-toolbar color="primary" dark flat>
                             <v-toolbar-title>Welcome to Vircadia</v-toolbar-title>
                         </v-toolbar>
@@ -12,8 +22,8 @@
                             <p class="text-center text-h6 font-weight-regular">
                                 Please choose your login method to continue.
                             </p>
-                            <v-alert v-if="appStore.authError" type="error" dense class="mt-4">
-                                {{ appStore.authError }}
+                            <v-alert v-if="authError" type="error" dense class="mt-4">
+                                {{ authError }}
                             </v-alert>
                         </v-card-text>
                         <v-card-actions class="d-flex flex-column pa-6 pt-0">
@@ -22,7 +32,7 @@
                                 x-large
                                 color="primary"
                                 @click="loginWithAzure"
-                                :disabled="appStore.isAuthenticating"
+                                :disabled="isAuthenticating"
                                 class="mb-4"
                             >
                                 <v-icon left>mdi-microsoft-azure</v-icon>
@@ -33,7 +43,7 @@
                                 x-large
                                 color="secondary"
                                 @click="loginAnonymously"
-                                :disabled="appStore.isAuthenticating"
+                                :disabled="isAuthenticating"
                                 class="mb-4"
                             >
                                 <v-icon left>mdi-account-circle-outline</v-icon>
@@ -45,7 +55,7 @@
                                 x-large
                                 color="accent"
                                 @click="loginWithDebugToken"
-                                :disabled="appStore.isAuthenticating"
+                                :disabled="isAuthenticating"
                             >
                                 <v-icon left>mdi-bug-check</v-icon>
                                 Continue with Debug Token
@@ -59,12 +69,22 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onMounted } from "vue";
 import { useAppStore } from "@/stores/appStore";
 import { clientBrowserConfiguration } from "@/vircadia.browser.config";
 import type { AccountInfo } from "@azure/msal-browser";
 
 const appStore = useAppStore();
+
+// Create computed properties that expose auth state from appStore
+const isAuthenticated = computed(() => appStore.isAuthenticated);
+const isAuthenticating = computed(() => appStore.isAuthenticating);
+const authError = computed(() => appStore.authError);
+const account = computed(() => appStore.account);
+const sessionToken = computed(() => appStore.sessionToken);
+const sessionId = computed(() => appStore.sessionId);
+const agentId = computed(() => appStore.agentId);
+const authProvider = computed(() => appStore.authProvider);
 
 const showDebugLogin = computed(() => {
     return !!clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN;
@@ -183,16 +203,53 @@ const loginWithDebugToken = async () => {
             throw new Error("No debug token found in configuration.");
         }
 
+        console.log("[VircadiaWorldAuthProvider] Setting debug token auth", {
+            token,
+            provider: configuredProvider,
+        });
+
+        // Parse the JWT to extract sessionId and agentId
+        try {
+            const tokenParts = token.split(".");
+            if (tokenParts.length === 3) {
+                const payload = JSON.parse(atob(tokenParts[1]));
+                console.log(
+                    "[VircadiaWorldAuthProvider] Debug token payload",
+                    payload,
+                );
+
+                if (payload.sessionId) {
+                    appStore.sessionId = payload.sessionId;
+                }
+                if (payload.agentId) {
+                    appStore.agentId = payload.agentId;
+                }
+            }
+        } catch (parseError) {
+            console.error(
+                "[VircadiaWorldAuthProvider] Failed to parse debug token",
+                parseError,
+            );
+        }
+
         appStore.sessionToken = token;
         appStore.authProvider = configuredProvider;
         appStore.account = {
-            homeAccountId: "debug-user",
+            homeAccountId: appStore.agentId || "debug-user",
             environment: "debug",
             tenantId: "",
             username: "Debug User",
-            localAccountId: "debug-user",
+            localAccountId: appStore.agentId || "debug-user",
             name: "Debug User",
         } as AccountInfo;
+
+        console.log("[VircadiaWorldAuthProvider] Debug token login complete", {
+            sessionToken: !!appStore.sessionToken,
+            sessionId: appStore.sessionId,
+            agentId: appStore.agentId,
+            authProvider: appStore.authProvider,
+            isAuthenticated: appStore.isAuthenticated,
+        });
     } catch (err) {
         console.error("Debug token login failed:", err);
         appStore.authError =
@@ -202,11 +259,48 @@ const loginWithDebugToken = async () => {
     }
 };
 
+// Auto-login with debug token if available and not already authenticated
+onMounted(async () => {
+    console.log(
+        "[VircadiaWorldAuthProvider] Mounted, checking for auto-login",
+        {
+            isAuthenticated: isAuthenticated.value,
+            hasDebugToken:
+                !!clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
+            debugTokenProvider:
+                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER,
+        },
+    );
+
+    if (
+        !isAuthenticated.value &&
+        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN
+    ) {
+        console.log(
+            "[VircadiaWorldAuthProvider] Auto-logging in with debug token",
+        );
+        await loginWithDebugToken();
+        // Give a moment for the reactive system to propagate the changes
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        console.log(
+            "[VircadiaWorldAuthProvider] Debug token auto-login completed",
+        );
+    }
+});
+
 defineExpose({
     loginWithAzure,
     loginAnonymously,
     loginWithDebugToken,
     showDebugLogin,
+    isAuthenticated,
+    isAuthenticating,
+    authError,
+    account,
+    sessionToken,
+    sessionId,
+    agentId,
+    authProvider,
 });
 </script>
 

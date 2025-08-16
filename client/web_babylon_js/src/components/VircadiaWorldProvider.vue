@@ -122,12 +122,25 @@ function ensureDisconnected() {
 }
 
 async function connect() {
-    if (isConnecting.value) return;
+    console.log("[VircadiaWorldProvider] connect() called", {
+        isConnecting: isConnecting.value,
+        currentToken: sessionTokenComputed.value,
+        currentAgentId: agentIdComputed.value,
+        connectionInfo: connectionInfo.value,
+        lastConnectedToken: lastConnectedToken.value,
+        lastConnectedAgentId: lastConnectedAgentId.value,
+    });
+
+    if (isConnecting.value) {
+        console.log("[VircadiaWorldProvider] Already connecting, skipping");
+        return;
+    }
 
     const currentToken = sessionTokenComputed.value;
     const currentAgentId = agentIdComputed.value;
 
     if (!currentToken) {
+        console.log("[VircadiaWorldProvider] No token, ensuring disconnected");
         ensureDisconnected();
         return;
     }
@@ -138,9 +151,13 @@ async function connect() {
         lastConnectedToken.value === currentToken &&
         lastConnectedAgentId.value === currentAgentId
     ) {
+        console.log(
+            "[VircadiaWorldProvider] Already connected with same credentials",
+        );
         return;
     }
 
+    console.log("[VircadiaWorldProvider] Starting connection attempt");
     isConnecting.value = true;
     try {
         // Always disconnect first for a clean state
@@ -154,9 +171,14 @@ async function connect() {
 
         // Update client configuration using current auth
         const authProvider = authProviderComputed.value;
+        console.log("[VircadiaWorldProvider] Setting auth configuration", {
+            token: currentToken,
+            authProvider: authProvider,
+        });
         vircadiaWorldNonNull.client.setAuthToken(currentToken);
         vircadiaWorldNonNull.client.setAuthProvider(authProvider);
 
+        console.log("[VircadiaWorldProvider] Attempting WebSocket connection");
         // Attempt connection with timeout
         await vircadiaWorldNonNull.client.Utilities.Connection.connect({
             timeoutMs: 15000,
@@ -197,10 +219,28 @@ function disconnect() {
 }
 
 function handleAuthChange() {
-    if (!autoConnect.value) return;
+    console.log("[VircadiaWorldProvider] handleAuthChange called", {
+        autoConnect: autoConnect.value,
+        isAuthenticated: isAuthenticatedComputed.value,
+        sessionToken: sessionTokenComputed.value,
+        agentId: agentIdComputed.value,
+        connectionStatus: connectionStatus.value,
+    });
+
+    if (!autoConnect.value) {
+        console.log("[VircadiaWorldProvider] Auto-connect disabled, skipping");
+        return;
+    }
+
     if (isAuthenticatedComputed.value) {
+        console.log(
+            "[VircadiaWorldProvider] User authenticated, initiating connection",
+        );
         connect();
     } else {
+        console.log(
+            "[VircadiaWorldProvider] User not authenticated, ensuring disconnected",
+        );
         ensureDisconnected();
     }
 }

@@ -13,7 +13,7 @@
         <!-- Sync slot values to refs for script usage -->
         <div style="display: none">
             {{ vircadiaWorldRef = vircadiaWorld }}
-            {{ connectionStatusRef = connectionStatus }}
+            
             {{ sessionIdRef = sessionId }}
             {{ agentIdRef = agentId }}
         </div>
@@ -54,33 +54,42 @@
                 :is-authenticated="isAuthenticated"
             />
             
-            <!-- Only render entities when scene is available and connection is stable -->
-            <template v-if="sceneInitialized && scene && connectionStatus === 'connected' && !isConnecting">
-                <!-- BabylonMyAvatar component -->
-                <BabylonMyAvatar
-                    :scene="sceneNonNull"
-                    :vircadia-world="vircadiaWorld"
-                    ref="avatarRef"
-                />
+            <BabylonEnvironment
+                v-if="sceneInitialized && scene && connectionStatus === 'connected' && !isConnecting"
+                :scene="sceneNonNull"
+                :vircadia-world="vircadiaWorld"
+                :hdr-files="appStore.hdrList"
+                ref="envRef"
+                v-slot="{ isLoading }"
+            >
+                <!-- Only render entities when scene is available and connection is stable -->
+                <template v-if="sceneInitialized && scene && connectionStatus === 'connected' && !isConnecting">
+                    <!-- BabylonMyAvatar component -->
+                    <BabylonMyAvatar
+                        :scene="sceneNonNull"
+                        :vircadia-world="vircadiaWorld"
+                        ref="avatarRef"
+                    />
 
-                <!-- Other avatars wrapper -->
-                <BabylonOtherAvatars
-                    :scene="sceneNonNull"
-                    :vircadia-world="vircadiaWorld"
-                    v-model:otherAvatarsMetadata="otherAvatarsMetadata"
-                    ref="otherAvatarsRef"
-                />
+                    <!-- Other avatars wrapper -->
+                    <BabylonOtherAvatars
+                        :scene="sceneNonNull"
+                        :vircadia-world="vircadiaWorld"
+                        v-model:otherAvatarsMetadata="otherAvatarsMetadata"
+                        ref="otherAvatarsRef"
+                    />
 
-                <!-- BabylonModel components -->
-                <BabylonModel
-                    v-for="def in appStore.modelDefinitions"
-                    :key="def.fileName"
-                    :def="def"
-                    :scene="sceneNonNull"
-                    :vircadia-world="vircadiaWorld"
-                    ref="modelRefs"
-                />
-            </template>
+                    <!-- BabylonModel components -->
+                    <BabylonModel
+                        v-for="def in appStore.modelDefinitions"
+                        :key="def.fileName"
+                        :def="def"
+                        :scene="sceneNonNull"
+                        :vircadia-world="vircadiaWorld"
+                        ref="modelRefs"
+                    />
+                </template>
+            </BabylonEnvironment>
         </main>
         <!-- WebRTC component (hidden, just for functionality) -->
         <BabylonWebRTC 
@@ -170,7 +179,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/consistent-type-imports */
 import {
     computed,
-    watch,
     ref,
     onMounted,
     getCurrentInstance,
@@ -212,7 +220,7 @@ void LogoutButton;
 void BabylonCanvas;
 // mark as used at runtime for template
 void VircadiaWorldProvider;
-import { useBabylonEnvironment } from "../composables/useBabylonEnvironment";
+import BabylonEnvironment from "../components/BabylonEnvironment.vue";
 import { useAppStore } from "@/stores/appStore";
 import { clientBrowserConfiguration } from "@/vircadia.browser.config";
 
@@ -234,8 +242,7 @@ const activeAudioCount = computed(() => appStore.activeAudioConnectionsCount);
 void activeAudioCount;
 
 // Track slot values in refs for script usage
-const vircadiaWorldRef = ref<any>(null);
-const connectionStatusRef = ref<string>("disconnected");
+const vircadiaWorldRef = ref<unknown>(null);
 const sessionIdRef = ref<string | null>(null);
 const agentIdRef = ref<string | null>(null);
 // These are synced from template but not directly used in script
@@ -306,6 +313,7 @@ const sceneInitialized = computed(
 void renderCanvas;
 void engine;
 void sceneNonNull;
+void sceneInitialized;
 const performanceMode = ref<"normal" | "low">("low");
 const fps = ref<number>(0);
 void performanceMode;
@@ -325,26 +333,6 @@ onMounted(async () => {
 
 // Connection watchers migrated to provider
 
-// Combined watcher for connection status and scene initialization
-watch(
-    [connectionStatusRef, () => sceneInitialized.value],
-    ([status, initialized]) => {
-        // Log connection status changes
-        if (status === "connected") {
-            console.log("Connected to Vircadia server");
-        } else if (status === "disconnected") {
-            console.log("Disconnected from Vircadia server");
-        } else if (status === "connecting") {
-            console.log("Connecting to Vircadia server...");
-        }
-        // Load environments when scene is initialized and connected
-        if (initialized && status === "connected" && scene.value) {
-            loadEnvironments(scene.value as unknown as Scene);
-            // BabylonModel components auto-load themselves when scene is set
-        }
-    },
-);
-
 // Variables referenced only in template - mark to satisfy linter
 void activeAudioCount;
 void otherAvatarsMetadata;
@@ -354,24 +342,14 @@ void fps;
 
 // Keyboard toggle handled inside BabylonCanvas
 
-// Set up environment loader using HDR list from store
-// We need to use a computed to ensure vircadiaWorldRef is available
-const envLoader = computed(() => {
-    if (vircadiaWorldRef.value) {
-        return useBabylonEnvironment(appStore.hdrList, vircadiaWorldRef.value);
-    }
-    // Return a dummy loader if vircadiaWorld is not yet available
-    return {
-        loadAll: async () => {
-            console.warn(
-                "Cannot load environments: vircadiaWorld not available",
-            );
-        },
-        isLoading: ref(false),
-    };
+const envRef = ref<InstanceType<typeof BabylonEnvironment> | null>(null);
+const environmentLoading = computed(() => {
+    const exposed = envRef.value as unknown as {
+        isLoading?: { value: boolean };
+    } | null;
+    return exposed?.isLoading?.value ?? false;
 });
-const loadEnvironments = (scene: Scene) => envLoader.value.loadAll(scene);
-const environmentLoading = computed(() => envLoader.value.isLoading.value);
+void envRef;
 void environmentLoading;
 
 // Child component loading states
@@ -412,6 +390,9 @@ onMounted(() => {
         availableComponents.value = Object.keys(app.appContext.components);
     }
 });
+// mark components/config used in template
+void BabylonEnvironment;
+void clientBrowserConfiguration;
 </script>
 
 <style>

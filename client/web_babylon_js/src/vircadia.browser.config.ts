@@ -173,11 +173,51 @@ const clientBrowserEnvSchema = z.object({
         ]),
 });
 
-// Parse client environment variables
-export const clientBrowserConfiguration = clientBrowserEnvSchema.parse(
-    // Fix TypeScript error with appropriate typing
+// Parse client environment variables with runtime (localStorage) overrides
+const baseEnv =
     (typeof import.meta !== "undefined"
-        ? (import.meta as { env?: Record<string, unknown> }).env
+        ? ((import.meta as { env?: Record<string, unknown> }).env ?? {})
         : // @ts-ignore
-          undefined) ?? process.env,
-);
+          process.env) ?? {};
+
+// Allow overriding or disabling the debug auth token at runtime via localStorage
+// Keys:
+// - "VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN": string (empty string disables)
+// - "VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER": string
+// - "VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_DISABLED": "1" | "true" to force disable
+const mergedEnv: Record<string, unknown> = { ...baseEnv };
+
+try {
+    if (typeof window !== "undefined" && window.localStorage) {
+        const disabledFlag = window.localStorage.getItem(
+            "VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_DISABLED",
+        );
+        const lsToken = window.localStorage.getItem(
+            "VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN",
+        );
+        const lsProvider = window.localStorage.getItem(
+            "VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER",
+        );
+
+        // If explicitly disabled, ensure token is empty
+        const isDisabled =
+            disabledFlag === "1" || disabledFlag?.toLowerCase() === "true";
+        if (isDisabled) {
+            mergedEnv.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN = "";
+        }
+
+        // If an override token is present in LS (including empty string), use it
+        if (lsToken !== null) {
+            mergedEnv.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN = lsToken;
+        }
+        if (lsProvider !== null) {
+            mergedEnv.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER =
+                lsProvider;
+        }
+    }
+} catch {
+    // Ignore storage access errors (e.g., privacy modes)
+}
+
+export const clientBrowserConfiguration =
+    clientBrowserEnvSchema.parse(mergedEnv);

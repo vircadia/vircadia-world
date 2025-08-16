@@ -86,7 +86,7 @@ services:
 
   # API service
   vircadia_world_api_manager:
-    image: oven/bun:1.2.19-alpine
+    image: oven/bun:1.2.20-alpine
     container_name: ${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_CONTAINER_NAME}
     user: "1000:1000"  # Run as non-root user
     restart: always
@@ -129,7 +129,7 @@ services:
 
   # State service
   vircadia_world_state_manager:
-    image: oven/bun:1.2.19-alpine
+    image: oven/bun:1.2.20-alpine
     container_name: ${VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_CONTAINER_NAME}
     user: "1000:1000"  # Run as non-root user
     restart: always
@@ -170,21 +170,17 @@ services:
 
   # BabylonJS Web Client service
   vircadia_world_client_web_babylon_js:
-    image: oven/bun:1.2.19-alpine
+    image: caddy:2.10.0-alpine
     container_name: ${VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_CONTAINER_NAME}
-    user: "0:0"
+    user: "1000:1000"
     restart: always
-    read_only: false
+    read_only: true
     ports:
       - "${VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL}:${VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT}"
     volumes:
-      - ../../:/app
-      # Use container-local node_modules to avoid host-installed (darwin) deps
-      - /app/node_modules
-      - /app/client/web_babylon_js/node_modules
-    working_dir: /app/client/web_babylon_js
-    # Install deps inside the container (linux/arm64/musl) so Rollup native optional deps match platform
-    command: ["/bin/sh", "-lc", "cd /app && bun install && cd /app/client/web_babylon_js && bun run preview"]
+      - ../../client/web_babylon_js/${VRCA_CLIENT_WEB_BABYLON_JS_BUILD_OUTPUT_DIR:-dist-docker}:/srv
+    # Serve prebuilt static assets produced on the host
+    command: ["caddy", "file-server", "--root", "/srv", "--listen", ":${VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT}"]
     environment:
       VRCA_CLIENT_WEB_BABYLON_JS_DEBUG: ${VRCA_CLIENT_WEB_BABYLON_JS_DEBUG}
       VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS: ${VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS}
@@ -200,9 +196,6 @@ services:
       VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL: ${VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL}
       VRCA_CLIENT_WEB_BABYLON_JS_PROD_HOST: ${VRCA_CLIENT_WEB_BABYLON_JS_PROD_HOST}
       VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT: ${VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT}
-      VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST: ${VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST}
-      VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT: ${VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT}
-      VRCA_CLIENT_WEB_BABYLON_JS_MODEL_DEFINITIONS: ${VRCA_CLIENT_WEB_BABYLON_JS_MODEL_DEFINITIONS}
       VRCA_CLIENT_WEB_BABYLON_JS_BUILD_OUTPUT_DIR: "dist-docker"
     depends_on:
       vircadia_world_api_manager:

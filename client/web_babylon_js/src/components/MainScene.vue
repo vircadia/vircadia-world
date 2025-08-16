@@ -1,8 +1,6 @@
 <template>
-    <!-- Intro Screen when not authenticated -->
-    <IntroScreen v-if="!isAuthenticated" />
-
-    <template v-else>
+    <IntroScreen>
+        <VircadiaWorldProvider v-slot="{ vircadiaWorld, connectionStatus, isConnecting, isAuthenticated, isAuthenticating, accountDisplayName }">
         <!-- Component Loader -->
         <template v-for="comp in availableComponents" :key="comp">
             <component 
@@ -80,7 +78,7 @@
             <div v-if="isAuthenticated" class="d-flex align-center flex-column ga-2">
                 <v-chip>
                     <v-icon start>mdi-account-circle</v-icon>
-                    {{ username }}
+                    {{ accountDisplayName }}
                 </v-chip>
                 <LogoutButton />
             </div>
@@ -144,8 +142,8 @@
             :visible="showDebugOverlay"
             @close="showDebugOverlay = false"
         />
-
-    </template>
+        </VircadiaWorldProvider>
+    </IntroScreen>
 </template>
 
 <script setup lang="ts">
@@ -155,14 +153,11 @@ import {
     watch,
     ref,
     onMounted,
-    onUnmounted,
     inject,
     getCurrentInstance,
-    nextTick,
     type defineComponent,
 } from "vue";
 import BabylonMyAvatar from "../components/BabylonMyAvatar.vue";
-import BabylonOtherAvatar from "../components/BabylonOtherAvatar.vue";
 import BabylonOtherAvatars from "../components/BabylonOtherAvatars.vue";
 import BabylonModel from "../components/BabylonModel.vue";
 import BabylonWebRTC from "../components/BabylonWebRTC.vue";
@@ -173,10 +168,9 @@ import IntroScreen from "../components/IntroScreen.vue";
 import BabylonCanvas from "../components/BabylonCanvas.vue";
 import BabylonSnackbar from "../components/BabylonSnackbar.vue";
 import LogoutButton from "../components/LogoutButton.vue";
+import VircadiaWorldProvider from "../components/VircadiaWorldProvider.vue";
 // mark as used at runtime for template
 void BabylonMyAvatar;
-// mark as used at runtime for template
-void BabylonOtherAvatar;
 // mark as used at runtime for template
 void BabylonOtherAvatars;
 // mark as used at runtime for template
@@ -195,6 +189,10 @@ void IntroScreen;
 void BabylonSnackbar;
 // mark as used at runtime for template
 void LogoutButton;
+// mark as used at runtime for template
+void BabylonCanvas;
+// mark as used at runtime for template
+void VircadiaWorldProvider;
 import { useBabylonEnvironment } from "../composables/useBabylonEnvironment";
 import { useAppStore } from "@/stores/appStore";
 
@@ -203,207 +201,36 @@ import type { Scene, WebGPUEngine } from "@babylonjs/core";
 
 import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
 
-// Get Vircadia context once in setup
+// Read-only vircadia usage here; connection handled by provider
 const vircadiaWorld = inject(useVircadiaInstance());
-
 if (!vircadiaWorld) {
     throw new Error("Vircadia instance not found");
 }
 
-// Connection Management State (moved from connectionManager.ts)
-// Track if we're currently trying to connect to avoid connection loops
-const isConnecting = ref(false);
+// Auth change handling moved to provider
 
-// Track the last token we connected with to detect changes
-const lastConnectedToken = ref<string | null>(null);
-const lastConnectedAgentId = ref<string | null>(null);
-
-// Connection Management Functions (moved from connectionManager.ts)
-/**
- * Attempts to connect with the current authentication state
- */
-async function attemptConnection() {
-    if (isConnecting.value) {
-        console.log("[ConnectionManager] Already connecting, skipping");
-        return;
-    }
-
-    // Get current auth token from app store only
-    const currentToken = appStore.sessionToken;
-    const currentAgentId = appStore.agentId;
-
-    // Check if we have a valid token
-    if (!currentToken) {
-        console.log(
-            "[ConnectionManager] No token available, staying disconnected",
-        );
-        ensureDisconnected();
-        return;
-    }
-
-    if (!vircadiaWorld) {
-        console.error("[ConnectionManager] No Vircadia instance found");
-        return;
-    }
-
-    // Check if we're already connected with the same token and agent
-    const connectionInfo = vircadiaWorld.connectionInfo.value;
-    if (
-        connectionInfo.isConnected &&
-        lastConnectedToken.value === currentToken &&
-        lastConnectedAgentId.value === currentAgentId
-    ) {
-        console.log(
-            "[ConnectionManager] Already connected with current credentials",
-        );
-        return;
-    }
-
-    console.log("[ConnectionManager] Attempting connection...", {
-        hasToken: !!currentToken,
-        agentId: currentAgentId,
-        currentStatus: connectionInfo.status,
-        isConnected: connectionInfo.isConnected,
-    });
-
-    isConnecting.value = true;
-
-    try {
-        // Always disconnect first to ensure clean state
-        if (connectionInfo.isConnected || connectionInfo.isConnecting) {
-            console.log(
-                "[ConnectionManager] Disconnecting existing connection",
-            );
-            vircadiaWorld.client.Utilities.Connection.disconnect();
-            // Wait a bit for disconnect to complete
-            await new Promise((resolve) => setTimeout(resolve, 100));
-        }
-
-        // Update the client config with current token
-        // Use the provider from the auth store instead of deriving from account environment
-        const authProvider = appStore.getCurrentAuthProvider;
-
-        // Update client configuration
-        vircadiaWorld.client.setAuthToken(currentToken);
-        vircadiaWorld.client.setAuthProvider(authProvider);
-
-        // Attempt connection
-        await vircadiaWorld.client.Utilities.Connection.connect({
-            timeoutMs: 15000, // 15 second timeout
-        });
-
-        // Store the token we successfully connected with
-        lastConnectedToken.value = currentToken;
-        lastConnectedAgentId.value = currentAgentId;
-
-        console.log("[ConnectionManager] Connection successful");
-    } catch (error) {
-        console.error("[ConnectionManager] Connection failed:", error);
-
-        // Clear last connected token on failure
-        lastConnectedToken.value = null;
-        lastConnectedAgentId.value = null;
-
-        // Set app store error if it's an auth-related error
-        if (error instanceof Error) {
-            if (
-                error.message.includes("Authentication") ||
-                error.message.includes("401") ||
-                error.message.includes("Invalid token")
-            ) {
-                appStore.setError(
-                    "Authentication failed. Please try logging in again.",
-                );
-                // Clear authentication state to redirect back to IntroScreen
-                appStore.account = null;
-                appStore.sessionToken = null;
-                appStore.sessionId = null;
-                appStore.agentId = null;
-                appStore.authProvider = "anon";
-                appStore.authError = null;
-            }
-        }
-    } finally {
-        isConnecting.value = false;
-    }
-}
-
-/**
- * Ensures the connection is disconnected and clears state
- */
-function ensureDisconnected() {
-    if (!vircadiaWorld) {
-        console.error("[ConnectionManager] No Vircadia instance found");
-        return;
-    }
-
-    const connectionInfo = vircadiaWorld.connectionInfo.value;
-
-    if (connectionInfo.isConnected || connectionInfo.isConnecting) {
-        console.log("[ConnectionManager] Disconnecting...");
-        vircadiaWorld.client.Utilities.Connection.disconnect();
-    }
-
-    lastConnectedToken.value = null;
-    lastConnectedAgentId.value = null;
-}
-
-/**
- * Handles authentication state changes
- */
-function handleAuthChange() {
-    console.log("[ConnectionManager] Auth state changed:", {
-        isAuthenticated: appStore.isAuthenticated,
-        hasSessionToken: !!appStore.sessionToken,
-        agentId: appStore.agentId,
-    });
-
-    if (appStore.isAuthenticated) {
-        // We have authentication, attempt connection
-        attemptConnection();
-    } else {
-        // No authentication, ensure disconnected
-        console.log("[ConnectionManager] No valid auth, disconnecting");
-        ensureDisconnected();
-    }
-}
+// Store access with error handling for timing issues
+const appStore = useAppStore();
 
 // Connection count is now managed by BabylonWebRTC component
 const webrtcStatus = ref<InstanceType<typeof BabylonWebRTC> | null>(null);
-const connectionCount = computed(() => webrtcStatus.value?.peers.size || 0);
+void webrtcStatus;
+// const connectionCount = computed(() => webrtcStatus.value?.peers.size || 0);
 
 // Active audio connections from app store
 const activeAudioCount = computed(() => appStore.activeAudioConnectionsCount);
-
+void activeAudioCount;
 const connectionStatus = computed(
     () => vircadiaWorld.connectionInfo.value.status,
 );
 const sessionId = computed(() => vircadiaWorld.connectionInfo.value.sessionId);
 const agentId = computed(() => vircadiaWorld.connectionInfo.value.agentId);
+void sessionId;
+void agentId;
 
-// Store access with error handling for timing issues
-const appStore = useAppStore();
-const isAuthenticated = computed(() => appStore.isAuthenticated);
-const isAuthenticating = computed(() => appStore.isAuthenticating);
+// Auth state now handled via slot props from VircadiaWorldProvider in the template
 
-const username = computed(() => {
-    if (!appStore.account) return "Not signed in";
-    return (
-        appStore.account.username ||
-        appStore.account.name ||
-        appStore.account.idTokenClaims?.preferred_username ||
-        appStore.account.idTokenClaims?.name ||
-        appStore.account.localAccountId
-    );
-});
-
-// sync session and agent IDs from Vircadia to the app store
-watch(sessionId, (newSessionId) => {
-    appStore.setSessionId(newSessionId ?? null);
-});
-watch(agentId, (newAgentId) => {
-    appStore.setAgentId(newAgentId ?? null);
-});
+// Session/agent syncing handled by provider
 
 // Scene readiness derived from BabylonCanvas exposed API
 // Track if avatar is ready
@@ -413,6 +240,7 @@ const otherAvatarsRef = ref<OtherAvatarsExposed | null>(null);
 const otherAvatarsMetadata = ref<
     Record<string, import("@/composables/schemas").AvatarMetadata>
 >({});
+void otherAvatarsMetadata;
 const modelRefs = ref<(InstanceType<typeof BabylonModel> | null)[]>([]);
 
 // Other avatar discovery handled by BabylonOtherAvatars wrapper
@@ -421,6 +249,7 @@ const modelRefs = ref<(InstanceType<typeof BabylonModel> | null)[]>([]);
 
 // State for debug overlay
 const showDebugOverlay = ref(false);
+void showDebugOverlay;
 
 // Babylon managed by BabylonCanvas
 // Use the exposed API from BabylonCanvas via a component ref instead of local refs
@@ -464,6 +293,8 @@ void engine;
 void sceneNonNull;
 const performanceMode = ref<"normal" | "low">("low");
 const fps = ref<number>(0);
+void performanceMode;
+void fps;
 
 // FPS sampling removed; now handled by BabylonCanvas via v-model:fps
 
@@ -472,64 +303,24 @@ const fps = ref<number>(0);
 onMounted(async () => {
     const instanceId = appStore.generateInstanceId();
     console.log(`[App] Generated instance ID: ${instanceId}`);
-    console.log("[ConnectionManager] Connection manager initialized");
+    console.log("[MainScene] Initialized");
 });
 
 // No onUnmounted reset needed; canvas manages its own ready state
 
-// Watch for authentication state changes (moved from connectionManager.ts)
-watch(
-    () => ({
-        isAuthenticated: appStore.isAuthenticated,
-        sessionToken: appStore.sessionToken,
-        agentId: appStore.agentId,
-        account: appStore.account,
-    }),
-    handleAuthChange,
-    { immediate: true, deep: true },
-);
-
-// Watch for connection state changes to detect disconnections (moved from connectionManager.ts)
-watch(
-    () => vircadiaWorld!.connectionInfo.value.status,
-    (newStatus, oldStatus) => {
-        console.log(
-            "[ConnectionManager] Connection status changed:",
-            oldStatus,
-            "->",
-            newStatus,
-        );
-
-        // If we unexpectedly disconnected and should be connected, try to reconnect
-        if (
-            newStatus === "disconnected" &&
-            oldStatus === "connected" &&
-            appStore.isAuthenticated &&
-            !isConnecting.value
-        ) {
-            console.log(
-                "[ConnectionManager] Unexpected disconnection, attempting reconnect",
-            );
-            setTimeout(() => {
-                attemptConnection();
-            }, 2000); // Wait 2 seconds before retry
-        }
-    },
-);
+// Connection watchers migrated to provider
 
 // Combined watcher for connection status and scene initialization
 watch(
     [() => connectionStatus.value, () => sceneInitialized.value],
-    ([status, initialized], [prevStatus, prevInitialized]) => {
+    ([status, initialized]) => {
         // Log connection status changes
-        if (status !== prevStatus) {
-            if (status === "connected") {
-                console.log("Connected to Vircadia server");
-            } else if (status === "disconnected") {
-                console.log("Disconnected from Vircadia server");
-            } else if (status === "connecting") {
-                console.log("Connecting to Vircadia server...");
-            }
+        if (status === "connected") {
+            console.log("Connected to Vircadia server");
+        } else if (status === "disconnected") {
+            console.log("Disconnected from Vircadia server");
+        } else if (status === "connecting") {
+            console.log("Connecting to Vircadia server...");
         }
         // Load environments when scene is initialized and connected
         if (initialized && status === "connected" && scene.value) {
@@ -539,17 +330,14 @@ watch(
     },
 );
 
-// Start the render loop after avatar is ready
-const startRenderLoop = () => {
-    console.log("Starting render loop after avatar is ready");
-    canvasComponentRef.value?.startRenderLoop();
-};
-
-// Stop the render loop when the avatar unmounts
-const stopRenderLoop = () => {
-    console.log("Stopping render loop before avatar unmount");
-    canvasComponentRef.value?.stopRenderLoop();
-};
+// Variables referenced only in template - mark to satisfy linter
+void activeAudioCount;
+void sessionId;
+void agentId;
+void otherAvatarsMetadata;
+void showDebugOverlay;
+void performanceMode;
+void fps;
 
 // Keyboard toggle handled inside BabylonCanvas
 
@@ -557,15 +345,18 @@ const stopRenderLoop = () => {
 const envLoader = useBabylonEnvironment(appStore.hdrList);
 const loadEnvironments = envLoader.loadAll;
 const environmentLoading = envLoader.isLoading;
+void environmentLoading;
 
 // Child component loading states
 const avatarLoading = computed(
     () =>
         (avatarRef.value?.isCreating || avatarRef.value?.isRetrieving) ?? false,
 );
+void avatarLoading;
 const otherAvatarsLoading = computed(
     () => otherAvatarsRef.value?.isLoading ?? false,
 );
+void otherAvatarsLoading;
 const modelsLoading = computed(() =>
     modelRefs.value.some(
         (m) =>
@@ -575,23 +366,13 @@ const modelsLoading = computed(() =>
             false,
     ),
 );
-
-// Global loading state: environment, avatar, other avatars, or models
-const isLoading = computed(
-    () =>
-        environmentLoading.value ||
-        avatarLoading.value ||
-        otherAvatarsLoading.value ||
-        modelsLoading.value,
-);
+void modelsLoading;
 
 // Snackbar logic moved into BabylonSnackbar component
 
-// State for WebRTC dialog
-const webrtcDialog = ref(false);
-
 // State for Audio dialog
 const audioDialog = ref(false);
+void audioDialog;
 
 // Component Loader
 const app = getCurrentInstance();

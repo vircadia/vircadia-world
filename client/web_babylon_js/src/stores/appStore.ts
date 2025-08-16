@@ -405,151 +405,7 @@ export const useAppStore = defineStore("app", () => {
         return `${protocol}://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}`;
     };
 
-    const loginAnonymously = async () => {
-        isAuthenticating.value = true;
-        authError.value = null;
-        try {
-            const response = await fetch(
-                `${getApiUrl()}/world/rest/auth/anonymous`,
-                {
-                    method: "POST",
-                },
-            );
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(
-                    `Failed to login anonymously: ${response.status} ${response.statusText} - ${errorText}`,
-                );
-            }
-            const data = await response.json();
-            if (data.success && data.data) {
-                const {
-                    token,
-                    agentId: newAgentId,
-                    sessionId: newSessionId,
-                } = data.data;
-                sessionToken.value = token;
-                sessionId.value = newSessionId;
-                agentId.value = newAgentId;
-                authProvider.value = "anon"; // Set provider for anonymous login
-                account.value = {
-                    homeAccountId: newAgentId,
-                    environment: "anonymous",
-                    tenantId: "",
-                    username: `Anonymous ${newAgentId.substring(0, 8)}`,
-                    localAccountId: newAgentId,
-                    name: `Anonymous ${newAgentId.substring(0, 8)}`,
-                } as AccountInfo;
-            } else {
-                throw new Error("Invalid response from server");
-            }
-        } catch (err) {
-            console.error("Anonymous login failed:", err);
-            authError.value =
-                err instanceof Error ? err.message : "Anonymous login failed";
-        } finally {
-            isAuthenticating.value = false;
-        }
-    };
-
-    const loginWithDebugToken = async () => {
-        isAuthenticating.value = true;
-        authError.value = null;
-        try {
-            const token =
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN;
-            const configuredProvider =
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER;
-
-            if (!token) {
-                throw new Error("No debug token found in configuration.");
-            }
-
-            // The client does not validate the token, it just passes it to the server.
-            // The server will validate it. We just need to store it and the user info.
-            // We can decode it to get some info, but it's not secure.
-            // For now, we'll just use a placeholder account object.
-            // A proper implementation might decode the token to get basic info without verification.
-
-            sessionToken.value = token;
-            authProvider.value = configuredProvider; // Use configured provider (defaults to "system")
-            // The app will connect to the server which will then validate the token and provide session/agent IDs.
-            // We will get session/agent id from the websocket connection
-            account.value = {
-                homeAccountId: "debug-user",
-                environment: "debug",
-                tenantId: "",
-                username: "Debug User",
-                localAccountId: "debug-user",
-                name: "Debug User",
-            } as AccountInfo;
-        } catch (err) {
-            console.error("Debug token login failed:", err);
-            authError.value =
-                err instanceof Error ? err.message : "Debug token login failed";
-        } finally {
-            isAuthenticating.value = false;
-        }
-    };
-
-    // Login with server-side OAuth flow
-    const loginWithAzure = async () => {
-        isAuthenticating.value = true;
-        authError.value = null;
-
-        try {
-            // Get authorization URL from server
-            const response = await fetch(
-                `${getApiUrl()}/world/rest/auth/oauth/authorize?provider=azure`,
-            );
-
-            // Debug: Log response details
-            console.log("Auth URL Response:", {
-                status: response.status,
-                statusText: response.statusText,
-                headers: Object.fromEntries(response.headers.entries()),
-                url: response.url,
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error("Auth URL Error Response:", errorText);
-                throw new Error(
-                    `Failed to get authorization URL: ${response.status} ${response.statusText}`,
-                );
-            }
-
-            const data = await response.json();
-
-            // Debug: Log the full response data
-            console.log("Auth URL Response Data:", data);
-            console.log("Data structure:", {
-                hasData: !!data,
-                hasDataData: !!data?.data,
-                hasAuthorizationUrl: !!data?.data?.authorizationUrl,
-                hasSuccess: !!data?.success,
-                hasRedirectUrl: !!data?.redirectUrl,
-                actualStructure: JSON.stringify(data, null, 2),
-            });
-
-            if (data.success && data.redirectUrl) {
-                // Store current URL to return to after auth
-                sessionStorage.setItem(
-                    "vircadia-auth-return-url",
-                    window.location.href,
-                );
-                // Redirect to Azure AD
-                window.location.href = data.redirectUrl;
-            } else {
-                throw new Error("No authorization URL received");
-            }
-        } catch (err) {
-            console.error("Login failed:", err);
-            authError.value =
-                err instanceof Error ? err.message : "Login failed";
-            isAuthenticating.value = false;
-        }
-    };
+    // Login flows are implemented in the IntroScreen component
 
     // Handle OAuth callback
     const handleOAuthCallback = async (code: string, state: string) => {
@@ -709,23 +565,8 @@ export const useAppStore = defineStore("app", () => {
                 document.title,
                 window.location.pathname,
             );
-        } else if (!isAuthenticated.value) {
-            // If not already authenticated, try debug token auto-login
-            const debugToken =
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN;
-            if (debugToken) {
-                console.log(
-                    "Auth Store Initialize - attempting debug token auto-login",
-                );
-                await loginWithDebugToken();
-            } else {
-                // No debug token configured, automatically login as anonymous
-                console.log(
-                    "Auth Store Initialize - no debug token found, attempting anonymous login",
-                );
-                await loginAnonymously();
-            }
         }
+        // No auto-login here; user chooses login method in IntroScreen
     };
 
     // Refresh account data
@@ -785,9 +626,6 @@ export const useAppStore = defineStore("app", () => {
         setPeerVolume,
         setPeerMuted,
         clearPeerAudioStates,
-        loginWithAzure,
-        loginAnonymously,
-        loginWithDebugToken,
         getSessionToken,
         handleOAuthCallback,
         refreshAccountData,

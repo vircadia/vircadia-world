@@ -1,5 +1,5 @@
 <template>
-    <IntroScreen>
+    <VircadiaWorldAuthProvider>
         <VircadiaWorldProvider v-slot="{ vircadiaWorld, connectionStatus, isConnecting, isAuthenticated, isAuthenticating, accountDisplayName }">
         <!-- Component Loader -->
         <template v-for="comp in availableComponents" :key="comp">
@@ -143,7 +143,7 @@
             @close="showDebugOverlay = false"
         />
         </VircadiaWorldProvider>
-    </IntroScreen>
+    </VircadiaWorldAuthProvider>
 </template>
 
 <script setup lang="ts">
@@ -164,7 +164,7 @@ import BabylonWebRTC from "../components/BabylonWebRTC.vue";
 import BabylonDebugOverlay from "../components/BabylonDebugOverlay.vue";
 import BabylonInspector from "../components/BabylonInspector.vue";
 import AudioControlsDialog from "../components/AudioControlsDialog.vue";
-import IntroScreen from "../components/IntroScreen.vue";
+import VircadiaWorldAuthProvider from "../components/VircadiaWorldAuthProvider.vue";
 import BabylonCanvas from "../components/BabylonCanvas.vue";
 import BabylonSnackbar from "../components/BabylonSnackbar.vue";
 import LogoutButton from "../components/LogoutButton.vue";
@@ -184,7 +184,7 @@ void BabylonInspector;
 // mark as used at runtime for template
 void AudioControlsDialog;
 // mark as used at runtime for template
-void IntroScreen;
+void VircadiaWorldAuthProvider;
 // mark as used at runtime for template
 void BabylonSnackbar;
 // mark as used at runtime for template

@@ -3,14 +3,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onUnmounted, inject, computed, toRefs } from "vue";
+import { ref, watch, onUnmounted, computed, toRefs } from "vue";
 import type { Scene } from "@babylonjs/core";
 import type {
     BabylonModelDefinition,
     ModelMetadata,
 } from "../composables/schemas";
 import { ModelMetadataSchema } from "../composables/schemas";
-import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
+
 import { useDebounceFn } from "@vueuse/core";
 import { useBabylonModelLoader } from "../composables/useBabylonModelLoader";
 import { useBabylonModelPhysics } from "../composables/useBabylonModelPhysics";
@@ -19,6 +19,7 @@ import { useAppStore } from "@/stores/appStore";
 const props = defineProps<{
     def: BabylonModelDefinition;
     scene: Scene | null;
+    vircadiaWorld: any;
 }>();
 
 // --- Set up Babylon model pipelines ---
@@ -31,10 +32,7 @@ const props = defineProps<{
 const entityNameRef = ref(props.def.entityName || props.def.fileName);
 
 // Vircadia connection manager
-const vircadia = inject(useVircadiaInstance());
-if (!vircadia) {
-    throw new Error("Vircadia instance not found");
-}
+const vircadia = props.vircadiaWorld;
 
 // Get current sessionId from app store
 const appStore = useAppStore();
@@ -156,7 +154,7 @@ const debouncedUpdate = useDebounceFn(async () => {
 }, props.def.throttleInterval ?? 1000);
 
 // 3. Model loader and asset management
-const { meshes, loadModel, asset } = useBabylonModelLoader(props.def);
+const { meshes, loadModel, asset } = useBabylonModelLoader(props.def, vircadia);
 
 // 4. Physics application
 const { applyPhysics, removePhysics } = useBabylonModelPhysics(

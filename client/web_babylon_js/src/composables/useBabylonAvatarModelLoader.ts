@@ -7,7 +7,7 @@ import type {
 } from "@babylonjs/core";
 import { ImportMeshAsync } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
-import { useAsset } from "@vircadia/world-sdk/browser/vue";
+import { useAsset, type useVircadia } from "@vircadia/world-sdk/browser/vue";
 
 export interface AvatarModelDefinition {
     /** Filename of the avatar model (e.g. 'hero.glb') */
@@ -18,7 +18,10 @@ export interface AvatarModelDefinition {
  * Composable to load an avatar model and expose its meshes, skeletons, and animation groups.
  * @param def - definition containing the model filename
  */
-export function useBabylonAvatarModelLoader(def: AvatarModelDefinition) {
+export function useBabylonAvatarModelLoader(
+    def: AvatarModelDefinition,
+    vircadiaWorld: ReturnType<typeof useVircadia>,
+) {
     const meshes = shallowRef<AbstractMesh[]>([]);
     const skeletons = shallowRef<Skeleton[]>([]);
     const animationGroups = shallowRef<AnimationGroup[]>([]);
@@ -29,6 +32,7 @@ export function useBabylonAvatarModelLoader(def: AvatarModelDefinition) {
         fileName: fileNameRef,
         useCache: true,
         debug: false,
+        instance: vircadiaWorld,
     });
 
     /**

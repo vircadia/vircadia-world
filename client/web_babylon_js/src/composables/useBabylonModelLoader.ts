@@ -9,7 +9,7 @@ import {
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
 import type { BabylonModelDefinition } from "./schemas";
-import { useAsset } from "@vircadia/world-sdk/browser/vue";
+import { useAsset, type useVircadia } from "@vircadia/world-sdk/browser/vue";
 
 // glTF metadata definitions (copied from useBabylonModel)
 namespace glTF {
@@ -102,7 +102,10 @@ namespace glTF {
 }
 
 // Composable for loading a 3D model and processing lightmaps
-export function useBabylonModelLoader(def: BabylonModelDefinition) {
+export function useBabylonModelLoader(
+    def: BabylonModelDefinition,
+    vircadiaWorld: ReturnType<typeof useVircadia>,
+) {
     // only track top-level array changes, never recurse into mesh properties
     const meshes = shallowRef<AbstractMesh[]>([]);
     const fileNameRef = ref(def.fileName);
@@ -110,6 +113,7 @@ export function useBabylonModelLoader(def: BabylonModelDefinition) {
         fileName: fileNameRef,
         useCache: true,
         debug: false,
+        instance: vircadiaWorld,
     });
 
     // Load mesh blobs into the scene, apply lightmaps if present

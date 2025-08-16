@@ -15,7 +15,6 @@ import {
     type Ref,
     computed,
 } from "vue";
-import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
 
 import { useAppStore } from "@/stores/appStore";
 
@@ -55,6 +54,7 @@ import type {
 // Define component props with defaults
 const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
+    vircadiaWorld: { type: Object as () => any, required: true },
 });
 
 const emit = defineEmits<{ ready: []; dispose: [] }>();
@@ -461,6 +461,9 @@ const throttledJointUpdate = useThrottleFn(async () => {
     }
 }, appStore.pollingIntervals.avatarJointData);
 
+// Use Vircadia instance from props (moved up to fix initialization order)
+const vircadiaWorld = props.vircadiaWorld;
+
 // Camera controller
 const { camera, setupCamera, updateCameraFromMeta } =
     useBabylonAvatarCameraController(
@@ -473,7 +476,10 @@ const { camera, setupCamera, updateCameraFromMeta } =
 
 // Avatar model loader (GLTF/GLB)
 const { meshes, skeletons, animationGroups, loadModel, asset } =
-    useBabylonAvatarModelLoader({ fileName: modelFileName.value });
+    useBabylonAvatarModelLoader(
+        { fileName: modelFileName.value },
+        vircadiaWorld,
+    );
 
 // Replace the existing localAnimGroups and animation-related code
 const blendWeight = ref(0); // 0 = idle, 1 = walk
@@ -599,12 +605,6 @@ const legRotationTest = reactive({
     targetBone: null as Bone | null,
     originalRotation: null as Quaternion | null,
 });
-
-// Get Vircadia instance
-const vircadiaWorld = inject(useVircadiaInstance());
-if (!vircadiaWorld) {
-    throw new Error("Vircadia instance not found in BabylonMyAvatar");
-}
 
 const entityData = ref<{
     general__entity_name: string;

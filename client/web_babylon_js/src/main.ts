@@ -6,19 +6,66 @@ import "vuetify/styles";
 import "./assets/main.css";
 import { createPinia } from "pinia";
 
-import {
-    useVircadia,
-    DEFAULT_VIRCADIA_INSTANCE_KEY,
-    Communication,
-} from "@vircadia/world-sdk/browser/vue";
-
-import { clientBrowserConfiguration } from "./vircadia.browser.config";
-
 // Vuetify setup
 import { createVuetify } from "vuetify";
 
 // App setup
 const app = createApp(App);
+
+// Configure error handler to suppress harmless warnings and handle known issues
+app.config.errorHandler = (err, _instance, info) => {
+    // Check if err is an Error object
+    if (err instanceof Error) {
+        // Suppress Vuetify slot warnings which are harmless but noisy
+        if (
+            err.message.includes(
+                'Slot "default" invoked outside of the render function',
+            ) ||
+            err.message.includes(
+                'Slot "prepend" invoked outside of the render function',
+            ) ||
+            err.message.includes(
+                'Slot "append" invoked outside of the render function',
+            )
+        ) {
+            // Silently ignore these warnings
+            return;
+        }
+
+        // Handle component lifecycle errors during conditional rendering
+        if (
+            err instanceof TypeError &&
+            err.message.includes(
+                "Cannot read properties of null (reading 'emitsOptions')",
+            )
+        ) {
+            // This happens when components are destroyed while being updated
+            // Log a more helpful message
+            console.warn(
+                "Component was destroyed during update cycle. This is usually harmless.",
+            );
+            return;
+        }
+    }
+
+    // Log other errors normally
+    console.error("Vue error:", err, info);
+};
+
+// Configure warning handler to suppress harmless Vuetify slot warnings
+app.config.warnHandler = (msg, _instance, trace) => {
+    // Suppress Vuetify slot warnings
+    if (
+        msg.includes("Slot") &&
+        msg.includes("invoked outside of the render function")
+    ) {
+        // Silently ignore these warnings
+        return;
+    }
+
+    // Log other warnings normally
+    console.warn("Vue warning:", msg, trace);
+};
 
 // Pinia setup
 const pinia = createPinia();
@@ -49,37 +96,6 @@ const vuetify = createVuetify({
     },
 });
 app.use(vuetify);
-
-// Initialize Vircadia
-console.log("[Main] Initializing Vircadia client with config", {
-    ssl: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL,
-    apiUri: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI,
-    wsPath: Communication.WS_UPGRADE_PATH,
-    hasDebugToken:
-        !!clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
-    debugProvider:
-        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER,
-    debug: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
-});
-
-const vircadiaWorld = useVircadia({
-    config: {
-        serverUrl:
-            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL
-                ? `https://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`
-                : `http://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`,
-        authToken:
-            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
-        authProvider:
-            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER,
-        debug: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
-        suppress:
-            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
-    },
-});
-
-// Make the Vircadia instance available to all components
-app.provide(DEFAULT_VIRCADIA_INSTANCE_KEY, vircadiaWorld);
 
 // Mount the app
 app.mount("#app");

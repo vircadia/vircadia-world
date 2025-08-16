@@ -35,25 +35,22 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useAppStore } from "@/stores/appStore";
-import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
+
 import { useSimplifiedWebRTC } from "@/composables/useSimplifiedWebRTC";
 import { useWebRTCSpatialAudio } from "@/composables/useWebRTCSpatialAudio";
 
 interface Props {
     instanceId: string;
+    vircadiaWorld: any;
 }
 
 const props = defineProps<Props>();
 
 // Initialize stores and services
 const appStore = useAppStore();
-const vircadiaWorld = inject(useVircadiaInstance());
-
-if (!vircadiaWorld) {
-    throw new Error("Vircadia instance not found");
-}
+const vircadiaWorld = props.vircadiaWorld;
 
 // Computed session ID
 const fullSessionId = computed(() => {

@@ -410,9 +410,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onUnmounted, onMounted, inject } from "vue";
+import { computed, ref, onUnmounted, onMounted } from "vue";
 import { useAppStore } from "@/stores/appStore";
-import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
+
 import { useWebRTCSpatialAudio } from "@/composables/useWebRTCSpatialAudio";
 import {
     createWebRTCSessionEntityName,
@@ -425,6 +425,7 @@ import type { AvatarMetadata } from "@/composables/schemas";
 
 interface Props {
     instanceId: string;
+    vircadiaWorld: any;
     otherAvatarsMetadata?: Record<string, AvatarMetadata>;
 }
 
@@ -476,11 +477,7 @@ interface WebRTCMessageWithKey extends WebRTCMessage {
 
 // Initialize stores and services
 const appStore = useAppStore();
-const vircadiaWorld = inject(useVircadiaInstance());
-
-if (!vircadiaWorld) {
-    throw new Error("Vircadia instance not found");
-}
+const vircadiaWorld = props.vircadiaWorld;
 
 // Component state
 const peers = ref<Map<string, PeerInfo>>(new Map());

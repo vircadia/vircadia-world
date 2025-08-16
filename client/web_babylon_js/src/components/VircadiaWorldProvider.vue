@@ -20,9 +20,10 @@
 </template>
 
 <script setup lang="ts">
-import { inject, computed, watch, ref } from "vue";
+import { computed, watch, ref } from "vue";
 import { useAppStore } from "@/stores/appStore";
-import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
+import { useVircadia, Communication } from "@vircadia/world-sdk/browser/vue";
+import { clientBrowserConfiguration } from "@/vircadia.browser.config";
 
 const props = defineProps<{
     autoConnect?: boolean;
@@ -40,12 +41,36 @@ const props = defineProps<{
 const autoConnect = computed(() => props.autoConnect !== false);
 const reconnectDelayMs = computed(() => props.reconnectDelayMs ?? 2000);
 
-// Access Vircadia instance from global provider
-const vircadiaWorldInjected = inject(useVircadiaInstance());
-if (!vircadiaWorldInjected) {
-    throw new Error("Vircadia instance not found in VircadiaWorldProvider");
-}
-const vircadiaWorldNonNull = vircadiaWorldInjected;
+// Initialize Vircadia instance directly in the provider
+console.log(
+    "[VircadiaWorldProvider] Initializing Vircadia client with config",
+    {
+        ssl: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL,
+        apiUri: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI,
+        wsPath: Communication.WS_UPGRADE_PATH,
+        hasDebugToken:
+            !!clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
+        debugProvider:
+            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER,
+        debug: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
+    },
+);
+
+const vircadiaWorldNonNull = useVircadia({
+    config: {
+        serverUrl:
+            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL
+                ? `https://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`
+                : `http://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`,
+        authToken:
+            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
+        authProvider:
+            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER,
+        debug: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
+        suppress:
+            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
+    },
+});
 
 // App store for auth/session
 const appStore = useAppStore();

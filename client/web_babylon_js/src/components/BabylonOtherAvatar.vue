@@ -12,7 +12,7 @@ import {
     toRefs,
     type Ref,
 } from "vue";
-import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
+
 import { useAppStore } from "@/stores/appStore";
 import {
     Vector3,
@@ -44,6 +44,7 @@ import type {
 const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
     sessionId: { type: String, required: true },
+    vircadiaWorld: { type: Object as () => any, required: true },
 });
 
 const emit = defineEmits<{
@@ -77,11 +78,8 @@ const lastReceivedJoints: Ref<Map<string, AvatarJointMetadata>> = ref(
 // the last poll, reducing data transfer and allowing more frequent polling
 const lastPollTimestamp: Ref<Date | null> = ref(null);
 
-// Get Vircadia instance
-const vircadiaWorld = inject(useVircadiaInstance());
-if (!vircadiaWorld) {
-    throw new Error("Vircadia instance not found in BabylonOtherAvatar");
-}
+// Use Vircadia instance from props
+const vircadiaWorld = props.vircadiaWorld;
 
 // Audio playback is now handled by BabylonWebRTC component
 
@@ -91,6 +89,7 @@ const asset = useAsset({
     fileName: modelFileNameRef,
     useCache: true,
     debug: false,
+    instance: vircadiaWorld,
 });
 
 // Helper functions

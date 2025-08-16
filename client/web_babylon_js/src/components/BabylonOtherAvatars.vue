@@ -3,6 +3,7 @@
         v-for="otherSessionId in otherAvatarSessionIds"
         :key="otherSessionId"
         :scene="scene"
+        :vircadia-world="vircadiaWorld"
         :session-id="otherSessionId"
         ref="otherAvatarRefs"
         @avatar-metadata="(e: { sessionId: string; metadata: AvatarMetadata }) => { otherAvatarsMetadataLocal[e.sessionId] = e.metadata; emitMetadataUpdate(); }"
@@ -20,7 +21,7 @@ import {
     onUnmounted,
     toRefs,
 } from "vue";
-import { useVircadiaInstance } from "@vircadia/world-sdk/browser/vue";
+
 import { useAppStore } from "@/stores/appStore";
 import BabylonOtherAvatar from "./BabylonOtherAvatar.vue";
 import type { AvatarMetadata } from "@/composables/schemas";
@@ -32,6 +33,7 @@ const emit = defineEmits<{
 
 const props = defineProps({
     scene: { type: Object, required: true },
+    vircadiaWorld: { type: Object as () => any, required: true },
     otherAvatarsMetadata: {
         type: Object as () => Record<string, AvatarMetadata>,
         required: false,
@@ -68,7 +70,7 @@ type VircadiaWorld = {
 };
 
 const vircadiaWorld = ensure<VircadiaWorld>(
-    inject(useVircadiaInstance()),
+    props.vircadiaWorld,
     "Vircadia instance not found in BabylonOtherAvatars",
 );
 

@@ -79,15 +79,16 @@
                         ref="otherAvatarsRef"
                     />
 
-                    <!-- BabylonModel components -->
+                    <!-- BabylonModel components provided by DB-scanned list -->
+                <BabylonModels :vircadia-world="vircadiaWorld" v-slot="{ models }">
                     <BabylonModel
-                        v-for="def in appStore.modelDefinitions"
-                        :key="def.fileName"
+                        v-for="def in models"
+                        :key="def.entityName || def.fileName"
                         :def="def"
-                        :scene="sceneNonNull"
-                        :vircadia-world="vircadiaWorld"
+                        :scene="scene"
                         ref="modelRefs"
                     />
+                </BabylonModels>
                 </template>
             </BabylonEnvironment>
         </main>

@@ -3,15 +3,7 @@
 </template>
 
 <script setup>
-import {
-    ref,
-    onMounted,
-    onUnmounted,
-    watch,
-    toRef,
-    defineExpose,
-    nextTick,
-} from "vue";
+import { ref, onMounted, onUnmounted, watch, toRef, nextTick } from "vue";
 import {
     Scene,
     Vector3,

@@ -148,7 +148,6 @@ const logStoreData = () => {
     console.log("App Store Data:", {
         instanceId: props.appStore.instanceId,
         fullSessionId: props.appStore.fullSessionId,
-        modelDefinitions: props.appStore.modelDefinitions,
         pollingIntervals: props.appStore.pollingIntervals,
     });
 };

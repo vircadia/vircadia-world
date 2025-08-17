@@ -3,7 +3,6 @@ import { ref, computed } from "vue";
 import { useStorage, StorageSerializers } from "@vueuse/core";
 import type { AccountInfo } from "@azure/msal-browser";
 import type {
-    BabylonModelDefinition,
     BabylonAnimationDefinition,
     PeerAudioState,
 } from "../composables/schemas";
@@ -20,10 +19,6 @@ export const useAppStore = defineStore("app", () => {
     const loading = ref(false);
     // global error message
     const error = ref<string | null>(null);
-    // model definitions for environments
-    const modelDefinitions = ref<BabylonModelDefinition[]>(
-        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_MODEL_DEFINITIONS,
-    );
     // HDR environment list
     const hdrList = ref<string[]>(["babylon.level.hdr.1k.hdr"]);
     // IDs for session, agent, and instance
@@ -585,7 +580,6 @@ export const useAppStore = defineStore("app", () => {
     return {
         loading,
         error,
-        modelDefinitions,
         hdrList,
         instanceId,
         myAvatarMetadata,

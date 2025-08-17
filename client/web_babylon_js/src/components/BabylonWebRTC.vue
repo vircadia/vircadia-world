@@ -419,13 +419,14 @@ import {
     PeerDiscoveryEntitySchema,
 } from "@/composables/schemas";
 import type { WebRTCMessage, PeerDiscoveryEntity } from "@/composables/schemas";
+import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
 
 // Props for the component
 import type { AvatarMetadata } from "@/composables/schemas";
 
 interface Props {
     instanceId: string;
-    vircadiaWorld: any;
+    vircadiaWorld: ReturnType<typeof useVircadia>;
     otherAvatarsMetadata?: Record<string, AvatarMetadata>;
 }
 

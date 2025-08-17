@@ -1,7 +1,7 @@
 <template>
     <slot 
         :vircadiaWorld="vircadiaWorldNonNull"
-        :connectionInfo="connectionInfo"
+        :connectionInfo="connectionInfoComputed"
         :connectionStatus="connectionStatus"
         :isConnecting="isConnecting"
         :isAuthenticated="isAuthenticatedComputed"
@@ -20,10 +20,45 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch, ref } from "vue";
+import { computed, watch, ref, onUnmounted, type Ref } from "vue";
 import { useAppStore } from "@/stores/appStore";
-import { useVircadia, Communication } from "@vircadia/world-sdk/browser/vue";
+import {
+    Communication,
+    ClientCore,
+    type ClientCoreConnectionInfo,
+} from "@vircadia/world-sdk/browser/vue";
 import { clientBrowserConfiguration } from "@/vircadia.browser.config";
+
+// Strongly type the slot props so consumers don't get `any`
+type VircadiaWorldInstance = {
+    client: ClientCore;
+    connectionInfo: Ref<ClientCoreConnectionInfo>;
+    dispose: () => void;
+};
+type VircadiaConnectionInfo = VircadiaWorldInstance["connectionInfo"]["value"];
+type VircadiaConnectionStatus = VircadiaConnectionInfo["status"];
+
+export type VircadiaWorldSlotProps = {
+    vircadiaWorld: VircadiaWorldInstance;
+    connectionInfo: VircadiaConnectionInfo;
+    connectionStatus: VircadiaConnectionStatus;
+    isConnecting: boolean;
+    isAuthenticated: boolean;
+    isAuthenticating: boolean;
+    authError: string | null;
+    account: unknown | null;
+    accountDisplayName: string;
+    sessionToken: string | null;
+    sessionId: string | null;
+    agentId: string | null;
+    authProvider: string | null;
+    connect: () => Promise<void>;
+    disconnect: () => void;
+};
+
+defineSlots<{
+    default(props: VircadiaWorldSlotProps): void;
+}>();
 
 const props = defineProps<{
     autoConnect?: boolean;
@@ -41,7 +76,7 @@ const props = defineProps<{
 const autoConnect = computed(() => props.autoConnect !== false);
 const reconnectDelayMs = computed(() => props.reconnectDelayMs ?? 2000);
 
-// Initialize Vircadia instance directly in the provider
+// Initialize Vircadia client directly in the provider (replaces useVircadia)
 console.log(
     "[VircadiaWorldProvider] Initializing Vircadia client with config",
     {
@@ -56,21 +91,52 @@ console.log(
     },
 );
 
-const vircadiaWorldNonNull = useVircadia({
-    config: {
-        serverUrl:
-            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL
-                ? `https://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`
-                : `http://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`,
-        authToken:
-            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
-        authProvider:
-            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER,
-        debug: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
-        suppress:
-            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
-    },
+const client = new ClientCore({
+    serverUrl:
+        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL
+            ? `https://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`
+            : `http://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`,
+    authToken:
+        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
+    authProvider:
+        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER,
+    debug: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
+    suppress: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
 });
+
+const connectionInfo = ref<ClientCoreConnectionInfo>(
+    client.Utilities.Connection.getConnectionInfo(),
+);
+
+const updateConnectionStatus = () => {
+    connectionInfo.value = client.Utilities.Connection.getConnectionInfo();
+};
+
+client.Utilities.Connection.addEventListener(
+    "statusChange",
+    updateConnectionStatus,
+);
+
+const dispose = () => {
+    client.Utilities.Connection.removeEventListener(
+        "statusChange",
+        updateConnectionStatus,
+    );
+
+    if (connectionInfo.value.isConnected) {
+        client.Utilities.Connection.disconnect();
+    }
+
+    client.dispose();
+};
+
+onUnmounted(dispose);
+
+const vircadiaWorldNonNull: VircadiaWorldInstance = {
+    client,
+    connectionInfo,
+    dispose,
+};
 
 // App store for auth/session
 const appStore = useAppStore();
@@ -81,10 +147,10 @@ const lastConnectedToken = ref<string | null>(null);
 const lastConnectedAgentId = ref<string | null>(null);
 
 // Derived state
-const connectionInfo = computed(
+const connectionInfoComputed = computed(
     () => vircadiaWorldNonNull.connectionInfo.value,
 );
-const connectionStatus = computed(() => connectionInfo.value.status);
+const connectionStatus = computed(() => connectionInfoComputed.value.status);
 
 // Auth state (can be provided via props, otherwise falls back to store)
 const isAuthenticatedComputed = computed(
@@ -129,16 +195,16 @@ const accountDisplayName = computed(() => {
 
 // Keep session and agent IDs synced back to the store
 watch(
-    () => connectionInfo.value.sessionId,
+    () => connectionInfoComputed.value.sessionId,
     (newSessionId) => appStore.setSessionId(newSessionId ?? null),
 );
 watch(
-    () => connectionInfo.value.agentId,
+    () => connectionInfoComputed.value.agentId,
     (newAgentId) => appStore.setAgentId(newAgentId ?? null),
 );
 
 function ensureDisconnected() {
-    const info = connectionInfo.value;
+    const info = connectionInfoComputed.value;
     if (info.isConnected || info.isConnecting) {
         vircadiaWorldNonNull.client.Utilities.Connection.disconnect();
     }
@@ -151,7 +217,7 @@ async function connect() {
         isConnecting: isConnecting.value,
         currentToken: sessionTokenComputed.value,
         currentAgentId: agentIdComputed.value,
-        connectionInfo: connectionInfo.value,
+        connectionInfo: connectionInfoComputed.value,
         lastConnectedToken: lastConnectedToken.value,
         lastConnectedAgentId: lastConnectedAgentId.value,
     });
@@ -172,7 +238,7 @@ async function connect() {
 
     // No-op if already connected with same credentials
     if (
-        connectionInfo.value.isConnected &&
+        connectionInfoComputed.value.isConnected &&
         lastConnectedToken.value === currentToken &&
         lastConnectedAgentId.value === currentAgentId
     ) {
@@ -187,8 +253,8 @@ async function connect() {
     try {
         // Always disconnect first for a clean state
         if (
-            connectionInfo.value.isConnected ||
-            connectionInfo.value.isConnecting
+            connectionInfoComputed.value.isConnected ||
+            connectionInfoComputed.value.isConnecting
         ) {
             vircadiaWorldNonNull.client.Utilities.Connection.disconnect();
             await new Promise((resolve) => setTimeout(resolve, 100));
@@ -304,7 +370,7 @@ defineExpose({
     connect,
     disconnect,
     vircadiaWorld: vircadiaWorldNonNull,
-    connectionInfo,
+    connectionInfo: connectionInfoComputed,
     connectionStatus,
     isConnecting,
     isAuthenticated: isAuthenticatedComputed,

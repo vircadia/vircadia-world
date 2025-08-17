@@ -25,6 +25,7 @@ import {
 import { useAppStore } from "@/stores/appStore";
 import BabylonOtherAvatar from "./BabylonOtherAvatar.vue";
 import type { AvatarMetadata } from "@/composables/schemas";
+import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
 
 // Emits and Props
 const emit = defineEmits<{
@@ -33,7 +34,10 @@ const emit = defineEmits<{
 
 const props = defineProps({
     scene: { type: Object, required: true },
-    vircadiaWorld: { type: Object as () => any, required: true },
+    vircadiaWorld: {
+        type: Object as () => ReturnType<typeof useVircadia>,
+        required: true,
+    },
     otherAvatarsMetadata: {
         type: Object as () => Record<string, AvatarMetadata>,
         required: false,
@@ -52,24 +56,7 @@ function ensure<T = unknown>(value: unknown, message: string): T {
     return value as T;
 }
 
-type VircadiaWorld = {
-    connectionInfo: { value: { status: string } };
-    client: {
-        Utilities: {
-            Connection: {
-                query: (args: {
-                    query: string;
-                    parameters?: unknown[];
-                    timeoutMs?: number;
-                }) => Promise<{
-                    result?: Array<{ general__entity_name: string }>;
-                }>;
-            };
-        };
-    };
-};
-
-const vircadiaWorld = ensure<VircadiaWorld>(
+const vircadiaWorld = ensure<ReturnType<typeof useVircadia>>(
     props.vircadiaWorld,
     "Vircadia instance not found in BabylonOtherAvatars",
 );

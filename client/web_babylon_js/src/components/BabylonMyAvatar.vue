@@ -43,6 +43,7 @@ import { useBabylonAvatarPhysicsController } from "../composables/useBabylonAvat
 import { useBabylonAvatarCameraController } from "../composables/useBabylonAvatarCameraController";
 import { useBabylonAvatarModelLoader } from "../composables/useBabylonAvatarModelLoader";
 import { useBabylonAvatarAnimationLoader } from "../composables/useBabylonAvatarAnimationLoader";
+import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
 import type {
     PositionObj,
     RotationObj,
@@ -54,7 +55,10 @@ import type {
 // Define component props with defaults
 const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
-    vircadiaWorld: { type: Object as () => any, required: true },
+    vircadiaWorld: {
+        type: Object as () => ReturnType<typeof useVircadia>,
+        required: true,
+    },
 });
 
 const emit = defineEmits<{ ready: []; dispose: [] }>();

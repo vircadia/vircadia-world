@@ -3,6 +3,7 @@ import { ref } from "vue";
 import { HDRCubeTexture, type Scene } from "@babylonjs/core";
 
 import { useAsset } from "@vircadia/world-sdk/browser/vue";
+import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
 //  ^ Vircadia's Vue SDK:
 //    - useAsset: composable to fetch an asset and process from Vircadia's database.
 
@@ -13,7 +14,7 @@ import { useAsset } from "@vircadia/world-sdk/browser/vue";
 // - Applies HDR textures to the scene
 export function useBabylonEnvironment(
     hdrFiles: string[], // list of HDR file names on the Vircadia server in the entity.entity_assets table
-    vircadiaWorld: any, // Vircadia World client instance
+    vircadiaWorld: ReturnType<typeof useVircadia>, // Vircadia World client instance
 ) {
     const isLoading = ref(false);
     // ^ tracks whether we're already loading—prevents duplicate calls

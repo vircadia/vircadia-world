@@ -7,10 +7,11 @@
 import { ref, watch, toRef } from "vue";
 import { HDRCubeTexture, type Scene } from "@babylonjs/core";
 import { useAsset } from "@vircadia/world-sdk/browser/vue";
+import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
 
 const props = defineProps<{
     scene: Scene;
-    vircadiaWorld: any;
+    vircadiaWorld: ReturnType<typeof useVircadia>;
     hdrFiles: string[];
 }>();
 

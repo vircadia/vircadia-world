@@ -15,11 +15,12 @@ import { useDebounceFn } from "@vueuse/core";
 import { useBabylonModelLoader } from "../composables/useBabylonModelLoader";
 import { useBabylonModelPhysics } from "../composables/useBabylonModelPhysics";
 import { useAppStore } from "@/stores/appStore";
+import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
 
 const props = defineProps<{
     def: BabylonModelDefinition;
     scene: Scene | null;
-    vircadiaWorld: any;
+    vircadiaWorld: ReturnType<typeof useVircadia>;
 }>();
 
 // --- Set up Babylon model pipelines ---

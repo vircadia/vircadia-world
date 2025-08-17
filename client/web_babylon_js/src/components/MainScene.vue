@@ -83,9 +83,10 @@
                     <BabylonModels :vircadia-world="vircadiaWorld" v-slot="{ models }">
                         <BabylonModel
                             v-for="def in models"
-                            :key="def.entityName || def.fileName"
+                            :key="def.fileName"
                             :def="def"
-                            :scene="scene"
+                            :scene="sceneNonNull"
+                            :vircadia-world="vircadiaWorld"
                             ref="modelRefs"
                         />
                     </BabylonModels>

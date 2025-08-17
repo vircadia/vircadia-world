@@ -1162,6 +1162,8 @@ export namespace Server_CLI {
                 data: {
                     "System SQL Files": systemSqlFiles.length,
                     "User SQL Files": userSqlFiles.length,
+                    "Total SQL Files":
+                        systemSqlFiles.length + userSqlFiles.length,
                 },
                 type: "success",
                 suppress: cliConfiguration.VRCA_CLI_SUPPRESS,

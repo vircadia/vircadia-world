@@ -1,8 +1,9 @@
 import { z } from "zod";
 
 export interface BabylonModelDefinition {
+    entityName: string;
     fileName: string;
-    entityType: "model";
+    entityType: "Model";
     position?: { x: number; y: number; z: number };
     rotation?: { x: number; y: number; z: number; w: number };
     throttleInterval?: number;

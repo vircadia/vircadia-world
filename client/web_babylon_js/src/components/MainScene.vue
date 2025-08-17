@@ -79,15 +79,16 @@
                         ref="otherAvatarsRef"
                     />
 
-                    <!-- BabylonModel components -->
-                    <BabylonModel
-                        v-for="def in appStore.modelDefinitions"
-                        :key="def.fileName"
-                        :def="def"
-                        :scene="sceneNonNull"
-                        :vircadia-world="vircadiaWorld"
-                        ref="modelRefs"
-                    />
+                    <!-- BabylonModel components provided by DB-scanned list -->
+                    <BabylonModels :vircadia-world="vircadiaWorld" v-slot="{ models }">
+                        <BabylonModel
+                            v-for="def in models"
+                            :key="def.entityName || def.fileName"
+                            :def="def"
+                            :scene="scene"
+                            ref="modelRefs"
+                        />
+                    </BabylonModels>
                 </template>
             </BabylonEnvironment>
         </main>
@@ -128,8 +129,6 @@
                 </template>
                 <span>Toggle Debug Overlay</span>
             </v-tooltip>
-            
-            
             
             <!-- Audio Controls -->
             <v-tooltip bottom>
@@ -187,6 +186,7 @@ import {
 import BabylonMyAvatar from "../components/BabylonMyAvatar.vue";
 import BabylonOtherAvatars from "../components/BabylonOtherAvatars.vue";
 import BabylonModel from "../components/BabylonModel.vue";
+import BabylonModels from "../components/BabylonModels.vue";
 import BabylonWebRTC from "../components/BabylonWebRTC.vue";
 import BabylonDebugOverlay from "../components/BabylonDebugOverlay.vue";
 import BabylonInspector from "../components/BabylonInspector.vue";
@@ -202,6 +202,8 @@ void BabylonMyAvatar;
 void BabylonOtherAvatars;
 // mark as used at runtime for template
 void BabylonModel;
+// mark as used at runtime for template
+void BabylonModels;
 // mark as used at runtime for template
 void BabylonWebRTC;
 // mark as used at runtime for template

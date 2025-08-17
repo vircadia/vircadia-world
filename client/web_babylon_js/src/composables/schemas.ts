@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export interface BabylonModelDefinition {
     fileName: string;
-    entityName?: string;
+    entityType: "model";
     position?: { x: number; y: number; z: number };
     rotation?: { x: number; y: number; z: number; w: number };
     throttleInterval?: number;
@@ -144,13 +144,6 @@ export const WebRTCMetadataSchema = z.object({
 });
 
 export type WebRTCMetadata = z.infer<typeof WebRTCMetadataSchema>;
-
-export const WebRTCEntitySchema = z.object({
-    general__entity_name: z.string().optional(),
-    meta__data: WebRTCMetadataSchema.optional(),
-});
-
-export type WebRTCEntity = z.infer<typeof WebRTCEntitySchema>;
 
 // Simplified WebRTC message schema - messages are stored as metadata entries
 export const WebRTCMessageSchema = z.object({

@@ -13,6 +13,7 @@
         :sessionId="sessionIdComputed"
         :agentId="agentIdComputed"
         :authProvider="authProviderComputed"
+        :instanceId="instanceId"
         :connect="connect"
         :disconnect="disconnect"
     />
@@ -20,8 +21,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch, ref, onUnmounted, type Ref } from "vue";
-import { useAppStore } from "@/stores/appStore";
+import { computed, watch, ref, onUnmounted, onMounted, type Ref } from "vue";
 import {
     Communication,
     ClientCore,
@@ -52,6 +52,7 @@ export type VircadiaWorldSlotProps = {
     sessionId: string | null;
     agentId: string | null;
     authProvider: string | null;
+    instanceId: string | null;
     connect: () => Promise<void>;
     disconnect: () => void;
 };
@@ -138,13 +139,31 @@ const vircadiaWorldNonNull: VircadiaWorldInstance = {
     dispose,
 };
 
-// App store for auth/session
-const appStore = useAppStore();
-
 // Connection state
 const isConnecting = ref(false);
 const lastConnectedToken = ref<string | null>(null);
 const lastConnectedAgentId = ref<string | null>(null);
+
+const instanceId = ref<string | null>(null);
+
+function generateInstanceId(): string {
+    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+    let result = "";
+    for (let i = 0; i < 6; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+}
+
+onMounted(() => {
+    if (!instanceId.value) {
+        instanceId.value = generateInstanceId();
+        console.log(
+            "[VircadiaWorldProvider] Generated instance ID:",
+            instanceId.value,
+        );
+    }
+});
 
 // Derived state
 const connectionInfoComputed = computed(
@@ -152,23 +171,20 @@ const connectionInfoComputed = computed(
 );
 const connectionStatus = computed(() => connectionInfoComputed.value.status);
 
-// Auth state (can be provided via props, otherwise falls back to store)
-const isAuthenticatedComputed = computed(
-    () => props.isAuthenticated ?? appStore.isAuthenticated,
+// Auth state is provided via props
+const isAuthenticatedComputed = computed(() => !!props.isAuthenticated);
+const isAuthenticatingComputed = computed(() => !!props.isAuthenticating);
+const authErrorComputed = computed(() => props.authError ?? null);
+const accountComputed = computed(() => props.account ?? null);
+const sessionTokenComputed = computed(() => props.sessionToken ?? null);
+// session and agent IDs from connection info
+const sessionIdComputed = computed(
+    () => connectionInfoComputed.value.sessionId ?? null,
 );
-const isAuthenticatingComputed = computed(
-    () => props.isAuthenticating ?? appStore.isAuthenticating,
+const agentIdComputed = computed(
+    () => connectionInfoComputed.value.agentId ?? null,
 );
-const authErrorComputed = computed(() => props.authError ?? appStore.authError);
-const accountComputed = computed(() => props.account ?? appStore.account);
-const sessionTokenComputed = computed(
-    () => props.sessionToken ?? appStore.sessionToken,
-);
-const sessionIdComputed = computed(() => appStore.sessionId);
-const agentIdComputed = computed(() => props.agentId ?? appStore.agentId);
-const authProviderComputed = computed(
-    () => props.authProvider ?? appStore.getCurrentAuthProvider,
-);
+const authProviderComputed = computed(() => props.authProvider ?? "anon");
 
 type MinimalAccount =
     | {
@@ -193,15 +209,7 @@ const accountDisplayName = computed(() => {
     );
 });
 
-// Keep session and agent IDs synced back to the store
-watch(
-    () => connectionInfoComputed.value.sessionId,
-    (newSessionId) => appStore.setSessionId(newSessionId ?? null),
-);
-watch(
-    () => connectionInfoComputed.value.agentId,
-    (newAgentId) => appStore.setAgentId(newAgentId ?? null),
-);
+// No app store syncing
 
 function ensureDisconnected() {
     const info = connectionInfoComputed.value;
@@ -288,16 +296,10 @@ async function connect() {
                 error.message.includes("401") ||
                 error.message.includes("Invalid token")
             ) {
-                appStore.setError(
-                    "Authentication failed. Please try logging in again.",
+                console.error(
+                    "[VircadiaWorldProvider] Authentication failed:",
+                    error,
                 );
-                // Clear authentication state to trigger IntroScreen
-                appStore.account = null;
-                appStore.sessionToken = null;
-                appStore.sessionId = null;
-                appStore.agentId = null;
-                appStore.authProvider = "anon";
-                appStore.authError = null;
             }
         }
     } finally {
@@ -382,6 +384,7 @@ defineExpose({
     sessionId: sessionIdComputed,
     agentId: agentIdComputed,
     authProvider: authProviderComputed,
+    instanceId,
 });
 </script>
 

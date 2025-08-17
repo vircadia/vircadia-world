@@ -191,7 +191,7 @@
         <div class="debug-footer">
             <label>
                 <input type="checkbox" v-model="autoRefresh" />
-                Auto-refresh ({{ appStore.pollingIntervals.debugOverlayRefresh }}ms)
+                Auto-refresh ({{ refreshIntervalMs }}ms)
             </label>
             <button @click="refreshData" class="refresh-btn">Refresh Now</button>
         </div>
@@ -200,7 +200,6 @@
 
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted, computed } from "vue";
-import { useAppStore } from "@/stores/appStore";
 
 interface JointTransform {
     position: { x: number; y: number; z: number };
@@ -224,11 +223,13 @@ const props = defineProps({
         type: Boolean,
         default: true,
     },
+    refreshIntervalMs: {
+        type: Number,
+        default: 100,
+    },
 });
 
 const emit = defineEmits(["close"]);
-
-const appStore = useAppStore();
 
 // Data refs
 const myAvatarData = ref<AvatarDebugData>({
@@ -435,10 +436,7 @@ watch(autoRefresh, (enabled) => {
 
 function startAutoRefresh() {
     if (refreshInterval) return;
-    refreshInterval = window.setInterval(
-        refreshData,
-        appStore.pollingIntervals.debugOverlayRefresh,
-    );
+    refreshInterval = window.setInterval(refreshData, props.refreshIntervalMs);
     refreshData(); // Initial refresh
 }
 

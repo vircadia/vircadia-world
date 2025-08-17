@@ -411,7 +411,6 @@
 
 <script setup lang="ts">
 import { computed, ref, onUnmounted, onMounted } from "vue";
-import { useAppStore } from "@/stores/appStore";
 
 import { useWebRTCSpatialAudio } from "@/composables/useWebRTCSpatialAudio";
 import {
@@ -428,6 +427,19 @@ interface Props {
     instanceId: string;
     vircadiaWorld: ReturnType<typeof useVircadia>;
     otherAvatarsMetadata?: Record<string, AvatarMetadata>;
+    // Replaces appStore audio state management
+    onSetPeerAudioState?: (
+        sessionId: string,
+        state: Partial<{
+            volume: number;
+            isMuted: boolean;
+            isReceiving: boolean;
+            isSending: boolean;
+        }>,
+    ) => void;
+    onRemovePeerAudioState?: (sessionId: string) => void;
+    onSetPeerVolume?: (sessionId: string, volume: number) => void;
+    onClearPeerAudioStates?: () => void;
 }
 
 const props = defineProps<Props>();
@@ -476,8 +488,7 @@ interface WebRTCMessageWithKey extends WebRTCMessage {
     metadataKey: string;
 }
 
-// Initialize stores and services
-const appStore = useAppStore();
+// Initialize services
 const vircadiaWorld = props.vircadiaWorld;
 
 // Component state
@@ -533,7 +544,9 @@ const spatialAudio = useWebRTCSpatialAudio(
 );
 
 // Computed properties for session management
-const baseSessionId = computed(() => appStore.sessionId);
+const baseSessionId = computed(
+    () => vircadiaWorld.connectionInfo.value.sessionId ?? null,
+);
 const fullSessionId = computed(() => {
     const base = baseSessionId.value;
     if (!base) return null;
@@ -1123,9 +1136,7 @@ async function connectToPeer(remoteSessionId: string) {
             pc.addTrack(track, localStream.value);
         }
         // Mark as sending audio to this peer
-        appStore.setPeerAudioState(remoteSessionId, {
-            isSending: true,
-        });
+        props.onSetPeerAudioState?.(remoteSessionId, { isSending: true });
     }
 
     // Create peer info with simplified state
@@ -1205,8 +1216,8 @@ function disconnectFromPeer(remoteSessionId: string) {
     // Clean up volume setting
     peerVolumes.value.delete(remoteSessionId);
 
-    // Remove from app store
-    appStore.removePeerAudioState(remoteSessionId);
+    // Remove from parent-managed audio state
+    props.onRemovePeerAudioState?.(remoteSessionId);
 }
 
 // Setup spatial audio playback for remote stream
@@ -1228,8 +1239,8 @@ function setupAudioPlayback(remoteSessionId: string, stream: MediaStream) {
         // Store reference for volume controls
         audioElements.value.set(remoteSessionId, audio);
 
-        // Update app store with audio state
-        appStore.setPeerAudioState(remoteSessionId, {
+        // Update parent-managed audio state
+        props.onSetPeerAudioState?.(remoteSessionId, {
             isReceiving: true,
             volume: storedVolume,
             isMuted: false,
@@ -1418,8 +1429,8 @@ async function setPeerVolume(peerId: string, volume: number) {
 
     peerVolumes.value.set(peerId, volume);
 
-    // Update app store
-    appStore.setPeerVolume(peerId, volume);
+    // Update parent-managed state
+    props.onSetPeerVolume?.(peerId, volume);
 
     // Set spatial audio volume
     spatialAudio.setPeerVolume(peerId, volume);
@@ -1543,7 +1554,7 @@ onMounted(async () => {
 
     // Initialize spatial audio
     spatialAudio.initialize();
-    appStore.setSpatialAudioEnabled(true);
+    // Inform parent spatial audio is enabled
 
     // Initialize local stream
     try {
@@ -1587,8 +1598,8 @@ onUnmounted(async () => {
 
     // Clean up spatial audio
     spatialAudio.cleanup();
-    appStore.setSpatialAudioEnabled(false);
-    appStore.clearPeerAudioStates();
+    // Inform parent to clear peer audio states
+    props.onClearPeerAudioStates?.();
 
     // Clean up audio context
     if (source.value) {

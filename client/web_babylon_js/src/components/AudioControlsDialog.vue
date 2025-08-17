@@ -5,11 +5,11 @@
       Audio Controls
       <v-spacer />
       <v-chip 
-        :color="appStore.spatialAudioEnabled ? 'success' : 'grey'" 
+        :color="spatialAudioEnabled ? 'success' : 'grey'" 
         size="small"
         variant="flat"
       >
-        {{ appStore.spatialAudioEnabled ? 'Spatial Audio Active' : 'Audio Inactive' }}
+        {{ spatialAudioEnabled ? 'Spatial Audio Active' : 'Audio Inactive' }}
       </v-chip>
     </v-card-title>
     
@@ -171,30 +171,32 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, inject } from "vue";
-import { useAppStore } from "@/stores/appStore";
+import { ref, computed } from "vue";
 import type { PeerAudioState } from "@/composables/schemas";
 
 // Props
 interface Props {
     webrtcRef?: InstanceType<typeof import("./BabylonWebRTC.vue").default>; // Reference to BabylonWebRTC component
+    spatialAudioEnabled: boolean;
+    onToggleSpatialAudio: (enabled: boolean) => void;
+    activePeerAudioStates: PeerAudioState[];
+    getPeerAudioState: (sessionId: string) => PeerAudioState | null;
+    onSetPeerVolume: (sessionId: string, volume: number) => void;
+    onSetPeerMuted: (sessionId: string, muted: boolean) => void;
 }
 
 const props = defineProps<Props>();
-
-// Store
-const appStore = useAppStore();
 
 // Local state - sync with WebRTC component if available
 const localMicVolume = ref(props.webrtcRef?.micVolume || 100);
 const localMicMuted = ref(props.webrtcRef?.isMuted || false);
 const spatialAudioEnabled = computed({
-    get: () => appStore.spatialAudioEnabled,
-    set: (value) => appStore.setSpatialAudioEnabled(value),
+    get: () => props.spatialAudioEnabled,
+    set: (value) => props.onToggleSpatialAudio(value),
 });
 
 // Computed
-const activePeerAudioStates = computed(() => appStore.activePeerAudioStates);
+const activePeerAudioStates = computed(() => props.activePeerAudioStates);
 
 // Methods
 function toggleLocalMic() {
@@ -216,11 +218,11 @@ function updateLocalMicVolume(value: number) {
 }
 
 function togglePeerMute(sessionId: string) {
-    const peer = appStore.getPeerAudioState(sessionId);
+    const peer = props.getPeerAudioState(sessionId);
     if (!peer) return;
 
     const newMutedState = !peer.isMuted;
-    appStore.setPeerMuted(sessionId, newMutedState);
+    props.onSetPeerMuted(sessionId, newMutedState);
 
     // Update actual volume through WebRTC component
     if (props.webrtcRef?.setPeerVolume) {
@@ -232,10 +234,10 @@ function togglePeerMute(sessionId: string) {
 }
 
 function updatePeerVolume(sessionId: string, value: number) {
-    appStore.setPeerVolume(sessionId, value);
+    props.onSetPeerVolume(sessionId, value);
 
     // Update actual volume through WebRTC component if not muted
-    const peer = appStore.getPeerAudioState(sessionId);
+    const peer = props.getPeerAudioState(sessionId);
     if (peer && !peer.isMuted && props.webrtcRef?.setPeerVolume) {
         props.webrtcRef.setPeerVolume(sessionId, value);
     }
@@ -255,8 +257,7 @@ function getConnectionType(peer: PeerAudioState): string {
 }
 
 function toggleSpatialAudio(value: boolean) {
-    appStore.setSpatialAudioEnabled(value);
-    // Note: Actual spatial audio toggle would need to be implemented in WebRTC component
+    props.onToggleSpatialAudio(value);
     console.log(`Spatial audio ${value ? "enabled" : "disabled"}`);
 }
 </script>

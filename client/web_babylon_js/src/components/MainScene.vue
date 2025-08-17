@@ -9,13 +9,14 @@
             :isAuthenticating="authProps.isAuthenticating"
             :authError="authProps.authError"
             :autoConnect="clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT"
-            v-slot="{ vircadiaWorld, connectionStatus, isConnecting, isAuthenticated, isAuthenticating, accountDisplayName, sessionId, agentId }">
+            v-slot="{ vircadiaWorld, connectionStatus, isConnecting, isAuthenticated, isAuthenticating, accountDisplayName, sessionId, agentId, instanceId }">
         <!-- Sync slot values to refs for script usage -->
         <div style="display: none">
             {{ vircadiaWorldRef = vircadiaWorld }}
             
             {{ sessionIdRef = sessionId }}
             {{ agentIdRef = agentId }}
+            {{ instanceIdRef = instanceId }}
         </div>
         <!-- Component Loader -->
         <template v-for="comp in availableComponents" :key="comp">
@@ -24,7 +25,6 @@
                 :scene="scene"
                 :engine="engine"
                 :canvas="renderCanvas"
-                :app-store="appStore"
                 :vircadia-world="vircadiaWorld"
                 :connection-status="connectionStatus"
                 :session-id="sessionId"
@@ -58,7 +58,7 @@
                 v-if="sceneInitialized && scene && connectionStatus === 'connected' && !isConnecting"
                 :scene="sceneNonNull"
                 :vircadia-world="vircadiaWorld"
-                :hdr-files="appStore.hdrList"
+                :hdr-files="hdrList"
                 ref="envRef"
                 v-slot="{ isLoading }"
             >
@@ -68,6 +68,8 @@
                     <BabylonMyAvatar
                         :scene="sceneNonNull"
                         :vircadia-world="vircadiaWorld"
+                        :instance-id="instanceId || undefined"
+                        :avatar-definition="avatarDefinition"
                         ref="avatarRef"
                     />
 
@@ -75,6 +77,7 @@
                     <BabylonOtherAvatars
                         :scene="sceneNonNull"
                         :vircadia-world="vircadiaWorld"
+                        :current-full-session-id="sessionId && instanceId ? `${sessionId}-${instanceId}` : null"
                         v-model:otherAvatarsMetadata="otherAvatarsMetadata"
                         ref="otherAvatarsRef"
                     />
@@ -95,10 +98,14 @@
         </main>
         <!-- WebRTC component (hidden, just for functionality) -->
         <BabylonWebRTC 
-            v-if="sessionId && appStore.instanceId" 
-            :instance-id="appStore.instanceId" 
+            v-if="sessionId && instanceId" 
+            :instance-id="instanceId" 
             :vircadia-world="vircadiaWorld"
             :other-avatars-metadata="otherAvatarsMetadata"
+            :on-set-peer-audio-state="setPeerAudioState"
+            :on-remove-peer-audio-state="removePeerAudioState"
+            :on-set-peer-volume="setPeerVolume"
+            :on-clear-peer-audio-states="clearPeerAudioStates"
             ref="webrtcStatus" 
             style="display: none;"
         />
@@ -111,7 +118,10 @@
                     <v-icon start>mdi-account-circle</v-icon>
                     {{ accountDisplayName }}
                 </v-chip>
-                <LogoutButton />
+                <LogoutButton 
+                    :isAuthenticated="isAuthenticated"
+                    :onLogout="authProps.logout"
+                />
             </div>
             
             <!-- Debug Controls -->
@@ -162,7 +172,15 @@
         
         <!-- Audio controls dialog -->
         <v-dialog v-model="audioDialog" max-width="600" eager>
-            <AudioControlsDialog :webrtc-ref="webrtcStatus || undefined" />
+            <AudioControlsDialog 
+                :webrtc-ref="webrtcStatus || undefined"
+                :spatial-audio-enabled="spatialAudioEnabled"
+                :on-toggle-spatial-audio="toggleSpatialAudio"
+                :active-peer-audio-states="activePeerAudioStates"
+                :get-peer-audio-state="getPeerAudioState"
+                :on-set-peer-volume="setPeerVolume"
+                :on-set-peer-muted="setPeerMuted"
+            />
         </v-dialog>
         
         <!-- Debug Joint Overlay -->
@@ -224,7 +242,6 @@ void BabylonCanvas;
 // mark as used at runtime for template
 void VircadiaWorldProvider;
 import BabylonEnvironment from "../components/BabylonEnvironment.vue";
-import { useAppStore } from "@/stores/appStore";
 import { clientBrowserConfiguration } from "@/vircadia.browser.config";
 
 // BabylonJS types
@@ -232,26 +249,57 @@ import type { Scene, WebGPUEngine } from "@babylonjs/core";
 
 // Auth change handling moved to provider
 
-// Store access with error handling for timing issues
-const appStore = useAppStore();
+// Local HDR list
+const hdrList = ["babylon.level.hdr.1k.hdr"];
+
+// Local avatar definition to ensure animations are present
+const avatarDefinition = {
+    initialAvatarPosition: { x: 0, y: 0, z: -5 },
+    initialAvatarRotation: { x: 0, y: 0, z: 0, w: 1 },
+    initialAvatarCameraOrientation: {
+        alpha: -Math.PI / 2,
+        beta: Math.PI / 3,
+        radius: 5,
+    },
+    modelFileName: "babylon.avatar.glb",
+    meshPivotPoint: "bottom" as const,
+    throttleInterval: 500,
+    capsuleHeight: 1.8,
+    capsuleRadius: 0.3,
+    slopeLimit: 45,
+    jumpSpeed: 5,
+    debugBoundingBox: false,
+    debugSkeleton: true,
+    debugAxes: false,
+    walkSpeed: 1.47,
+    turnSpeed: Math.PI,
+    blendDuration: 0.15,
+    gravity: -9.8,
+    animations: [
+        { fileName: "babylon.avatar.animation.f.idle.1.glb" },
+        { fileName: "babylon.avatar.animation.f.walk.1.glb" },
+    ],
+};
 
 // Connection count is now managed by BabylonWebRTC component
 const webrtcStatus = ref<InstanceType<typeof BabylonWebRTC> | null>(null);
 void webrtcStatus;
 // const connectionCount = computed(() => webrtcStatus.value?.peers.size || 0);
 
-// Active audio connections from app store
-const activeAudioCount = computed(() => appStore.activeAudioConnectionsCount);
+// Active audio connections derived from WebRTC peers
+const activeAudioCount = computed(() => webrtcStatus.value?.peers?.size ?? 0);
 void activeAudioCount;
 
 // Track slot values in refs for script usage
 const vircadiaWorldRef = ref<unknown>(null);
 const sessionIdRef = ref<string | null>(null);
 const agentIdRef = ref<string | null>(null);
+const instanceIdRef = ref<string | null>(null);
 // These are synced from template but not directly used in script
 void vircadiaWorldRef;
 void sessionIdRef;
 void agentIdRef;
+void instanceIdRef;
 
 // Auth state now handled via slot props from VircadiaWorldProvider in the template
 
@@ -327,8 +375,6 @@ void fps;
 // Ready callback no longer needed; scene readiness comes from the canvas API
 
 onMounted(async () => {
-    const instanceId = appStore.generateInstanceId();
-    console.log(`[App] Generated instance ID: ${instanceId}`);
     console.log("[MainScene] Initialized");
 });
 
@@ -381,6 +427,55 @@ void modelsLoading;
 // State for Audio dialog
 const audioDialog = ref(false);
 void audioDialog;
+
+// Local audio state (replaces store for dialog)
+type PeerAudioState = {
+    sessionId: string;
+    volume: number;
+    isMuted: boolean;
+    isReceiving: boolean;
+    isSending: boolean;
+};
+const spatialAudioEnabled = ref(false);
+const peerAudioStates = ref<Record<string, PeerAudioState>>({});
+const activePeerAudioStates = computed(() =>
+    Object.values(peerAudioStates.value).filter(
+        (p) => p.isReceiving || p.isSending,
+    ),
+);
+const getPeerAudioState = (sessionId: string): PeerAudioState | null =>
+    peerAudioStates.value[sessionId] || null;
+function setPeerAudioState(sessionId: string, state: Partial<PeerAudioState>) {
+    if (!peerAudioStates.value[sessionId]) {
+        peerAudioStates.value[sessionId] = {
+            sessionId,
+            volume: 100,
+            isMuted: false,
+            isReceiving: false,
+            isSending: false,
+        };
+    }
+    Object.assign(peerAudioStates.value[sessionId], state);
+}
+function removePeerAudioState(sessionId: string) {
+    delete peerAudioStates.value[sessionId];
+}
+function setPeerVolume(sessionId: string, volume: number) {
+    if (peerAudioStates.value[sessionId]) {
+        peerAudioStates.value[sessionId].volume = volume;
+    }
+}
+function setPeerMuted(sessionId: string, muted: boolean) {
+    if (peerAudioStates.value[sessionId]) {
+        peerAudioStates.value[sessionId].isMuted = muted;
+    }
+}
+function clearPeerAudioStates() {
+    peerAudioStates.value = {};
+}
+function toggleSpatialAudio(enabled: boolean) {
+    spatialAudioEnabled.value = enabled;
+}
 
 // Component Loader
 const app = getCurrentInstance();

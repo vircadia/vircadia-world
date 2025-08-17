@@ -22,7 +22,6 @@ import {
     toRefs,
 } from "vue";
 
-import { useAppStore } from "@/stores/appStore";
 import BabylonOtherAvatar from "./BabylonOtherAvatar.vue";
 import type { AvatarMetadata } from "@/composables/schemas";
 import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
@@ -43,13 +42,17 @@ const props = defineProps({
         required: false,
         default: () => ({}),
     },
+    currentFullSessionId: {
+        type: String,
+        required: false,
+        default: null,
+    },
 });
 const { scene } = toRefs(props);
 // Mark as used in template
 void scene;
 
-// Store and Vircadia context
-const appStore = useAppStore();
+// Vircadia context
 
 function ensure<T = unknown>(value: unknown, message: string): T {
     if (value == null) throw new Error(message);
@@ -105,7 +108,7 @@ async function pollForOtherAvatars(): Promise<void> {
         });
 
         if (result.result) {
-            const currentFullSessionId = appStore.fullSessionId;
+            const currentFullSessionId = props.currentFullSessionId;
             const foundSessionIds: string[] = [];
 
             for (const entity of result.result) {
@@ -158,10 +161,7 @@ function startAvatarDiscovery(): void {
     if (avatarDiscoveryInterval) return;
     // Poll immediately, then at configured interval
     pollForOtherAvatars();
-    avatarDiscoveryInterval = setInterval(
-        pollForOtherAvatars,
-        appStore.pollingIntervals.avatarDiscovery,
-    );
+    avatarDiscoveryInterval = setInterval(pollForOtherAvatars, 2000);
 }
 
 function stopAvatarDiscovery(): void {

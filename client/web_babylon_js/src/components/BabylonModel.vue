@@ -14,7 +14,6 @@ import { ModelMetadataSchema } from "../composables/schemas";
 import { useDebounceFn } from "@vueuse/core";
 import { useBabylonModelLoader } from "../composables/useBabylonModelLoader";
 import { useBabylonModelPhysics } from "../composables/useBabylonModelPhysics";
-import { useAppStore } from "@/stores/appStore";
 import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
 
 const props = defineProps<{
@@ -35,9 +34,10 @@ const entityNameRef = ref(props.def.entityName || props.def.fileName);
 // Vircadia connection manager
 const vircadia = props.vircadiaWorld;
 
-// Get current sessionId from app store
-const appStore = useAppStore();
-const { sessionId } = toRefs(appStore);
+// Get current sessionId from vircadia connection
+const sessionId = computed(
+    () => vircadia.connectionInfo.value.sessionId ?? null,
+);
 
 // Entity state management
 const entityMetadata = ref<ModelMetadata | null>(null);

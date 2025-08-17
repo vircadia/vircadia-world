@@ -13,7 +13,6 @@ import {
     type Ref,
 } from "vue";
 
-import { useAppStore } from "@/stores/appStore";
 import {
     Vector3,
     Quaternion,
@@ -54,11 +53,17 @@ const emit = defineEmits<{
     "avatar-removed": [{ sessionId: string }];
 }>();
 
-// Load avatar configuration from global store
-const appStore = useAppStore();
-const avatarDefinition = appStore.avatarDefinition;
-const { modelFileName, meshPivotPoint, capsuleHeight } =
-    toRefs(avatarDefinition);
+// Avatar configuration defaults
+const defaultAvatarDefinition = {
+    modelFileName: "babylon.avatar.glb",
+    meshPivotPoint: "bottom" as const,
+    capsuleHeight: 1.8,
+};
+const modelFileName = ref<string>(defaultAvatarDefinition.modelFileName);
+const meshPivotPoint = ref<"bottom" | "center">(
+    defaultAvatarDefinition.meshPivotPoint,
+);
+const capsuleHeight = ref<number>(defaultAvatarDefinition.capsuleHeight);
 
 // Refs for avatar model components
 const avatarNode: Ref<TransformNode | null> = ref(null);
@@ -637,19 +642,13 @@ function startPolling() {
     pollJointData();
 
     // Poll general avatar data at configured interval (position, rotation, etc.)
-    dataPollInterval = setInterval(
-        pollAvatarData,
-        appStore.pollingIntervals.otherAvatarData,
-    );
+    dataPollInterval = setInterval(pollAvatarData, 1000);
 
     // Poll joint data at a separate, less frequent interval
-    jointPollInterval = setInterval(
-        pollJointData,
-        appStore.pollingIntervals.otherAvatarJointData,
-    );
+    jointPollInterval = setInterval(pollJointData, 2500);
 
     console.debug(
-        `Started split polling for avatar ${props.sessionId}: data every ${appStore.pollingIntervals.otherAvatarData}ms, joints every ${appStore.pollingIntervals.otherAvatarJointData}ms`,
+        `Started split polling for avatar ${props.sessionId}: data every 1000ms, joints every 2500ms`,
     );
 
     // WebRTC connection is now handled by periodic discovery in useBabylonWebRTC

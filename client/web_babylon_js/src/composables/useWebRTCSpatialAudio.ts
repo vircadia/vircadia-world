@@ -1,5 +1,4 @@
 import { ref, watch, computed, type Ref } from "vue";
-import { useAppStore } from "@/stores/appStore";
 import type { AvatarMetadata } from "./schemas";
 
 export interface SpatialAudioOptions {
@@ -26,8 +25,6 @@ export function useWebRTCSpatialAudio(
         otherAvatars?: Ref<Record<string, AvatarMetadata>>;
     },
 ) {
-    const appStore = useAppStore();
-
     // Audio context and nodes
     const audioContext = ref<AudioContext | null>(null);
     const peerAudioNodes = ref(new Map<string, PeerAudioNode>());
@@ -104,7 +101,7 @@ export function useWebRTCSpatialAudio(
     function updateListenerPosition() {
         if (!audioContext.value) return;
 
-        const myAvatar = sources?.myAvatar?.value ?? appStore.myAvatarMetadata;
+        const myAvatar = sources?.myAvatar?.value ?? null;
         if (!myAvatar) return;
 
         const listener = audioContext.value.listener;
@@ -303,8 +300,7 @@ export function useWebRTCSpatialAudio(
             }
 
             // Calculate distance for debugging
-            const myAvatar =
-                sources?.myAvatar?.value ?? appStore.myAvatarMetadata;
+            const myAvatar = sources?.myAvatar?.value ?? null;
             if (myAvatar) {
                 const myPos = myAvatar.position;
                 const distance = Math.sqrt(
@@ -451,14 +447,6 @@ export function useWebRTCSpatialAudio(
     if (sources?.myAvatar) {
         watch(
             sources.myAvatar,
-            () => {
-                updateListenerPosition();
-            },
-            { deep: true },
-        );
-    } else {
-        watch(
-            () => appStore.myAvatarMetadata,
             () => {
                 updateListenerPosition();
             },

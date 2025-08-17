@@ -36,7 +36,6 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { useAppStore } from "@/stores/appStore";
 
 import { useSimplifiedWebRTC } from "@/composables/useSimplifiedWebRTC";
 import { useWebRTCSpatialAudio } from "@/composables/useWebRTCSpatialAudio";
@@ -48,13 +47,11 @@ interface Props {
 
 const props = defineProps<Props>();
 
-// Initialize stores and services
-const appStore = useAppStore();
 const vircadiaWorld = props.vircadiaWorld;
 
 // Computed session ID
 const fullSessionId = computed(() => {
-    const base = appStore.sessionId;
+    const base = vircadiaWorld?.connectionInfo?.value?.sessionId ?? null;
     if (!base) return null;
     return `${base}-${props.instanceId}`;
 });

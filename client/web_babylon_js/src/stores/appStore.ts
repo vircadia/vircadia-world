@@ -1,7 +1,6 @@
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
 import { useStorage, StorageSerializers } from "@vueuse/core";
-import type { AccountInfo } from "@azure/msal-browser";
 import type {
     BabylonAnimationDefinition,
     PeerAudioState,
@@ -11,8 +10,7 @@ import {
     AvatarMetadataSchema,
     AvatarMetadataWithDefaultsSchema,
 } from "../composables/schemas";
-import { clientBrowserConfiguration } from "../vircadia.browser.config";
-import type { Communication } from "@vircadia/world-sdk/browser/vue";
+// Auth/session is handled outside of the app store
 
 export const useAppStore = defineStore("app", () => {
     // global loading indicator
@@ -196,49 +194,11 @@ export const useAppStore = defineStore("app", () => {
     const spatialAudioEnabled = ref(false);
     const peerAudioStates = ref<Record<string, PeerAudioState>>({});
 
-    // Persisted state from authStore
-    const account = useStorage<AccountInfo | null>(
-        "vircadia-account",
-        null,
-        localStorage,
-        {
-            serializer: StorageSerializers.object,
-        },
-    );
-    const sessionToken = useStorage<string | null>(
-        "vircadia-session-token",
-        null,
-        localStorage,
-    );
-    const sessionId = useStorage<string | null>(
-        "vircadia-session-id",
-        null,
-        localStorage,
-    );
-    const agentId = useStorage<string | null>(
-        "vircadia-agent-id",
-        null,
-        localStorage,
-    );
-    const authProvider = useStorage<string>(
-        "vircadia-auth-provider",
-        "anon",
-        localStorage,
-    );
-
-    // Loading state from authStore
-    const isAuthenticating = ref(false);
-    const authError = ref<string | null>(null);
+    // Auth/session moved out of appStore
 
     // whether an error is set
     const hasError = computed((): boolean => error.value !== null);
-    // get current auth provider
-    const getCurrentAuthProvider = computed((): string => authProvider.value);
-    // get full session ID (sessionId + instanceId)
-    const fullSessionId = computed((): string | null => {
-        if (!sessionId.value || !instanceId.value) return null;
-        return `${sessionId.value}-${instanceId.value}`;
-    });
+    // auth provider/session derived state removed
     // Other avatars metadata moved out of the store; managed by components
     // get active audio connections count
     const activeAudioConnectionsCount = computed((): number => {
@@ -260,10 +220,7 @@ export const useAppStore = defineStore("app", () => {
         );
     });
 
-    // Computed properties from authStore
-    const isAuthenticated = computed(
-        () => !!sessionToken.value && !!account.value,
-    );
+    // No isAuthenticated in appStore
 
     // set the loading flag
     function setLoading(value: boolean) {
@@ -276,14 +233,6 @@ export const useAppStore = defineStore("app", () => {
     // clear the error
     function clearError() {
         error.value = null;
-    }
-    // set the session ID
-    function setSessionId(id: string | null) {
-        sessionId.value = id;
-    }
-    // set the agent ID
-    function setAgentId(id: string | null) {
-        agentId.value = id;
     }
     // set the instance ID
     function setInstanceId(id: string | null) {
@@ -392,190 +341,7 @@ export const useAppStore = defineStore("app", () => {
     }
 
     // Helper to construct API URL
-    const getApiUrl = () => {
-        const protocol =
-            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL
-                ? "https"
-                : "http";
-        return `${protocol}://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}`;
-    };
-
-    // Login flows are implemented in the IntroScreen component
-
-    // Handle OAuth callback
-    const handleOAuthCallback = async (code: string, state: string) => {
-        isAuthenticating.value = true;
-        authError.value = null;
-
-        try {
-            // Debug: Log the callback URL being constructed
-            const callbackUrl = `${getApiUrl()}/world/rest/auth/oauth/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}&provider=azure`;
-            console.log("OAuth Callback - Request URL:", callbackUrl);
-            console.log("OAuth Callback - API Base URL:", getApiUrl());
-
-            // Send code to server for token exchange
-            const response = await fetch(callbackUrl);
-
-            // Debug: Log response details
-            console.log("OAuth Callback - Response status:", response.status);
-            console.log(
-                "OAuth Callback - Response headers:",
-                Object.fromEntries(response.headers.entries()),
-            );
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error("OAuth Callback - Error response:", errorText);
-                try {
-                    const parsedError = JSON.parse(errorText);
-                    throw new Error(
-                        parsedError.errorMessage ||
-                            parsedError.error ||
-                            "Authentication failed",
-                    );
-                } catch {
-                    throw new Error(
-                        `Authentication failed: ${response.status} ${response.statusText}`,
-                    );
-                }
-            }
-
-            const data = await response.json();
-
-            // Debug: Log callback response
-            console.log("OAuth Callback Response Data:", data);
-            console.log("Response structure:", {
-                hasData: !!data,
-                hasSuccess: data?.success,
-                dataKeys: data ? Object.keys(data) : [],
-                fullData: JSON.stringify(data, null, 2),
-            });
-
-            // Handle the response based on the actual structure
-            // The schema defines the response type in AUTH_OAUTH_CALLBACK.createSuccess
-            type OAuthCallbackSuccessResponse = ReturnType<
-                typeof Communication.REST.Endpoint.AUTH_OAUTH_CALLBACK.createSuccess
-            >;
-            let responseData: Omit<
-                OAuthCallbackSuccessResponse,
-                "success" | "timestamp"
-            >;
-            if (data?.success && data?.data) {
-                // Response is wrapped in { success: true, data: {...} }
-                responseData = data.data;
-            } else if (data?.token) {
-                // Response is the data directly
-                responseData = data;
-            } else {
-                console.error("Unexpected response structure:", data);
-                throw new Error("Invalid response structure");
-            }
-
-            console.log("Extracted response data:", {
-                token: responseData.token ? "present" : "missing",
-                agentId: responseData.agentId,
-                sessionId: responseData.sessionId,
-                email: responseData.email,
-                displayName: responseData.displayName,
-                username: responseData.username,
-            });
-
-            if (responseData?.token) {
-                // Store session information
-                sessionToken.value = responseData.token;
-                sessionId.value = responseData.sessionId;
-                agentId.value = responseData.agentId;
-                authProvider.value = "azure"; // Set provider for Azure login
-
-                // Create a minimal account object for UI display
-                const newAccount: AccountInfo = {
-                    homeAccountId: responseData.agentId,
-                    environment: "azure",
-                    tenantId: "",
-                    username:
-                        responseData.username ||
-                        responseData.displayName ||
-                        responseData.email ||
-                        "User",
-                    localAccountId: responseData.agentId,
-                    name:
-                        responseData.displayName ||
-                        responseData.username ||
-                        responseData.email ||
-                        "User",
-                    idTokenClaims: {
-                        email: responseData.email,
-                        name:
-                            responseData.displayName ||
-                            responseData.username ||
-                            responseData.email,
-                        preferred_username: responseData.email,
-                    },
-                } as AccountInfo;
-
-                // Set the account value
-                account.value = newAccount;
-
-                // Redirect back to original page
-                const returnUrl =
-                    sessionStorage.getItem("vircadia-auth-return-url") || "/";
-                sessionStorage.removeItem("vircadia-auth-return-url");
-                window.location.href = returnUrl;
-            }
-        } catch (err) {
-            console.error("OAuth callback failed:", err);
-            authError.value =
-                err instanceof Error ? err.message : "Authentication failed";
-        } finally {
-            isAuthenticating.value = false;
-        }
-    };
-
-    // Logout handled by VircadiaLogoutButton component
-
-    // Get session token for API calls
-    const getSessionToken = () => sessionToken.value;
-
-    // Initialize - check for OAuth callback and auto-login with debug token
-    const initialize = async () => {
-        // Debug: Check state on initialization
-        console.log("Auth Store Initialize - state:", {
-            account: account.value,
-            sessionToken: sessionToken.value,
-            sessionId: sessionId.value,
-            agentId: agentId.value,
-            isAuthenticated: isAuthenticated.value,
-        });
-
-        const urlParams = new URLSearchParams(window.location.search);
-        const code = urlParams.get("code");
-        const state = urlParams.get("state");
-
-        if (code && state) {
-            // We're in an OAuth callback
-            await handleOAuthCallback(code, state);
-            // Clear the URL parameters
-            window.history.replaceState(
-                {},
-                document.title,
-                window.location.pathname,
-            );
-        }
-        // No auto-login here; user chooses login method in IntroScreen
-    };
-
-    // Refresh account data
-    // Note: With useStorage, the reactive values are automatically synced with localStorage
-    // This function is kept for backward compatibility but likely not needed
-    const refreshAccountData = () => {
-        console.log("Account data is automatically synced via useStorage", {
-            account: account.value,
-            isAuthenticated: isAuthenticated.value,
-        });
-    };
-
-    // Initialize on store creation
-    initialize();
+    // Auth flows removed from appStore
 
     return {
         loading,
@@ -587,25 +353,15 @@ export const useAppStore = defineStore("app", () => {
         pollingIntervals,
         spatialAudioEnabled,
         peerAudioStates,
-        account,
-        sessionToken,
-        sessionId,
-        agentId,
-        authProvider,
-        isAuthenticating,
-        authError,
         hasError,
         getCurrentAuthProvider,
         fullSessionId,
         activeAudioConnectionsCount,
         getPeerAudioState,
         activePeerAudioStates,
-        isAuthenticated,
         setLoading,
         setError,
         clearError,
-        setSessionId,
-        setAgentId,
         setInstanceId,
         setMyAvatarMetadata,
         updateMyAvatarMetadata,
@@ -620,8 +376,5 @@ export const useAppStore = defineStore("app", () => {
         setPeerVolume,
         setPeerMuted,
         clearPeerAudioStates,
-        getSessionToken,
-        handleOAuthCallback,
-        refreshAccountData,
     };
 });

@@ -10,13 +10,9 @@ import {
     onUnmounted,
     watch,
     type WatchStopHandle,
-    inject,
-    toRefs,
     type Ref,
     computed,
 } from "vue";
-
-import { useAppStore } from "@/stores/appStore";
 
 import {
     Vector3,
@@ -52,44 +48,124 @@ import type {
 // Debug bounding box, skeleton, and axes
 // removed; now using debug flags from store (debugBoundingBox, debugSkeleton, debugAxes)
 
-// Define component props with defaults
+// Define component props with defaults (single defineProps)
 const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
     vircadiaWorld: {
         type: Object as () => ReturnType<typeof useVircadia>,
         required: true,
     },
+    instanceId: { type: String, required: false, default: null },
+    avatarDefinition: {
+        type: Object as () => {
+            initialAvatarPosition: { x: number; y: number; z: number };
+            initialAvatarRotation: {
+                x: number;
+                y: number;
+                z: number;
+                w: number;
+            };
+            initialAvatarCameraOrientation: {
+                alpha: number;
+                beta: number;
+                radius: number;
+            };
+            modelFileName: string;
+            meshPivotPoint: "bottom" | "center";
+            throttleInterval: number;
+            capsuleHeight: number;
+            capsuleRadius: number;
+            slopeLimit: number;
+            jumpSpeed: number;
+            debugBoundingBox: boolean;
+            debugSkeleton: boolean;
+            debugAxes: boolean;
+            walkSpeed: number;
+            turnSpeed: number;
+            blendDuration: number;
+            gravity: number;
+            animations: { fileName: string }[];
+        },
+        required: false,
+        default: undefined,
+    },
 });
 
 const emit = defineEmits<{ ready: []; dispose: [] }>();
 
-// Load avatar configuration from global store
-const appStore = useAppStore();
-const avatarDefinition = appStore.avatarDefinition;
-const {
-    throttleInterval,
-    capsuleHeight,
-    capsuleRadius,
-    slopeLimit,
-    jumpSpeed,
-    debugBoundingBox,
-    debugSkeleton,
-    debugAxes,
-    walkSpeed,
-    turnSpeed,
-    blendDuration,
-    gravity,
-    meshPivotPoint,
-    initialAvatarCameraOrientation,
-    initialAvatarPosition,
-    initialAvatarRotation,
-    modelFileName,
-    animations,
-} = toRefs(avatarDefinition);
+// Effective avatar configuration
+const effectiveAvatarDef = computed(
+    () =>
+        props.avatarDefinition ?? {
+            initialAvatarPosition: { x: 0, y: 0, z: -5 },
+            initialAvatarRotation: { x: 0, y: 0, z: 0, w: 1 },
+            initialAvatarCameraOrientation: {
+                alpha: -Math.PI / 2,
+                beta: Math.PI / 3,
+                radius: 5,
+            },
+            modelFileName: "babylon.avatar.glb",
+            meshPivotPoint: "bottom" as const,
+            throttleInterval: 500,
+            capsuleHeight: 1.8,
+            capsuleRadius: 0.3,
+            slopeLimit: 45,
+            jumpSpeed: 5,
+            debugBoundingBox: false,
+            debugSkeleton: true,
+            debugAxes: false,
+            walkSpeed: 1.47,
+            turnSpeed: Math.PI,
+            blendDuration: 0.15,
+            gravity: -9.8,
+            animations: [
+                { fileName: "babylon.avatar.animation.f.idle.1.glb" },
+                { fileName: "babylon.avatar.animation.f.walk.1.glb" },
+            ] as { fileName: string }[],
+        },
+);
+// Field-level computed wrappers to replace toRefs
+const throttleInterval = computed(
+    () => effectiveAvatarDef.value.throttleInterval,
+);
+const capsuleHeight = computed(() => effectiveAvatarDef.value.capsuleHeight);
+const capsuleRadius = computed(() => effectiveAvatarDef.value.capsuleRadius);
+const slopeLimit = computed(() => effectiveAvatarDef.value.slopeLimit);
+const jumpSpeed = computed(() => effectiveAvatarDef.value.jumpSpeed);
+const debugBoundingBox = computed(
+    () => effectiveAvatarDef.value.debugBoundingBox,
+);
+const debugSkeleton = computed(() => effectiveAvatarDef.value.debugSkeleton);
+const debugAxes = computed(() => effectiveAvatarDef.value.debugAxes);
+const walkSpeed = computed(() => effectiveAvatarDef.value.walkSpeed);
+const turnSpeed = computed(() => effectiveAvatarDef.value.turnSpeed);
+const blendDuration = computed(() => effectiveAvatarDef.value.blendDuration);
+const gravity = computed(() => effectiveAvatarDef.value.gravity);
+const meshPivotPoint = computed(() => effectiveAvatarDef.value.meshPivotPoint);
+const initialAvatarCameraOrientation = computed(
+    () => effectiveAvatarDef.value.initialAvatarCameraOrientation,
+);
+const initialAvatarPosition = computed(
+    () => effectiveAvatarDef.value.initialAvatarPosition,
+);
+const initialAvatarRotation = computed(
+    () => effectiveAvatarDef.value.initialAvatarRotation,
+);
+const modelFileName = computed(() => effectiveAvatarDef.value.modelFileName);
+const animations = computed(
+    () => effectiveAvatarDef.value.animations as { fileName: string }[],
+);
 
-// Reactive sessionId and fullSessionId from store
-const { sessionId } = toRefs(appStore);
-const fullSessionId = computed(() => appStore.fullSessionId);
+// Reactive sessionId and fullSessionId from vircadia connection
+const sessionId = computed(
+    () => props.vircadiaWorld.connectionInfo.value.sessionId ?? null,
+);
+const instanceId = computed(() => props.instanceId ?? null);
+const fullSessionId = computed(() => {
+    return sessionId.value && instanceId.value
+        ? `${sessionId.value}-${instanceId.value}`
+        : null;
+});
 
 // Generate dynamic entity name based on full session ID (includes instanceId)
 const entityName = computed(() => `avatar:${fullSessionId.value}`);
@@ -337,8 +413,7 @@ const throttledUpdate = useThrottleFn(async () => {
             entityData.value.metadata = new Map(metadataMap);
         }
 
-        // Push updated metadata to app store
-        appStore.setMyAvatarMetadata(metadataMap);
+        // No global store; if needed, parent can observe via DB or events
 
         // Log update statistics in debug mode
         if ((window as DebugWindow).debugSkeleton) {
@@ -351,119 +426,124 @@ const throttledUpdate = useThrottleFn(async () => {
     } finally {
         isUpdatingMain.value = false;
     }
-}, appStore.pollingIntervals.avatarData);
+}, throttleInterval.value);
 
 // Separate throttled update function for joint data
-const throttledJointUpdate = useThrottleFn(async () => {
-    if (!entityData.value?.general__entity_name || !avatarSkeleton.value) {
-        return;
-    }
-
-    // Skip if still updating to prevent overlapping requests
-    if (isUpdatingJoints.value) {
-        console.debug(
-            "Skipping joint update - previous update still in progress",
-        );
-        return;
-    }
-
-    try {
-        if (!vircadiaWorld) {
-            throw new Error("Vircadia instance not found in BabylonMyAvatar");
-        }
-
-        isUpdatingJoints.value = true;
-
-        // Collect joint updates that have changed
-        const updates: Array<[string, unknown]> = [];
-        const bones = avatarSkeleton.value.bones || [];
-
-        for (const bone of bones) {
-            // Use LOCAL matrix for better network efficiency
-            const localMat = bone.getLocalMatrix();
-
-            // Decompose the matrix to get position, rotation, and scale
-            const pos = new Vector3();
-            const rot = new Quaternion();
-            const scale = new Vector3();
-            localMat.decompose(scale, rot, pos);
-
-            // Create joint metadata
-            const jointMetadata = {
-                type: "avatarJoint",
-                sessionId: fullSessionId.value,
-                jointName: bone.name,
-                position: vectorToObj(pos),
-                rotation: quatToObj(rot),
-                scale: vectorToObj(scale),
-            };
-
-            // Check if this joint has changed
-            const jointKey = `joint:${bone.name}`;
-            const jointState = JSON.stringify(jointMetadata);
-            const previousJointState = previousJointStates.get(jointKey);
-
-            if (jointState !== previousJointState) {
-                updates.push([jointKey, jointMetadata]);
-                previousJointStates.set(jointKey, jointState);
-            }
-        }
-
-        // Only proceed if there are changes
-        if (updates.length === 0) {
+const throttledJointUpdate = useThrottleFn(
+    async () => {
+        if (!entityData.value?.general__entity_name || !avatarSkeleton.value) {
             return;
         }
 
-        // Always add last_seen to keep entity alive
-        updates.push(["last_seen", new Date().toISOString()]);
-
-        // Build the VALUES clause dynamically for batch insert
-        const valuesClause = updates
-            .map(
-                (_, index) =>
-                    `($1, $${index * 3 + 2}, $${index * 3 + 3}, $${index * 3 + 4})`,
-            )
-            .join(", ");
-
-        // Flatten parameters: [entityName, key1, value1, sync1, key2, value2, sync2, ...]
-        const parameters: unknown[] = [entityName.value];
-        for (const [key, value] of updates) {
-            parameters.push(key, value, "public.NORMAL");
+        // Skip if still updating to prevent overlapping requests
+        if (isUpdatingJoints.value) {
+            console.debug(
+                "Skipping joint update - previous update still in progress",
+            );
+            return;
         }
 
-        // Single query to update all changed joint metadata
-        await vircadiaWorld.client.Utilities.Connection.query({
-            query: `
+        try {
+            if (!vircadiaWorld) {
+                throw new Error(
+                    "Vircadia instance not found in BabylonMyAvatar",
+                );
+            }
+
+            isUpdatingJoints.value = true;
+
+            // Collect joint updates that have changed
+            const updates: Array<[string, unknown]> = [];
+            const bones = avatarSkeleton.value.bones || [];
+
+            for (const bone of bones) {
+                // Use LOCAL matrix for better network efficiency
+                const localMat = bone.getLocalMatrix();
+
+                // Decompose the matrix to get position, rotation, and scale
+                const pos = new Vector3();
+                const rot = new Quaternion();
+                const scale = new Vector3();
+                localMat.decompose(scale, rot, pos);
+
+                // Create joint metadata
+                const jointMetadata = {
+                    type: "avatarJoint",
+                    sessionId: fullSessionId.value,
+                    jointName: bone.name,
+                    position: vectorToObj(pos),
+                    rotation: quatToObj(rot),
+                    scale: vectorToObj(scale),
+                };
+
+                // Check if this joint has changed
+                const jointKey = `joint:${bone.name}`;
+                const jointState = JSON.stringify(jointMetadata);
+                const previousJointState = previousJointStates.get(jointKey);
+
+                if (jointState !== previousJointState) {
+                    updates.push([jointKey, jointMetadata]);
+                    previousJointStates.set(jointKey, jointState);
+                }
+            }
+
+            // Only proceed if there are changes
+            if (updates.length === 0) {
+                return;
+            }
+
+            // Always add last_seen to keep entity alive
+            updates.push(["last_seen", new Date().toISOString()]);
+
+            // Build the VALUES clause dynamically for batch insert
+            const valuesClause = updates
+                .map(
+                    (_, index) =>
+                        `($1, $${index * 3 + 2}, $${index * 3 + 3}, $${index * 3 + 4})`,
+                )
+                .join(", ");
+
+            // Flatten parameters: [entityName, key1, value1, sync1, key2, value2, sync2, ...]
+            const parameters: unknown[] = [entityName.value];
+            for (const [key, value] of updates) {
+                parameters.push(key, value, "public.NORMAL");
+            }
+
+            // Single query to update all changed joint metadata
+            await vircadiaWorld.client.Utilities.Connection.query({
+                query: `
                 INSERT INTO entity.entity_metadata 
                     (general__entity_name, metadata__key, metadata__value, group__sync)
                 VALUES ${valuesClause}
                 ON CONFLICT (general__entity_name, metadata__key) 
                 DO UPDATE SET metadata__value = EXCLUDED.metadata__value
             `,
-            parameters,
-            timeoutMs: 5000, // Add timeout to prevent hanging
-        });
+                parameters,
+                timeoutMs: 5000, // Add timeout to prevent hanging
+            });
 
-        // Update local map only for changed values
-        for (const [key, value] of updates) {
-            metadataMap.set(key, value);
-        }
+            // Update local map only for changed values
+            for (const [key, value] of updates) {
+                metadataMap.set(key, value);
+            }
 
-        // Log update statistics in debug mode
-        if ((window as DebugWindow).debugSkeleton) {
-            const jointUpdates = updates.filter(([key]) =>
-                key.startsWith("joint:"),
-            ).length;
-            console.log(
-                `[Avatar Joint Update] Sent ${jointUpdates} joint changes`,
-            );
+            // Log update statistics in debug mode
+            if ((window as DebugWindow).debugSkeleton) {
+                const jointUpdates = updates.filter(([key]) =>
+                    key.startsWith("joint:"),
+                ).length;
+                console.log(
+                    `[Avatar Joint Update] Sent ${jointUpdates} joint changes`,
+                );
+            }
+        } catch (error) {
+            console.error("Avatar joint update failed:", error);
+        } finally {
+            isUpdatingJoints.value = false;
         }
-    } catch (error) {
-        console.error("Avatar joint update failed:", error);
-    } finally {
-        isUpdatingJoints.value = false;
-    }
-}, appStore.pollingIntervals.avatarJointData);
+    },
+    Math.max(throttleInterval.value * 5, 2500),
+);
 
 // Use Vircadia instance from props (moved up to fix initialization order)
 const vircadiaWorld = props.vircadiaWorld;
@@ -479,11 +559,10 @@ const { camera, setupCamera, updateCameraFromMeta } =
     );
 
 // Avatar model loader (GLTF/GLB)
-const { meshes, skeletons, animationGroups, loadModel, asset } =
-    useBabylonAvatarModelLoader(
-        { fileName: modelFileName.value },
-        vircadiaWorld,
-    );
+const { meshes, skeletons, loadModel, asset } = useBabylonAvatarModelLoader(
+    { fileName: modelFileName.value },
+    vircadiaWorld,
+);
 
 // Replace the existing localAnimGroups and animation-related code
 const blendWeight = ref(0); // 0 = idle, 1 = walk
@@ -651,12 +730,7 @@ async function retrieveEntityMetadata(
 // Audio stream is now handled by the BabylonWebRTC component
 
 // Animation loader composable
-const {
-    animationsMap,
-    loadAnimations,
-    areAnimationsReady,
-    getAnimationGroups,
-} = useBabylonAvatarAnimationLoader({
+const { animationsMap, loadAnimations } = useBabylonAvatarAnimationLoader({
     scene: props.scene,
     animations,
     targetSkeleton: avatarSkeleton,
@@ -665,11 +739,11 @@ const {
 
 function setupBlendedAnimations(): void {
     // Look for idle and walk animations in successfully loaded animations
-    const idleFileName = animations.value.find((anim) =>
+    const idleFileName = animations.value.find((anim: { fileName: string }) =>
         anim.fileName.toLowerCase().includes("idle.1.glb"),
     )?.fileName;
 
-    const walkFileName = animations.value.find((anim) =>
+    const walkFileName = animations.value.find((anim: { fileName: string }) =>
         anim.fileName.toLowerCase().includes("walk.1.glb"),
     )?.fileName;
 
@@ -709,7 +783,7 @@ function setupBlendedAnimations(): void {
         }
     } else {
         // If no explicit idle animation found, use the first available one
-        for (const [fileName, info] of animationsMap.value.entries()) {
+        for (const [, info] of animationsMap.value.entries()) {
             if (info.state === "ready" && info.group) {
                 idleAnimation = info.group;
                 if (idleAnimation) {
@@ -1295,7 +1369,7 @@ onMounted(async () => {
                             );
                             console.log(
                                 "Scene active camera:",
-                                props.scene.activeCamera === camera.value,
+                                !!props.scene.activeCamera,
                             );
                             console.log("Canvas size:", {
                                 width: props.scene.getEngine().getRenderWidth(),
@@ -1794,7 +1868,7 @@ onMounted(async () => {
     // Prevent unwanted root motion sliding by resetting root bone position each frame
     rootMotionObserver = props.scene.onBeforeRenderObservable.add(() => {
         if (avatarSkeleton.value && avatarSkeleton.value.bones.length > 0) {
-            const rootBone = avatarSkeleton.value.bones[0];
+            // const rootBone = avatarSkeleton.value.bones[0];
             // rootBone.position.set(0,0,0);
             // rootBone.rotationQuaternion?.set(0,0,0,1);
         }

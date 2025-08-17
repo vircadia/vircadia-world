@@ -10,6 +10,7 @@
             :sessionId="sessionId"
             :agentId="agentId"
             :authProvider="authProvider"
+            :logout="logout"
         />
         <v-container v-else fluid fill-height class="intro-screen">
             <v-row align="center" justify="center">
@@ -69,22 +70,43 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from "vue";
-import { useAppStore } from "@/stores/appStore";
+import { computed, onMounted, ref } from "vue";
+import { useStorage, StorageSerializers } from "@vueuse/core";
 import { clientBrowserConfiguration } from "@/vircadia.browser.config";
 import type { AccountInfo } from "@azure/msal-browser";
 
-const appStore = useAppStore();
+// Local auth state (replaces appStore)
+const isAuthenticating = ref(false);
+const authError = ref<string | null>(null);
 
-// Create computed properties that expose auth state from appStore
-const isAuthenticated = computed(() => appStore.isAuthenticated);
-const isAuthenticating = computed(() => appStore.isAuthenticating);
-const authError = computed(() => appStore.authError);
-const account = computed(() => appStore.account);
-const sessionToken = computed(() => appStore.sessionToken);
-const sessionId = computed(() => appStore.sessionId);
-const agentId = computed(() => appStore.agentId);
-const authProvider = computed(() => appStore.authProvider);
+const account = useStorage<AccountInfo | null>(
+    "vircadia-account",
+    null,
+    localStorage,
+    { serializer: StorageSerializers.object },
+);
+const sessionToken = useStorage<string | null>(
+    "vircadia-session-token",
+    null,
+    localStorage,
+);
+const sessionId = useStorage<string | null>(
+    "vircadia-session-id",
+    null,
+    localStorage,
+);
+const agentId = useStorage<string | null>(
+    "vircadia-agent-id",
+    null,
+    localStorage,
+);
+const authProvider = useStorage<string>(
+    "vircadia-auth-provider",
+    "anon",
+    localStorage,
+);
+
+const isAuthenticated = computed(() => !!sessionToken.value && !!account.value);
 
 const showDebugLogin = computed(() => {
     return !!clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN;
@@ -99,8 +121,8 @@ const getApiUrl = () => {
 };
 
 const loginWithAzure = async () => {
-    appStore.isAuthenticating = true;
-    appStore.authError = null;
+    isAuthenticating.value = true;
+    authError.value = null;
 
     try {
         const response = await fetch(
@@ -137,15 +159,14 @@ const loginWithAzure = async () => {
         }
     } catch (err) {
         console.error("Login failed:", err);
-        appStore.authError =
-            err instanceof Error ? err.message : "Login failed";
-        appStore.isAuthenticating = false;
+        authError.value = err instanceof Error ? err.message : "Login failed";
+        isAuthenticating.value = false;
     }
 };
 
 const loginAnonymously = async () => {
-    appStore.isAuthenticating = true;
-    appStore.authError = null;
+    isAuthenticating.value = true;
+    authError.value = null;
     try {
         const response = await fetch(
             `${getApiUrl()}/world/rest/auth/anonymous`,
@@ -166,11 +187,11 @@ const loginAnonymously = async () => {
                 agentId: newAgentId,
                 sessionId: newSessionId,
             } = data.data;
-            appStore.sessionToken = token;
-            appStore.sessionId = newSessionId;
-            appStore.agentId = newAgentId;
-            appStore.authProvider = "anon";
-            appStore.account = {
+            sessionToken.value = token;
+            sessionId.value = newSessionId;
+            agentId.value = newAgentId;
+            authProvider.value = "anon";
+            account.value = {
                 homeAccountId: newAgentId,
                 environment: "anonymous",
                 tenantId: "",
@@ -183,16 +204,16 @@ const loginAnonymously = async () => {
         }
     } catch (err) {
         console.error("Anonymous login failed:", err);
-        appStore.authError =
+        authError.value =
             err instanceof Error ? err.message : "Anonymous login failed";
     } finally {
-        appStore.isAuthenticating = false;
+        isAuthenticating.value = false;
     }
 };
 
 const loginWithDebugToken = async () => {
-    appStore.isAuthenticating = true;
-    appStore.authError = null;
+    isAuthenticating.value = true;
+    authError.value = null;
     try {
         const token =
             clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN;
@@ -219,10 +240,10 @@ const loginWithDebugToken = async () => {
                 );
 
                 if (payload.sessionId) {
-                    appStore.sessionId = payload.sessionId;
+                    sessionId.value = payload.sessionId;
                 }
                 if (payload.agentId) {
-                    appStore.agentId = payload.agentId;
+                    agentId.value = payload.agentId;
                 }
             }
         } catch (parseError) {
@@ -232,32 +253,61 @@ const loginWithDebugToken = async () => {
             );
         }
 
-        appStore.sessionToken = token;
-        appStore.authProvider = configuredProvider;
-        appStore.account = {
-            homeAccountId: appStore.agentId || "debug-user",
+        sessionToken.value = token;
+        authProvider.value = configuredProvider;
+        account.value = {
+            homeAccountId: agentId.value || "debug-user",
             environment: "debug",
             tenantId: "",
             username: "Debug User",
-            localAccountId: appStore.agentId || "debug-user",
+            localAccountId: agentId.value || "debug-user",
             name: "Debug User",
         } as AccountInfo;
 
         console.log("[VircadiaWorldAuthProvider] Debug token login complete", {
-            sessionToken: !!appStore.sessionToken,
-            sessionId: appStore.sessionId,
-            agentId: appStore.agentId,
-            authProvider: appStore.authProvider,
-            isAuthenticated: appStore.isAuthenticated,
+            sessionToken: !!sessionToken.value,
+            sessionId: sessionId.value,
+            agentId: agentId.value,
+            authProvider: authProvider.value,
+            isAuthenticated: isAuthenticated.value,
         });
     } catch (err) {
         console.error("Debug token login failed:", err);
-        appStore.authError =
+        authError.value =
             err instanceof Error ? err.message : "Debug token login failed";
     } finally {
-        appStore.isAuthenticating = false;
+        isAuthenticating.value = false;
     }
 };
+
+async function logout() {
+    if (!sessionId.value) {
+        // Still clear local state
+        account.value = null;
+        sessionToken.value = null;
+        sessionId.value = null;
+        agentId.value = null;
+        authProvider.value = "anon";
+        authError.value = null;
+        return;
+    }
+    try {
+        await fetch(`${getApiUrl()}/world/rest/auth/logout`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sessionId: sessionId.value }),
+        });
+    } catch (e) {
+        console.warn("Logout request failed:", e);
+    } finally {
+        account.value = null;
+        sessionToken.value = null;
+        sessionId.value = null;
+        agentId.value = null;
+        authProvider.value = "anon";
+        authError.value = null;
+    }
+}
 
 // Auto-login with debug token if available and not already authenticated
 onMounted(async () => {
@@ -292,6 +342,7 @@ defineExpose({
     loginWithAzure,
     loginAnonymously,
     loginWithDebugToken,
+    logout,
     showDebugLogin,
     isAuthenticated,
     isAuthenticating,

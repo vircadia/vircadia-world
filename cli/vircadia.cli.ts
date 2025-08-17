@@ -284,9 +284,6 @@ export namespace Server_CLI {
                 clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST,
             VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT:
                 clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT.toString(),
-            VRCA_CLIENT_WEB_BABYLON_JS_MODEL_DEFINITIONS: JSON.stringify(
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_MODEL_DEFINITIONS,
-            ),
         };
 
         // Construct the command
@@ -2420,31 +2417,7 @@ if (import.meta.main) {
                             .VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI ||
                         clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI;
 
-                    const currentModelDefinitions = await (async () => {
-                        // Try client .env first
-                        const clientEnvValue = await EnvManager.getVariable(
-                            "VRCA_CLIENT_WEB_BABYLON_JS_MODEL_DEFINITIONS",
-                            "client",
-                        );
-                        if (clientEnvValue) {
-                            return clientEnvValue;
-                        }
-
-                        // Try process.env
-                        const processEnvValue =
-                            process.env
-                                .VRCA_CLIENT_WEB_BABYLON_JS_MODEL_DEFINITIONS;
-                        if (processEnvValue) {
-                            return processEnvValue;
-                        }
-
-                        // Fall back to config default
-                        const configValue =
-                            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_MODEL_DEFINITIONS;
-                        return typeof configValue === "string"
-                            ? configValue
-                            : JSON.stringify(configValue);
-                    })();
+                    // Model Definitions configuration has been removed
 
                     // Get current CLI environment values
                     // Read from CLI .env first, then process.env, then config defaults
@@ -2476,10 +2449,7 @@ if (import.meta.main) {
                                 name: `World API URI\n    Current: ${currentUri}`,
                                 value: "world-api-uri",
                             },
-                            {
-                                name: `Model Definitions (JSON configuration)\n    Current: ${currentModelDefinitions.length > 50 ? currentModelDefinitions.substring(0, 47) + "..." : currentModelDefinitions}`,
-                                value: "model-definitions",
-                            },
+
                             {
                                 name: `User SQL Seed Directory\n    Current: ${currentUserSqlDir}`,
                                 value: "user-sql-dir",
@@ -2550,99 +2520,6 @@ if (import.meta.main) {
                             BunLogModule({
                                 message:
                                     "World API URI variable unset (removed from client .env file)",
-                                type: "success",
-                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                                debug: cliConfiguration.VRCA_CLI_DEBUG,
-                            });
-                        }
-                    } else if (configOption === "model-definitions") {
-                        const action = await select({
-                            message:
-                                "What would you like to do with Model Definitions?\n",
-                            choices: [
-                                {
-                                    name: `Set variable in client .env\n    Current: ${currentModelDefinitions.length > 50 ? currentModelDefinitions.substring(0, 47) + "..." : currentModelDefinitions}`,
-                                    value: "set",
-                                },
-                                {
-                                    name: "View current definitions (pretty format)",
-                                    value: "view-current",
-                                },
-                                {
-                                    name: "Unset variable (remove from client .env)",
-                                    value: "unset",
-                                },
-                            ],
-                        });
-
-                        if (action === "set") {
-                            const newDefinitions = await input({
-                                message: "Enter Model Definitions JSON:",
-                                default: currentModelDefinitions,
-                                transformer: (value: string) => value.trim(),
-                            });
-
-                            // Validate JSON
-                            try {
-                                JSON.parse(newDefinitions);
-                                await EnvManager.setVariable(
-                                    "VRCA_CLIENT_WEB_BABYLON_JS_MODEL_DEFINITIONS",
-                                    newDefinitions,
-                                    "client",
-                                );
-
-                                BunLogModule({
-                                    message: `Model Definitions set to: ${newDefinitions} (persisted to client .env file)`,
-                                    type: "success",
-                                    suppress:
-                                        cliConfiguration.VRCA_CLI_SUPPRESS,
-                                    debug: cliConfiguration.VRCA_CLI_DEBUG,
-                                });
-                            } catch (error) {
-                                BunLogModule({
-                                    message: `Invalid JSON format: ${error}`,
-                                    type: "error",
-                                    suppress:
-                                        cliConfiguration.VRCA_CLI_SUPPRESS,
-                                    debug: cliConfiguration.VRCA_CLI_DEBUG,
-                                });
-                            }
-                        } else if (action === "view-current") {
-                            try {
-                                const parsed = JSON.parse(
-                                    currentModelDefinitions,
-                                );
-                                const prettyJson = JSON.stringify(
-                                    parsed,
-                                    null,
-                                    2,
-                                );
-                                BunLogModule({
-                                    message: "Current Model Definitions:",
-                                    type: "info",
-                                    suppress:
-                                        cliConfiguration.VRCA_CLI_SUPPRESS,
-                                    debug: cliConfiguration.VRCA_CLI_DEBUG,
-                                });
-                                console.log(prettyJson);
-                            } catch {
-                                BunLogModule({
-                                    message: `Current Model Definitions (raw): ${currentModelDefinitions}`,
-                                    type: "info",
-                                    suppress:
-                                        cliConfiguration.VRCA_CLI_SUPPRESS,
-                                    debug: cliConfiguration.VRCA_CLI_DEBUG,
-                                });
-                            }
-                        } else if (action === "unset") {
-                            await EnvManager.unsetVariable(
-                                "VRCA_CLIENT_WEB_BABYLON_JS_MODEL_DEFINITIONS",
-                                "client",
-                            );
-
-                            BunLogModule({
-                                message:
-                                    "Model Definitions variable unset (removed from .env file)",
                                 type: "success",
                                 suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                                 debug: cliConfiguration.VRCA_CLI_DEBUG,
@@ -2763,19 +2640,6 @@ if (import.meta.main) {
 
                         console.log(`\nClient Configuration:`);
                         console.log(`  World API URI: ${currentUri}`);
-                        console.log(`  Model Definitions:`);
-                        try {
-                            const parsed = JSON.parse(currentModelDefinitions);
-                            console.log(
-                                "    " +
-                                    JSON.stringify(parsed, null, 2).replace(
-                                        /\n/g,
-                                        "\n    ",
-                                    ),
-                            );
-                        } catch {
-                            console.log(`    ${currentModelDefinitions}`);
-                        }
 
                         console.log(`\nCLI Configuration:`);
                         console.log(

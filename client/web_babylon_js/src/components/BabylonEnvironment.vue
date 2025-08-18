@@ -12,15 +12,50 @@ import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
 const props = defineProps<{
     scene: Scene;
     vircadiaWorld: ReturnType<typeof useVircadia>;
-    hdrFiles: string[];
+    environmentEntityName: string; // name of the environment entity in the DB
 }>();
 
 const sceneRef = toRef(props, "scene");
 const vircadiaRef = toRef(props, "vircadiaWorld");
-const hdrFilesRef = toRef(props, "hdrFiles");
+const envEntityNameRef = toRef(props, "environmentEntityName");
 
 const isLoading = ref(false);
 const hasLoaded = ref(false);
+
+async function loadHdrFiles(
+    scene: Scene,
+    instance: ReturnType<typeof useVircadia>,
+    hdrFiles: string[],
+) {
+    for (const fileName of hdrFiles) {
+        const asset = useAsset({
+            fileName: ref(fileName),
+            instance,
+            useCache: true,
+        });
+        await asset.executeLoad();
+        const url = asset.assetData.value?.blobUrl;
+        if (!url)
+            throw new Error(`[BabylonEnvironment] Failed to load ${fileName}`);
+
+        const hdr = new HDRCubeTexture(
+            url,
+            scene,
+            512,
+            false,
+            true,
+            false,
+            true,
+        );
+        await new Promise<void>((resolve) =>
+            hdr.onLoadObservable.addOnce(() => resolve()),
+        );
+
+        scene.environmentTexture = hdr;
+        scene.environmentIntensity = 1.2;
+        scene.createDefaultSkybox(hdr, true, 1000);
+    }
+}
 
 async function loadAll(scene: Scene) {
     if (!scene) {
@@ -31,43 +66,61 @@ async function loadAll(scene: Scene) {
         console.error("[BabylonEnvironment] Vircadia instance not provided");
         return;
     }
+    if (!envEntityNameRef.value) {
+        console.error(
+            "[BabylonEnvironment] environmentEntityName not provided",
+        );
+        return;
+    }
     if (isLoading.value) {
-        // prevent overlapping loads
         return;
     }
 
     isLoading.value = true;
     try {
-        for (const fileName of hdrFilesRef.value || []) {
-            const asset = useAsset({
-                fileName: ref(fileName),
-                instance: vircadiaRef.value,
-                useCache: true,
-            });
-            await asset.executeLoad();
-            const url = asset.assetData.value?.blobUrl;
-            if (!url)
-                throw new Error(
-                    `[BabylonEnvironment] Failed to load ${fileName}`,
-                );
-
-            const hdr = new HDRCubeTexture(
-                url,
-                scene,
-                512,
-                false,
-                true,
-                false,
-                true,
-            );
-            await new Promise<void>((resolve) =>
-                hdr.onLoadObservable.addOnce(() => resolve()),
-            );
-
-            scene.environmentTexture = hdr;
-            scene.environmentIntensity = 1.2;
-            scene.createDefaultSkybox(hdr, true, 1000);
+        // Fetch all metadata for this environment entity
+        const instance = vircadiaRef.value;
+        if (!instance) {
+            console.error("[BabylonEnvironment] Vircadia instance missing");
+            return;
         }
+        const metadataResult = await instance.client.Utilities.Connection.query(
+            {
+                query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1",
+                parameters: [envEntityNameRef.value],
+            },
+        );
+
+        const metadataMap = new Map<string, unknown>();
+        if (Array.isArray(metadataResult.result)) {
+            for (const row of metadataResult.result) {
+                metadataMap.set(
+                    row.metadata__key as string,
+                    row.metadata__value as unknown,
+                );
+            }
+        }
+
+        const entityType = metadataMap.get("type");
+        if (entityType !== "Environment") {
+            console.warn(
+                `[BabylonEnvironment] Entity '${envEntityNameRef.value}' is not of type 'Environment' (type=${String(entityType)})`,
+            );
+        }
+
+        const hdrFilesMeta = metadataMap.get("hdrFiles");
+        const hdrFiles = Array.isArray(hdrFilesMeta)
+            ? (hdrFilesMeta as unknown[]).filter(
+                  (v): v is string => typeof v === "string",
+              )
+            : [];
+        if (hdrFiles.length === 0) {
+            console.warn(
+                `[BabylonEnvironment] No hdrFiles defined for '${envEntityNameRef.value}'`,
+            );
+        }
+
+        await loadHdrFiles(scene, instance, hdrFiles);
         hasLoaded.value = true;
     } catch (e) {
         console.error(e);
@@ -76,21 +129,20 @@ async function loadAll(scene: Scene) {
     }
 }
 
-// Automatically load once when scene and vircadia are available
+// Automatically load once when scene, vircadia, and entity are available
 watch(
     () => ({
         scene: sceneRef.value,
         v: vircadiaRef.value,
-        files: hdrFilesRef.value,
+        name: envEntityNameRef.value,
     }),
     ({ scene }) => {
         if (
             scene &&
             vircadiaRef.value &&
-            (hdrFilesRef.value?.length ?? 0) > 0 &&
+            envEntityNameRef.value &&
             !hasLoaded.value
         ) {
-            // fire and forget
             void loadAll(scene);
         }
     },

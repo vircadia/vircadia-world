@@ -58,7 +58,7 @@
                 v-if="sceneInitialized && scene && connectionStatus === 'connected' && !isConnecting"
                 :scene="sceneNonNull"
                 :vircadia-world="vircadiaWorld"
-                :hdr-files="hdrList"
+                environment-entity-name="babylon.environment.default"
                 ref="envRef"
                 v-slot="{ isLoading }"
             >
@@ -71,7 +71,8 @@
                         :instance-id="instanceId || undefined"
                         :avatar-definition="avatarDefinition"
                         ref="avatarRef"
-                    />
+                    >
+                    </BabylonMyAvatar>
 
                     <!-- Other avatars wrapper -->
                     <BabylonOtherAvatars
@@ -249,9 +250,6 @@ import type { Scene, WebGPUEngine } from "@babylonjs/core";
 
 // Auth change handling moved to provider
 
-// Local HDR list
-const hdrList = ["babylon.level.hdr.1k.hdr"];
-
 // Local avatar definition to ensure animations are present
 const avatarDefinition = {
     initialAvatarPosition: { x: 0, y: 0, z: -5 },
@@ -277,7 +275,44 @@ const avatarDefinition = {
     gravity: -9.8,
     animations: [
         { fileName: "babylon.avatar.animation.f.idle.1.glb" },
+        { fileName: "babylon.avatar.animation.f.idle.2.glb" },
+        { fileName: "babylon.avatar.animation.f.idle.3.glb" },
+        { fileName: "babylon.avatar.animation.f.idle.4.glb" },
+        { fileName: "babylon.avatar.animation.f.idle.5.glb" },
+        { fileName: "babylon.avatar.animation.f.idle.6.glb" },
+        { fileName: "babylon.avatar.animation.f.idle.7.glb" },
+        { fileName: "babylon.avatar.animation.f.idle.8.glb" },
+        { fileName: "babylon.avatar.animation.f.idle.9.glb" },
+        { fileName: "babylon.avatar.animation.f.idle.10.glb" },
         { fileName: "babylon.avatar.animation.f.walk.1.glb" },
+        { fileName: "babylon.avatar.animation.f.walk.2.glb" },
+        { fileName: "babylon.avatar.animation.f.crouch_strafe_left.glb" },
+        { fileName: "babylon.avatar.animation.f.crouch_strafe_right.glb" },
+        { fileName: "babylon.avatar.animation.f.crouch_walk_back.glb" },
+        { fileName: "babylon.avatar.animation.f.crouch_walk.glb" },
+        { fileName: "babylon.avatar.animation.f.falling_idle.1.glb" },
+        { fileName: "babylon.avatar.animation.f.falling_idle.2.glb" },
+        { fileName: "babylon.avatar.animation.f.jog_back.glb" },
+        { fileName: "babylon.avatar.animation.f.jog.glb" },
+        { fileName: "babylon.avatar.animation.f.jump_small.glb" },
+        { fileName: "babylon.avatar.animation.f.jump.glb" },
+        { fileName: "babylon.avatar.animation.f.run_back.glb" },
+        { fileName: "babylon.avatar.animation.f.run_strafe_left.glb" },
+        { fileName: "babylon.avatar.animation.f.run_strafe_right.glb" },
+        { fileName: "babylon.avatar.animation.f.run.glb" },
+        { fileName: "babylon.avatar.animation.f.strafe_left.glb" },
+        { fileName: "babylon.avatar.animation.f.strafe_right.glb" },
+        { fileName: "babylon.avatar.animation.f.talking.1.glb" },
+        { fileName: "babylon.avatar.animation.f.talking.2.glb" },
+        { fileName: "babylon.avatar.animation.f.talking.3.glb" },
+        { fileName: "babylon.avatar.animation.f.talking.4.glb" },
+        { fileName: "babylon.avatar.animation.f.talking.5.glb" },
+        { fileName: "babylon.avatar.animation.f.talking.6.glb" },
+        { fileName: "babylon.avatar.animation.f.walk_back.glb" },
+        { fileName: "babylon.avatar.animation.f.walk_jump.1.glb" },
+        { fileName: "babylon.avatar.animation.f.walk_jump.2.glb" },
+        { fileName: "babylon.avatar.animation.f.walk_strafe_left.glb" },
+        { fileName: "babylon.avatar.animation.f.walk_strafe_right.glb" },
     ],
 };
 
@@ -388,6 +423,7 @@ void otherAvatarsMetadata;
 void showDebugOverlay;
 void performanceMode;
 void fps;
+void avatarDefinition;
 
 // Keyboard toggle handled inside BabylonCanvas
 
@@ -476,6 +512,16 @@ function clearPeerAudioStates() {
 function toggleSpatialAudio(enabled: boolean) {
     spatialAudioEnabled.value = enabled;
 }
+
+// Mark dialog helpers used in template
+void activePeerAudioStates;
+void getPeerAudioState;
+void setPeerAudioState;
+void removePeerAudioState;
+void setPeerVolume;
+void setPeerMuted;
+void clearPeerAudioStates;
+void toggleSpatialAudio;
 
 // Component Loader
 const app = getCurrentInstance();

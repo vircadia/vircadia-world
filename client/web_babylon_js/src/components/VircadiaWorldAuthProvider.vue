@@ -70,12 +70,12 @@
 </template>
 
 <script setup lang="ts">
+// TODO: Move this to the Vircadia World SDK.
 import { computed, onMounted, ref } from "vue";
 import { useStorage, StorageSerializers } from "@vueuse/core";
 import { clientBrowserConfiguration } from "@/vircadia.browser.config";
 import type { AccountInfo } from "@azure/msal-browser";
 
-// Local auth state (replaces appStore)
 const isAuthenticating = ref(false);
 const authError = ref<string | null>(null);
 

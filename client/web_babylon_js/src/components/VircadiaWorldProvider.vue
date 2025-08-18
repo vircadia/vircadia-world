@@ -21,6 +21,7 @@
 </template>
 
 <script setup lang="ts">
+// TODO: Move this to the Vircadia World SDK.
 import { computed, watch, ref, onUnmounted, onMounted, type Ref } from "vue";
 import {
     Communication,
@@ -208,8 +209,6 @@ const accountDisplayName = computed(() => {
         "User"
     );
 });
-
-// No app store syncing
 
 function ensureDisconnected() {
     const info = connectionInfoComputed.value;

@@ -47,7 +47,7 @@ function getAvatarTargetPosition(): Vector3 | null {
     const node = props.avatarNode;
     return new Vector3(
         node.position.x,
-        node.position.y + props.capsuleHeight / 2,
+        node.position.y + props.capsuleHeight * 0.6,
         node.position.z,
     );
 }
@@ -67,11 +67,9 @@ function getAvatarMesh(): AbstractMesh | null {
 }
 
 function ensureFollowTarget(): AbstractMesh | null {
-    // Try to use an existing mesh under the node
-    const mesh = getAvatarMesh();
-    if (mesh) return mesh;
-    // Fallback: create a tiny invisible mesh parented to avatarNode so the FollowCamera can lock to it
-    if (props.avatarNode && !followTargetMesh) {
+    // Always use a dedicated hidden target anchored roughly at the avatar chest
+    if (!props.avatarNode || !props.scene) return null;
+    if (!followTargetMesh) {
         followTargetMesh = MeshBuilder.CreateSphere(
             "avatarFollowTarget",
             { diameter: 0.01, segments: 4 },
@@ -80,8 +78,9 @@ function ensureFollowTarget(): AbstractMesh | null {
         followTargetMesh.isVisible = false;
         followTargetMesh.isPickable = false;
         followTargetMesh.setParent(props.avatarNode);
-        followTargetMesh.position.set(0, props.capsuleHeight / 2, 0);
     }
+    // Place near chest (about 60% up the capsule). Avatar node is at capsule center (y=0)
+    followTargetMesh.position.set(0, props.capsuleHeight * 0.6, 0);
     return followTargetMesh;
 }
 
@@ -108,7 +107,8 @@ function setupCamera(): void {
 
     // Lock to avatar when available and apply a slight vertical screen-space offset
     cam.lockedTarget = ensureFollowTarget();
-    cam.targetScreenOffset.set(0, -props.capsuleHeight * 15);
+    // Center target in screen; avoid large screen-space offsets that feel disconnected
+    cam.targetScreenOffset.set(0, 0);
 
     // Activate camera and attach controls
     props.scene.activeCamera = cam;

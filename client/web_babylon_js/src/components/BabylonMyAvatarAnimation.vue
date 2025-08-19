@@ -206,6 +206,72 @@ async function load(): Promise<void> {
                         return null;
                     },
                 );
+                // If requested, strip horizontal translation for hip/root targets
+                if (props.animation.ignoreHipTranslation) {
+                    for (const ta of cloned.targetedAnimations) {
+                        const targetName =
+                            (
+                                ta.target as { name?: string }
+                            )?.name?.toLowerCase?.() || "";
+                        const isHipLike =
+                            targetName === "hips" ||
+                            targetName.includes("hip") ||
+                            targetName.includes("pelvis") ||
+                            targetName.includes("root") ||
+                            targetName.includes("__root__") ||
+                            targetName.includes("armature");
+                        if (!isHipLike) continue;
+                        const property = ta.animation?.targetProperty ?? "";
+                        const keys = ta.animation?.getKeys?.();
+                        if (!keys || keys.length === 0) continue;
+                        try {
+                            if (property === "position") {
+                                for (const k of keys as Array<{
+                                    value: {
+                                        x?: number;
+                                        y?: number;
+                                        z?: number;
+                                    };
+                                }>) {
+                                    if (typeof k.value.x === "number")
+                                        k.value.x = 0;
+                                    if (typeof k.value.z === "number")
+                                        k.value.z = 0;
+                                }
+                            } else if (property === "matrix") {
+                                for (const k of keys as Array<{
+                                    value: {
+                                        getTranslation?: () => any;
+                                        setTranslation?: (v: any) => void;
+                                    };
+                                }>) {
+                                    const mat: any = k.value;
+                                    if (
+                                        mat &&
+                                        typeof mat.getTranslation === "function"
+                                    ) {
+                                        const t = mat.getTranslation();
+                                        if (t) {
+                                            t.x = 0;
+                                            t.z = 0;
+                                            if (
+                                                typeof mat.setTranslation ===
+                                                "function"
+                                            ) {
+                                                mat.setTranslation(t);
+                                            } else if (
+                                                typeof mat.setFromFloat32Array ===
+                                                "function"
+                                            ) {
+                                                // best-effort; some matrix impls are immutable
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } catch {}
+                    }
+                }
                 // Debug each group mapping result
                 console.log("[AvatarAnimation] Group retargeted:", {
                     sourceGroup: sourceGroup.name,

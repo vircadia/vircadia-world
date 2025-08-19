@@ -84,6 +84,7 @@ type AnimationDef = {
     slMotion?: string;
     direction?: Direction;
     variant?: string;
+    ignoreHipTranslation?: boolean;
 };
 type AvatarDefinition = {
     initialAvatarPosition: { x: number; y: number; z: number };

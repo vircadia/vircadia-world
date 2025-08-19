@@ -21,6 +21,8 @@ export interface BabylonModelDefinition {
 export interface BabylonAnimationDefinition {
     /** Filename of the animation file (e.g. 'walk.glb') */
     fileName: string;
+    /** If true, strip horizontal (X/Z) translation from hip/root track during mapping */
+    ignoreHipTranslation?: boolean;
 }
 
 export const Vector3Schema = z.object({

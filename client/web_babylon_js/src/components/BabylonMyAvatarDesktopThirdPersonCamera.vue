@@ -11,7 +11,7 @@ import type {
     AbstractMesh,
 } from "@babylonjs/core";
 import {
-    FollowCamera,
+    ArcRotateCamera,
     Vector3,
     Quaternion,
     Mesh,
@@ -32,19 +32,13 @@ const props = defineProps({
     initialRotationOffset: { type: Number, required: false, default: 180 },
 });
 
-const camera: Ref<FollowCamera | null> = ref(null);
+const camera: Ref<ArcRotateCamera | null> = ref(null);
 let beforeRenderObserver: Observer<Scene> | null = null;
 
 const isRightMouseDown = ref(false);
-const isLeftMouseDown = ref(false);
-let lastPointerX = 0;
-let lastPointerY = 0;
 let followTargetMesh: AbstractMesh | null = null;
 
 // Interaction sensitivities and limits
-const rotateSensitivityDegPerPixel = 0.2;
-const heightSensitivityUnitsPerPixel = 0.01;
-const zoomSensitivityUnitsPerDelta = 0.01;
 const minRadius = 1.2;
 const maxRadius = 25;
 
@@ -93,76 +87,68 @@ function ensureFollowTarget(): AbstractMesh | null {
 
 function setupCamera(): void {
     if (!props.scene) return;
-    const target =
+    const initialTarget =
         getAvatarTargetPosition() || new Vector3(0, props.capsuleHeight / 2, 0);
-    const cam = new FollowCamera(
-        "desktop-third-person-follow",
-        target,
+    const cam = new ArcRotateCamera(
+        "desktop-third-person-arc-rotate",
+        props.initialAlpha,
+        props.initialBeta,
+        props.initialRadius,
+        initialTarget,
         props.scene,
     );
-    cam.radius = props.initialRadius;
-    cam.heightOffset = props.capsuleHeight * 0.5;
-    cam.rotationOffset = props.initialRotationOffset; // degrees
-    cam.cameraAcceleration = 0.05; // smoothing
-    cam.maxCameraSpeed = 4;
     cam.minZ = 0.1;
+    cam.lowerRadiusLimit = minRadius;
+    cam.upperRadiusLimit = maxRadius;
+    cam.lowerBetaLimit = 0.1; // prevent flipping under ground
+    cam.upperBetaLimit = Math.PI * 0.95; // allow overhead but not inverted
+    cam.inertia = 0.6;
+    cam.panningSensibility = 0; // disable panning for MMO-style
+    cam.wheelPrecision = 50; // adjust zoom speed to taste
 
-    // Lock to avatar when available
+    // Lock to avatar when available and apply a slight vertical screen-space offset
     cam.lockedTarget = ensureFollowTarget();
+    cam.targetScreenOffset.set(0, -props.capsuleHeight * 15);
 
+    // Activate camera and attach controls
     props.scene.activeCamera = cam;
     camera.value = cam;
 
     const canvas = props.scene.getEngine().getRenderingCanvas();
     if (!canvas) return;
+    cam.attachControl(canvas, true);
 
-    // Mouse interaction using VueUse
+    // Detach controls from any other cameras to avoid input conflicts
+    for (const c of props.scene.cameras) {
+        if (
+            c !== cam &&
+            typeof (c as unknown as { detachControl?: () => void })
+                .detachControl === "function"
+        ) {
+            try {
+                (c as unknown as { detachControl: () => void }).detachControl();
+            } catch {}
+        }
+    }
+
+    // Minimal RMB handling for "face camera" behavior and to suppress context menu
     const stopPointerDown = useEventListener(
         canvas,
         "pointerdown",
         (e: PointerEvent) => {
-            if (e.button === 0) isLeftMouseDown.value = true;
             if (e.button === 2) {
                 isRightMouseDown.value = true;
-                // Best-effort to avoid context menu
                 e.preventDefault();
-            }
-            lastPointerX = e.clientX;
-            lastPointerY = e.clientY;
-            // Only attempt capture for primary button if supported
-            if (
-                e.button === 0 &&
-                typeof (canvas as HTMLElement).setPointerCapture === "function"
-            ) {
-                try {
-                    (canvas as HTMLElement).setPointerCapture(e.pointerId);
-                } catch {}
             }
         },
     );
-
     const stopPointerUp = useEventListener(
         canvas,
         "pointerup",
         (e: PointerEvent) => {
-            if (e.button === 0) isLeftMouseDown.value = false;
             if (e.button === 2) isRightMouseDown.value = false;
-            const el = canvas as HTMLElement & {
-                hasPointerCapture?: (id: number) => boolean;
-            };
-            if (
-                e.button === 0 &&
-                typeof el.releasePointerCapture === "function" &&
-                typeof el.hasPointerCapture === "function" &&
-                el.hasPointerCapture(e.pointerId)
-            ) {
-                try {
-                    el.releasePointerCapture(e.pointerId);
-                } catch {}
-            }
         },
     );
-
     const stopContextMenu = useEventListener(
         canvas,
         "contextmenu",
@@ -171,66 +157,7 @@ function setupCamera(): void {
         },
     );
 
-    const stopPointerMove = useEventListener(
-        canvas,
-        "pointermove",
-        (e: PointerEvent) => {
-            if (!camera.value) return;
-            if (!isLeftMouseDown.value && !isRightMouseDown.value) return;
-            const dx = e.clientX - lastPointerX;
-            const dy = e.clientY - lastPointerY;
-            lastPointerX = e.clientX;
-            lastPointerY = e.clientY;
-
-            // Horizontal orbit
-            camera.value.rotationOffset =
-                (camera.value.rotationOffset +
-                    dx * rotateSensitivityDegPerPixel) %
-                360;
-            if (camera.value.rotationOffset < 0)
-                camera.value.rotationOffset += 360;
-
-            // Vertical orbit as height adjustment
-            const minHeight = 0.1;
-            const maxHeight = props.capsuleHeight * 1.5;
-            camera.value.heightOffset = Math.min(
-                maxHeight,
-                Math.max(
-                    minHeight,
-                    camera.value.heightOffset -
-                        dy * heightSensitivityUnitsPerPixel,
-                ),
-            );
-        },
-    );
-
-    const stopWheel = useEventListener(
-        canvas,
-        "wheel",
-        (e: WheelEvent) => {
-            if (!camera.value) return;
-            // Zoom
-            camera.value.radius = Math.min(
-                maxRadius,
-                Math.max(
-                    minRadius,
-                    camera.value.radius +
-                        e.deltaY * zoomSensitivityUnitsPerDelta,
-                ),
-            );
-            e.preventDefault();
-        },
-        { passive: false },
-    );
-
-    // Store stops for cleanup
-    cleanupListeners.push(
-        stopPointerDown,
-        stopPointerUp,
-        stopPointerMove,
-        stopWheel,
-        stopContextMenu,
-    );
+    cleanupListeners.push(stopPointerDown, stopPointerUp, stopContextMenu);
 
     // Before render: ensure lockedTarget is resolved; RMB yaw to face camera
     beforeRenderObserver = props.scene.onBeforeRenderObservable.add(() => {

@@ -37,53 +37,64 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from "vue";
-import { useMagicKeys, whenever } from "@vueuse/core";
+import { useMagicKeys, whenever, useVModel } from "@vueuse/core";
 
 type AnimRow = { fileName: string; state: string };
 type AnimData = {
-	idle: { ready: boolean };
-	walk: { ready: boolean };
-	blendWeight: number;
-	events: string[];
-	animations: AnimRow[];
+    idle: { ready: boolean };
+    walk: { ready: boolean };
+    blendWeight: number;
+    events: string[];
+    animations: AnimRow[];
 };
 
-const open = ref(false);
+const props = defineProps({
+    modelValue: { type: Boolean, required: false, default: undefined },
+});
+const emit = defineEmits(["update:modelValue"]);
+const open = useVModel(props, "modelValue", emit, {
+    passive: true,
+    defaultValue: false,
+});
 const keys = useMagicKeys();
-whenever(keys["Shift+S"], () => (open.value = !open.value));
+whenever(keys["Shift+S"], () => {
+    open.value = !open.value;
+});
 
 const animData = ref<AnimData>({
-	idle: { ready: false },
-	walk: { ready: false },
-	blendWeight: 0,
-	events: [],
-	animations: [],
+    idle: { ready: false },
+    walk: { ready: false },
+    blendWeight: 0,
+    events: [],
+    animations: [],
 });
 
 interface DebugWindow extends Window {
-	__debugMyAvatarAnimation?: () => AnimData | null;
+    __debugMyAvatarAnimation?: () => AnimData | null;
 }
 
 let timer: number | null = null;
 
 function poll() {
-	const w = window as DebugWindow;
-	if (typeof w.__debugMyAvatarAnimation === "function") {
-		const data = w.__debugMyAvatarAnimation();
-		if (data) animData.value = data;
-	}
+    const w = window as DebugWindow;
+    if (typeof w.__debugMyAvatarAnimation === "function") {
+        const data = w.__debugMyAvatarAnimation();
+        if (data) animData.value = data;
+    }
 }
 
 function boolLabel(v: boolean) {
-	return v ? "yes" : "no";
+    return v ? "yes" : "no";
 }
 
 onMounted(() => {
-	timer = window.setInterval(poll, 250);
+    timer = window.setInterval(poll, 250);
 });
 onUnmounted(() => {
-	if (timer) window.clearInterval(timer);
+    if (timer) window.clearInterval(timer);
 });
+// used in template
+void boolLabel;
 </script>
 
 <style scoped>

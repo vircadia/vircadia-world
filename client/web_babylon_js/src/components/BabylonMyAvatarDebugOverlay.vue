@@ -69,7 +69,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, watch } from "vue";
 import type {
     Scene,
     TransformNode,
@@ -79,7 +79,7 @@ import type {
     Camera,
 } from "@babylonjs/core";
 import type { ArcRotateCamera } from "@babylonjs/core";
-import { useMagicKeys, whenever } from "@vueuse/core";
+import { useMagicKeys, whenever, useVModel } from "@vueuse/core";
 
 const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
@@ -97,9 +97,16 @@ const props = defineProps({
     modelFileName: { type: String, required: false, default: null },
     modelStep: { type: String, required: false, default: null },
     modelError: { type: String, required: false, default: null },
+    // External control (v-model)
+    modelValue: { type: Boolean, required: false, default: undefined },
 });
 
-const open = ref(false);
+const emit = defineEmits(["update:modelValue"]);
+// Support external v-model while remaining fully backward-compatible
+const open = useVModel(props, "modelValue", emit, {
+    passive: true,
+    defaultValue: false,
+});
 const keys = useMagicKeys();
 whenever(keys["Shift+A"], () => {
     open.value = !open.value;

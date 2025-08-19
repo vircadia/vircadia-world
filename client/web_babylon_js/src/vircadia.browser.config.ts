@@ -26,7 +26,7 @@ const clientBrowserEnvSchema = z.object({
     VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN: z.string().default(""),
     VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER: z
         .string()
-        .default("anon"),
+        .default("system"),
 
     VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT: z
         .union([

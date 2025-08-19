@@ -35,6 +35,52 @@
             />
         </template>
 
+        <!-- Dev Debug App Bar -->
+        <v-app-bar
+            v-if="clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG"
+            density="comfortable"
+            color="primary"
+            flat
+        >
+            <v-app-bar-title>Debug</v-app-bar-title>
+            <v-spacer />
+            <v-btn
+                variant="tonal"
+                :color="jointOverlayOpen ? 'error' : 'default'"
+                prepend-icon="mdi-bug"
+                @click="jointOverlayOpen = !jointOverlayOpen"
+            >
+                Joints
+            </v-btn>
+            <v-btn
+                variant="tonal"
+                :color="cameraDebugOpen ? 'error' : 'default'"
+                prepend-icon="mdi-video"
+                @click="cameraDebugOpen = !cameraDebugOpen"
+                class="ml-2"
+            >
+                Camera
+            </v-btn>
+            <v-btn
+                variant="tonal"
+                :color="avatarDebugOpen ? 'error' : 'default'"
+                prepend-icon="mdi-account-eye"
+                @click="avatarDebugOpen = !avatarDebugOpen"
+                class="ml-2"
+            >
+                Avatar
+            </v-btn>
+            <v-btn
+                variant="tonal"
+                :color="animDebugOpen ? 'error' : 'default'"
+                prepend-icon="mdi-motion-outline"
+                @click="animDebugOpen = !animDebugOpen"
+                class="ml-2"
+            >
+                Anim
+            </v-btn>
+        </v-app-bar>
+
         <main>
             <BabylonCanvas
                 ref="canvasComponentRef"
@@ -116,6 +162,13 @@
                                     :model-file-name="modelFileNameRef || modelFileName"
                                     :model-step="avatarModelStep"
                                     :model-error="avatarModelError || undefined"
+                                    v-model="avatarDebugOpen"
+                                />
+                                <!-- Camera debug overlay -->
+                                <BabylonCameraDebugOverlay
+                                    v-if="cameraDebugOpen"
+                                    :scene="sceneNonNull"
+                                    :avatar-node="(avatarNode as any) || null"
                                 />
                             </BabylonMyAvatarModel>
                         </template>
@@ -145,7 +198,7 @@
             </BabylonEnvironment>
         </main>
         <!-- Animation Debug Overlay (Shift+S) -->
-        <BabylonMyAvatarAnimationDebugOverlay />
+        <BabylonMyAvatarAnimationDebugOverlay v-model="animDebugOpen" />
         <!-- WebRTC component (hidden, just for functionality) -->
         <BabylonWebRTC 
             v-if="sessionId && instanceId" 
@@ -181,7 +234,7 @@
                         fab 
                         small
                         color="error" 
-                        @click="showDebugOverlay = !showDebugOverlay"
+                        @click="jointOverlayOpen = !jointOverlayOpen"
                         v-bind="props"
                         class="toolbar-btn"
                     >
@@ -235,9 +288,9 @@
         
         <!-- Debug Joint Overlay -->
         <BabylonDebugOverlay 
-            v-if="showDebugOverlay" 
-            :visible="showDebugOverlay"
-            @close="showDebugOverlay = false"
+            v-if="jointOverlayOpen" 
+            :visible="jointOverlayOpen"
+            @close="jointOverlayOpen = false"
         />
         </VircadiaWorldProvider>
     </VircadiaWorldAuthProvider>
@@ -263,6 +316,7 @@ import BabylonWebRTC from "../components/BabylonWebRTC.vue";
 import BabylonDebugOverlay from "../components/BabylonDebugOverlay.vue";
 import BabylonMyAvatarDebugOverlay from "../components/BabylonMyAvatarDebugOverlay.vue";
 import BabylonMyAvatarAnimationDebugOverlay from "../components/BabylonMyAvatarAnimationDebugOverlay.vue";
+import BabylonCameraDebugOverlay from "../components/BabylonCameraDebugOverlay.vue";
 import BabylonInspector from "../components/BabylonInspector.vue";
 import AudioControlsDialog from "../components/AudioControlsDialog.vue";
 import VircadiaWorldAuthProvider from "../components/VircadiaWorldAuthProvider.vue";
@@ -292,6 +346,7 @@ void BabylonDebugOverlay;
 void BabylonMyAvatarDebugOverlay;
 // mark as used at runtime for template
 void BabylonMyAvatarAnimationDebugOverlay;
+void BabylonCameraDebugOverlay;
 // mark as used at runtime for template
 void BabylonInspector;
 // mark as used at runtime for template
@@ -308,6 +363,7 @@ void BabylonCanvas;
 void VircadiaWorldProvider;
 import BabylonEnvironment from "../components/BabylonEnvironment.vue";
 import { clientBrowserConfiguration } from "@/vircadia.browser.config";
+import { useLocalStorage } from "@vueuse/core";
 
 // BabylonJS types
 import type { Scene, WebGPUEngine } from "@babylonjs/core";
@@ -354,9 +410,15 @@ const modelRefs = ref<(InstanceType<typeof BabylonModel> | null)[]>([]);
 
 // Physics handled by BabylonCanvas
 
-// State for debug overlay
-const showDebugOverlay = ref(false);
-void showDebugOverlay;
+// State for debug overlays with persistence across reloads
+const jointOverlayOpen = useLocalStorage<boolean>("vrca.debug.joints", false);
+const cameraDebugOpen = useLocalStorage<boolean>("vrca.debug.camera", false);
+const avatarDebugOpen = useLocalStorage<boolean>("vrca.debug.avatar", false);
+const animDebugOpen = useLocalStorage<boolean>("vrca.debug.anim", false);
+void jointOverlayOpen;
+void cameraDebugOpen;
+void avatarDebugOpen;
+void animDebugOpen;
 
 // Babylon managed by BabylonCanvas
 // Use the exposed API from BabylonCanvas via a component ref instead of local refs
@@ -409,7 +471,11 @@ void fps;
 // Ready callback no longer needed; scene readiness comes from the canvas API
 
 onMounted(async () => {
-    console.log("[MainScene] Initialized");
+    console.debug("[MainScene] Initialized");
+    console.debug(
+        "[MainScene] Debug",
+        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
+    );
 });
 
 // No onUnmounted reset needed; canvas manages its own ready state
@@ -419,7 +485,7 @@ onMounted(async () => {
 // Variables referenced only in template - mark to satisfy linter
 void activeAudioCount;
 void otherAvatarsMetadata;
-void showDebugOverlay;
+// removed legacy showDebugOverlay marker
 void performanceMode;
 void fps;
 // removed inline avatarDefinition; using DB-backed avatar definition by name

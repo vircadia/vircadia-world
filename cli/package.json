@@ -23,7 +23,7 @@
         "build:server:state": "cd ../server/service/state/volume/app && bun run build",
         "build:client:web_babylon_js": "cd ../client/web_babylon_js && bun run build",
         "build:client:web_babylon_js:docker": "cd ../client/web_babylon_js && VRCA_CLIENT_WEB_BABYLON_JS_BUILD_OUTPUT_DIR=dist-docker bun run build",
-        "dev:client:web_babylon_js": "export VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN=$(bun run server:postgres:system-token true) && bun run clean:sdk && bun run install:sdk && bun run build:sdk && bun run clean:repo && bun run clean:client:web_babylon_js && bun run install:client:web_babylon_js && cd ../client/web_babylon_js/ && bun run dev",
+        "dev:client:web_babylon_js": "export VRCA_CLIENT_WEB_BABYLON_JS_DEBUG=1 && export VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN=$(bun run server:postgres:system-token true) && bun run clean:sdk && bun run install:sdk && bun run build:sdk && bun run clean:repo && bun run clean:client:web_babylon_js && bun run install:client:web_babylon_js && cd ../client/web_babylon_js/ && bun run dev",
         "test:0_cli_server_unit": "bun test ./test/0_test_cli_server_unit.ts",
         "test:1_db_unit": "bun run server:run-command down vircadia_world_api_manager vircadia_world_state_manager && bun test ./test/1_test_db_unit.ts && bun run server:run-command up vircadia_world_api_manager vircadia_world_state_manager -d",
         "test:2_api_auth_integration": "bun test ./test/2_test_api_auth_integration.ts",

@@ -75,6 +75,8 @@ void animations;
 void onAnimationState;
 
 const targetSkeleton: Ref<Skeleton | null> = ref(null);
+const loadedMeshes: Ref<AbstractMesh[]> = ref([]);
+const hasAttachedToAvatarNode = ref(false);
 
 // Create a computed ref that tracks the modelFileName prop
 const modelFileNameRef = computed(() => props.modelFileName);
@@ -164,6 +166,7 @@ async function loadAndAttach(): Promise<void> {
 
     // Parent only top-level meshes under avatarNode
     const meshes = result.meshes as AbstractMesh[];
+    loadedMeshes.value = meshes;
     if (props.avatarNode) {
         for (const mesh of meshes.filter((m) => !m.parent)) {
             if (props.meshPivotPoint === "bottom") {
@@ -176,6 +179,7 @@ async function loadAndAttach(): Promise<void> {
         for (const mesh of meshes) {
             mesh.computeWorldMatrix(true);
         }
+        hasAttachedToAvatarNode.value = true;
     }
 
     // Determine skeleton
@@ -257,6 +261,29 @@ watch(
             });
         }
     },
+);
+
+// React if avatarNode becomes available after model load
+watch(
+    () => props.avatarNode,
+    (node) => {
+        if (!node || hasAttachedToAvatarNode.value) return;
+        if (!loadedMeshes.value || loadedMeshes.value.length === 0) return;
+        // Parent only top-level meshes
+        const rootMeshes = loadedMeshes.value.filter((m) => !m.parent);
+        for (const mesh of rootMeshes) {
+            if (props.meshPivotPoint === "bottom") {
+                mesh.position.y = -props.capsuleHeight / 2;
+            }
+            mesh.parent = node;
+        }
+        node.computeWorldMatrix(true);
+        for (const mesh of loadedMeshes.value) {
+            mesh.computeWorldMatrix(true);
+        }
+        hasAttachedToAvatarNode.value = true;
+    },
+    { immediate: true },
 );
 
 defineExpose({ targetSkeleton });

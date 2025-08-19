@@ -30,12 +30,17 @@ import {
     Matrix,
     CharacterSupportedState,
     Space,
+    TransformNode,
+    MeshBuilder,
+    PhysicsCharacterController,
+    StandardMaterial,
+    Color3,
+    PhysicsShapeCapsule,
     type AnimationGroup,
     type Scene,
     type Observer,
     type Skeleton,
     type Bone,
-    type TransformNode,
     type AbstractMesh,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
@@ -46,14 +51,13 @@ import { SkeletonViewer, AxesViewer } from "@babylonjs/core/Debug";
 import { useThrottleFn } from "@vueuse/core";
 
 import { useBabylonAvatarKeyboardMouseControls } from "../composables/useBabylonAvatarKeyboardMouseControls";
-import { useBabylonAvatarPhysicsController } from "../composables/useBabylonAvatarPhysicsController";
+// Physics controller is now inlined in this component
 import { useBabylonAvatarCameraController } from "../composables/useBabylonAvatarCameraController";
 // Model loading now handled by child component (BabylonMyAvatarModel)
 import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
-import type {
-    PositionObj,
-    RotationObj,
-} from "../composables/useBabylonAvatarPhysicsController";
+// Local helper types previously exported by the controller composable
+type PositionObj = { x: number; y: number; z: number };
+type RotationObj = { x: number; y: number; z: number; w: number };
 
 // Debug bounding box, skeleton, and axes
 // removed; now using debug flags from store (debugBoundingBox, debugSkeleton, debugAxes)
@@ -391,27 +395,115 @@ interface SkeletonSnapshot {
 }
 
 // Instantiate composables
-const {
-    avatarNode,
-    characterController,
-    createController,
-    updateTransforms,
-    getPosition,
-    setPosition,
-    getOrientation,
-    setOrientation,
-    getVelocity,
-    setVelocity,
-    checkSupport,
-    integrate,
-} = useBabylonAvatarPhysicsController(
-    props.scene,
-    position,
-    rotation,
-    capsuleHeight,
-    capsuleRadius,
-    slopeLimit,
-);
+// Inlined physics controller (previously useBabylonAvatarPhysicsController)
+const avatarNode = ref<TransformNode | null>(null);
+const characterController = ref<PhysicsCharacterController | null>(null);
+
+function createController(): void {
+    const scene = props.scene;
+    if (!scene) return;
+
+    // Create visual capsule
+    const capsule = MeshBuilder.CreateCapsule(
+        "avatarCapsule",
+        { height: capsuleHeight.value, radius: capsuleRadius.value },
+        scene,
+    );
+    const material = new StandardMaterial("capsuleMaterial", scene);
+    material.diffuseColor = new Color3(0.2, 0.4, 0.8);
+    capsule.material = material;
+    capsule.isVisible = false; // hidden, avatar model will be visible
+
+    const physicsShape = PhysicsShapeCapsule.FromMesh(capsule);
+
+    // Create parent transform node
+    const node = new TransformNode("avatarNode", scene);
+    avatarNode.value = node;
+    capsule.setParent(node);
+
+    // Initialize transform
+    avatarNode.value.position = new Vector3(
+        position.value.x,
+        position.value.y,
+        position.value.z,
+    );
+    avatarNode.value.rotationQuaternion = new Quaternion(
+        rotation.value.x,
+        rotation.value.y,
+        rotation.value.z,
+        rotation.value.w,
+    );
+
+    // Create the physics character controller
+    characterController.value = new PhysicsCharacterController(
+        avatarNode.value.position.clone(),
+        {
+            shape: physicsShape,
+            capsuleHeight: capsuleHeight.value,
+            capsuleRadius: capsuleRadius.value,
+        },
+        scene,
+    );
+
+    // Configure slope limit and iterations
+    if (characterController.value) {
+        characterController.value.maxSlopeCosine = Math.cos(
+            (slopeLimit.value * Math.PI) / 180,
+        );
+        characterController.value.maxCastIterations = 20;
+        characterController.value.keepContactTolerance = 0.001;
+        characterController.value.keepDistance = 0.01;
+    }
+}
+
+function updateTransforms(): void {
+    if (!avatarNode.value || !characterController.value) return;
+    const pos = characterController.value.getPosition();
+    if (pos) {
+        avatarNode.value.position = pos.clone();
+        avatarNode.value.computeWorldMatrix(true);
+    }
+    // Rotation is controlled separately via setOrientation
+}
+
+function getPosition(): Vector3 | undefined {
+    return characterController.value?.getPosition();
+}
+function setPosition(pos: Vector3): void {
+    const node = avatarNode.value;
+    const controller = characterController.value;
+    if (!node || !controller) return;
+    node.position = pos.clone();
+    controller.setPosition(pos.clone());
+    node.computeWorldMatrix(true);
+}
+function getOrientation(): Quaternion | undefined {
+    return avatarNode.value?.rotationQuaternion?.clone();
+}
+function setOrientation(q: Quaternion): void {
+    if (avatarNode.value) {
+        avatarNode.value.rotationQuaternion = q.clone();
+        avatarNode.value.computeWorldMatrix(true);
+    }
+}
+function getVelocity(): Vector3 | undefined {
+    return characterController.value?.getVelocity();
+}
+function setVelocity(v: Vector3): void {
+    characterController.value?.setVelocity(v);
+}
+type SupportType = ReturnType<PhysicsCharacterController["checkSupport"]>;
+function checkSupport(deltaTime: number): SupportType | undefined {
+    return characterController.value?.checkSupport(
+        deltaTime,
+        new Vector3(0, -1, 0),
+    );
+}
+function integrate(deltaTime: number, support: SupportType): void {
+    const controller = characterController.value;
+    if (!controller || !support) return;
+    controller.integrate(deltaTime, support, new Vector3(0, -9.8, 0));
+}
 const { keyState } = useBabylonAvatarKeyboardMouseControls(props.scene);
 
 // Store previous states for change detection

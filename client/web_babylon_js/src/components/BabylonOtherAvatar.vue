@@ -34,10 +34,9 @@ import {
     type AvatarMetadata,
     type AvatarJointMetadata,
 } from "../composables/schemas";
-import type {
-    PositionObj,
-    RotationObj,
-} from "../composables/useBabylonAvatarPhysicsController";
+// Local helper types (previously from physics controller composable)
+type PositionObj = { x: number; y: number; z: number };
+type RotationObj = { x: number; y: number; z: number; w: number };
 
 // Define component props
 const props = defineProps({

@@ -78,6 +78,13 @@ const props = defineProps({
 const emit = defineEmits<{ ready: []; dispose: [] }>();
 
 // AvatarDefinition type
+type Direction = "forward" | "back" | "left" | "right";
+type AnimationDef = {
+    fileName: string;
+    slMotion?: string;
+    direction?: Direction;
+    variant?: string;
+};
 type AvatarDefinition = {
     initialAvatarPosition: { x: number; y: number; z: number };
     initialAvatarRotation: { x: number; y: number; z: number; w: number };
@@ -95,7 +102,7 @@ type AvatarDefinition = {
     turnSpeed: number;
     blendDuration: number;
     gravity: number;
-    animations: { fileName: string }[];
+    animations: AnimationDef[];
     disableRootMotion?: boolean; // Optional: Allow enabling root motion for specific avatars
 };
 
@@ -151,7 +158,7 @@ const initialAvatarRotation = computed(
 );
 const modelFileName = computed(() => effectiveAvatarDef.value.modelFileName);
 const animations = computed(
-    () => effectiveAvatarDef.value.animations as { fileName: string }[],
+    () => effectiveAvatarDef.value.animations as AnimationDef[],
 );
 
 // Reactive sessionId and fullSessionId from vircadia connection
@@ -738,6 +745,150 @@ const blendWeight = ref(0); // 0 = idle, 1 = walk
 // Initialize and manage blended animations
 let idleAnimation: AnimationGroup | null = null;
 let walkAnimation: AnimationGroup | null = null;
+let currentMoveFileName: string | null = null;
+
+function findAnimationDef(
+    motion: string,
+    direction?: Direction,
+): AnimationDef | undefined {
+    const list = animations.value as AnimationDef[];
+    // Prefer exact motion+direction match
+    if (direction) {
+        const withDir = list.find(
+            (a) => a.slMotion === motion && a.direction === direction,
+        );
+        if (withDir) return withDir;
+    }
+    // Fallback to motion without direction
+    const withoutDir = list.find((a) => a.slMotion === motion && !a.direction);
+    if (withoutDir) return withoutDir;
+    return undefined;
+}
+
+function getIdleDef(): AnimationDef | undefined {
+    // SL mapping uses 'stand' for idle
+    const byMapping = (animations.value as AnimationDef[]).find(
+        (a) => a.slMotion === "stand",
+    );
+    if (byMapping) return byMapping;
+    // Fallback heuristic
+    return (animations.value as AnimationDef[]).find((a) =>
+        a.fileName.toLowerCase().includes("idle.1.glb"),
+    );
+}
+
+function getDesiredMoveDefFromKeys(): AnimationDef | undefined {
+    const ks = keyState.value;
+    const dx = (ks.strafeRight ? 1 : 0) - (ks.strafeLeft ? 1 : 0);
+    const dz = (ks.forward ? 1 : 0) - (ks.backward ? 1 : 0);
+    if (dx === 0 && dz === 0) return undefined;
+    let dir: Direction;
+    if (Math.abs(dz) >= Math.abs(dx)) dir = dz >= 0 ? "forward" : "back";
+    else dir = dx >= 0 ? "right" : "left";
+    const primary = ks.run ? "run" : "walk";
+    const mapped =
+        findAnimationDef(primary, dir) ||
+        findAnimationDef(primary) ||
+        // Fallbacks across motions
+        findAnimationDef("walk", dir) ||
+        findAnimationDef("walk");
+    if (mapped) return mapped;
+
+    // Filename-based fallback to support legacy seeds without mapping
+    const list = animations.value as AnimationDef[];
+    const name = (s: string) => s.toLowerCase();
+    if (primary === "walk") {
+        if (dir === "forward")
+            return (
+                list.find((a) => name(a.fileName).includes("walk.1.glb")) ||
+                list.find((a) => name(a.fileName).includes("walk.2.glb")) ||
+                list.find((a) => name(a.fileName).includes("walk.")) ||
+                list.find((a) => name(a.fileName).includes("walk"))
+            );
+        if (dir === "back")
+            return list.find((a) => name(a.fileName).includes("walk_back"));
+        if (dir === "left")
+            return (
+                list.find((a) =>
+                    name(a.fileName).includes("walk_strafe_left"),
+                ) || list.find((a) => name(a.fileName).includes("strafe_left"))
+            );
+        if (dir === "right")
+            return (
+                list.find((a) =>
+                    name(a.fileName).includes("walk_strafe_right"),
+                ) || list.find((a) => name(a.fileName).includes("strafe_right"))
+            );
+    } else {
+        // run
+        if (dir === "forward")
+            return (
+                list.find((a) => name(a.fileName).includes("run.glb")) ||
+                list.find((a) => name(a.fileName).includes("jog.glb")) ||
+                list.find((a) => name(a.fileName).includes("run.")) ||
+                list.find((a) => name(a.fileName).includes("jog."))
+            );
+        if (dir === "back")
+            return list.find((a) => name(a.fileName).includes("run_back"));
+        if (dir === "left")
+            return (
+                list.find((a) =>
+                    name(a.fileName).includes("run_strafe_left"),
+                ) || list.find((a) => name(a.fileName).includes("strafe_left"))
+            );
+        if (dir === "right")
+            return (
+                list.find((a) =>
+                    name(a.fileName).includes("run_strafe_right"),
+                ) || list.find((a) => name(a.fileName).includes("strafe_right"))
+            );
+    }
+    return undefined;
+}
+
+function ensureIdleGroupReady(): void {
+    if (idleAnimation) return;
+    const idleDef = getIdleDef();
+    if (!idleDef) return;
+    const info = animationsMap.value.get(idleDef.fileName);
+    if (info?.state === "ready" && info.group) {
+        idleAnimation = info.group as AnimationGroup;
+        idleAnimation.stop();
+        idleAnimation.loopAnimation = true;
+        idleAnimation.setWeightForAllAnimatables(1.0);
+        idleAnimation.play(true);
+    }
+}
+
+function setMoveAnimationFromDef(def: AnimationDef | undefined): void {
+    if (!def) return;
+    if (currentMoveFileName === def.fileName && walkAnimation) return;
+    const info = animationsMap.value.get(def.fileName);
+    if (info?.state !== "ready" || !info.group) return;
+    const newGroup = info.group as AnimationGroup;
+
+    // Stop previous move group if different
+    if (walkAnimation && walkAnimation !== newGroup) {
+        try {
+            walkAnimation.stop();
+        } catch {}
+    }
+    walkAnimation = newGroup;
+    currentMoveFileName = def.fileName;
+    walkAnimation.stop();
+    walkAnimation.loopAnimation = true;
+    // Start both and set weights based on current blend
+    const weight = Math.min(Math.max(blendWeight.value, 0), 1);
+    walkAnimation.setWeightForAllAnimatables(weight);
+    if (idleAnimation) idleAnimation.setWeightForAllAnimatables(1 - weight);
+    walkAnimation.play(true);
+}
+
+function refreshDesiredAnimations(): void {
+    ensureIdleGroupReady();
+    const desired = getDesiredMoveDefFromKeys();
+    setMoveAnimationFromDef(desired);
+}
 
 // Avatar model data provided by child component via slot callback
 // (reuse avatarMeshes declared above with concrete type)
@@ -991,57 +1142,13 @@ function onAnimationState(payload: {
         error: payload.error,
         group: payload.group,
     });
-    // If idle/walk become ready, set up blending
-    if (!idleAnimation || !walkAnimation) {
-        trySetupBlendedAnimations();
-    }
+    // Ensure idle/move groups get attached as they become ready
+    refreshDesiredAnimations();
 }
 
 function trySetupBlendedAnimations(): void {
-    // Determine primary idle and walk animations (only these should be blended)
-    const idleFileName = animations.value.find((anim: { fileName: string }) =>
-        anim.fileName.toLowerCase().includes("idle.1.glb"),
-    )?.fileName;
-    const walkFileName = animations.value.find((anim: { fileName: string }) =>
-        anim.fileName.toLowerCase().includes("walk.1.glb"),
-    )?.fileName;
-
-    const idleInfo = idleFileName
-        ? animationsMap.value.get(idleFileName)
-        : undefined;
-    const walkInfo = walkFileName
-        ? animationsMap.value.get(walkFileName)
-        : undefined;
-
-    if (!idleAnimation) {
-        if (idleInfo?.state === "ready" && idleInfo.group) {
-            idleAnimation = idleInfo.group as AnimationGroup;
-        }
-        if (idleAnimation) {
-            idleAnimation.stop();
-            idleAnimation.loopAnimation = true;
-            idleAnimation.setWeightForAllAnimatables(1.0);
-        }
-    }
-
-    if (!walkAnimation) {
-        if (walkInfo?.state === "ready" && walkInfo.group) {
-            walkAnimation = walkInfo.group as AnimationGroup;
-        }
-        if (walkAnimation) {
-            walkAnimation.stop();
-            walkAnimation.loopAnimation = true;
-            walkAnimation.setWeightForAllAnimatables(0.0);
-        }
-    }
-
-    if (idleAnimation && walkAnimation) {
-        // Start both paused at correct weights; resume only when we drive blending
-        idleAnimation.play(true);
-        walkAnimation.play(true);
-        idleAnimation.setWeightForAllAnimatables(1.0);
-        walkAnimation.setWeightForAllAnimatables(0.0);
-    }
+    // Attach idle if available; move group will be selected dynamically
+    ensureIdleGroupReady();
 }
 
 // Update animation weights based on movement
@@ -1813,6 +1920,9 @@ onMounted(async () => {
 
         // Check if character is moving for animation blending
         const isMoving = dir.lengthSquared() > 0;
+
+        // Refresh desired animations based on key state (motion/direction)
+        refreshDesiredAnimations();
 
         // Update animation blending based on movement state
         updateAnimationBlending(isMoving, dt);

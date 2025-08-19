@@ -27,8 +27,8 @@
                 :canvas="renderCanvas"
                 :vircadia-world="vircadiaWorld"
                 :connection-status="connectionStatus"
-                :session-id="sessionId"
-                :agent-id="agentId"
+                :session-id="sessionId ?? undefined"
+                :agent-id="agentId ?? undefined"
                 :scene-initialized="sceneInitialized"
                 :fps="fps"
                 :performance-mode="performanceMode"
@@ -52,6 +52,9 @@
                 :models-loading="modelsLoading"
                 :is-authenticating="isAuthenticating"
                 :is-authenticated="isAuthenticated"
+                :avatar-model-step="avatarModelStep"
+                :avatar-model-error="avatarModelError"
+                :model-file-name="modelFileNameRef"
             />
             
             <BabylonEnvironment
@@ -68,17 +71,54 @@
                     <BabylonMyAvatar
                         :scene="sceneNonNull"
                         :vircadia-world="vircadiaWorld"
-                        :instance-id="instanceId || undefined"
-                        :avatar-definition="avatarDefinition"
+                        :instance-id="instanceId ?? undefined"
+                        avatar-definition-name="avatar.definition.default"
                         ref="avatarRef"
                     >
+                        <template #default="{ avatarSkeleton, animations, vircadiaWorld, onAnimationState, avatarNode, modelFileName, meshPivotPoint, capsuleHeight, onSetAvatarModel }">
+                            <BabylonMyAvatarModel
+                                v-if="modelFileName"
+                                :scene="sceneNonNull"
+                                :vircadia-world="vircadiaWorld"
+                                :avatar-node="(avatarNode as any) || null"
+                                :model-file-name="modelFileName"
+                                :mesh-pivot-point="meshPivotPoint"
+                                :capsule-height="capsuleHeight"
+                                :on-set-avatar-model="onSetAvatarModel as any"
+                                :animations="animations"
+                                :on-animation-state="onAnimationState as any"
+                                @state="onAvatarModelState"
+                                v-slot="{ targetSkeleton }"
+                            >
+                                <!-- Non-visual animation loaders now slotted under model component -->
+                                <BabylonMyAvatarAnimation
+                                    v-for="anim in animations"
+                                    :key="anim.fileName"
+                                    :scene="sceneNonNull"
+                                    :vircadia-world="vircadiaWorld"
+                                    :animation="anim"
+                                    :target-skeleton="targetSkeleton"
+                                    @state="onAnimationState"
+                                />
+                                <!-- Debug overlay for avatar -->
+                                <BabylonAvatarDebugOverlay
+                                    :scene="sceneNonNull"
+                                    :vircadia-world="vircadiaWorld"
+                                    :avatar-node="(avatarNode as any) || null"
+                                    :avatar-skeleton="(avatarSkeleton as any) || null"
+                                    :model-file-name="modelFileNameRef || modelFileName"
+                                    :model-step="avatarModelStep"
+                                    :model-error="avatarModelError || undefined"
+                                />
+                            </BabylonMyAvatarModel>
+                        </template>
                     </BabylonMyAvatar>
 
                     <!-- Other avatars wrapper -->
                     <BabylonOtherAvatars
                         :scene="sceneNonNull"
                         :vircadia-world="vircadiaWorld"
-                        :current-full-session-id="sessionId && instanceId ? `${sessionId}-${instanceId}` : null"
+                        :current-full-session-id="sessionId && instanceId ? `${sessionId}-${instanceId}` : undefined"
                         v-model:otherAvatarsMetadata="otherAvatarsMetadata"
                         ref="otherAvatarsRef"
                     />
@@ -100,7 +140,7 @@
         <!-- WebRTC component (hidden, just for functionality) -->
         <BabylonWebRTC 
             v-if="sessionId && instanceId" 
-            :instance-id="instanceId" 
+            :instance-id="instanceId ?? undefined" 
             :vircadia-world="vircadiaWorld"
             :other-avatars-metadata="otherAvatarsMetadata"
             :on-set-peer-audio-state="setPeerAudioState"
@@ -204,11 +244,14 @@ import {
     type defineComponent,
 } from "vue";
 import BabylonMyAvatar from "../components/BabylonMyAvatar.vue";
+import BabylonMyAvatarModel from "../components/BabylonMyAvatarModel.vue";
+import BabylonMyAvatarAnimation from "../components/BabylonMyAvatarAnimation.vue";
 import BabylonOtherAvatars from "../components/BabylonOtherAvatars.vue";
 import BabylonModel from "../components/BabylonModel.vue";
 import BabylonModels from "../components/BabylonModels.vue";
 import BabylonWebRTC from "../components/BabylonWebRTC.vue";
 import BabylonDebugOverlay from "../components/BabylonDebugOverlay.vue";
+import BabylonAvatarDebugOverlay from "../components/BabylonAvatarDebugOverlay.vue";
 import BabylonInspector from "../components/BabylonInspector.vue";
 import AudioControlsDialog from "../components/AudioControlsDialog.vue";
 import VircadiaWorldAuthProvider from "../components/VircadiaWorldAuthProvider.vue";
@@ -219,6 +262,10 @@ import VircadiaWorldProvider from "../components/VircadiaWorldProvider.vue";
 // mark as used at runtime for template
 void BabylonMyAvatar;
 // mark as used at runtime for template
+void BabylonMyAvatarAnimation;
+// mark as used at runtime for template
+void BabylonMyAvatarModel;
+// mark as used at runtime for template
 void BabylonOtherAvatars;
 // mark as used at runtime for template
 void BabylonModel;
@@ -228,6 +275,8 @@ void BabylonModels;
 void BabylonWebRTC;
 // mark as used at runtime for template
 void BabylonDebugOverlay;
+// mark as used at runtime for template
+void BabylonAvatarDebugOverlay;
 // mark as used at runtime for template
 void BabylonInspector;
 // mark as used at runtime for template
@@ -249,72 +298,6 @@ import { clientBrowserConfiguration } from "@/vircadia.browser.config";
 import type { Scene, WebGPUEngine } from "@babylonjs/core";
 
 // Auth change handling moved to provider
-
-// Local avatar definition to ensure animations are present
-const avatarDefinition = {
-    initialAvatarPosition: { x: 0, y: 0, z: -5 },
-    initialAvatarRotation: { x: 0, y: 0, z: 0, w: 1 },
-    initialAvatarCameraOrientation: {
-        alpha: -Math.PI / 2,
-        beta: Math.PI / 3,
-        radius: 5,
-    },
-    modelFileName: "babylon.avatar.glb",
-    meshPivotPoint: "bottom" as const,
-    throttleInterval: 500,
-    capsuleHeight: 1.8,
-    capsuleRadius: 0.3,
-    slopeLimit: 45,
-    jumpSpeed: 5,
-    debugBoundingBox: false,
-    debugSkeleton: true,
-    debugAxes: false,
-    walkSpeed: 1.47,
-    turnSpeed: Math.PI,
-    blendDuration: 0.15,
-    gravity: -9.8,
-    animations: [
-        { fileName: "babylon.avatar.animation.f.idle.1.glb" },
-        { fileName: "babylon.avatar.animation.f.idle.2.glb" },
-        { fileName: "babylon.avatar.animation.f.idle.3.glb" },
-        { fileName: "babylon.avatar.animation.f.idle.4.glb" },
-        { fileName: "babylon.avatar.animation.f.idle.5.glb" },
-        { fileName: "babylon.avatar.animation.f.idle.6.glb" },
-        { fileName: "babylon.avatar.animation.f.idle.7.glb" },
-        { fileName: "babylon.avatar.animation.f.idle.8.glb" },
-        { fileName: "babylon.avatar.animation.f.idle.9.glb" },
-        { fileName: "babylon.avatar.animation.f.idle.10.glb" },
-        { fileName: "babylon.avatar.animation.f.walk.1.glb" },
-        { fileName: "babylon.avatar.animation.f.walk.2.glb" },
-        { fileName: "babylon.avatar.animation.f.crouch_strafe_left.glb" },
-        { fileName: "babylon.avatar.animation.f.crouch_strafe_right.glb" },
-        { fileName: "babylon.avatar.animation.f.crouch_walk_back.glb" },
-        { fileName: "babylon.avatar.animation.f.crouch_walk.glb" },
-        { fileName: "babylon.avatar.animation.f.falling_idle.1.glb" },
-        { fileName: "babylon.avatar.animation.f.falling_idle.2.glb" },
-        { fileName: "babylon.avatar.animation.f.jog_back.glb" },
-        { fileName: "babylon.avatar.animation.f.jog.glb" },
-        { fileName: "babylon.avatar.animation.f.jump_small.glb" },
-        { fileName: "babylon.avatar.animation.f.jump.glb" },
-        { fileName: "babylon.avatar.animation.f.run_back.glb" },
-        { fileName: "babylon.avatar.animation.f.run_strafe_left.glb" },
-        { fileName: "babylon.avatar.animation.f.run_strafe_right.glb" },
-        { fileName: "babylon.avatar.animation.f.run.glb" },
-        { fileName: "babylon.avatar.animation.f.strafe_left.glb" },
-        { fileName: "babylon.avatar.animation.f.strafe_right.glb" },
-        { fileName: "babylon.avatar.animation.f.talking.1.glb" },
-        { fileName: "babylon.avatar.animation.f.talking.2.glb" },
-        { fileName: "babylon.avatar.animation.f.talking.3.glb" },
-        { fileName: "babylon.avatar.animation.f.talking.4.glb" },
-        { fileName: "babylon.avatar.animation.f.talking.5.glb" },
-        { fileName: "babylon.avatar.animation.f.talking.6.glb" },
-        { fileName: "babylon.avatar.animation.f.walk_back.glb" },
-        { fileName: "babylon.avatar.animation.f.walk_jump.1.glb" },
-        { fileName: "babylon.avatar.animation.f.walk_jump.2.glb" },
-        { fileName: "babylon.avatar.animation.f.walk_strafe_left.glb" },
-        { fileName: "babylon.avatar.animation.f.walk_strafe_right.glb" },
-    ],
-};
 
 // Connection count is now managed by BabylonWebRTC component
 const webrtcStatus = ref<InstanceType<typeof BabylonWebRTC> | null>(null);
@@ -343,6 +326,7 @@ void instanceIdRef;
 // Scene readiness derived from BabylonCanvas exposed API
 // Track if avatar is ready
 const avatarRef = ref<InstanceType<typeof BabylonMyAvatar> | null>(null);
+// targetSkeleton now provided via slot; no local ref needed
 type OtherAvatarsExposed = { isLoading: boolean };
 const otherAvatarsRef = ref<OtherAvatarsExposed | null>(null);
 const otherAvatarsMetadata = ref<
@@ -423,7 +407,7 @@ void otherAvatarsMetadata;
 void showDebugOverlay;
 void performanceMode;
 void fps;
-void avatarDefinition;
+// removed inline avatarDefinition; using DB-backed avatar definition by name
 
 // Keyboard toggle handled inside BabylonCanvas
 
@@ -440,7 +424,9 @@ void environmentLoading;
 // Child component loading states
 const avatarLoading = computed(
     () =>
-        (avatarRef.value?.isCreating || avatarRef.value?.isRetrieving) ?? false,
+        ((avatarRef.value?.isCreating || avatarRef.value?.isRetrieving) ??
+            false) ||
+        avatarModelLoading.value,
 );
 void avatarLoading;
 const otherAvatarsLoading = computed(
@@ -457,6 +443,30 @@ const modelsLoading = computed(() =>
     ),
 );
 void modelsLoading;
+
+// Avatar model loader debug state
+const avatarModelStep = ref<string>("");
+const avatarModelError = ref<string | null>(null);
+const avatarModelLoading = ref<boolean>(false);
+const modelFileNameRef = ref<string | null>(null);
+function onAvatarModelState(payload: {
+    state: "loading" | "ready" | "error";
+    step: string;
+    message?: string;
+    details?: Record<string, unknown>;
+}): void {
+    avatarModelStep.value = payload.step;
+    avatarModelLoading.value = payload.state === "loading";
+    avatarModelError.value =
+        payload.state === "error" ? payload.message || null : null;
+    const fileName = payload.details?.fileName;
+    if (typeof fileName === "string") modelFileNameRef.value = fileName;
+}
+void avatarModelStep;
+void avatarModelError;
+void avatarModelLoading;
+void modelFileNameRef;
+void onAvatarModelState;
 
 // Snackbar logic moved into BabylonSnackbar component
 
@@ -522,6 +532,8 @@ void setPeerVolume;
 void setPeerMuted;
 void clearPeerAudioStates;
 void toggleSpatialAudio;
+
+// No local forwarding needed; using slot's onAnimationState
 
 // Component Loader
 const app = getCurrentInstance();

@@ -26,6 +26,9 @@ const props = defineProps<{
     modelsLoading: boolean;
     isAuthenticating: boolean;
     isAuthenticated: boolean;
+    avatarModelStep?: string;
+    avatarModelError?: string | null;
+    modelFileName?: string | null;
 }>();
 
 const isLoading = computed(
@@ -62,6 +65,14 @@ const text = computed(() => {
         `• Environment: ${props.environmentLoading ? "Loading" : "Ready"}`,
     );
     states.push(`• Avatar: ${props.avatarLoading ? "Loading" : "Ready"}`);
+    if (props.avatarModelStep) {
+        const step = props.avatarModelStep;
+        const name = props.modelFileName ? ` (${props.modelFileName})` : "";
+        states.push(`• Avatar Model${name}: ${step}`);
+    }
+    if (props.avatarModelError) {
+        states.push(`• Avatar Model Error: ${props.avatarModelError}`);
+    }
     states.push(
         `• Other Avatars: ${props.otherAvatarsLoading ? "Loading" : "Ready"}`,
     );
@@ -72,6 +83,11 @@ const text = computed(() => {
 
     return states.join("\n");
 });
+
+// Mark used in template to satisfy linter
+void visible;
+void showSpinner;
+void text;
 </script>
 
 <style>

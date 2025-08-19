@@ -148,6 +148,7 @@ VALUES
     ('avatar.definition.default', 'turnSpeed', '3.141592653589793'::jsonb, 'public.STATIC'),
     ('avatar.definition.default', 'blendDuration', '0.15'::jsonb, 'public.STATIC'),
     ('avatar.definition.default', 'gravity', '-9.8'::jsonb, 'public.STATIC'),
+    ('avatar.definition.default', 'disableRootMotion', 'true'::jsonb, 'public.STATIC'),
     ('avatar.definition.default', 'animations', '[
         {"fileName":"babylon.avatar.animation.f.idle.1.glb"},
         {"fileName":"babylon.avatar.animation.f.idle.2.glb"},

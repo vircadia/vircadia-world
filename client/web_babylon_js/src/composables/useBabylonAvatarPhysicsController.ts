@@ -73,6 +73,11 @@ export function useBabylonAvatarPhysicsController(
             initialRotation.value.w,
         );
 
+        console.log("[PhysicsController] Initializing with position/rotation", {
+            position: avatarNode.value.position,
+            rotation: avatarNode.value.rotationQuaternion,
+        });
+
         // Create the physics character controller
         characterController.value = new PhysicsCharacterController(
             avatarNode.value.position.clone(),
@@ -104,7 +109,11 @@ export function useBabylonAvatarPhysicsController(
         const pos = characterController.value.getPosition();
         if (pos) {
             avatarNode.value.position = pos.clone();
+            // Force compute world matrix to ensure children update
+            avatarNode.value.computeWorldMatrix(true);
         }
+        // Note: Rotation is managed separately via setOrientation and doesn't need syncing from physics controller
+        // The physics controller only handles position and velocity, not rotation
     }
 
     // Low-level primitives
@@ -117,6 +126,8 @@ export function useBabylonAvatarPhysicsController(
         if (!node || !controller) return;
         node.position = pos.clone();
         controller.setPosition(pos.clone());
+        // Force world matrix update to ensure children get the new position
+        node.computeWorldMatrix(true);
     }
     function getOrientation(): Quaternion | undefined {
         return avatarNode.value?.rotationQuaternion?.clone();
@@ -124,6 +135,8 @@ export function useBabylonAvatarPhysicsController(
     function setOrientation(q: Quaternion) {
         if (avatarNode.value) {
             avatarNode.value.rotationQuaternion = q.clone();
+            // Force world matrix update to ensure children get the new rotation
+            avatarNode.value.computeWorldMatrix(true);
         }
     }
     function getVelocity(): Vector3 | undefined {

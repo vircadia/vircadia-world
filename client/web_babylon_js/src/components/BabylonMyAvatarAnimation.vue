@@ -181,6 +181,22 @@ async function load(): Promise<void> {
                     (originalTarget) => {
                         const originalName =
                             (originalTarget as { name?: string }).name || "";
+
+                        // Skip root transform nodes that might contain position data
+                        // This prevents animations from overriding physics-controlled position
+                        const lowerName = originalName.toLowerCase();
+                        if (
+                            lowerName === "root" ||
+                            lowerName === "__root__" ||
+                            lowerName === "rootnode" ||
+                            lowerName === "armature"
+                        ) {
+                            console.log(
+                                `[AvatarAnimation] Skipping root node: ${originalName}`,
+                            );
+                            return null;
+                        }
+
                         // Prefer mapping to linked TransformNode with matching name
                         const tn = linkedNodeByName.get(originalName);
                         if (tn) return tn;

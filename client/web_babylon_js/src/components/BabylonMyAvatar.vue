@@ -98,6 +98,7 @@ type AvatarDefinition = {
     blendDuration: number;
     gravity: number;
     animations: { fileName: string }[];
+    disableRootMotion?: boolean; // Optional: Allow enabling root motion for specific avatars
 };
 
 const defaultAvatarDef: AvatarDefinition = {
@@ -686,6 +687,7 @@ const { camera, setupCamera, updateCameraFromMeta } =
 
 // Avatar model data provided by child component
 const avatarMeshes: Ref<import("@babylonjs/core").AbstractMesh[]> = ref([]);
+const isModelLoaded = ref(false);
 
 // Replace the existing localAnimGroups and animation-related code
 const blendWeight = ref(0); // 0 = idle, 1 = walk
@@ -705,6 +707,35 @@ function onSetAvatarModel(payload: {
     avatarSkeleton.value = payload.skeleton;
     avatarMeshes.value = payload.meshes;
     trySetupBlendedAnimations();
+
+    // CRITICAL: Force transform sync after model loads to ensure avatar follows physics
+    // This fixes the issue where avatar gets stuck on first load
+    if (characterController.value && avatarNode.value) {
+        // First ensure the avatar node has the current physics position
+        const currentPos = getPosition();
+        const currentRot = getOrientation();
+        if (currentPos) {
+            avatarNode.value.position = currentPos.clone();
+        }
+        if (currentRot) {
+            avatarNode.value.rotationQuaternion = currentRot.clone();
+        }
+
+        // Force world matrix update on avatar node and all meshes
+        avatarNode.value.computeWorldMatrix(true);
+        for (const mesh of avatarMeshes.value) {
+            mesh.computeWorldMatrix(true);
+        }
+
+        console.log("[AVATAR] Forced transform sync after model load", {
+            position: currentPos,
+            rotation: currentRot,
+            meshCount: avatarMeshes.value.length,
+        });
+    }
+
+    // Mark model as loaded AFTER syncing transforms
+    isModelLoaded.value = true;
 
     // Debug visuals
     if (debugBoundingBox.value) {
@@ -1173,6 +1204,14 @@ onMounted(async () => {
                     cameraOrientation.value = metaCameraOrientation;
                 }
                 createController();
+                console.log(
+                    "[AVATAR] Created controller with initial position/rotation",
+                    {
+                        position: position.value,
+                        rotation: rotation.value,
+                        avatarNode: !!avatarNode.value,
+                    },
+                );
                 // Model loading now handled by child component. Ensure camera setup; child will call onSetAvatarModel.
                 if (avatarNode.value) {
                     setupCamera();
@@ -1732,7 +1771,7 @@ onMounted(async () => {
 
     // Handle input just before the physics engine step
     beforePhysicsObserver = props.scene.onBeforePhysicsObservable.add(() => {
-        if (!characterController.value) return;
+        if (!characterController.value || !isModelLoaded.value) return;
         const dt = props.scene.getEngine().getDeltaTime() / 1000;
 
         // Handle rotation input
@@ -1793,7 +1832,7 @@ onMounted(async () => {
     });
     // After the physics engine updates, integrate the character and sync transforms
     afterPhysicsObserver = props.scene.onAfterPhysicsObservable.add(() => {
-        if (!characterController.value) return;
+        if (!characterController.value || !isModelLoaded.value) return;
         const dt = props.scene.getEngine().getDeltaTime() / 1000;
         // Apply manual gravity to vertical velocity
         const velAfter = getVelocity();
@@ -1990,11 +2029,44 @@ onMounted(async () => {
         }
     });
     // Prevent unwanted root motion sliding by resetting root bone position each frame
-    rootMotionObserver = props.scene.onBeforeRenderObservable.add(() => {
-        if (avatarSkeleton.value && avatarSkeleton.value.bones.length > 0) {
-            // const rootBone = avatarSkeleton.value.bones[0];
-            // rootBone.position.set(0,0,0);
-            // rootBone.rotationQuaternion?.set(0,0,0,1);
+    rootMotionObserver = props.scene.onAfterAnimationsObservable.add(() => {
+        // Skip if model not loaded yet
+        if (!isModelLoaded.value) return;
+
+        // Check if root motion should be disabled (default: true for physics-based movement)
+        const shouldDisableRootMotion =
+            effectiveAvatarDef.value.disableRootMotion !== false;
+
+        if (shouldDisableRootMotion) {
+            // Reset root bone position if skeleton exists
+            if (avatarSkeleton.value && avatarSkeleton.value.bones.length > 0) {
+                const rootBone = avatarSkeleton.value.bones[0];
+                // Reset root bone position to prevent animation root motion from moving the avatar
+                rootBone.position.set(0, 0, 0);
+                // Optionally reset rotation if animations also contain unwanted root rotation
+                // rootBone.rotationQuaternion?.set(0, 0, 0, 1);
+            }
+
+            // Also reset any direct mesh transforms that might have been animated
+            for (const mesh of avatarMeshes.value) {
+                // Only reset position for root meshes (those directly parented to avatarNode)
+                if (mesh.parent === avatarNode.value) {
+                    // Keep the Y offset for bottom pivot, but reset X and Z
+                    const currentY = mesh.position.y;
+                    mesh.position.x = 0;
+                    mesh.position.z = 0;
+                    // Preserve the pivot offset
+                    if (
+                        meshPivotPoint.value === "bottom" &&
+                        Math.abs(currentY + capsuleHeight.value / 2) < 0.1
+                    ) {
+                        // Keep the bottom pivot offset
+                        mesh.position.y = -capsuleHeight.value / 2;
+                    } else {
+                        mesh.position.y = 0;
+                    }
+                }
+            }
         }
     });
 
@@ -2095,6 +2167,7 @@ watch(
 
 onUnmounted(() => {
     emit("dispose");
+    isModelLoaded.value = false;
     if (beforePhysicsObserver) {
         props.scene.onBeforePhysicsObservable.remove(beforePhysicsObserver);
     }

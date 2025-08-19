@@ -10,13 +10,8 @@
 
 <script setup lang="ts">
 import { ref, watch, onMounted, type Ref, computed } from "vue";
-import type {
-    Scene,
-    AbstractMesh,
-    Skeleton,
-    TransformNode,
-} from "@babylonjs/core";
-import { ImportMeshAsync } from "@babylonjs/core";
+import type { Scene, AbstractMesh, Skeleton } from "@babylonjs/core";
+import { ImportMeshAsync, TransformNode } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
 import { useAsset, type useVircadia } from "@vircadia/world-sdk/browser/vue";
 
@@ -175,6 +170,11 @@ async function loadAndAttach(): Promise<void> {
                 mesh.position.y = -props.capsuleHeight / 2;
             }
             mesh.parent = props.avatarNode;
+        }
+        // Force world matrix computation after parenting to ensure proper transform inheritance
+        props.avatarNode.computeWorldMatrix(true);
+        for (const mesh of meshes) {
+            mesh.computeWorldMatrix(true);
         }
     }
 

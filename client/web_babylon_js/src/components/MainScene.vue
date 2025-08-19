@@ -93,6 +93,7 @@
                                 <!-- Non-visual animation loaders now slotted under model component -->
                                 <BabylonMyAvatarAnimation
                                     v-for="anim in animations"
+                                    v-if="targetSkeleton"
                                     :key="anim.fileName"
                                     :scene="sceneNonNull"
                                     :vircadia-world="vircadiaWorld"
@@ -137,6 +138,8 @@
                 </template>
             </BabylonEnvironment>
         </main>
+        <!-- Animation Debug Overlay (Shift+S) -->
+        <BabylonAnimationDebugOverlay />
         <!-- WebRTC component (hidden, just for functionality) -->
         <BabylonWebRTC 
             v-if="sessionId && instanceId" 
@@ -252,6 +255,7 @@ import BabylonModels from "../components/BabylonModels.vue";
 import BabylonWebRTC from "../components/BabylonWebRTC.vue";
 import BabylonDebugOverlay from "../components/BabylonDebugOverlay.vue";
 import BabylonAvatarDebugOverlay from "../components/BabylonAvatarDebugOverlay.vue";
+import BabylonAnimationDebugOverlay from "../components/BabylonAnimationDebugOverlay.vue";
 import BabylonInspector from "../components/BabylonInspector.vue";
 import AudioControlsDialog from "../components/AudioControlsDialog.vue";
 import VircadiaWorldAuthProvider from "../components/VircadiaWorldAuthProvider.vue";
@@ -277,6 +281,8 @@ void BabylonWebRTC;
 void BabylonDebugOverlay;
 // mark as used at runtime for template
 void BabylonAvatarDebugOverlay;
+// mark as used at runtime for template
+void BabylonAnimationDebugOverlay;
 // mark as used at runtime for template
 void BabylonInspector;
 // mark as used at runtime for template

@@ -927,7 +927,7 @@ function onAnimationState(payload: {
 }
 
 function trySetupBlendedAnimations(): void {
-    // Determine primary idle and walk animations
+    // Determine primary idle and walk animations (only these should be blended)
     const idleFileName = animations.value.find((anim: { fileName: string }) =>
         anim.fileName.toLowerCase().includes("idle.1.glb"),
     )?.fileName;
@@ -942,24 +942,14 @@ function trySetupBlendedAnimations(): void {
         ? animationsMap.value.get(walkFileName)
         : undefined;
 
-    // Fallbacks if not explicitly found
-    const firstReady = () => {
-        for (const [, info] of animationsMap.value.entries()) {
-            if (info.state === "ready" && info.group) return info.group;
-        }
-        return null;
-    };
-
     if (!idleAnimation) {
         if (idleInfo?.state === "ready" && idleInfo.group) {
             idleAnimation = idleInfo.group as AnimationGroup;
-        } else {
-            const g = firstReady();
-            idleAnimation = (g ?? null) as AnimationGroup | null;
         }
         if (idleAnimation) {
-            idleAnimation.start(true, 1.0);
+            idleAnimation.stop();
             idleAnimation.loopAnimation = true;
+            idleAnimation.setWeightForAllAnimatables(1.0);
         }
     }
 
@@ -968,12 +958,16 @@ function trySetupBlendedAnimations(): void {
             walkAnimation = walkInfo.group as AnimationGroup;
         }
         if (walkAnimation) {
-            walkAnimation.start(true, 1.0);
+            walkAnimation.stop();
             walkAnimation.loopAnimation = true;
+            walkAnimation.setWeightForAllAnimatables(0.0);
         }
     }
 
     if (idleAnimation && walkAnimation) {
+        // Start both paused at correct weights; resume only when we drive blending
+        idleAnimation.play(true);
+        walkAnimation.play(true);
         idleAnimation.setWeightForAllAnimatables(1.0);
         walkAnimation.setWeightForAllAnimatables(0.0);
     }
@@ -1539,6 +1533,50 @@ onMounted(async () => {
                                     ? { ...rotation.value }
                                     : { x: 0, y: 0, z: 0, w: 1 },
                                 joints,
+                            };
+                        };
+
+                        // Animation debug snapshot provider
+                        const animationEvents: string[] = [];
+                        const record = (msg: string) => {
+                            const ts =
+                                new Date()
+                                    .toISOString()
+                                    .split("T")[1]
+                                    ?.split(".")[0] || "";
+                            animationEvents.push(`${ts} ${msg}`);
+                            if (animationEvents.length > 100)
+                                animationEvents.shift();
+                        };
+                        if (idleAnimation)
+                            record(`idle loaded: ${idleAnimation.name}`);
+                        if (walkAnimation)
+                            record(`walk loaded: ${walkAnimation.name}`);
+                        (
+                            window as DebugWindow & {
+                                __debugMyAvatarAnimation?: () => {
+                                    idle: { ready: boolean };
+                                    walk: { ready: boolean };
+                                    blendWeight: number;
+                                    events: string[];
+                                    animations: {
+                                        fileName: string;
+                                        state: string;
+                                    }[];
+                                } | null;
+                            }
+                        ).__debugMyAvatarAnimation = () => {
+                            return {
+                                idle: { ready: !!idleAnimation },
+                                walk: { ready: !!walkAnimation },
+                                blendWeight: blendWeight.value,
+                                events: animationEvents.slice(),
+                                animations: Array.from(
+                                    animationsMap.value.entries(),
+                                ).map(([fileName, info]) => ({
+                                    fileName,
+                                    state: info.state,
+                                })),
                             };
                         };
 

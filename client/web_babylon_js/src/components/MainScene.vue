@@ -90,6 +90,12 @@
                                 @state="onAvatarModelState"
                                 v-slot="{ targetSkeleton }"
                             >
+                                <!-- Renderless desktop third-person camera -->
+                                <BabylonMyAvatarDesktopThirdPersonCamera
+                                    :scene="sceneNonNull"
+                                    :avatar-node="(avatarNode as any) || null"
+                                    :capsule-height="capsuleHeight"
+                                />
                                 <!-- Non-visual animation loaders now slotted under model component -->
                                 <BabylonMyAvatarAnimation
                                     v-for="anim in animations"
@@ -249,6 +255,7 @@ import {
 import BabylonMyAvatar from "../components/BabylonMyAvatar.vue";
 import BabylonMyAvatarModel from "../components/BabylonMyAvatarModel.vue";
 import BabylonMyAvatarAnimation from "../components/BabylonMyAvatarAnimation.vue";
+import BabylonMyAvatarDesktopThirdPersonCamera from "../components/BabylonMyAvatarDesktopThirdPersonCamera.vue";
 import BabylonOtherAvatars from "../components/BabylonOtherAvatars.vue";
 import BabylonModel from "../components/BabylonModel.vue";
 import BabylonModels from "../components/BabylonModels.vue";
@@ -269,6 +276,8 @@ void BabylonMyAvatar;
 void BabylonMyAvatarAnimation;
 // mark as used at runtime for template
 void BabylonMyAvatarModel;
+// mark as used at runtime for template
+void BabylonMyAvatarDesktopThirdPersonCamera;
 // mark as used at runtime for template
 void BabylonOtherAvatars;
 // mark as used at runtime for template

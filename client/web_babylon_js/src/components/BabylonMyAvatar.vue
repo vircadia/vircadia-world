@@ -52,7 +52,6 @@ import { useThrottleFn } from "@vueuse/core";
 
 import { useBabylonAvatarKeyboardMouseControls } from "../composables/useBabylonAvatarKeyboardMouseControls";
 // Physics controller is now inlined in this component
-import { useBabylonAvatarCameraController } from "../composables/useBabylonAvatarCameraController";
 // Model loading now handled by child component (BabylonMyAvatarModel)
 import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
 // Local helper types previously exported by the controller composable
@@ -82,11 +81,6 @@ const emit = defineEmits<{ ready: []; dispose: [] }>();
 type AvatarDefinition = {
     initialAvatarPosition: { x: number; y: number; z: number };
     initialAvatarRotation: { x: number; y: number; z: number; w: number };
-    initialAvatarCameraOrientation: {
-        alpha: number;
-        beta: number;
-        radius: number;
-    };
     modelFileName: string;
     meshPivotPoint: "bottom" | "center";
     throttleInterval: number;
@@ -108,11 +102,6 @@ type AvatarDefinition = {
 const defaultAvatarDef: AvatarDefinition = {
     initialAvatarPosition: { x: 0, y: 0, z: -5 },
     initialAvatarRotation: { x: 0, y: 0, z: 0, w: 1 },
-    initialAvatarCameraOrientation: {
-        alpha: -Math.PI / 2,
-        beta: Math.PI / 3,
-        radius: 5,
-    },
     modelFileName: "",
     meshPivotPoint: "bottom",
     throttleInterval: 500,
@@ -154,9 +143,6 @@ const blendDuration = computed(() => effectiveAvatarDef.value.blendDuration);
 const gravity = computed(() => effectiveAvatarDef.value.gravity);
 const meshPivotPoint = computed(() => effectiveAvatarDef.value.meshPivotPoint);
 void meshPivotPoint;
-const initialAvatarCameraOrientation = computed(
-    () => effectiveAvatarDef.value.initialAvatarCameraOrientation,
-);
 const initialAvatarPosition = computed(
     () => effectiveAvatarDef.value.initialAvatarPosition,
 );
@@ -189,7 +175,6 @@ const metadataMap = reactive(
         ["sessionId", fullSessionId.value],
         ["position", initialAvatarPosition.value],
         ["rotation", initialAvatarRotation.value],
-        ["cameraOrientation", initialAvatarCameraOrientation.value],
         ["modelFileName", modelFileName.value],
     ]),
 );
@@ -205,15 +190,7 @@ const rotation = computed({
     set: (value) => metadataMap.set("rotation", value),
 });
 
-const cameraOrientation = computed({
-    get: () =>
-        metadataMap.get("cameraOrientation") as {
-            alpha: number;
-            beta: number;
-            radius: number;
-        },
-    set: (value) => metadataMap.set("cameraOrientation", value),
-});
+// Camera orientation metadata removed; external camera component manages view
 
 // Watch for fullSessionId changes and update metadata map
 watch(fullSessionId, (newSessionId) => {
@@ -266,15 +243,6 @@ async function loadAvatarDefinitionFromDb(
                       initialAvatarRotation: meta.get(
                           "initialAvatarRotation",
                       ) as AvatarDefinition["initialAvatarRotation"],
-                  }
-                : {}),
-            ...((meta.get("initialAvatarCameraOrientation") as
-                | AvatarDefinition["initialAvatarCameraOrientation"]
-                | undefined)
-                ? {
-                      initialAvatarCameraOrientation: meta.get(
-                          "initialAvatarCameraOrientation",
-                      ) as AvatarDefinition["initialAvatarCameraOrientation"],
                   }
                 : {}),
             ...((meta.get("modelFileName") as string | undefined)
@@ -337,10 +305,6 @@ async function loadAvatarDefinitionFromDb(
         // Sync initial fields used to seed entity metadata if not created yet
         metadataMap.set("position", merged.initialAvatarPosition);
         metadataMap.set("rotation", merged.initialAvatarRotation);
-        metadataMap.set(
-            "cameraOrientation",
-            merged.initialAvatarCameraOrientation,
-        );
         metadataMap.set("modelFileName", merged.modelFileName);
     } catch (e) {
         console.error("Failed to load avatar definition from DB:", e);
@@ -563,13 +527,7 @@ const throttledUpdate = useThrottleFn(async () => {
             }
         }
 
-        // Check camera orientation
-        const camKey = "cameraOrientation";
-        const camState = JSON.stringify(cameraOrientation.value);
-        if (previousStates.get(camKey) !== camState) {
-            updates.push([camKey, cameraOrientation.value]);
-            previousStates.set(camKey, camState);
-        }
+        // Camera orientation no longer tracked here
 
         // These rarely change, but check them too
         const typeKey = "type";
@@ -767,15 +725,7 @@ const throttledJointUpdate = useThrottleFn(
 // Use Vircadia instance from props (moved up to fix initialization order)
 const vircadiaWorld = props.vircadiaWorld;
 
-// Camera controller
-const { camera, setupCamera, updateCameraFromMeta } =
-    useBabylonAvatarCameraController(
-        props.scene,
-        avatarNode,
-        cameraOrientation,
-        capsuleHeight,
-        throttledUpdate,
-    );
+// Internal camera removed; view handled externally by dedicated camera component
 
 // Avatar model data provided by child component
 const avatarMeshes: Ref<import("@babylonjs/core").AbstractMesh[]> = ref([]);
@@ -858,8 +808,6 @@ function onSetAvatarModel(payload: {
         }
     }
 
-    // Ensure camera is set up
-    setupCamera();
     emit("ready");
 }
 
@@ -1288,13 +1236,6 @@ onMounted(async () => {
                 if (metaRotation) {
                     rotation.value = metaRotation;
                 }
-                // Apply saved camera orientation on initial load
-                const metaCameraOrientation = meta.get("cameraOrientation") as
-                    | { alpha: number; beta: number; radius: number }
-                    | undefined;
-                if (metaCameraOrientation) {
-                    cameraOrientation.value = metaCameraOrientation;
-                }
                 createController();
                 console.log(
                     "[AVATAR] Created controller with initial position/rotation",
@@ -1304,10 +1245,8 @@ onMounted(async () => {
                         avatarNode: !!avatarNode.value,
                     },
                 );
-                // Model loading now handled by child component. Ensure camera setup; child will call onSetAvatarModel.
+                // Model loading now handled by child component.
                 if (avatarNode.value) {
-                    setupCamera();
-
                     // Parenting is done by the child model component
 
                     // Skeleton is provided by child model component via onSetAvatarModel
@@ -1482,7 +1421,6 @@ onMounted(async () => {
                                 "Character controller:",
                                 !!characterController.value,
                             );
-                            console.log("Camera:", !!camera.value);
                             console.log(
                                 "Scene active camera:",
                                 !!props.scene?.activeCamera,
@@ -1509,10 +1447,7 @@ onMounted(async () => {
                             console.log("Entity name:", entityName.value);
                             console.log("Position:", position.value);
                             console.log("Rotation:", rotation.value);
-                            console.log(
-                                "Camera orientation:",
-                                cameraOrientation.value,
-                            );
+                            // Camera orientation not tracked here anymore
 
                             // Check if meshes are visible
                             if (avatarMeshes.value.length > 0) {
@@ -1528,7 +1463,6 @@ onMounted(async () => {
                                 sceneOk: !!props.scene,
                                 avatarNodeOk: !!avatarNode.value,
                                 controllerOk: !!characterController.value,
-                                cameraOk: !!camera.value,
                                 meshCount: avatarMeshes.value.length,
                                 skeletonOk: !!avatarSkeleton.value,
                                 animationsOk:
@@ -1551,39 +1485,35 @@ onMounted(async () => {
                                 debugCameraView?: () => void;
                             }
                         ).debugCameraView = () => {
-                            if (!camera.value || !props.scene) {
-                                console.log("No camera or scene available");
+                            if (!props.scene) {
+                                console.log("No scene available");
                                 return;
                             }
-
                             console.log("=== CAMERA DEBUG ===");
-                            console.log(
-                                "Camera position:",
-                                camera.value.position,
-                            );
-                            console.log(
-                                "Camera target:",
-                                camera.value.getTarget(),
-                            );
-                            console.log("Camera alpha/beta/radius:", {
-                                alpha: camera.value.alpha,
-                                beta: camera.value.beta,
-                                radius: camera.value.radius,
-                            });
-                            console.log(
-                                "Avatar position:",
-                                avatarNode.value?.position,
-                            );
                             console.log(
                                 "Scene active camera:",
                                 !!props.scene.activeCamera,
                             );
-                            console.log("Canvas size:", {
-                                width: props.scene.getEngine().getRenderWidth(),
-                                height: props.scene
-                                    .getEngine()
-                                    .getRenderHeight(),
-                            });
+                            const ac = props.scene.activeCamera as unknown as {
+                                position?:
+                                    | { x?: number; y?: number; z?: number }
+                                    | undefined;
+                                getTarget?: () =>
+                                    | { x?: number; y?: number; z?: number }
+                                    | undefined;
+                            } | null;
+                            if (ac) {
+                                console.log(
+                                    "Active camera position:",
+                                    ac.position,
+                                );
+                                try {
+                                    console.log(
+                                        "Active camera target:",
+                                        ac.getTarget?.(),
+                                    );
+                                } catch {}
+                            }
                         };
 
                         // Render loop debug function
@@ -1822,8 +1752,6 @@ onMounted(async () => {
                         }
                     }
 
-                    // Ensure camera is set up before starting the render loop
-                    setupCamera();
                     console.log(
                         "[AVATAR] Emitting ready event after camera setup",
                     );
@@ -1850,12 +1778,6 @@ onMounted(async () => {
                     setOrientation(new Quaternion(r.x, r.y, r.z, r.w));
                 }
                 updateTransforms();
-                const metaCameraOrientation = meta.get("cameraOrientation") as
-                    | { alpha: number; beta: number; radius: number }
-                    | undefined;
-                if (metaCameraOrientation) {
-                    updateCameraFromMeta(metaCameraOrientation);
-                }
             }
         },
         { immediate: true },
@@ -1997,18 +1919,6 @@ onMounted(async () => {
 
         throttledUpdate();
         throttledJointUpdate();
-
-        // update camera target to follow the avatar
-        if (camera.value && avatarNode.value) {
-            const node = avatarNode.value;
-            camera.value.setTarget(
-                new Vector3(
-                    node.position.x,
-                    node.position.y + capsuleHeight.value / 2,
-                    node.position.z,
-                ),
-            );
-        }
         // Debug axes update: position and orient axes to match avatar
         if (debugAxes.value && axesViewer && avatarNode.value) {
             const node = avatarNode.value;

@@ -102,7 +102,7 @@
                                     @state="onAnimationState"
                                 />
                                 <!-- Debug overlay for avatar -->
-                                <BabylonAvatarDebugOverlay
+                                <BabylonMyAvatarDebugOverlay
                                     :scene="sceneNonNull"
                                     :vircadia-world="vircadiaWorld"
                                     :avatar-node="(avatarNode as any) || null"
@@ -139,7 +139,7 @@
             </BabylonEnvironment>
         </main>
         <!-- Animation Debug Overlay (Shift+S) -->
-        <BabylonAnimationDebugOverlay />
+        <BabylonMyAvatarAnimationDebugOverlay />
         <!-- WebRTC component (hidden, just for functionality) -->
         <BabylonWebRTC 
             v-if="sessionId && instanceId" 
@@ -254,8 +254,8 @@ import BabylonModel from "../components/BabylonModel.vue";
 import BabylonModels from "../components/BabylonModels.vue";
 import BabylonWebRTC from "../components/BabylonWebRTC.vue";
 import BabylonDebugOverlay from "../components/BabylonDebugOverlay.vue";
-import BabylonAvatarDebugOverlay from "../components/BabylonAvatarDebugOverlay.vue";
-import BabylonAnimationDebugOverlay from "../components/BabylonAnimationDebugOverlay.vue";
+import BabylonMyAvatarDebugOverlay from "../components/BabylonMyAvatarDebugOverlay.vue";
+import BabylonMyAvatarAnimationDebugOverlay from "../components/BabylonMyAvatarAnimationDebugOverlay.vue";
 import BabylonInspector from "../components/BabylonInspector.vue";
 import AudioControlsDialog from "../components/AudioControlsDialog.vue";
 import VircadiaWorldAuthProvider from "../components/VircadiaWorldAuthProvider.vue";
@@ -280,9 +280,9 @@ void BabylonWebRTC;
 // mark as used at runtime for template
 void BabylonDebugOverlay;
 // mark as used at runtime for template
-void BabylonAvatarDebugOverlay;
+void BabylonMyAvatarDebugOverlay;
 // mark as used at runtime for template
-void BabylonAnimationDebugOverlay;
+void BabylonMyAvatarAnimationDebugOverlay;
 // mark as used at runtime for template
 void BabylonInspector;
 // mark as used at runtime for template

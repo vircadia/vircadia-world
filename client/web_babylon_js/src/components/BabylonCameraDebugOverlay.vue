@@ -1,5 +1,5 @@
 <template>
-    <div v-if="visible" class="camera-debug">
+    <div v-if="visibleEffective" class="camera-debug">
         <div class="row">
             <strong>Active</strong>
             <span>{{ activeName }}</span>
@@ -34,6 +34,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { useMagicKeys, whenever, useVModel } from "@vueuse/core";
 import type {
     Scene,
     Camera,
@@ -51,7 +52,37 @@ const props = defineProps({
         default: null,
     },
     visible: { type: Boolean, default: true },
+    // Optional v-model to control visibility from outside
+    modelValue: { type: Boolean, required: false, default: undefined },
+    // Configurable hotkey to toggle visibility (if v-model provided)
+    hotkey: { type: String, required: true },
 });
+
+const emit = defineEmits(["update:modelValue"]);
+const open = useVModel(props, "modelValue", emit, {
+    passive: true,
+    defaultValue: undefined,
+});
+const visibleEffective = computed<boolean>(() =>
+    typeof open.value === "boolean" ? (open.value as boolean) : props.visible,
+);
+
+const keys = useMagicKeys();
+whenever(
+    computed(() => {
+        const map = keys as unknown as Record<
+            string,
+            { value: boolean } | undefined
+        >;
+        const r = map[props.hotkey];
+        return !!r?.value;
+    }),
+    () => {
+        if (typeof props.modelValue === "boolean") {
+            open.value = !open.value;
+        }
+    },
+);
 
 function getActive(): Camera | null {
     return props.scene?.activeCamera ?? null;
@@ -78,11 +109,11 @@ const cameraTarget = computed(() => {
 });
 
 const lockedTarget = computed(() => {
-    const c = getActive() as unknown as { lockedTarget?: unknown } | null;
-    const lt = c?.lockedTarget as
-        | (AbstractMesh | TransformNode | null)
-        | undefined;
-    const name = (lt && (lt as any).name) || null;
+    const c = getActive() as unknown as {
+        lockedTarget?: AbstractMesh | TransformNode | null;
+    } | null;
+    const lt = c?.lockedTarget ?? null;
+    const name = lt?.name || null;
     return name || "-";
 });
 
@@ -112,12 +143,15 @@ function resolveAvatarMesh(): AbstractMesh | null {
     const node = props.avatarNode;
     if (!node) return null;
     const asMesh = node as AbstractMesh;
-    if (typeof (asMesh as any).isVerticesDataPresent === "function")
+    if (
+        typeof (asMesh as { isVerticesDataPresent?: unknown })
+            .isVerticesDataPresent === "function"
+    )
         return asMesh;
     // Try to find the capsule child
-    const children = (node as any).getChildMeshes?.(true) as
-        | AbstractMesh[]
-        | undefined;
+    const children = (
+        node as unknown as { getChildMeshes?: (d: boolean) => AbstractMesh[] }
+    ).getChildMeshes?.(true) as AbstractMesh[] | undefined;
     const capsule =
         children?.find((m) => m.name === "avatarCapsule") ||
         children?.[0] ||
@@ -131,7 +165,10 @@ function relockToAvatar(): void {
     } | null;
     if (!active) return;
     const mesh = resolveAvatarMesh();
-    if (mesh) (active as any).lockedTarget = mesh;
+    if (mesh)
+        (
+            active as { lockedTarget?: AbstractMesh | TransformNode | null }
+        ).lockedTarget = mesh;
 }
 
 function recenterOnAvatar(): void {
@@ -147,12 +184,44 @@ function makeActive(): void {
     if (!active) return;
     props.scene.activeCamera = active;
     const canvas = props.scene.getEngine().getRenderingCanvas();
-    if (canvas && (active as any).attachControl) {
+    if (
+        canvas &&
+        (
+            active as unknown as {
+                attachControl?: (
+                    c: HTMLCanvasElement,
+                    noPreventDefault?: boolean,
+                ) => void;
+            }
+        ).attachControl
+    ) {
         try {
-            (active as any).attachControl(canvas, true);
+            (
+                active as unknown as {
+                    attachControl?: (
+                        c: HTMLCanvasElement,
+                        noPreventDefault?: boolean,
+                    ) => void;
+                }
+            ).attachControl?.(canvas, true);
         } catch {}
     }
 }
+
+// mark used in template to satisfy linter
+void visibleEffective;
+void activeName;
+void activeType;
+void isArcRotate;
+void cameraPosition;
+void cameraTarget;
+void lockedTarget;
+void alphaBetaRadius;
+void attachedInputs;
+void allCameras;
+void relockToAvatar;
+void recenterOnAvatar;
+void makeActive;
 </script>
 
 <style scoped>

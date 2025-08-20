@@ -3,7 +3,7 @@
 		<v-card>
 			<v-card-title class="d-flex align-center justify-space-between">
 				<span>Animation Debug</span>
-				<v-chip size="x-small" color="primary" label>Shift + S</v-chip>
+				<v-chip size="x-small" color="primary" label>{{ hotkeyLabel }}</v-chip>
 			</v-card-title>
 			<v-card-text>
 				<v-list density="compact" class="bg-transparent">
@@ -36,7 +36,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref, onMounted, onUnmounted, computed } from "vue";
 import { useMagicKeys, whenever, useVModel } from "@vueuse/core";
 
 type AnimRow = { fileName: string; state: string };
@@ -50,6 +50,8 @@ type AnimData = {
 
 const props = defineProps({
     modelValue: { type: Boolean, required: false, default: undefined },
+    // Configurable hotkey (e.g., "Shift+B", "n")
+    hotkey: { type: String, required: true },
 });
 const emit = defineEmits(["update:modelValue"]);
 const open = useVModel(props, "modelValue", emit, {
@@ -57,9 +59,19 @@ const open = useVModel(props, "modelValue", emit, {
     defaultValue: false,
 });
 const keys = useMagicKeys();
-whenever(keys["Shift+S"], () => {
+const hotkeyPressed = computed<boolean>(() => {
+    const map = keys as unknown as Record<
+        string,
+        { value: boolean } | undefined
+    >;
+    const r = map[props.hotkey];
+    return !!r?.value;
+});
+whenever(hotkeyPressed, () => {
     open.value = !open.value;
 });
+
+const hotkeyLabel = computed(() => props.hotkey.replace("+", " + "));
 
 const animData = ref<AnimData>({
     idle: { ready: false },
@@ -95,6 +107,7 @@ onUnmounted(() => {
 });
 // used in template
 void boolLabel;
+void hotkeyLabel;
 </script>
 
 <style scoped>

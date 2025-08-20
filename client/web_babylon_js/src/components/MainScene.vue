@@ -163,12 +163,14 @@
                                     :model-step="avatarModelStep"
                                     :model-error="avatarModelError || undefined"
                                     v-model="avatarDebugOpen"
+                                    hotkey="Shift+M"
                                 />
                                 <!-- Camera debug overlay -->
                                 <BabylonCameraDebugOverlay
-                                    v-if="cameraDebugOpen"
+                                    v-model="cameraDebugOpen"
                                     :scene="sceneNonNull"
                                     :avatar-node="(avatarNode as any) || null"
+                                    hotkey="Shift+N"
                                 />
                             </BabylonMyAvatarModel>
                         </template>
@@ -197,8 +199,8 @@
                 </template>
             </BabylonEnvironment>
         </main>
-        <!-- Animation Debug Overlay (Shift+S) -->
-        <BabylonMyAvatarAnimationDebugOverlay v-model="animDebugOpen" />
+        <!-- Animation Debug Overlay (Shift+B) -->
+        <BabylonMyAvatarAnimationDebugOverlay v-model="animDebugOpen" hotkey="Shift+B" />
         <!-- WebRTC component (hidden, just for functionality) -->
         <BabylonWebRTC 
             v-if="sessionId && instanceId" 

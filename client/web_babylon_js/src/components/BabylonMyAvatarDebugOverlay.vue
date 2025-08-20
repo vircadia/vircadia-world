@@ -7,7 +7,7 @@
 		<v-card>
 			<v-card-title class="d-flex align-center justify-space-between">
 				<span>Avatar Debug</span>
-				<v-chip size="x-small" color="primary" label>Shift + A</v-chip>
+				<v-chip size="x-small" color="primary" label>{{ hotkeyLabel }}</v-chip>
 			</v-card-title>
 			<v-card-text>
 				<v-row dense>
@@ -99,6 +99,8 @@ const props = defineProps({
     modelError: { type: String, required: false, default: null },
     // External control (v-model)
     modelValue: { type: Boolean, required: false, default: undefined },
+    // Configurable hotkey (default "m")
+    hotkey: { type: String, required: true },
 });
 
 const emit = defineEmits(["update:modelValue"]);
@@ -108,9 +110,21 @@ const open = useVModel(props, "modelValue", emit, {
     defaultValue: false,
 });
 const keys = useMagicKeys();
-whenever(keys["Shift+A"], () => {
-    open.value = !open.value;
-});
+whenever(
+    computed(() => {
+        const map = keys as unknown as Record<
+            string,
+            { value: boolean } | undefined
+        >;
+        const r = map[props.hotkey];
+        return !!r?.value;
+    }),
+    () => {
+        open.value = !open.value;
+    },
+);
+
+const hotkeyLabel = computed(() => props.hotkey.replace("+", " + "));
 
 const modelReady = computed(
     () => !props.modelError && !!props.modelFileName && !!props.scene,
@@ -177,6 +191,7 @@ void skinnedMeshesUnderAvatar;
 void cameraLabel;
 void cameraPositionLabel;
 void cameraTargetLabel;
+void hotkeyLabel;
 </script>
 
 <style scoped>

@@ -31,13 +31,14 @@ import {
 import { clientBrowserConfiguration } from "@/vircadia.browser.config";
 
 // Strongly type the slot props so consumers don't get `any`
-type VircadiaWorldInstance = {
+export type VircadiaWorldInstance = {
     client: ClientCore;
     connectionInfo: Ref<ClientCoreConnectionInfo>;
     dispose: () => void;
 };
-type VircadiaConnectionInfo = VircadiaWorldInstance["connectionInfo"]["value"];
-type VircadiaConnectionStatus = VircadiaConnectionInfo["status"];
+export type VircadiaConnectionInfo =
+    VircadiaWorldInstance["connectionInfo"]["value"];
+export type VircadiaConnectionStatus = VircadiaConnectionInfo["status"];
 
 export type VircadiaWorldSlotProps = {
     vircadiaWorld: VircadiaWorldInstance;

@@ -46,6 +46,8 @@ import {
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
 
+import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
+
 // Debug viewers import
 import { SkeletonViewer, AxesViewer } from "@babylonjs/core/Debug";
 
@@ -71,25 +73,10 @@ type KeyState = {
     turnRight: boolean;
 };
 
-type VircadiaLike = {
-    connectionInfo: { value: { status: string; sessionId?: string | null } };
-    client: {
-        Utilities: {
-            Connection: {
-                query: (args: {
-                    query: string;
-                    parameters?: unknown[];
-                    timeoutMs?: number;
-                }) => Promise<{ result: unknown }>;
-            };
-        };
-    };
-};
-
 const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
     vircadiaWorld: {
-        type: Object as () => VircadiaLike,
+        type: Object as () => VircadiaWorldInstance,
         required: true,
     },
     instanceId: { type: String, required: false, default: null },

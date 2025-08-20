@@ -9,6 +9,7 @@
 		:mesh-pivot-point="meshPivotPoint"
 		:capsule-height="capsuleHeight"
 		:on-set-avatar-model="onSetAvatarModel"
+		:key-state="keyState"
 	/>
 </template>
 
@@ -49,11 +50,8 @@ import "@babylonjs/loaders/glTF";
 import { SkeletonViewer, AxesViewer } from "@babylonjs/core/Debug";
 
 import { useThrottleFn } from "@vueuse/core";
-
-import { useBabylonAvatarKeyboardMouseControls } from "../composables/useBabylonAvatarKeyboardMouseControls";
 // Physics controller is now inlined in this component
 // Model loading now handled by child component (BabylonMyAvatarModel)
-import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
 // Local helper types previously exported by the controller composable
 type PositionObj = { x: number; y: number; z: number };
 type RotationObj = { x: number; y: number; z: number; w: number };
@@ -62,10 +60,36 @@ type RotationObj = { x: number; y: number; z: number; w: number };
 // removed; now using debug flags from store (debugBoundingBox, debugSkeleton, debugAxes)
 
 // Define component props with defaults (single defineProps)
+type KeyState = {
+    forward: boolean;
+    backward: boolean;
+    strafeLeft: boolean;
+    strafeRight: boolean;
+    jump: boolean;
+    run: boolean;
+    turnLeft: boolean;
+    turnRight: boolean;
+};
+
+type VircadiaLike = {
+    connectionInfo: { value: { status: string; sessionId?: string | null } };
+    client: {
+        Utilities: {
+            Connection: {
+                query: (args: {
+                    query: string;
+                    parameters?: unknown[];
+                    timeoutMs?: number;
+                }) => Promise<{ result: unknown }>;
+            };
+        };
+    };
+};
+
 const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
     vircadiaWorld: {
-        type: Object as () => ReturnType<typeof useVircadia>,
+        type: Object as () => VircadiaLike,
         required: true,
     },
     instanceId: { type: String, required: false, default: null },
@@ -73,6 +97,7 @@ const props = defineProps({
         type: String,
         required: true,
     },
+    keyState: { type: Object as () => KeyState, required: false },
 });
 
 const emit = defineEmits<{ ready: []; dispose: [] }>();
@@ -476,7 +501,18 @@ function integrate(deltaTime: number, support: SupportType): void {
     if (!controller || !support) return;
     controller.integrate(deltaTime, support, new Vector3(0, -9.8, 0));
 }
-const { keyState } = useBabylonAvatarKeyboardMouseControls(props.scene);
+// External key state can be provided via prop; otherwise use a local default (no movement)
+const defaultKeyState = ref<KeyState>({
+    forward: false,
+    backward: false,
+    strafeLeft: false,
+    strafeRight: false,
+    jump: false,
+    run: false,
+    turnLeft: false,
+    turnRight: false,
+});
+const keyState = computed(() => props.keyState ?? defaultKeyState.value);
 
 // Store previous states for change detection
 const previousStates = new Map<string, string>();

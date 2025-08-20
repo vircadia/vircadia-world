@@ -113,68 +113,71 @@
             >
                 <!-- Only render entities when scene is available and connection is stable -->
                 <template v-if="sceneInitialized && scene && connectionStatus === 'connected' && !isConnecting">
-                    <!-- BabylonMyAvatar component -->
-                    <BabylonMyAvatar
-                        :scene="sceneNonNull"
-                        :vircadia-world="vircadiaWorld"
-                        :instance-id="instanceId ?? undefined"
-                        avatar-definition-name="avatar.definition.default"
-                        ref="avatarRef"
-                    >
-                        <template #default="{ avatarSkeleton, animations, vircadiaWorld, onAnimationState, avatarNode, modelFileName, meshPivotPoint, capsuleHeight, onSetAvatarModel }">
-                            <BabylonMyAvatarModel
-                                v-if="modelFileName"
-                                :scene="sceneNonNull"
-                                :vircadia-world="vircadiaWorld"
-                                :avatar-node="(avatarNode as any) || null"
-                                :model-file-name="modelFileName"
-                                :mesh-pivot-point="meshPivotPoint"
-                                :capsule-height="capsuleHeight"
-                                :on-set-avatar-model="onSetAvatarModel as any"
-                                :animations="animations"
-                                :on-animation-state="onAnimationState as any"
-                                @state="onAvatarModelState"
-                                v-slot="{ targetSkeleton }"
-                            >
-                                <!-- Renderless desktop third-person camera -->
-                                <BabylonMyAvatarDesktopThirdPersonCamera
+                    <!-- BabylonMyAvatar component wrapped with MKB controller -->
+                    <BabylonMyAvatarMKBController :scene="sceneNonNull" v-slot="controls">
+                        <BabylonMyAvatar
+                            :scene="sceneNonNull"
+                            :vircadia-world="vircadiaWorld"
+                            :instance-id="instanceId ?? undefined"
+                            :key-state="controls.keyState"
+                            avatar-definition-name="avatar.definition.default"
+                            ref="avatarRef"
+                        >
+                            <template #default="{ avatarSkeleton, animations, vircadiaWorld, onAnimationState, avatarNode, modelFileName, meshPivotPoint, capsuleHeight, onSetAvatarModel }">
+                                <BabylonMyAvatarModel
+                                    v-if="modelFileName"
                                     :scene="sceneNonNull"
+                                    :vircadia-world="vircadiaWorld"
                                     :avatar-node="(avatarNode as any) || null"
+                                    :model-file-name="modelFileName"
+                                    :mesh-pivot-point="meshPivotPoint"
                                     :capsule-height="capsuleHeight"
-                                />
-                                <!-- Non-visual animation loaders now slotted under model component -->
-                                <BabylonMyAvatarAnimation
-                                    v-for="anim in animations"
-                                    v-if="targetSkeleton"
-                                    :key="anim.fileName"
-                                    :scene="sceneNonNull"
-                                    :vircadia-world="vircadiaWorld"
-                                    :animation="anim"
-                                    :target-skeleton="targetSkeleton"
-                                    @state="onAnimationState"
-                                />
-                                <!-- Debug overlay for avatar -->
-                                <BabylonMyAvatarDebugOverlay
-                                    :scene="sceneNonNull"
-                                    :vircadia-world="vircadiaWorld"
-                                    :avatar-node="(avatarNode as any) || null"
-                                    :avatar-skeleton="(avatarSkeleton as any) || null"
-                                    :model-file-name="modelFileNameRef || modelFileName"
-                                    :model-step="avatarModelStep"
-                                    :model-error="avatarModelError || undefined"
-                                    v-model="avatarDebugOpen"
-                                    hotkey="Shift+M"
-                                />
-                                <!-- Camera debug overlay -->
-                                <BabylonCameraDebugOverlay
-                                    v-model="cameraDebugOpen"
-                                    :scene="sceneNonNull"
-                                    :avatar-node="(avatarNode as any) || null"
-                                    hotkey="Shift+N"
-                                />
-                            </BabylonMyAvatarModel>
-                        </template>
-                    </BabylonMyAvatar>
+                                    :on-set-avatar-model="onSetAvatarModel as any"
+                                    :animations="animations"
+                                    :on-animation-state="onAnimationState as any"
+                                    @state="onAvatarModelState"
+                                    v-slot="{ targetSkeleton }"
+                                >
+                                    <!-- Renderless desktop third-person camera -->
+                                    <BabylonMyAvatarDesktopThirdPersonCamera
+                                        :scene="sceneNonNull"
+                                        :avatar-node="(avatarNode as any) || null"
+                                        :capsule-height="capsuleHeight"
+                                    />
+                                    <!-- Non-visual animation loaders now slotted under model component -->
+                                    <BabylonMyAvatarAnimation
+                                        v-for="anim in animations"
+                                        v-if="targetSkeleton"
+                                        :key="anim.fileName"
+                                        :scene="sceneNonNull"
+                                        :vircadia-world="vircadiaWorld"
+                                        :animation="anim"
+                                        :target-skeleton="targetSkeleton"
+                                        @state="onAnimationState"
+                                    />
+                                    <!-- Debug overlay for avatar -->
+                                    <BabylonMyAvatarDebugOverlay
+                                        :scene="sceneNonNull"
+                                        :vircadia-world="vircadiaWorld"
+                                        :avatar-node="(avatarNode as any) || null"
+                                        :avatar-skeleton="(avatarSkeleton as any) || null"
+                                        :model-file-name="modelFileNameRef || modelFileName"
+                                        :model-step="avatarModelStep"
+                                        :model-error="avatarModelError || undefined"
+                                        v-model="avatarDebugOpen"
+                                        hotkey="Shift+M"
+                                    />
+                                    <!-- Camera debug overlay -->
+                                    <BabylonCameraDebugOverlay
+                                        v-model="cameraDebugOpen"
+                                        :scene="sceneNonNull"
+                                        :avatar-node="(avatarNode as any) || null"
+                                        hotkey="Shift+N"
+                                    />
+                                </BabylonMyAvatarModel>
+                            </template>
+                        </BabylonMyAvatar>
+                    </BabylonMyAvatarMKBController>
 
                     <!-- Other avatars wrapper -->
                     <BabylonOtherAvatars
@@ -308,6 +311,7 @@ import {
     type defineComponent,
 } from "vue";
 import BabylonMyAvatar from "../components/BabylonMyAvatar.vue";
+import BabylonMyAvatarMKBController from "../components/BabylonMyAvatarMKBController.vue";
 import BabylonMyAvatarModel from "../components/BabylonMyAvatarModel.vue";
 import BabylonMyAvatarAnimation from "../components/BabylonMyAvatarAnimation.vue";
 import BabylonMyAvatarDesktopThirdPersonCamera from "../components/BabylonMyAvatarDesktopThirdPersonCamera.vue";
@@ -328,6 +332,8 @@ import LogoutButton from "../components/LogoutButton.vue";
 import VircadiaWorldProvider from "../components/VircadiaWorldProvider.vue";
 // mark as used at runtime for template
 void BabylonMyAvatar;
+// mark as used at runtime for template
+void BabylonMyAvatarMKBController;
 // mark as used at runtime for template
 void BabylonMyAvatarAnimation;
 // mark as used at runtime for template

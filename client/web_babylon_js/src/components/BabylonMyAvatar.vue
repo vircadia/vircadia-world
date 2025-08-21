@@ -51,7 +51,6 @@ import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.v
 // Debug viewers import
 import { SkeletonViewer, AxesViewer } from "@babylonjs/core/Debug";
 
-import { useThrottleFn } from "@vueuse/core";
 // Physics controller is now inlined in this component
 // Model loading now handled by child component (BabylonMyAvatarModel)
 // Local helper types previously exported by the controller composable
@@ -151,9 +150,7 @@ const effectiveAvatarDef = computed<AvatarDefinition>(() => {
     return dbAvatarDef.value ?? defaultAvatarDef;
 });
 // Field-level computed wrappers to replace toRefs
-const throttleInterval = computed(
-    () => effectiveAvatarDef.value.throttleInterval,
-);
+// throttleInterval no longer used here; entity sync handled externally
 const capsuleHeight = computed(() => effectiveAvatarDef.value.capsuleHeight);
 const capsuleRadius = computed(() => effectiveAvatarDef.value.capsuleRadius);
 const slopeLimit = computed(() => effectiveAvatarDef.value.slopeLimit);
@@ -512,257 +509,7 @@ const defaultKeyState = ref<KeyState>({
 });
 const keyState = computed(() => props.keyState ?? defaultKeyState.value);
 
-// Store previous states for change detection
-const previousStates = new Map<string, string>();
-const previousJointStates = new Map<string, string>();
-
-// Flags to prevent overlapping updates
-const isUpdatingMain = ref(false);
-const isUpdatingJoints = ref(false);
-
-// Throttled update function for main avatar data (position, rotation, camera)
-const throttledUpdate = useThrottleFn(async () => {
-    if (!entityData.value?.general__entity_name) {
-        return;
-    }
-
-    // Skip if still updating to prevent overlapping requests
-    if (isUpdatingMain.value) {
-        console.debug(
-            "Skipping avatar update - previous update still in progress",
-        );
-        return;
-    }
-
-    try {
-        if (!vircadiaWorld) {
-            throw new Error("Vircadia instance not found in BabylonMyAvatar");
-        }
-
-        isUpdatingMain.value = true;
-
-        // Get current transform data
-        const currentPos = getPosition();
-        const currentRot = getOrientation();
-
-        // Collect all updates that have changed
-        const updates: Array<[string, unknown]> = [];
-
-        // Check and add basic metadata only if changed
-        if (currentPos) {
-            const newPos = vectorToObj(currentPos);
-            const posKey = "position";
-            const posState = JSON.stringify(newPos);
-            if (previousStates.get(posKey) !== posState) {
-                updates.push([posKey, newPos]);
-                previousStates.set(posKey, posState);
-            }
-        }
-
-        if (currentRot) {
-            const newRot = quatToObj(currentRot);
-            const rotKey = "rotation";
-            const rotState = JSON.stringify(newRot);
-            if (previousStates.get(rotKey) !== rotState) {
-                updates.push([rotKey, newRot]);
-                previousStates.set(rotKey, rotState);
-            }
-        }
-
-        // Camera orientation no longer tracked here
-
-        // These rarely change, but check them too
-        const typeKey = "type";
-        if (previousStates.get(typeKey) !== "avatar") {
-            updates.push([typeKey, "avatar"]);
-            previousStates.set(typeKey, "avatar");
-        }
-
-        const sessionKey = "sessionId";
-        const sessionState = fullSessionId.value || "";
-        if (previousStates.get(sessionKey) !== sessionState) {
-            updates.push([sessionKey, fullSessionId.value]);
-            previousStates.set(sessionKey, sessionState);
-        }
-
-        const modelKey = "modelFileName";
-        const modelState = modelFileName.value;
-        if (previousStates.get(modelKey) !== modelState) {
-            updates.push([modelKey, modelFileName.value]);
-            previousStates.set(modelKey, modelState);
-        }
-
-        // Always update last_seen to keep entity alive
-        updates.push(["last_seen", new Date().toISOString()]);
-
-        // Build the VALUES clause dynamically for batch insert
-        const valuesClause = updates
-            .map(
-                (_, index) =>
-                    `($1, $${index * 3 + 2}, $${index * 3 + 3}, $${index * 3 + 4})`,
-            )
-            .join(", ");
-
-        // Flatten parameters: [entityName, key1, value1, sync1, key2, value2, sync2, ...]
-        const parameters: unknown[] = [entityName.value];
-        for (const [key, value] of updates) {
-            parameters.push(key, value, "public.NORMAL");
-        }
-
-        // Single query to update all changed metadata
-        await vircadiaWorld.client.Utilities.Connection.query({
-            query: `
-                INSERT INTO entity.entity_metadata 
-                    (general__entity_name, metadata__key, metadata__value, group__sync)
-                VALUES ${valuesClause}
-                ON CONFLICT (general__entity_name, metadata__key) 
-                DO UPDATE SET metadata__value = EXCLUDED.metadata__value
-            `,
-            parameters,
-            timeoutMs: 5000, // Add timeout to prevent hanging
-        });
-
-        // Update local map only for changed values
-        for (const [key, value] of updates) {
-            metadataMap.set(key, value);
-        }
-
-        // Update local entity data for consistency
-        if (entityData.value) {
-            entityData.value.metadata = new Map(metadataMap);
-        }
-
-        // No global store; if needed, parent can observe via DB or events
-
-        // Log update statistics in debug mode
-        if ((window as DebugWindow).debugSkeleton) {
-            console.log(
-                `[Avatar Update] Sent ${updates.length} main data changes`,
-            );
-        }
-    } catch (error) {
-        console.error("Avatar metadata update failed:", error);
-    } finally {
-        isUpdatingMain.value = false;
-    }
-}, throttleInterval.value);
-
-// Separate throttled update function for joint data
-const throttledJointUpdate = useThrottleFn(
-    async () => {
-        if (!entityData.value?.general__entity_name || !avatarSkeleton.value) {
-            return;
-        }
-
-        // Skip if still updating to prevent overlapping requests
-        if (isUpdatingJoints.value) {
-            console.debug(
-                "Skipping joint update - previous update still in progress",
-            );
-            return;
-        }
-
-        try {
-            if (!vircadiaWorld) {
-                throw new Error(
-                    "Vircadia instance not found in BabylonMyAvatar",
-                );
-            }
-
-            isUpdatingJoints.value = true;
-
-            // Collect joint updates that have changed
-            const updates: Array<[string, unknown]> = [];
-            const bones = avatarSkeleton.value.bones || [];
-
-            for (const bone of bones) {
-                // Use LOCAL matrix for better network efficiency
-                const localMat = bone.getLocalMatrix();
-
-                // Decompose the matrix to get position, rotation, and scale
-                const pos = new Vector3();
-                const rot = new Quaternion();
-                const scale = new Vector3();
-                localMat.decompose(scale, rot, pos);
-
-                // Create joint metadata
-                const jointMetadata = {
-                    type: "avatarJoint",
-                    sessionId: fullSessionId.value,
-                    jointName: bone.name,
-                    position: vectorToObj(pos),
-                    rotation: quatToObj(rot),
-                    scale: vectorToObj(scale),
-                };
-
-                // Check if this joint has changed
-                const jointKey = `joint:${bone.name}`;
-                const jointState = JSON.stringify(jointMetadata);
-                const previousJointState = previousJointStates.get(jointKey);
-
-                if (jointState !== previousJointState) {
-                    updates.push([jointKey, jointMetadata]);
-                    previousJointStates.set(jointKey, jointState);
-                }
-            }
-
-            // Only proceed if there are changes
-            if (updates.length === 0) {
-                return;
-            }
-
-            // Always add last_seen to keep entity alive
-            updates.push(["last_seen", new Date().toISOString()]);
-
-            // Build the VALUES clause dynamically for batch insert
-            const valuesClause = updates
-                .map(
-                    (_, index) =>
-                        `($1, $${index * 3 + 2}, $${index * 3 + 3}, $${index * 3 + 4})`,
-                )
-                .join(", ");
-
-            // Flatten parameters: [entityName, key1, value1, sync1, key2, value2, sync2, ...]
-            const parameters: unknown[] = [entityName.value];
-            for (const [key, value] of updates) {
-                parameters.push(key, value, "public.NORMAL");
-            }
-
-            // Single query to update all changed joint metadata
-            await vircadiaWorld.client.Utilities.Connection.query({
-                query: `
-                INSERT INTO entity.entity_metadata 
-                    (general__entity_name, metadata__key, metadata__value, group__sync)
-                VALUES ${valuesClause}
-                ON CONFLICT (general__entity_name, metadata__key) 
-                DO UPDATE SET metadata__value = EXCLUDED.metadata__value
-            `,
-                parameters,
-                timeoutMs: 5000, // Add timeout to prevent hanging
-            });
-
-            // Update local map only for changed values
-            for (const [key, value] of updates) {
-                metadataMap.set(key, value);
-            }
-
-            // Log update statistics in debug mode
-            if ((window as DebugWindow).debugSkeleton) {
-                const jointUpdates = updates.filter(([key]) =>
-                    key.startsWith("joint:"),
-                ).length;
-                console.log(
-                    `[Avatar Joint Update] Sent ${jointUpdates} joint changes`,
-                );
-            }
-        } catch (error) {
-            console.error("Avatar joint update failed:", error);
-        } finally {
-            isUpdatingJoints.value = false;
-        }
-    },
-    Math.max(throttleInterval.value * 5, 2500),
-);
+// Entity update logic moved to BabylonMyAvatarEntity.vue
 
 // Use Vircadia instance from props (moved up to fix initialization order)
 const vircadiaWorld = props.vircadiaWorld;
@@ -1894,8 +1641,7 @@ onMounted(async () => {
                             // Force update transforms
                             updateTransforms();
 
-                            // Update entity metadata
-                            throttledUpdate();
+                            // Entity metadata updates handled by BabylonMyAvatarEntity
 
                             console.log("[Debug] Avatar transform updated", {
                                 position: newPosition,
@@ -2124,8 +1870,7 @@ onMounted(async () => {
             }
         }
 
-        throttledUpdate();
-        throttledJointUpdate();
+        // Entity metadata updates handled by BabylonMyAvatarEntity
         // Debug axes update: position and orient axes to match avatar
         if (debugAxes.value && axesViewer && avatarNode.value) {
             const node = avatarNode.value;
@@ -2408,8 +2153,7 @@ onUnmounted(() => {
 defineExpose({
     isRetrieving,
     isCreating,
-    isUpdatingMain,
-    isUpdatingJoints,
+    // Entity update flags exposed by external component instead
     hasError: computed(() => false),
     errorMessage: computed(() => null),
     getPosition,

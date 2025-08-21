@@ -172,6 +172,16 @@
                                         :target-skeleton="targetSkeleton"
                                         @state="onAnimationState"
                                     />
+                                    <!-- Renderless entity sync component -->
+                                    <BabylonMyAvatarEntity
+                                        :scene="sceneNonNull"
+                                        :vircadia-world="vircadiaWorld"
+                                        :avatar-node="(avatarNode as any) || null"
+                                        :target-skeleton="(targetSkeleton as any) || null"
+                                        :model-file-name="modelFileNameRef || modelFileName"
+                                        :instance-id="instanceId ?? undefined"
+                                        :throttle-interval="150"
+                                    />
                                     <!-- Debug overlay for avatar -->
                                     <BabylonMyAvatarDebugOverlay
                                         :scene="sceneNonNull"
@@ -336,6 +346,7 @@ import BabylonOtherAvatars from "../components/BabylonOtherAvatars.vue";
 import BabylonModel from "../components/BabylonModel.vue";
 import BabylonModels from "../components/BabylonModels.vue";
 import BabylonWebRTC from "../components/BabylonWebRTC.vue";
+import BabylonMyAvatarEntity from "../components/BabylonMyAvatarEntity.vue";
 import BabylonDebugOverlay from "../components/BabylonDebugOverlay.vue";
 import BabylonMyAvatarDebugOverlay from "../components/BabylonMyAvatarDebugOverlay.vue";
 import BabylonMyAvatarAnimationDebugOverlay from "../components/BabylonMyAvatarAnimationDebugOverlay.vue";
@@ -386,6 +397,8 @@ void LogoutButton;
 void BabylonCanvas;
 // mark as used at runtime for template
 void VircadiaWorldProvider;
+// mark as used at runtime for template
+void BabylonMyAvatarEntity;
 import BabylonEnvironment from "../components/BabylonEnvironment.vue";
 import { clientBrowserConfiguration } from "@/vircadia.browser.config";
 import { useLocalStorage } from "@vueuse/core";

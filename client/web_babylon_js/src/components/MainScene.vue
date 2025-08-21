@@ -9,6 +9,7 @@
             :isAuthenticating="authProps.isAuthenticating"
             :authError="authProps.authError"
             :autoConnect="clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT"
+            @auth-denied="onAuthDenied($event, authProps)"
             v-slot="{ vircadiaWorld, connectionStatus, isConnecting, isAuthenticated, isAuthenticating, accountDisplayName, sessionId, agentId, instanceId }">
         <!-- Sync slot values to refs for script usage -->
         <div style="display: none">
@@ -114,7 +115,23 @@
                 <!-- Only render entities when scene is available and connection is stable -->
                 <template v-if="sceneInitialized && scene && connectionStatus === 'connected' && !isConnecting">
                     <!-- BabylonMyAvatar component wrapped with MKB controller -->
-                    <BabylonMyAvatarMKBController :scene="sceneNonNull" v-slot="controls">
+                    <BabylonMyAvatarMKBController
+                        :scene="sceneNonNull"
+                        :forward-codes="['KeyW','ArrowUp']"
+                        :backward-codes="['KeyS','ArrowDown']"
+                        :strafe-left-codes="['KeyA','ArrowLeft']"
+                        :strafe-right-codes="['KeyD','ArrowRight']"
+                        :jump-codes="['Space']"
+                        :sprint-codes="['ShiftLeft','ShiftRight']"
+                        :dash-codes="[]"
+                        :turn-left-codes="['KeyQ']"
+                        :turn-right-codes="['KeyE']"
+                        :fly-mode-toggle-codes="['KeyF']"
+                        :crouch-toggle-codes="['KeyC']"
+                        :prone-toggle-codes="['KeyZ']"
+                        :slow-run-toggle-codes="['CapsLock']"
+                        v-slot="controls"
+                    >
                         <BabylonMyAvatar
                             :scene="sceneNonNull"
                             :vircadia-world="vircadiaWorld"
@@ -638,6 +655,31 @@ onMounted(() => {
 // mark components/config used in template
 void BabylonEnvironment;
 void clientBrowserConfiguration;
+
+// Handle auth denial from provider by clearing local auth state without server logout
+type AuthDeniedPayload = {
+    reason: "expired" | "invalid" | "unauthorized" | "authentication_failed";
+    message: string;
+};
+type AuthSlotProps = {
+    logoutLocal?: (reason?: string) => void;
+    logout?: () => void;
+};
+
+function onAuthDenied(payload: AuthDeniedPayload, authProps: AuthSlotProps) {
+    console.warn("[MainScene] Auth denied, logging out locally", payload);
+    // Clear local auth state only; do not call server logout
+    if (typeof authProps.logoutLocal === "function") {
+        authProps.logoutLocal(
+            `Logged out due to ${payload.reason}: ${payload.message}`,
+        );
+    } else if (typeof authProps.logout === "function") {
+        // Fallback to full logout if logoutLocal is not available
+        authProps.logout();
+    }
+    // TODO: show a toast/snackbar using your global notification system
+}
+void onAuthDenied;
 </script>
 
 <style>

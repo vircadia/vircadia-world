@@ -63,6 +63,20 @@ defineSlots<{
     default(props: VircadiaWorldSlotProps): void;
 }>();
 
+const emit = defineEmits<{
+    /** Emitted when authentication is denied/expired and local logout should occur */
+    "auth-denied": [
+        payload: {
+            reason:
+                | "expired"
+                | "invalid"
+                | "unauthorized"
+                | "authentication_failed";
+            message: string;
+        },
+    ];
+}>();
+
 const props = defineProps<{
     autoConnect?: boolean;
     reconnectDelayMs?: number;
@@ -300,6 +314,20 @@ async function connect() {
                     "[VircadiaWorldProvider] Authentication failed:",
                     error,
                 );
+                // Ensure any in-flight connection is closed
+                ensureDisconnected();
+                // Determine a structured reason and notify parent to clear local auth
+                let reason:
+                    | "expired"
+                    | "invalid"
+                    | "unauthorized"
+                    | "authentication_failed" = "authentication_failed";
+                const msg = error.message || "Authentication failed";
+                if (msg.includes("expired")) reason = "expired";
+                else if (msg.includes("Invalid session")) reason = "invalid";
+                else if (msg.includes("401") || msg.includes("Unauthorized"))
+                    reason = "unauthorized";
+                emit("auth-denied", { reason, message: msg });
             }
         }
     } finally {

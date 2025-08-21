@@ -11,6 +11,7 @@
             :agentId="agentId"
             :authProvider="authProvider"
             :logout="logout"
+            :logoutLocal="logoutLocal"
         />
         <v-container v-else fluid fill-height class="intro-screen">
             <v-row align="center" justify="center">
@@ -309,6 +310,19 @@ async function logout() {
     }
 }
 
+/**
+ * Clears local authentication state without calling the server.
+ * Use this when the server has already denied/expired the session (e.g., 401).
+ */
+function logoutLocal(reason?: string) {
+    account.value = null;
+    sessionToken.value = null;
+    sessionId.value = null;
+    agentId.value = null;
+    authProvider.value = "anon";
+    authError.value = reason ?? null;
+}
+
 // Auto-login with debug token if available and not already authenticated
 onMounted(async () => {
     console.log(
@@ -343,6 +357,7 @@ defineExpose({
     loginAnonymously,
     loginWithDebugToken,
     logout,
+    logoutLocal,
     showDebugLogin,
     isAuthenticated,
     isAuthenticating,

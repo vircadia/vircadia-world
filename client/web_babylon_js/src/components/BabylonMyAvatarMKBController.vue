@@ -22,6 +22,21 @@ import { useWindowFocus } from "@vueuse/core";
 
 const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
+    // Press-and-hold states
+    forwardCodes: { type: Array as () => string[], required: true },
+    backwardCodes: { type: Array as () => string[], required: true },
+    strafeLeftCodes: { type: Array as () => string[], required: true },
+    strafeRightCodes: { type: Array as () => string[], required: true },
+    jumpCodes: { type: Array as () => string[], required: true },
+    sprintCodes: { type: Array as () => string[], required: true },
+    dashCodes: { type: Array as () => string[], required: true },
+    turnLeftCodes: { type: Array as () => string[], required: true },
+    turnRightCodes: { type: Array as () => string[], required: true },
+    // Toggle states (flip only on key down)
+    flyModeToggleCodes: { type: Array as () => string[], required: true },
+    crouchToggleCodes: { type: Array as () => string[], required: true },
+    proneToggleCodes: { type: Array as () => string[], required: true },
+    slowRunToggleCodes: { type: Array as () => string[], required: true },
 });
 
 const focused = useWindowFocus();
@@ -32,9 +47,15 @@ const keyState = ref({
     strafeLeft: false,
     strafeRight: false,
     jump: false,
-    run: false,
+    sprint: false,
+    dash: false,
     turnLeft: false,
     turnRight: false,
+    // toggles
+    flyMode: false,
+    crouch: false,
+    prone: false,
+    slowRun: false,
 });
 
 const pointerState = ref({
@@ -69,36 +90,45 @@ if (props.scene) {
     keyboardObserver = props.scene.onKeyboardObservable.add((kbInfo) => {
         const code = kbInfo.event.code;
         const isDown = kbInfo.type === KeyboardEventTypes.KEYDOWN;
-        switch (code) {
-            case "KeyW":
-            case "ArrowUp":
-                keyState.value.forward = isDown;
-                break;
-            case "KeyS":
-            case "ArrowDown":
-                keyState.value.backward = isDown;
-                break;
-            case "KeyA":
-            case "ArrowLeft":
-                keyState.value.strafeLeft = isDown;
-                break;
-            case "KeyD":
-            case "ArrowRight":
-                keyState.value.strafeRight = isDown;
-                break;
-            case "Space":
-                keyState.value.jump = isDown;
-                break;
-            case "ShiftLeft":
-            case "ShiftRight":
-                keyState.value.run = isDown;
-                break;
-            case "KeyQ":
-                keyState.value.turnLeft = isDown;
-                break;
-            case "KeyE":
-                keyState.value.turnRight = isDown;
-                break;
+        if (props.forwardCodes.includes(code)) {
+            keyState.value.forward = isDown;
+        }
+        if (props.backwardCodes.includes(code)) {
+            keyState.value.backward = isDown;
+        }
+        if (props.strafeLeftCodes.includes(code)) {
+            keyState.value.strafeLeft = isDown;
+        }
+        if (props.strafeRightCodes.includes(code)) {
+            keyState.value.strafeRight = isDown;
+        }
+        if (props.jumpCodes.includes(code)) {
+            keyState.value.jump = isDown;
+        }
+        if (props.sprintCodes.includes(code)) {
+            keyState.value.sprint = isDown;
+        }
+        if (props.dashCodes.includes(code)) {
+            keyState.value.dash = isDown;
+        }
+        if (props.turnLeftCodes.includes(code)) {
+            keyState.value.turnLeft = isDown;
+        }
+        if (props.turnRightCodes.includes(code)) {
+            keyState.value.turnRight = isDown;
+        }
+        // toggles (flip only on key down)
+        if (isDown && props.flyModeToggleCodes.includes(code)) {
+            keyState.value.flyMode = !keyState.value.flyMode;
+        }
+        if (isDown && props.crouchToggleCodes.includes(code)) {
+            keyState.value.crouch = !keyState.value.crouch;
+        }
+        if (isDown && props.proneToggleCodes.includes(code)) {
+            keyState.value.prone = !keyState.value.prone;
+        }
+        if (isDown && props.slowRunToggleCodes.includes(code)) {
+            keyState.value.slowRun = !keyState.value.slowRun;
         }
     });
 
@@ -136,9 +166,14 @@ if (typeof window !== "undefined") {
         keyState.value.strafeLeft = false;
         keyState.value.strafeRight = false;
         keyState.value.jump = false;
-        keyState.value.run = false;
+        keyState.value.sprint = false;
+        keyState.value.dash = false;
         keyState.value.turnLeft = false;
         keyState.value.turnRight = false;
+        keyState.value.flyMode = false;
+        keyState.value.crouch = false;
+        keyState.value.prone = false;
+        keyState.value.slowRun = false;
     };
 
     watch(focused, (isFocused) => {

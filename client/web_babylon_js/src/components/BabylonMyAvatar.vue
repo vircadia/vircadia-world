@@ -68,9 +68,15 @@ type KeyState = {
     strafeLeft: boolean;
     strafeRight: boolean;
     jump: boolean;
-    run: boolean;
+    sprint: boolean;
+    dash: boolean;
     turnLeft: boolean;
     turnRight: boolean;
+    // toggles
+    flyMode: boolean;
+    crouch: boolean;
+    prone: boolean;
+    slowRun: boolean;
 };
 
 const props = defineProps({
@@ -495,9 +501,14 @@ const defaultKeyState = ref<KeyState>({
     strafeLeft: false,
     strafeRight: false,
     jump: false,
-    run: false,
+    sprint: false,
+    dash: false,
     turnLeft: false,
     turnRight: false,
+    flyMode: false,
+    crouch: false,
+    prone: false,
+    slowRun: false,
 });
 const keyState = computed(() => props.keyState ?? defaultKeyState.value);
 
@@ -809,10 +820,12 @@ function getDesiredMoveDefFromKeys(): AnimationDef | undefined {
     let dir: Direction;
     if (Math.abs(dz) >= Math.abs(dx)) dir = dz >= 0 ? "forward" : "back";
     else dir = dx >= 0 ? "right" : "left";
-    const primary = ks.run ? "run" : "walk";
+    const primary = ks.sprint ? "run" : "walk";
+    // slowRun toggle forces walk animations even if run is pressed
+    const effectivePrimary = ks.slowRun ? "walk" : primary;
     const mapped =
-        findAnimationDef(primary, dir) ||
-        findAnimationDef(primary) ||
+        findAnimationDef(effectivePrimary, dir) ||
+        findAnimationDef(effectivePrimary) ||
         // Fallbacks across motions
         findAnimationDef("walk", dir) ||
         findAnimationDef("walk");

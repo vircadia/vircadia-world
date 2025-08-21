@@ -779,22 +779,46 @@ const blendWeight = ref(0); // 0 = idle, 1 = walk
 
 // Initialize and manage blended animations
 let idleAnimation: AnimationGroup | null = null;
+// Active movement animation (walk/jog/run/strafe)
 let walkAnimation: AnimationGroup | null = null;
+// Previous movement animation kept for crossfading when direction/speed changes
+let previousMoveAnimation: AnimationGroup | null = null;
+// Name of the currently active movement animation file
 let currentMoveFileName: string | null = null;
+// Crossfade progress between previous and current movement animations (0 -> 1)
+let moveCrossfadeT = 1;
 
 function findAnimationDef(
     motion: string,
     direction?: Direction,
+    variant?: string,
 ): AnimationDef | undefined {
     const list = animations.value as AnimationDef[];
     // Prefer exact motion+direction match
     if (direction) {
+        // If a variant was requested, prefer it
+        if (variant) {
+            const withDirVariant = list.find(
+                (a) =>
+                    a.slMotion === motion &&
+                    a.direction === direction &&
+                    a.variant === variant,
+            );
+            if (withDirVariant) return withDirVariant;
+        }
         const withDir = list.find(
             (a) => a.slMotion === motion && a.direction === direction,
         );
         if (withDir) return withDir;
     }
     // Fallback to motion without direction
+    if (variant) {
+        const withoutDirVariant = list.find(
+            (a) =>
+                a.slMotion === motion && !a.direction && a.variant === variant,
+        );
+        if (withoutDirVariant) return withoutDirVariant;
+    }
     const withoutDir = list.find((a) => a.slMotion === motion && !a.direction);
     if (withoutDir) return withoutDir;
     return undefined;
@@ -820,12 +844,18 @@ function getDesiredMoveDefFromKeys(): AnimationDef | undefined {
     let dir: Direction;
     if (Math.abs(dz) >= Math.abs(dx)) dir = dz >= 0 ? "forward" : "back";
     else dir = dx >= 0 ? "right" : "left";
-    const primary = ks.sprint ? "run" : "walk";
-    // slowRun toggle forces walk animations even if run is pressed
-    const effectivePrimary = ks.slowRun ? "walk" : primary;
+    // Determine speed mode: walk (default), jog, sprint
+    const speedMode: "walk" | "jog" | "sprint" = ks.sprint
+        ? "sprint"
+        : ks.slowRun
+          ? "jog"
+          : "walk";
+    // Map to motion + variant for DB mapping
+    const primaryMotion = speedMode === "walk" ? "walk" : "run";
+    const preferredVariant = speedMode === "jog" ? "jog" : undefined;
     const mapped =
-        findAnimationDef(effectivePrimary, dir) ||
-        findAnimationDef(effectivePrimary) ||
+        findAnimationDef(primaryMotion, dir, preferredVariant) ||
+        findAnimationDef(primaryMotion, undefined, preferredVariant) ||
         // Fallbacks across motions
         findAnimationDef("walk", dir) ||
         findAnimationDef("walk");
@@ -834,7 +864,7 @@ function getDesiredMoveDefFromKeys(): AnimationDef | undefined {
     // Filename-based fallback to support legacy seeds without mapping
     const list = animations.value as AnimationDef[];
     const name = (s: string) => s.toLowerCase();
-    if (primary === "walk") {
+    if (primaryMotion === "walk") {
         if (dir === "forward")
             return (
                 list.find((a) => name(a.fileName).includes("walk.1.glb")) ||
@@ -860,6 +890,12 @@ function getDesiredMoveDefFromKeys(): AnimationDef | undefined {
         // run
         if (dir === "forward")
             return (
+                (preferredVariant === "jog"
+                    ? list.find((a) => name(a.fileName).includes("jog.glb")) ||
+                      list.find((a) => name(a.fileName).includes("jog."))
+                    : list.find((a) => name(a.fileName).includes("run.glb")) ||
+                      list.find((a) => name(a.fileName).includes("run."))) ||
+                // cross fallback
                 list.find((a) => name(a.fileName).includes("run.glb")) ||
                 list.find((a) => name(a.fileName).includes("jog.glb")) ||
                 list.find((a) => name(a.fileName).includes("run.")) ||
@@ -904,20 +940,22 @@ function setMoveAnimationFromDef(def: AnimationDef | undefined): void {
     if (info?.state !== "ready" || !info.group) return;
     const newGroup = info.group as AnimationGroup;
 
-    // Stop previous move group if different
+    // If we already have an active move group and it's different, prepare crossfade
     if (walkAnimation && walkAnimation !== newGroup) {
+        previousMoveAnimation = walkAnimation;
+        // Ensure previous keeps playing for crossfade
         try {
-            walkAnimation.stop();
+            previousMoveAnimation.play(true);
         } catch {}
+        moveCrossfadeT = 0; // start crossfade
     }
+
     walkAnimation = newGroup;
     currentMoveFileName = def.fileName;
     walkAnimation.stop();
     walkAnimation.loopAnimation = true;
-    // Start both and set weights based on current blend
-    const weight = Math.min(Math.max(blendWeight.value, 0), 1);
-    walkAnimation.setWeightForAllAnimatables(weight);
-    if (idleAnimation) idleAnimation.setWeightForAllAnimatables(1 - weight);
+    // Start playing new group at zero weight; weights are updated in updateAnimationBlending
+    walkAnimation.setWeightForAllAnimatables(0);
     walkAnimation.play(true);
 }
 
@@ -1190,31 +1228,47 @@ function trySetupBlendedAnimations(): void {
 
 // Update animation weights based on movement
 function updateAnimationBlending(isMoving: boolean, dt: number): void {
-    // Ensure both animations are ready
-    if (!idleAnimation || !walkAnimation) {
-        return;
-    }
+    // Need idle and at least the active move group to blend
+    if (!idleAnimation) return;
 
-    const targetWeight = isMoving ? 1 : 0;
-    // If weight is already at target, no blending needed
-    if (blendWeight.value === targetWeight) {
-        return;
-    }
+    const targetWeight = isMoving && walkAnimation ? 1 : 0;
 
     // Compute weight change based on transition duration
-    const change = dt / blendDuration.value;
-    // Move weight toward target
-    if (targetWeight > blendWeight.value) {
-        blendWeight.value += change;
-    } else {
-        blendWeight.value -= change;
-    }
-    // Clamp blendWeight between 0 and 1
-    blendWeight.value = Math.min(Math.max(blendWeight.value, 0), 1);
+    const change = dt / Math.max(0.0001, blendDuration.value);
 
-    // Apply weights to animations
-    idleAnimation.setWeightForAllAnimatables(1 - blendWeight.value);
-    walkAnimation.setWeightForAllAnimatables(blendWeight.value);
+    // Move idle<->move master weight toward target
+    if (targetWeight > blendWeight.value) {
+        blendWeight.value = Math.min(1, blendWeight.value + change);
+    } else if (targetWeight < blendWeight.value) {
+        blendWeight.value = Math.max(0, blendWeight.value - change);
+    }
+
+    // Update crossfade between previous and current move animations
+    if (previousMoveAnimation && walkAnimation) {
+        moveCrossfadeT = Math.min(1, moveCrossfadeT + change);
+        // When crossfade completes, stop and clear previous
+        if (moveCrossfadeT >= 1) {
+            try {
+                previousMoveAnimation.stop();
+            } catch {}
+            previousMoveAnimation = null;
+        }
+    }
+
+    // Apply weights
+    const moveMasterWeight = blendWeight.value;
+    idleAnimation.setWeightForAllAnimatables(1 - moveMasterWeight);
+    if (walkAnimation) {
+        const activeWeight = moveMasterWeight * moveCrossfadeT;
+        walkAnimation.setWeightForAllAnimatables(activeWeight);
+        // Keep active playing
+        if (!walkAnimation.isPlaying) walkAnimation.play(true);
+    }
+    if (previousMoveAnimation) {
+        const prevWeight = moveMasterWeight * (1 - moveCrossfadeT);
+        previousMoveAnimation.setWeightForAllAnimatables(prevWeight);
+        if (!previousMoveAnimation.isPlaying) previousMoveAnimation.play(true);
+    }
 }
 
 // Observers and watcher cleanup handles
@@ -1974,7 +2028,13 @@ onMounted(async () => {
                 .scale(dir.z)
                 .add(right.scale(dir.x))
                 .normalize();
-            const speed = walkSpeed.value; // use store value
+            // Speed scaling: walk (default), jog, sprint
+            const speedMultiplier = keyState.value.sprint
+                ? 2.0
+                : keyState.value.slowRun
+                  ? 1.5
+                  : 1.0;
+            const speed = walkSpeed.value * speedMultiplier;
             // preserve vertical velocity
             setVelocity(moveWS.scale(speed).add(new Vector3(0, vel.y, 0)));
         } else if (vel) {

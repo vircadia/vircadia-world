@@ -129,7 +129,7 @@
                         :fly-mode-toggle-codes="['KeyF']"
                         :crouch-toggle-codes="['KeyC']"
                         :prone-toggle-codes="['KeyZ']"
-                        :slow-run-toggle-codes="['CapsLock']"
+                        :slow-run-toggle-codes="[]"
                         v-slot="controls"
                     >
                         <BabylonMyAvatar

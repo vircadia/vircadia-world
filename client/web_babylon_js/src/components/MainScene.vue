@@ -169,7 +169,7 @@
                                         :scene="sceneNonNull"
                                         :vircadia-world="vircadiaWorld"
                                         :animation="anim"
-                                        :target-skeleton="targetSkeleton"
+                                        :target-skeleton="(targetSkeleton as any) || null"
                                         @state="onAnimationState"
                                     />
                                     <!-- Renderless entity sync component -->
@@ -213,7 +213,18 @@
                         :current-full-session-id="sessionId && instanceId ? `${sessionId}-${instanceId}` : undefined"
                         v-model:otherAvatarsMetadata="otherAvatarsMetadata"
                         ref="otherAvatarsRef"
-                    />
+                        v-slot="{ sessionId: otherSessionId, onReady, onDispose, onAvatarMetadata, onAvatarRemoved }"
+                    >
+                        <BabylonOtherAvatar
+                            :scene="sceneNonNull"
+                            :vircadia-world="vircadiaWorld"
+                            :session-id="otherSessionId"
+                            @ready="onReady"
+                            @dispose="onDispose"
+                            @avatar-metadata="onAvatarMetadata"
+                            @avatar-removed="onAvatarRemoved"
+                        />
+                    </BabylonOtherAvatars>
 
                     <!-- BabylonModel components provided by DB-scanned list -->
                     <BabylonModels :vircadia-world="vircadiaWorld" v-slot="{ models }">
@@ -343,6 +354,7 @@ import BabylonMyAvatarModel from "../components/BabylonMyAvatarModel.vue";
 import BabylonMyAvatarAnimation from "../components/BabylonMyAvatarAnimation.vue";
 import BabylonMyAvatarDesktopThirdPersonCamera from "../components/BabylonMyAvatarDesktopThirdPersonCamera.vue";
 import BabylonOtherAvatars from "../components/BabylonOtherAvatars.vue";
+import BabylonOtherAvatar from "../components/BabylonOtherAvatar.vue";
 import BabylonModel from "../components/BabylonModel.vue";
 import BabylonModels from "../components/BabylonModels.vue";
 import BabylonWebRTC from "../components/BabylonWebRTC.vue";
@@ -370,6 +382,8 @@ void BabylonMyAvatarModel;
 void BabylonMyAvatarDesktopThirdPersonCamera;
 // mark as used at runtime for template
 void BabylonOtherAvatars;
+// mark as used at runtime for template
+void BabylonOtherAvatar;
 // mark as used at runtime for template
 void BabylonModel;
 // mark as used at runtime for template

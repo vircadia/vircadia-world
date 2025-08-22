@@ -1,28 +1,20 @@
 <template>
-    <BabylonOtherAvatar
+    <slot
         v-for="otherSessionId in otherAvatarSessionIds"
         :key="otherSessionId"
+        :session-id="otherSessionId"
         :scene="scene"
         :vircadia-world="vircadiaWorld"
-        :session-id="otherSessionId"
-        ref="otherAvatarRefs"
-        @avatar-metadata="(e: { sessionId: string; metadata: AvatarMetadata }) => { otherAvatarsMetadataLocal[e.sessionId] = e.metadata; emitMetadataUpdate(); }"
-        @avatar-removed="(e: { sessionId: string }) => { delete otherAvatarsMetadataLocal[e.sessionId]; emitMetadataUpdate(); }"
+        :on-ready="() => markLoaded(otherSessionId)"
+        :on-dispose="() => markDisposed(otherSessionId)"
+        :on-avatar-metadata="(e: { sessionId: string; metadata: AvatarMetadata }) => { otherAvatarsMetadataLocal[e.sessionId] = e.metadata; emitMetadataUpdate(); }"
+        :on-avatar-removed="(e: { sessionId: string }) => { delete otherAvatarsMetadataLocal[e.sessionId]; emitMetadataUpdate(); }"
     />
 </template>
 
 <script setup lang="ts">
-import {
-    ref,
-    computed,
-    watch,
-    inject,
-    onMounted,
-    onUnmounted,
-    toRefs,
-} from "vue";
+import { ref, computed, watch, onMounted, onUnmounted, toRefs } from "vue";
 
-import BabylonOtherAvatar from "./BabylonOtherAvatar.vue";
 import type { AvatarMetadata } from "@/composables/schemas";
 import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
 
@@ -84,10 +76,20 @@ function emitMetadataUpdate() {
     emit("update:otherAvatarsMetadata", { ...otherAvatarsMetadataLocal.value });
 }
 
-// Refs to child components for loading state
-const otherAvatarRefs = ref<(InstanceType<typeof BabylonOtherAvatar> | null)[]>(
-    [],
-);
+// Track loading state per discovered session
+const loadingBySession = ref<Record<string, boolean>>({});
+
+function markLoaded(sessionId: string): void {
+    loadingBySession.value[sessionId] = false;
+}
+
+function markDisposed(sessionId: string): void {
+    delete loadingBySession.value[sessionId];
+}
+
+// Avoid unused warnings in templates-only usage
+void markLoaded;
+void markDisposed;
 
 // Polling interval id
 let avatarDiscoveryInterval: number | null = null;
@@ -107,15 +109,41 @@ async function pollForOtherAvatars(): Promise<void> {
             timeoutMs: 30000,
         });
 
-        if (result.result) {
+        if (result.result && Array.isArray(result.result)) {
             const currentFullSessionId = props.currentFullSessionId;
             const foundSessionIds: string[] = [];
+            const entities = result.result as Array<{
+                general__entity_name: string;
+            }>;
 
-            for (const entity of result.result) {
+            console.log(
+                "[OtherAvatars] Current full session ID:",
+                currentFullSessionId,
+                "Found entities:",
+                entities.length,
+            );
+            for (const entity of entities) {
                 const match =
                     entity.general__entity_name.match(/^avatar:(.+)$/);
+                if (match) {
+                    const isOurs = match[1] === currentFullSessionId;
+                    console.log(
+                        "[OtherAvatars] Found avatar:",
+                        entity.general__entity_name,
+                        "Session ID:",
+                        match[1],
+                        "Is ours:",
+                        isOurs,
+                        "Is other:",
+                        !isOurs,
+                    );
+                }
                 if (match && match[1] !== currentFullSessionId) {
                     foundSessionIds.push(match[1]);
+                    // Initialize loading state for new sessions
+                    if (!(match[1] in loadingBySession.value)) {
+                        loadingBySession.value[match[1]] = true;
+                    }
                     if (!otherAvatarsMetadataLocal.value[match[1]]) {
                         otherAvatarsMetadataLocal.value[match[1]] = {
                             type: "avatar",
@@ -139,6 +167,7 @@ async function pollForOtherAvatars(): Promise<void> {
             )) {
                 if (!foundSessionIds.includes(sessionId)) {
                     delete otherAvatarsMetadataLocal.value[sessionId];
+                    delete loadingBySession.value[sessionId];
                 }
             }
             emitMetadataUpdate();
@@ -181,6 +210,7 @@ watch(
             stopAvatarDiscovery();
             otherAvatarSessionIds.value = [];
             otherAvatarsMetadataLocal.value = {};
+            loadingBySession.value = {};
             emitMetadataUpdate();
         }
     },
@@ -197,10 +227,10 @@ onUnmounted(() => {
     stopAvatarDiscovery();
 });
 
-// Expose loading state for parent
+// Expose loading state for parent (true if any discovered session still loading)
 const isLoading = computed<boolean>(() => {
-    for (const avatar of otherAvatarRefs.value) {
-        if (avatar && !avatar.isModelLoaded) return true;
+    for (const sessionId of otherAvatarSessionIds.value) {
+        if (loadingBySession.value[sessionId] !== false) return true;
     }
     return false;
 });

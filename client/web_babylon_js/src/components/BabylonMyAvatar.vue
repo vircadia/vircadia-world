@@ -183,13 +183,15 @@ const sessionId = computed(
 );
 const instanceId = computed(() => props.instanceId ?? null);
 const fullSessionId = computed(() => {
-    return sessionId.value && instanceId.value
-        ? `${sessionId.value}-${instanceId.value}`
-        : null;
+    // Require both sessionId and instanceId; otherwise treat as unavailable
+    if (!sessionId.value || !instanceId.value) return null;
+    return `${sessionId.value}-${instanceId.value}`;
 });
 
 // Generate dynamic entity name based on full session ID (includes instanceId)
-const entityName = computed(() => `avatar:${fullSessionId.value}`);
+const entityName = computed(() =>
+    fullSessionId.value ? `avatar:${fullSessionId.value}` : null,
+);
 
 // Simple metadata map that directly corresponds to database entries
 const metadataMap = reactive(
@@ -233,6 +235,13 @@ async function loadAvatarDefinitionFromDb(
 ): Promise<void> {
     if (!vircadiaWorld) return;
     try {
+        console.log("[AVATAR] Loading avatar definition:", {
+            definitionName,
+            ourSessionId: sessionId.value,
+            ourInstanceId: instanceId.value,
+            ourFullSessionId: fullSessionId.value,
+        });
+
         const meta = await retrieveEntityMetadata(definitionName);
         if (!meta) {
             console.warn(
@@ -913,7 +922,7 @@ const isCreating = ref(false);
 
 // Helper function to retrieve metadata for an entity
 async function retrieveEntityMetadata(
-    entityName: string,
+    requestedEntityName: string,
 ): Promise<Map<string, unknown> | null> {
     if (!vircadiaWorld) {
         console.error("Vircadia instance not found");
@@ -921,11 +930,18 @@ async function retrieveEntityMetadata(
     }
 
     try {
+        // CRITICAL: Log what entity we're retrieving to debug issues
+        console.log("[AVATAR] Retrieving metadata for entity:", {
+            requested: requestedEntityName,
+            ourEntityName: entityName.value,
+            ourFullSessionId: fullSessionId.value,
+        });
+
         // Fetch all metadata for this entity
         const metadataResult =
             await vircadiaWorld.client.Utilities.Connection.query({
                 query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1",
-                parameters: [entityName],
+                parameters: [requestedEntityName],
             });
 
         if (Array.isArray(metadataResult.result)) {
@@ -1036,7 +1052,40 @@ onMounted(async () => {
     }
     // Watch for connection established
     if (vircadiaWorld.connectionInfo.value.status === "connected") {
+        // CRITICAL: Validate we have both session and instance IDs before proceeding
+        if (
+            !sessionId.value ||
+            !instanceId.value ||
+            !fullSessionId.value ||
+            !entityName.value
+        ) {
+            console.error("[AVATAR] Missing required IDs, cannot proceed", {
+                sessionId: sessionId.value,
+                instanceId: instanceId.value,
+                fullSessionId: fullSessionId.value,
+                entityName: entityName.value,
+            });
+            return;
+        }
+
         // Check if entity exists
+        console.log("[AVATAR] Checking if entity exists:", entityName.value, {
+            sessionId: sessionId.value,
+            instanceId: instanceId.value,
+            fullSessionId: fullSessionId.value,
+        });
+
+        // CRITICAL: Validate entity name format before checking/creating
+        const expectedPrefix = `avatar:${fullSessionId.value}`;
+        if (!entityName.value.startsWith(expectedPrefix)) {
+            console.error("[AVATAR] Entity name format mismatch!", {
+                entityName: entityName.value,
+                expectedPrefix,
+                fullSessionId: fullSessionId.value,
+            });
+            return;
+        }
+
         const existsResult =
             await vircadiaWorld.client.Utilities.Connection.query({
                 query: "SELECT 1 FROM entity.entities WHERE general__entity_name = $1",
@@ -1048,6 +1097,10 @@ onMounted(async () => {
             existsResult.result.length > 0;
 
         if (!exists) {
+            console.log(
+                "[AVATAR] Entity does not exist, creating:",
+                entityName.value,
+            );
             isCreating.value = true;
             try {
                 // First create the entity
@@ -1061,12 +1114,22 @@ onMounted(async () => {
                 });
 
                 // Then insert metadata rows
-                const metadataInserts = Array.from(metadataMap.entries()).map(
-                    ([key, value]) => ({
-                        key,
-                        value,
-                    }),
-                );
+                // CRITICAL: Ensure sessionId is stored as fullSessionId for validation
+                const metadataToInsert = new Map(metadataMap);
+                metadataToInsert.set("sessionId", fullSessionId.value);
+
+                console.log("[AVATAR] Creating entity with metadata:", {
+                    entityName: entityName.value,
+                    sessionId: fullSessionId.value,
+                    metadata: Object.fromEntries(metadataToInsert),
+                });
+
+                const metadataInserts = Array.from(
+                    metadataToInsert.entries(),
+                ).map(([key, value]) => ({
+                    key,
+                    value,
+                }));
 
                 for (const { key, value } of metadataInserts) {
                     await vircadiaWorld.client.Utilities.Connection.query({
@@ -1091,10 +1154,29 @@ onMounted(async () => {
         isRetrieving.value = true;
         try {
             // First check if entity exists
+            const name = entityName.value;
+            const currentFullSessionId = fullSessionId.value;
+
+            if (!name || !currentFullSessionId) {
+                console.warn(
+                    "[AVATAR] Cannot retrieve entity - missing name or session ID",
+                    {
+                        name,
+                        currentFullSessionId,
+                    },
+                );
+                isRetrieving.value = false;
+                return;
+            }
+
+            console.log("[AVATAR] Retrieving entity data for:", name, {
+                expectedSessionId: currentFullSessionId,
+            });
+
             const entityResult =
                 await vircadiaWorld.client.Utilities.Connection.query({
                     query: "SELECT general__entity_name FROM entity.entities WHERE general__entity_name = $1",
-                    parameters: [entityName.value],
+                    parameters: [name],
                 });
 
             if (
@@ -1102,13 +1184,33 @@ onMounted(async () => {
                 entityResult.result.length > 0
             ) {
                 // Fetch all metadata for this entity
-                const metadata = await retrieveEntityMetadata(entityName.value);
+                const metadata = await retrieveEntityMetadata(name);
                 if (metadata) {
+                    // Validate the retrieved entity belongs to us
+                    const retrievedSessionId = metadata.get("sessionId") as
+                        | string
+                        | undefined;
+                    if (retrievedSessionId !== currentFullSessionId) {
+                        console.error(
+                            "[AVATAR] Retrieved wrong entity! Ignoring.",
+                            {
+                                entityName: name,
+                                retrievedSessionId,
+                                expectedSessionId: currentFullSessionId,
+                            },
+                        );
+                        // CRITICAL: Clear entity data to prevent taking control
+                        entityData.value = null;
+                        return;
+                    }
+
                     entityData.value = {
-                        general__entity_name: entityName.value,
+                        general__entity_name: name,
                         metadata: metadata,
                     };
                 }
+            } else {
+                console.log("[AVATAR] Entity not found:", name);
             }
         } catch (e) {
             console.error("Failed to retrieve avatar entity:", e);
@@ -1127,11 +1229,34 @@ onMounted(async () => {
                     isRetrieving.value = true;
                     try {
                         // First check if entity exists
+                        const name = entityName.value;
+                        const currentFullSessionId = fullSessionId.value;
+
+                        if (!name || !currentFullSessionId) {
+                            console.warn(
+                                "[AVATAR] Cannot retrieve entity - missing name or session ID",
+                                {
+                                    name,
+                                    currentFullSessionId,
+                                },
+                            );
+                            isRetrieving.value = false;
+                            return;
+                        }
+
+                        console.log(
+                            "[AVATAR] Retrieving entity data for:",
+                            name,
+                            {
+                                expectedSessionId: currentFullSessionId,
+                            },
+                        );
+
                         const entityResult =
                             await vircadiaWorld.client.Utilities.Connection.query(
                                 {
                                     query: "SELECT general__entity_name FROM entity.entities WHERE general__entity_name = $1",
-                                    parameters: [entityName.value],
+                                    parameters: [name],
                                 },
                             );
 
@@ -1140,15 +1265,36 @@ onMounted(async () => {
                             entityResult.result.length > 0
                         ) {
                             // Fetch all metadata for this entity
-                            const metadata = await retrieveEntityMetadata(
-                                entityName.value,
-                            );
+                            const metadata = await retrieveEntityMetadata(name);
                             if (metadata) {
+                                // Validate the retrieved entity belongs to us
+                                const retrievedSessionId = metadata.get(
+                                    "sessionId",
+                                ) as string | undefined;
+                                if (
+                                    retrievedSessionId !== currentFullSessionId
+                                ) {
+                                    console.error(
+                                        "[AVATAR] Retrieved wrong entity! Ignoring.",
+                                        {
+                                            entityName: name,
+                                            retrievedSessionId,
+                                            expectedSessionId:
+                                                currentFullSessionId,
+                                        },
+                                    );
+                                    // CRITICAL: Clear entity data to prevent taking control
+                                    entityData.value = null;
+                                    return;
+                                }
+
                                 entityData.value = {
-                                    general__entity_name: entityName.value,
+                                    general__entity_name: name,
                                     metadata: metadata,
                                 };
                             }
+                        } else {
+                            console.log("[AVATAR] Entity not found:", name);
                         }
                     } catch (e) {
                         console.error("Failed to retrieve avatar entity:", e);
@@ -1167,7 +1313,32 @@ onMounted(async () => {
         async (data) => {
             const meta = data?.metadata;
             if (meta && !characterController.value) {
-                console.info("Loading avatar model...");
+                // CRITICAL: Validate this entity is actually ours before creating controller
+                const entitySessionId = meta.get("sessionId") as
+                    | string
+                    | undefined;
+                const expectedSessionId = fullSessionId.value;
+
+                if (entitySessionId !== expectedSessionId) {
+                    console.error(
+                        "[AVATAR] ENTITY MISMATCH - Retrieved entity does not belong to this session!",
+                        {
+                            entityName: data?.general__entity_name,
+                            entitySessionId,
+                            expectedSessionId,
+                            ourSessionId: sessionId.value,
+                            ourInstanceId: instanceId.value,
+                        },
+                    );
+                    // Clear invalid entity data and return
+                    entityData.value = null;
+                    return;
+                }
+
+                console.info(
+                    "Loading avatar model for our session:",
+                    expectedSessionId,
+                );
                 // First create, use defaults when missing
                 const metaPosition = meta.get("position") as
                     | PositionObj
@@ -1497,6 +1668,174 @@ onMounted(async () => {
                         console.log("- window.debugCameraView()");
                         console.log("- window.debugRenderLoop()");
 
+                        // Multi-tab debug function
+                        (
+                            window as DebugWindow & {
+                                debugMultiTab?: () => void;
+                            }
+                        ).debugMultiTab = () => {
+                            console.log("=== MULTI-TAB DEBUG ===");
+                            console.log("Session ID:", sessionId.value);
+                            console.log("Instance ID:", instanceId.value);
+                            console.log(
+                                "Full Session ID:",
+                                fullSessionId.value,
+                            );
+                            console.log("Entity Name:", entityName.value);
+                            console.log(
+                                "SessionStorage Instance ID:",
+                                sessionStorage.getItem("vircadia-instance-id"),
+                            );
+                            console.log(
+                                "SessionStorage Created At:",
+                                sessionStorage.getItem(
+                                    "vircadia-instance-created",
+                                ),
+                            );
+                            console.log(
+                                "Window Name:",
+                                window.name || "unnamed",
+                            );
+                            console.log(
+                                "Tab/Window ID:",
+                                (
+                                    window as Window & {
+                                        tabId?: string;
+                                        __tabId?: string;
+                                    }
+                                ).tabId ||
+                                    (
+                                        window as Window & {
+                                            tabId?: string;
+                                            __tabId?: string;
+                                        }
+                                    ).__tabId ||
+                                    "not set",
+                            );
+
+                            // Check if we're applying remote updates
+                            console.log("\nRemote Update Behavior:");
+                            console.log("Entity Data:", !!entityData.value);
+                            console.log(
+                                "Character Controller:",
+                                !!characterController.value,
+                            );
+                            console.log("Is Creating:", isCreating.value);
+                            console.log("Is Retrieving:", isRetrieving.value);
+
+                            return {
+                                sessionId: sessionId.value,
+                                instanceId: instanceId.value,
+                                fullSessionId: fullSessionId.value,
+                                entityName: entityName.value,
+                                isUnique:
+                                    instanceId.value ===
+                                    sessionStorage.getItem(
+                                        "vircadia-instance-id",
+                                    ),
+                            };
+                        };
+
+                        console.log("- window.debugMultiTab()");
+
+                        // Debug function to show all avatar entities in DB
+                        (
+                            window as DebugWindow & {
+                                debugAvatarEntities?: () => Promise<void>;
+                            }
+                        ).debugAvatarEntities = async () => {
+                            console.log("=== AVATAR ENTITIES DEBUG ===");
+                            try {
+                                const result =
+                                    await vircadiaWorld.client.Utilities.Connection.query(
+                                        {
+                                            query: "SELECT general__entity_name FROM entity.entities WHERE general__entity_name LIKE 'avatar:%'",
+                                        },
+                                    );
+
+                                if (Array.isArray(result.result)) {
+                                    console.log(
+                                        `Found ${result.result.length} avatar entities:`,
+                                    );
+
+                                    for (const entity of result.result) {
+                                        const entName =
+                                            entity.general__entity_name;
+                                        const metadata =
+                                            await retrieveEntityMetadata(
+                                                entName,
+                                            );
+
+                                        if (metadata) {
+                                            console.log(`\nEntity: ${entName}`);
+                                            console.log(
+                                                "  SessionId:",
+                                                metadata.get("sessionId"),
+                                            );
+                                            console.log(
+                                                "  Position:",
+                                                metadata.get("position"),
+                                            );
+                                            console.log(
+                                                "  Model:",
+                                                metadata.get("modelFileName"),
+                                            );
+                                            console.log(
+                                                "  Type:",
+                                                metadata.get("type"),
+                                            );
+
+                                            // Check if this matches our current session
+                                            const isOurs =
+                                                entName === entityName.value;
+                                            const sessionIdMatches =
+                                                metadata.get("sessionId") ===
+                                                fullSessionId.value;
+                                            console.log(
+                                                "  Is ours?",
+                                                isOurs ? "YES" : "NO",
+                                            );
+                                            console.log(
+                                                "  Session matches?",
+                                                sessionIdMatches ? "YES" : "NO",
+                                            );
+
+                                            if (isOurs && !sessionIdMatches) {
+                                                console.error(
+                                                    "  ⚠️  MISMATCH: Entity name matches but sessionId doesn't!",
+                                                );
+                                            }
+                                        }
+                                    }
+
+                                    console.log("\nOur current state:");
+                                    console.log(
+                                        "  Entity name:",
+                                        entityName.value,
+                                    );
+                                    console.log(
+                                        "  Full session ID:",
+                                        fullSessionId.value,
+                                    );
+                                    console.log(
+                                        "  Session ID:",
+                                        sessionId.value,
+                                    );
+                                    console.log(
+                                        "  Instance ID:",
+                                        instanceId.value,
+                                    );
+                                }
+                            } catch (e) {
+                                console.error(
+                                    "Failed to debug avatar entities:",
+                                    e,
+                                );
+                            }
+                        };
+
+                        console.log("- window.debugAvatarEntities()");
+
                         // Expose debug data function for overlay
                         (
                             window as DebugWindow & {
@@ -1706,22 +2045,19 @@ onMounted(async () => {
                     );
                 }
             } else if (meta && characterController.value) {
-                // Remote update, apply if present
-                const metaPosition = meta.get("position") as
-                    | PositionObj
-                    | undefined;
-                if (metaPosition) {
-                    const p = metaPosition;
-                    setPosition(new Vector3(p.x, p.y, p.z));
-                }
-                const metaRotation = meta.get("rotation") as
-                    | RotationObj
-                    | undefined;
-                if (metaRotation) {
-                    const r = metaRotation;
-                    setOrientation(new Quaternion(r.x, r.y, r.z, r.w));
-                }
-                updateTransforms();
+                // CRITICAL: Skip remote updates to prevent multi-tab conflicts
+                // When multiple tabs share the same session, they should NOT apply
+                // each other's position updates via the database
+                console.warn(
+                    "[AVATAR] Skipping remote position update to prevent multi-tab conflicts",
+                    {
+                        entityName: entityName.value,
+                        fullSessionId: fullSessionId.value,
+                        metaSessionId: meta.get("sessionId"),
+                    },
+                );
+                // DO NOT apply remote position/rotation updates
+                // Each tab should only control its own avatar's physics
             }
         },
         { immediate: true },

@@ -1,12 +1,12 @@
 <template>
     <slot
-        v-for="otherSessionId in otherAvatarSessionIds"
-        :key="otherSessionId"
-        :session-id="otherSessionId"
+        v-for="otherFullSessionId in otherAvatarSessionIds"
+        :key="otherFullSessionId"
+        :session-id="otherFullSessionId"
         :scene="scene"
         :vircadia-world="vircadiaWorld"
-        :on-ready="() => markLoaded(otherSessionId)"
-        :on-dispose="() => markDisposed(otherSessionId)"
+        :on-ready="() => markLoaded(otherFullSessionId)"
+        :on-dispose="() => markDisposed(otherFullSessionId)"
         :on-avatar-metadata="(e: { sessionId: string; metadata: AvatarMetadata }) => { otherAvatarsMetadataLocal[e.sessionId] = e.metadata; emitMetadataUpdate(); }"
         :on-avatar-removed="(e: { sessionId: string }) => { delete otherAvatarsMetadataLocal[e.sessionId]; emitMetadataUpdate(); }"
     />
@@ -56,7 +56,7 @@ const vircadiaWorld = ensure<ReturnType<typeof useVircadia>>(
     "Vircadia instance not found in BabylonOtherAvatars",
 );
 
-// Discovered other avatar session IDs
+// Discovered other avatar full session IDs (sessionId-instanceId format)
 const otherAvatarSessionIds = ref<string[]>([]);
 
 // Local metadata map mirrored to parent via v-model
@@ -111,7 +111,7 @@ async function pollForOtherAvatars(): Promise<void> {
 
         if (result.result && Array.isArray(result.result)) {
             const currentFullSessionId = props.currentFullSessionId;
-            const foundSessionIds: string[] = [];
+            const foundFullSessionIds: string[] = [];
             const entities = result.result as Array<{
                 general__entity_name: string;
             }>;
@@ -126,6 +126,7 @@ async function pollForOtherAvatars(): Promise<void> {
                 const match =
                     entity.general__entity_name.match(/^avatar:(.+)$/);
                 if (match) {
+                    // match[1] contains the full sessionId-instanceId
                     const isOurs = match[1] === currentFullSessionId;
                     console.log(
                         "[OtherAvatars] Found avatar:",
@@ -139,7 +140,7 @@ async function pollForOtherAvatars(): Promise<void> {
                     );
                 }
                 if (match && match[1] !== currentFullSessionId) {
-                    foundSessionIds.push(match[1]);
+                    foundFullSessionIds.push(match[1]);
                     // Initialize loading state for new sessions
                     if (!(match[1] in loadingBySession.value)) {
                         loadingBySession.value[match[1]] = true;
@@ -158,16 +159,16 @@ async function pollForOtherAvatars(): Promise<void> {
                 }
             }
 
-            // Update list
-            otherAvatarSessionIds.value = foundSessionIds;
+            // Update list with found full session IDs
+            otherAvatarSessionIds.value = foundFullSessionIds;
 
             // Remove avatars that are no longer present
-            for (const sessionId of Object.keys(
+            for (const fullSessionId of Object.keys(
                 otherAvatarsMetadataLocal.value,
             )) {
-                if (!foundSessionIds.includes(sessionId)) {
-                    delete otherAvatarsMetadataLocal.value[sessionId];
-                    delete loadingBySession.value[sessionId];
+                if (!foundFullSessionIds.includes(fullSessionId)) {
+                    delete otherAvatarsMetadataLocal.value[fullSessionId];
+                    delete loadingBySession.value[fullSessionId];
                 }
             }
             emitMetadataUpdate();

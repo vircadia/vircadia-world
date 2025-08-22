@@ -11,6 +11,7 @@
         :accountDisplayName="accountDisplayName"
         :sessionToken="sessionTokenComputed"
         :sessionId="sessionIdComputed"
+        :fullSessionId="fullSessionIdComputed"
         :agentId="agentIdComputed"
         :authProvider="authProviderComputed"
         :instanceId="instanceId"
@@ -52,6 +53,7 @@ export type VircadiaWorldSlotProps = {
     accountDisplayName: string;
     sessionToken: string | null;
     sessionId: string | null;
+    fullSessionId: string | null;
     agentId: string | null;
     authProvider: string | null;
     instanceId: string | null;
@@ -171,15 +173,24 @@ function generateInstanceId(): string {
     return result;
 }
 
-onMounted(() => {
-    if (!instanceId.value) {
-        instanceId.value = generateInstanceId();
-        console.log(
-            "[VircadiaWorldProvider] Generated instance ID:",
-            instanceId.value,
-        );
-    }
-});
+// Ensure a per-tab instanceId exists as early as possible
+if (!instanceId.value) {
+    instanceId.value = generateInstanceId();
+    console.log(
+        "[VircadiaWorldProvider] Generated instance ID:",
+        instanceId.value,
+        "at",
+        new Date().toISOString(),
+        "Tab ID:",
+        window.name || "unnamed",
+    );
+    // Store in sessionStorage to verify it's unique per tab
+    sessionStorage.setItem("vircadia-instance-id", instanceId.value);
+    sessionStorage.setItem(
+        "vircadia-instance-created",
+        new Date().toISOString(),
+    );
+}
 
 // Derived state
 const connectionInfoComputed = computed(
@@ -201,6 +212,19 @@ const agentIdComputed = computed(
     () => connectionInfoComputed.value.agentId ?? null,
 );
 const authProviderComputed = computed(() => props.authProvider ?? "anon");
+
+// Computed property for full session ID that combines sessionId and instanceId
+const fullSessionIdComputed = computed(() => {
+    const session = sessionIdComputed.value;
+    const instance = instanceId.value;
+
+    // Both must be present to create a valid fullSessionId
+    if (!session || !instance) {
+        return null;
+    }
+
+    return `${session}-${instance}`;
+});
 
 type MinimalAccount =
     | {
@@ -410,6 +434,7 @@ defineExpose({
     accountDisplayName,
     sessionToken: sessionTokenComputed,
     sessionId: sessionIdComputed,
+    fullSessionId: fullSessionIdComputed,
     agentId: agentIdComputed,
     authProvider: authProviderComputed,
     instanceId,

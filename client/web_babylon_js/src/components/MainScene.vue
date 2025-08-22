@@ -10,12 +10,13 @@
             :authError="authProps.authError"
             :autoConnect="clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT"
             @auth-denied="onAuthDenied($event, authProps)"
-            v-slot="{ vircadiaWorld, connectionStatus, isConnecting, isAuthenticated, isAuthenticating, accountDisplayName, sessionId, agentId, instanceId }">
+            v-slot="{ vircadiaWorld, connectionStatus, isConnecting, isAuthenticated, isAuthenticating, accountDisplayName, sessionId, fullSessionId, agentId, instanceId }">
         <!-- Sync slot values to refs for script usage -->
         <div style="display: none">
             {{ vircadiaWorldRef = vircadiaWorld }}
             
             {{ sessionIdRef = sessionId }}
+            {{ fullSessionIdRef = fullSessionId }}
             {{ agentIdRef = agentId }}
             {{ instanceIdRef = instanceId }}
         </div>
@@ -112,8 +113,8 @@
                 ref="envRef"
                 v-slot="{ isLoading }"
             >
-                <!-- Only render entities when scene is available and connection is stable -->
-                <template v-if="sceneInitialized && scene && connectionStatus === 'connected' && !isConnecting">
+                <!-- Only render entities when scene is available, connection is stable, and full session ID is available -->
+                <template v-if="sceneInitialized && scene && connectionStatus === 'connected' && !isConnecting && fullSessionId">
                     <!-- BabylonMyAvatar component wrapped with MKB controller -->
                     <BabylonMyAvatarMKBController
                         :scene="sceneNonNull"
@@ -210,15 +211,15 @@
                     <BabylonOtherAvatars
                         :scene="sceneNonNull"
                         :vircadia-world="vircadiaWorld"
-                        :current-full-session-id="sessionId && instanceId ? `${sessionId}-${instanceId}` : undefined"
+                        :current-full-session-id="fullSessionId ?? undefined"
                         v-model:otherAvatarsMetadata="otherAvatarsMetadata"
                         ref="otherAvatarsRef"
-                        v-slot="{ sessionId: otherSessionId, onReady, onDispose, onAvatarMetadata, onAvatarRemoved }"
+                        v-slot="{ sessionId: otherFullSessionId, onReady, onDispose, onAvatarMetadata, onAvatarRemoved }"
                     >
                         <BabylonOtherAvatar
                             :scene="sceneNonNull"
                             :vircadia-world="vircadiaWorld"
-                            :session-id="otherSessionId"
+                            :session-id="otherFullSessionId"
                             @ready="onReady"
                             @dispose="onDispose"
                             @avatar-metadata="onAvatarMetadata"
@@ -244,7 +245,7 @@
         <BabylonMyAvatarAnimationDebugOverlay v-model="animDebugOpen" hotkey="Shift+B" />
         <!-- WebRTC component (hidden, just for functionality) -->
         <BabylonWebRTC 
-            v-if="sessionId && instanceId" 
+            v-if="fullSessionId" 
             :instance-id="instanceId ?? undefined" 
             :vircadia-world="vircadiaWorld"
             :other-avatars-metadata="otherAvatarsMetadata"
@@ -434,11 +435,13 @@ void activeAudioCount;
 // Track slot values in refs for script usage
 const vircadiaWorldRef = ref<unknown>(null);
 const sessionIdRef = ref<string | null>(null);
+const fullSessionIdRef = ref<string | null>(null);
 const agentIdRef = ref<string | null>(null);
 const instanceIdRef = ref<string | null>(null);
 // These are synced from template but not directly used in script
 void vircadiaWorldRef;
 void sessionIdRef;
+void fullSessionIdRef;
 void agentIdRef;
 void instanceIdRef;
 

@@ -46,7 +46,7 @@ const entityName = computed(() => {
         props.vircadiaWorld.connectionInfo.value.sessionId || null;
     const instanceId = props.instanceId || null;
     const full = sessionId && instanceId ? `${sessionId}-${instanceId}` : null;
-    return `avatar:${full}`;
+    return full ? `avatar:${full}` : null;
 });
 
 // Track previous states to minimize writes
@@ -61,6 +61,7 @@ function quatToObj(q: Quaternion): RotationObj {
 }
 
 async function ensureEntityExists(): Promise<void> {
+    if (!entityName.value) return;
     try {
         const existsResult =
             await props.vircadiaWorld.client.Utilities.Connection.query({

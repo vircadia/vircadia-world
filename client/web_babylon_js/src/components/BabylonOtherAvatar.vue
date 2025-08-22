@@ -30,6 +30,7 @@ import { useAsset } from "@vircadia/world-sdk/browser/vue";
 import { ImportMeshAsync } from "@babylonjs/core";
 import {
     AvatarMetadataSchema,
+    AvatarMetadataWithDefaultsSchema,
     AvatarJointMetadataSchema,
     type AvatarMetadata,
     type AvatarJointMetadata,
@@ -41,7 +42,7 @@ type RotationObj = { x: number; y: number; z: number; w: number };
 // Define component props
 const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
-    sessionId: { type: String, required: true },
+    sessionId: { type: String, required: true }, // Full sessionId in format "sessionId-instanceId"
     vircadiaWorld: { type: Object as () => any, required: true },
 });
 
@@ -419,11 +420,31 @@ async function pollAvatarData() {
 
             if (metadata && metadata.size > 0) {
                 try {
+                    // CRITICAL: Validate this entity actually belongs to the expected session
+                    const retrievedSessionId = metadata.get("sessionId") as
+                        | string
+                        | undefined;
+                    if (retrievedSessionId !== props.sessionId) {
+                        console.error(
+                            "[OTHER_AVATAR] ENTITY MISMATCH - Retrieved entity does not belong to expected session!",
+                            {
+                                entityName: entityName,
+                                retrievedSessionId,
+                                expectedSessionId: props.sessionId,
+                            },
+                        );
+                        // Clear last received data and skip this update
+                        lastReceivedMetadata.value = null;
+                        lastReceivedJoints.value.clear();
+                        return;
+                    }
+
                     // Convert Map to object for validation
                     const metaObj = Object.fromEntries(metadata);
 
-                    // Parse and validate metadata using the schema
-                    const avatarMetadata = AvatarMetadataSchema.parse(metaObj);
+                    // Parse and validate metadata using the schema with defaults
+                    const avatarMetadata =
+                        AvatarMetadataWithDefaultsSchema.parse(metaObj);
 
                     emit("avatar-metadata", {
                         sessionId: props.sessionId,

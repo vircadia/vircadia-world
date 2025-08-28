@@ -212,18 +212,19 @@
                         :scene="sceneNonNull"
                         :vircadia-world="vircadiaWorld"
                         :current-full-session-id="fullSessionId ?? undefined"
-                        v-model:otherAvatarsMetadata="otherAvatarsMetadata"
                         ref="otherAvatarsRef"
-                        v-slot="{ sessionId: otherFullSessionId, onReady, onDispose, onAvatarMetadata, onAvatarRemoved }"
+                        v-slot="{ sessionId: otherFullSessionId, avatarData, positionData, rotationData, jointData, onReady, onDispose }"
                     >
                         <BabylonOtherAvatar
                             :scene="sceneNonNull"
                             :vircadia-world="vircadiaWorld"
                             :session-id="otherFullSessionId"
+                            :avatar-data="avatarData"
+                            :position-data="positionData"
+                            :rotation-data="rotationData"
+                            :joint-data="jointData"
                             @ready="onReady"
                             @dispose="onDispose"
-                            @avatar-metadata="onAvatarMetadata"
-                            @avatar-removed="onAvatarRemoved"
                         />
                     </BabylonOtherAvatars>
 
@@ -244,16 +245,18 @@
         <!-- Animation Debug Overlay (Shift+B) -->
         <BabylonMyAvatarAnimationDebugOverlay v-model="animDebugOpen" hotkey="Shift+B" />
         <!-- WebRTC component (hidden, just for functionality) -->
-        <BabylonWebRTC 
-            v-if="fullSessionId" 
-            :instance-id="instanceId ?? undefined" 
+        <BabylonWebRTC
+            v-if="fullSessionId"
+            :instance-id="instanceId ?? undefined"
             :vircadia-world="vircadiaWorld"
-            :other-avatars-metadata="otherAvatarsMetadata"
+            :avatar-data-map="otherAvatarsRef?.avatarDataMap || {}"
+            :position-data-map="otherAvatarsRef?.positionDataMap || {}"
+            :rotation-data-map="otherAvatarsRef?.rotationDataMap || {}"
             :on-set-peer-audio-state="setPeerAudioState"
             :on-remove-peer-audio-state="removePeerAudioState"
             :on-set-peer-volume="setPeerVolume"
             :on-clear-peer-audio-states="clearPeerAudioStates"
-            ref="webrtcStatus" 
+            ref="webrtcStatus"
             style="display: none;"
         />
         
@@ -455,10 +458,7 @@ const avatarRef = ref<InstanceType<typeof BabylonMyAvatar> | null>(null);
 // targetSkeleton now provided via slot; no local ref needed
 type OtherAvatarsExposed = { isLoading: boolean };
 const otherAvatarsRef = ref<OtherAvatarsExposed | null>(null);
-const otherAvatarsMetadata = ref<
-    Record<string, import("@/composables/schemas").AvatarMetadata>
->({});
-void otherAvatarsMetadata;
+// Combined otherAvatarsMetadata removed; use separate maps from BabylonOtherAvatars
 const modelRefs = ref<(InstanceType<typeof BabylonModel> | null)[]>([]);
 
 // Other avatar discovery handled by BabylonOtherAvatars wrapper
@@ -539,7 +539,6 @@ onMounted(async () => {
 
 // Variables referenced only in template - mark to satisfy linter
 void activeAudioCount;
-void otherAvatarsMetadata;
 // removed legacy showDebugOverlay marker
 void performanceMode;
 void fps;

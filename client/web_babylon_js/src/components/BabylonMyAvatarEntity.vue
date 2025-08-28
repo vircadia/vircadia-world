@@ -10,6 +10,8 @@ import type {
     Skeleton,
     Vector3,
     Quaternion,
+    Camera,
+    ArcRotateCamera,
 } from "@babylonjs/core";
 import { Vector3 as V3, Quaternion as Q4 } from "@babylonjs/core";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
@@ -34,10 +36,20 @@ const props = defineProps({
         required: false,
         default: null,
     },
+    camera: {
+        type: Object as () => Camera | null,
+        required: false,
+        default: null,
+    },
     modelFileName: { type: String, required: false, default: "" },
     instanceId: { type: String, required: false, default: null },
     positionThrottleInterval: { type: Number, required: false, default: 50 },
     rotationThrottleInterval: { type: Number, required: false, default: 50 },
+    cameraOrientationThrottleInterval: {
+        type: Number,
+        required: false,
+        default: 100,
+    },
     jointThrottleInterval: { type: Number, required: false, default: 300 },
 });
 
@@ -83,6 +95,10 @@ async function ensureEntityExists(): Promise<void> {
             const seed: Array<[string, unknown]> = [
                 ["type", "avatar"],
                 ["sessionId", entityName.value.replace(/^avatar:/, "")],
+                [
+                    "cameraOrientation",
+                    { alpha: -Math.PI / 2, beta: Math.PI / 3, radius: 5 },
+                ],
             ];
             if (props.modelFileName)
                 seed.push(["modelFileName", props.modelFileName]);
@@ -180,6 +196,54 @@ const pushRotationUpdate = useThrottleFn(async () => {
     }
 }, props.rotationThrottleInterval);
 
+// Camera orientation metadata push
+const pushCameraOrientationUpdate = useThrottleFn(async () => {
+    if (!props.camera) return;
+    const name = entityName.value;
+    if (!name || !name.includes(":")) return;
+
+    try {
+        // Check if it's an ArcRotateCamera (which has alpha, beta, radius)
+        const arcCamera = props.camera as ArcRotateCamera;
+        if (!arcCamera.alpha || !arcCamera.beta || !arcCamera.radius) return;
+
+        const cameraOrientation = {
+            alpha: arcCamera.alpha,
+            beta: arcCamera.beta,
+            radius: arcCamera.radius,
+        };
+        const cameraState = JSON.stringify(cameraOrientation);
+
+        if (previousMainStates.get("cameraOrientation") === cameraState) return;
+
+        const updates: Array<[string, unknown]> = [
+            ["cameraOrientation", cameraOrientation],
+        ];
+        updates.push(["last_seen", new Date().toISOString()]);
+
+        const valuesClause = updates
+            .map((_, i) => `($1, $${i * 3 + 2}, $${i * 3 + 3}, $${i * 3 + 4})`)
+            .join(", ");
+        const parameters: unknown[] = [name];
+        for (const [k, v] of updates) {
+            parameters.push(k, v, "public.NORMAL");
+        }
+
+        await props.vircadiaWorld.client.Utilities.Connection.query({
+            query: `INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync) VALUES ${valuesClause} ON CONFLICT (general__entity_name, metadata__key) DO UPDATE SET metadata__value = EXCLUDED.metadata__value`,
+            parameters,
+            timeoutMs: 5000,
+        });
+
+        previousMainStates.set("cameraOrientation", cameraState);
+    } catch (e) {
+        console.error(
+            "[BabylonMyAvatarEntity] pushCameraOrientationUpdate failed",
+            e,
+        );
+    }
+}, props.cameraOrientationThrottleInterval);
+
 // Joint metadata push (local bone transforms)
 const pushJointUpdate = useThrottleFn(async () => {
     if (!props.targetSkeleton) return;
@@ -252,6 +316,7 @@ onMounted(async () => {
         if (!props.avatarNode) return;
         pushPositionUpdate();
         pushRotationUpdate();
+        if (props.camera) pushCameraOrientationUpdate();
         if (props.targetSkeleton) pushJointUpdate();
     });
 

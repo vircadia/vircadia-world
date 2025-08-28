@@ -418,15 +418,20 @@ import {
     PeerDiscoveryEntitySchema,
 } from "@/composables/schemas";
 import type { WebRTCMessage, PeerDiscoveryEntity } from "@/composables/schemas";
+import type {
+    AvatarBaseData,
+    AvatarPositionData,
+    AvatarRotationData,
+} from "@/composables/schemas";
 import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
-
-// Props for the component
-import type { AvatarMetadata } from "@/composables/schemas";
 
 interface Props {
     instanceId: string;
     vircadiaWorld: ReturnType<typeof useVircadia>;
-    otherAvatarsMetadata?: Record<string, AvatarMetadata>;
+    // Separated avatar data streams
+    avatarDataMap?: Record<string, AvatarBaseData>;
+    positionDataMap?: Record<string, AvatarPositionData>;
+    rotationDataMap?: Record<string, AvatarRotationData>;
     // Replaces appStore audio state management
     onSetPeerAudioState?: (
         sessionId: string,
@@ -524,22 +529,21 @@ const gainNode = ref<GainNode | null>(null);
 const source = ref<MediaStreamAudioSourceNode | null>(null);
 const destination = ref<MediaStreamAudioDestinationNode | null>(null);
 
-// Initialize spatial audio
+// Initialize spatial audio (consume separate position streams)
 const spatialAudio = useWebRTCSpatialAudio(
     {
-        refDistance: 1, // Full volume within 1 meter
-        maxDistance: 30, // Can't hear beyond 30 meters
-        rolloffFactor: 2, // Faster volume falloff for better spatial differentiation
-        panningModel: "HRTF", // Best quality 3D audio
-        distanceModel: "inverse", // Natural distance attenuation
+        refDistance: 1,
+        maxDistance: 30,
+        rolloffFactor: 2,
+        panningModel: "HRTF",
+        distanceModel: "inverse",
     },
     {
-        // Keep my avatar from store; inject only other avatars via prop when provided
-        otherAvatars: computed<Record<string, AvatarMetadata>>(
-            () =>
-                props.otherAvatarsMetadata ??
-                ({} as Record<string, AvatarMetadata>),
+        otherPositions: computed<Record<string, AvatarPositionData>>(
+            () => props.positionDataMap ?? {},
         ),
+        myPosition: computed(() => null),
+        myCameraOrientation: computed(() => null),
     },
 );
 

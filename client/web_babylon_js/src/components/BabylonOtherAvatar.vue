@@ -3,15 +3,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-    ref,
-    onMounted,
-    onUnmounted,
-    watch,
-    inject,
-    toRefs,
-    type Ref,
-} from "vue";
+import { ref, onMounted, onUnmounted, watch, type Ref } from "vue";
 
 import {
     Vector3,
@@ -27,12 +19,12 @@ import "@babylonjs/loaders/glTF";
 import { useAsset } from "@vircadia/world-sdk/browser/vue";
 import { ImportMeshAsync } from "@babylonjs/core";
 import {
-    AvatarMetadataSchema,
-    AvatarMetadataWithDefaultsSchema,
-    AvatarJointMetadataSchema,
-    type AvatarMetadata,
     type AvatarJointMetadata,
+    type AvatarBaseData,
+    type AvatarPositionData,
+    type AvatarRotationData,
 } from "../composables/schemas";
+import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
 // Local helper types (previously from physics controller composable)
 type PositionObj = { x: number; y: number; z: number };
 type RotationObj = { x: number; y: number; z: number; w: number };
@@ -41,16 +33,22 @@ type RotationObj = { x: number; y: number; z: number; w: number };
 const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
     sessionId: { type: String, required: true }, // Full sessionId in format "sessionId-instanceId"
-    vircadiaWorld: { type: Object as () => any, required: true },
-    positionPollingInterval: { type: Number, required: false, default: 30 },
-    rotationPollingInterval: { type: Number, required: false, default: 30 },
-    jointPollingInterval: { type: Number, required: false, default: 100 },
+    vircadiaWorld: {
+        type: Object as () => ReturnType<typeof useVircadia>,
+        required: true,
+    },
+    avatarData: { type: Object as () => AvatarBaseData, required: false },
+    positionData: { type: Object as () => AvatarPositionData, required: false },
+    rotationData: { type: Object as () => AvatarRotationData, required: false },
+    jointData: {
+        type: Object as () => Map<string, AvatarJointMetadata>,
+        required: false,
+    },
 });
 
 const emit = defineEmits<{
     ready: [];
     dispose: [];
-    "avatar-metadata": [{ sessionId: string; metadata: AvatarMetadata }];
     "avatar-removed": [{ sessionId: string }];
 }>();
 
@@ -72,17 +70,10 @@ const meshes: Ref<AbstractMesh[]> = ref([]);
 const avatarSkeleton: Ref<Skeleton | null> = ref(null);
 const isModelLoaded = ref(false);
 
-// Store last received metadata for debugging
-const lastReceivedMetadata: Ref<AvatarMetadata | null> = ref(null);
-// Store last received joint metadata map
-const lastReceivedJoints: Ref<Map<string, AvatarJointMetadata>> = ref(
-    new Map(),
-);
-
-// Track the last successful poll timestamp for incremental updates
-// This optimization allows us to only fetch joints that have been updated since
-// the last poll, reducing data transfer and allowing more frequent polling
-const lastPollTimestamp: Ref<Date | null> = ref(null);
+// Store current avatar data and joint data from props
+const currentPositionData: Ref<AvatarPositionData | null> = ref(null);
+const currentRotationData: Ref<AvatarRotationData | null> = ref(null);
+const currentJointData: Ref<Map<string, AvatarJointMetadata>> = ref(new Map());
 
 // Use Vircadia instance from props
 const vircadiaWorld = props.vircadiaWorld;
@@ -130,36 +121,77 @@ interface DebugWindow extends Window {
     debugOtherAvatar?: boolean;
 }
 
-// Helper function to retrieve metadata for an entity
-async function retrieveEntityMetadata(
-    entityName: string,
-): Promise<Map<string, unknown> | null> {
-    if (!vircadiaWorld) {
-        console.error("Vircadia instance not found");
-        return null;
-    }
-
-    try {
-        // Fetch all metadata for this entity
-        const metadataResult =
-            await vircadiaWorld.client.Utilities.Connection.query({
-                query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1",
-                parameters: [entityName],
-            });
-
-        if (Array.isArray(metadataResult.result)) {
-            // Reconstruct metadata map from rows
-            const metadataMap = new Map<string, unknown>();
-            for (const row of metadataResult.result) {
-                metadataMap.set(row.metadata__key, row.metadata__value);
+// Watch for changes in avatar base data
+watch(
+    () => props.avatarData,
+    (newData) => {
+        if (newData && isModelLoaded.value) {
+            // Base avatar data changed; if we already have pos/rot, re-apply transforms
+            if (currentPositionData.value && currentRotationData.value) {
+                applyAvatarTransforms(
+                    currentPositionData.value,
+                    currentRotationData.value,
+                    currentJointData.value,
+                );
             }
-            return metadataMap;
         }
-    } catch (e) {
-        console.error("Failed to retrieve metadata:", e);
-    }
-    return null;
-}
+    },
+    { deep: true },
+);
+
+// Watch for changes in position data
+watch(
+    () => props.positionData,
+    (newPosition) => {
+        if (newPosition && isModelLoaded.value) {
+            currentPositionData.value = newPosition;
+            if (currentRotationData.value) {
+                applyAvatarTransforms(
+                    newPosition,
+                    currentRotationData.value,
+                    currentJointData.value,
+                );
+            }
+        }
+    },
+    { deep: true },
+);
+
+// Watch for changes in rotation data
+watch(
+    () => props.rotationData,
+    (newRotation) => {
+        if (newRotation && isModelLoaded.value) {
+            currentRotationData.value = newRotation;
+            if (currentPositionData.value) {
+                applyAvatarTransforms(
+                    currentPositionData.value,
+                    newRotation,
+                    currentJointData.value,
+                );
+            }
+        }
+    },
+    { deep: true },
+);
+
+// Watch for changes in joint data
+watch(
+    () => props.jointData,
+    (newJointData) => {
+        if (newJointData && isModelLoaded.value) {
+            currentJointData.value = newJointData;
+            if (currentPositionData.value && currentRotationData.value) {
+                applyAvatarTransforms(
+                    currentPositionData.value,
+                    currentRotationData.value,
+                    newJointData,
+                );
+            }
+        }
+    },
+    { deep: true },
+);
 
 // Load the avatar model
 async function loadAvatarModel() {
@@ -257,9 +289,10 @@ async function loadAvatarModel() {
     }
 }
 
-// Apply avatar metadata to the model
-function applyAvatarData(
-    metadata: AvatarMetadata,
+// Apply avatar transforms to the model
+function applyAvatarTransforms(
+    position: AvatarPositionData | null,
+    rotation: AvatarRotationData | null,
     joints: Map<string, AvatarJointMetadata>,
 ) {
     if (!avatarNode.value || !isModelLoaded.value) {
@@ -267,13 +300,13 @@ function applyAvatarData(
     }
 
     // Apply position and rotation
-    if (metadata.position) {
-        const pos = objToVector(metadata.position);
+    if (position) {
+        const pos = objToVector(position);
         avatarNode.value.position = pos;
     }
 
-    if (metadata.rotation) {
-        const rot = objToQuat(metadata.rotation);
+    if (rotation) {
+        const rot = objToQuat(rotation);
         avatarNode.value.rotationQuaternion = rot;
     }
 
@@ -371,387 +404,31 @@ function applyAvatarData(
     }
 }
 
-// Polling intervals
-let dataPollInterval: number | null = null;
-let jointPollInterval: number | null = null;
-let isPollingData = false; // Flag to prevent overlapping general data requests
-let isPollingJoints = false; // Flag to prevent overlapping joint requests
+// Debug interval
 let debugInterval: number | null = null;
-
-// Poll for general avatar data from the server (position, rotation, etc.)
-async function pollAvatarData() {
-    if (
-        !vircadiaWorld ||
-        vircadiaWorld.connectionInfo.value.status !== "connected"
-    ) {
-        return;
-    }
-
-    if (isPollingData) {
-        console.debug(
-            `Skipping data poll for ${props.sessionId} - previous request still in progress`,
-        );
-        return;
-    }
-
-    isPollingData = true;
-
-    try {
-        const entityName = `avatar:${props.sessionId}`;
-
-        // First check if entity exists
-        const entityResult =
-            await vircadiaWorld.client.Utilities.Connection.query({
-                query: "SELECT general__entity_name FROM entity.entities WHERE general__entity_name = $1",
-                parameters: [entityName],
-                timeoutMs: 20000, // Increased timeout to 20 seconds
-            });
-
-        if (
-            Array.isArray(entityResult.result) &&
-            entityResult.result.length > 0
-        ) {
-            // Fetch all metadata for this entity
-            const metadata = await retrieveEntityMetadata(entityName);
-
-            if (metadata && metadata.size > 0) {
-                try {
-                    // CRITICAL: Validate this entity actually belongs to the expected session
-                    const retrievedSessionId = metadata.get("sessionId") as
-                        | string
-                        | undefined;
-                    if (retrievedSessionId !== props.sessionId) {
-                        console.error(
-                            "[OTHER_AVATAR] ENTITY MISMATCH - Retrieved entity does not belong to expected session!",
-                            {
-                                entityName: entityName,
-                                retrievedSessionId,
-                                expectedSessionId: props.sessionId,
-                            },
-                        );
-                        // Clear last received data and skip this update
-                        lastReceivedMetadata.value = null;
-                        lastReceivedJoints.value.clear();
-                        return;
-                    }
-
-                    // Convert Map to object for validation
-                    const metaObj = Object.fromEntries(metadata);
-
-                    // Parse and validate metadata using the schema with defaults
-                    const avatarMetadata =
-                        AvatarMetadataWithDefaultsSchema.parse(metaObj);
-
-                    emit("avatar-metadata", {
-                        sessionId: props.sessionId,
-                        metadata: avatarMetadata,
-                    });
-
-                    // Update avatar position if model is loaded
-                    if (avatarNode.value && isModelLoaded.value) {
-                        // Apply only position and rotation data (joints will be handled separately)
-                        applyAvatarData(avatarMetadata, new Map());
-                    }
-
-                    // Store the last received metadata for debugging
-                    lastReceivedMetadata.value = avatarMetadata;
-                } catch (parseError) {
-                    console.warn(
-                        `Failed to parse avatar metadata for session ${props.sessionId}:`,
-                        parseError,
-                    );
-                }
-            }
-        } else {
-            // Avatar entity not found - skip this poll cycle
-            // Avatar lifecycle (add/remove) is managed by App.vue
-            console.debug(
-                `Avatar entity not found for session ${props.sessionId}, skipping update`,
-            );
-            // Reset the last poll timestamp when avatar is not found
-            lastPollTimestamp.value = null;
-            return;
-        }
-    } catch (error) {
-        // Handle timeout errors gracefully
-        if (error instanceof Error && error.message.includes("timeout")) {
-            console.debug(
-                `Avatar data query timed out for session ${props.sessionId}, will retry`,
-            );
-        } else {
-            console.error(
-                `Error polling avatar data for session ${props.sessionId}:`,
-                error,
-            );
-        }
-    } finally {
-        isPollingData = false;
-    }
-}
-
-// Poll for joint data from the server (skeleton bones)
-async function pollJointData() {
-    if (
-        !vircadiaWorld ||
-        vircadiaWorld.connectionInfo.value.status !== "connected"
-    ) {
-        return;
-    }
-
-    if (isPollingJoints) {
-        console.debug(
-            `Skipping joint poll for ${props.sessionId} - previous request still in progress`,
-        );
-        return;
-    }
-
-    isPollingJoints = true;
-
-    try {
-        const entityName = `avatar:${props.sessionId}`;
-
-        // First check if entity exists
-        const entityResult =
-            await vircadiaWorld.client.Utilities.Connection.query({
-                query: "SELECT general__entity_name FROM entity.entities WHERE general__entity_name = $1",
-                parameters: [entityName],
-                timeoutMs: 20000, // Increased timeout to 20 seconds
-            });
-
-        if (
-            Array.isArray(entityResult.result) &&
-            entityResult.result.length > 0
-        ) {
-            // Fetch joint metadata - only fetch updates since last poll
-            let jointQuery: string;
-            let jointParameters: unknown[];
-
-            if (lastPollTimestamp.value) {
-                // Incremental update - only fetch joints updated since last poll
-                // Add small buffer to prevent missing updates due to clock skew
-                const bufferedTimestamp = new Date(
-                    lastPollTimestamp.value.getTime() - 100,
-                ); // 100ms buffer
-
-                jointQuery = `
-                    SELECT metadata__key, metadata__value, general__updated_at
-                    FROM entity.entity_metadata
-                    WHERE general__entity_name = $1
-                    AND metadata__key LIKE 'joint:%'
-                    AND metadata__value->>'type' = 'avatarJoint'
-                    AND general__updated_at > $2
-                    ORDER BY general__updated_at DESC
-                    LIMIT 100`; // Limit to prevent overwhelming the client
-                jointParameters = [entityName, bufferedTimestamp.toISOString()];
-            } else {
-                // Initial fetch - get all joints but limit for performance
-                jointQuery = `
-                    SELECT metadata__key, metadata__value, general__updated_at
-                    FROM entity.entity_metadata
-                    WHERE general__entity_name = $1
-                    AND metadata__key LIKE 'joint:%'
-                    AND metadata__value->>'type' = 'avatarJoint'
-                    ORDER BY general__updated_at DESC
-                    LIMIT 200`; // Higher limit for initial load
-                jointParameters = [entityName];
-            }
-
-            const jointResult =
-                await vircadiaWorld.client.Utilities.Connection.query({
-                    query: jointQuery,
-                    parameters: jointParameters,
-                    timeoutMs: 15000, // 15 second timeout for joint queries
-                });
-
-            // If this is an incremental update, start with existing joints
-            const joints = lastPollTimestamp.value
-                ? new Map(lastReceivedJoints.value)
-                : new Map<string, AvatarJointMetadata>();
-
-            let newestUpdateTime: Date | null = lastPollTimestamp.value;
-            let processedJoints = 0;
-            let failedParses = 0;
-
-            if (Array.isArray(jointResult.result)) {
-                for (const row of jointResult.result) {
-                    try {
-                        // Parse each joint metadata
-                        const jointData = AvatarJointMetadataSchema.parse(
-                            row.metadata__value,
-                        );
-                        joints.set(jointData.jointName, jointData);
-                        processedJoints++;
-
-                        // Track the newest update time
-                        if (row.general__updated_at) {
-                            const updateTime = new Date(
-                                row.general__updated_at,
-                            );
-                            if (
-                                !newestUpdateTime ||
-                                updateTime > newestUpdateTime
-                            ) {
-                                newestUpdateTime = updateTime;
-                            }
-                        }
-                    } catch (parseError) {
-                        failedParses++;
-                        console.warn(
-                            `Failed to parse joint metadata for ${row.metadata__key} (session: ${props.sessionId}):`,
-                            parseError,
-                        );
-                    }
-                }
-
-                // Log incremental update info for debugging
-                if (lastPollTimestamp.value && jointResult.result.length > 0) {
-                    console.debug(
-                        `Incremental joint update for ${props.sessionId}: ${processedJoints} joints processed, ${failedParses} failed parses, ${jointResult.result.length} total results since ${lastPollTimestamp.value.toISOString()}`,
-                    );
-                } else if (
-                    !lastPollTimestamp.value &&
-                    jointResult.result.length > 0
-                ) {
-                    console.debug(
-                        `Initial joint load for ${props.sessionId}: ${processedJoints} joints processed, ${failedParses} failed parses`,
-                    );
-                }
-
-                // Warn if we hit the LIMIT (indicating there might be more data)
-                if (
-                    jointResult.result.length >=
-                    (lastPollTimestamp.value ? 100 : 200)
-                ) {
-                    console.warn(
-                        `Joint query limit reached for ${props.sessionId} - there may be more joints to fetch. Consider increasing polling frequency or reducing joint update rate.`,
-                    );
-                }
-            } else {
-                console.warn(
-                    `Invalid joint query result for ${props.sessionId}: expected array, got ${typeof jointResult.result}`,
-                );
-            }
-
-            // Update the last poll timestamp
-            if (newestUpdateTime) {
-                lastPollTimestamp.value = newestUpdateTime;
-            } else if (!lastPollTimestamp.value) {
-                // If no joints were found and this is the first poll, set to current time
-                lastPollTimestamp.value = new Date();
-            }
-
-            // Update avatar joints if model is loaded
-            if (
-                avatarNode.value &&
-                isModelLoaded.value &&
-                lastReceivedMetadata.value
-            ) {
-                applyAvatarData(lastReceivedMetadata.value, joints);
-            }
-
-            // Store the last received joints for debugging
-            lastReceivedJoints.value = joints;
-        } else {
-            // Avatar entity not found - skip this poll cycle
-            console.debug(
-                `Avatar entity not found for joint poll ${props.sessionId}, skipping update`,
-            );
-            // Reset the last poll timestamp when avatar is not found
-            lastPollTimestamp.value = null;
-            return;
-        }
-    } catch (error) {
-        // Handle different types of errors appropriately
-        if (error instanceof Error) {
-            if (error.message.includes("timeout")) {
-                console.debug(
-                    `Joint data query timed out for session ${props.sessionId}, will retry. Last successful poll: ${lastPollTimestamp.value?.toISOString() || "never"}`,
-                );
-            } else if (
-                error.message.includes("connection") ||
-                error.message.includes("network")
-            ) {
-                console.warn(
-                    `Network error polling joint data for session ${props.sessionId}: ${error.message}`,
-                );
-            } else {
-                console.error(
-                    `Error polling joint data for session ${props.sessionId}:`,
-                    error,
-                );
-            }
-        } else {
-            console.error(
-                `Unknown error polling joint data for session ${props.sessionId}:`,
-                error,
-            );
-        }
-
-        // On error, don't update timestamp to allow retry with same data
-        // This prevents losing incremental updates on transient failures
-    } finally {
-        isPollingJoints = false;
-    }
-}
-
-// Start polling when connected
-function startPolling() {
-    if (dataPollInterval || jointPollInterval) {
-        return;
-    }
-
-    // Initial poll to get data immediately
-    pollAvatarData();
-    pollJointData();
-
-    // Poll general avatar data at configured interval (position, rotation, etc.)
-    dataPollInterval = setInterval(
-        pollAvatarData,
-        props.positionPollingInterval,
-    );
-
-    // Poll joint data at a separate, less frequent interval
-    jointPollInterval = setInterval(pollJointData, props.jointPollingInterval);
-
-    console.debug(
-        `Started split polling for avatar ${props.sessionId}: position every ${props.positionPollingInterval}ms, rotation every ${props.rotationPollingInterval}ms, joints every ${props.jointPollingInterval}ms`,
-    );
-
-    // WebRTC connection is now handled by periodic discovery in useBabylonWebRTC
-}
-
-// Stop polling
-function stopPolling() {
-    if (dataPollInterval) {
-        clearInterval(dataPollInterval);
-        dataPollInterval = null;
-    }
-
-    if (jointPollInterval) {
-        clearInterval(jointPollInterval);
-        jointPollInterval = null;
-    }
-}
-
-// Watch for connection changes
-watch(
-    () => vircadiaWorld.connectionInfo.value.status,
-    (status) => {
-        if (status === "connected") {
-            startPolling();
-        } else {
-            stopPolling();
-        }
-    },
-    { immediate: true },
-);
 
 // Audio playback is now handled by the BabylonWebRTC component
 
 // Start debug logging
-onMounted(() => {
+onMounted(async () => {
     // Load the avatar model when component is mounted
-    loadAvatarModel();
+    await loadAvatarModel();
+
+    // Apply any existing data if model loaded successfully
+    if (
+        isModelLoaded.value &&
+        props.avatarData &&
+        props.positionData &&
+        props.rotationData
+    ) {
+        currentPositionData.value = props.positionData;
+        currentRotationData.value = props.rotationData;
+        applyAvatarTransforms(
+            currentPositionData.value,
+            currentRotationData.value,
+            props.jointData || new Map(),
+        );
+    }
 
     // Audio playback is now handled by the BabylonWebRTC component
 
@@ -802,16 +479,16 @@ onMounted(() => {
                 };
 
                 // Last received values from server
-                if (lastReceivedJoints.value.size > 0) {
+                if (currentJointData.value.size > 0) {
                     // Try exact match first
-                    let jointMetadata = lastReceivedJoints.value.get(bone.name);
+                    let jointMetadata = currentJointData.value.get(bone.name);
 
                     // If no exact match, try to find a matching joint by checking if bone name contains joint name
                     if (!jointMetadata) {
                         for (const [
                             jointName,
                             metadata,
-                        ] of lastReceivedJoints.value) {
+                        ] of currentJointData.value) {
                             if (
                                 bone.name.includes(jointName) ||
                                 jointName.includes(bone.name)
@@ -838,9 +515,10 @@ onMounted(() => {
             boneCount: avatarSkeleton.value.bones.length,
             currentEngineState,
             lastReceivedValues,
-            lastReceivedTimestamp: lastReceivedMetadata.value
-                ? new Date().toISOString()
-                : null,
+            lastReceivedTimestamp:
+                currentPositionData.value && currentRotationData.value
+                    ? new Date().toISOString()
+                    : null,
         };
     };
 
@@ -891,15 +569,10 @@ onMounted(() => {
             console.log("[OTHER_AVATAR]", JSON.stringify(debugData));
         }
     }, 1000); // Log every second
-
-    if (vircadiaWorld.connectionInfo.value.status === "connected") {
-        startPolling();
-    }
 });
 
 onUnmounted(() => {
     emit("dispose");
-    stopPolling();
 
     if (debugInterval) {
         clearInterval(debugInterval);

@@ -3,25 +3,28 @@
         v-for="otherFullSessionId in otherAvatarSessionIds"
         :key="otherFullSessionId"
         :session-id="otherFullSessionId"
-        :scene="scene"
-        :vircadia-world="vircadiaWorld"
+        :avatar-data="avatarDataMap[otherFullSessionId]"
+        :position-data="positionDataMap[otherFullSessionId]"
+        :rotation-data="rotationDataMap[otherFullSessionId]"
+        :joint-data="jointDataMap[otherFullSessionId]"
         :on-ready="() => markLoaded(otherFullSessionId)"
         :on-dispose="() => markDisposed(otherFullSessionId)"
-        :on-avatar-metadata="(e: { sessionId: string; metadata: AvatarMetadata }) => { otherAvatarsMetadataLocal[e.sessionId] = e.metadata; emitMetadataUpdate(); }"
-        :on-avatar-removed="(e: { sessionId: string }) => { delete otherAvatarsMetadataLocal[e.sessionId]; emitMetadataUpdate(); }"
     />
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, toRefs } from "vue";
 
-import type { AvatarMetadata } from "@/composables/schemas";
+import type {
+    AvatarJointMetadata,
+    AvatarBaseData,
+    AvatarPositionData,
+    AvatarRotationData,
+} from "@/composables/schemas";
+import { AvatarJointMetadataSchema } from "@/composables/schemas";
 import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
 
-// Emits and Props
-const emit = defineEmits<{
-    "update:otherAvatarsMetadata": [Record<string, AvatarMetadata>];
-}>();
+// No external emits needed
 
 const props = defineProps({
     scene: { type: Object, required: true },
@@ -29,20 +32,35 @@ const props = defineProps({
         type: Object as () => ReturnType<typeof useVircadia>,
         required: true,
     },
-    otherAvatarsMetadata: {
-        type: Object as () => Record<string, AvatarMetadata>,
-        required: false,
-        default: () => ({}),
-    },
     currentFullSessionId: {
         type: String,
         required: false,
         default: null,
     },
-    pollingInterval: {
+    discoveryPollingInterval: {
         type: Number,
         required: false,
-        default: 2000,
+        default: 500,
+    },
+    positionPollingInterval: {
+        type: Number,
+        required: false,
+        default: 30,
+    },
+    rotationPollingInterval: {
+        type: Number,
+        required: false,
+        default: 30,
+    },
+    jointPollingInterval: {
+        type: Number,
+        required: false,
+        default: 100,
+    },
+    cameraPollingInterval: {
+        type: Number,
+        required: false,
+        default: 150,
     },
 });
 const { scene } = toRefs(props);
@@ -64,22 +82,31 @@ const vircadiaWorld = ensure<ReturnType<typeof useVircadia>>(
 // Discovered other avatar full session IDs (sessionId-instanceId format)
 const otherAvatarSessionIds = ref<string[]>([]);
 
-// Local metadata map mirrored to parent via v-model
-const otherAvatarsMetadataLocal = ref<Record<string, AvatarMetadata>>({
-    ...props.otherAvatarsMetadata,
-});
+// Legacy combined metadata removed
 
-watch(
-    () => props.otherAvatarsMetadata,
-    (val) => {
-        otherAvatarsMetadataLocal.value = { ...val };
-    },
-    { deep: true },
-);
+// Separated data maps for all discovered avatars
+const avatarDataMap = ref<Record<string, AvatarBaseData>>({});
+const positionDataMap = ref<Record<string, AvatarPositionData>>({});
+const rotationDataMap = ref<Record<string, AvatarRotationData>>({});
+const jointDataMap = ref<Record<string, Map<string, AvatarJointMetadata>>>({});
 
-function emitMetadataUpdate() {
-    emit("update:otherAvatarsMetadata", { ...otherAvatarsMetadataLocal.value });
-}
+// Track last poll timestamps for incremental updates
+const lastPollTimestamps = ref<Record<string, Date | null>>({});
+
+// Polling configuration (separate intervals per data type)
+const positionRotationPollingInterval = ref(30); // ms (fast)
+const cameraPollingInterval = ref(150); // ms (moderate)
+const jointPollingInterval = ref(100); // ms (fast enough, incremental)
+
+// Polling intervals and state
+let positionRotationPollInterval: number | null = null;
+let cameraPollInterval: number | null = null;
+let jointPollInterval: number | null = null;
+let isPollingPositionRotation = false;
+let isPollingCamera = false;
+let isPollingJoints = false;
+
+// Removed v-model sync for combined metadata
 
 // Track loading state per discovered session
 const loadingBySession = ref<Record<string, boolean>>({});
@@ -90,6 +117,471 @@ function markLoaded(sessionId: string): void {
 
 function markDisposed(sessionId: string): void {
     delete loadingBySession.value[sessionId];
+}
+
+// Helper: retrieve selected metadata keys for an entity
+async function retrieveSelectedMetadata(
+    entityName: string,
+    keys: string[],
+): Promise<Map<string, unknown> | null> {
+    try {
+        const placeholders = keys.map((_, i) => `$${i + 2}`).join(", ");
+        const metadataResult =
+            await vircadiaWorld.client.Utilities.Connection.query({
+                query: `SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1 AND metadata__key IN (${placeholders})`,
+                parameters: [entityName, ...keys],
+            });
+        if (Array.isArray(metadataResult.result)) {
+            const metadataMap = new Map<string, unknown>();
+            for (const row of metadataResult.result) {
+                metadataMap.set(row.metadata__key, row.metadata__value);
+            }
+            return metadataMap;
+        }
+    } catch (e) {
+        console.error("Failed to retrieve selected metadata:", e);
+    }
+    return null;
+}
+
+// Initial base metadata fetch for a newly discovered avatar
+async function fetchInitialAvatarMetadata(sessionId: string) {
+    const entityName = `avatar:${sessionId}`;
+    const baseKeys = [
+        "type",
+        "sessionId",
+        "cameraOrientation",
+        "modelFileName",
+        "position",
+        "rotation",
+    ];
+    const metadata = await retrieveSelectedMetadata(entityName, baseKeys);
+    if (!metadata || metadata.size === 0) return;
+
+    try {
+        const metaObj = Object.fromEntries(metadata);
+        // Update maps directly without combined schema
+        avatarDataMap.value[sessionId] = {
+            type: "avatar",
+            sessionId: (metaObj["sessionId"] as string) ?? sessionId,
+            cameraOrientation: (metaObj["cameraOrientation"] as {
+                alpha: number;
+                beta: number;
+                radius: number;
+            }) ?? {
+                alpha: -Math.PI / 2,
+                beta: Math.PI / 3,
+                radius: 5,
+            },
+            modelFileName:
+                (metaObj["modelFileName"] as string) ?? "babylon.avatar.glb",
+        } as AvatarBaseData;
+        positionDataMap.value[sessionId] = (metaObj["position"] as {
+            x: number;
+            y: number;
+            z: number;
+        }) ?? {
+            x: 0,
+            y: 0,
+            z: -5,
+        };
+        rotationDataMap.value[sessionId] = (metaObj["rotation"] as {
+            x: number;
+            y: number;
+            z: number;
+            w: number;
+        }) ?? {
+            x: 0,
+            y: 0,
+            z: 0,
+            w: 1,
+        };
+    } catch (err) {
+        console.warn(
+            `Failed to parse initial avatar metadata for session ${sessionId}:`,
+            err,
+        );
+    }
+}
+
+// Incremental timestamp tracking for specific polls
+const lastBasePollTimestamps = ref<Record<string, Date | null>>({});
+const lastCameraPollTimestamps = ref<Record<string, Date | null>>({});
+
+// Poll only position and rotation for all discovered avatars
+async function pollPositionRotation() {
+    if (
+        vircadiaWorld.connectionInfo.value.status !== "connected" ||
+        isPollingPositionRotation
+    ) {
+        return;
+    }
+    isPollingPositionRotation = true;
+    try {
+        for (const sessionId of otherAvatarSessionIds.value) {
+            const entityName = `avatar:${sessionId}`;
+
+            const lastTimestamp = lastBasePollTimestamps.value[sessionId];
+            const keys = ["position", "rotation"];
+            let query: string;
+            let params: unknown[];
+            if (lastTimestamp) {
+                const bufferedTimestamp = new Date(
+                    lastTimestamp.getTime() - 50,
+                );
+                query = `SELECT metadata__key, metadata__value, general__updated_at FROM entity.entity_metadata WHERE general__entity_name = $1 AND metadata__key IN ($2, $3) AND general__updated_at > $4 ORDER BY general__updated_at ASC`;
+                params = [
+                    entityName,
+                    keys[0],
+                    keys[1],
+                    bufferedTimestamp.toISOString(),
+                ];
+            } else {
+                query = `SELECT metadata__key, metadata__value, general__updated_at FROM entity.entity_metadata WHERE general__entity_name = $1 AND metadata__key IN ($2, $3) ORDER BY general__updated_at ASC`;
+                params = [entityName, keys[0], keys[1]];
+            }
+
+            try {
+                const res =
+                    await vircadiaWorld.client.Utilities.Connection.query({
+                        query,
+                        parameters: params,
+                        timeoutMs: 10000,
+                    });
+
+                let newest: Date | null = lastTimestamp ?? null;
+                if (Array.isArray(res.result)) {
+                    for (const row of res.result) {
+                        if (row.metadata__key === "position") {
+                            positionDataMap.value[sessionId] =
+                                row.metadata__value as AvatarPositionData;
+                        } else if (row.metadata__key === "rotation") {
+                            rotationDataMap.value[sessionId] =
+                                row.metadata__value as AvatarRotationData;
+                        }
+                        if (row.general__updated_at) {
+                            const ut = new Date(row.general__updated_at);
+                            if (!newest || ut > newest) newest = ut;
+                        }
+                    }
+                }
+                if (newest) lastBasePollTimestamps.value[sessionId] = newest;
+            } catch (err) {
+                if (err instanceof Error && err.message.includes("timeout")) {
+                    // ignore
+                } else {
+                    console.error(
+                        `Error polling position/rotation for ${sessionId}:`,
+                        err,
+                    );
+                }
+            }
+        }
+    } finally {
+        isPollingPositionRotation = false;
+    }
+}
+
+// Poll only camera orientation for all discovered avatars
+async function pollCameraOrientation() {
+    if (
+        vircadiaWorld.connectionInfo.value.status !== "connected" ||
+        isPollingCamera
+    ) {
+        return;
+    }
+    isPollingCamera = true;
+    try {
+        for (const sessionId of otherAvatarSessionIds.value) {
+            const entityName = `avatar:${sessionId}`;
+            const lastTimestamp = lastCameraPollTimestamps.value[sessionId];
+
+            let query: string;
+            let params: unknown[];
+            if (lastTimestamp) {
+                const bufferedTimestamp = new Date(
+                    lastTimestamp.getTime() - 50,
+                );
+                query = `SELECT metadata__value, general__updated_at FROM entity.entity_metadata WHERE general__entity_name = $1 AND metadata__key = $2 AND general__updated_at > $3 ORDER BY general__updated_at ASC`;
+                params = [
+                    entityName,
+                    "cameraOrientation",
+                    bufferedTimestamp.toISOString(),
+                ];
+            } else {
+                query = `SELECT metadata__value, general__updated_at FROM entity.entity_metadata WHERE general__entity_name = $1 AND metadata__key = $2 ORDER BY general__updated_at ASC`;
+                params = [entityName, "cameraOrientation"];
+            }
+
+            try {
+                const res =
+                    await vircadiaWorld.client.Utilities.Connection.query({
+                        query,
+                        parameters: params,
+                        timeoutMs: 10000,
+                    });
+
+                let newest: Date | null = lastTimestamp ?? null;
+                if (Array.isArray(res.result) && res.result.length > 0) {
+                    // Use latest
+                    const lastRow = res.result[res.result.length - 1];
+                    const base = avatarDataMap.value[sessionId] as
+                        | AvatarBaseData
+                        | undefined;
+                    if (base) {
+                        // Write back to avatarDataMap without touching position/rotation
+                        avatarDataMap.value[sessionId] = {
+                            ...(avatarDataMap.value[sessionId] ||
+                                ({} as AvatarBaseData)),
+                            type: "avatar",
+                            sessionId: base.sessionId ?? sessionId,
+                            modelFileName:
+                                (avatarDataMap.value[sessionId]
+                                    ?.modelFileName as string) ||
+                                "babylon.avatar.glb",
+                            cameraOrientation: lastRow.metadata__value,
+                        } as AvatarBaseData;
+                    }
+                    if (lastRow.general__updated_at) {
+                        const ut = new Date(lastRow.general__updated_at);
+                        newest = !newest || ut > newest ? ut : newest;
+                    }
+                }
+                if (newest) lastCameraPollTimestamps.value[sessionId] = newest;
+            } catch (err) {
+                if (err instanceof Error && err.message.includes("timeout")) {
+                    // ignore
+                } else {
+                    console.error(
+                        `Error polling camera orientation for ${sessionId}:`,
+                        err,
+                    );
+                }
+            }
+        }
+    } finally {
+        isPollingCamera = false;
+    }
+}
+
+// Poll for joint data from the server (skeleton bones) for all discovered avatars
+async function pollJointData() {
+    if (
+        !vircadiaWorld ||
+        vircadiaWorld.connectionInfo.value.status !== "connected" ||
+        isPollingJoints
+    ) {
+        return;
+    }
+
+    isPollingJoints = true;
+
+    try {
+        // Process each discovered avatar
+        for (const sessionId of otherAvatarSessionIds.value) {
+            const entityName = `avatar:${sessionId}`;
+
+            try {
+                // First check if entity exists
+                const entityResult =
+                    await vircadiaWorld.client.Utilities.Connection.query({
+                        query: "SELECT general__entity_name FROM entity.entities WHERE general__entity_name = $1",
+                        parameters: [entityName],
+                        timeoutMs: 20000,
+                    });
+
+                if (
+                    Array.isArray(entityResult.result) &&
+                    entityResult.result.length > 0
+                ) {
+                    // Fetch joint metadata - only fetch updates since last poll
+                    let jointQuery: string;
+                    let jointParameters: unknown[];
+
+                    const lastTimestamp = lastPollTimestamps.value[sessionId];
+
+                    if (lastTimestamp) {
+                        // Incremental update - only fetch joints updated since last poll
+                        const bufferedTimestamp = new Date(
+                            lastTimestamp.getTime() - 100,
+                        );
+
+                        jointQuery = `
+                            SELECT metadata__key, metadata__value, general__updated_at
+                            FROM entity.entity_metadata
+                            WHERE general__entity_name = $1
+                            AND metadata__key LIKE 'joint:%'
+                            AND metadata__value->>'type' = 'avatarJoint'
+                            AND general__updated_at > $2
+                            ORDER BY general__updated_at DESC
+                            LIMIT 100`;
+                        jointParameters = [
+                            entityName,
+                            bufferedTimestamp.toISOString(),
+                        ];
+                    } else {
+                        // Initial fetch - get all joints but limit for performance
+                        jointQuery = `
+                            SELECT metadata__key, metadata__value, general__updated_at
+                            FROM entity.entity_metadata
+                            WHERE general__entity_name = $1
+                            AND metadata__key LIKE 'joint:%'
+                            AND metadata__value->>'type' = 'avatarJoint'
+                            ORDER BY general__updated_at DESC
+                            LIMIT 200`;
+                        jointParameters = [entityName];
+                    }
+
+                    const jointResult =
+                        await vircadiaWorld.client.Utilities.Connection.query({
+                            query: jointQuery,
+                            parameters: jointParameters,
+                            timeoutMs: 15000,
+                        });
+
+                    // If this is an incremental update, start with existing joints
+                    const joints = lastTimestamp
+                        ? new Map(jointDataMap.value[sessionId] || new Map())
+                        : new Map<string, AvatarJointMetadata>();
+
+                    let newestUpdateTime: Date | null = lastTimestamp;
+
+                    if (Array.isArray(jointResult.result)) {
+                        for (const row of jointResult.result) {
+                            try {
+                                // Parse each joint metadata
+                                const jointData =
+                                    AvatarJointMetadataSchema.parse(
+                                        row.metadata__value,
+                                    );
+                                joints.set(jointData.jointName, jointData);
+
+                                // Track the newest update time
+                                if (row.general__updated_at) {
+                                    const updateTime = new Date(
+                                        row.general__updated_at,
+                                    );
+                                    if (
+                                        !newestUpdateTime ||
+                                        updateTime > newestUpdateTime
+                                    ) {
+                                        newestUpdateTime = updateTime;
+                                    }
+                                }
+                            } catch (parseError) {
+                                console.warn(
+                                    `Failed to parse joint metadata for ${row.metadata__key} (session: ${sessionId}):`,
+                                    parseError,
+                                );
+                            }
+                        }
+
+                        // Update the joint data map
+                        jointDataMap.value[sessionId] = joints;
+
+                        // Update the last poll timestamp
+                        if (newestUpdateTime) {
+                            lastPollTimestamps.value[sessionId] =
+                                newestUpdateTime;
+                        } else if (!lastTimestamp) {
+                            // If no joints were found and this is the first poll, set to current time
+                            lastPollTimestamps.value[sessionId] = new Date();
+                        }
+                    } else {
+                        console.warn(
+                            `Invalid joint query result for ${sessionId}: expected array, got ${typeof jointResult.result}`,
+                        );
+                    }
+                } else {
+                    // Avatar entity not found - remove from our maps
+                    delete avatarDataMap.value[sessionId];
+                    delete positionDataMap.value[sessionId];
+                    delete rotationDataMap.value[sessionId];
+                    delete jointDataMap.value[sessionId];
+                    delete lastPollTimestamps.value[sessionId];
+                }
+            } catch (error) {
+                // Handle different types of errors appropriately
+                if (error instanceof Error) {
+                    if (error.message.includes("timeout")) {
+                        console.debug(
+                            `Joint data query timed out for session ${sessionId}, will retry. Last successful poll: ${lastPollTimestamps.value[sessionId]?.toISOString() || "never"}`,
+                        );
+                    } else if (
+                        error.message.includes("connection") ||
+                        error.message.includes("network")
+                    ) {
+                        console.warn(
+                            `Network error polling joint data for session ${sessionId}: ${error.message}`,
+                        );
+                    } else {
+                        console.error(
+                            `Error polling joint data for session ${sessionId}:`,
+                            error,
+                        );
+                    }
+                } else {
+                    console.error(
+                        `Unknown error polling joint data for session ${sessionId}:`,
+                        error,
+                    );
+                }
+            }
+        }
+    } finally {
+        isPollingJoints = false;
+    }
+}
+
+// Start polling when connected
+function startDataPolling() {
+    if (
+        positionRotationPollInterval ||
+        cameraPollInterval ||
+        jointPollInterval
+    ) {
+        return;
+    }
+
+    // Initial polls
+    pollPositionRotation();
+    pollCameraOrientation();
+    pollJointData();
+
+    // Poll position/rotation fast
+    positionRotationPollInterval = setInterval(
+        pollPositionRotation,
+        positionRotationPollingInterval.value,
+    );
+    // Poll camera orientation separately
+    cameraPollInterval = setInterval(
+        pollCameraOrientation,
+        cameraPollingInterval.value,
+    );
+    // Poll joints separately
+    jointPollInterval = setInterval(pollJointData, jointPollingInterval.value);
+
+    console.debug(
+        `Started avatar polling: pos/rot ${positionRotationPollingInterval.value}ms, camera ${cameraPollingInterval.value}ms, joints ${jointPollingInterval.value}ms`,
+    );
+}
+
+// Stop polling
+function stopDataPolling() {
+    if (positionRotationPollInterval) {
+        clearInterval(positionRotationPollInterval);
+        positionRotationPollInterval = null;
+    }
+
+    if (cameraPollInterval) {
+        clearInterval(cameraPollInterval);
+        cameraPollInterval = null;
+    }
+
+    if (jointPollInterval) {
+        clearInterval(jointPollInterval);
+        jointPollInterval = null;
+    }
 }
 
 // Avoid unused warnings in templates-only usage
@@ -150,16 +642,31 @@ async function pollForOtherAvatars(): Promise<void> {
                     if (!(match[1] in loadingBySession.value)) {
                         loadingBySession.value[match[1]] = true;
                     }
-                    if (!otherAvatarsMetadataLocal.value[match[1]]) {
-                        otherAvatarsMetadataLocal.value[match[1]] = {
-                            type: "avatar",
-                            sessionId: match[1],
-                            position: { x: 0, y: 0, z: 0 },
-                            rotation: { x: 0, y: 0, z: 0, w: 1 },
-                            cameraOrientation: { alpha: 0, beta: 0, radius: 5 },
-                            modelFileName: "",
-                        } as AvatarMetadata;
-                        emitMetadataUpdate();
+
+                    // Initialize data structures for new avatars
+                    if (!avatarDataMap.value[match[1]]) {
+                        // Fetch initial base metadata once
+                        fetchInitialAvatarMetadata(match[1]).catch((e) =>
+                            console.warn(
+                                `Initial metadata fetch failed for ${match[1]}:`,
+                                e,
+                            ),
+                        );
+                    }
+                    if (!jointDataMap.value[match[1]]) {
+                        jointDataMap.value[match[1]] = new Map<
+                            string,
+                            AvatarJointMetadata
+                        >();
+                    }
+                    if (!lastPollTimestamps.value[match[1]]) {
+                        lastPollTimestamps.value[match[1]] = null;
+                    }
+                    if (!lastBasePollTimestamps.value[match[1]]) {
+                        lastBasePollTimestamps.value[match[1]] = null;
+                    }
+                    if (!lastCameraPollTimestamps.value[match[1]]) {
+                        lastCameraPollTimestamps.value[match[1]] = null;
                     }
                 }
             }
@@ -168,15 +675,18 @@ async function pollForOtherAvatars(): Promise<void> {
             otherAvatarSessionIds.value = foundFullSessionIds;
 
             // Remove avatars that are no longer present
-            for (const fullSessionId of Object.keys(
-                otherAvatarsMetadataLocal.value,
-            )) {
+            for (const fullSessionId of Object.keys(avatarDataMap.value)) {
                 if (!foundFullSessionIds.includes(fullSessionId)) {
-                    delete otherAvatarsMetadataLocal.value[fullSessionId];
                     delete loadingBySession.value[fullSessionId];
+                    delete avatarDataMap.value[fullSessionId];
+                    delete positionDataMap.value[fullSessionId];
+                    delete rotationDataMap.value[fullSessionId];
+                    delete jointDataMap.value[fullSessionId];
+                    delete lastPollTimestamps.value[fullSessionId];
+                    delete lastBasePollTimestamps.value[fullSessionId];
+                    delete lastCameraPollTimestamps.value[fullSessionId];
                 }
             }
-            emitMetadataUpdate();
         }
     } catch (error) {
         if (error instanceof Error && error.message.includes("timeout")) {
@@ -198,7 +708,7 @@ function startAvatarDiscovery(): void {
     pollForOtherAvatars();
     avatarDiscoveryInterval = setInterval(
         pollForOtherAvatars,
-        props.pollingInterval,
+        props.discoveryPollingInterval,
     );
 }
 
@@ -215,12 +725,19 @@ watch(
     (status) => {
         if (status === "connected") {
             startAvatarDiscovery();
+            startDataPolling();
         } else if (status === "disconnected") {
             stopAvatarDiscovery();
+            stopDataPolling();
             otherAvatarSessionIds.value = [];
-            otherAvatarsMetadataLocal.value = {};
+            avatarDataMap.value = {};
+            positionDataMap.value = {};
+            rotationDataMap.value = {};
+            jointDataMap.value = {};
+            lastPollTimestamps.value = {};
+            lastBasePollTimestamps.value = {};
+            lastCameraPollTimestamps.value = {};
             loadingBySession.value = {};
-            emitMetadataUpdate();
         }
     },
     { immediate: true },
@@ -229,11 +746,13 @@ watch(
 onMounted(() => {
     if (vircadiaWorld.connectionInfo.value.status === "connected") {
         startAvatarDiscovery();
+        startDataPolling();
     }
 });
 
 onUnmounted(() => {
     stopAvatarDiscovery();
+    stopDataPolling();
 });
 
 // Expose loading state for parent (true if any discovered session still loading)
@@ -247,7 +766,10 @@ const isLoading = computed<boolean>(() => {
 defineExpose({
     isLoading,
     otherAvatarSessionIds,
-    otherAvatarsMetadata: otherAvatarsMetadataLocal,
+    avatarDataMap,
+    positionDataMap,
+    rotationDataMap,
+    jointDataMap,
 });
 </script>
 

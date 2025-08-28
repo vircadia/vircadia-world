@@ -57,48 +57,27 @@ export const CameraSchema = z.object({
     radius: z.coerce.number(),
 });
 
-export const AvatarMetadataSchema = z.object({
+// Base avatar data schema (without position/rotation)
+export const AvatarBaseDataSchema = z.object({
     type: z.literal("avatar"),
     sessionId: z.coerce.string().nullable(),
-    position: Vector3Schema,
-    rotation: QuaternionSchema,
     cameraOrientation: CameraSchema,
     modelFileName: z.coerce.string(),
 });
 
-export type AvatarMetadata = z.infer<typeof AvatarMetadataSchema>;
+export type AvatarBaseData = z.infer<typeof AvatarBaseDataSchema>;
 
-// Schema with defaults and automatic Map/object conversion
-export const AvatarMetadataWithDefaultsSchema = z.preprocess(
-    (data) => {
-        // Convert Map to object if needed
-        if (data instanceof Map) {
-            return Object.fromEntries(data);
-        }
-        // Ensure we have an object
-        if (typeof data === "object" && data !== null) {
-            return data;
-        }
-        // Return empty object for invalid inputs
-        return {};
-    },
-    z.object({
-        type: z.literal("avatar").default("avatar"),
-        sessionId: z.coerce.string().nullable().default(null),
-        position: Vector3Schema.default({ x: 0, y: 0, z: -5 }),
-        rotation: QuaternionSchema.default({ x: 0, y: 0, z: 0, w: 1 }),
-        cameraOrientation: CameraSchema.default({
-            alpha: -Math.PI / 2,
-            beta: Math.PI / 3,
-            radius: 5,
-        }),
-        modelFileName: z.coerce.string().default("babylon.avatar.glb"),
-    }),
-);
+// Position data schema
+export const AvatarPositionDataSchema = Vector3Schema;
 
-export type AvatarMetadataWithDefaults = z.infer<
-    typeof AvatarMetadataWithDefaultsSchema
->;
+export type AvatarPositionData = z.infer<typeof AvatarPositionDataSchema>;
+
+// Rotation data schema
+export const AvatarRotationDataSchema = QuaternionSchema;
+
+export type AvatarRotationData = z.infer<typeof AvatarRotationDataSchema>;
+
+// Note: Combined avatar metadata schemas removed.
 
 export const ModelMetadataSchema = z.object({
     type: z.literal("Model"),

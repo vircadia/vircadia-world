@@ -11,7 +11,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, type Ref, computed } from "vue";
 import type { Scene, AbstractMesh, Skeleton } from "@babylonjs/core";
-import { ImportMeshAsync, TransformNode } from "@babylonjs/core";
+import { ImportMeshAsync, type TransformNode } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
 import { useAsset, type useVircadia } from "@vircadia/world-sdk/browser/vue";
 
@@ -94,6 +94,12 @@ async function loadAndAttach(): Promise<void> {
         console.warn("[BabylonMyAvatarModel] Missing scene or modelFileName", {
             hasScene: !!props.scene,
             modelFileName: props.modelFileName,
+        });
+        emit("state", {
+            state: "error",
+            step: "validation",
+            message: "Missing scene or modelFileName",
+            details: { modelFileName: props.modelFileName },
         });
         return;
     }

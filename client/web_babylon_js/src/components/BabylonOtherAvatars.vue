@@ -39,6 +39,11 @@ const props = defineProps({
         required: false,
         default: null,
     },
+    pollingInterval: {
+        type: Number,
+        required: false,
+        default: 2000,
+    },
 });
 const { scene } = toRefs(props);
 // Mark as used in template
@@ -191,7 +196,10 @@ function startAvatarDiscovery(): void {
     if (avatarDiscoveryInterval) return;
     // Poll immediately, then at configured interval
     pollForOtherAvatars();
-    avatarDiscoveryInterval = setInterval(pollForOtherAvatars, 2000);
+    avatarDiscoveryInterval = setInterval(
+        pollForOtherAvatars,
+        props.pollingInterval,
+    );
 }
 
 function stopAvatarDiscovery(): void {

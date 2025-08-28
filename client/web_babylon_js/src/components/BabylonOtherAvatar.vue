@@ -17,12 +17,10 @@ import {
     Vector3,
     Quaternion,
     TransformNode,
-    Matrix,
     Space,
     type Scene,
     type Skeleton,
     type AbstractMesh,
-    type AnimationGroup,
     type Bone,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
@@ -44,6 +42,9 @@ const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
     sessionId: { type: String, required: true }, // Full sessionId in format "sessionId-instanceId"
     vircadiaWorld: { type: Object as () => any, required: true },
+    positionPollingInterval: { type: Number, required: false, default: 30 },
+    rotationPollingInterval: { type: Number, required: false, default: 30 },
+    jointPollingInterval: { type: Number, required: false, default: 100 },
 });
 
 const emit = defineEmits<{
@@ -290,9 +291,6 @@ function applyAvatarData(
             );
         }
 
-        let bonesUpdated = 0;
-        let bonesReset = 0;
-
         // Update bones with data
         for (const bone of bones) {
             // Try exact match first
@@ -323,7 +321,6 @@ function applyAvatarData(
                 bone.setPosition(bonePos, Space.LOCAL);
                 bone.setRotationQuaternion(boneRot, Space.LOCAL);
                 bone.setScale(boneScale);
-                bonesUpdated++;
             } else {
                 // Bone has no data - reset to bind pose to prevent T-pose artifacts
                 // This is crucial to prevent bones from staying in previous positions
@@ -346,7 +343,6 @@ function applyAvatarData(
                     );
                     bone.setScale(Vector3.One());
                 }
-                bonesReset++;
             }
 
             // Mark the bone as updated
@@ -532,27 +528,31 @@ async function pollJointData() {
 
             if (lastPollTimestamp.value) {
                 // Incremental update - only fetch joints updated since last poll
+                // Add small buffer to prevent missing updates due to clock skew
+                const bufferedTimestamp = new Date(
+                    lastPollTimestamp.value.getTime() - 100,
+                ); // 100ms buffer
+
                 jointQuery = `
                     SELECT metadata__key, metadata__value, general__updated_at
-                    FROM entity.entity_metadata 
-                    WHERE general__entity_name = $1 
+                    FROM entity.entity_metadata
+                    WHERE general__entity_name = $1
                     AND metadata__key LIKE 'joint:%'
                     AND metadata__value->>'type' = 'avatarJoint'
                     AND general__updated_at > $2
-                    ORDER BY general__updated_at DESC`;
-                jointParameters = [
-                    entityName,
-                    lastPollTimestamp.value.toISOString(),
-                ];
+                    ORDER BY general__updated_at DESC
+                    LIMIT 100`; // Limit to prevent overwhelming the client
+                jointParameters = [entityName, bufferedTimestamp.toISOString()];
             } else {
-                // Initial fetch - get all joints
+                // Initial fetch - get all joints but limit for performance
                 jointQuery = `
                     SELECT metadata__key, metadata__value, general__updated_at
-                    FROM entity.entity_metadata 
-                    WHERE general__entity_name = $1 
+                    FROM entity.entity_metadata
+                    WHERE general__entity_name = $1
                     AND metadata__key LIKE 'joint:%'
                     AND metadata__value->>'type' = 'avatarJoint'
-                    ORDER BY general__updated_at DESC`;
+                    ORDER BY general__updated_at DESC
+                    LIMIT 200`; // Higher limit for initial load
                 jointParameters = [entityName];
             }
 
@@ -560,6 +560,7 @@ async function pollJointData() {
                 await vircadiaWorld.client.Utilities.Connection.query({
                     query: jointQuery,
                     parameters: jointParameters,
+                    timeoutMs: 15000, // 15 second timeout for joint queries
                 });
 
             // If this is an incremental update, start with existing joints
@@ -568,6 +569,8 @@ async function pollJointData() {
                 : new Map<string, AvatarJointMetadata>();
 
             let newestUpdateTime: Date | null = lastPollTimestamp.value;
+            let processedJoints = 0;
+            let failedParses = 0;
 
             if (Array.isArray(jointResult.result)) {
                 for (const row of jointResult.result) {
@@ -577,6 +580,7 @@ async function pollJointData() {
                             row.metadata__value,
                         );
                         joints.set(jointData.jointName, jointData);
+                        processedJoints++;
 
                         // Track the newest update time
                         if (row.general__updated_at) {
@@ -591,8 +595,9 @@ async function pollJointData() {
                             }
                         }
                     } catch (parseError) {
+                        failedParses++;
                         console.warn(
-                            `Failed to parse joint metadata for ${row.metadata__key}:`,
+                            `Failed to parse joint metadata for ${row.metadata__key} (session: ${props.sessionId}):`,
                             parseError,
                         );
                     }
@@ -601,9 +606,30 @@ async function pollJointData() {
                 // Log incremental update info for debugging
                 if (lastPollTimestamp.value && jointResult.result.length > 0) {
                     console.debug(
-                        `Incremental joint update for ${props.sessionId}: ${jointResult.result.length} joints updated since ${lastPollTimestamp.value.toISOString()}`,
+                        `Incremental joint update for ${props.sessionId}: ${processedJoints} joints processed, ${failedParses} failed parses, ${jointResult.result.length} total results since ${lastPollTimestamp.value.toISOString()}`,
+                    );
+                } else if (
+                    !lastPollTimestamp.value &&
+                    jointResult.result.length > 0
+                ) {
+                    console.debug(
+                        `Initial joint load for ${props.sessionId}: ${processedJoints} joints processed, ${failedParses} failed parses`,
                     );
                 }
+
+                // Warn if we hit the LIMIT (indicating there might be more data)
+                if (
+                    jointResult.result.length >=
+                    (lastPollTimestamp.value ? 100 : 200)
+                ) {
+                    console.warn(
+                        `Joint query limit reached for ${props.sessionId} - there may be more joints to fetch. Consider increasing polling frequency or reducing joint update rate.`,
+                    );
+                }
+            } else {
+                console.warn(
+                    `Invalid joint query result for ${props.sessionId}: expected array, got ${typeof jointResult.result}`,
+                );
             }
 
             // Update the last poll timestamp
@@ -635,17 +661,34 @@ async function pollJointData() {
             return;
         }
     } catch (error) {
-        // Handle timeout errors gracefully
-        if (error instanceof Error && error.message.includes("timeout")) {
-            console.debug(
-                `Joint data query timed out for session ${props.sessionId}, will retry`,
-            );
+        // Handle different types of errors appropriately
+        if (error instanceof Error) {
+            if (error.message.includes("timeout")) {
+                console.debug(
+                    `Joint data query timed out for session ${props.sessionId}, will retry. Last successful poll: ${lastPollTimestamp.value?.toISOString() || "never"}`,
+                );
+            } else if (
+                error.message.includes("connection") ||
+                error.message.includes("network")
+            ) {
+                console.warn(
+                    `Network error polling joint data for session ${props.sessionId}: ${error.message}`,
+                );
+            } else {
+                console.error(
+                    `Error polling joint data for session ${props.sessionId}:`,
+                    error,
+                );
+            }
         } else {
             console.error(
-                `Error polling joint data for session ${props.sessionId}:`,
+                `Unknown error polling joint data for session ${props.sessionId}:`,
                 error,
             );
         }
+
+        // On error, don't update timestamp to allow retry with same data
+        // This prevents losing incremental updates on transient failures
     } finally {
         isPollingJoints = false;
     }
@@ -662,13 +705,16 @@ function startPolling() {
     pollJointData();
 
     // Poll general avatar data at configured interval (position, rotation, etc.)
-    dataPollInterval = setInterval(pollAvatarData, 1000);
+    dataPollInterval = setInterval(
+        pollAvatarData,
+        props.positionPollingInterval,
+    );
 
     // Poll joint data at a separate, less frequent interval
-    jointPollInterval = setInterval(pollJointData, 2500);
+    jointPollInterval = setInterval(pollJointData, props.jointPollingInterval);
 
     console.debug(
-        `Started split polling for avatar ${props.sessionId}: data every 1000ms, joints every 2500ms`,
+        `Started split polling for avatar ${props.sessionId}: position every ${props.positionPollingInterval}ms, rotation every ${props.rotationPollingInterval}ms, joints every ${props.jointPollingInterval}ms`,
     );
 
     // WebRTC connection is now handled by periodic discovery in useBabylonWebRTC

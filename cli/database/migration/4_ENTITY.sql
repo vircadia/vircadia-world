@@ -399,3 +399,9 @@ CREATE INDEX idx_asset_timestamp_changes ON entity.entity_assets
         general__updated_at
      ))
     INCLUDE (general__asset_file_name);
+
+-- 4. Specialized index for joint metadata timestamp queries
+-- Optimizes queries like: WHERE entity_name = ? AND key LIKE 'joint:%' AND updated_at > ?
+CREATE INDEX idx_entity_metadata_joint_timestamp ON entity.entity_metadata
+    (general__entity_name, metadata__key, general__updated_at)
+    WHERE metadata__key LIKE 'joint:%' AND metadata__value->>'type' = 'avatarJoint';

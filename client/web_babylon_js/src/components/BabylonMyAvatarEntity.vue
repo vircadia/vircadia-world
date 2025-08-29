@@ -50,7 +50,7 @@ const props = defineProps({
         required: false,
         default: 100,
     },
-    jointThrottleInterval: { type: Number, required: false, default: 300 },
+    jointThrottleInterval: { type: Number, required: false, default: 500 },
 });
 
 // Local state

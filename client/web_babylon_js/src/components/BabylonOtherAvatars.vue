@@ -55,7 +55,7 @@ const props = defineProps({
     jointPollingInterval: {
         type: Number,
         required: false,
-        default: 100,
+        default: 500,
     },
     cameraPollingInterval: {
         type: Number,

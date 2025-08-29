@@ -1,0 +1,15 @@
+world.vircadia.com {
+  encode zstd gzip
+
+  # Directly proxy all traffic to the API service (no path prefix)
+  reverse_proxy http://vircadia_world_api_manager:3020
+}
+
+app-next.vircadia.com {
+  root * /srv
+  encode zstd gzip
+
+  # SPA fallback for the web client
+  try_files {path} {path}/ /index.html
+  file_server
+}

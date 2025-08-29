@@ -1423,6 +1423,13 @@ export namespace Server_CLI {
                                     asset__data__bytea = ${assetDataBinary}
                                 WHERE general__asset_file_name = ${dbAsset.general__asset_file_name}
                             `;
+
+                            BunLogModule({
+                                message: `Updated asset in database: ${dbAsset.general__asset_file_name}`,
+                                type: "debug",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
                         }
                     });
 

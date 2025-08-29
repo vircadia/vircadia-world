@@ -21,6 +21,8 @@
 							<v-list-item title="Model load step" :subtitle="modelStep || '-'" />
 							<v-list-item title="Model state" :subtitle="modelStateLabel" :class="{ 'text-error': modelError, 'text-success': modelReady }" />
 							<v-list-item v-if="modelError" title="Model error" :subtitle="modelError" class="text-error" />
+							<v-list-item title="Talking" :subtitle="String(isTalking)" />
+							<v-list-item title="Talk level" :subtitle="talkLevelLabel" />
 						</v-list>
 					</v-col>
 					<v-col cols="12" md="6">
@@ -56,6 +58,22 @@
 							<v-list-subheader>Camera</v-list-subheader>
 							<v-list-item title="Position" :subtitle="cameraPositionLabel" />
 							<v-list-item title="Target" :subtitle="cameraTargetLabel" />
+						</v-list>
+
+						<v-list density="compact" class="bg-transparent mt-4">
+							<v-list-subheader>Audio</v-list-subheader>
+							<v-list-item title="Threshold" :subtitle="String(talkThreshold)" />
+							<v-list-item title="Inputs" :subtitle="String(audioInputDevices.length)" />
+							<v-expansion-panels variant="accordion" density="compact" v-if="audioInputDevices.length">
+								<v-expansion-panel>
+									<v-expansion-panel-title>Input devices</v-expansion-panel-title>
+									<v-expansion-panel-text>
+										<div v-for="d in audioInputDevices" :key="d.deviceId" class="text-caption">
+											<span class="font-mono">{{ d.label }}</span>
+										</div>
+									</v-expansion-panel-text>
+								</v-expansion-panel>
+							</v-expansion-panels>
 						</v-list>
 					</v-col>
 				</v-row>
@@ -97,6 +115,15 @@ const props = defineProps({
     modelFileName: { type: String, required: false, default: null },
     modelStep: { type: String, required: false, default: null },
     modelError: { type: String, required: false, default: null },
+    // Talking diagnostics
+    isTalking: { type: Boolean, required: false, default: false },
+    talkLevel: { type: Number, required: false, default: 0 },
+    talkThreshold: { type: Number, required: false, default: 0 },
+    audioInputDevices: {
+        type: Array as () => { deviceId: string; label: string }[],
+        required: false,
+        default: () => [],
+    },
     // External control (v-model)
     modelValue: { type: Boolean, required: false, default: undefined },
     // Configurable hotkey (default "m")
@@ -129,6 +156,7 @@ const hotkeyLabel = computed(() => props.hotkey.replace("+", " + "));
 const modelReady = computed(
     () => !props.modelError && !!props.modelFileName && !!props.scene,
 );
+const talkLevelLabel = computed(() => props.talkLevel.toFixed(3));
 const modelStateLabel = computed(() =>
     props.modelError ? "error" : modelReady.value ? "ready" : "loading or idle",
 );
@@ -192,6 +220,7 @@ void cameraLabel;
 void cameraPositionLabel;
 void cameraTargetLabel;
 void hotkeyLabel;
+void talkLevelLabel;
 </script>
 
 <style scoped>

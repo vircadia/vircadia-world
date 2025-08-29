@@ -90,6 +90,7 @@ const props = defineProps({
         required: true,
     },
     keyState: { type: Object as () => KeyState, required: false },
+    isTalking: { type: Boolean, required: false, default: false },
 });
 
 const emit = defineEmits<{ ready: []; dispose: [] }>();
@@ -543,6 +544,9 @@ let previousMoveAnimation: AnimationGroup | null = null;
 let currentMoveFileName: string | null = null;
 // Crossfade progress between previous and current movement animations (0 -> 1)
 let moveCrossfadeT = 1;
+// Talking animation (used only when idle)
+let talkOverlayAnimation: AnimationGroup | null = null;
+const talkOverlayBlendWeight = ref(0);
 
 function findAnimationDef(
     motion: string,
@@ -581,14 +585,22 @@ function findAnimationDef(
 }
 
 function getIdleDef(): AnimationDef | undefined {
-    // SL mapping uses 'stand' for idle
-    const byMapping = (animations.value as AnimationDef[]).find(
-        (a) => a.slMotion === "stand",
-    );
-    if (byMapping) return byMapping;
-    // Fallback heuristic
-    return (animations.value as AnimationDef[]).find((a) =>
-        a.fileName.toLowerCase().includes("idle.1.glb"),
+    const list = animations.value as AnimationDef[];
+    for (const a of list) {
+        if (a.slMotion === "stand") return a;
+    }
+    for (const a of list) {
+        const name = a.fileName.toLowerCase();
+        if (name.includes("idle.1.glb")) return a;
+    }
+    return undefined;
+}
+
+function getTalkingDefs(): AnimationDef[] {
+    const list = animations.value as AnimationDef[];
+    const lower = (s: string) => s.toLowerCase();
+    return list.filter(
+        (a) => a.slMotion === "talk" || lower(a.fileName).includes("talking"),
     );
 }
 
@@ -687,6 +699,24 @@ function ensureIdleGroupReady(): void {
         idleAnimation.setWeightForAllAnimatables(1.0);
         idleAnimation.play(true);
     }
+}
+
+function ensureTalkingGroupReady(): void {
+    if (talkOverlayAnimation) return;
+    const talkDefs = getTalkingDefs();
+    if (talkDefs.length === 0) return;
+    const readyGroups = talkDefs
+        .map((def) => ({ def, info: animationsMap.value.get(def.fileName) }))
+        .filter((x) => x.info?.state === "ready" && x.info.group);
+    if (readyGroups.length === 0) return;
+    const pick = readyGroups[Math.floor(Math.random() * readyGroups.length)];
+    const group = pick.info!.group as AnimationGroup;
+    talkOverlayAnimation = group;
+    try {
+        talkOverlayAnimation.stop();
+    } catch {}
+    talkOverlayAnimation.loopAnimation = true;
+    talkOverlayAnimation.setWeightForAllAnimatables(0);
 }
 
 function setMoveAnimationFromDef(def: AnimationDef | undefined): void {
@@ -990,7 +1020,11 @@ function trySetupBlendedAnimations(): void {
 }
 
 // Update animation weights based on movement
-function updateAnimationBlending(isMoving: boolean, dt: number): void {
+function updateAnimationBlending(
+    isMoving: boolean,
+    dt: number,
+    isTalkingNow: boolean,
+): void {
     // Need idle and at least the active move group to blend
     if (!idleAnimation) return;
 
@@ -1031,6 +1065,35 @@ function updateAnimationBlending(isMoving: boolean, dt: number): void {
         const prevWeight = moveMasterWeight * (1 - moveCrossfadeT);
         previousMoveAnimation.setWeightForAllAnimatables(prevWeight);
         if (!previousMoveAnimation.isPlaying) previousMoveAnimation.play(true);
+    }
+
+    // Talking overlay (only when idle)
+    const canTalk = !isMoving && !!isTalkingNow;
+    if (canTalk && !talkOverlayAnimation) ensureTalkingGroupReady();
+    const talkTarget = canTalk && talkOverlayAnimation ? 1 : 0;
+    if (talkTarget > talkOverlayBlendWeight.value) {
+        talkOverlayBlendWeight.value = Math.min(
+            1,
+            talkOverlayBlendWeight.value + change,
+        );
+    } else if (talkTarget < talkOverlayBlendWeight.value) {
+        talkOverlayBlendWeight.value = Math.max(
+            0,
+            talkOverlayBlendWeight.value - change,
+        );
+    }
+    if (talkOverlayAnimation) {
+        talkOverlayAnimation.setWeightForAllAnimatables(
+            talkOverlayBlendWeight.value,
+        );
+        if (talkOverlayBlendWeight.value > 0) {
+            if (!talkOverlayAnimation.isPlaying)
+                talkOverlayAnimation.play(true);
+        } else {
+            try {
+                talkOverlayAnimation.pause();
+            } catch {}
+        }
     }
 }
 
@@ -2098,7 +2161,7 @@ onMounted(async () => {
         refreshDesiredAnimations();
 
         // Update animation blending based on movement state
-        updateAnimationBlending(isMoving, dt);
+        updateAnimationBlending(isMoving, dt, !!props.isTalking);
 
         // Horizontal movement via velocity
         const vel = getVelocity();

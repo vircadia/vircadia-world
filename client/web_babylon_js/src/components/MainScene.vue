@@ -133,15 +133,17 @@
                         :slow-run-toggle-codes="[]"
                         v-slot="controls"
                     >
-                        <BabylonMyAvatar
-                            :scene="sceneNonNull"
-                            :vircadia-world="vircadiaWorld"
-                            :instance-id="instanceId ?? undefined"
-                            :key-state="controls.keyState"
-                            avatar-definition-name="avatar.definition.default"
-                            ref="avatarRef"
-                        >
-                            <template #default="{ avatarSkeleton, animations, vircadiaWorld, onAnimationState, avatarNode, modelFileName, meshPivotPoint, capsuleHeight, onSetAvatarModel }">
+                        <BabylonMyAvatarTalking v-slot="{ isTalking, level: talkLevel, devices: audioDevices, threshold: talkThreshold }">
+                            <BabylonMyAvatar
+                                :scene="sceneNonNull"
+                                :vircadia-world="vircadiaWorld"
+                                :instance-id="instanceId ?? undefined"
+                                :key-state="controls.keyState"
+                                :is-talking="isTalking"
+                                avatar-definition-name="avatar.definition.default"
+                                ref="avatarRef"
+                            >
+                                <template #default="{ avatarSkeleton, animations, vircadiaWorld, onAnimationState, avatarNode, modelFileName, meshPivotPoint, capsuleHeight, onSetAvatarModel }">
                                 <BabylonMyAvatarModel
                                     v-if="modelFileName"
                                     :scene="sceneNonNull"
@@ -192,6 +194,10 @@
                                         :model-file-name="modelFileNameRef || modelFileName"
                                         :model-step="avatarModelStep"
                                         :model-error="avatarModelError || undefined"
+                                        :is-talking="isTalking"
+                                        :talk-level="talkLevel"
+                                        :talk-threshold="talkThreshold"
+                                        :audio-input-devices="audioDevices"
                                         v-model="avatarDebugOpen"
                                         hotkey="Shift+M"
                                     />
@@ -203,8 +209,9 @@
                                         hotkey="Shift+N"
                                     />
                                 </BabylonMyAvatarModel>
-                            </template>
-                        </BabylonMyAvatar>
+                                </template>
+                            </BabylonMyAvatar>
+                        </BabylonMyAvatarTalking>
                     </BabylonMyAvatarMKBController>
 
                     <!-- Other avatars wrapper -->
@@ -353,6 +360,7 @@ import {
     type defineComponent,
 } from "vue";
 import BabylonMyAvatar from "../components/BabylonMyAvatar.vue";
+import BabylonMyAvatarTalking from "../components/BabylonMyAvatarTalking.vue";
 import BabylonMyAvatarMKBController from "../components/BabylonMyAvatarMKBController.vue";
 import BabylonMyAvatarModel from "../components/BabylonMyAvatarModel.vue";
 import BabylonMyAvatarAnimation from "../components/BabylonMyAvatarAnimation.vue";
@@ -376,6 +384,7 @@ import LogoutButton from "../components/LogoutButton.vue";
 import VircadiaWorldProvider from "../components/VircadiaWorldProvider.vue";
 // mark as used at runtime for template
 void BabylonMyAvatar;
+void BabylonMyAvatarTalking;
 // mark as used at runtime for template
 void BabylonMyAvatarMKBController;
 // mark as used at runtime for template

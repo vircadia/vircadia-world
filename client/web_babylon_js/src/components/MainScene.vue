@@ -246,6 +246,23 @@
                             ref="modelRefs"
                         />
                     </BabylonModels>
+
+                    <!-- BabylonDoor component for interactive door -->
+                    <BabylonDoor
+                        :scene="sceneNonNull"
+                        :vircadia-world="vircadiaWorld"
+                        entity-name="babylon.door.main"
+                        model-file-name="telekom.model.WoodenDoor.glb"
+                        :initial-position="{ x: 0, y: 0, z: 0 }"
+                        :initial-rotation="{ x: 0, y: 0, z: 0, w: 1 }"
+                        :initial-open="false"
+                        :rotation-open-radians="1.57"
+                        :rotation-axis="'y'"
+                        :sync-interval-ms="100"
+                        :update-throttle-ms="100"
+                        @state="onDoorState"
+                        @open="onDoorOpen"
+                    />
                 </template>
             </BabylonEnvironment>
         </main>
@@ -427,6 +444,7 @@ void VircadiaWorldProvider;
 // mark as used at runtime for template
 void BabylonMyAvatarEntity;
 import BabylonEnvironment from "../components/BabylonEnvironment.vue";
+import BabylonDoor from "../components/BabylonDoor.vue";
 import { clientBrowserConfiguration } from "@/vircadia.browser.config";
 import { useLocalStorage } from "@vueuse/core";
 
@@ -465,7 +483,12 @@ void instanceIdRef;
 // Track if avatar is ready
 const avatarRef = ref<InstanceType<typeof BabylonMyAvatar> | null>(null);
 // targetSkeleton now provided via slot; no local ref needed
-type OtherAvatarsExposed = { isLoading: boolean };
+type OtherAvatarsExposed = {
+    isLoading: boolean;
+    avatarDataMap: Record<string, unknown>;
+    positionDataMap: Record<string, unknown>;
+    rotationDataMap: Record<string, unknown>;
+};
 const otherAvatarsRef = ref<OtherAvatarsExposed | null>(null);
 // Combined otherAvatarsMetadata removed; use separate maps from BabylonOtherAvatars
 const modelRefs = ref<(InstanceType<typeof BabylonModel> | null)[]>([]);
@@ -692,6 +715,7 @@ onMounted(() => {
 });
 // mark components/config used in template
 void BabylonEnvironment;
+void BabylonDoor;
 void clientBrowserConfiguration;
 
 // Handle auth denial from provider by clearing local auth state without server logout
@@ -718,6 +742,30 @@ function onAuthDenied(payload: AuthDeniedPayload, authProps: AuthSlotProps) {
     // TODO: show a toast/snackbar using your global notification system
 }
 void onAuthDenied;
+
+// Door event handlers
+function onDoorState(payload: {
+    state: "loading" | "ready" | "error";
+    step: string;
+    message?: string;
+    details?: Record<string, unknown>;
+}) {
+    console.debug("[MainScene] Door state changed", payload);
+    if (payload.state === "error") {
+        console.error(
+            "[MainScene] Door error",
+            payload.message,
+            payload.details,
+        );
+    }
+}
+
+function onDoorOpen(payload: { open: boolean }) {
+    console.debug("[MainScene] Door opened/closed", payload);
+}
+
+void onDoorState;
+void onDoorOpen;
 </script>
 
 <style>

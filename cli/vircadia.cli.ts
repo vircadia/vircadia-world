@@ -21,6 +21,8 @@ import {
 // https://github.com/tj/commander.js
 // https://www.npmjs.com/package/inquirer
 
+
+
 // Environment Variable Management Module
 export namespace EnvManager {
     const CLI_ENV_FILE_PATH = path.join(
@@ -218,6 +220,20 @@ export namespace Server_CLI {
                 serverConfiguration.VRCA_SERVER_SERVICE_PGWEB_HOST_CONTAINER_BIND_EXTERNAL,
             VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_BIND_EXTERNAL:
                 serverConfiguration.VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_BIND_EXTERNAL.toString(),
+
+            // Caddy reverse proxy
+            VRCA_SERVER_SERVICE_CADDY_CONTAINER_NAME:
+                serverConfiguration.VRCA_SERVER_SERVICE_CADDY_CONTAINER_NAME,
+            VRCA_SERVER_SERVICE_CADDY_HOST_CONTAINER_BIND_EXTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_CADDY_HOST_CONTAINER_BIND_EXTERNAL,
+            VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTP:
+                serverConfiguration.VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTP.toString(),
+            VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS:
+                serverConfiguration.VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS.toString(),
+            VRCA_SERVER_SERVICE_CADDY_DOMAIN_API:
+                serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN_API,
+            VRCA_SERVER_SERVICE_CADDY_DOMAIN_APP:
+                serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN_APP,
 
             VRCA_SERVER_SERVICE_WORLD_API_MANAGER_CONTAINER_NAME:
                 serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_CONTAINER_NAME,
@@ -2424,6 +2440,55 @@ if (import.meta.main) {
                             .VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI ||
                         clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI;
 
+                    const currentSslEnabled =
+                        (await EnvManager.getVariable(
+                            "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL",
+                            "client",
+                        )) ||
+                        process.env
+                            .VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL ||
+                        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL;
+
+                    const currentCaddyDomainApi =
+                        (await EnvManager.getVariable(
+                            "VRCA_SERVER_SERVICE_CADDY_DOMAIN_API",
+                            "cli",
+                        )) ||
+                        process.env.VRCA_SERVER_SERVICE_CADDY_DOMAIN_API ||
+                        serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN_API;
+
+                    const currentCaddyDomainApp =
+                        (await EnvManager.getVariable(
+                            "VRCA_SERVER_SERVICE_CADDY_DOMAIN_APP",
+                            "cli",
+                        )) ||
+                        process.env.VRCA_SERVER_SERVICE_CADDY_DOMAIN_APP ||
+                        serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN_APP;
+
+                    const currentCaddyHostBind =
+                        (await EnvManager.getVariable(
+                            "VRCA_SERVER_SERVICE_CADDY_HOST_CONTAINER_BIND_EXTERNAL",
+                            "cli",
+                        )) ||
+                        process.env.VRCA_SERVER_SERVICE_CADDY_HOST_CONTAINER_BIND_EXTERNAL ||
+                        serverConfiguration.VRCA_SERVER_SERVICE_CADDY_HOST_CONTAINER_BIND_EXTERNAL;
+
+                    const currentCaddyPortBindHttp =
+                        (await EnvManager.getVariable(
+                            "VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTP",
+                            "cli",
+                        )) ||
+                        process.env.VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTP ||
+                        serverConfiguration.VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTP;
+
+                    const currentCaddyPortBindHttps =
+                        (await EnvManager.getVariable(
+                            "VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS",
+                            "cli",
+                        )) ||
+                        process.env.VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS ||
+                        serverConfiguration.VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS;
+
                     // Model Definitions configuration has been removed
 
                     // Get current CLI environment values
@@ -2451,12 +2516,39 @@ if (import.meta.main) {
                     // First ask what to configure
                     const configOption = await select({
                         message: "What would you like to configure?\n",
+                        pageSize: 15,
                         choices: [
+                            new Separator('=== 🌐 Browser Client ==='),
                             {
-                                name: `World API URI\n    Current: ${currentUri}`,
+                                name: `Browser Client - World API URI\n    Current: ${currentUri}`,
                                 value: "world-api-uri",
                             },
-
+                            {
+                                name: `Browser Client - World API SSL Enabled\n    Current: ${currentSslEnabled}`,
+                                value: "world-api-ssl",
+                            },
+                            new Separator('=== 🔄 Caddy (Reverse Proxy) ==='),
+                            {
+                                name: `Caddy API Domain\n    Current: ${currentCaddyDomainApi}`,
+                                value: "caddy-domain-api",
+                            },
+                            {
+                                name: `Caddy App Domain\n    Current: ${currentCaddyDomainApp}`,
+                                value: "caddy-domain-app",
+                            },
+                            {
+                                name: `Caddy Host Bind\n    Current: ${currentCaddyHostBind}`,
+                                value: "caddy-host-bind",
+                            },
+                            {
+                                name: `Caddy HTTP Port Bind\n    Current: ${currentCaddyPortBindHttp}`,
+                                value: "caddy-port-bind-http",
+                            },
+                            {
+                                name: `Caddy HTTPS Port Bind\n    Current: ${currentCaddyPortBindHttps}`,
+                                value: "caddy-port-bind-https",
+                            },
+                            new Separator('=== 🗄️ Database ==='),
                             {
                                 name: `User SQL Seed Directory\n    Current: ${currentUserSqlDir}`,
                                 value: "user-sql-dir",
@@ -2465,13 +2557,13 @@ if (import.meta.main) {
                                 name: `User Asset Seed Directory\n    Current: ${currentUserAssetDir}`,
                                 value: "user-asset-dir",
                             },
-                            new Separator(),
+                            new Separator('>>>>>> ⚙️ Actions <<<<<<'),
                             {
-                                name: "\x1b[32mView all current configuration\x1b[0m",
+                                name: "View all current configuration",
                                 value: "view-all",
                             },
                             {
-                                name: "\x1b[31mExit configuration\x1b[0m",
+                                name: "Exit configuration",
                                 value: "exit",
                             },
                         ],
@@ -2487,6 +2579,8 @@ if (import.meta.main) {
                         const action = await select({
                             message:
                                 "What would you like to do with the World API URI?\n",
+                            
+                            pageSize: 15,
                             choices: [
                                 {
                                     name: `Set variable in client .env\n    Current: ${currentUri}`,
@@ -2536,6 +2630,8 @@ if (import.meta.main) {
                         const action = await select({
                             message:
                                 "What would you like to do with User SQL Seed Directory?\n",
+                            
+                            pageSize: 15,
                             choices: [
                                 {
                                     name: `Set variable in CLI .env\n    Current: ${currentUserSqlDir}`,
@@ -2584,10 +2680,321 @@ if (import.meta.main) {
                                 debug: cliConfiguration.VRCA_CLI_DEBUG,
                             });
                         }
+                    } else if (configOption === "world-api-ssl") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with World API SSL?\n",
+                            
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in client .env\n    Current: ${currentSslEnabled}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from client .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newSslEnabled = await select({
+                                message: "Enable SSL for World API?",
+                                choices: [
+                                    { name: "Yes", value: "true" },
+                                    { name: "No", value: "false" },
+                                ],
+                                default: currentSslEnabled ? "true" : "false",
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL",
+                                newSslEnabled,
+                                "client",
+                            );
+
+                            BunLogModule({
+                                message: `World API SSL set to: ${newSslEnabled} (persisted to client .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL",
+                                "client",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "World API SSL variable unset (removed from client .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "caddy-domain-api") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with Caddy API Domain?\n",
+                            
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env\n    Current: ${currentCaddyDomainApi}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newDomain = await input({
+                                message: "Enter Caddy API Domain:",
+                                default: currentCaddyDomainApi,
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_SERVER_SERVICE_CADDY_DOMAIN_API",
+                                newDomain,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `Caddy API Domain set to: ${newDomain} (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_SERVER_SERVICE_CADDY_DOMAIN_API",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "Caddy API Domain variable unset (removed from CLI .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "caddy-domain-app") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with Caddy App Domain?\n",
+                            
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env\n    Current: ${currentCaddyDomainApp}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newDomain = await input({
+                                message: "Enter Caddy App Domain:",
+                                default: currentCaddyDomainApp,
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_SERVER_SERVICE_CADDY_DOMAIN_APP",
+                                newDomain,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `Caddy App Domain set to: ${newDomain} (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_SERVER_SERVICE_CADDY_DOMAIN_APP",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "Caddy App Domain variable unset (removed from CLI .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "caddy-host-bind") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with Caddy Host Bind?\n",
+                            
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env\n    Current: ${currentCaddyHostBind}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newHost = await input({
+                                message: "Enter Caddy Host Bind:",
+                                default: currentCaddyHostBind,
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_SERVER_SERVICE_CADDY_HOST_CONTAINER_BIND_EXTERNAL",
+                                newHost,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `Caddy Host Bind set to: ${newHost} (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_SERVER_SERVICE_CADDY_HOST_CONTAINER_BIND_EXTERNAL",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "Caddy Host Bind variable unset (removed from CLI .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "caddy-port-bind-http") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with Caddy HTTP Port Bind?\n",
+                            
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env\n    Current: ${currentCaddyPortBindHttp}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newPort = await input({
+                                message: "Enter Caddy HTTP Port Bind:",
+                                default: currentCaddyPortBindHttp.toString(),
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTP",
+                                newPort,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `Caddy HTTP Port Bind set to: ${newPort} (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTP",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "Caddy HTTP Port Bind variable unset (removed from CLI .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "caddy-port-bind-https") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with Caddy HTTPS Port Bind?\n",
+                            
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env\n    Current: ${currentCaddyPortBindHttps}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newPort = await input({
+                                message: "Enter Caddy HTTPS Port Bind:",
+                                default: currentCaddyPortBindHttps.toString(),
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS",
+                                newPort,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `Caddy HTTPS Port Bind set to: ${newPort} (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "Caddy HTTPS Port Bind variable unset (removed from CLI .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
                     } else if (configOption === "user-asset-dir") {
                         const action = await select({
                             message:
                                 "What would you like to do with User Asset Seed Directory?\n",
+                            
+                            pageSize: 15,
                             choices: [
                                 {
                                     name: `Set variable in CLI .env\n    Current: ${currentUserAssetDir}`,
@@ -2645,8 +3052,16 @@ if (import.meta.main) {
                             debug: cliConfiguration.VRCA_CLI_DEBUG,
                         });
 
-                        console.log(`\nClient Configuration:`);
+                        console.log(`\nBrowser Client Configuration:`);
                         console.log(`  World API URI: ${currentUri}`);
+                        console.log(`  World API SSL Enabled: ${currentSslEnabled}`);
+
+                        console.log(`\nCaddy (Reverse Proxy):`);
+                        console.log(`  API Domain: ${currentCaddyDomainApi}`);
+                        console.log(`  App Domain: ${currentCaddyDomainApp}`);
+                        console.log(`  Host Bind: ${currentCaddyHostBind}`);
+                        console.log(`  HTTP Port Bind: ${currentCaddyPortBindHttp}`);
+                        console.log(`  HTTPS Port Bind: ${currentCaddyPortBindHttps}`);
 
                         console.log(`\nCLI Configuration:`);
                         console.log(

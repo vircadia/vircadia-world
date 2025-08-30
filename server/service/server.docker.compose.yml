@@ -210,3 +210,42 @@ services:
     networks:
       - vircadia_internal_network
       - vircadia_public_network
+
+  # Caddy reverse proxy service
+  vircadia_world_caddy:
+    image: caddy:2.10.2-alpine
+    container_name: ${VRCA_SERVER_SERVICE_CADDY_CONTAINER_NAME}
+    user: "1000:1000"
+    restart: always
+    read_only: true
+    ports:
+      - "${VRCA_SERVER_SERVICE_CADDY_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTP}:80"
+      - "${VRCA_SERVER_SERVICE_CADDY_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS}:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+    tmpfs:
+      - /tmp
+      - /var/run
+      - /var/cache
+      - /data
+    environment:
+      CADDY_DOMAIN_API: ${VRCA_SERVER_SERVICE_CADDY_DOMAIN_API}
+      CADDY_DOMAIN_APP: ${VRCA_SERVER_SERVICE_CADDY_DOMAIN_APP}
+      CADDY_UPSTREAM_API: ${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_CONTAINER_NAME}:${VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_INTERNAL}
+      CADDY_UPSTREAM_APP: ${VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_CONTAINER_NAME}:${VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT}
+    depends_on:
+      vircadia_world_api_manager:
+        condition: service_healthy
+        restart: true
+      vircadia_world_client_web_babylon_js:
+        condition: service_healthy
+        restart: true
+    healthcheck:
+      test: ["CMD", "caddy", "version"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    networks:
+      - vircadia_internal_network
+      - vircadia_public_network

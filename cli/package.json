@@ -29,7 +29,7 @@
         "test:2_api_auth_integration": "bun test ./test/2_test_api_auth_integration.ts",
         "test:3_api_auth_azure_integration": "bun test ./test/3_test_api_auth_azure_integration.ts",
         "server:run-command": "VRCA_CLI_DEBUG=1 bun vircadia.cli.ts server:run-command",
-        "server:init": "bun run install:sdk && bun run build:sdk && bun run install:repo && bun run build:server:api && bun run build:server:state && bun run build:client:web_babylon_js:docker && bun run server:run-command up --build vircadia_world_postgres -d && bun run server:postgres:health && bun run server:postgres:migrate && bun run server:postgres:seed:sql && bun run server:postgres:seed:assets && bun run server:run-command up --build vircadia_world_api_manager -d && bun run server:run-command up --build vircadia_world_state_manager -d && bun run server:run-command up --build vircadia_world_pgweb -d && bun run server:run-command up --build vircadia_world_client_web_babylon_js -d",
+        "server:init": "bun run install:sdk && bun run build:sdk && bun run install:repo && bun run build:server:api && bun run build:server:state && bun run build:client:web_babylon_js:docker && bun run server:run-command up --build vircadia_world_postgres -d && bun run server:postgres:health && bun run server:postgres:migrate && bun run server:postgres:seed:sql && bun run server:postgres:seed:assets && bun run server:run-command up --build vircadia_world_api_manager -d && bun run server:run-command up --build vircadia_world_state_manager -d && bun run server:run-command up --build vircadia_world_pgweb -d && bun run server:run-command up --build vircadia_world_client_web_babylon_js -d && bun run server:run-command up --build vircadia_world_caddy -d",
         "server:rebuild-all": "bun run server:run-command down -v && bun run server:init",
         "server:health-all": "bun run server:world-api-manager:health && bun run server:world-state-manager:health && bun run server:pgweb:health && bun run server:postgres:health && bun run server:client-web-babylon-js:health",
         "server:postgres:backup": "bun run server:run-command down vircadia_world_client_web_babylon_js vircadia_world_api_manager vircadia_world_state_manager vircadia_world_pgweb && bun vircadia.cli.ts server:postgres:backup && bun run server:run-command up -d",
@@ -49,6 +49,8 @@
         "server:pgweb:health": "bun vircadia.cli.ts server:pgweb:health",
         "server:client-web-babylon-js:health": "bun vircadia.cli.ts server:client-web-babylon-js:health",
         "server:pgweb:access-command": "bun vircadia.cli.ts server:pgweb:access-command",
+        "server:caddy:up": "bun run server:run-command up --build vircadia_world_caddy -d",
+        "server:caddy:down": "bun run server:run-command down vircadia_world_caddy",
         "project:configure": "bun vircadia.cli.ts configure",
         "project:init": "bun run install:all && bun run project:configure && bun run server:init"
     },

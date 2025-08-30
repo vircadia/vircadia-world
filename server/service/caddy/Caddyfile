@@ -1,0 +1,13 @@
+{$CADDY_DOMAIN_API} {
+  encode zstd gzip
+
+  # Proxy all API traffic to the API manager service
+  reverse_proxy http://{$CADDY_UPSTREAM_API}
+}
+
+{$CADDY_DOMAIN_APP} {
+  encode zstd gzip
+
+  # Proxy app traffic to the prod web server container
+  reverse_proxy http://{$CADDY_UPSTREAM_APP}
+}

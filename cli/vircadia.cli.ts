@@ -2435,18 +2435,14 @@ if (import.meta.main) {
                         (await EnvManager.getVariable(
                             "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI",
                             "client",
-                        )) ||
-                        process.env
-                            .VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI ||
+                        )) ??
                         clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI;
 
                     const currentSslEnabled =
                         (await EnvManager.getVariable(
                             "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL",
                             "client",
-                        )) ||
-                        process.env
-                            .VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL ||
+                        )) ??
                         clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL;
 
                     const currentCaddyDomainApi =

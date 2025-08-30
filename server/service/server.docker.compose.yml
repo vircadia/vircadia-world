@@ -170,7 +170,7 @@ services:
 
   # BabylonJS Web Client service
   vircadia_world_client_web_babylon_js:
-    image: caddy:2.10.0-alpine
+    image: caddy:2.10.2-alpine
     container_name: ${VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_CONTAINER_NAME}
     user: "1000:1000"
     restart: always
@@ -178,9 +178,15 @@ services:
     ports:
       - "${VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL}:${VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT}"
     volumes:
-      - ../../client/web_babylon_js/${VRCA_CLIENT_WEB_BABYLON_JS_BUILD_OUTPUT_DIR:-dist-docker}:/srv
+      - ../../client/web_babylon_js/${VRCA_CLIENT_WEB_BABYLON_JS_BUILD_OUTPUT_DIR:-dist-docker}:/srv:ro
     # Serve prebuilt static assets produced on the host
     command: ["caddy", "file-server", "--root", "/srv", "--listen", ":${VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT}"]
+    tmpfs:
+      - /tmp
+      - /var/run
+      - /var/cache
+      - /data:uid=1000,gid=1000
+      - /config:uid=1000,gid=1000
     environment:
       VRCA_CLIENT_WEB_BABYLON_JS_DEBUG: ${VRCA_CLIENT_WEB_BABYLON_JS_DEBUG}
       VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS: ${VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS}
@@ -227,7 +233,8 @@ services:
       - /tmp
       - /var/run
       - /var/cache
-      - /data
+      - /data:uid=1000,gid=1000
+      - /config:uid=1000,gid=1000
     environment:
       CADDY_DOMAIN_API: ${VRCA_SERVER_SERVICE_CADDY_DOMAIN_API}
       CADDY_DOMAIN_APP: ${VRCA_SERVER_SERVICE_CADDY_DOMAIN_APP}

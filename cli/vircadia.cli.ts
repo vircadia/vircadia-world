@@ -361,6 +361,62 @@ export namespace Server_CLI {
         }
     }
 
+    export async function printEgressInfo(): Promise<void> {
+        const apiHostExternal =
+            (await EnvManager.getVariable(
+                "VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL",
+                "cli",
+            )) ||
+            process.env
+                .VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL ||
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL;
+
+        const apiPortExternal =
+            (await EnvManager.getVariable(
+                "VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL",
+                "cli",
+            )) ||
+            process.env
+                .VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL ||
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString();
+
+        const appHostExternal =
+            (await EnvManager.getVariable(
+                "VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL",
+                "cli",
+            )) ||
+            process.env
+                .VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL ||
+            serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL;
+
+        const appPortExternal =
+            (await EnvManager.getVariable(
+                "VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL",
+                "cli",
+            )) ||
+            process.env
+                .VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL ||
+            serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL.toString();
+
+        const apiUpstream = `${apiHostExternal}:${apiPortExternal}`;
+        const appUpstream = `${appHostExternal}:${appPortExternal}`;
+
+        BunLogModule({
+            message: "Reverse proxy egress points (what to proxy):",
+            type: "info",
+            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+            debug: cliConfiguration.VRCA_CLI_DEBUG,
+        });
+
+        console.log(`\nHost-published endpoints (for proxies on the host):`);
+        console.log(`  API Manager:  http://${apiHostExternal}:${apiPortExternal}`);
+        console.log(`  Web Babylon.js Client App:   http://${appHostExternal}:${appPortExternal}`);
+
+        console.log(`\nDocker network upstreams (for proxies inside Docker):`);
+        console.log(`  API Manager:  ${apiUpstream}`);
+        console.log(`  Web Babylon.js Client App:   ${appUpstream}`);
+    }
+
     export async function isPostgresHealthy(
         wait?: { interval: number; timeout: number } | boolean,
     ): Promise<{
@@ -2410,61 +2466,7 @@ if (import.meta.main) {
             }
 
             case "server:egress:list": {
-                // Resolve host-published (host network) endpoints
-                const apiHostExternal =
-                    (await EnvManager.getVariable(
-                        "VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL",
-                        "cli",
-                    )) ||
-                    process.env
-                        .VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL ||
-                    serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL;
-
-                const apiPortExternal =
-                    (await EnvManager.getVariable(
-                        "VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL",
-                        "cli",
-                    )) ||
-                    process.env
-                        .VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL ||
-                    serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString();
-
-                const appHostExternal =
-                    (await EnvManager.getVariable(
-                        "VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL",
-                        "cli",
-                    )) ||
-                    process.env
-                        .VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL ||
-                    serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL;
-
-                const appPortExternal =
-                    (await EnvManager.getVariable(
-                        "VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL",
-                        "cli",
-                    )) ||
-                    process.env
-                        .VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL ||
-                    serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL.toString();
-
-                // Resolve docker network upstreams (container network)
-                const apiUpstream = `${serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_CONTAINER_NAME}:3020`;
-                const appUpstream = `${serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_CONTAINER_NAME}:${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT}`;
-
-                BunLogModule({
-                    message: "Reverse proxy egress points (what to proxy):",
-                    type: "info",
-                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                    debug: cliConfiguration.VRCA_CLI_DEBUG,
-                });
-
-                console.log(`\nHost-published endpoints (for proxies on the host):`);
-                console.log(`  API Manager:  http://${apiHostExternal}:${apiPortExternal}`);
-                console.log(`  Client App:   http://${appHostExternal}:${appPortExternal}`);
-
-                console.log(`\nDocker network upstreams (for proxies inside Docker):`);
-                console.log(`  API Manager:  ${apiUpstream}`);
-                console.log(`  Client App:   ${appUpstream}`);
+                await Server_CLI.printEgressInfo();
                 break;
             }
 
@@ -2567,47 +2569,57 @@ if (import.meta.main) {
                         choices: [
                             new Separator('=== 🌐 Browser Client ==='),
                             {
-                                name: `Browser Client - World API URI\n    Current: ${currentUri}`,
+                                name: `Browser Client -> World API URI\n    Current: ${currentUri}`,
                                 value: "world-api-uri",
+                                description: "The default world API URI for the browser client to connect to.",
                             },
                             {
-                                name: `Browser Client - World API SSL Enabled\n    Current: ${currentSslEnabled}`,
+                                name: `Browser Client -> World API SSL Enabled\n    Current: ${currentSslEnabled}`,
                                 value: "world-api-ssl",
+                                description: "Whether the world API uses SSL (HTTPS).",
                             },
                             new Separator('=== 🔄 Caddy (Reverse Proxy) ==='),
                             {
-                                name: `Caddy API Domain\n    Current: ${currentCaddyDomainApi}`,
+                                name: `Caddy Public World API Domain\n    Current: ${currentCaddyDomainApi}`,
                                 value: "caddy-domain-api",
+                                description: "The public domain for the world API.",
                             },
                             {
-                                name: `Caddy App Domain\n    Current: ${currentCaddyDomainApp}`,
+                                name: `Caddy Public Browser Client App Domain\n    Current: ${currentCaddyDomainApp}`,
                                 value: "caddy-domain-app",
+                                description: "The public domain for the browser client app.",
                             },
                             {
-                                name: `Caddy Host Bind\n    Current: ${currentCaddyHostBind}`,
+                                name: `Caddy Container Host Bind\n    Current: ${currentCaddyHostBind}`,
                                 value: "caddy-host-bind",
+                                description: "The host bind for the Caddy container.",
                             },
                             {
-                                name: `Caddy HTTP Port Bind\n    Current: ${currentCaddyPortBindHttp}`,
+                                name: `Caddy Container HTTP Port Bind\n    Current: ${currentCaddyPortBindHttp}`,
                                 value: "caddy-port-bind-http",
+                                description: "The HTTP port bind for the Caddy container.",
                             },
                             {
-                                name: `Caddy HTTPS Port Bind\n    Current: ${currentCaddyPortBindHttps}`,
+                                name: `Caddy Container HTTPS Port Bind\n    Current: ${currentCaddyPortBindHttps}`,
                                 value: "caddy-port-bind-https",
+                                description: "The HTTPS port bind for the Caddy container.",
                             },
                             new Separator('=== 🗄️ Database ==='),
                             {
                                 name: `User SQL Seed Directory\n    Current: ${currentUserSqlDir}`,
                                 value: "user-sql-dir",
+                                description: "The directory with the user SQL seed files. (Optional)",
                             },
                             {
                                 name: `User Asset Seed Directory\n    Current: ${currentUserAssetDir}`,
                                 value: "user-asset-dir",
+                                description: "The directory with the user asset seed files. (Optional)",
                             },
                             new Separator('>>>>>> ⚙️ Actions <<<<<<'),
                             {
-                                name: "Show reverse proxy egress points",
+                                name: "Show egress points",
                                 value: "show-egress",
+                                description: "Show the egress points to setup reverse proxies.",
                             },
                             {
                                 name: "View all current configuration",
@@ -3096,60 +3108,7 @@ if (import.meta.main) {
                             });
                         }
                     } else if (configOption === "show-egress") {
-                        // Mirror logic from server:egress:list command for discoverability inside config menu
-                        const apiHostExternal =
-                            (await EnvManager.getVariable(
-                                "VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL",
-                                "cli",
-                            )) ||
-                            process.env
-                                .VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL ||
-                            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL;
-
-                        const apiPortExternal =
-                            (await EnvManager.getVariable(
-                                "VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL",
-                                "cli",
-                            )) ||
-                            process.env
-                                .VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL ||
-                            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString();
-
-                        const appHostExternal =
-                            (await EnvManager.getVariable(
-                                "VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL",
-                                "cli",
-                            )) ||
-                            process.env
-                                .VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL ||
-                            serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL;
-
-                        const appPortExternal =
-                            (await EnvManager.getVariable(
-                                "VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL",
-                                "cli",
-                            )) ||
-                            process.env
-                                .VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL ||
-                            serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL.toString();
-
-                        const apiUpstream = `${serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_CONTAINER_NAME}:3020`;
-                        const appUpstream = `${serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_CONTAINER_NAME}:${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT}`;
-
-                        BunLogModule({
-                            message: "Reverse proxy egress points (what to proxy):",
-                            type: "info",
-                            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                            debug: cliConfiguration.VRCA_CLI_DEBUG,
-                        });
-
-                        console.log(`\nHost-published endpoints (for proxies on the host):`);
-                        console.log(`  API Manager:  http://${apiHostExternal}:${apiPortExternal}`);
-                        console.log(`  Web Babylon.js Client App:   http://${appHostExternal}:${appPortExternal}`);
-
-                        console.log(`\nDocker network upstreams (for proxies inside Docker):`);
-                        console.log(`  API Manager:  ${apiUpstream}`);
-                        console.log(`  Web Babylon.js Client App:   ${appUpstream}`);
+                        await Server_CLI.printEgressInfo();
                     } else if (configOption === "view-all") {
                         BunLogModule({
                             message: "Current Configuration:",

@@ -34,9 +34,8 @@ export class WorldStateManager {
             });
 
             Bun.serve({
-                hostname:
-                    serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_INTERNAL,
-                port: serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_INTERNAL,
+                hostname: '0.0.0.0',
+                port: 3021,
                 development: serverConfiguration.VRCA_SERVER_DEBUG,
 
                 websocket: {

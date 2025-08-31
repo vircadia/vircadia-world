@@ -270,7 +270,7 @@
         <BabylonMyAvatarAnimationDebugOverlay v-model="animDebugOpen" hotkey="Shift+B" />
         <!-- WebRTC component (hidden, just for functionality) -->
         <BabylonWebRTC
-            v-if="fullSessionId"
+            v-if="connectionStatus === 'connected' && fullSessionId"
             :instance-id="instanceId ?? undefined"
             :vircadia-world="vircadiaWorld"
             :avatar-data-map="otherAvatarsRef?.avatarDataMap || {}"

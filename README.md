@@ -27,7 +27,7 @@ git lfs pull
 
 ### Deploy
 
-Afterward, use the [CLI](./cli/README.mdx) to deploy the project.
+Afterward, use the [CLI](./cli/README.mdx) to install and deploy the project.
 
 ## Architecture
 

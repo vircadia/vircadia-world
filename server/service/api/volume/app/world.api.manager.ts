@@ -356,9 +356,8 @@ export class WorldApiManager {
 
         // Start server
         this.server = Bun.serve({
-            hostname:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_INTERNAL,
-            port: serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_INTERNAL,
+            hostname: '0.0.0.0',
+            port: 3020,
             development: serverConfiguration.VRCA_SERVER_DEBUG,
 
             // #region API -> HTTP Routes

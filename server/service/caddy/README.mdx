@@ -6,4 +6,9 @@ sidebar_label: Reverse Proxy (Production)
 
 We recommend using Caddy as a reverse proxy for the Vircadia World.
 
-You must expose the API Manager for Vircadia World to the public internet. You can optionally expose the client to the public internet as well if you use the production client Docker deployment.
+You should expose:
+
+1. The API Manager for Vircadia World to the public internet.
+2. The client to the public internet if you use the production client Docker deployment.
+
+Exposing the client to the public internet is optional, but it's necessary if you use the production client Docker deployment that is included.

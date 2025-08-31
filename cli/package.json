@@ -49,6 +49,7 @@
         "server:pgweb:health": "bun vircadia.cli.ts server:pgweb:health",
         "server:client-web-babylon-js:health": "bun vircadia.cli.ts server:client-web-babylon-js:health",
         "server:pgweb:access-command": "bun vircadia.cli.ts server:pgweb:access-command",
+        "server:egress:list": "bun vircadia.cli.ts server:egress:list",
         "server:caddy:up": "bun run server:run-command up --build vircadia_world_caddy -d",
         "server:caddy:down": "bun run server:run-command down vircadia_world_caddy",
         "project:configure": "bun vircadia.cli.ts configure",

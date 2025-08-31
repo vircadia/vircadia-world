@@ -237,10 +237,6 @@ export namespace Server_CLI {
 
             VRCA_SERVER_SERVICE_WORLD_API_MANAGER_CONTAINER_NAME:
                 serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_CONTAINER_NAME,
-            VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_INTERNAL:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_INTERNAL,
-            VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_INTERNAL:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_INTERNAL.toString(),
             VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL:
                 serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
             VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL:
@@ -252,10 +248,6 @@ export namespace Server_CLI {
 
             VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_CONTAINER_NAME:
                 serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_CONTAINER_NAME,
-            VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_INTERNAL:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_INTERNAL,
-            VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_INTERNAL:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_INTERNAL.toString(),
             VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_EXTERNAL:
                 serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
             VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL:
@@ -2417,6 +2409,65 @@ if (import.meta.main) {
                 break;
             }
 
+            case "server:egress:list": {
+                // Resolve host-published (host network) endpoints
+                const apiHostExternal =
+                    (await EnvManager.getVariable(
+                        "VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL",
+                        "cli",
+                    )) ||
+                    process.env
+                        .VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL ||
+                    serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL;
+
+                const apiPortExternal =
+                    (await EnvManager.getVariable(
+                        "VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL",
+                        "cli",
+                    )) ||
+                    process.env
+                        .VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL ||
+                    serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString();
+
+                const appHostExternal =
+                    (await EnvManager.getVariable(
+                        "VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL",
+                        "cli",
+                    )) ||
+                    process.env
+                        .VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL ||
+                    serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL;
+
+                const appPortExternal =
+                    (await EnvManager.getVariable(
+                        "VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL",
+                        "cli",
+                    )) ||
+                    process.env
+                        .VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL ||
+                    serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL.toString();
+
+                // Resolve docker network upstreams (container network)
+                const apiUpstream = `${serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_CONTAINER_NAME}:3020`;
+                const appUpstream = `${serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_CONTAINER_NAME}:${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT}`;
+
+                BunLogModule({
+                    message: "Reverse proxy egress points (what to proxy):",
+                    type: "info",
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                });
+
+                console.log(`\nHost-published endpoints (for proxies on the host):`);
+                console.log(`  API Manager:  http://${apiHostExternal}:${apiPortExternal}`);
+                console.log(`  Client App:   http://${appHostExternal}:${appPortExternal}`);
+
+                console.log(`\nDocker network upstreams (for proxies inside Docker):`);
+                console.log(`  API Manager:  ${apiUpstream}`);
+                console.log(`  Client App:   ${appUpstream}`);
+                break;
+            }
+
             // Generic docker command support
             case "server:run-command":
                 await Server_CLI.runServerDockerCommand({
@@ -2554,6 +2605,10 @@ if (import.meta.main) {
                                 value: "user-asset-dir",
                             },
                             new Separator('>>>>>> ⚙️ Actions <<<<<<'),
+                            {
+                                name: "Show reverse proxy egress points",
+                                value: "show-egress",
+                            },
                             {
                                 name: "View all current configuration",
                                 value: "view-all",
@@ -3040,6 +3095,61 @@ if (import.meta.main) {
                                 debug: cliConfiguration.VRCA_CLI_DEBUG,
                             });
                         }
+                    } else if (configOption === "show-egress") {
+                        // Mirror logic from server:egress:list command for discoverability inside config menu
+                        const apiHostExternal =
+                            (await EnvManager.getVariable(
+                                "VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL",
+                                "cli",
+                            )) ||
+                            process.env
+                                .VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL ||
+                            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL;
+
+                        const apiPortExternal =
+                            (await EnvManager.getVariable(
+                                "VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL",
+                                "cli",
+                            )) ||
+                            process.env
+                                .VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL ||
+                            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString();
+
+                        const appHostExternal =
+                            (await EnvManager.getVariable(
+                                "VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL",
+                                "cli",
+                            )) ||
+                            process.env
+                                .VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL ||
+                            serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL;
+
+                        const appPortExternal =
+                            (await EnvManager.getVariable(
+                                "VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL",
+                                "cli",
+                            )) ||
+                            process.env
+                                .VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL ||
+                            serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL.toString();
+
+                        const apiUpstream = `${serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_CONTAINER_NAME}:3020`;
+                        const appUpstream = `${serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_CONTAINER_NAME}:${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT}`;
+
+                        BunLogModule({
+                            message: "Reverse proxy egress points (what to proxy):",
+                            type: "info",
+                            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                            debug: cliConfiguration.VRCA_CLI_DEBUG,
+                        });
+
+                        console.log(`\nHost-published endpoints (for proxies on the host):`);
+                        console.log(`  API Manager:  http://${apiHostExternal}:${apiPortExternal}`);
+                        console.log(`  Web Babylon.js Client App:   http://${appHostExternal}:${appPortExternal}`);
+
+                        console.log(`\nDocker network upstreams (for proxies inside Docker):`);
+                        console.log(`  API Manager:  ${apiUpstream}`);
+                        console.log(`  Web Babylon.js Client App:   ${appUpstream}`);
                     } else if (configOption === "view-all") {
                         BunLogModule({
                             message: "Current Configuration:",

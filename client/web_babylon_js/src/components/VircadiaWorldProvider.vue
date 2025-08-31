@@ -282,14 +282,13 @@ async function connect() {
         return;
     }
 
-    // No-op if already connected with same credentials
+    // No-op if already connected with same token (agentId changes don't require reconnect)
     if (
         connectionInfoComputed.value.isConnected &&
-        lastConnectedToken.value === currentToken &&
-        lastConnectedAgentId.value === currentAgentId
+        lastConnectedToken.value === currentToken
     ) {
         console.log(
-            "[VircadiaWorldProvider] Already connected with same credentials",
+            "[VircadiaWorldProvider] Already connected with same token",
         );
         return;
     }
@@ -297,13 +296,15 @@ async function connect() {
     console.log("[VircadiaWorldProvider] Starting connection attempt");
     isConnecting.value = true;
     try {
-        // Always disconnect first for a clean state
-        if (
-            connectionInfoComputed.value.isConnected ||
-            connectionInfoComputed.value.isConnecting
-        ) {
-            vircadiaWorldNonNull.client.Utilities.Connection.disconnect();
-            await new Promise((resolve) => setTimeout(resolve, 100));
+        // Disconnect only if connected with a different token
+        if (connectionInfoComputed.value.isConnected) {
+            if (lastConnectedToken.value !== currentToken) {
+                vircadiaWorldNonNull.client.Utilities.Connection.disconnect();
+                await new Promise((resolve) => setTimeout(resolve, 100));
+            }
+        } else if (connectionInfoComputed.value.isConnecting) {
+            console.log("[VircadiaWorldProvider] Already connecting, skipping");
+            return;
         }
 
         // Update client configuration using current auth
@@ -398,7 +399,20 @@ watch(
         agentId: agentIdComputed.value,
         account: accountComputed.value,
     }),
-    handleAuthChange,
+    // Debounce auth change handling to avoid connect/disconnect races
+    (() => {
+        const authChangeDebounceMs = 150;
+        let authChangeTimer: number | null = null;
+        return () => {
+            if (authChangeTimer) {
+                clearTimeout(authChangeTimer);
+            }
+            authChangeTimer = window.setTimeout(() => {
+                handleAuthChange();
+                authChangeTimer = null;
+            }, authChangeDebounceMs);
+        };
+    })(),
     { immediate: true, deep: true },
 );
 

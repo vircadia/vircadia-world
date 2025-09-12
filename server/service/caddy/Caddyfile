@@ -1,4 +1,9 @@
+{
+  email {$CADDY_EMAIL}
+}
+
 {$CADDY_DOMAIN_API} {
+  {$CADDY_TLS_API}
   encode zstd gzip
 
   # Proxy all API traffic to the API manager service
@@ -6,6 +11,7 @@
 }
 
 {$CADDY_DOMAIN_APP} {
+  {$CADDY_TLS_APP}
   encode zstd gzip
 
   # Proxy app traffic to the prod web server container

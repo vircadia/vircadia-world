@@ -4,20 +4,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, watch, toRef, nextTick } from "vue";
-import {
-    Scene,
-    Vector3,
-    HemisphericLight,
-    WebGPUEngine,
-    DirectionalLight,
-    ArcRotateCamera,
-    MeshBuilder,
-    StandardMaterial,
-    Color3,
-    PhysicsAggregate,
-    PhysicsShapeType,
-    HavokPlugin,
-} from "@babylonjs/core";
+import { Scene, Vector3, WebGPUEngine, ArcRotateCamera } from "@babylonjs/core";
 
 const props = defineProps({
     performanceMode: { type: String, default: "low" },
@@ -35,24 +22,7 @@ let scene = null;
 const isReady = ref(false);
 let resizeRaf = 0;
 
-// Physics
-let havokInstance = null;
-let physicsPlugin = null;
-
-async function initializePhysics(targetScene, gravityVector) {
-    try {
-        if (!havokInstance) {
-            const HavokPhysics = (await import("@babylonjs/havok")).default;
-            havokInstance = await HavokPhysics();
-        }
-        physicsPlugin = new HavokPlugin(true, havokInstance);
-        const enabled = targetScene.enablePhysics(gravityVector, physicsPlugin);
-        return enabled;
-    } catch (error) {
-        console.error("Error initializing physics engine:", error);
-        return false;
-    }
-}
+// Physics is initialized and managed by BabylonEnvironment.vue
 
 function handleResize() {
     if (!engine) return;
@@ -194,7 +164,7 @@ onMounted(async () => {
 
         scene = new Scene(engine);
 
-        // Basic camera and lighting
+        // Basic camera
         const defaultCamera = new ArcRotateCamera(
             "defaultCamera",
             -Math.PI / 2,
@@ -205,43 +175,6 @@ onMounted(async () => {
         );
         defaultCamera.attachControl(canvasRef.value, true);
         scene.activeCamera = defaultCamera;
-
-        // Basic lighting
-        new HemisphericLight("light", new Vector3(1, 1, 0), scene);
-        const directionalLight = new DirectionalLight(
-            "directionalLight",
-            new Vector3(-1, -2, -1),
-            scene,
-        );
-        directionalLight.position = new Vector3(10, 10, 10);
-        directionalLight.intensity = 1.0;
-
-        // Physics and ground
-        const gravityVector = new Vector3(0, -9.81, 0);
-        const physicsEnabled = await initializePhysics(scene, gravityVector);
-        if (physicsEnabled) {
-            const ground = MeshBuilder.CreateGround(
-                "ground",
-                { width: 1000, height: 1000 },
-                scene,
-            );
-            ground.position = new Vector3(0, -1, 0);
-
-            const groundMaterial = new StandardMaterial(
-                "groundMaterial",
-                scene,
-            );
-            groundMaterial.diffuseColor = new Color3(0.2, 0.2, 0.2);
-            groundMaterial.specularColor = new Color3(0.1, 0.1, 0.1);
-            ground.material = groundMaterial;
-
-            new PhysicsAggregate(
-                ground,
-                PhysicsShapeType.BOX,
-                { mass: 0, friction: 0.5, restitution: 0.3 },
-                scene,
-            );
-        }
 
         // Sizing
         window.addEventListener("resize", handleResize);

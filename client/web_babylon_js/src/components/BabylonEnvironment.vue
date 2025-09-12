@@ -5,15 +5,90 @@
 </template>
 <script setup lang="ts">
 import { ref, watch, toRef } from "vue";
-import { HDRCubeTexture, type Scene } from "@babylonjs/core";
+import {
+    HDRCubeTexture,
+    type Scene,
+    Vector3,
+    HemisphericLight,
+    DirectionalLight,
+    MeshBuilder,
+    StandardMaterial,
+    Color3,
+    PhysicsAggregate,
+    PhysicsShapeType,
+    HavokPlugin,
+} from "@babylonjs/core";
 import { useAsset } from "@vircadia/world-sdk/browser/vue";
 import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
 
-const props = defineProps<{
-    scene: Scene;
-    vircadiaWorld: ReturnType<typeof useVircadia>;
-    environmentEntityName: string; // name of the environment entity in the DB
-}>();
+type LightVector = [number, number, number];
+
+interface HemisphericLightOptions {
+    enabled?: boolean;
+    direction?: LightVector;
+    intensity?: number;
+}
+
+interface DirectionalLightOptions {
+    enabled?: boolean;
+    direction?: LightVector;
+    position?: LightVector;
+    intensity?: number;
+}
+
+interface GroundOptions {
+    enabled?: boolean;
+    width?: number;
+    height?: number;
+    position?: LightVector;
+    diffuseColor?: [number, number, number];
+    specularColor?: [number, number, number];
+    mass?: number;
+    friction?: number;
+    restitution?: number;
+}
+
+const props = withDefaults(
+    defineProps<{
+        scene: Scene;
+        vircadiaWorld: ReturnType<typeof useVircadia>;
+        environmentEntityName: string;
+        // defaults configuration
+        enableDefaults?: boolean;
+        enablePhysics?: boolean;
+        gravity?: LightVector;
+        hemisphericLight?: HemisphericLightOptions;
+        directionalLight?: DirectionalLightOptions;
+        ground?: GroundOptions;
+    }>(),
+    {
+        enableDefaults: true,
+        enablePhysics: true,
+        gravity: () => [0, -9.81, 0],
+        hemisphericLight: () => ({
+            enabled: true,
+            direction: [1, 1, 0],
+            intensity: 1.0,
+        }),
+        directionalLight: () => ({
+            enabled: true,
+            direction: [-1, -2, -1],
+            position: [10, 10, 10],
+            intensity: 1.0,
+        }),
+        ground: () => ({
+            enabled: true,
+            width: 1000,
+            height: 1000,
+            position: [0, -1, 0],
+            diffuseColor: [0.2, 0.2, 0.2],
+            specularColor: [0.1, 0.1, 0.1],
+            mass: 0,
+            friction: 0.5,
+            restitution: 0.3,
+        }),
+    },
+);
 
 const sceneRef = toRef(props, "scene");
 const vircadiaRef = toRef(props, "vircadiaWorld");
@@ -21,6 +96,100 @@ const envEntityNameRef = toRef(props, "environmentEntityName");
 
 const isLoading = ref(false);
 const hasLoaded = ref(false);
+const defaultsInitialized = ref(false);
+
+let havokInstance: unknown | null = null;
+let physicsPlugin: HavokPlugin | null = null;
+
+function toVec3(v: LightVector | undefined, fallback: Vector3): Vector3 {
+    if (!v || v.length !== 3) return fallback;
+    return new Vector3(v[0], v[1], v[2]);
+}
+
+async function initializePhysicsIfNeeded(targetScene: Scene) {
+    if (props.enablePhysics === false) return;
+    try {
+        if (!havokInstance) {
+            const HavokPhysics = (await import("@babylonjs/havok")).default;
+            havokInstance = await HavokPhysics();
+        }
+        if (!physicsPlugin) {
+            physicsPlugin = new HavokPlugin(true, havokInstance);
+        }
+        const gravityVector = toVec3(props.gravity, new Vector3(0, -9.81, 0));
+        targetScene.enablePhysics(gravityVector, physicsPlugin);
+    } catch (error) {
+        console.error(
+            "[BabylonEnvironment] Error initializing physics:",
+            error,
+        );
+    }
+}
+
+function addDefaultLightsIfNeeded(targetScene: Scene) {
+    if (props.enableDefaults === false) return;
+    const hemiOpts = props.hemisphericLight ?? {};
+    const dirOpts = props.directionalLight ?? {};
+
+    if (hemiOpts.enabled !== false) {
+        const hemi = new HemisphericLight(
+            "env-hemispheric",
+            toVec3(hemiOpts.direction, new Vector3(1, 1, 0)),
+            targetScene,
+        );
+        hemi.intensity = hemiOpts.intensity ?? 1.0;
+    }
+
+    if (dirOpts.enabled !== false) {
+        const dir = new DirectionalLight(
+            "env-directional",
+            toVec3(dirOpts.direction, new Vector3(-1, -2, -1)),
+            targetScene,
+        );
+        dir.position = toVec3(dirOpts.position, new Vector3(10, 10, 10));
+        dir.intensity = dirOpts.intensity ?? 1.0;
+    }
+}
+
+function addGroundIfNeeded(targetScene: Scene) {
+    if (props.enableDefaults === false) return;
+    const g = props.ground ?? {};
+    if (g.enabled === false) return;
+
+    const ground = MeshBuilder.CreateGround(
+        "env-ground",
+        { width: g.width ?? 1000, height: g.height ?? 1000 },
+        targetScene,
+    );
+    ground.position = toVec3(g.position, new Vector3(0, -1, 0));
+
+    const mat = new StandardMaterial("env-ground-material", targetScene);
+    const diff = g.diffuseColor ?? [0.2, 0.2, 0.2];
+    const spec = g.specularColor ?? [0.1, 0.1, 0.1];
+    mat.diffuseColor = new Color3(diff[0], diff[1], diff[2]);
+    mat.specularColor = new Color3(spec[0], spec[1], spec[2]);
+    ground.material = mat;
+
+    new PhysicsAggregate(
+        ground,
+        PhysicsShapeType.BOX,
+        {
+            mass: g.mass ?? 0,
+            friction: g.friction ?? 0.5,
+            restitution: g.restitution ?? 0.3,
+        },
+        targetScene,
+    );
+}
+
+async function initializeDefaults(targetScene: Scene) {
+    if (defaultsInitialized.value) return;
+    if (!props.enableDefaults && !props.enablePhysics) return;
+    await initializePhysicsIfNeeded(targetScene);
+    addDefaultLightsIfNeeded(targetScene);
+    addGroundIfNeeded(targetScene);
+    defaultsInitialized.value = true;
+}
 
 async function loadHdrFiles(
     scene: Scene,
@@ -78,6 +247,7 @@ async function loadAll(scene: Scene) {
 
     isLoading.value = true;
     try {
+        await initializeDefaults(scene);
         // Fetch all metadata for this environment entity
         const instance = vircadiaRef.value;
         if (!instance) {
@@ -149,5 +319,5 @@ watch(
     { immediate: true, deep: true },
 );
 
-defineExpose({ isLoading, loadAll });
+defineExpose({ isLoading, loadAll, initializeDefaults });
 </script>

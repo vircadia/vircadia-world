@@ -1,4 +1,4 @@
-import type postgres from "postgres";
+import type { SQL } from "bun";
 import { sign } from "jsonwebtoken";
 import { expect } from "bun:test";
 import { BunLogModule } from "../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
@@ -19,9 +19,7 @@ export interface TestAccount {
     sessionId: string;
 }
 
-export async function initTestAccounts(data: {
-    superUserSql: postgres.Sql;
-}): Promise<{
+export async function initTestAccounts(data: { superUserSql: SQL }): Promise<{
     adminAgent: TestAccount;
     regularAgent: TestAccount;
     anonAgent: TestAccount;
@@ -310,7 +308,7 @@ export async function initTestAccounts(data: {
 }
 
 export async function cleanupTestAccounts(data: {
-    superUserSql: postgres.Sql;
+    superUserSql: SQL;
 }): Promise<void> {
     await data.superUserSql.begin(async (tx) => {
         try {
@@ -349,7 +347,7 @@ export async function cleanupTestAccounts(data: {
 }
 
 export async function cleanupTestAuthProviders(data: {
-    superUserSql: postgres.Sql;
+    superUserSql: SQL;
 }): Promise<void> {
     await data.superUserSql.begin(async (tx) => {
         await tx`
@@ -365,7 +363,7 @@ export async function cleanupTestAuthProviders(data: {
 }
 
 export async function cleanupTestEntities(data: {
-    superUserSql: postgres.Sql;
+    superUserSql: SQL;
 }): Promise<void> {
     await data.superUserSql.begin(async (tx) => {
         try {
@@ -401,7 +399,7 @@ export async function cleanupTestEntities(data: {
 }
 
 export async function cleanupTestAssets(data: {
-    superUserSql: postgres.Sql;
+    superUserSql: SQL;
 }): Promise<void> {
     await data.superUserSql.begin(async (tx) => {
         try {

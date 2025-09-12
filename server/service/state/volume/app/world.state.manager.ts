@@ -1,5 +1,5 @@
 import { BunLogModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
-import type postgres from "postgres";
+import type { SQL } from "bun";
 import { serverConfiguration } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
 import {
     Service,
@@ -16,7 +16,8 @@ export class WorldStateManager {
     private intervalIds: Map<string, Timer> = new Map();
     private syncGroups: Map<string, Auth.SyncGroup.I_SyncGroup> = new Map();
     private tickCounts: Map<string, number> = new Map();
-    private superUserSql: postgres.Sql | null = null;
+    private superUserSql: SQL | null = null;
+    private legacySuperSql: import("postgres").Sql | null = null;
     private processingTicks: Set<string> = new Set(); // Track which sync groups are currently processing
     private pendingTicks: Map<string, boolean> = new Map(); // Track pending ticks for sync groups
     private entityExpiryIntervalId: Timer | null = null;
@@ -34,7 +35,7 @@ export class WorldStateManager {
             });
 
             Bun.serve({
-                hostname: '0.0.0.0',
+                hostname: "0.0.0.0",
                 port: 3021,
                 development: serverConfiguration.VRCA_SERVER_DEBUG,
 
@@ -139,6 +140,22 @@ export class WorldStateManager {
                 },
             });
 
+            this.legacySuperSql = await BunPostgresClientModule.getInstance({
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+            }).getLegacySuperClient({
+                postgres: {
+                    host: serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
+                    port: serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL,
+                    database:
+                        serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
+                    username:
+                        serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                    password:
+                        serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                },
+            });
+
             // Get sync groups from the database
             const syncGroupsData = await this.superUserSql<
                 Auth.SyncGroup.I_SyncGroup[]
@@ -174,8 +191,8 @@ export class WorldStateManager {
                 });
             }
 
-            await this.superUserSql`LISTEN tick_captured`;
-            this.superUserSql.listen("tick_captured", (payload) => {
+            await this.legacySuperSql`LISTEN tick_captured`;
+            this.legacySuperSql.listen("tick_captured", (payload) => {
                 this.handleTickCapturedNotification(payload);
             });
 

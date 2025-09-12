@@ -21,8 +21,6 @@ import {
 // https://github.com/tj/commander.js
 // https://www.npmjs.com/package/inquirer
 
-
-
 // Environment Variable Management Module
 export namespace EnvManager {
     const CLI_ENV_FILE_PATH = path.join(
@@ -409,8 +407,12 @@ export namespace Server_CLI {
         });
 
         console.log(`\nHost-published endpoints (for proxies on the host):`);
-        console.log(`  API Manager:  http://${apiHostExternal}:${apiPortExternal}`);
-        console.log(`  Web Babylon.js Client App:   http://${appHostExternal}:${appPortExternal}`);
+        console.log(
+            `  API Manager:  http://${apiHostExternal}:${apiPortExternal}`,
+        );
+        console.log(
+            `  Web Babylon.js Client App:   http://${appHostExternal}:${appPortExternal}`,
+        );
 
         console.log(`\nDocker network upstreams (for proxies inside Docker):`);
         console.log(`  API Manager:  ${apiUpstream}`);
@@ -2519,7 +2521,8 @@ if (import.meta.main) {
                             "VRCA_SERVER_SERVICE_CADDY_HOST_CONTAINER_BIND_EXTERNAL",
                             "cli",
                         )) ||
-                        process.env.VRCA_SERVER_SERVICE_CADDY_HOST_CONTAINER_BIND_EXTERNAL ||
+                        process.env
+                            .VRCA_SERVER_SERVICE_CADDY_HOST_CONTAINER_BIND_EXTERNAL ||
                         serverConfiguration.VRCA_SERVER_SERVICE_CADDY_HOST_CONTAINER_BIND_EXTERNAL;
 
                     const currentCaddyPortBindHttp =
@@ -2527,7 +2530,8 @@ if (import.meta.main) {
                             "VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTP",
                             "cli",
                         )) ||
-                        process.env.VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTP ||
+                        process.env
+                            .VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTP ||
                         serverConfiguration.VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTP;
 
                     const currentCaddyPortBindHttps =
@@ -2535,7 +2539,8 @@ if (import.meta.main) {
                             "VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS",
                             "cli",
                         )) ||
-                        process.env.VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS ||
+                        process.env
+                            .VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS ||
                         serverConfiguration.VRCA_SERVER_SERVICE_CADDY_PORT_CONTAINER_BIND_EXTERNAL_HTTPS;
 
                     // Model Definitions configuration has been removed
@@ -2567,59 +2572,69 @@ if (import.meta.main) {
                         message: "What would you like to configure?\n",
                         pageSize: 15,
                         choices: [
-                            new Separator('=== 🌐 Browser Client ==='),
+                            new Separator("=== 🌐 Browser Client ==="),
                             {
                                 name: `Browser Client -> World API URI\n    Current: ${currentUri}`,
                                 value: "world-api-uri",
-                                description: "The default world API URI for the browser client to connect to.",
+                                description:
+                                    "The default world API URI for the browser client to connect to.",
                             },
                             {
                                 name: `Browser Client -> World API SSL Enabled\n    Current: ${currentSslEnabled}`,
                                 value: "world-api-ssl",
-                                description: "Whether the world API uses SSL (HTTPS).",
+                                description:
+                                    "Whether the world API uses SSL (HTTPS).",
                             },
-                            new Separator('=== 🔄 Caddy (Reverse Proxy) ==='),
+                            new Separator("=== 🔄 Caddy (Reverse Proxy) ==="),
                             {
                                 name: `Caddy Public World API Domain\n    Current: ${currentCaddyDomainApi}`,
                                 value: "caddy-domain-api",
-                                description: "The public domain for the world API.",
+                                description:
+                                    "The public domain for the world API.",
                             },
                             {
                                 name: `Caddy Public Browser Client App Domain\n    Current: ${currentCaddyDomainApp}`,
                                 value: "caddy-domain-app",
-                                description: "The public domain for the browser client app.",
+                                description:
+                                    "The public domain for the browser client app.",
                             },
                             {
                                 name: `Caddy Container Host Bind\n    Current: ${currentCaddyHostBind}`,
                                 value: "caddy-host-bind",
-                                description: "The host bind for the Caddy container.",
+                                description:
+                                    "The host bind for the Caddy container.",
                             },
                             {
                                 name: `Caddy Container HTTP Port Bind\n    Current: ${currentCaddyPortBindHttp}`,
                                 value: "caddy-port-bind-http",
-                                description: "The HTTP port bind for the Caddy container.",
+                                description:
+                                    "The HTTP port bind for the Caddy container.",
                             },
                             {
                                 name: `Caddy Container HTTPS Port Bind\n    Current: ${currentCaddyPortBindHttps}`,
                                 value: "caddy-port-bind-https",
-                                description: "The HTTPS port bind for the Caddy container.",
+                                description:
+                                    "The HTTPS port bind for the Caddy container.",
                             },
-                            new Separator('=== 🗄️ Database ==='),
+                            new Separator("=== 🗄️ Database ==="),
                             {
                                 name: `User SQL Seed Directory\n    Current: ${currentUserSqlDir}`,
                                 value: "user-sql-dir",
-                                description: "The directory with the user SQL seed files. (Optional)",
+                                description:
+                                    "The directory with the user SQL seed files. (Optional)",
                             },
                             {
                                 name: `User Asset Seed Directory\n    Current: ${currentUserAssetDir}`,
                                 value: "user-asset-dir",
-                                description: "The directory with the user asset seed files. (Optional)",
+                                description:
+                                    "The directory with the user asset seed files. (Optional)",
                             },
-                            new Separator('>>>>>> ⚙️ Actions <<<<<<'),
+                            new Separator(">>>>>> ⚙️ Actions <<<<<<"),
                             {
                                 name: "Show egress points",
                                 value: "show-egress",
-                                description: "Show the egress points to setup reverse proxies.",
+                                description:
+                                    "Show the egress points to setup reverse proxies.",
                             },
                             {
                                 name: "View all current configuration",
@@ -2642,7 +2657,7 @@ if (import.meta.main) {
                         const action = await select({
                             message:
                                 "What would you like to do with the World API URI?\n",
-                            
+
                             pageSize: 15,
                             choices: [
                                 {
@@ -2693,7 +2708,7 @@ if (import.meta.main) {
                         const action = await select({
                             message:
                                 "What would you like to do with User SQL Seed Directory?\n",
-                            
+
                             pageSize: 15,
                             choices: [
                                 {
@@ -2747,7 +2762,7 @@ if (import.meta.main) {
                         const action = await select({
                             message:
                                 "What would you like to do with World API SSL?\n",
-                            
+
                             pageSize: 15,
                             choices: [
                                 {
@@ -2801,7 +2816,7 @@ if (import.meta.main) {
                         const action = await select({
                             message:
                                 "What would you like to do with Caddy API Domain?\n",
-                            
+
                             pageSize: 15,
                             choices: [
                                 {
@@ -2852,7 +2867,7 @@ if (import.meta.main) {
                         const action = await select({
                             message:
                                 "What would you like to do with Caddy App Domain?\n",
-                            
+
                             pageSize: 15,
                             choices: [
                                 {
@@ -2903,7 +2918,7 @@ if (import.meta.main) {
                         const action = await select({
                             message:
                                 "What would you like to do with Caddy Host Bind?\n",
-                            
+
                             pageSize: 15,
                             choices: [
                                 {
@@ -2954,7 +2969,7 @@ if (import.meta.main) {
                         const action = await select({
                             message:
                                 "What would you like to do with Caddy HTTP Port Bind?\n",
-                            
+
                             pageSize: 15,
                             choices: [
                                 {
@@ -3005,7 +3020,7 @@ if (import.meta.main) {
                         const action = await select({
                             message:
                                 "What would you like to do with Caddy HTTPS Port Bind?\n",
-                            
+
                             pageSize: 15,
                             choices: [
                                 {
@@ -3056,7 +3071,7 @@ if (import.meta.main) {
                         const action = await select({
                             message:
                                 "What would you like to do with User Asset Seed Directory?\n",
-                            
+
                             pageSize: 15,
                             choices: [
                                 {
@@ -3119,14 +3134,20 @@ if (import.meta.main) {
 
                         console.log(`\nBrowser Client Configuration:`);
                         console.log(`  World API URI: ${currentUri}`);
-                        console.log(`  World API SSL Enabled: ${currentSslEnabled}`);
+                        console.log(
+                            `  World API SSL Enabled: ${currentSslEnabled}`,
+                        );
 
                         console.log(`\nCaddy (Reverse Proxy):`);
                         console.log(`  API Domain: ${currentCaddyDomainApi}`);
                         console.log(`  App Domain: ${currentCaddyDomainApp}`);
                         console.log(`  Host Bind: ${currentCaddyHostBind}`);
-                        console.log(`  HTTP Port Bind: ${currentCaddyPortBindHttp}`);
-                        console.log(`  HTTPS Port Bind: ${currentCaddyPortBindHttps}`);
+                        console.log(
+                            `  HTTP Port Bind: ${currentCaddyPortBindHttp}`,
+                        );
+                        console.log(
+                            `  HTTPS Port Bind: ${currentCaddyPortBindHttps}`,
+                        );
 
                         console.log(`\nCLI Configuration:`);
                         console.log(

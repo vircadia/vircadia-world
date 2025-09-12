@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
-import type postgres from "postgres";
+import type { SQL } from "bun";
 import { BunPostgresClientModule } from "../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
 import type {
     Entity,
@@ -21,8 +21,8 @@ import type { BunFile } from "bun";
 import { NullEngine, Scene, ImportMeshAsync } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
 
-let superUserSql: postgres.Sql;
-let proxyUserSql: postgres.Sql;
+let superUserSql: SQL;
+let proxyUserSql: SQL;
 let adminAgent: TestAccount;
 let regularAgent: TestAccount;
 let anonAgent: TestAccount;

@@ -13,7 +13,7 @@ import {
 } from "@azure/msal-node";
 import { BunLogModule } from "../../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
 import { serverConfiguration } from "../../../../../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
-import type postgres from "postgres";
+import type { SQL } from "bun";
 import { sign } from "jsonwebtoken";
 import { randomUUID } from "node:crypto";
 import { Auth } from "../../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
@@ -66,9 +66,9 @@ export class AzureADAuthService {
     private msalClient: ConfidentialClientApplication;
     private cryptoProvider: CryptoProvider;
     private config: I_AzureADConfig;
-    private db: postgres.Sql;
+    private db: SQL;
 
-    constructor(config: I_AzureADConfig, db: postgres.Sql) {
+    constructor(config: I_AzureADConfig, db: SQL) {
         this.config = config;
         this.db = db;
         this.cryptoProvider = new CryptoProvider();
@@ -1023,9 +1023,7 @@ export function parseOAuthState(stateParam: string): I_OAuthState {
 /**
  * Create Azure AD configuration from environment/database
  */
-export async function createAzureADConfig(
-    db: postgres.Sql,
-): Promise<I_AzureADConfig> {
+export async function createAzureADConfig(db: SQL): Promise<I_AzureADConfig> {
     try {
         // Fetch Azure AD configuration from database
         const [config] = await db<

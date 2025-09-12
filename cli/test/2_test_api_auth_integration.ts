@@ -7,7 +7,7 @@ import {
     beforeEach,
     mock,
 } from "bun:test";
-import type postgres from "postgres";
+import type { SQL } from "bun";
 import { BunPostgresClientModule } from "../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
 import { Auth } from "../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 import {
@@ -32,7 +32,7 @@ import {
 import { sign, verify } from "jsonwebtoken";
 import { randomUUID } from "node:crypto";
 
-let superUserSql: postgres.Sql;
+let superUserSql: SQL;
 let apiManager: WorldApiManager;
 let apiServerUrl: string;
 

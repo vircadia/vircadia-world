@@ -4,7 +4,7 @@
 
 import type { Server, ServerWebSocket } from "bun";
 import { verify } from "jsonwebtoken";
-import type postgres from "postgres";
+import type { SQL } from "bun";
 import { serverConfiguration } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
 import { BunLogModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
 import { BunPostgresClientModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
@@ -21,8 +21,8 @@ import {
 import { createAnonymousUser, signOut } from "./util/auth";
 import { MetricsCollector } from "./service/metrics";
 
-let superUserSql: postgres.Sql | null = null;
-let proxyUserSql: postgres.Sql | null = null;
+let superUserSql: SQL | null = null;
+let proxyUserSql: SQL | null = null;
 
 // TODO: Needs heavy optimization, especially for SQL flow.
 
@@ -356,7 +356,7 @@ export class WorldApiManager {
 
         // Start server
         this.server = Bun.serve({
-            hostname: '0.0.0.0',
+            hostname: "0.0.0.0",
             port: 3020,
             development: serverConfiguration.VRCA_SERVER_DEBUG,
 

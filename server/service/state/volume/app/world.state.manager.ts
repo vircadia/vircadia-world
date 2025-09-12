@@ -610,10 +610,13 @@ export class WorldStateManager {
                     (e) => e.general__entity_name,
                 );
 
-                await this.superUserSql`
-                    DELETE FROM entity.entities 
-                    WHERE general__entity_name = ANY(${entityNames})
-                `;
+                const placeholders = entityNames
+                    .map((_, i) => `$${i + 1}`)
+                    .join(", ");
+                await this.superUserSql.unsafe(
+                    `DELETE FROM entity.entities WHERE general__entity_name IN (${placeholders})`,
+                    entityNames,
+                );
 
                 BunLogModule({
                     message: `Successfully deleted ${expiredEntities.length} expired entities`,

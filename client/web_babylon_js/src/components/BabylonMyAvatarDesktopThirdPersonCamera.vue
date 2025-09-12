@@ -3,12 +3,12 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from "vue";
 import type { Ref } from "vue";
-import { useEventListener } from "@vueuse/core";
 import type {
     Scene,
     Observer,
     TransformNode,
     AbstractMesh,
+    PointerInfo,
 } from "@babylonjs/core";
 import {
     ArcRotateCamera,
@@ -16,6 +16,7 @@ import {
     Quaternion,
     Mesh,
     MeshBuilder,
+    PointerEventTypes,
 } from "@babylonjs/core";
 
 const props = defineProps({
@@ -34,6 +35,8 @@ const props = defineProps({
 
 const camera: Ref<ArcRotateCamera | null> = ref(null);
 let beforeRenderObserver: Observer<Scene> | null = null;
+let pointerObserver: Observer<PointerInfo> | null = null;
+let contextMenuHandler: ((e: MouseEvent) => void) | null = null;
 
 const isRightMouseDown = ref(false);
 let followTargetMesh: AbstractMesh | null = null;
@@ -131,37 +134,32 @@ function setupCamera(): void {
         }
     }
 
-    // Minimal RMB handling for "face camera" behavior and to suppress context menu
-    const stopPointerDown = useEventListener(
-        canvas,
-        "pointerdown",
-        (e: PointerEvent) => {
-            if (e.button === 2) {
-                isRightMouseDown.value = true;
-                e.preventDefault();
-            }
-        },
-    );
-    const stopPointerUp = useEventListener(
-        canvas,
-        "pointerup",
-        (e: PointerEvent) => {
-            if (e.button === 2) isRightMouseDown.value = false;
-        },
-    );
-    const stopContextMenu = useEventListener(
-        canvas,
-        "contextmenu",
-        (e: MouseEvent) => {
-            e.preventDefault();
-        },
-    );
+    // Right mouse handling via Babylon pointer pipeline; suppress browser context menu
+    pointerObserver = props.scene.onPointerObservable.add((info) => {
+        const evt = info.event as MouseEvent;
+        switch (info.type) {
+            case PointerEventTypes.POINTERDOWN:
+                if (evt.button === 2) {
+                    isRightMouseDown.value = true;
+                    evt.preventDefault();
+                }
+                break;
+            case PointerEventTypes.POINTERUP:
+                if (evt.button === 2) {
+                    isRightMouseDown.value = false;
+                }
+                break;
+        }
+    });
 
-    cleanupListeners.push(stopPointerDown, stopPointerUp, stopContextMenu);
+    contextMenuHandler = (e: MouseEvent) => {
+        e.preventDefault();
+    };
+    canvas.addEventListener("contextmenu", contextMenuHandler);
 
-    // Before render: ensure lockedTarget is resolved; RMB yaw to face camera
+    // Before render: ensure lockedTarget always follows the current avatar
     beforeRenderObserver = props.scene.onBeforeRenderObservable.add(() => {
-        if (camera.value && !camera.value.lockedTarget && props.avatarNode) {
+        if (camera.value && props.avatarNode) {
             const m = ensureFollowTarget();
             if (m) camera.value.lockedTarget = m;
         }
@@ -203,13 +201,16 @@ watch(
 onUnmounted(() => {
     if (beforeRenderObserver)
         props.scene.onBeforeRenderObservable.remove(beforeRenderObserver);
-    camera.value?.dispose();
-    camera.value = null;
-    for (const stop of cleanupListeners) {
+    if (pointerObserver)
+        props.scene.onPointerObservable.remove(pointerObserver);
+    const canvas = props.scene.getEngine().getRenderingCanvas();
+    if (canvas && contextMenuHandler) {
         try {
-            stop();
+            canvas.removeEventListener("contextmenu", contextMenuHandler);
         } catch {}
     }
+    camera.value?.dispose();
+    camera.value = null;
     if (followTargetMesh) {
         try {
             followTargetMesh.dispose();
@@ -220,8 +221,7 @@ onUnmounted(() => {
 
 defineExpose({ camera });
 
-// Local listener cleanup registry
-const cleanupListeners: (() => void)[] = [];
+// no local DOM listener registry needed; using Babylon observables
 </script>
 
 

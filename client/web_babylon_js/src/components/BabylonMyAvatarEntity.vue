@@ -3,7 +3,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch, type Ref } from "vue";
 import type {
     Scene,
     TransformNode,
@@ -19,6 +19,61 @@ import { useThrottleFn } from "@vueuse/core";
 
 type PositionObj = { x: number; y: number; z: number };
 type RotationObj = { x: number; y: number; z: number; w: number };
+
+// Copied from BabylonMyAvatar.vue
+type Direction = "forward" | "back" | "left" | "right";
+type AnimationDef = {
+    fileName: string;
+    slMotion?: string;
+    direction?: Direction;
+    variant?: string;
+    ignoreHipTranslation?: boolean;
+};
+type AvatarDefinition = {
+    initialAvatarPosition: { x: number; y: number; z: number };
+    initialAvatarRotation: { x: number; y: number; z: number; w: number };
+    modelFileName: string;
+    meshPivotPoint: "bottom" | "center";
+    throttleInterval: number;
+    capsuleHeight: number;
+    capsuleRadius: number;
+    slopeLimit: number;
+    jumpSpeed: number;
+    debugBoundingBox: boolean;
+    debugSkeleton: boolean;
+    debugAxes: boolean;
+    walkSpeed: number;
+    turnSpeed: number;
+    blendDuration: number;
+    gravity: number;
+    animations: AnimationDef[];
+    disableRootMotion?: boolean; // Optional: Allow enabling root motion for specific avatars
+};
+
+const defaultAvatarDef: AvatarDefinition = {
+    initialAvatarPosition: { x: 0, y: 0, z: -5 },
+    initialAvatarRotation: { x: 0, y: 0, z: 0, w: 1 },
+    modelFileName: "",
+    meshPivotPoint: "bottom",
+    throttleInterval: 500,
+    capsuleHeight: 1.8,
+    capsuleRadius: 0.3,
+    slopeLimit: 45,
+    jumpSpeed: 5,
+    debugBoundingBox: false,
+    debugSkeleton: false,
+    debugAxes: false,
+    walkSpeed: 1.5,
+    turnSpeed: 1.5,
+    blendDuration: 0.15,
+    gravity: 9.8,
+    animations: [],
+};
+
+type EntityData = {
+    general__entity_name: string;
+    metadata: Map<string, unknown>;
+};
 
 const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
@@ -43,6 +98,10 @@ const props = defineProps({
     },
     modelFileName: { type: String, required: false, default: "" },
     instanceId: { type: String, required: false, default: null },
+    avatarDefinitionName: {
+        type: String,
+        required: true,
+    },
     positionThrottleInterval: { type: Number, required: false, default: 50 },
     rotationThrottleInterval: { type: Number, required: false, default: 50 },
     cameraOrientationThrottleInterval: {
@@ -53,15 +112,26 @@ const props = defineProps({
     jointThrottleInterval: { type: Number, required: false, default: 500 },
 });
 
+const emit = defineEmits<{
+    "avatar-definition-loaded": [def: AvatarDefinition];
+    "entity-data-loaded": [data: EntityData];
+}>();
+
 // Local state
 const isCreating = ref(false);
-const entityName = computed(() => {
-    const sessionId =
-        props.vircadiaWorld.connectionInfo.value.sessionId || null;
-    const instanceId = props.instanceId || null;
-    const full = sessionId && instanceId ? `${sessionId}-${instanceId}` : null;
-    return full ? `avatar:${full}` : null;
+const isRetrieving = ref(false);
+const entityData: Ref<EntityData | null> = ref(null);
+
+const sessionId = computed(
+    () => props.vircadiaWorld.connectionInfo.value.sessionId ?? null,
+);
+const fullSessionId = computed(() => {
+    if (!sessionId.value || !props.instanceId) return null;
+    return `${sessionId.value}-${props.instanceId}`;
 });
+const entityName = computed(() =>
+    fullSessionId.value ? `avatar:${fullSessionId.value}` : null,
+);
 
 // Track previous states to minimize writes
 const previousMainStates = new Map<string, string>();
@@ -74,263 +144,373 @@ function quatToObj(q: Quaternion): RotationObj {
     return { x: q.x, y: q.y, z: q.z, w: q.w };
 }
 
-async function ensureEntityExists(): Promise<void> {
-    if (!entityName.value) return;
-    try {
-        const existsResult =
-            await props.vircadiaWorld.client.Utilities.Connection.query({
-                query: "SELECT 1 FROM entity.entities WHERE general__entity_name = $1",
-                parameters: [entityName.value],
-            });
-        const exists =
-            Array.isArray(existsResult.result) &&
-            existsResult.result.length > 0;
-        if (!exists) {
-            isCreating.value = true;
-            await props.vircadiaWorld.client.Utilities.Connection.query({
-                query: "INSERT INTO entity.entities (general__entity_name, group__sync, general__expiry__delete_since_updated_at_ms) VALUES ($1, $2, $3)",
-                parameters: [entityName.value, "public.NORMAL", 120000],
-            });
-            // Seed minimal metadata rows
-            const seed: Array<[string, unknown]> = [
-                ["type", "avatar"],
-                ["sessionId", entityName.value.replace(/^avatar:/, "")],
-                [
-                    "cameraOrientation",
-                    { alpha: -Math.PI / 2, beta: Math.PI / 3, radius: 5 },
-                ],
-            ];
-            if (props.modelFileName)
-                seed.push(["modelFileName", props.modelFileName]);
-            const valuesClause = seed
-                .map(
-                    (_, i) =>
-                        `($1, $${i * 3 + 2}, $${i * 3 + 3}, $${i * 3 + 4})`,
-                )
-                .join(", ");
-            const parameters: unknown[] = [entityName.value];
-            for (const [k, v] of seed) {
-                parameters.push(k, v, "public.NORMAL");
-            }
-            await props.vircadiaWorld.client.Utilities.Connection.query({
-                query: `INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync) VALUES ${valuesClause}`,
-                parameters,
-            });
-        }
-    } catch (e) {
-        console.error("[BabylonMyAvatarEntity] ensureEntityExists failed", e);
-    } finally {
-        isCreating.value = false;
+// Helper to upsert multiple metadata entries in a single batched query
+async function upsertMetadataEntries(
+    entity: string,
+    entries: Array<[string, unknown]>,
+    timeoutMs?: number,
+): Promise<void> {
+    if (entries.length === 0) {
+        return;
     }
+
+    const valuesClause = entries
+        .map(
+            (_, i) =>
+                `(${i * 4 + 1}, ${i * 4 + 2}, ${i * 4 + 3}::jsonb, ${i * 4 + 4})`,
+        )
+        .join(", ");
+
+    const parameters = entries.flatMap(([key, value]) => [
+        entity,
+        key,
+        JSON.stringify(value),
+        "public.NORMAL",
+    ]);
+
+    await props.vircadiaWorld.client.Utilities.Connection.query({
+        query:
+            "INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync)" +
+            `VALUES ${valuesClause}` +
+            "ON CONFLICT (general__entity_name, metadata__key) DO UPDATE SET metadata__value = EXCLUDED.metadata__value",
+        parameters,
+        timeoutMs,
+    });
 }
 
-// Position metadata push
-const pushPositionUpdate = useThrottleFn(async () => {
-    if (!props.avatarNode) return;
+// Batching logic
+const batchedUpdates = new Map<string, unknown>();
+
+const pushBatchedUpdates = useThrottleFn(async () => {
     const name = entityName.value;
-    if (!name || !name.includes(":")) return;
+    if (!name || !name.includes(":") || batchedUpdates.size === 0) return;
 
+    const updates = Array.from(batchedUpdates.entries());
+    batchedUpdates.clear();
+
+    updates.push(["last_seen", new Date().toISOString()]);
     try {
-        const pos = props.avatarNode.position ?? new V3(0, 0, 0);
-        const posObj = vectorToObj(pos);
-        const posState = JSON.stringify(posObj);
-
-        if (previousMainStates.get("position") === posState) return;
-
-        const updates: Array<[string, unknown]> = [["position", posObj]];
-        updates.push(["last_seen", new Date().toISOString()]);
-
-        const valuesClause = updates
-            .map((_, i) => `($1, $${i * 3 + 2}, $${i * 3 + 3}, $${i * 3 + 4})`)
-            .join(", ");
-        const parameters: unknown[] = [name];
-        for (const [k, v] of updates) {
-            parameters.push(k, v, "public.NORMAL");
-        }
-
-        await props.vircadiaWorld.client.Utilities.Connection.query({
-            query: `INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync) VALUES ${valuesClause} ON CONFLICT (general__entity_name, metadata__key) DO UPDATE SET metadata__value = EXCLUDED.metadata__value`,
-            parameters,
-            timeoutMs: 5000,
-        });
-
-        previousMainStates.set("position", posState);
+        await upsertMetadataEntries(name, updates, 5000);
     } catch (e) {
-        console.error("[BabylonMyAvatarEntity] pushPositionUpdate failed", e);
+        console.error("[BabylonMyAvatarEntity] pushBatchedUpdates failed", e);
     }
 }, props.positionThrottleInterval);
 
-// Rotation metadata push
-const pushRotationUpdate = useThrottleFn(async () => {
+function queueUpdate(key: string, value: unknown) {
+    batchedUpdates.set(key, value);
+    void pushBatchedUpdates();
+}
+
+// Position & Rotation are high frequency
+function updateTransform() {
     if (!props.avatarNode) return;
-    const name = entityName.value;
-    if (!name || !name.includes(":")) return;
-
-    try {
-        const rot = props.avatarNode.rotationQuaternion ?? new Q4(0, 0, 0, 1);
-        const rotObj = quatToObj(rot);
-        const rotState = JSON.stringify(rotObj);
-
-        if (previousMainStates.get("rotation") === rotState) return;
-
-        const updates: Array<[string, unknown]> = [["rotation", rotObj]];
-        updates.push(["last_seen", new Date().toISOString()]);
-
-        const valuesClause = updates
-            .map((_, i) => `($1, $${i * 3 + 2}, $${i * 3 + 3}, $${i * 3 + 4})`)
-            .join(", ");
-        const parameters: unknown[] = [name];
-        for (const [k, v] of updates) {
-            parameters.push(k, v, "public.NORMAL");
-        }
-
-        await props.vircadiaWorld.client.Utilities.Connection.query({
-            query: `INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync) VALUES ${valuesClause} ON CONFLICT (general__entity_name, metadata__key) DO UPDATE SET metadata__value = EXCLUDED.metadata__value`,
-            parameters,
-            timeoutMs: 5000,
-        });
-
-        previousMainStates.set("rotation", rotState);
-    } catch (e) {
-        console.error("[BabylonMyAvatarEntity] pushRotationUpdate failed", e);
+    // Position
+    const pos = props.avatarNode.position ?? new V3(0, 0, 0);
+    const posObj = vectorToObj(pos);
+    const posState = JSON.stringify(posObj);
+    if (previousMainStates.get("position") !== posState) {
+        queueUpdate("position", posObj);
+        previousMainStates.set("position", posState);
     }
-}, props.rotationThrottleInterval);
+    // Rotation
+    const rot = props.avatarNode.rotationQuaternion ?? new Q4(0, 0, 0, 1);
+    const rotObj = quatToObj(rot);
+    const rotState = JSON.stringify(rotObj);
+    if (previousMainStates.get("rotation") !== rotState) {
+        queueUpdate("rotation", rotObj);
+        previousMainStates.set("rotation", rotState);
+    }
+}
 
-// Camera orientation metadata push
-const pushCameraOrientationUpdate = useThrottleFn(async () => {
+// Camera is medium frequency
+const updateCamera = useThrottleFn(() => {
     if (!props.camera) return;
-    const name = entityName.value;
-    if (!name || !name.includes(":")) return;
-
-    try {
-        // Check if it's an ArcRotateCamera (which has alpha, beta, radius)
-        const arcCamera = props.camera as ArcRotateCamera;
-        if (!arcCamera.alpha || !arcCamera.beta || !arcCamera.radius) return;
-
+    const arcCamera = props.camera as ArcRotateCamera;
+    if (
+        arcCamera.alpha !== undefined &&
+        arcCamera.beta !== undefined &&
+        arcCamera.radius !== undefined
+    ) {
         const cameraOrientation = {
             alpha: arcCamera.alpha,
             beta: arcCamera.beta,
             radius: arcCamera.radius,
         };
         const cameraState = JSON.stringify(cameraOrientation);
-
-        if (previousMainStates.get("cameraOrientation") === cameraState) return;
-
-        const updates: Array<[string, unknown]> = [
-            ["cameraOrientation", cameraOrientation],
-        ];
-        updates.push(["last_seen", new Date().toISOString()]);
-
-        const valuesClause = updates
-            .map((_, i) => `($1, $${i * 3 + 2}, $${i * 3 + 3}, $${i * 3 + 4})`)
-            .join(", ");
-        const parameters: unknown[] = [name];
-        for (const [k, v] of updates) {
-            parameters.push(k, v, "public.NORMAL");
+        if (previousMainStates.get("cameraOrientation") !== cameraState) {
+            queueUpdate("cameraOrientation", cameraOrientation);
+            previousMainStates.set("cameraOrientation", cameraState);
         }
-
-        await props.vircadiaWorld.client.Utilities.Connection.query({
-            query: `INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync) VALUES ${valuesClause} ON CONFLICT (general__entity_name, metadata__key) DO UPDATE SET metadata__value = EXCLUDED.metadata__value`,
-            parameters,
-            timeoutMs: 5000,
-        });
-
-        previousMainStates.set("cameraOrientation", cameraState);
-    } catch (e) {
-        console.error(
-            "[BabylonMyAvatarEntity] pushCameraOrientationUpdate failed",
-            e,
-        );
     }
 }, props.cameraOrientationThrottleInterval);
 
-// Joint metadata push (local bone transforms)
-const pushJointUpdate = useThrottleFn(async () => {
+// Joints are low frequency
+const updateJoints = useThrottleFn(() => {
     if (!props.targetSkeleton) return;
     const name = entityName.value;
-    if (!name || !name.includes(":")) return;
-
-    try {
-        const updates: Array<[string, unknown]> = [];
-        const bones = props.targetSkeleton.bones || [];
-        for (const bone of bones) {
-            const localMat = bone.getLocalMatrix();
-            const pos = new V3();
-            const rot = new Q4();
-            const scale = new V3();
-            localMat.decompose(scale, rot, pos);
-            const jointMetadata = {
-                type: "avatarJoint",
-                sessionId: name.replace(/^avatar:/, ""),
-                jointName: bone.name,
-                position: vectorToObj(pos),
-                rotation: quatToObj(rot),
-                scale: vectorToObj(scale),
-            };
-            const jointKey = `joint:${bone.name}`;
-            const state = JSON.stringify(jointMetadata);
-            if (previousJointStates.get(jointKey) !== state) {
-                updates.push([jointKey, jointMetadata]);
-                previousJointStates.set(jointKey, state);
-            }
+    if (!name) return;
+    const bones = props.targetSkeleton.bones || [];
+    for (const bone of bones) {
+        const localMat = bone.getLocalMatrix();
+        const pos = new V3();
+        const rot = new Q4();
+        const scale = new V3();
+        localMat.decompose(scale, rot, pos);
+        const jointMetadata = {
+            type: "avatarJoint",
+            sessionId: name.replace(/^avatar:/, ""),
+            jointName: bone.name,
+            position: vectorToObj(pos),
+            rotation: quatToObj(rot),
+            scale: vectorToObj(scale),
+        };
+        const jointKey = `joint:${bone.name}`;
+        const state = JSON.stringify(jointMetadata);
+        if (previousJointStates.get(jointKey) !== state) {
+            queueUpdate(jointKey, jointMetadata);
+            previousJointStates.set(jointKey, state);
         }
-
-        if (updates.length === 0) return;
-        updates.push(["last_seen", new Date().toISOString()]);
-
-        const valuesClause = updates
-            .map((_, i) => `($1, $${i * 3 + 2}, $${i * 3 + 3}, $${i * 3 + 4})`)
-            .join(", ");
-        const parameters: unknown[] = [name];
-        for (const [k, v] of updates) {
-            parameters.push(k, v, "public.NORMAL");
-        }
-        await props.vircadiaWorld.client.Utilities.Connection.query({
-            query: `INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync) VALUES ${valuesClause} ON CONFLICT (general__entity_name, metadata__key) DO UPDATE SET metadata__value = EXCLUDED.metadata__value`,
-            parameters,
-            timeoutMs: 5000,
-        });
-    } catch (e) {
-        console.error("[BabylonMyAvatarEntity] pushJointUpdate failed", e);
     }
 }, props.jointThrottleInterval);
+
+// Logic moved from BabylonMyAvatar.vue
+async function retrieveEntityMetadata(
+    requestedEntityName: string,
+): Promise<Map<string, unknown> | null> {
+    try {
+        const metadataResult =
+            await props.vircadiaWorld.client.Utilities.Connection.query({
+                query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1",
+                parameters: [requestedEntityName],
+            });
+
+        if (Array.isArray(metadataResult.result)) {
+            const metadataMap = new Map<string, unknown>();
+            for (const row of metadataResult.result) {
+                metadataMap.set(row.metadata__key, row.metadata__value);
+            }
+            return metadataMap;
+        }
+    } catch (e) {
+        console.error("Failed to retrieve metadata:", e);
+    }
+    return null;
+}
+
+async function loadAvatarDefinitionFromDb(
+    definitionName: string,
+): Promise<void> {
+    try {
+        const meta = await retrieveEntityMetadata(definitionName);
+        if (!meta) {
+            console.warn(
+                `No metadata found for avatar definition: ${definitionName}`,
+            );
+            emit("avatar-definition-loaded", defaultAvatarDef);
+            return;
+        }
+
+        const merged: AvatarDefinition = {
+            ...defaultAvatarDef,
+            ...((meta.get("initialAvatarPosition") as
+                | AvatarDefinition["initialAvatarPosition"]
+                | undefined)
+                ? {
+                      initialAvatarPosition: meta.get(
+                          "initialAvatarPosition",
+                      ) as AvatarDefinition["initialAvatarPosition"],
+                  }
+                : {}),
+            ...((meta.get("initialAvatarRotation") as
+                | AvatarDefinition["initialAvatarRotation"]
+                | undefined)
+                ? {
+                      initialAvatarRotation: meta.get(
+                          "initialAvatarRotation",
+                      ) as AvatarDefinition["initialAvatarRotation"],
+                  }
+                : {}),
+            ...((meta.get("modelFileName") as string | undefined)
+                ? { modelFileName: meta.get("modelFileName") as string }
+                : {}),
+            ...((meta.get("meshPivotPoint") as
+                | AvatarDefinition["meshPivotPoint"]
+                | undefined)
+                ? {
+                      meshPivotPoint: meta.get(
+                          "meshPivotPoint",
+                      ) as AvatarDefinition["meshPivotPoint"],
+                  }
+                : {}),
+            ...((meta.get("throttleInterval") as number | undefined)
+                ? { throttleInterval: meta.get("throttleInterval") as number }
+                : {}),
+            ...((meta.get("capsuleHeight") as number | undefined)
+                ? { capsuleHeight: meta.get("capsuleHeight") as number }
+                : {}),
+            ...((meta.get("capsuleRadius") as number | undefined)
+                ? { capsuleRadius: meta.get("capsuleRadius") as number }
+                : {}),
+            ...((meta.get("slopeLimit") as number | undefined)
+                ? { slopeLimit: meta.get("slopeLimit") as number }
+                : {}),
+            ...((meta.get("jumpSpeed") as number | undefined)
+                ? { jumpSpeed: meta.get("jumpSpeed") as number }
+                : {}),
+            ...((meta.get("debugBoundingBox") as boolean | undefined)
+                ? { debugBoundingBox: meta.get("debugBoundingBox") as boolean }
+                : {}),
+            ...((meta.get("debugSkeleton") as boolean | undefined)
+                ? { debugSkeleton: meta.get("debugSkeleton") as boolean }
+                : {}),
+            ...((meta.get("debugAxes") as boolean | undefined)
+                ? { debugAxes: meta.get("debugAxes") as boolean }
+                : {}),
+            ...((meta.get("walkSpeed") as number | undefined)
+                ? { walkSpeed: meta.get("walkSpeed") as number }
+                : {}),
+            ...((meta.get("turnSpeed") as number | undefined)
+                ? { turnSpeed: meta.get("turnSpeed") as number }
+                : {}),
+            ...((meta.get("blendDuration") as number | undefined)
+                ? { blendDuration: meta.get("blendDuration") as number }
+                : {}),
+            ...((meta.get("gravity") as number | undefined)
+                ? { gravity: meta.get("gravity") as number }
+                : {}),
+            ...((meta.get("animations") as { fileName: string }[] | undefined)
+                ? {
+                      animations: meta.get("animations") as {
+                          fileName: string;
+                      }[],
+                  }
+                : {}),
+        };
+        emit("avatar-definition-loaded", merged);
+    } catch (e) {
+        console.error("Failed to load avatar definition from DB:", e);
+        emit("avatar-definition-loaded", defaultAvatarDef);
+    }
+}
+
+async function initializeEntity() {
+    if (
+        !sessionId.value ||
+        !props.instanceId ||
+        !fullSessionId.value ||
+        !entityName.value
+    ) {
+        console.error("[AVATAR ENTITY] Missing required IDs, cannot proceed");
+        return;
+    }
+
+    // Load avatar definition
+    await loadAvatarDefinitionFromDb(props.avatarDefinitionName);
+
+    // Check if entity exists
+    const existsResult =
+        await props.vircadiaWorld.client.Utilities.Connection.query({
+            query: "SELECT 1 FROM entity.entities WHERE general__entity_name = $1",
+            parameters: [entityName.value],
+        });
+
+    const exists =
+        Array.isArray(existsResult.result) && existsResult.result.length > 0;
+
+    if (!exists) {
+        isCreating.value = true;
+        try {
+            await props.vircadiaWorld.client.Utilities.Connection.query({
+                query: "INSERT INTO entity.entities (general__entity_name, group__sync, general__expiry__delete_since_updated_at_ms) VALUES ($1, $2, $3)",
+                parameters: [entityName.value, "public.NORMAL", 120000],
+            });
+            const seed: Array<[string, unknown]> = [
+                ["type", "avatar"],
+                ["sessionId", fullSessionId.value],
+            ];
+            await upsertMetadataEntries(entityName.value, seed);
+        } catch (e) {
+            console.error("Failed to create avatar entity:", e);
+        } finally {
+            isCreating.value = false;
+        }
+    }
+
+    // Retrieve entity data
+    isRetrieving.value = true;
+    try {
+        const name = entityName.value;
+        const currentFullSessionId = fullSessionId.value;
+
+        const entityResult =
+            await props.vircadiaWorld.client.Utilities.Connection.query({
+                query: "SELECT general__entity_name FROM entity.entities WHERE general__entity_name = $1",
+                parameters: [name],
+            });
+
+        if (
+            Array.isArray(entityResult.result) &&
+            entityResult.result.length > 0
+        ) {
+            const metadata = await retrieveEntityMetadata(name);
+            if (metadata) {
+                const retrievedSessionId = metadata.get("sessionId") as
+                    | string
+                    | undefined;
+                if (retrievedSessionId !== currentFullSessionId) {
+                    console.error(
+                        "[AVATAR ENTITY] Retrieved wrong entity! Ignoring.",
+                        {
+                            retrievedSessionId,
+                            expectedSessionId: currentFullSessionId,
+                        },
+                    );
+                    entityData.value = null;
+                    return;
+                }
+
+                entityData.value = {
+                    general__entity_name: name,
+                    metadata: metadata,
+                };
+                emit("entity-data-loaded", entityData.value);
+            }
+        }
+    } catch (e) {
+        console.error("Failed to retrieve avatar entity:", e);
+    } finally {
+        isRetrieving.value = false;
+    }
+}
 
 // Frame hooks
 let afterPhysicsObserver: import("@babylonjs/core").Observer<Scene> | null =
     null;
 
 onMounted(async () => {
-    // Wait until connected before creating entity
-    if (props.vircadiaWorld.connectionInfo.value.status === "connected") {
-        await ensureEntityExists();
-    }
     const stop = watch(
         () => props.vircadiaWorld.connectionInfo.value.status,
         async (s) => {
-            if (s === "connected") await ensureEntityExists();
+            if (s === "connected") {
+                await initializeEntity();
+                stop();
+            }
         },
-        { immediate: false },
+        { immediate: true },
     );
-    // Attach per-frame updates
-    afterPhysicsObserver = props.scene.onAfterPhysicsObservable.add(() => {
-        if (!props.avatarNode) return;
-        pushPositionUpdate();
-        pushRotationUpdate();
-        if (props.camera) pushCameraOrientationUpdate();
-        if (props.targetSkeleton) pushJointUpdate();
-    });
 
-    onUnmounted(() => {
-        stop();
+    afterPhysicsObserver = props.scene.onAfterRenderObservable.add(() => {
+        if (!props.avatarNode) return;
+        updateTransform();
+        if (props.camera) updateCamera();
+        if (props.targetSkeleton) updateJoints();
     });
 });
 
 onUnmounted(() => {
     if (afterPhysicsObserver)
-        props.scene.onAfterPhysicsObservable.remove(afterPhysicsObserver);
+        props.scene.onAfterRenderObservable.remove(afterPhysicsObserver);
 });
 
-defineExpose({ isCreating });
+defineExpose({ isCreating, isRetrieving });
 </script>
-
-

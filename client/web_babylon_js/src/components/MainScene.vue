@@ -219,16 +219,7 @@
                                         :target-skeleton="(targetSkeleton as any) || null"
                                         @state="onAnimationState"
                                     />
-                                    <!-- Renderless entity sync component -->
-                                    <BabylonMyAvatarEntity
-                                        :scene="sceneNonNull"
-                                        :vircadia-world="vircadiaWorld"
-                                        :avatar-node="(avatarNode as any) || null"
-                                        :target-skeleton="(targetSkeleton as any) || null"
-                                        :model-file-name="modelFileNameRef || modelFileName"
-                                        :instance-id="instanceId ?? undefined"
-                                        :throttle-interval="150"
-                                    />
+                                    <!-- Renderless entity sync component removed; handled within BabylonMyAvatar.vue -->
                                     <!-- Debug overlay for avatar -->
                                     <BabylonMyAvatarDebugOverlay
                                         :scene="sceneNonNull"
@@ -302,8 +293,8 @@
                         :initial-open="false"
                         :rotation-open-radians="1.57"
                         :rotation-axis="'y'"
-                        :sync-interval-ms="100"
-                        :update-throttle-ms="100"
+                        :sync-interval-ms="750"
+                        :update-throttle-ms="300"
                         @state="onDoorState"
                         @open="onDoorOpen"
                     />
@@ -431,7 +422,6 @@ import BabylonOtherAvatar from "../components/BabylonOtherAvatar.vue";
 import BabylonModel from "../components/BabylonModel.vue";
 import BabylonModels from "../components/BabylonModels.vue";
 import BabylonWebRTC from "../components/BabylonWebRTC.vue";
-import BabylonMyAvatarEntity from "../components/BabylonMyAvatarEntity.vue";
 import BabylonDebugOverlay from "../components/BabylonDebugOverlay.vue";
 import BabylonMyAvatarDebugOverlay from "../components/BabylonMyAvatarDebugOverlay.vue";
 import BabylonMyAvatarAnimationDebugOverlay from "../components/BabylonMyAvatarAnimationDebugOverlay.vue";
@@ -486,7 +476,6 @@ void BabylonCanvas;
 // mark as used at runtime for template
 void VircadiaWorldProvider;
 // mark as used at runtime for template
-void BabylonMyAvatarEntity;
 import BabylonEnvironment from "../components/BabylonEnvironment.vue";
 import BabylonDoor from "../components/BabylonDoor.vue";
 import { clientBrowserConfiguration } from "@/vircadia.browser.config";
@@ -653,8 +642,7 @@ void environmentLoading;
 // Child component loading states
 const avatarLoading = computed(
     () =>
-        ((avatarRef.value?.isCreating || avatarRef.value?.isRetrieving) ??
-            false) ||
+        // Fallback to model loading only now that entity sync is internal
         avatarModelLoading.value,
 );
 void avatarLoading;

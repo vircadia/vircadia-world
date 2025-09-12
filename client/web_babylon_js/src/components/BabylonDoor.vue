@@ -155,6 +155,7 @@ async function ensureEntityAndMetadata() {
     await instance.client.Utilities.Connection.query({
         query: "INSERT INTO entity.entities (general__entity_name, group__sync) VALUES ($1, 'public.DYNAMIC') ON CONFLICT (general__entity_name) DO NOTHING",
         parameters: [name],
+        timeoutMs: 5000,
     });
     // Upsert metadata: type, modelFileName, position, rotation, open
     await instance.client.Utilities.Connection.query({
@@ -176,6 +177,7 @@ async function ensureEntityAndMetadata() {
             JSON.stringify(props.initialRotation),
             props.initialOpen,
         ],
+        timeoutMs: 5000,
     });
 }
 
@@ -189,6 +191,7 @@ async function fetchMetadata(): Promise<{
     const res = await instance.client.Utilities.Connection.query({
         query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1 AND metadata__key IN ('position','rotation','open')",
         parameters: [name],
+        timeoutMs: 3000,
     });
     const meta = new Map<string, unknown>();
     if (Array.isArray(res.result)) {
@@ -239,6 +242,7 @@ async function pushState(open: boolean) {
                 w: baseRotationQ.w,
             }),
         ],
+        timeoutMs: 3000,
     });
 }
 
@@ -278,9 +282,12 @@ async function loadAndAttach() {
         const p = props.pivotOffset;
         node.setPivotPoint(new Vector3(p.x, p.y, p.z));
 
-        // Attach only top-level meshes
+        // Attach only top-level meshes and ensure they are pickable for interaction
         const meshes = result.meshes as AbstractMesh[];
         loadedMeshes.value = meshes;
+        for (const mesh of meshes) {
+            mesh.isPickable = true;
+        }
         for (const mesh of meshes.filter((m) => !m.parent)) {
             mesh.parent = node;
         }

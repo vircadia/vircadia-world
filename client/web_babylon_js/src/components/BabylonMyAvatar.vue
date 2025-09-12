@@ -1,16 +1,29 @@
 <template>
-	<slot
-		:avatar-skeleton="avatarSkeleton"
-		:animations="animations"
-		:vircadia-world="vircadiaWorld"
-		:on-animation-state="onAnimationState"
-		:avatar-node="avatarNode"
-		:model-file-name="modelFileName"
-		:mesh-pivot-point="meshPivotPoint"
-		:capsule-height="capsuleHeight"
-		:on-set-avatar-model="onSetAvatarModel"
-		:key-state="keyState"
-	/>
+    <BabylonMyAvatarEntity
+        v-if="vircadiaWorld.connectionInfo.value.status === 'connected'"
+        :scene="scene"
+        :vircadia-world="vircadiaWorld"
+        :avatar-node="avatarNode"
+        :target-skeleton="avatarSkeleton"
+        :camera="camera"
+        :model-file-name="modelFileName"
+        :instance-id="instanceId"
+        :avatar-definition-name="avatarDefinitionName"
+        @avatar-definition-loaded="onAvatarDefinitionLoaded"
+        @entity-data-loaded="onEntityDataLoaded"
+    />
+    <slot
+        :avatar-skeleton="avatarSkeleton"
+        :animations="animations"
+        :vircadia-world="vircadiaWorld"
+        :on-animation-state="onAnimationState"
+        :avatar-node="avatarNode"
+        :model-file-name="modelFileName"
+        :mesh-pivot-point="meshPivotPoint"
+        :capsule-height="capsuleHeight"
+        :on-set-avatar-model="onSetAvatarModel"
+        :key-state="keyState"
+    />
 </template>
 
 <script setup lang="ts">
@@ -20,7 +33,6 @@ import {
     onMounted,
     onUnmounted,
     watch,
-    type WatchStopHandle,
     type Ref,
     computed,
 } from "vue";
@@ -43,24 +55,19 @@ import {
     type Skeleton,
     type Bone,
     type AbstractMesh,
+    type Camera,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
 
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
+import BabylonMyAvatarEntity from "./BabylonMyAvatarEntity.vue";
 
 // Debug viewers import
 import { SkeletonViewer, AxesViewer } from "@babylonjs/core/Debug";
 
-// Physics controller is now inlined in this component
-// Model loading now handled by child component (BabylonMyAvatarModel)
-// Local helper types previously exported by the controller composable
 type PositionObj = { x: number; y: number; z: number };
 type RotationObj = { x: number; y: number; z: number; w: number };
 
-// Debug bounding box, skeleton, and axes
-// removed; now using debug flags from store (debugBoundingBox, debugSkeleton, debugAxes)
-
-// Define component props with defaults (single defineProps)
 type KeyState = {
     forward: boolean;
     backward: boolean;
@@ -91,6 +98,11 @@ const props = defineProps({
     },
     keyState: { type: Object as () => KeyState, required: false },
     isTalking: { type: Boolean, required: false, default: false },
+    camera: {
+        type: Object as () => Camera | null,
+        required: false,
+        default: null,
+    },
 });
 
 const emit = defineEmits<{ ready: []; dispose: [] }>();
@@ -138,10 +150,10 @@ const defaultAvatarDef: AvatarDefinition = {
     debugBoundingBox: false,
     debugSkeleton: false,
     debugAxes: false,
-    walkSpeed: 0,
-    turnSpeed: 0,
+    walkSpeed: 1.5,
+    turnSpeed: 1.5,
     blendDuration: 0.15,
-    gravity: 0,
+    gravity: 9.8,
     animations: [],
 };
 
@@ -150,8 +162,7 @@ const dbAvatarDef = ref<AvatarDefinition | null>(null);
 const effectiveAvatarDef = computed<AvatarDefinition>(() => {
     return dbAvatarDef.value ?? defaultAvatarDef;
 });
-// Field-level computed wrappers to replace toRefs
-// throttleInterval no longer used here; entity sync handled externally
+
 const capsuleHeight = computed(() => effectiveAvatarDef.value.capsuleHeight);
 const capsuleRadius = computed(() => effectiveAvatarDef.value.capsuleRadius);
 const slopeLimit = computed(() => effectiveAvatarDef.value.slopeLimit);
@@ -166,241 +177,68 @@ const turnSpeed = computed(() => effectiveAvatarDef.value.turnSpeed);
 const blendDuration = computed(() => effectiveAvatarDef.value.blendDuration);
 const gravity = computed(() => effectiveAvatarDef.value.gravity);
 const meshPivotPoint = computed(() => effectiveAvatarDef.value.meshPivotPoint);
-void meshPivotPoint;
-const initialAvatarPosition = computed(
-    () => effectiveAvatarDef.value.initialAvatarPosition,
-);
-const initialAvatarRotation = computed(
-    () => effectiveAvatarDef.value.initialAvatarRotation,
-);
 const modelFileName = computed(() => effectiveAvatarDef.value.modelFileName);
 const animations = computed(
     () => effectiveAvatarDef.value.animations as AnimationDef[],
 );
 
-// Reactive sessionId and fullSessionId from vircadia connection
 const sessionId = computed(
     () => props.vircadiaWorld.connectionInfo.value.sessionId ?? null,
 );
 const instanceId = computed(() => props.instanceId ?? null);
 const fullSessionId = computed(() => {
-    // Require both sessionId and instanceId; otherwise treat as unavailable
     if (!sessionId.value || !instanceId.value) return null;
     return `${sessionId.value}-${instanceId.value}`;
 });
 
-// Generate dynamic entity name based on full session ID (includes instanceId)
-const entityName = computed(() =>
-    fullSessionId.value ? `avatar:${fullSessionId.value}` : null,
-);
-
-// Simple metadata map that directly corresponds to database entries
-const metadataMap = reactive(
-    new Map<string, unknown>([
-        ["type", "avatar"],
-        ["sessionId", fullSessionId.value],
-        ["position", initialAvatarPosition.value],
-        ["rotation", initialAvatarRotation.value],
-        ["modelFileName", modelFileName.value],
-    ]),
-);
-
-// Direct refs to specific metadata values for easier access
-const position = computed({
-    get: () => metadataMap.get("position") as PositionObj,
-    set: (value) => metadataMap.set("position", value),
-});
-
-const rotation = computed({
-    get: () => metadataMap.get("rotation") as RotationObj,
-    set: (value) => metadataMap.set("rotation", value),
-});
-
-// Camera orientation metadata removed; external camera component manages view
-
-// Watch for fullSessionId changes and update metadata map
-watch(fullSessionId, (newSessionId) => {
-    metadataMap.set("sessionId", newSessionId);
-});
-
-// Helpers
-function vectorToObj(v: Vector3): PositionObj {
-    return { x: v.x, y: v.y, z: v.z };
-}
-function quatToObj(q: Quaternion): RotationObj {
-    return { x: q.x, y: q.y, z: q.z, w: q.w };
+function onAvatarDefinitionLoaded(def: AvatarDefinition) {
+    dbAvatarDef.value = def;
 }
 
-async function loadAvatarDefinitionFromDb(
-    definitionName: string,
-): Promise<void> {
-    if (!vircadiaWorld) return;
-    try {
-        console.log("[AVATAR] Loading avatar definition:", {
-            definitionName,
-            ourSessionId: sessionId.value,
-            ourInstanceId: instanceId.value,
-            ourFullSessionId: fullSessionId.value,
-        });
+type EntityData = {
+    general__entity_name: string;
+    metadata: Map<string, unknown>;
+};
 
-        const meta = await retrieveEntityMetadata(definitionName);
-        if (!meta) {
-            console.warn(
-                `No metadata found for avatar definition: ${definitionName}`,
+function onEntityDataLoaded(data: EntityData) {
+    const meta = data?.metadata;
+    if (meta && !characterController.value) {
+        const entitySessionId = meta.get("sessionId") as string | undefined;
+        if (entitySessionId !== fullSessionId.value) {
+            console.error(
+                "[AVATAR] ENTITY MISMATCH - Retrieved entity does not belong to this session!",
             );
             return;
         }
 
-        // Debug: Log retrieved metadata
-        console.log(`Retrieved metadata for ${definitionName}:`, {
-            modelFileName: meta.get("modelFileName"),
-            allKeys: Array.from(meta.keys()),
-            allValues: Array.from(meta.entries()),
-        });
+        const pos =
+            (meta.get("position") as PositionObj) ??
+            effectiveAvatarDef.value.initialAvatarPosition;
+        const rot =
+            (meta.get("rotation") as RotationObj) ??
+            effectiveAvatarDef.value.initialAvatarRotation;
 
-        const merged: AvatarDefinition = {
-            ...defaultAvatarDef,
-            ...((meta.get("initialAvatarPosition") as
-                | AvatarDefinition["initialAvatarPosition"]
-                | undefined)
-                ? {
-                      initialAvatarPosition: meta.get(
-                          "initialAvatarPosition",
-                      ) as AvatarDefinition["initialAvatarPosition"],
-                  }
-                : {}),
-            ...((meta.get("initialAvatarRotation") as
-                | AvatarDefinition["initialAvatarRotation"]
-                | undefined)
-                ? {
-                      initialAvatarRotation: meta.get(
-                          "initialAvatarRotation",
-                      ) as AvatarDefinition["initialAvatarRotation"],
-                  }
-                : {}),
-            ...((meta.get("modelFileName") as string | undefined)
-                ? { modelFileName: meta.get("modelFileName") as string }
-                : {}),
-            ...((meta.get("meshPivotPoint") as
-                | AvatarDefinition["meshPivotPoint"]
-                | undefined)
-                ? {
-                      meshPivotPoint: meta.get(
-                          "meshPivotPoint",
-                      ) as AvatarDefinition["meshPivotPoint"],
-                  }
-                : {}),
-            ...((meta.get("throttleInterval") as number | undefined)
-                ? { throttleInterval: meta.get("throttleInterval") as number }
-                : {}),
-            ...((meta.get("capsuleHeight") as number | undefined)
-                ? { capsuleHeight: meta.get("capsuleHeight") as number }
-                : {}),
-            ...((meta.get("capsuleRadius") as number | undefined)
-                ? { capsuleRadius: meta.get("capsuleRadius") as number }
-                : {}),
-            ...((meta.get("slopeLimit") as number | undefined)
-                ? { slopeLimit: meta.get("slopeLimit") as number }
-                : {}),
-            ...((meta.get("jumpSpeed") as number | undefined)
-                ? { jumpSpeed: meta.get("jumpSpeed") as number }
-                : {}),
-            ...((meta.get("debugBoundingBox") as boolean | undefined)
-                ? { debugBoundingBox: meta.get("debugBoundingBox") as boolean }
-                : {}),
-            ...((meta.get("debugSkeleton") as boolean | undefined)
-                ? { debugSkeleton: meta.get("debugSkeleton") as boolean }
-                : {}),
-            ...((meta.get("debugAxes") as boolean | undefined)
-                ? { debugAxes: meta.get("debugAxes") as boolean }
-                : {}),
-            ...((meta.get("walkSpeed") as number | undefined)
-                ? { walkSpeed: meta.get("walkSpeed") as number }
-                : {}),
-            ...((meta.get("turnSpeed") as number | undefined)
-                ? { turnSpeed: meta.get("turnSpeed") as number }
-                : {}),
-            ...((meta.get("blendDuration") as number | undefined)
-                ? { blendDuration: meta.get("blendDuration") as number }
-                : {}),
-            ...((meta.get("gravity") as number | undefined)
-                ? { gravity: meta.get("gravity") as number }
-                : {}),
-            ...((meta.get("animations") as { fileName: string }[] | undefined)
-                ? {
-                      animations: meta.get("animations") as {
-                          fileName: string;
-                      }[],
-                  }
-                : {}),
-        };
-        dbAvatarDef.value = merged;
-        // Sync initial fields used to seed entity metadata if not created yet
-        metadataMap.set("position", merged.initialAvatarPosition);
-        metadataMap.set("rotation", merged.initialAvatarRotation);
-        metadataMap.set("modelFileName", merged.modelFileName);
-    } catch (e) {
-        console.error("Failed to load avatar definition from DB:", e);
+        createController(
+            new Vector3(pos.x, pos.y, pos.z),
+            new Quaternion(rot.x, rot.y, rot.z, rot.w),
+        );
     }
 }
 
-// Type for debug window properties
-interface DebugWindow extends Window {
-    debugSkeleton?: boolean;
-    debugSkeletonLoop?: boolean;
-    lastSkeletonSnapshot?: SkeletonSnapshot;
-    startLegRotationTest?: () => void;
-    stopLegRotationTest?: () => void;
-}
-
-// Type for debug data
-interface DebugData {
-    timestamp: string;
-    sessionId: string;
-    skeleton: {
-        boneCount: number;
-        animations: {
-            idle: number | string;
-            walk: number | string;
-        };
-    };
-    bones: Record<
-        string,
-        {
-            p: string[];
-            r: string;
-        }
-    >;
-}
-
-// Type for skeleton snapshot
-interface SkeletonSnapshot {
-    timestamp: string;
-    boneCount: number;
-    animations: {
-        idle: string;
-        walk: string;
-    };
-    bones: Record<
-        string,
-        {
-            position: PositionObj;
-            rotation: RotationObj;
-            scale: PositionObj;
-        }
-    >;
-}
-
-// Instantiate composables
-// Inlined physics controller (previously useBabylonAvatarPhysicsController)
 const avatarNode = ref<TransformNode | null>(null);
 const characterController = ref<PhysicsCharacterController | null>(null);
 
-function createController(): void {
+function createController(position: Vector3, rotation: Quaternion): void {
     const scene = props.scene;
     if (!scene) return;
 
-    // Create visual capsule
+    // Create node first so debug overlay can see it even if physics isn't ready yet
+    const node = new TransformNode("avatarNode", scene);
+    avatarNode.value = node;
+    node.position = position;
+    node.rotationQuaternion = rotation;
+
+    // Create a visual/hidden capsule and parent it to the node
     const capsule = MeshBuilder.CreateCapsule(
         "avatarCapsule",
         { height: capsuleHeight.value, radius: capsuleRadius.value },
@@ -409,48 +247,58 @@ function createController(): void {
     const material = new StandardMaterial("capsuleMaterial", scene);
     material.diffuseColor = new Color3(0.2, 0.4, 0.8);
     capsule.material = material;
-    capsule.isVisible = false; // hidden, avatar model will be visible
-
-    const physicsShape = PhysicsShapeCapsule.FromMesh(capsule);
-
-    // Create parent transform node
-    const node = new TransformNode("avatarNode", scene);
-    avatarNode.value = node;
+    capsule.isVisible = false;
     capsule.setParent(node);
 
-    // Initialize transform
-    avatarNode.value.position = new Vector3(
-        position.value.x,
-        position.value.y,
-        position.value.z,
-    );
-    avatarNode.value.rotationQuaternion = new Quaternion(
-        rotation.value.x,
-        rotation.value.y,
-        rotation.value.z,
-        rotation.value.w,
-    );
-
-    // Create the physics character controller
-    characterController.value = new PhysicsCharacterController(
-        avatarNode.value.position.clone(),
-        {
-            shape: physicsShape,
-            capsuleHeight: capsuleHeight.value,
-            capsuleRadius: capsuleRadius.value,
-        },
-        scene,
-    );
-
-    // Configure slope limit and iterations
-    if (characterController.value) {
-        characterController.value.maxSlopeCosine = Math.cos(
-            (slopeLimit.value * Math.PI) / 180,
+    // Attempt to create physics shape and controller if physics is available
+    try {
+        const physicsReady = (
+            scene as unknown as { isPhysicsEnabled?: () => boolean }
+        ).isPhysicsEnabled?.();
+        if (!physicsReady) {
+            console.debug(
+                "[Avatar] Physics not enabled yet; controller will be created later",
+            );
+            return;
+        }
+        const physicsShape = PhysicsShapeCapsule.FromMesh(capsule);
+        characterController.value = new PhysicsCharacterController(
+            node.position.clone(),
+            {
+                shape: physicsShape,
+                capsuleHeight: capsuleHeight.value,
+                capsuleRadius: capsuleRadius.value,
+            },
+            scene,
         );
-        characterController.value.maxCastIterations = 20;
-        characterController.value.keepContactTolerance = 0.001;
-        characterController.value.keepDistance = 0.01;
+        if (characterController.value) {
+            characterController.value.maxSlopeCosine = Math.cos(
+                (slopeLimit.value * Math.PI) / 180,
+            );
+            characterController.value.maxCastIterations = 20;
+            characterController.value.keepContactTolerance = 0.001;
+            characterController.value.keepDistance = 0.01;
+        }
+    } catch (e) {
+        console.warn(
+            "[Avatar] Failed to create character controller; will retry when physics is ready",
+            e,
+        );
     }
+}
+
+function tryCreateControllerIfNeeded(): void {
+    if (characterController.value || !avatarNode.value) return;
+    const scene = props.scene;
+    if (!scene) return;
+    const physicsReady = (
+        scene as unknown as { isPhysicsEnabled?: () => boolean }
+    ).isPhysicsEnabled?.();
+    if (!physicsReady) return;
+    const currentPos = avatarNode.value.position.clone();
+    const currentRot =
+        avatarNode.value.rotationQuaternion?.clone() ?? Quaternion.Identity();
+    createController(currentPos, currentRot);
 }
 
 function updateTransforms(): void {
@@ -460,20 +308,12 @@ function updateTransforms(): void {
         avatarNode.value.position = pos.clone();
         avatarNode.value.computeWorldMatrix(true);
     }
-    // Rotation is controlled separately via setOrientation
 }
 
 function getPosition(): Vector3 | undefined {
     return characterController.value?.getPosition();
 }
-function setPosition(pos: Vector3): void {
-    const node = avatarNode.value;
-    const controller = characterController.value;
-    if (!node || !controller) return;
-    node.position = pos.clone();
-    controller.setPosition(pos.clone());
-    node.computeWorldMatrix(true);
-}
+
 function getOrientation(): Quaternion | undefined {
     return avatarNode.value?.rotationQuaternion?.clone();
 }
@@ -496,12 +336,12 @@ function checkSupport(deltaTime: number): SupportType | undefined {
         new Vector3(0, -1, 0),
     );
 }
-function integrate(deltaTime: number, support: SupportType): void {
+function integrate(deltaTime: number, support?: SupportType): void {
     const controller = characterController.value;
     if (!controller || !support) return;
-    controller.integrate(deltaTime, support, new Vector3(0, -9.8, 0));
+    controller.integrate(deltaTime, support, new Vector3(0, -gravity.value, 0));
 }
-// External key state can be provided via prop; otherwise use a local default (no movement)
+
 const defaultKeyState = ref<KeyState>({
     forward: false,
     backward: false,
@@ -519,32 +359,18 @@ const defaultKeyState = ref<KeyState>({
 });
 const keyState = computed(() => props.keyState ?? defaultKeyState.value);
 
-// Entity update logic moved to BabylonMyAvatarEntity.vue
-
-// Use Vircadia instance from props (moved up to fix initialization order)
 const vircadiaWorld = props.vircadiaWorld;
 
-// Internal camera removed; view handled externally by dedicated camera component
-
-// Avatar model data provided by child component
-const avatarMeshes: Ref<import("@babylonjs/core").AbstractMesh[]> = ref([]);
+const avatarMeshes: Ref<AbstractMesh[]> = ref([]);
 const isModelLoaded = ref(false);
 
-// Replace the existing localAnimGroups and animation-related code
-const blendWeight = ref(0); // 0 = idle, 1 = walk
-// removed local blendDuration; using store value for blendDuration
+const blendWeight = ref(0);
 
-// Initialize and manage blended animations
 let idleAnimation: AnimationGroup | null = null;
-// Active movement animation (walk/jog/run/strafe)
 let walkAnimation: AnimationGroup | null = null;
-// Previous movement animation kept for crossfading when direction/speed changes
 let previousMoveAnimation: AnimationGroup | null = null;
-// Name of the currently active movement animation file
 let currentMoveFileName: string | null = null;
-// Crossfade progress between previous and current movement animations (0 -> 1)
 let moveCrossfadeT = 1;
-// Talking animation (used only when idle)
 let talkOverlayAnimation: AnimationGroup | null = null;
 const talkOverlayBlendWeight = ref(0);
 
@@ -554,9 +380,7 @@ function findAnimationDef(
     variant?: string,
 ): AnimationDef | undefined {
     const list = animations.value as AnimationDef[];
-    // Prefer exact motion+direction match
     if (direction) {
-        // If a variant was requested, prefer it
         if (variant) {
             const withDirVariant = list.find(
                 (a) =>
@@ -571,7 +395,6 @@ function findAnimationDef(
         );
         if (withDir) return withDir;
     }
-    // Fallback to motion without direction
     if (variant) {
         const withoutDirVariant = list.find(
             (a) =>
@@ -612,24 +435,20 @@ function getDesiredMoveDefFromKeys(): AnimationDef | undefined {
     let dir: Direction;
     if (Math.abs(dz) >= Math.abs(dx)) dir = dz >= 0 ? "forward" : "back";
     else dir = dx >= 0 ? "right" : "left";
-    // Determine speed mode: walk (default), jog, sprint
     const speedMode: "walk" | "jog" | "sprint" = ks.sprint
         ? "sprint"
         : ks.slowRun
           ? "jog"
           : "walk";
-    // Map to motion + variant for DB mapping
     const primaryMotion = speedMode === "walk" ? "walk" : "run";
     const preferredVariant = speedMode === "jog" ? "jog" : undefined;
     const mapped =
         findAnimationDef(primaryMotion, dir, preferredVariant) ||
         findAnimationDef(primaryMotion, undefined, preferredVariant) ||
-        // Fallbacks across motions
         findAnimationDef("walk", dir) ||
         findAnimationDef("walk");
     if (mapped) return mapped;
 
-    // Filename-based fallback to support legacy seeds without mapping
     const list = animations.value as AnimationDef[];
     const name = (s: string) => s.toLowerCase();
     if (primaryMotion === "walk") {
@@ -655,7 +474,6 @@ function getDesiredMoveDefFromKeys(): AnimationDef | undefined {
                 ) || list.find((a) => name(a.fileName).includes("strafe_right"))
             );
     } else {
-        // run
         if (dir === "forward")
             return (
                 (preferredVariant === "jog"
@@ -663,7 +481,6 @@ function getDesiredMoveDefFromKeys(): AnimationDef | undefined {
                       list.find((a) => name(a.fileName).includes("jog."))
                     : list.find((a) => name(a.fileName).includes("run.glb")) ||
                       list.find((a) => name(a.fileName).includes("run."))) ||
-                // cross fallback
                 list.find((a) => name(a.fileName).includes("run.glb")) ||
                 list.find((a) => name(a.fileName).includes("jog.glb")) ||
                 list.find((a) => name(a.fileName).includes("run.")) ||
@@ -710,7 +527,9 @@ function ensureTalkingGroupReady(): void {
         .filter((x) => x.info?.state === "ready" && x.info.group);
     if (readyGroups.length === 0) return;
     const pick = readyGroups[Math.floor(Math.random() * readyGroups.length)];
-    const group = pick.info!.group as AnimationGroup;
+    const info = pick.info;
+    if (!info || !info.group) return;
+    const group = info.group as AnimationGroup;
     talkOverlayAnimation = group;
     try {
         talkOverlayAnimation.stop();
@@ -726,21 +545,18 @@ function setMoveAnimationFromDef(def: AnimationDef | undefined): void {
     if (info?.state !== "ready" || !info.group) return;
     const newGroup = info.group as AnimationGroup;
 
-    // If we already have an active move group and it's different, prepare crossfade
     if (walkAnimation && walkAnimation !== newGroup) {
         previousMoveAnimation = walkAnimation;
-        // Ensure previous keeps playing for crossfade
         try {
             previousMoveAnimation.play(true);
         } catch {}
-        moveCrossfadeT = 0; // start crossfade
+        moveCrossfadeT = 0;
     }
 
     walkAnimation = newGroup;
     currentMoveFileName = def.fileName;
     walkAnimation.stop();
     walkAnimation.loopAnimation = true;
-    // Start playing new group at zero weight; weights are updated in updateAnimationBlending
     walkAnimation.setWeightForAllAnimatables(0);
     walkAnimation.play(true);
 }
@@ -751,8 +567,7 @@ function refreshDesiredAnimations(): void {
     setMoveAnimationFromDef(desired);
 }
 
-// Avatar model data provided by child component via slot callback
-// (reuse avatarMeshes declared above with concrete type)
+const avatarSkeleton: Ref<Skeleton | null> = ref(null);
 
 function onSetAvatarModel(payload: {
     skeleton: Skeleton | null;
@@ -762,10 +577,7 @@ function onSetAvatarModel(payload: {
     avatarMeshes.value = payload.meshes;
     trySetupBlendedAnimations();
 
-    // CRITICAL: Force transform sync after model loads to ensure avatar follows physics
-    // This fixes the issue where avatar gets stuck on first load
     if (characterController.value && avatarNode.value) {
-        // First ensure the avatar node has the current physics position
         const currentPos = getPosition();
         const currentRot = getOrientation();
         if (currentPos) {
@@ -775,29 +587,18 @@ function onSetAvatarModel(payload: {
             avatarNode.value.rotationQuaternion = currentRot.clone();
         }
 
-        // Force world matrix update on avatar node and all meshes
         avatarNode.value.computeWorldMatrix(true);
         for (const mesh of avatarMeshes.value) {
             mesh.computeWorldMatrix(true);
         }
-
-        console.log("[AVATAR] Forced transform sync after model load", {
-            position: currentPos,
-            rotation: currentRot,
-            meshCount: avatarMeshes.value.length,
-        });
     }
 
-    // Mark model as loaded AFTER syncing transforms
     isModelLoaded.value = true;
 
-    // Debug visuals
     if (debugBoundingBox.value) {
         for (const mesh of avatarMeshes.value) {
             if ("showBoundingBox" in mesh) {
-                (
-                    mesh as unknown as { showBoundingBox?: boolean }
-                ).showBoundingBox = true;
+                (mesh as { showBoundingBox?: boolean }).showBoundingBox = true;
             }
         }
     }
@@ -823,174 +624,6 @@ function onSetAvatarModel(payload: {
     emit("ready");
 }
 
-// mark used in template bindings
-void onSetAvatarModel;
-
-// Test functions for leg rotation
-function startLegRotationTest(): void {
-    if (!avatarSkeleton.value) {
-        console.error("[LegTest] No skeleton available");
-        return;
-    }
-
-    // Find left leg bone (common names: LeftUpLeg, LeftThigh, Left_Leg, etc.)
-    const leftLegBone = avatarSkeleton.value.bones.find(
-        (bone) =>
-            bone.name.toLowerCase().includes("left") &&
-            (bone.name.toLowerCase().includes("leg") ||
-                bone.name.toLowerCase().includes("thigh") ||
-                bone.name.toLowerCase().includes("upleg")),
-    );
-
-    if (!leftLegBone) {
-        console.error("[LegTest] Could not find left leg bone");
-        console.log(
-            "[LegTest] Available bones:",
-            avatarSkeleton.value.bones.map((b) => b.name),
-        );
-        return;
-    }
-
-    console.log(
-        `[LegTest] Starting rotation test on bone: ${leftLegBone.name}`,
-    );
-
-    // Check if this bone has a linked TransformNode (common with GLTF)
-    const linkedNode = leftLegBone.getTransformNode();
-    if (linkedNode) {
-        console.log(
-            `[LegTest] Bone has linked TransformNode: ${linkedNode.name}`,
-        );
-    } else {
-        console.log(
-            "[LegTest] Bone has no linked TransformNode - using bone directly",
-        );
-    }
-
-    // Pause animations
-    if (idleAnimation) {
-        idleAnimation.pause();
-        console.log("[LegTest] Paused idle animation");
-    }
-    if (walkAnimation) {
-        walkAnimation.pause();
-        console.log("[LegTest] Paused walk animation");
-    }
-
-    // Store original rotation
-    const localMat = leftLegBone.getLocalMatrix();
-    const pos = new Vector3();
-    const rot = new Quaternion();
-    const scale = new Vector3();
-    localMat.decompose(scale, rot, pos);
-
-    legRotationTest.isActive = true;
-    legRotationTest.startTime = Date.now();
-    legRotationTest.targetBone = leftLegBone;
-    legRotationTest.originalRotation = rot.clone();
-
-    console.log(
-        `[LegTest] Original rotation: x=${rot.x.toFixed(3)}, y=${rot.y.toFixed(3)}, z=${rot.z.toFixed(3)}, w=${rot.w.toFixed(3)}`,
-    );
-}
-
-function stopLegRotationTest(): void {
-    if (!legRotationTest.isActive || !legRotationTest.targetBone) {
-        console.log("[LegTest] No active test to stop");
-        return;
-    }
-
-    console.log("[LegTest] Stopping rotation test");
-
-    // Restore original rotation
-    if (legRotationTest.originalRotation) {
-        legRotationTest.targetBone.setRotationQuaternion(
-            legRotationTest.originalRotation,
-            Space.LOCAL,
-        );
-    }
-
-    // Resume animations
-    if (idleAnimation) {
-        idleAnimation.play();
-        console.log("[LegTest] Resumed idle animation");
-    }
-    if (walkAnimation) {
-        walkAnimation.play();
-        console.log("[LegTest] Resumed walk animation");
-    }
-
-    // Reset test state
-    legRotationTest.isActive = false;
-    legRotationTest.targetBone = null;
-    legRotationTest.originalRotation = null;
-
-    console.log("[LegTest] Test stopped and state reset");
-}
-
-// Reference to the avatar skeleton for animation retargeting
-const avatarSkeleton: Ref<Skeleton | null> = ref(null);
-
-// Debug flag for skeleton data - set window.debugSkeleton = true in console to enable
-const debugSkeletonData = ref(false);
-
-// Test leg rotation state
-const legRotationTest = reactive({
-    isActive: false,
-    startTime: 0,
-    duration: 1000, // 1 second
-    targetBone: null as Bone | null,
-    originalRotation: null as Quaternion | null,
-});
-
-const entityData = ref<{
-    general__entity_name: string;
-    metadata: Map<string, unknown>;
-} | null>(null);
-const isRetrieving = ref(false);
-const isCreating = ref(false);
-
-// Helper function to retrieve metadata for an entity
-async function retrieveEntityMetadata(
-    requestedEntityName: string,
-): Promise<Map<string, unknown> | null> {
-    if (!vircadiaWorld) {
-        console.error("Vircadia instance not found");
-        return null;
-    }
-
-    try {
-        // CRITICAL: Log what entity we're retrieving to debug issues
-        console.log("[AVATAR] Retrieving metadata for entity:", {
-            requested: requestedEntityName,
-            ourEntityName: entityName.value,
-            ourFullSessionId: fullSessionId.value,
-        });
-
-        // Fetch all metadata for this entity
-        const metadataResult =
-            await vircadiaWorld.client.Utilities.Connection.query({
-                query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1",
-                parameters: [requestedEntityName],
-            });
-
-        if (Array.isArray(metadataResult.result)) {
-            // Reconstruct metadata map from rows
-            const metadataMap = new Map<string, unknown>();
-            for (const row of metadataResult.result) {
-                metadataMap.set(row.metadata__key, row.metadata__value);
-            }
-            return metadataMap;
-        }
-    } catch (e) {
-        console.error("Failed to retrieve metadata:", e);
-    }
-    return null;
-}
-
-// Audio stream is now handled by the BabylonWebRTC component
-
-// Animation state map aggregated from children
 type AnimationState = "idle" | "loading" | "ready" | "error";
 type AnimationInfo = {
     state: AnimationState;
@@ -1010,40 +643,31 @@ function onAnimationState(payload: {
         error: payload.error,
         group: payload.group,
     });
-    // Ensure idle/move groups get attached as they become ready
     refreshDesiredAnimations();
 }
 
 function trySetupBlendedAnimations(): void {
-    // Attach idle if available; move group will be selected dynamically
     ensureIdleGroupReady();
 }
 
-// Update animation weights based on movement
 function updateAnimationBlending(
     isMoving: boolean,
     dt: number,
     isTalkingNow: boolean,
 ): void {
-    // Need idle and at least the active move group to blend
     if (!idleAnimation) return;
 
     const targetWeight = isMoving && walkAnimation ? 1 : 0;
-
-    // Compute weight change based on transition duration
     const change = dt / Math.max(0.0001, blendDuration.value);
 
-    // Move idle<->move master weight toward target
     if (targetWeight > blendWeight.value) {
         blendWeight.value = Math.min(1, blendWeight.value + change);
     } else if (targetWeight < blendWeight.value) {
         blendWeight.value = Math.max(0, blendWeight.value - change);
     }
 
-    // Update crossfade between previous and current move animations
     if (previousMoveAnimation && walkAnimation) {
         moveCrossfadeT = Math.min(1, moveCrossfadeT + change);
-        // When crossfade completes, stop and clear previous
         if (moveCrossfadeT >= 1) {
             try {
                 previousMoveAnimation.stop();
@@ -1052,13 +676,11 @@ function updateAnimationBlending(
         }
     }
 
-    // Apply weights
     const moveMasterWeight = blendWeight.value;
     idleAnimation.setWeightForAllAnimatables(1 - moveMasterWeight);
     if (walkAnimation) {
         const activeWeight = moveMasterWeight * moveCrossfadeT;
         walkAnimation.setWeightForAllAnimatables(activeWeight);
-        // Keep active playing
         if (!walkAnimation.isPlaying) walkAnimation.play(true);
     }
     if (previousMoveAnimation) {
@@ -1067,7 +689,6 @@ function updateAnimationBlending(
         if (!previousMoveAnimation.isPlaying) previousMoveAnimation.play(true);
     }
 
-    // Talking overlay (only when idle)
     const canTalk = !isMoving && !!isTalkingNow;
     if (canTalk && !talkOverlayAnimation) ensureTalkingGroupReady();
     const talkTarget = canTalk && talkOverlayAnimation ? 1 : 0;
@@ -1097,1474 +718,137 @@ function updateAnimationBlending(
     }
 }
 
-// Observers and watcher cleanup handles
 let skeletonViewer: SkeletonViewer | null = null;
 let axesViewer: AxesViewer | null = null;
 let beforePhysicsObserver: Observer<Scene> | null = null;
 let afterPhysicsObserver: Observer<Scene> | null = null;
 let rootMotionObserver: Observer<Scene> | null = null;
-let connectionStatusWatcher: WatchStopHandle | null = null;
-let entityDataWatcher: WatchStopHandle | null = null;
-let debugInterval: number | null = null;
 
-// Lifecycle hooks
 onMounted(async () => {
-    // Load avatar definition from DB first so downstream logic uses it
-    if (vircadiaWorld.connectionInfo.value.status === "connected") {
-        await loadAvatarDefinitionFromDb(props.avatarDefinitionName);
-    }
-    // Watch for connection established
-    if (vircadiaWorld.connectionInfo.value.status === "connected") {
-        // CRITICAL: Validate we have both session and instance IDs before proceeding
-        if (
-            !sessionId.value ||
-            !instanceId.value ||
-            !fullSessionId.value ||
-            !entityName.value
-        ) {
-            console.error("[AVATAR] Missing required IDs, cannot proceed", {
-                sessionId: sessionId.value,
-                instanceId: instanceId.value,
-                fullSessionId: fullSessionId.value,
-                entityName: entityName.value,
-            });
-            return;
-        }
-
-        // Check if entity exists
-        console.log("[AVATAR] Checking if entity exists:", entityName.value, {
-            sessionId: sessionId.value,
-            instanceId: instanceId.value,
-            fullSessionId: fullSessionId.value,
-        });
-
-        // CRITICAL: Validate entity name format before checking/creating
-        const expectedPrefix = `avatar:${fullSessionId.value}`;
-        if (!entityName.value.startsWith(expectedPrefix)) {
-            console.error("[AVATAR] Entity name format mismatch!", {
-                entityName: entityName.value,
-                expectedPrefix,
-                fullSessionId: fullSessionId.value,
-            });
-            return;
-        }
-
-        const existsResult =
-            await vircadiaWorld.client.Utilities.Connection.query({
-                query: "SELECT 1 FROM entity.entities WHERE general__entity_name = $1",
-                parameters: [entityName.value],
-            });
-
-        const exists =
-            Array.isArray(existsResult.result) &&
-            existsResult.result.length > 0;
-
-        if (!exists) {
-            console.log(
-                "[AVATAR] Entity does not exist, creating:",
-                entityName.value,
-            );
-            isCreating.value = true;
-            try {
-                // First create the entity
-                await vircadiaWorld.client.Utilities.Connection.query({
-                    query: "INSERT INTO entity.entities (general__entity_name, group__sync, general__expiry__delete_since_updated_at_ms) VALUES ($1, $2, $3) RETURNING general__entity_name",
-                    parameters: [
-                        entityName.value,
-                        "public.NORMAL",
-                        120000, // 120 seconds timeout for inactivity
-                    ],
-                });
-
-                // Then insert metadata rows
-                // CRITICAL: Ensure sessionId is stored as fullSessionId for validation
-                const metadataToInsert = new Map(metadataMap);
-                metadataToInsert.set("sessionId", fullSessionId.value);
-
-                console.log("[AVATAR] Creating entity with metadata:", {
-                    entityName: entityName.value,
-                    sessionId: fullSessionId.value,
-                    metadata: Object.fromEntries(metadataToInsert),
-                });
-
-                const metadataInserts = Array.from(
-                    metadataToInsert.entries(),
-                ).map(([key, value]) => ({
-                    key,
-                    value,
-                }));
-
-                for (const { key, value } of metadataInserts) {
-                    await vircadiaWorld.client.Utilities.Connection.query({
-                        query: `INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync)
-                                VALUES ($1, $2, $3, $4)`,
-                        parameters: [
-                            entityName.value,
-                            key,
-                            value,
-                            "public.NORMAL",
-                        ],
-                    });
-                }
-            } catch (e) {
-                console.error("Failed to create avatar entity:", e);
-            } finally {
-                isCreating.value = false;
-            }
-        }
-
-        // Retrieve entity data
-        isRetrieving.value = true;
-        try {
-            // First check if entity exists
-            const name = entityName.value;
-            const currentFullSessionId = fullSessionId.value;
-
-            if (!name || !currentFullSessionId) {
-                console.warn(
-                    "[AVATAR] Cannot retrieve entity - missing name or session ID",
-                    {
-                        name,
-                        currentFullSessionId,
-                    },
-                );
-                isRetrieving.value = false;
-                return;
-            }
-
-            console.log("[AVATAR] Retrieving entity data for:", name, {
-                expectedSessionId: currentFullSessionId,
-            });
-
-            const entityResult =
-                await vircadiaWorld.client.Utilities.Connection.query({
-                    query: "SELECT general__entity_name FROM entity.entities WHERE general__entity_name = $1",
-                    parameters: [name],
-                });
-
-            if (
-                Array.isArray(entityResult.result) &&
-                entityResult.result.length > 0
-            ) {
-                // Fetch all metadata for this entity
-                const metadata = await retrieveEntityMetadata(name);
-                if (metadata) {
-                    // Validate the retrieved entity belongs to us
-                    const retrievedSessionId = metadata.get("sessionId") as
-                        | string
-                        | undefined;
-                    if (retrievedSessionId !== currentFullSessionId) {
-                        console.error(
-                            "[AVATAR] Retrieved wrong entity! Ignoring.",
-                            {
-                                entityName: name,
-                                retrievedSessionId,
-                                expectedSessionId: currentFullSessionId,
-                            },
-                        );
-                        // CRITICAL: Clear entity data to prevent taking control
-                        entityData.value = null;
-                        return;
-                    }
-
-                    entityData.value = {
-                        general__entity_name: name,
-                        metadata: metadata,
-                    };
-                }
-            } else {
-                console.log("[AVATAR] Entity not found:", name);
-            }
-        } catch (e) {
-            console.error("Failed to retrieve avatar entity:", e);
-        } finally {
-            isRetrieving.value = false;
-        }
-    } else {
-        connectionStatusWatcher = watch(
-            () => vircadiaWorld.connectionInfo.value.status,
-            async (status) => {
-                if (status === "connected") {
-                    await loadAvatarDefinitionFromDb(
-                        props.avatarDefinitionName,
-                    );
-                    // Retrieve entity data when connected
-                    isRetrieving.value = true;
-                    try {
-                        // First check if entity exists
-                        const name = entityName.value;
-                        const currentFullSessionId = fullSessionId.value;
-
-                        if (!name || !currentFullSessionId) {
-                            console.warn(
-                                "[AVATAR] Cannot retrieve entity - missing name or session ID",
-                                {
-                                    name,
-                                    currentFullSessionId,
-                                },
-                            );
-                            isRetrieving.value = false;
-                            return;
-                        }
-
-                        console.log(
-                            "[AVATAR] Retrieving entity data for:",
-                            name,
-                            {
-                                expectedSessionId: currentFullSessionId,
-                            },
-                        );
-
-                        const entityResult =
-                            await vircadiaWorld.client.Utilities.Connection.query(
-                                {
-                                    query: "SELECT general__entity_name FROM entity.entities WHERE general__entity_name = $1",
-                                    parameters: [name],
-                                },
-                            );
-
-                        if (
-                            Array.isArray(entityResult.result) &&
-                            entityResult.result.length > 0
-                        ) {
-                            // Fetch all metadata for this entity
-                            const metadata = await retrieveEntityMetadata(name);
-                            if (metadata) {
-                                // Validate the retrieved entity belongs to us
-                                const retrievedSessionId = metadata.get(
-                                    "sessionId",
-                                ) as string | undefined;
-                                if (
-                                    retrievedSessionId !== currentFullSessionId
-                                ) {
-                                    console.error(
-                                        "[AVATAR] Retrieved wrong entity! Ignoring.",
-                                        {
-                                            entityName: name,
-                                            retrievedSessionId,
-                                            expectedSessionId:
-                                                currentFullSessionId,
-                                        },
-                                    );
-                                    // CRITICAL: Clear entity data to prevent taking control
-                                    entityData.value = null;
-                                    return;
-                                }
-
-                                entityData.value = {
-                                    general__entity_name: name,
-                                    metadata: metadata,
-                                };
-                            }
-                        } else {
-                            console.log("[AVATAR] Entity not found:", name);
-                        }
-                    } catch (e) {
-                        console.error("Failed to retrieve avatar entity:", e);
-                    } finally {
-                        isRetrieving.value = false;
-                    }
-                    connectionStatusWatcher?.();
-                }
-            },
+    // Ensure controller/node exist immediately, independent of DB metadata
+    if (!characterController.value) {
+        const p = effectiveAvatarDef.value.initialAvatarPosition;
+        const r = effectiveAvatarDef.value.initialAvatarRotation;
+        createController(
+            new Vector3(p.x, p.y, p.z),
+            new Quaternion(r.x, r.y, r.z, r.w),
         );
     }
 
-    // Watch for entity data changes
-    entityDataWatcher = watch(
-        () => entityData.value,
-        async (data) => {
-            const meta = data?.metadata;
-            if (meta && !characterController.value) {
-                // CRITICAL: Validate this entity is actually ours before creating controller
-                const entitySessionId = meta.get("sessionId") as
-                    | string
-                    | undefined;
-                const expectedSessionId = fullSessionId.value;
-
-                if (entitySessionId !== expectedSessionId) {
-                    console.error(
-                        "[AVATAR] ENTITY MISMATCH - Retrieved entity does not belong to this session!",
-                        {
-                            entityName: data?.general__entity_name,
-                            entitySessionId,
-                            expectedSessionId,
-                            ourSessionId: sessionId.value,
-                            ourInstanceId: instanceId.value,
-                        },
-                    );
-                    // Clear invalid entity data and return
-                    entityData.value = null;
-                    return;
-                }
-
-                console.info(
-                    "Loading avatar model for our session:",
-                    expectedSessionId,
-                );
-                // First create, use defaults when missing
-                const metaPosition = meta.get("position") as
-                    | PositionObj
-                    | undefined;
-                if (metaPosition) {
-                    position.value = metaPosition;
-                }
-                const metaRotation = meta.get("rotation") as
-                    | RotationObj
-                    | undefined;
-                if (metaRotation) {
-                    rotation.value = metaRotation;
-                }
-                createController();
-                console.log(
-                    "[AVATAR] Created controller with initial position/rotation",
-                    {
-                        position: position.value,
-                        rotation: rotation.value,
-                        avatarNode: !!avatarNode.value,
-                    },
-                );
-                // Model loading now handled by child component.
-                if (avatarNode.value) {
-                    // Parenting is done by the child model component
-
-                    // Skeleton is provided by child model component via onSetAvatarModel
-
-                    if (avatarSkeleton.value) {
-                        // Mesh influencer setup handled by child model component
-
-                        // Note: GLTF skeletons don't expose bones as TransformNodes
-                        // The animations will update the skeleton directly through the skeleton system
-
-                        // Children components will auto-load animations when skeleton is set
-                        // Attempt to set up blending as children report readiness
-                        trySetupBlendedAnimations();
-
-                        // After animations are set up, check what they're targeting
-                        setTimeout(() => {
-                            if (idleAnimation) {
-                                console.log("Idle animation details:");
-                                console.log("- Name:", idleAnimation.name);
-                                console.log(
-                                    "- Is playing:",
-                                    idleAnimation.isPlaying,
-                                );
-                                console.log(
-                                    "- Target count:",
-                                    idleAnimation.targetedAnimations.length,
-                                );
-
-                                // Check if any animations target the skeleton
-                                let skeletonTargets = 0;
-                                let boneTargets = 0;
-                                for (const anim of idleAnimation.targetedAnimations) {
-                                    if (anim.target === avatarSkeleton.value) {
-                                        skeletonTargets++;
-                                    } else if (
-                                        anim.target.name &&
-                                        avatarSkeleton.value?.bones.find(
-                                            (b) => b.name === anim.target.name,
-                                        )
-                                    ) {
-                                        boneTargets++;
-                                    }
-                                }
-                                console.log(
-                                    "- Skeleton targets:",
-                                    skeletonTargets,
-                                );
-                                console.log("- Bone targets:", boneTargets);
-
-                                // Log first few animation targets
-                                console.log("First 5 animation targets:");
-                                for (
-                                    let i = 0;
-                                    i <
-                                    Math.min(
-                                        5,
-                                        idleAnimation.targetedAnimations.length,
-                                    );
-                                    i++
-                                ) {
-                                    const target =
-                                        idleAnimation.targetedAnimations[i]
-                                            .target;
-                                    console.log(
-                                        `  - ${target.name || target.constructor.name} (${target.constructor.name})`,
-                                    );
-                                }
-                            }
-                        }, 1000);
-
-                        // Debug visualization now based on avatarMeshes in onSetAvatarModel
-
-                        // Expose test functions to window for debugging
-                        (window as DebugWindow).startLegRotationTest =
-                            startLegRotationTest;
-                        (window as DebugWindow).stopLegRotationTest =
-                            stopLegRotationTest;
-                        console.log(
-                            "[LegTest] Test functions available: window.startLegRotationTest() and window.stopLegRotationTest()",
-                        );
-
-                        // Also add a debug function to check skeleton state
-                        (
-                            window as DebugWindow & {
-                                debugSkeletonState?: () => void;
-                                debugAvatarLoadingState?: () => void;
-                            }
-                        ).debugSkeletonState = () => {
-                            if (!avatarSkeleton.value) {
-                                console.log("No skeleton available");
-                                return;
-                            }
-
-                            console.log("=== Skeleton Debug Info ===");
-                            console.log(
-                                `Bone count: ${avatarSkeleton.value.bones.length}`,
-                            );
-                            console.log(`Name: ${avatarSkeleton.value.name}`);
-                            console.log(
-                                `Needs initial skeleton matrix: ${avatarSkeleton.value.needInitialSkinMatrix}`,
-                            );
-
-                            // Find leg bone
-                            const leftLegBone = avatarSkeleton.value.bones.find(
-                                (bone) =>
-                                    bone.name.toLowerCase().includes("left") &&
-                                    (bone.name.toLowerCase().includes("leg") ||
-                                        bone.name
-                                            .toLowerCase()
-                                            .includes("thigh") ||
-                                        bone.name
-                                            .toLowerCase()
-                                            .includes("upleg")),
-                            );
-
-                            if (leftLegBone) {
-                                console.log(
-                                    `\nLeft leg bone: ${leftLegBone.name}`,
-                                );
-                                console.log(
-                                    `- Has linked transform: ${!!leftLegBone.getTransformNode()}`,
-                                );
-                                console.log(
-                                    `- Parent: ${leftLegBone.getParent()?.name || "none"}`,
-                                );
-                                console.log(
-                                    `- Children: ${leftLegBone.children.map((c) => c.name).join(", ") || "none"}`,
-                                );
-
-                                // Check if animations are targeting this bone
-                                let animTargets = 0;
-                                if (idleAnimation) {
-                                    for (const anim of idleAnimation.targetedAnimations) {
-                                        if (
-                                            anim.target === leftLegBone ||
-                                            anim.target.name ===
-                                                leftLegBone.name
-                                        ) {
-                                            animTargets++;
-                                        }
-                                    }
-                                }
-                                console.log(
-                                    `- Animation targets: ${animTargets}`,
-                                );
-                            }
-
-                            // Check meshes using this skeleton
-                            const skinnedMeshes = avatarMeshes.value.filter(
-                                (m) => m.skeleton === avatarSkeleton.value,
-                            );
-                            console.log(
-                                `\nSkinned meshes: ${skinnedMeshes.length}`,
-                            );
-                            for (const mesh of skinnedMeshes) {
-                                console.log(
-                                    `- ${mesh.name} (bone influencers: ${mesh.numBoneInfluencers || "N/A"})`,
-                                );
-                            }
-                        };
-
-                        // Enhanced debug function for avatar loading state
-                        (
-                            window as DebugWindow & {
-                                debugAvatarLoadingState?: () => void;
-                            }
-                        ).debugAvatarLoadingState = () => {
-                            console.log("=== AVATAR LOADING DEBUG STATE ===");
-                            console.log("Scene initialized:", !!props.scene);
-                            console.log("Avatar node:", !!avatarNode.value);
-                            console.log(
-                                "Character controller:",
-                                !!characterController.value,
-                            );
-                            console.log(
-                                "Scene active camera:",
-                                !!props.scene?.activeCamera,
-                            );
-                            console.log(
-                                "Meshes loaded:",
-                                avatarMeshes.value.length,
-                            );
-                            console.log(
-                                "Avatar skeleton:",
-                                !!avatarSkeleton.value,
-                            );
-                            console.log("Idle animation:", !!idleAnimation);
-                            console.log("Walk animation:", !!walkAnimation);
-                            console.log(
-                                "Is creating entity:",
-                                isCreating.value,
-                            );
-                            console.log("Entity data:", !!entityData.value);
-                            console.log(
-                                "Full session ID:",
-                                fullSessionId.value,
-                            );
-                            console.log("Entity name:", entityName.value);
-                            console.log("Position:", position.value);
-                            console.log("Rotation:", rotation.value);
-                            // Camera orientation not tracked here anymore
-
-                            // Check if meshes are visible
-                            if (avatarMeshes.value.length > 0) {
-                                console.log("Mesh visibility:");
-                                for (const mesh of avatarMeshes.value) {
-                                    console.log(
-                                        `- ${mesh.name}: visible=${mesh.isVisible}, enabled=${mesh.isEnabled()}`,
-                                    );
-                                }
-                            }
-
-                            return {
-                                sceneOk: !!props.scene,
-                                avatarNodeOk: !!avatarNode.value,
-                                controllerOk: !!characterController.value,
-                                meshCount: avatarMeshes.value.length,
-                                skeletonOk: !!avatarSkeleton.value,
-                                animationsOk:
-                                    !!idleAnimation && !!walkAnimation,
-                                entityOk: !!entityData.value,
-                            };
-                        };
-
-                        console.log(
-                            "[DEBUG] Avatar debug functions available:",
-                        );
-                        console.log("- window.startLegRotationTest()");
-                        console.log("- window.stopLegRotationTest()");
-                        console.log("- window.debugSkeletonState()");
-                        console.log("- window.debugAvatarLoadingState()");
-
-                        // Camera debug function
-                        (
-                            window as DebugWindow & {
-                                debugCameraView?: () => void;
-                            }
-                        ).debugCameraView = () => {
-                            if (!props.scene) {
-                                console.log("No scene available");
-                                return;
-                            }
-                            console.log("=== CAMERA DEBUG ===");
-                            console.log(
-                                "Scene active camera:",
-                                !!props.scene.activeCamera,
-                            );
-                            const ac = props.scene.activeCamera as unknown as {
-                                position?:
-                                    | { x?: number; y?: number; z?: number }
-                                    | undefined;
-                                getTarget?: () =>
-                                    | { x?: number; y?: number; z?: number }
-                                    | undefined;
-                            } | null;
-                            if (ac) {
-                                console.log(
-                                    "Active camera position:",
-                                    ac.position,
-                                );
-                                try {
-                                    console.log(
-                                        "Active camera target:",
-                                        ac.getTarget?.(),
-                                    );
-                                } catch {}
-                            }
-                        };
-
-                        // Render loop debug function
-                        (
-                            window as DebugWindow & {
-                                debugRenderLoop?: () => void;
-                            }
-                        ).debugRenderLoop = () => {
-                            const engine = props.scene?.getEngine();
-                            if (!engine) {
-                                console.log("No engine available");
-                                return;
-                            }
-
-                            console.log("=== RENDER LOOP DEBUG ===");
-                            console.log(
-                                "Engine is running render loop:",
-                                !!engine.runRenderLoop,
-                            );
-                            console.log("FPS:", engine.getFps());
-                            console.log("Scene ready:", props.scene?.isReady());
-                            console.log(
-                                "Scene lights count:",
-                                props.scene?.lights.length,
-                            );
-                            console.log(
-                                "Scene meshes count:",
-                                props.scene?.meshes.length,
-                            );
-                            console.log(
-                                "Engine rendering canvas:",
-                                !!engine.getRenderingCanvas(),
-                            );
-                        };
-
-                        console.log("- window.debugCameraView()");
-                        console.log("- window.debugRenderLoop()");
-
-                        // Multi-tab debug function
-                        (
-                            window as DebugWindow & {
-                                debugMultiTab?: () => void;
-                            }
-                        ).debugMultiTab = () => {
-                            console.log("=== MULTI-TAB DEBUG ===");
-                            console.log("Session ID:", sessionId.value);
-                            console.log("Instance ID:", instanceId.value);
-                            console.log(
-                                "Full Session ID:",
-                                fullSessionId.value,
-                            );
-                            console.log("Entity Name:", entityName.value);
-                            console.log(
-                                "SessionStorage Instance ID:",
-                                sessionStorage.getItem("vircadia-instance-id"),
-                            );
-                            console.log(
-                                "SessionStorage Created At:",
-                                sessionStorage.getItem(
-                                    "vircadia-instance-created",
-                                ),
-                            );
-                            console.log(
-                                "Window Name:",
-                                window.name || "unnamed",
-                            );
-                            console.log(
-                                "Tab/Window ID:",
-                                (
-                                    window as Window & {
-                                        tabId?: string;
-                                        __tabId?: string;
-                                    }
-                                ).tabId ||
-                                    (
-                                        window as Window & {
-                                            tabId?: string;
-                                            __tabId?: string;
-                                        }
-                                    ).__tabId ||
-                                    "not set",
-                            );
-
-                            // Check if we're applying remote updates
-                            console.log("\nRemote Update Behavior:");
-                            console.log("Entity Data:", !!entityData.value);
-                            console.log(
-                                "Character Controller:",
-                                !!characterController.value,
-                            );
-                            console.log("Is Creating:", isCreating.value);
-                            console.log("Is Retrieving:", isRetrieving.value);
-
-                            return {
-                                sessionId: sessionId.value,
-                                instanceId: instanceId.value,
-                                fullSessionId: fullSessionId.value,
-                                entityName: entityName.value,
-                                isUnique:
-                                    instanceId.value ===
-                                    sessionStorage.getItem(
-                                        "vircadia-instance-id",
-                                    ),
-                            };
-                        };
-
-                        console.log("- window.debugMultiTab()");
-
-                        // Debug function to show all avatar entities in DB
-                        (
-                            window as DebugWindow & {
-                                debugAvatarEntities?: () => Promise<void>;
-                            }
-                        ).debugAvatarEntities = async () => {
-                            console.log("=== AVATAR ENTITIES DEBUG ===");
-                            try {
-                                const result =
-                                    await vircadiaWorld.client.Utilities.Connection.query(
-                                        {
-                                            query: "SELECT general__entity_name FROM entity.entities WHERE general__entity_name LIKE 'avatar:%'",
-                                        },
-                                    );
-
-                                if (Array.isArray(result.result)) {
-                                    console.log(
-                                        `Found ${result.result.length} avatar entities:`,
-                                    );
-
-                                    for (const entity of result.result) {
-                                        const entName =
-                                            entity.general__entity_name;
-                                        const metadata =
-                                            await retrieveEntityMetadata(
-                                                entName,
-                                            );
-
-                                        if (metadata) {
-                                            console.log(`\nEntity: ${entName}`);
-                                            console.log(
-                                                "  SessionId:",
-                                                metadata.get("sessionId"),
-                                            );
-                                            console.log(
-                                                "  Position:",
-                                                metadata.get("position"),
-                                            );
-                                            console.log(
-                                                "  Model:",
-                                                metadata.get("modelFileName"),
-                                            );
-                                            console.log(
-                                                "  Type:",
-                                                metadata.get("type"),
-                                            );
-
-                                            // Check if this matches our current session
-                                            const isOurs =
-                                                entName === entityName.value;
-                                            const sessionIdMatches =
-                                                metadata.get("sessionId") ===
-                                                fullSessionId.value;
-                                            console.log(
-                                                "  Is ours?",
-                                                isOurs ? "YES" : "NO",
-                                            );
-                                            console.log(
-                                                "  Session matches?",
-                                                sessionIdMatches ? "YES" : "NO",
-                                            );
-
-                                            if (isOurs && !sessionIdMatches) {
-                                                console.error(
-                                                    "  ⚠️  MISMATCH: Entity name matches but sessionId doesn't!",
-                                                );
-                                            }
-                                        }
-                                    }
-
-                                    console.log("\nOur current state:");
-                                    console.log(
-                                        "  Entity name:",
-                                        entityName.value,
-                                    );
-                                    console.log(
-                                        "  Full session ID:",
-                                        fullSessionId.value,
-                                    );
-                                    console.log(
-                                        "  Session ID:",
-                                        sessionId.value,
-                                    );
-                                    console.log(
-                                        "  Instance ID:",
-                                        instanceId.value,
-                                    );
-                                }
-                            } catch (e) {
-                                console.error(
-                                    "Failed to debug avatar entities:",
-                                    e,
-                                );
-                            }
-                        };
-
-                        console.log("- window.debugAvatarEntities()");
-
-                        // Expose debug data function for overlay
-                        (
-                            window as DebugWindow & {
-                                __debugMyAvatarData?: () => unknown;
-                            }
-                        ).__debugMyAvatarData = () => {
-                            if (!avatarSkeleton.value) return null;
-
-                            const joints: Record<
-                                string,
-                                {
-                                    position: PositionObj;
-                                    rotation: RotationObj;
-                                    scale: PositionObj;
-                                }
-                            > = {};
-
-                            // Collect ALL joints now
-                            for (const bone of avatarSkeleton.value.bones) {
-                                const localMat = bone.getLocalMatrix();
-                                const pos = new Vector3();
-                                const rot = new Quaternion();
-                                const scale = new Vector3();
-                                localMat.decompose(scale, rot, pos);
-
-                                joints[bone.name] = {
-                                    position: vectorToObj(pos),
-                                    rotation: quatToObj(rot),
-                                    scale: vectorToObj(scale),
-                                };
-                            }
-
-                            return {
-                                sessionId: sessionId.value,
-                                boneCount: avatarSkeleton.value.bones.length,
-                                position: position.value
-                                    ? { ...position.value }
-                                    : { x: 0, y: 0, z: 0 },
-                                rotation: rotation.value
-                                    ? { ...rotation.value }
-                                    : { x: 0, y: 0, z: 0, w: 1 },
-                                joints,
-                            };
-                        };
-
-                        // Animation debug snapshot provider
-                        const animationEvents: string[] = [];
-                        const record = (msg: string) => {
-                            const ts =
-                                new Date()
-                                    .toISOString()
-                                    .split("T")[1]
-                                    ?.split(".")[0] || "";
-                            animationEvents.push(`${ts} ${msg}`);
-                            if (animationEvents.length > 100)
-                                animationEvents.shift();
-                        };
-                        if (idleAnimation)
-                            record(`idle loaded: ${idleAnimation.name}`);
-                        if (walkAnimation)
-                            record(`walk loaded: ${walkAnimation.name}`);
-                        (
-                            window as DebugWindow & {
-                                __debugMyAvatarAnimation?: () => {
-                                    idle: { ready: boolean };
-                                    walk: { ready: boolean };
-                                    blendWeight: number;
-                                    events: string[];
-                                    animations: {
-                                        fileName: string;
-                                        state: string;
-                                    }[];
-                                } | null;
-                            }
-                        ).__debugMyAvatarAnimation = () => {
-                            return {
-                                idle: { ready: !!idleAnimation },
-                                walk: { ready: !!walkAnimation },
-                                blendWeight: blendWeight.value,
-                                events: animationEvents.slice(),
-                                animations: Array.from(
-                                    animationsMap.value.entries(),
-                                ).map(([fileName, info]) => ({
-                                    fileName,
-                                    state: info.state,
-                                })),
-                            };
-                        };
-
-                        // Add function to set avatar transform from debug overlay
-                        (
-                            window as DebugWindow & {
-                                __debugSetMyAvatarTransform?: (
-                                    position: {
-                                        x: number;
-                                        y: number;
-                                        z: number;
-                                    },
-                                    rotation: {
-                                        x: number;
-                                        y: number;
-                                        z: number;
-                                        w: number;
-                                    },
-                                ) => void;
-                            }
-                        ).__debugSetMyAvatarTransform = (
-                            newPosition,
-                            newRotation,
-                        ) => {
-                            if (
-                                !characterController.value ||
-                                !avatarNode.value
-                            ) {
-                                console.error(
-                                    "Character controller or avatar node not available",
-                                );
-                                return;
-                            }
-
-                            // Set position
-                            setPosition(
-                                new Vector3(
-                                    newPosition.x,
-                                    newPosition.y,
-                                    newPosition.z,
-                                ),
-                            );
-                            position.value = { ...newPosition };
-
-                            // Set rotation
-                            setOrientation(
-                                new Quaternion(
-                                    newRotation.x,
-                                    newRotation.y,
-                                    newRotation.z,
-                                    newRotation.w,
-                                ),
-                            );
-                            rotation.value = { ...newRotation };
-
-                            // Force update transforms
-                            updateTransforms();
-
-                            // Entity metadata updates handled by BabylonMyAvatarEntity
-
-                            console.log("[Debug] Avatar transform updated", {
-                                position: newPosition,
-                                rotation: newRotation,
-                            });
-                        };
-
-                        console.log(
-                            "[AVATAR] Emitting ready event after animation setup",
-                        );
-                        emit("ready");
-
-                        // Audio stream is now initialized by the BabylonWebRTC component
-                    } else {
-                        console.warn(
-                            "No skeleton found on avatar meshes, skipping animation load.",
-                        );
-                    }
-
-                    // Debug mode: show bounding boxes, axes, and skeleton
-                    if (debugBoundingBox.value) {
-                        for (const mesh of avatarMeshes.value) {
-                            if ("showBoundingBox" in mesh) {
-                                (
-                                    mesh as unknown as {
-                                        showBoundingBox?: boolean;
-                                    }
-                                ).showBoundingBox = true;
-                            }
-                        }
-                    }
-                    if (debugAxes.value && avatarNode.value) {
-                        // Initialize axes viewer; will update position and orientation each frame
-                        axesViewer = new AxesViewer(
-                            props.scene,
-                            capsuleHeight.value,
-                        );
-                    }
-                    if (debugSkeleton.value && avatarSkeleton.value) {
-                        const skinnedMeshes = avatarMeshes.value.filter(
-                            (m) => m.skeleton === avatarSkeleton.value,
-                        );
-                        for (const m of skinnedMeshes) {
-                            if (avatarSkeleton.value) {
-                                skeletonViewer = new SkeletonViewer(
-                                    avatarSkeleton.value,
-                                    m,
-                                    props.scene,
-                                );
-                                skeletonViewer.isEnabled = true;
-                            }
-                        }
-                    }
-
-                    console.log(
-                        "[AVATAR] Emitting ready event after camera setup",
-                    );
-                    emit("ready");
-                } else {
-                    console.warn(
-                        "Avatar node not initialized, skipping model load",
-                    );
-                }
-            } else if (meta && characterController.value) {
-                // CRITICAL: Skip remote updates to prevent multi-tab conflicts
-                // When multiple tabs share the same session, they should NOT apply
-                // each other's position updates via the database
-                console.warn(
-                    "[AVATAR] Skipping remote position update to prevent multi-tab conflicts",
-                    {
-                        entityName: entityName.value,
-                        fullSessionId: fullSessionId.value,
-                        metaSessionId: meta.get("sessionId"),
-                    },
-                );
-                // DO NOT apply remote position/rotation updates
-                // Each tab should only control its own avatar's physics
-            }
-        },
-        { immediate: true },
-    );
-
-    // Handle input just before the physics engine step
-    beforePhysicsObserver = props.scene.onBeforePhysicsObservable.add(() => {
-        if (!characterController.value || !isModelLoaded.value) return;
-        const dt = props.scene.getEngine().getDeltaTime() / 1000;
-
-        // Handle rotation input
-        let yawDelta = 0;
-        if (keyState.value.turnLeft) yawDelta -= turnSpeed.value * dt;
-        if (keyState.value.turnRight) yawDelta += turnSpeed.value * dt;
-        if (yawDelta !== 0) {
-            const deltaQ = Quaternion.RotationAxis(Vector3.Up(), yawDelta);
-            const currentQ = getOrientation();
-            if (!currentQ) {
-                console.error("No current orientation found.");
-                return;
-            }
-            setOrientation(currentQ.multiply(deltaQ));
-        }
-
-        // Compute movement direction
-        const dir = new Vector3(
-            (keyState.value.strafeRight ? 1 : 0) -
-                (keyState.value.strafeLeft ? 1 : 0),
-            0,
-            (keyState.value.forward ? 1 : 0) -
-                (keyState.value.backward ? 1 : 0),
+    let lastTime = performance.now();
+    if (
+        !props.scene?.onBeforeRenderObservable?.add ||
+        !props.scene?.onAfterRenderObservable?.add
+    ) {
+        console.warn(
+            "[BabylonMyAvatar] Scene render observables are not available yet; skipping frame hooks this mount",
         );
+        return;
+    }
+    beforePhysicsObserver = props.scene.onBeforeRenderObservable.add(() => {
+        // Late-init controller once physics is enabled
+        tryCreateControllerIfNeeded();
+        const now = performance.now();
+        const deltaTime = (now - lastTime) / 1000.0;
+        lastTime = now;
 
-        // Check if character is moving for animation blending
-        const isMoving = dir.lengthSquared() > 0;
+        if (!avatarNode.value || !characterController.value) return;
 
-        // Refresh desired animations based on key state (motion/direction)
+        const ks = keyState.value;
+        const isMoving =
+            ks.forward ||
+            ks.backward ||
+            ks.strafeLeft ||
+            ks.strafeRight ||
+            ks.turnLeft ||
+            ks.turnRight;
+
         refreshDesiredAnimations();
+        updateAnimationBlending(isMoving, deltaTime, props.isTalking);
 
-        // Update animation blending based on movement state
-        updateAnimationBlending(isMoving, dt, !!props.isTalking);
+        const moveDirection = new Vector3(0, 0, 0);
+        if (ks.forward) moveDirection.z += 1;
+        if (ks.backward) moveDirection.z -= 1;
+        if (ks.strafeRight) moveDirection.x += 1;
+        if (ks.strafeLeft) moveDirection.x -= 1;
 
-        // Horizontal movement via velocity
-        const vel = getVelocity();
-        if (isMoving && vel && avatarNode.value) {
-            // Movement relative to capsule's facing via getDirection
-            const forward = avatarNode.value.getDirection(Vector3.Forward());
-            const right = avatarNode.value.getDirection(Vector3.Right());
-            const moveWS = forward
-                .scale(dir.z)
-                .add(right.scale(dir.x))
-                .normalize();
-            // Speed scaling: walk (default), jog, sprint
-            const speedMultiplier = keyState.value.sprint
-                ? 2.0
-                : keyState.value.slowRun
-                  ? 1.5
-                  : 1.0;
-            const speed = walkSpeed.value * speedMultiplier;
-            // preserve vertical velocity
-            setVelocity(moveWS.scale(speed).add(new Vector3(0, vel.y, 0)));
-        } else if (vel) {
-            setVelocity(new Vector3(0, vel.y, 0));
+        if (moveDirection.lengthSquared() > 0) {
+            moveDirection.normalize();
         }
-        // Jump if on ground
-        if (keyState.value.jump) {
-            const support = checkSupport(dt);
-            if (
-                support?.supportedState === CharacterSupportedState.SUPPORTED &&
-                vel
-            ) {
-                setVelocity(new Vector3(vel.x, jumpSpeed.value, vel.z));
-            }
+
+        const currentSpeed = walkSpeed.value * (ks.sprint ? 2 : 1);
+        moveDirection.scaleInPlace(currentSpeed);
+
+        const m = new Matrix();
+        avatarNode.value.rotationQuaternion?.toRotationMatrix(m);
+        const worldMove = Vector3.TransformCoordinates(moveDirection, m);
+
+        const currentVelocity = getVelocity() ?? Vector3.Zero();
+        const newVelocity = new Vector3(
+            worldMove.x,
+            currentVelocity.y,
+            worldMove.z,
+        );
+        setVelocity(newVelocity);
+
+        const turn = (ks.turnRight ? 1 : 0) - (ks.turnLeft ? 1 : 0);
+        if (turn !== 0) {
+            const turnAngle = turn * turnSpeed.value * deltaTime;
+            const turnQuat = Quaternion.RotationAxis(Vector3.Up(), turnAngle);
+            const currentOrientation =
+                getOrientation() ?? Quaternion.Identity();
+            setOrientation(currentOrientation.multiply(turnQuat));
         }
+
+        // Recompute support after velocity/turn updates
+        const support = checkSupport(deltaTime);
+        if (
+            ks.jump &&
+            support?.supportedState === CharacterSupportedState.SUPPORTED
+        ) {
+            const jumpVelocity = getVelocity() ?? Vector3.Zero();
+            jumpVelocity.y = jumpSpeed.value;
+            setVelocity(jumpVelocity);
+        }
+
+        integrate(deltaTime, support);
     });
-    // After the physics engine updates, integrate the character and sync transforms
-    afterPhysicsObserver = props.scene.onAfterPhysicsObservable.add(() => {
-        if (!characterController.value || !isModelLoaded.value) return;
-        const dt = props.scene.getEngine().getDeltaTime() / 1000;
-        // Apply manual gravity to vertical velocity
-        const velAfter = getVelocity();
-        if (velAfter) {
-            velAfter.y += gravity.value * dt;
-            setVelocity(velAfter);
-        }
-        // Integrate physics and sync transforms
-        const supportAfter = checkSupport(dt);
-        if (supportAfter) {
-            integrate(dt, supportAfter);
-        }
+
+    afterPhysicsObserver = props.scene.onAfterRenderObservable.add(() => {
         updateTransforms();
+    });
 
-        // Make sure skeleton is updated before sending metadata
-        if (avatarSkeleton.value) {
-            // Don't force skeleton matrix computation - let Babylon handle it naturally
-            // This was interfering with other avatars' bone transforms:
-            // avatarSkeleton.value.computeAbsoluteMatrices();
-
-            // Debug skeleton data capture (enable with window.debugSkeleton = true)
-            if (
-                (window as DebugWindow).debugSkeleton &&
-                !debugSkeletonData.value
-            ) {
-                debugSkeletonData.value = true;
-
-                // Capture snapshot of skeleton state
-                const snapshot: SkeletonSnapshot = {
-                    timestamp: new Date().toISOString(),
-                    boneCount: avatarSkeleton.value.bones.length,
-                    animations: {
-                        idle: idleAnimation?.isPlaying
-                            ? `weight: ${(1 - blendWeight.value).toFixed(2)}`
-                            : "not playing",
-                        walk: walkAnimation?.isPlaying
-                            ? `weight: ${blendWeight.value.toFixed(2)}`
-                            : "not playing",
-                    },
-                    bones: {},
-                };
-
-                // Capture all bone transforms
-                for (const bone of avatarSkeleton.value.bones) {
-                    const localMat = bone.getLocalMatrix();
-                    const pos = new Vector3();
-                    const rot = new Quaternion();
-                    const scale = new Vector3();
-                    localMat.decompose(scale, rot, pos);
-
-                    snapshot.bones[bone.name] = {
-                        position: { x: pos.x, y: pos.y, z: pos.z },
-                        rotation: { x: rot.x, y: rot.y, z: rot.z, w: rot.w },
-                        scale: { x: scale.x, y: scale.y, z: scale.z },
-                    };
-                }
-
-                // Store in window for inspection
-                (window as DebugWindow).lastSkeletonSnapshot = snapshot;
-                console.log(
-                    "[DEBUG] Skeleton snapshot captured. Access with: window.lastSkeletonSnapshot",
-                );
-
-                // Reset flag after 1 second
-                setTimeout(() => {
-                    debugSkeletonData.value = false;
-                }, 1000);
-            }
-        }
-
-        // Entity metadata updates handled by BabylonMyAvatarEntity
-        // Debug axes update: position and orient axes to match avatar
-        if (debugAxes.value && axesViewer && avatarNode.value) {
-            const node = avatarNode.value;
-            axesViewer.update(
-                node.absolutePosition,
-                node.getDirection(Vector3.Right()),
-                node.getDirection(Vector3.Up()),
-                node.getDirection(Vector3.Forward()),
-            );
-        }
-
-        // Update leg rotation test
-        if (
-            legRotationTest.isActive &&
-            legRotationTest.targetBone &&
-            legRotationTest.originalRotation
-        ) {
-            const elapsed = Date.now() - legRotationTest.startTime;
-            const progress = Math.min(elapsed / legRotationTest.duration, 1.0);
-
-            // Calculate rotation angle (0 to 360 degrees)
-            const angle = progress * Math.PI * 2;
-
-            // Create rotation around Y axis (up)
-            const rotationDelta = Quaternion.RotationAxis(Vector3.Up(), angle);
-
-            // Apply rotation: original * delta
-            const newRotation =
-                legRotationTest.originalRotation.multiply(rotationDelta);
-
-            // Try multiple approaches to ensure the rotation is applied
-
-            // Approach 1: Set rotation quaternion directly
-            legRotationTest.targetBone.setRotationQuaternion(
-                newRotation,
-                Space.LOCAL,
-            );
-
-            // Approach 2: Update the bone's local matrix directly
-            // Get current position and scale from the matrix
-            const currentMatrix = legRotationTest.targetBone.getLocalMatrix();
-            const pos = new Vector3();
-            const oldRot = new Quaternion();
-            const scale = new Vector3();
-            currentMatrix.decompose(scale, oldRot, pos);
-
-            // Create new matrix with our rotation
-            const rotMatrix = Matrix.FromQuaternionToRef(
-                newRotation,
-                new Matrix(),
-            );
-            const translationMatrix = Matrix.Translation(pos.x, pos.y, pos.z);
-            const scaleMatrix = Matrix.Scaling(scale.x, scale.y, scale.z);
-            const newMatrix = scaleMatrix
-                .multiply(rotMatrix)
-                .multiply(translationMatrix);
-
-            // Apply the new matrix
-            legRotationTest.targetBone.updateMatrix(newMatrix, false, false);
-
-            // CRITICAL: Force skeleton to update and propagate to mesh
+    const disableRootMotion = effectiveAvatarDef.value.disableRootMotion;
+    if (!disableRootMotion) {
+        rootMotionObserver = props.scene.onAfterAnimationsObservable.add(() => {
             if (avatarSkeleton.value) {
-                // Mark skeleton as dirty to force update
-                avatarSkeleton.value.prepare();
-
-                // If the bone has a linked TransformNode, update that too
-                const linkedNode =
-                    legRotationTest.targetBone.getTransformNode();
-                if (linkedNode?.rotationQuaternion) {
-                    linkedNode.rotationQuaternion = newRotation;
-                }
+                // Placeholder for root motion extraction
             }
-
-            // Log progress every ~10%
-            const progressPercent = Math.floor(progress * 10) * 10;
-            if (
-                progressPercent % 10 === 0 &&
-                Math.abs(progress * 100 - progressPercent) < 1
-            ) {
-                console.log(
-                    `[LegTest] Progress: ${progressPercent}%, angle: ${((angle * 180) / Math.PI).toFixed(1)}°`,
-                );
-
-                // Get current bone transform
-                const localMat = legRotationTest.targetBone.getLocalMatrix();
-                const pos = new Vector3();
-                const rot = new Quaternion();
-                const scale = new Vector3();
-                localMat.decompose(scale, rot, pos);
-
-                console.log(
-                    `[LegTest] Current rotation: x=${rot.x.toFixed(3)}, y=${rot.y.toFixed(3)}, z=${rot.z.toFixed(3)}, w=${rot.w.toFixed(3)}`,
-                );
-
-                // Also log if bone has a linked transform node
-                const linkedNode =
-                    legRotationTest.targetBone.getTransformNode();
-                if (linkedNode) {
-                    console.log(
-                        `[LegTest] Bone has linked TransformNode: ${linkedNode.name}`,
-                    );
-                }
-            }
-
-            // Auto-stop after completion
-            if (progress >= 1.0) {
-                console.log("[LegTest] Rotation complete, auto-stopping");
-                stopLegRotationTest();
-            }
-        }
-    });
-    // Prevent unwanted root motion sliding by resetting root bone position each frame
-    rootMotionObserver = props.scene.onAfterAnimationsObservable.add(() => {
-        // Skip if model not loaded yet
-        if (!isModelLoaded.value) return;
-
-        // Check if root motion should be disabled (default: true for physics-based movement)
-        const shouldDisableRootMotion =
-            effectiveAvatarDef.value.disableRootMotion !== false;
-
-        if (shouldDisableRootMotion) {
-            // Reset root bone position if skeleton exists
-            if (avatarSkeleton.value && avatarSkeleton.value.bones.length > 0) {
-                const rootBone = avatarSkeleton.value.bones[0];
-                // Reset root bone position to prevent animation root motion from moving the avatar
-                rootBone.position.set(0, 0, 0);
-                // Optionally reset rotation if animations also contain unwanted root rotation
-                // rootBone.rotationQuaternion?.set(0, 0, 0, 1);
-            }
-
-            // Also reset any direct mesh transforms that might have been animated
-            for (const mesh of avatarMeshes.value) {
-                // Only reset position for root meshes (those directly parented to avatarNode)
-                if (mesh.parent === avatarNode.value) {
-                    // Keep the Y offset for bottom pivot, but reset X and Z
-                    const currentY = mesh.position.y;
-                    mesh.position.x = 0;
-                    mesh.position.z = 0;
-                    // Preserve the pivot offset
-                    if (
-                        meshPivotPoint.value === "bottom" &&
-                        Math.abs(currentY + capsuleHeight.value / 2) < 0.1
-                    ) {
-                        // Keep the bottom pivot offset
-                        mesh.position.y = -capsuleHeight.value / 2;
-                    } else {
-                        mesh.position.y = 0;
-                    }
-                }
-            }
-        }
-    });
-
-    // Start debug logging if enabled
-    debugInterval = setInterval(() => {
-        if (
-            (window as DebugWindow).debugSkeletonLoop &&
-            avatarSkeleton.value &&
-            avatarMeshes.value.length > 0
-        ) {
-            const debugData: DebugData = {
-                timestamp: new Date().toISOString().split("T")[1].split(".")[0],
-                sessionId: sessionId.value || "",
-                skeleton: {
-                    boneCount: avatarSkeleton.value.bones.length,
-                    animations: {
-                        idle: idleAnimation?.isPlaying
-                            ? 1 - blendWeight.value
-                            : 0,
-                        walk: walkAnimation?.isPlaying ? blendWeight.value : 0,
-                    },
-                },
-                bones: {},
-            };
-
-            // Sample key bones to check movement
-            const keyBones =
-                legRotationTest.isActive && legRotationTest.targetBone
-                    ? ["Hips", "Spine", "Head", legRotationTest.targetBone.name]
-                    : ["Hips", "Spine", "Head"];
-
-            // If leg test is active, mark animations as paused
-            if (legRotationTest.isActive && legRotationTest.targetBone) {
-                debugData.skeleton.animations.idle = "PAUSED (leg test)";
-                debugData.skeleton.animations.walk = "PAUSED (leg test)";
-            }
-
-            debugData.bones = {};
-
-            for (const boneName of keyBones) {
-                const bone = avatarSkeleton.value.bones.find((b) =>
-                    typeof boneName === "string"
-                        ? b.name.includes(boneName)
-                        : b.name === boneName,
-                );
-                if (bone) {
-                    const localMat = bone.getLocalMatrix();
-                    const pos = new Vector3();
-                    const rot = new Quaternion();
-                    const scale = new Vector3();
-                    localMat.decompose(scale, rot, pos);
-
-                    // For leg test bone, always log
-                    const isLegTestBone =
-                        legRotationTest.isActive &&
-                        bone === legRotationTest.targetBone;
-
-                    // Only log if not at identity OR if it's the leg test bone
-                    if (
-                        isLegTestBone ||
-                        pos.lengthSquared() > 0.001 ||
-                        Math.abs(rot.w - 1) > 0.001
-                    ) {
-                        debugData.bones[bone.name] = {
-                            p: [
-                                pos.x.toFixed(2),
-                                pos.y.toFixed(2),
-                                pos.z.toFixed(2),
-                            ],
-                            r: rot.w.toFixed(2),
-                        };
-
-                        // Add extra info for leg test bone
-                        if (isLegTestBone) {
-                            debugData.bones[bone.name].r =
-                                `${rot.x.toFixed(2)},${rot.y.toFixed(2)},${rot.z.toFixed(2)},${rot.w.toFixed(2)}`;
-                        }
-                    }
-                }
-            }
-
-            console.log("[MY_AVATAR]", JSON.stringify(debugData));
-        }
-    }, 1000); // Log every second
+        });
+    }
 });
-
-// React to definition name changes
-watch(
-    () => props.avatarDefinitionName,
-    async (newName, oldName) => {
-        if (newName && newName !== oldName) {
-            if (vircadiaWorld.connectionInfo.value.status === "connected") {
-                await loadAvatarDefinitionFromDb(newName);
-            }
-        }
-    },
-);
 
 onUnmounted(() => {
     emit("dispose");
-    isModelLoaded.value = false;
-    if (beforePhysicsObserver) {
-        props.scene.onBeforePhysicsObservable.remove(beforePhysicsObserver);
+    if (
+        beforePhysicsObserver &&
+        props.scene?.onBeforeRenderObservable?.remove
+    ) {
+        props.scene.onBeforeRenderObservable.remove(beforePhysicsObserver);
     }
-    if (afterPhysicsObserver) {
-        props.scene.onAfterPhysicsObservable.remove(afterPhysicsObserver);
+    if (afterPhysicsObserver && props.scene?.onAfterRenderObservable?.remove) {
+        props.scene.onAfterRenderObservable.remove(afterPhysicsObserver);
     }
     if (rootMotionObserver) {
-        props.scene.onBeforeRenderObservable.remove(rootMotionObserver);
+        props.scene.onAfterAnimationsObservable.remove(rootMotionObserver);
     }
-    if (debugInterval) {
-        clearInterval(debugInterval);
-    }
-
-    // Cleanup Vue watchers
-    connectionStatusWatcher?.();
-    entityDataWatcher?.();
-    // Dispose debug viewers
     if (skeletonViewer) {
         skeletonViewer.dispose();
-        skeletonViewer = null;
     }
     if (axesViewer) {
         axesViewer.dispose();
-        axesViewer = null;
     }
-    avatarNode.value?.dispose();
-});
-
-defineExpose({
-    isRetrieving,
-    isCreating,
-    // Entity update flags exposed by external component instead
-    hasError: computed(() => false),
-    errorMessage: computed(() => null),
-    getPosition,
-    setPosition,
-    getOrientation,
-    setOrientation,
-    getVelocity,
-    setVelocity,
-    checkSupport,
-    integrate,
-    animations,
-    avatarSkeleton,
-    onAnimationState,
+    // Controller does not expose dispose in types; clear references and dispose nodes
+    avatarNode.value?.dispose(false, true);
 });
 </script>

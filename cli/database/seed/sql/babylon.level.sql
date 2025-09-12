@@ -4,17 +4,49 @@
 -- ENTITIES: ASSETS
 -- ============================================================================
 
+-- Level assets
 INSERT INTO entity.entity_assets (
     general__asset_file_name,
     group__sync,
     asset__mime_type
 )
 VALUES
-    -- Babylon.js Level
-    ('babylon.level.glb', 'public.STATIC', 'model/gltf-binary'),
-    ('babylon.level.hdr.1k.hdr', 'public.STATIC', 'image/vnd.radiance'),
-    -- Babylon.js Avatar
-    ('babylon.avatar.glb', 'public.STATIC', 'model/gltf-binary'),
+    ('babylon.level.glb', 'public.STATIC', 'model/gltf-binary');
+
+-- Environment assets
+INSERT INTO entity.entity_assets (
+    general__asset_file_name,
+    group__sync,
+    asset__mime_type
+)
+VALUES
+    ('babylon.level.hdr.1k.hdr', 'public.STATIC', 'image/vnd.radiance');
+
+-- Door assets
+INSERT INTO entity.entity_assets (
+    general__asset_file_name,
+    group__sync,
+    asset__mime_type
+)
+VALUES
+    ('babylon.model.wooden_door.glb', 'public.STATIC', 'model/gltf-binary');
+
+-- Avatar model assets
+INSERT INTO entity.entity_assets (
+    general__asset_file_name,
+    group__sync,
+    asset__mime_type
+)
+VALUES
+    ('babylon.avatar.glb', 'public.STATIC', 'model/gltf-binary');
+
+-- Animation assets
+INSERT INTO entity.entity_assets (
+    general__asset_file_name,
+    group__sync,
+    asset__mime_type
+)
+VALUES
     -- Idle animations
     ('babylon.avatar.animation.f.idle.1.glb', 'public.STATIC', 'model/gltf-binary'),
     ('babylon.avatar.animation.f.idle.2.glb', 'public.STATIC', 'model/gltf-binary'),
@@ -83,6 +115,17 @@ VALUES (
 )
 ON CONFLICT (general__entity_name) DO NOTHING;
 
+-- Babylon door entity (used by client to discover and sync door metadata)
+INSERT INTO entity.entities (
+    general__entity_name,
+    group__sync
+)
+VALUES (
+    'babylon.door.main',
+    'public.REALTIME'
+)
+ON CONFLICT (general__entity_name) DO NOTHING;
+
 -- Metadata for Babylon level entity
 INSERT INTO entity.entity_metadata (
     general__entity_name,
@@ -102,7 +145,13 @@ VALUES
     ('babylon.level.glb', 'ownerSessionId', 'null'::jsonb, 'public.STATIC'),
     -- Environment metadata (HDR files etc.)
     ('babylon.environment.default', 'type', '"Environment"'::jsonb, 'public.STATIC'),
-    ('babylon.environment.default', 'hdrFiles', '["babylon.level.hdr.1k.hdr"]'::jsonb, 'public.STATIC')
+    ('babylon.environment.default', 'hdrFiles', '["babylon.level.hdr.1k.hdr"]'::jsonb, 'public.STATIC'),
+    -- Door metadata
+    ('babylon.door.main', 'type', '"Model"'::jsonb, 'public.REALTIME'),
+    ('babylon.door.main', 'modelFileName', '"babylon.model.wooden_door.glb"'::jsonb, 'public.REALTIME'),
+    ('babylon.door.main', 'position', '{"x":0,"y":0,"z":5}'::jsonb, 'public.REALTIME'),
+    ('babylon.door.main', 'rotation', '{"x":0,"y":0,"z":0,"w":1}'::jsonb, 'public.REALTIME'),
+    ('babylon.door.main', 'open', 'false'::jsonb, 'public.REALTIME')
 ON CONFLICT (general__entity_name, metadata__key) DO UPDATE SET
     metadata__value = EXCLUDED.metadata__value,
     group__sync = EXCLUDED.group__sync;

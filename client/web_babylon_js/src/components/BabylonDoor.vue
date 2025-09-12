@@ -39,8 +39,7 @@ const props = defineProps({
     entityName: { type: String, required: true },
     modelFileName: {
         type: String,
-        required: false,
-        default: "telekom.model.WoodenDoor.glb",
+        required: true,
     },
     initialPosition: {
         type: Object as () => PositionJson,

@@ -158,7 +158,7 @@
                 v-slot="{ isLoading }"
             >
                 <!-- Only render entities when scene is available, connection is stable, and full session ID is available -->
-                <template v-if="sceneInitialized && scene && connectionStatus === 'connected' && !isConnecting && fullSessionId">
+                <template v-if="!isLoading && sceneInitialized && scene && connectionStatus === 'connected' && !isConnecting && fullSessionId">
                     <!-- BabylonMyAvatar component wrapped with MKB controller -->
                     <BabylonMyAvatarMKBController
                         :scene="sceneNonNull"
@@ -515,6 +515,7 @@ void instanceIdRef;
 // Scene readiness derived from BabylonCanvas exposed API
 // Track if avatar is ready
 const avatarRef = ref<InstanceType<typeof BabylonMyAvatar> | null>(null);
+void avatarRef;
 // targetSkeleton now provided via slot; no local ref needed
 type OtherAvatarsExposed = {
     isLoading: boolean;

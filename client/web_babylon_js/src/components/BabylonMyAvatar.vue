@@ -27,22 +27,13 @@
 </template>
 
 <script setup lang="ts">
-import {
-    ref,
-    reactive,
-    onMounted,
-    onUnmounted,
-    watch,
-    type Ref,
-    computed,
-} from "vue";
+import { ref, onMounted, onUnmounted, type Ref, computed } from "vue";
 
 import {
     Vector3,
     Quaternion,
     Matrix,
     CharacterSupportedState,
-    Space,
     TransformNode,
     MeshBuilder,
     PhysicsCharacterController,
@@ -53,7 +44,6 @@ import {
     type Scene,
     type Observer,
     type Skeleton,
-    type Bone,
     type AbstractMesh,
     type Camera,
 } from "@babylonjs/core";
@@ -61,6 +51,7 @@ import "@babylonjs/loaders/glTF";
 
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 import BabylonMyAvatarEntity from "./BabylonMyAvatarEntity.vue";
+void BabylonMyAvatarEntity;
 
 // Debug viewers import
 import { SkeletonViewer, AxesViewer } from "@babylonjs/core/Debug";
@@ -178,6 +169,8 @@ const blendDuration = computed(() => effectiveAvatarDef.value.blendDuration);
 const gravity = computed(() => effectiveAvatarDef.value.gravity);
 const meshPivotPoint = computed(() => effectiveAvatarDef.value.meshPivotPoint);
 const modelFileName = computed(() => effectiveAvatarDef.value.modelFileName);
+void meshPivotPoint;
+void modelFileName;
 const animations = computed(
     () => effectiveAvatarDef.value.animations as AnimationDef[],
 );
@@ -194,6 +187,7 @@ const fullSessionId = computed(() => {
 function onAvatarDefinitionLoaded(def: AvatarDefinition) {
     dbAvatarDef.value = def;
 }
+void onAvatarDefinitionLoaded;
 
 type EntityData = {
     general__entity_name: string;
@@ -224,6 +218,7 @@ function onEntityDataLoaded(data: EntityData) {
         );
     }
 }
+void onEntityDataLoaded;
 
 const avatarNode = ref<TransformNode | null>(null);
 const characterController = ref<PhysicsCharacterController | null>(null);
@@ -250,17 +245,8 @@ function createController(position: Vector3, rotation: Quaternion): void {
     capsule.isVisible = false;
     capsule.setParent(node);
 
-    // Attempt to create physics shape and controller if physics is available
+    // Create physics shape and controller (physics is enabled by environment gating)
     try {
-        const physicsReady = (
-            scene as unknown as { isPhysicsEnabled?: () => boolean }
-        ).isPhysicsEnabled?.();
-        if (!physicsReady) {
-            console.debug(
-                "[Avatar] Physics not enabled yet; controller will be created later",
-            );
-            return;
-        }
         const physicsShape = PhysicsShapeCapsule.FromMesh(capsule);
         characterController.value = new PhysicsCharacterController(
             node.position.clone(),
@@ -280,25 +266,8 @@ function createController(position: Vector3, rotation: Quaternion): void {
             characterController.value.keepDistance = 0.01;
         }
     } catch (e) {
-        console.warn(
-            "[Avatar] Failed to create character controller; will retry when physics is ready",
-            e,
-        );
+        console.error("[Avatar] Failed to create character controller", e);
     }
-}
-
-function tryCreateControllerIfNeeded(): void {
-    if (characterController.value || !avatarNode.value) return;
-    const scene = props.scene;
-    if (!scene) return;
-    const physicsReady = (
-        scene as unknown as { isPhysicsEnabled?: () => boolean }
-    ).isPhysicsEnabled?.();
-    if (!physicsReady) return;
-    const currentPos = avatarNode.value.position.clone();
-    const currentRot =
-        avatarNode.value.rotationQuaternion?.clone() ?? Quaternion.Identity();
-    createController(currentPos, currentRot);
 }
 
 function updateTransforms(): void {
@@ -360,6 +329,7 @@ const defaultKeyState = ref<KeyState>({
 const keyState = computed(() => props.keyState ?? defaultKeyState.value);
 
 const vircadiaWorld = props.vircadiaWorld;
+void vircadiaWorld;
 
 const avatarMeshes: Ref<AbstractMesh[]> = ref([]);
 const isModelLoaded = ref(false);
@@ -623,6 +593,7 @@ function onSetAvatarModel(payload: {
 
     emit("ready");
 }
+void onSetAvatarModel;
 
 type AnimationState = "idle" | "loading" | "ready" | "error";
 type AnimationInfo = {
@@ -645,6 +616,7 @@ function onAnimationState(payload: {
     });
     refreshDesiredAnimations();
 }
+void onAnimationState;
 
 function trySetupBlendedAnimations(): void {
     ensureIdleGroupReady();
@@ -746,8 +718,6 @@ onMounted(async () => {
         return;
     }
     beforePhysicsObserver = props.scene.onBeforeRenderObservable.add(() => {
-        // Late-init controller once physics is enabled
-        tryCreateControllerIfNeeded();
         const now = performance.now();
         const deltaTime = (now - lastTime) / 1000.0;
         lastTime = now;

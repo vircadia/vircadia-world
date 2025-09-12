@@ -14,7 +14,6 @@ import {
     ArcRotateCamera,
     Vector3,
     Quaternion,
-    Mesh,
     MeshBuilder,
     PointerEventTypes,
 } from "@babylonjs/core";
@@ -53,20 +52,6 @@ function getAvatarTargetPosition(): Vector3 | null {
         node.position.y + props.capsuleHeight * 0.6,
         node.position.z,
     );
-}
-
-function getAvatarMesh(): AbstractMesh | null {
-    const node = props.avatarNode;
-    if (!node) return null;
-    if (node instanceof Mesh) return node as AbstractMesh;
-    // Prefer the physics capsule if present
-    const meshes = (node as TransformNode).getChildMeshes(
-        true,
-    ) as AbstractMesh[];
-    const capsule = meshes.find((m) => m.name === "avatarCapsule");
-    if (capsule) return capsule;
-    // Try to resolve a child mesh (first one)
-    return meshes.length > 0 ? meshes[0] : null;
 }
 
 function ensureFollowTarget(): AbstractMesh | null {

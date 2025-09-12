@@ -248,13 +248,6 @@ onMounted(async () => {
         // Initial size
         engine.resize();
 
-        // Hotkey: P toggles performance
-        window.addEventListener("keydown", (event) => {
-            if (event.key === "p" || event.key === "P") {
-                togglePerformanceMode();
-            }
-        });
-
         // Start rendering immediately so scene is visible without waiting for parent
         startRenderLoop();
 

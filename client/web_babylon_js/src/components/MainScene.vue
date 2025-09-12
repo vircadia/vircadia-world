@@ -45,6 +45,41 @@
             flat
         >
             <v-app-bar-title>Debug</v-app-bar-title>
+
+            <!-- Connection State -->
+            <v-chip
+                :color="getConnectionStatusColor(connectionStatus)"
+                size="small"
+                variant="flat"
+                class="ml-4"
+            >
+                <v-icon start size="small">{{ getConnectionStatusIcon(connectionStatus) }}</v-icon>
+                {{ connectionStatus }}
+            </v-chip>
+
+            <!-- Auth State -->
+            <v-chip
+                :color="getAuthStatusColor(isAuthenticated, isAuthenticating)"
+                size="small"
+                variant="flat"
+                class="ml-2"
+            >
+                <v-icon start size="small">{{ getAuthStatusIcon(isAuthenticated, isAuthenticating) }}</v-icon>
+                {{ getAuthStatusText(isAuthenticated, isAuthenticating) }}
+            </v-chip>
+
+            <!-- Connected URL -->
+            <v-chip
+                color="info"
+                size="small"
+                variant="outlined"
+                class="ml-2"
+                v-if="connectionStatus !== 'disconnected'"
+            >
+                <v-icon start size="small">mdi-web</v-icon>
+                {{ getConnectedUrl() }}
+            </v-chip>
+
             <v-spacer />
             <v-btn
                 variant="tonal"
@@ -80,6 +115,15 @@
                 class="ml-2"
             >
                 Anim
+            </v-btn>
+            <v-btn
+                variant="tonal"
+                :color="performanceMode === 'low' ? 'warning' : 'default'"
+                prepend-icon="mdi-speedometer"
+                @click="togglePerformanceMode"
+                class="ml-2"
+            >
+                Perf ({{ performanceMode }})
             </v-btn>
         </v-app-bar>
 
@@ -252,7 +296,7 @@
                         :scene="sceneNonNull"
                         :vircadia-world="vircadiaWorld"
                         entity-name="babylon.door.main"
-                        model-file-name="telekom.model.WoodenDoor.glb"
+                        model-file-name="babylon.model.wooden_door.glb"
                         :initial-position="{ x: 0, y: 0, z: 0 }"
                         :initial-rotation="{ x: 0, y: 0, z: 0, w: 1 }"
                         :initial-open="false"
@@ -563,9 +607,26 @@ onMounted(async () => {
         "[MainScene] Debug",
         clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
     );
+
+    // Add keyboard listener for performance mode toggle
+    const handleKeyPress = (event: KeyboardEvent) => {
+        if (event.key === "p" || event.key === "P") {
+            togglePerformanceMode();
+        }
+    };
+
+    document.addEventListener("keydown", handleKeyPress);
 });
 
 // No onUnmounted reset needed; canvas manages its own ready state
+
+// Performance mode toggle function
+function togglePerformanceMode() {
+    if (canvasComponentRef.value) {
+        canvasComponentRef.value.togglePerformanceMode();
+        // Vue's v-model will automatically sync the performanceMode ref
+    }
+}
 
 // Connection watchers migrated to provider
 
@@ -573,6 +634,7 @@ onMounted(async () => {
 void activeAudioCount;
 // removed legacy showDebugOverlay marker
 void performanceMode;
+void togglePerformanceMode;
 void fps;
 // removed inline avatarDefinition; using DB-backed avatar definition by name
 
@@ -766,6 +828,80 @@ function onDoorOpen(payload: { open: boolean }) {
 
 void onDoorState;
 void onDoorOpen;
+
+// Debug bar helper functions
+function getConnectionStatusColor(status: string): string {
+    switch (status) {
+        case "connected":
+            return "success";
+        case "connecting":
+            return "warning";
+        case "disconnected":
+            return "error";
+        case "error":
+            return "error";
+        default:
+            return "grey";
+    }
+}
+
+function getConnectionStatusIcon(status: string): string {
+    switch (status) {
+        case "connected":
+            return "mdi-wifi-check";
+        case "connecting":
+            return "mdi-wifi-sync";
+        case "disconnected":
+            return "mdi-wifi-off";
+        case "error":
+            return "mdi-wifi-alert";
+        default:
+            return "mdi-wifi-strength-off";
+    }
+}
+
+function getAuthStatusColor(
+    isAuthenticated: boolean,
+    isAuthenticating: boolean,
+): string {
+    if (isAuthenticating) return "warning";
+    if (isAuthenticated) return "success";
+    return "error";
+}
+
+function getAuthStatusIcon(
+    isAuthenticated: boolean,
+    isAuthenticating: boolean,
+): string {
+    if (isAuthenticating) return "mdi-account-clock";
+    if (isAuthenticated) return "mdi-account-check";
+    return "mdi-account-off";
+}
+
+function getAuthStatusText(
+    isAuthenticated: boolean,
+    isAuthenticating: boolean,
+): string {
+    if (isAuthenticating) return "Authenticating";
+    if (isAuthenticated) return "Authenticated";
+    return "Not Authenticated";
+}
+
+function getConnectedUrl(): string {
+    const baseUri =
+        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI;
+    const useSSL =
+        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL;
+    return `${useSSL ? "wss" : "ws"}://${baseUri}`;
+}
+
+// Mark debug helper functions as used (they're called from template)
+void getConnectionStatusColor;
+void getConnectionStatusIcon;
+void getAuthStatusColor;
+void getAuthStatusIcon;
+void getAuthStatusText;
+void getConnectedUrl;
 </script>
 
 <style>

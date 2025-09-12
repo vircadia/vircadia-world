@@ -457,11 +457,21 @@ export class WorldApiManager {
                             this.metricsCollector.getSystemMetrics(
                                 !!superUserSql && !!proxyUserSql,
                             );
+                        const poolStats =
+                            await BunPostgresClientModule.getInstance({
+                                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                                suppress:
+                                    serverConfiguration.VRCA_SERVER_SUPPRESS,
+                            }).getDatabasePoolStats();
+
                         const response = Response.json(
                             Service.API.Stats_Endpoint.createSuccess({
                                 uptime: process.uptime(),
                                 connections: systemMetrics.connections,
-                                database: systemMetrics.database,
+                                database: {
+                                    ...systemMetrics.database,
+                                    pool: poolStats,
+                                },
                                 memory: systemMetrics.memory,
                                 cpu: systemMetrics.cpu,
                                 queries: this.metricsCollector.getMetrics(),

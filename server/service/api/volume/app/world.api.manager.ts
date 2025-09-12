@@ -4,7 +4,8 @@
 
 import type { Server, ServerWebSocket } from "bun";
 import { verify } from "jsonwebtoken";
-import type { SQL } from "bun";
+// Switched to legacy postgres.js client for now
+import type { Sql } from "postgres";
 import { serverConfiguration } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
 import { BunLogModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
 import { BunPostgresClientModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
@@ -21,8 +22,8 @@ import {
 import { createAnonymousUser, signOut } from "./util/auth";
 import { MetricsCollector } from "./service/metrics";
 
-let superUserSql: SQL | null = null;
-let proxyUserSql: SQL | null = null;
+let superUserSql: Sql | null = null;
+let proxyUserSql: Sql | null = null;
 
 // TODO: Needs heavy optimization, especially for SQL flow.
 
@@ -260,10 +261,11 @@ export class WorldApiManager {
         });
 
         try {
+            // Prefer legacy postgres.js clients for now (super and proxy)
             superUserSql = await BunPostgresClientModule.getInstance({
                 debug: serverConfiguration.VRCA_SERVER_DEBUG,
                 suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-            }).getSuperClient({
+            }).getLegacySuperClient({
                 postgres: {
                     host: serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
                     port: serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL,
@@ -278,7 +280,7 @@ export class WorldApiManager {
             proxyUserSql = await BunPostgresClientModule.getInstance({
                 debug: serverConfiguration.VRCA_SERVER_DEBUG,
                 suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-            }).getProxyClient({
+            }).getLegacyProxyClient({
                 postgres: {
                     host: serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
                     port: serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL,
@@ -657,7 +659,7 @@ export class WorldApiManager {
                                             req,
                                         );
                                     }
-                                } catch (error) {
+                                } catch (_error) {
                                     const response = this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
                                             "Invalid request body",
@@ -743,7 +745,7 @@ export class WorldApiManager {
                                             );
                                         },
                                     );
-                                } catch (error) {
+                                } catch (_error) {
                                     BunLogModule({
                                         message: "Failed to validate session",
                                         debug: serverConfiguration.VRCA_SERVER_DEBUG,
@@ -752,10 +754,7 @@ export class WorldApiManager {
                                         type: "error",
                                         prefix: LOG_PREFIX,
                                         data: {
-                                            error:
-                                                error instanceof Error
-                                                    ? error.message
-                                                    : String(error),
+                                            error: "Validation error",
                                         },
                                     });
                                     const response = this.createJsonResponse(

@@ -1,4 +1,5 @@
-import type { SQL } from "bun";
+// Use legacy postgres.js client for now
+import type { Sql } from "postgres";
 import { sign } from "jsonwebtoken";
 import { randomUUID } from "node:crypto";
 import { Auth } from "../../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
@@ -7,7 +8,7 @@ import { serverConfiguration } from "../../../../../../sdk/vircadia-world-sdk-ts
 
 const LOG_PREFIX = "Auth Helpers";
 
-export async function createAnonymousUser(db: SQL): Promise<{
+export async function createAnonymousUser(db: Sql): Promise<{
     agentId: string;
     sessionId: string;
     token: string;
@@ -150,7 +151,7 @@ export async function createAnonymousUser(db: SQL): Promise<{
     }
 }
 
-export async function signOut(db: SQL, sessionId: string): Promise<void> {
+export async function signOut(db: Sql, sessionId: string): Promise<void> {
     try {
         // Invalidate the session
         await db`

@@ -1,5 +1,6 @@
 import { BunLogModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
-import type { SQL } from "bun";
+// Switched to legacy postgres.js client for now
+import type { Sql } from "postgres";
 import { serverConfiguration } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
 import {
     Service,
@@ -16,8 +17,8 @@ export class WorldStateManager {
     private intervalIds: Map<string, Timer> = new Map();
     private syncGroups: Map<string, Auth.SyncGroup.I_SyncGroup> = new Map();
     private tickCounts: Map<string, number> = new Map();
-    private superUserSql: SQL | null = null;
-    private legacySuperSql: import("postgres").Sql | null = null;
+    private superUserSql: Sql | null = null;
+    private legacySuperSql: Sql | null = null;
     private processingTicks: Set<string> = new Set(); // Track which sync groups are currently processing
     private pendingTicks: Map<string, boolean> = new Map(); // Track pending ticks for sync groups
     private entityExpiryIntervalId: Timer | null = null;
@@ -40,7 +41,7 @@ export class WorldStateManager {
                 development: serverConfiguration.VRCA_SERVER_DEBUG,
 
                 websocket: {
-                    message(ws, message) {},
+                    message(_ws, _message) {},
                 },
 
                 // #region API -> HTTP Routes
@@ -127,7 +128,7 @@ export class WorldStateManager {
             this.superUserSql = await BunPostgresClientModule.getInstance({
                 debug: serverConfiguration.VRCA_SERVER_DEBUG,
                 suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-            }).getSuperClient({
+            }).getLegacySuperClient({
                 postgres: {
                     host: serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
                     port: serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL,
@@ -197,7 +198,7 @@ export class WorldStateManager {
             });
 
             // Start tick loops for each sync group
-            for (const [syncGroup, config] of this.syncGroups.entries()) {
+            for (const [syncGroup] of this.syncGroups.entries()) {
                 if (this.intervalIds.has(syncGroup)) {
                     continue;
                 }

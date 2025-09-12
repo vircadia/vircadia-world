@@ -89,6 +89,8 @@ const props = defineProps({
     },
     keyState: { type: Object as () => KeyState, required: false },
     isTalking: { type: Boolean, required: false, default: false },
+    // Optional talk amplitude (0..1) from BabylonMyAvatarTalking
+    talkLevel: { type: Number, required: false, default: 0 },
     camera: {
         type: Object as () => Camera | null,
         required: false,
@@ -344,6 +346,151 @@ let moveCrossfadeT = 1;
 let talkOverlayAnimation: AnimationGroup | null = null;
 const talkOverlayBlendWeight = ref(0);
 
+// Morph target (blendshape) handling
+type BabylonMorphTarget = { name: string; influence: number };
+type BabylonMorphTargetManager = {
+    numTargets: number;
+    getTarget: (index: number) => BabylonMorphTarget | null;
+};
+
+const morphTargetsByName = ref<Map<string, BabylonMorphTarget[]>>(new Map());
+const morphTargetsByNameLower = ref<Map<string, BabylonMorphTarget[]>>(
+    new Map(),
+);
+const supportedVisemes = [
+    "viseme_sil",
+    "viseme_PP",
+    "viseme_FF",
+    "viseme_TH",
+    "viseme_DD",
+    "viseme_kk",
+    "viseme_CH",
+    "viseme_SS",
+    "viseme_nn",
+    "viseme_RR",
+    "viseme_aa",
+    "viseme_E",
+    "viseme_I",
+    "viseme_O",
+    "viseme_U",
+];
+
+function collectMorphTargets(): void {
+    const map = new Map<string, BabylonMorphTarget[]>();
+    const mapLower = new Map<string, BabylonMorphTarget[]>();
+    for (const mesh of avatarMeshes.value) {
+        const manager = (
+            mesh as unknown as {
+                morphTargetManager?: BabylonMorphTargetManager;
+            }
+        ).morphTargetManager;
+        if (!manager || !manager.numTargets || !manager.getTarget) continue;
+        for (let i = 0; i < manager.numTargets; i++) {
+            const t = manager.getTarget(i);
+            if (!t || !t.name) continue;
+            const key = t.name;
+            let list = map.get(key);
+            if (!list) {
+                list = [];
+                map.set(key, list);
+            }
+            list.push(t);
+
+            const lkey = key.toLowerCase();
+            let llist = mapLower.get(lkey);
+            if (!llist) {
+                llist = [];
+                mapLower.set(lkey, llist);
+            }
+            llist.push(t);
+        }
+    }
+    morphTargetsByName.value = map;
+    morphTargetsByNameLower.value = mapLower;
+}
+
+const morphNameSynonyms: Record<string, string[]> = {
+    mouthOpen: ["mouth_open", "jawOpen", "jaw_open", "open_mouth"],
+};
+
+function getTargetsByName(name: string): BabylonMorphTarget[] | undefined {
+    const direct = morphTargetsByName.value.get(name);
+    if (direct && direct.length) return direct;
+    const lower = morphTargetsByNameLower.value.get(name.toLowerCase());
+    if (lower && lower.length) return lower;
+    const syn = morphNameSynonyms[name] || [];
+    for (const alt of syn) {
+        const viaAlt =
+            morphTargetsByName.value.get(alt) ||
+            morphTargetsByNameLower.value.get(alt.toLowerCase());
+        if (viaAlt && viaAlt.length) return viaAlt;
+    }
+    return undefined;
+}
+
+function setMorphInfluence(name: string, value: number): void {
+    const list = getTargetsByName(name);
+    if (!list) return;
+    const v = Math.max(0, Math.min(1, value));
+    for (const t of list) {
+        t.influence = v;
+    }
+}
+
+const mouthOpenSmoothed = ref(0);
+let talkPhase = 0;
+function updateMouthFromTalking(
+    level01: number,
+    dt: number,
+    talking: boolean,
+): void {
+    const hasAnyViseme = supportedVisemes.some(
+        (n) =>
+            morphTargetsByName.value?.has(n) ||
+            morphTargetsByNameLower.value?.has(n.toLowerCase()),
+    );
+    const hasMouthOpen =
+        morphTargetsByName.value?.has("mouthOpen") ||
+        morphTargetsByNameLower.value?.has("mouth_open") ||
+        morphTargetsByName.value?.has("jawOpen") ||
+        morphTargetsByNameLower.value?.has("jaw_open");
+
+    // Boost and curve amplitude for visibility
+    const boosted = talking ? Math.min(1, level01 * 3) : 0;
+    const target = talking ? Math.sqrt(boosted) : 0; // gamma 0.5
+    const minFloor = talking ? 0.25 : 0; // ensure visible motion when talking
+    const lerpRate = 10; // per-second smoothing
+    const a = Math.min(1, dt * lerpRate);
+    mouthOpenSmoothed.value =
+        mouthOpenSmoothed.value + (target - mouthOpenSmoothed.value) * a;
+    if (talking && mouthOpenSmoothed.value < minFloor)
+        mouthOpenSmoothed.value = minFloor;
+
+    // Advance talk phase for simple vowel cycling
+    talkPhase += dt * 6;
+
+    if (hasAnyViseme) {
+        // Drive multiple vowels to create visible motion without phoneme detection
+        const amp = mouthOpenSmoothed.value;
+        const s1 = 0.5 * (1 + Math.sin(talkPhase));
+        const s2 = 0.5 * (1 + Math.sin(talkPhase + 2));
+        const s3 = 0.5 * (1 + Math.sin(talkPhase + 4));
+        const wAA = Math.min(1, amp * (0.6 + 0.4 * s1));
+        const wO = Math.min(1, amp * 0.5 * s2);
+        const wE = Math.min(1, amp * 0.4 * s3);
+
+        // Set primary visemes
+        setMorphInfluence("viseme_aa", wAA);
+        setMorphInfluence("viseme_O", wO);
+        setMorphInfluence("viseme_E", wE);
+        // Balance silence
+        const combined = Math.max(0, Math.min(1, wAA + 0.5 * wO + 0.5 * wE));
+        setMorphInfluence("viseme_sil", 1 - combined);
+    } else if (hasMouthOpen) {
+        setMorphInfluence("mouthOpen", mouthOpenSmoothed.value);
+    }
+}
+
 function findAnimationDef(
     motion: string,
     direction?: Direction,
@@ -546,6 +693,7 @@ function onSetAvatarModel(payload: {
     avatarSkeleton.value = payload.skeleton;
     avatarMeshes.value = payload.meshes;
     trySetupBlendedAnimations();
+    collectMorphTargets();
 
     if (characterController.value && avatarNode.value) {
         const currentPos = getPosition();
@@ -688,6 +836,9 @@ function updateAnimationBlending(
             } catch {}
         }
     }
+
+    // Drive mouth/viseme blendshapes using talking state and provided level
+    updateMouthFromTalking(props.talkLevel ?? 0, dt, !!isTalkingNow);
 }
 
 let skeletonViewer: SkeletonViewer | null = null;

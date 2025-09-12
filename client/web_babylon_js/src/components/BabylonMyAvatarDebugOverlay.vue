@@ -75,6 +75,42 @@
 								</v-expansion-panel>
 							</v-expansion-panels>
 						</v-list>
+
+						<v-list density="compact" class="bg-transparent mt-4">
+							<v-list-subheader>Blendshapes (Morph Targets)</v-list-subheader>
+							<v-list-item :title="'Distinct targets'" :subtitle="String(morphTargets.length)" />
+							<v-expansion-panels variant="accordion" density="compact" class="mt-1">
+								<v-expansion-panel>
+									<v-expansion-panel-title>Visemes overview</v-expansion-panel-title>
+									<v-expansion-panel-text>
+										<div v-for="v in supportedVisemeNames" :key="v" class="text-caption mb-1">
+											<span class="font-mono" :class="{ 'text-success': hasMorph(v) }">{{ v }}</span>
+											<v-progress-linear
+												v-if="influenceOf(v) !== null"
+												:height="6"
+												:rounded="true"
+												:striped="true"
+												color="primary"
+												:model-value="Math.round(100 * (influenceOf(v) || 0))"
+												class="ml-2"
+											/>
+										</div>
+									</v-expansion-panel-text>
+								</v-expansion-panel>
+								<v-expansion-panel>
+									<v-expansion-panel-title>All targets (top 50 by avg influence)</v-expansion-panel-title>
+									<v-expansion-panel-text>
+										<div v-for="t in morphTargetsSorted.slice(0, 50)" :key="t.name" class="mb-1">
+											<div class="d-flex align-center justify-space-between">
+												<span class="font-mono">{{ t.name }}</span>
+												<span class="text-caption">avg {{ t.avg.toFixed(3) }} — min {{ t.min.toFixed(3) }} — max {{ t.max.toFixed(3) }} (n={{ t.count }})</span>
+											</div>
+											<v-progress-linear :model-value="Math.round(100 * t.avg)" :height="6" color="secondary" rounded class="mt-1" />
+										</div>
+									</v-expansion-panel-text>
+								</v-expansion-panel>
+							</v-expansion-panels>
+						</v-list>
 					</v-col>
 				</v-row>
 			</v-card-text>
@@ -87,7 +123,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch } from "vue";
+import { computed, watch, ref, onMounted, onUnmounted } from "vue";
 import type {
     Scene,
     TransformNode,
@@ -97,7 +133,7 @@ import type {
     Camera,
 } from "@babylonjs/core";
 import type { ArcRotateCamera } from "@babylonjs/core";
-import { useMagicKeys, whenever, useVModel } from "@vueuse/core";
+import { useMagicKeys, whenever, useVModel, useIntervalFn } from "@vueuse/core";
 
 const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
@@ -206,6 +242,118 @@ const cameraTargetLabel = computed(() => {
     return `x:${t.x.toFixed(2)} y:${t.y.toFixed(2)} z:${t.z.toFixed(2)}`;
 });
 
+// Blendshape (morph target) diagnostics
+type MorphTargetLike = { name: string; influence: number };
+type MorphTargetManagerLike = {
+    numTargets: number;
+    getTarget: (index: number) => MorphTargetLike | null;
+};
+
+type TargetStat = {
+    name: string;
+    count: number;
+    avg: number;
+    min: number;
+    max: number;
+};
+
+const supportedVisemeNames = [
+    "viseme_sil",
+    "viseme_PP",
+    "viseme_FF",
+    "viseme_TH",
+    "viseme_DD",
+    "viseme_kk",
+    "viseme_CH",
+    "viseme_SS",
+    "viseme_nn",
+    "viseme_RR",
+    "viseme_aa",
+    "viseme_E",
+    "viseme_I",
+    "viseme_O",
+    "viseme_U",
+];
+
+const morphTargets = ref<TargetStat[]>([]);
+
+function snapshotMorphTargets(): TargetStat[] {
+    const map = new Map<
+        string,
+        { sum: number; count: number; min: number; max: number }
+    >();
+    for (const m of meshesUnderAvatar.value) {
+        const manager = (
+            m as unknown as { morphTargetManager?: MorphTargetManagerLike }
+        ).morphTargetManager;
+        if (!manager || !manager.numTargets || !manager.getTarget) continue;
+        for (let i = 0; i < manager.numTargets; i++) {
+            const t = manager.getTarget(i);
+            if (!t || typeof t.influence !== "number") continue;
+            const key = t.name || "(unnamed)";
+            const rec = map.get(key);
+            if (!rec) {
+                map.set(key, {
+                    sum: t.influence,
+                    count: 1,
+                    min: t.influence,
+                    max: t.influence,
+                });
+            } else {
+                rec.sum += t.influence;
+                rec.count += 1;
+                if (t.influence < rec.min) rec.min = t.influence;
+                if (t.influence > rec.max) rec.max = t.influence;
+            }
+        }
+    }
+    const out: TargetStat[] = [];
+    for (const [name, v] of map.entries()) {
+        out.push({
+            name,
+            count: v.count,
+            avg: v.sum / Math.max(1, v.count),
+            min: v.min,
+            max: v.max,
+        });
+    }
+    return out;
+}
+
+const { pause: pauseSnapshot, resume: resumeSnapshot } = useIntervalFn(
+    () => {
+        morphTargets.value = snapshotMorphTargets();
+    },
+    200,
+    { immediate: true },
+);
+
+onMounted(() => {
+    resumeSnapshot();
+});
+onUnmounted(() => {
+    pauseSnapshot();
+});
+
+const morphTargetsSorted = computed(() =>
+    [...morphTargets.value].sort(
+        (a, b) => b.avg - a.avg || a.name.localeCompare(b.name),
+    ),
+);
+
+function hasMorph(name: string): boolean {
+    for (const t of morphTargets.value) {
+        if (t.name === name) return true;
+    }
+    return false;
+}
+function influenceOf(name: string): number | null {
+    for (const t of morphTargets.value) {
+        if (t.name === name) return t.avg;
+    }
+    return null;
+}
+
 // Auto-open briefly if an error occurs
 watch(
     () => props.modelError,
@@ -221,6 +369,11 @@ void cameraPositionLabel;
 void cameraTargetLabel;
 void hotkeyLabel;
 void talkLevelLabel;
+void morphTargets;
+void morphTargetsSorted;
+void supportedVisemeNames;
+void hasMorph;
+void influenceOf;
 </script>
 
 <style scoped>

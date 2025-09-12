@@ -184,6 +184,7 @@
                                 :instance-id="instanceId ?? undefined"
                                 :key-state="controls.keyState"
                                 :is-talking="isTalking"
+                                :talk-level="talkLevel"
                                 avatar-definition-name="avatar.definition.default"
                                 ref="avatarRef"
                             >

@@ -83,14 +83,6 @@
             <v-spacer />
             <v-btn
                 variant="tonal"
-                :color="jointOverlayOpen ? 'error' : 'default'"
-                prepend-icon="mdi-bug"
-                @click="jointOverlayOpen = !jointOverlayOpen"
-            >
-                Joints
-            </v-btn>
-            <v-btn
-                variant="tonal"
                 :color="cameraDebugOpen ? 'error' : 'default'"
                 prepend-icon="mdi-video"
                 @click="cameraDebugOpen = !cameraDebugOpen"
@@ -334,22 +326,7 @@
                 />
             </div>
             
-            <!-- Debug Controls -->
-            <v-tooltip bottom>
-                <template v-slot:activator="{ props }">
-                    <v-btn 
-                        fab 
-                        small
-                        color="error" 
-                        @click="jointOverlayOpen = !jointOverlayOpen"
-                        v-bind="props"
-                        class="toolbar-btn"
-                    >
-                        <v-icon>mdi-bug</v-icon>
-                    </v-btn>
-                </template>
-                <span>Toggle Debug Overlay</span>
-            </v-tooltip>
+            <!-- Debug Controls removed: joint overlay toggle -->
             
             <!-- Audio Controls -->
             <v-tooltip bottom>
@@ -392,13 +369,7 @@
                 :on-set-peer-muted="setPeerMuted"
             />
         </v-dialog>
-        
-        <!-- Debug Joint Overlay -->
-        <BabylonDebugOverlay 
-            v-if="jointOverlayOpen" 
-            :visible="jointOverlayOpen"
-            @close="jointOverlayOpen = false"
-        />
+
         </VircadiaWorldProvider>
     </VircadiaWorldAuthProvider>
 </template>
@@ -423,7 +394,6 @@ import BabylonOtherAvatar from "../components/BabylonOtherAvatar.vue";
 import BabylonModel from "../components/BabylonModel.vue";
 import BabylonModels from "../components/BabylonModels.vue";
 import BabylonWebRTC from "../components/BabylonWebRTC.vue";
-import BabylonDebugOverlay from "../components/BabylonDebugOverlay.vue";
 import BabylonMyAvatarDebugOverlay from "../components/BabylonMyAvatarDebugOverlay.vue";
 import BabylonMyAvatarAnimationDebugOverlay from "../components/BabylonMyAvatarAnimationDebugOverlay.vue";
 import BabylonCameraDebugOverlay from "../components/BabylonCameraDebugOverlay.vue";
@@ -456,7 +426,6 @@ void BabylonModels;
 // mark as used at runtime for template
 void BabylonWebRTC;
 // mark as used at runtime for template
-void BabylonDebugOverlay;
 // mark as used at runtime for template
 void BabylonMyAvatarDebugOverlay;
 // mark as used at runtime for template
@@ -533,11 +502,9 @@ const modelRefs = ref<(InstanceType<typeof BabylonModel> | null)[]>([]);
 // Physics handled by BabylonCanvas
 
 // State for debug overlays with persistence across reloads
-const jointOverlayOpen = useLocalStorage<boolean>("vrca.debug.joints", false);
 const cameraDebugOpen = useLocalStorage<boolean>("vrca.debug.camera", false);
 const avatarDebugOpen = useLocalStorage<boolean>("vrca.debug.avatar", false);
 const animDebugOpen = useLocalStorage<boolean>("vrca.debug.anim", false);
-void jointOverlayOpen;
 void cameraDebugOpen;
 void avatarDebugOpen;
 void animDebugOpen;

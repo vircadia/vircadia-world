@@ -97,6 +97,8 @@ const wasIntersecting = ref(false);
 let cachedAvatarCapsule: AbstractMesh | null = null;
 const exitHoldMs = 400;
 let outSince: number | null = null;
+let manualUntilNextIntersection = false;
+type ToggleSource = "manual" | "auto";
 
 console.debug("[BabylonDoor] Component setup started", {
     entityName: props.entityName,
@@ -162,7 +164,7 @@ async function ensureEntityAndMetadata() {
         query: `
 			INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync)
 			VALUES
-				($1, 'type', '"Model"'::jsonb, 'public.DYNAMIC'),
+				($1, 'type', '"Door"'::jsonb, 'public.DYNAMIC'),
 				($1, 'modelFileName', to_jsonb($2::text), 'public.DYNAMIC'),
 				($1, 'position', to_jsonb($3::json), 'public.DYNAMIC'),
 				($1, 'rotation', to_jsonb($4::json), 'public.DYNAMIC'),
@@ -258,6 +260,13 @@ async function loadAndAttach() {
 
     isLoading.value = true;
     try {
+        // Dispose any previous instance to avoid duplicates
+        if (rootNode.value) {
+            try {
+                rootNode.value.dispose();
+            } catch {}
+            rootNode.value = null;
+        }
         await ensureEntityAndMetadata();
         const meta = await fetchMetadata();
         isOpen.value = !!meta.open;
@@ -282,14 +291,43 @@ async function loadAndAttach() {
         const p = props.pivotOffset;
         node.setPivotPoint(new Vector3(p.x, p.y, p.z));
 
-        // Attach only top-level meshes and ensure they are pickable for interaction
+        // Attach only top-level nodes (transform nodes and meshes) and ensure meshes are pickable
         const meshes = result.meshes as AbstractMesh[];
+        const transformNodes = result.transformNodes ?? [];
         loadedMeshes.value = meshes;
         for (const mesh of meshes) {
             mesh.isPickable = true;
         }
-        for (const mesh of meshes.filter((m) => !m.parent)) {
-            mesh.parent = node;
+        for (const t of transformNodes) {
+            if (!t.parent) t.parent = node;
+        }
+        for (const mesh of meshes) {
+            if (!mesh.parent) mesh.parent = node;
+        }
+        // Tag nodes for reliable identification during picking
+        for (const t of transformNodes) {
+            const tn = t as TransformNode;
+            const existing =
+                tn.metadata && typeof tn.metadata === "object"
+                    ? (tn.metadata as Record<string, unknown>)
+                    : ({} as Record<string, unknown>);
+            tn.metadata = {
+                ...existing,
+                entityName: props.entityName,
+                entityType: "Door",
+            };
+        }
+        for (const mesh of meshes) {
+            const m = mesh as AbstractMesh;
+            const existing =
+                m.metadata && typeof m.metadata === "object"
+                    ? (m.metadata as Record<string, unknown>)
+                    : ({} as Record<string, unknown>);
+            m.metadata = {
+                ...existing,
+                entityName: props.entityName,
+                entityType: "Door",
+            };
         }
         node.computeWorldMatrix(true);
         for (const mesh of meshes) mesh.computeWorldMatrix(true);
@@ -320,23 +358,32 @@ async function loadAndAttach() {
 function isPickedDoorMesh(picked: AbstractMesh | null | undefined): boolean {
     if (!picked || !rootNode.value) return false;
     if (picked === rootNode.value) return true;
+    // Also allow identification via metadata tags
+    const metaUnknown = (picked as AbstractMesh).metadata as unknown;
+    if (metaUnknown && typeof metaUnknown === "object") {
+        const meta = metaUnknown as {
+            entityName?: unknown;
+            entityType?: unknown;
+        };
+        const matchesName =
+            typeof meta.entityName === "string" &&
+            meta.entityName === props.entityName;
+        const matchesType =
+            typeof meta.entityType === "string" && meta.entityType === "Door";
+        if (matchesName || matchesType) return true;
+    }
     return picked.isDescendantOf(rootNode.value as unknown as BabylonNode);
 }
 
-async function toggleDoor() {
+async function toggleDoor(source: ToggleSource = "manual") {
     const next = !isOpen.value;
     isOpen.value = next;
     applyOpenRotation(next);
     await pushState(next);
-    // Immediately refresh authoritative state
-    try {
-        const latest = await fetchMetadata();
-        isOpen.value = !!latest.open;
-        applyTransform(latest.position, latest.rotation);
-        emit("open", { open: isOpen.value });
-    } catch (e) {
-        console.warn("[BabylonDoor] Failed to fetch latest after toggle", e);
+    if (source === "manual") {
+        manualUntilNextIntersection = true;
     }
+    emit("open", { open: isOpen.value });
 }
 
 function setupPointerPick() {
@@ -348,12 +395,19 @@ function setupPointerPick() {
             const picked = info.pickInfo?.pickedMesh as
                 | AbstractMesh
                 | undefined;
+            if (picked) {
+                console.debug("[BabylonDoor] pointerdown", {
+                    picked: picked.name,
+                    isDoor: isPickedDoorMesh(picked),
+                    metadata: (picked as AbstractMesh).metadata,
+                });
+            }
             if (!isPickedDoorMesh(picked)) return;
-            await toggleDoor();
+            await toggleDoor("manual");
         } catch (e) {
             console.error("[BabylonDoor] Pointer handler error", e);
         }
-    });
+    }, PointerEventTypes.POINTERDOWN);
 }
 
 function startSyncTimer() {
@@ -364,7 +418,7 @@ function startSyncTimer() {
             await pushState(isOpen.value);
             const latest = await fetchMetadata();
             // Apply only if differs
-            if (latest.open !== isOpen.value) {
+            if (!manualUntilNextIntersection && latest.open !== isOpen.value) {
                 isOpen.value = !!latest.open;
                 applyOpenRotation(isOpen.value);
             }
@@ -411,11 +465,15 @@ function setupIntersectionCheck() {
                     }
                 }
 
-                // Hysteresis: open immediately on entry; close only after stable exit
+                // Hysteresis with manual override: open immediately on entry (enables auto),
+                // and close only after stable exit if the door was auto-opened
                 if (isIntersecting) {
                     outSince = null;
+                    // manual lock ends as soon as avatar intersects the door region
+                    if (manualUntilNextIntersection)
+                        manualUntilNextIntersection = false;
                     if (!isOpen.value) {
-                        await toggleDoor();
+                        await toggleDoor("auto");
                     }
                 } else {
                     if (outSince == null) outSince = Date.now();
@@ -424,7 +482,10 @@ function setupIntersectionCheck() {
                         outSince &&
                         Date.now() - outSince >= exitHoldMs
                     ) {
-                        await toggleDoor();
+                        // Only auto-close if not under manual lock and last change was auto-triggered.
+                        if (!manualUntilNextIntersection) {
+                            await toggleDoor("auto");
+                        }
                         // reset to avoid repeated close attempts
                         outSince = null;
                     }

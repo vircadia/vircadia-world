@@ -30,6 +30,18 @@ const props = defineProps({
     initialBeta: { type: Number, required: false, default: Math.PI / 3 },
     initialRadius: { type: Number, required: false, default: 5 },
     initialRotationOffset: { type: Number, required: false, default: 180 },
+    // Core ArcRotateCamera tuning (required; provided by parent)
+    minZ: { type: Number, required: true },
+    lowerRadiusLimit: { type: Number, required: true },
+    upperRadiusLimit: { type: Number, required: true },
+    lowerBetaLimit: { type: Number, required: true },
+    upperBetaLimit: { type: Number, required: true },
+    inertia: { type: Number, required: true },
+    panningSensibility: { type: Number, required: true },
+    wheelPrecision: { type: Number, required: true },
+    // FOV-only smoothing (parent provides small delta based on movement)
+    fovDelta: { type: Number, required: true },
+    fovLerpSpeed: { type: Number, required: true },
 });
 
 const camera: Ref<ArcRotateCamera | null> = ref(null);
@@ -40,9 +52,17 @@ let contextMenuHandler: ((e: MouseEvent) => void) | null = null;
 const isRightMouseDown = ref(false);
 let followTargetMesh: AbstractMesh | null = null;
 
-// Interaction sensitivities and limits
-const minRadius = 1.2;
-const maxRadius = 25;
+// Interaction limits provided via props
+
+// FOV smoothing state
+const fovSmoothed = ref(0); // radians added to base FOV
+let baseFov = 0.8; // will capture from camera on setup
+
+function clamp(value: number, min: number, max: number): number {
+    if (value < min) return min;
+    if (value > max) return max;
+    return value;
+}
 
 function getAvatarTargetPosition(): Vector3 | null {
     if (!props.avatarNode) return null;
@@ -84,14 +104,14 @@ function setupCamera(): void {
         initialTarget,
         props.scene,
     );
-    cam.minZ = 0.1;
-    cam.lowerRadiusLimit = minRadius;
-    cam.upperRadiusLimit = maxRadius;
-    cam.lowerBetaLimit = 0.1; // prevent flipping under ground
-    cam.upperBetaLimit = Math.PI * 0.95; // allow overhead but not inverted
-    cam.inertia = 0.6;
-    cam.panningSensibility = 0; // disable panning for MMO-style
-    cam.wheelPrecision = 50; // adjust zoom speed to taste
+    cam.minZ = props.minZ;
+    cam.lowerRadiusLimit = props.lowerRadiusLimit;
+    cam.upperRadiusLimit = props.upperRadiusLimit;
+    cam.lowerBetaLimit = props.lowerBetaLimit; // prevent flipping under ground
+    cam.upperBetaLimit = props.upperBetaLimit; // allow overhead but not inverted
+    cam.inertia = props.inertia;
+    cam.panningSensibility = props.panningSensibility; // disable panning for MMO-style
+    cam.wheelPrecision = props.wheelPrecision; // adjust zoom speed to taste
 
     // Lock to avatar when available and apply a slight vertical screen-space offset
     cam.lockedTarget = ensureFollowTarget();
@@ -101,6 +121,9 @@ function setupCamera(): void {
     // Activate camera and attach controls
     props.scene.activeCamera = cam;
     camera.value = cam;
+
+    // Capture baseline FOV for smoothing
+    baseFov = cam.fov;
 
     const canvas = props.scene.getEngine().getRenderingCanvas();
     if (!canvas) return;
@@ -147,6 +170,22 @@ function setupCamera(): void {
         if (camera.value && props.avatarNode) {
             const m = ensureFollowTarget();
             if (m) camera.value.lockedTarget = m;
+        }
+
+        // FOV-only smoothing
+        if (camera.value) {
+            const engine = props.scene.getEngine();
+            const dtSec = engine.getDeltaTime() / 1000;
+            const k = clamp(props.fovLerpSpeed, 0.1, 30);
+            const t = 1 - Math.exp(-k * dtSec);
+            const targetDelta = clamp(Math.abs(props.fovDelta), 0, 0.12);
+            fovSmoothed.value =
+                fovSmoothed.value + (targetDelta - fovSmoothed.value) * t;
+            camera.value.fov = clamp(
+                baseFov + fovSmoothed.value,
+                0.1,
+                Math.PI - 0.1,
+            );
         }
 
         if (!isRightMouseDown.value || !camera.value || !props.avatarNode)

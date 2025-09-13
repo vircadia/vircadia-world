@@ -200,6 +200,23 @@
                                         :scene="sceneNonNull"
                                         :avatar-node="(avatarNode as any) || null"
                                         :capsule-height="capsuleHeight"
+                                        :min-z="0.1"
+                                        :lower-radius-limit="1.2"
+                                        :upper-radius-limit="25"
+                                        :lower-beta-limit="0.15"
+                                        :upper-beta-limit="Math.PI * 0.9"
+                                        :inertia="0.6"
+                                        :panning-sensibility="0"
+                                        :wheel-precision="40"
+                                        :fov-delta="
+                                            ((controls.keyState.forward ||
+                                                controls.keyState.backward ||
+                                                controls.keyState.strafeLeft ||
+                                                controls.keyState.strafeRight)
+                                                ? (controls.keyState.sprint ? 0.08 : 0.04)
+                                                : 0)
+                                        "
+                                        :fov-lerp-speed="8"
                                     />
                                     <!-- Non-visual animation loaders now slotted under model component -->
                                     <BabylonMyAvatarAnimation

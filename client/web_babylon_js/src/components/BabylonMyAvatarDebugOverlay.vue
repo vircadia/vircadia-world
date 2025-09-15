@@ -23,6 +23,19 @@
 							<v-list-item v-if="modelError" title="Model error" :subtitle="modelError" class="text-error" />
 							<v-list-item title="Talking" :subtitle="String(isTalking)" />
 							<v-list-item title="Talk level" :subtitle="talkLevelLabel" />
+							<v-divider class="my-2" />
+							<v-list-subheader>Physics/State</v-list-subheader>
+							<v-list-item title="Physics enabled" :subtitle="String(physicsEnabled)" />
+							<v-list-item title="Airborne" :subtitle="String(airborne)" />
+							<v-list-item title="Vertical velocity" :subtitle="verticalVelocityLabel" />
+							<v-list-item title="Support state" :subtitle="supportStateLabel" />
+							<v-list-item title="Spawn settling" :subtitle="String(spawnSettling)" />
+							<v-list-item title="Has touched ground" :subtitle="String(hasTouchedGround)" />
+							<v-divider class="my-2" />
+							<v-list-subheader>Ground Probe</v-list-subheader>
+							<v-list-item title="Probe hit" :subtitle="String(groundProbeHit)" />
+							<v-list-item title="Probe distance" :subtitle="groundProbeDistanceLabel" />
+							<v-list-item title="Probe mesh" :subtitle="groundProbeMeshName || '-'" />
 						</v-list>
 					</v-col>
 					<v-col cols="12" md="6">
@@ -160,6 +173,18 @@ const props = defineProps({
         required: false,
         default: () => [],
     },
+    // Live debug state from avatar
+    airborne: { type: Boolean, required: false, default: false },
+    verticalVelocity: { type: Number, required: false, default: 0 },
+    supportState: { type: Number, required: false, default: null },
+    physicsEnabled: { type: Boolean, required: false, default: false },
+    physicsPluginName: { type: String, required: false, default: null },
+    physicsError: { type: String, required: false, default: null },
+    hasTouchedGround: { type: Boolean, required: false, default: false },
+    spawnSettling: { type: Boolean, required: false, default: false },
+    groundProbeHit: { type: Boolean, required: false, default: false },
+    groundProbeDistance: { type: Number, required: false, default: null },
+    groundProbeMeshName: { type: String, required: false, default: null },
     // External control (v-model)
     modelValue: { type: Boolean, required: false, default: undefined },
     // Configurable hotkey (default "m")
@@ -196,6 +221,28 @@ const talkLevelLabel = computed(() => props.talkLevel.toFixed(3));
 const modelStateLabel = computed(() =>
     props.modelError ? "error" : modelReady.value ? "ready" : "loading or idle",
 );
+const verticalVelocityLabel = computed(() => props.verticalVelocity.toFixed(3));
+const supportStateLabel = computed(() => {
+    const s = props.supportState as unknown as number | null;
+    if (s === null || s === undefined) return "unknown";
+    switch (s) {
+        case 0:
+            return "unsupported";
+        case 1:
+            return "supported";
+        default:
+            return String(s);
+    }
+});
+const groundProbeDistanceLabel = computed(() =>
+    props.groundProbeDistance === null
+        ? "-"
+        : props.groundProbeDistance.toFixed(3),
+);
+// mark used in template
+void verticalVelocityLabel;
+void supportStateLabel;
+void groundProbeDistanceLabel;
 
 function isUnderAvatarNode(
     mesh: AbstractMesh,

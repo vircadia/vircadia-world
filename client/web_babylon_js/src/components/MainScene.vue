@@ -80,6 +80,27 @@
                 {{ getConnectedUrl() }}
             </v-chip>
 
+            <!-- Physics State -->
+            <v-tooltip location="bottom">
+                <template #activator="{ props }">
+                    <v-chip
+                        v-bind="props"
+                        :color="envPhysicsEnabledRef ? 'success' : 'error'"
+                        size="small"
+                        variant="flat"
+                        class="ml-2"
+                    >
+                        <v-icon start size="small">{{ envPhysicsEnabledRef ? 'mdi-atom-variant' : 'mdi-atom' }}</v-icon>
+                        Physics: {{ envPhysicsPluginNameRef || (envPhysicsEnabledRef ? 'on' : 'off') }}
+                    </v-chip>
+                </template>
+                <div class="text-caption">
+                    <div><strong>Enabled:</strong> {{ String(envPhysicsEnabledRef) }}</div>
+                    <div><strong>Plugin:</strong> {{ envPhysicsPluginNameRef || '-' }}</div>
+                    <div><strong>Error:</strong> {{ envPhysicsErrorRef || '-' }}</div>
+                </div>
+            </v-tooltip>
+
             <v-spacer />
             <v-btn
                 variant="tonal"
@@ -147,10 +168,17 @@
                 :vircadia-world="vircadiaWorld"
                 environment-entity-name="babylon.environment.default"
                 ref="envRef"
-                v-slot="{ isLoading }"
+                v-slot="{ isLoading, physicsEnabled: envPhysicsEnabled, physicsPluginName: envPhysicsPluginName, physicsError: envPhysicsError, gravity }"
             >
+                <!-- Sync environment physics slot values to top-level refs for use outside this slot (e.g., Debug Bar) -->
+                <div style="display: none">
+                    {{ envPhysicsEnabledRef = envPhysicsEnabled }}
+                    {{ envPhysicsPluginNameRef = envPhysicsPluginName }}
+                    {{ envPhysicsErrorRef = envPhysicsError }}
+                </div>
+                <!-- TODO: scene initialized can be simplified down so scene should not have to be checked -->
                 <!-- Only render entities when scene is available, connection is stable, and full session ID is available -->
-                <template v-if="!isLoading && sceneInitialized && scene && connectionStatus === 'connected' && !isConnecting && fullSessionId">
+                <template v-if="!isLoading && envPhysicsEnabled && sceneInitialized && scene && connectionStatus === 'connected' && !isConnecting && fullSessionId">
                     <!-- BabylonMyAvatar component wrapped with MKB controller -->
                     <BabylonMyAvatarMKBController
                         :scene="sceneNonNull"
@@ -177,10 +205,13 @@
                                 :key-state="controls.keyState"
                                 :is-talking="isTalking"
                                 :talk-level="talkLevel"
+                                :physics-enabled="envPhysicsEnabled"
+                                :physics-plugin-name="envPhysicsPluginName"
+                                :gravity="gravity"
                                 avatar-definition-name="avatar.definition.default"
                                 ref="avatarRef"
                             >
-                                <template #default="{ avatarSkeleton, animations, vircadiaWorld, onAnimationState, avatarNode, modelFileName, meshPivotPoint, capsuleHeight, onSetAvatarModel }">
+                                <template #default="{ avatarSkeleton, animations, vircadiaWorld, onAnimationState, avatarNode, modelFileName, meshPivotPoint, capsuleHeight, onSetAvatarModel, airborne, verticalVelocity, supportState, physicsEnabled, hasTouchedGround, spawnSettling, groundProbeHit, groundProbeDistance, groundProbeMeshName }">
                                 <BabylonMyAvatarModel
                                     v-if="modelFileName"
                                     :scene="sceneNonNull"
@@ -243,6 +274,17 @@
                                         :talk-level="talkLevel"
                                         :talk-threshold="talkThreshold"
                                         :audio-input-devices="audioDevices"
+                                        :airborne="airborne"
+                                        :vertical-velocity="verticalVelocity"
+                                        :support-state="supportState as any"
+                                        :physics-enabled="physicsEnabled"
+                                        :physics-plugin-name="envPhysicsPluginNameRef || undefined"
+                                        :physics-error="envPhysicsErrorRef || undefined"
+                                        :has-touched-ground="hasTouchedGround"
+                                        :spawn-settling="spawnSettling"
+                                        :ground-probe-hit="groundProbeHit"
+                                        :ground-probe-distance="groundProbeDistance"
+                                        :ground-probe-mesh-name="groundProbeMeshName"
                                         v-model="avatarDebugOpen"
                                         hotkey="Shift+M"
                                     />
@@ -466,7 +508,7 @@ void VircadiaWorldProvider;
 import BabylonEnvironment from "../components/BabylonEnvironment.vue";
 import BabylonDoor from "../components/BabylonDoor.vue";
 import { clientBrowserConfiguration } from "@/vircadia.browser.config";
-import { useLocalStorage } from "@vueuse/core";
+import { useStorage } from "@vueuse/core";
 
 // BabylonJS types
 import type { Scene, WebGPUEngine } from "@babylonjs/core";
@@ -519,9 +561,9 @@ const modelRefs = ref<(InstanceType<typeof BabylonModel> | null)[]>([]);
 // Physics handled by BabylonCanvas
 
 // State for debug overlays with persistence across reloads
-const cameraDebugOpen = useLocalStorage<boolean>("vrca.debug.camera", false);
-const avatarDebugOpen = useLocalStorage<boolean>("vrca.debug.avatar", false);
-const animDebugOpen = useLocalStorage<boolean>("vrca.debug.anim", false);
+const cameraDebugOpen = useStorage<boolean>("vrca.debug.camera", false);
+const avatarDebugOpen = useStorage<boolean>("vrca.debug.avatar", false);
+const animDebugOpen = useStorage<boolean>("vrca.debug.anim", false);
 void cameraDebugOpen;
 void avatarDebugOpen;
 void animDebugOpen;
@@ -567,10 +609,13 @@ void renderCanvas;
 void engine;
 void sceneNonNull;
 void sceneInitialized;
-const performanceMode = ref<"normal" | "low">("low");
+const performanceMode = useStorage<"normal" | "low">("vrca.perf.mode", "low");
 const fps = ref<number>(0);
 void performanceMode;
 void fps;
+
+// Physics state now comes directly from BabylonEnvironment slot props
+// See v-slot destructuring in template: envPhysicsEnabled, envPhysicsPluginName, etc.
 
 // FPS sampling removed; now handled by BabylonCanvas via v-model:fps
 
@@ -616,6 +661,48 @@ void fps;
 // Keyboard toggle handled inside BabylonCanvas
 
 const envRef = ref<InstanceType<typeof BabylonEnvironment> | null>(null);
+
+// Mark environment physics slot props as used in template
+// These are now received directly from BabylonEnvironment slot props
+// avoiding the convoluted ref-based access
+void envRef; // envPhysicsEnabled, envPhysicsPluginName, envPhysicsError, gravity are used directly from v-slot
+
+// Top-level refs to mirror BabylonEnvironment physics slot values for use outside the slot
+const envPhysicsEnabledRef = ref<boolean>(false);
+const envPhysicsPluginNameRef = ref<string | null>(null);
+const envPhysicsErrorRef = ref<string | null>(null);
+void envPhysicsEnabledRef;
+void envPhysicsPluginNameRef;
+void envPhysicsErrorRef;
+
+// Debug function to check physics status
+function debugPhysicsStatus() {
+    console.log("[MainScene] Debugging physics status...");
+    // Physics state is now received via slot props from BabylonEnvironment
+    // Check envRef for direct exposed method
+    if (envRef.value && typeof envRef.value.checkPhysicsStatus === "function") {
+        const status = envRef.value.checkPhysicsStatus();
+        console.log("[MainScene] Environment physics status:", status);
+    } else {
+        console.log(
+            "[MainScene] Environment ref not available or checkPhysicsStatus not exposed",
+        );
+    }
+
+    if (scene.value) {
+        const engine = scene.value.getPhysicsEngine?.();
+        console.log("[MainScene] Scene physics engine:", {
+            hasMethod: typeof scene.value.getPhysicsEngine === "function",
+            engineExists: !!engine,
+            engineType: engine ? engine.constructor.name : "none",
+        });
+    }
+}
+
+// Expose for debugging in console
+(
+    window as unknown as { debugPhysicsStatus?: typeof debugPhysicsStatus }
+).debugPhysicsStatus = debugPhysicsStatus;
 const environmentLoading = computed(() => {
     const exposed = envRef.value as unknown as {
         isLoading?: { value: boolean };
@@ -624,6 +711,7 @@ const environmentLoading = computed(() => {
 });
 void envRef;
 void environmentLoading;
+// Physics error now comes from BabylonEnvironment slot props (envPhysicsError)
 
 // Child component loading states
 const avatarLoading = computed(

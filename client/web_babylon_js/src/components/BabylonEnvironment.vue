@@ -1,10 +1,14 @@
 <template>
-    <slot :isLoading="isLoading"></slot>
-    
-    
+    <slot 
+        :isLoading="isLoading"
+        :physicsEnabled="physicsEnabled"
+        :physicsPluginName="physicsPluginName"
+        :physicsError="physicsError"
+        :gravity="gravity"
+    ></slot>
 </template>
 <script setup lang="ts">
-import { ref, watch, toRef } from "vue";
+import { ref, watch, toRef, computed } from "vue";
 import {
     HDRCubeTexture,
     type Scene,
@@ -16,8 +20,10 @@ import {
     Color3,
     PhysicsAggregate,
     PhysicsShapeType,
-    HavokPlugin,
+    type PhysicsEngine,
 } from "@babylonjs/core";
+import { HavokPlugin } from "@babylonjs/core/Physics/v2/Plugins/havokPlugin";
+import HavokPhysics from "@babylonjs/havok";
 import { useAsset } from "@vircadia/world-sdk/browser/vue";
 import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
 
@@ -96,7 +102,62 @@ const envEntityNameRef = toRef(props, "environmentEntityName");
 
 const isLoading = ref(false);
 const hasLoaded = ref(false);
-const defaultsInitialized = ref(false);
+const physicsError = ref<string | null>(null);
+// Reactive trigger to force re-evaluation of computed properties after physics init
+const physicsInitialized = ref(false);
+// Derive directly from the scene to avoid stale local flags
+const physicsEnabled = computed<boolean>(() => {
+    // Force re-evaluation when physicsInitialized changes
+    const initialized = physicsInitialized.value;
+
+    const s = sceneRef.value;
+    if (!s) {
+        console.log("[BabylonEnvironment] Physics status check: scene is null");
+        return false;
+    }
+
+    // Cast to Scene with physics methods
+    const sceneWithPhysics = s as Scene & {
+        getPhysicsEngine?: () => PhysicsEngine | null;
+        isPhysicsEnabled?: () => boolean;
+    };
+
+    // Debug logging to help diagnose physics status
+    const hasGetPhysicsEngine =
+        typeof sceneWithPhysics.getPhysicsEngine === "function";
+    const hasIsPhysicsEnabled =
+        typeof sceneWithPhysics.isPhysicsEnabled === "function";
+    const physicsEngine = hasGetPhysicsEngine
+        ? sceneWithPhysics.getPhysicsEngine()
+        : null;
+    const isPhysicsEnabledResult = hasIsPhysicsEnabled
+        ? sceneWithPhysics.isPhysicsEnabled()
+        : false;
+
+    console.log("[BabylonEnvironment] Physics status check:", {
+        sceneExists: true,
+        hasGetPhysicsEngine,
+        hasIsPhysicsEnabled,
+        physicsEngine: !!physicsEngine,
+        isPhysicsEnabledResult,
+        physicsEngineType: physicsEngine
+            ? physicsEngine.constructor.name
+            : "none",
+        physicsPluginName: physicsEngine?.getPhysicsPluginName?.() || "none",
+        physicsInitializedFlag: initialized,
+    });
+
+    return !!physicsEngine || isPhysicsEnabledResult;
+});
+const physicsPluginName = computed<string>(() => {
+    const s = sceneRef.value as unknown as {
+        getPhysicsEngine?: () => unknown;
+    } | null;
+    const engineAny = (s?.getPhysicsEngine?.() ?? null) as unknown as {
+        getPhysicsPluginName?: () => string | undefined;
+    } | null;
+    return engineAny?.getPhysicsPluginName?.() || (engineAny ? "Havok" : "");
+});
 
 let havokInstance: unknown | null = null;
 let physicsPlugin: HavokPlugin | null = null;
@@ -107,22 +168,80 @@ function toVec3(v: LightVector | undefined, fallback: Vector3): Vector3 {
 }
 
 async function initializePhysicsIfNeeded(targetScene: Scene) {
-    if (props.enablePhysics === false) return;
+    console.log("[BabylonEnvironment] initializePhysicsIfNeeded called", {
+        enablePhysics: props.enablePhysics,
+        sceneExists: !!targetScene,
+        currentPhysicsEngine: !!targetScene.getPhysicsEngine?.(),
+    });
+
+    if (props.enablePhysics === false) {
+        console.log("[BabylonEnvironment] Physics is disabled by prop");
+        return;
+    }
+
+    // Check if physics is already initialized
+    if (targetScene.getPhysicsEngine?.()) {
+        console.log(
+            "[BabylonEnvironment] Physics already initialized, skipping",
+        );
+        physicsInitialized.value = true;
+        return;
+    }
+
     try {
+        physicsError.value = null;
+
         if (!havokInstance) {
-            const HavokPhysics = (await import("@babylonjs/havok")).default;
+            console.log(
+                "[BabylonEnvironment] Initializing Havok physics module",
+            );
             havokInstance = await HavokPhysics();
+            console.log(
+                "[BabylonEnvironment] Havok module loaded",
+                !!havokInstance,
+            );
         }
+
         if (!physicsPlugin) {
+            console.log("[BabylonEnvironment] Creating Havok physics plugin");
             physicsPlugin = new HavokPlugin(true, havokInstance);
+            console.log(
+                "[BabylonEnvironment] Havok plugin created",
+                !!physicsPlugin,
+            );
         }
+
         const gravityVector = toVec3(props.gravity, new Vector3(0, -9.81, 0));
+        console.log(
+            "[BabylonEnvironment] Calling scene.enablePhysics with gravity:",
+            gravityVector.toString(),
+        );
+
         targetScene.enablePhysics(gravityVector, physicsPlugin);
-    } catch (error) {
+
+        // Check immediately after enabling
+        const engineAfter = targetScene.getPhysicsEngine?.();
+        console.info("[BabylonEnvironment] Physics enabled (Havok)", {
+            engineExists: !!engineAfter,
+            engineType: engineAfter ? engineAfter.constructor.name : "none",
+            pluginName: engineAfter?.getPhysicsPluginName?.(),
+        });
+
+        // Set the flag to trigger computed property re-evaluation
+        physicsInitialized.value = true;
+    } catch (error: unknown) {
         console.error(
             "[BabylonEnvironment] Error initializing physics:",
             error,
         );
+        try {
+            const err = error as { message?: string } | string;
+            physicsError.value =
+                (typeof err === "string" ? err : err?.message) || "";
+        } catch {
+            physicsError.value = "Unknown physics init error";
+        }
+        // Derived flags will reflect actual engine state
     }
 }
 
@@ -170,26 +289,44 @@ function addGroundIfNeeded(targetScene: Scene) {
     mat.specularColor = new Color3(spec[0], spec[1], spec[2]);
     ground.material = mat;
 
-    new PhysicsAggregate(
-        ground,
-        PhysicsShapeType.BOX,
-        {
-            mass: g.mass ?? 0,
-            friction: g.friction ?? 0.5,
-            restitution: g.restitution ?? 0.3,
-        },
-        targetScene,
-    );
+    // Attach physics aggregate based on the scene engine directly to avoid races
+    const engine = targetScene.getPhysicsEngine?.();
+    if (engine) {
+        try {
+            const aggregate = new PhysicsAggregate(
+                ground,
+                PhysicsShapeType.BOX,
+                {
+                    mass: g.mass ?? 0,
+                    friction: g.friction ?? 0.5,
+                    restitution: g.restitution ?? 0.3,
+                },
+                targetScene,
+            );
+            void aggregate; // prevent unused warning in some toolchains
+            console.log(
+                "[BabylonEnvironment] Default ground physics attached",
+                {
+                    mass: g.mass ?? 0,
+                    friction: g.friction ?? 0.5,
+                    restitution: g.restitution ?? 0.3,
+                    plugin: engine.getPhysicsPluginName?.(),
+                },
+            );
+        } catch (e) {
+            console.error(
+                "[BabylonEnvironment] Failed to attach physics to default ground",
+                e,
+            );
+        }
+    } else {
+        console.warn(
+            "[BabylonEnvironment] Physics engine not present when creating ground; no physics body attached",
+        );
+    }
 }
 
-async function initializeDefaults(targetScene: Scene) {
-    if (defaultsInitialized.value) return;
-    if (!props.enableDefaults && !props.enablePhysics) return;
-    await initializePhysicsIfNeeded(targetScene);
-    addDefaultLightsIfNeeded(targetScene);
-    addGroundIfNeeded(targetScene);
-    defaultsInitialized.value = true;
-}
+// Removed: setupDefaultEnvironmentIfNeeded (inlined in loadAll after engine ready)
 
 async function loadHdrFiles(
     scene: Scene,
@@ -241,13 +378,29 @@ async function loadAll(scene: Scene) {
         );
         return;
     }
-    if (isLoading.value) {
+    // Prevent concurrent loads
+    if (isLoading.value || hasLoaded.value) {
+        console.log("[BabylonEnvironment] Already loading or loaded, skipping");
         return;
     }
 
     isLoading.value = true;
     try {
-        await initializeDefaults(scene);
+        await initializePhysicsIfNeeded(scene);
+        // Wait up to ~1s for the physics engine to be fully ready before creating ground
+        let tries = 0;
+        while (!scene.getPhysicsEngine?.() && tries < 20) {
+            await new Promise((r) => setTimeout(r, 50));
+            tries++;
+        }
+        const enginePresent = !!scene.getPhysicsEngine?.();
+        console.log(
+            "[BabylonEnvironment] loadAll: engine present before defaults:",
+            enginePresent,
+        );
+        // Create lights and ground now that physics engine is available
+        addDefaultLightsIfNeeded(scene);
+        addGroundIfNeeded(scene);
         // Fetch all metadata for this environment entity
         const instance = vircadiaRef.value;
         if (!instance) {
@@ -307,17 +460,40 @@ watch(
         name: envEntityNameRef.value,
     }),
     ({ scene }) => {
-        if (
-            scene &&
-            vircadiaRef.value &&
-            envEntityNameRef.value &&
-            !hasLoaded.value
-        ) {
+        if (scene && vircadiaRef.value && envEntityNameRef.value) {
             void loadAll(scene);
         }
     },
-    { immediate: true, deep: true },
+    { immediate: true },
 );
 
-defineExpose({ isLoading, loadAll, initializeDefaults });
+// Manual physics check function for debugging
+function checkPhysicsStatus() {
+    const s = sceneRef.value;
+    const engine = s?.getPhysicsEngine?.();
+    const status = {
+        sceneExists: !!s,
+        hasGetPhysicsEngine: typeof s?.getPhysicsEngine === "function",
+        engineExists: !!engine,
+        engineType: engine ? engine.constructor.name : "none",
+        pluginName: engine?.getPhysicsPluginName?.() || "none",
+        havokInstanceLoaded: !!havokInstance,
+        physicsPluginCreated: !!physicsPlugin,
+        enablePhysicsProp: props.enablePhysics,
+        physicsError: physicsError.value,
+        physicsInitializedFlag: physicsInitialized.value,
+        physicsEnabledComputed: physicsEnabled.value,
+    };
+    console.log("[BabylonEnvironment] Manual physics status check:", status);
+    return status;
+}
+
+defineExpose({
+    isLoading,
+    physicsError,
+    physicsEnabled,
+    physicsPluginName,
+    checkPhysicsStatus,
+    initializePhysicsIfNeeded,
+});
 </script>

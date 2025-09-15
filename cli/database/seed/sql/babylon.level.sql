@@ -147,7 +147,7 @@ VALUES
     ('babylon.environment.default', 'type', '"Environment"'::jsonb, 'public.STATIC'),
     ('babylon.environment.default', 'hdrFiles', '["babylon.level.hdr.1k.hdr"]'::jsonb, 'public.STATIC'),
     -- Door metadata
-    ('babylon.door.main', 'type', '"Model"'::jsonb, 'public.REALTIME'),
+    ('babylon.door.main', 'type', '"Door"'::jsonb, 'public.REALTIME'),
     ('babylon.door.main', 'modelFileName', '"babylon.model.wooden_door.glb"'::jsonb, 'public.REALTIME'),
     ('babylon.door.main', 'position', '{"x":0,"y":0,"z":5}'::jsonb, 'public.REALTIME'),
     ('babylon.door.main', 'rotation', '{"x":0,"y":0,"z":0,"w":1}'::jsonb, 'public.REALTIME'),
@@ -196,7 +196,6 @@ VALUES
     ('avatar.definition.default', 'walkSpeed', '1.47'::jsonb, 'public.STATIC'),
     ('avatar.definition.default', 'turnSpeed', '3.141592653589793'::jsonb, 'public.STATIC'),
     ('avatar.definition.default', 'blendDuration', '0.15'::jsonb, 'public.STATIC'),
-    ('avatar.definition.default', 'gravity', '-9.8'::jsonb, 'public.STATIC'),
     ('avatar.definition.default', 'disableRootMotion', 'true'::jsonb, 'public.STATIC'),
     ('avatar.definition.default', 'animations', '[
         {"fileName":"babylon.avatar.animation.f.idle.1.glb","slMotion":"stand"},

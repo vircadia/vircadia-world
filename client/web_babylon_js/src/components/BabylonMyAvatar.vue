@@ -1,4 +1,5 @@
 <template>
+    <!-- TODO: This should be put out into mainscene -->
     <BabylonMyAvatarEntity
         v-if="vircadiaWorld.connectionInfo.value.status === 'connected'"
         :scene="scene"
@@ -23,6 +24,15 @@
         :capsule-height="capsuleHeight"
         :on-set-avatar-model="onSetAvatarModel"
         :key-state="keyState"
+        :airborne="lastAirborne"
+        :verticalVelocity="lastVerticalVelocity"
+        :supportState="lastSupportState"
+        :physicsEnabled="props.physicsEnabled"
+        :hasTouchedGround="hasTouchedGround"
+        :spawnSettling="spawnSettleActive"
+        :groundProbeHit="groundProbeHit"
+        :groundProbeDistance="groundProbeDistance"
+        :groundProbeMeshName="groundProbeMeshName"
     />
 </template>
 
@@ -35,11 +45,13 @@ import {
     Matrix,
     CharacterSupportedState,
     TransformNode,
+    type Node as BabylonNode,
     MeshBuilder,
     PhysicsCharacterController,
     StandardMaterial,
     Color3,
     PhysicsShapeCapsule,
+    Ray,
     type AnimationGroup,
     type Scene,
     type Observer,
@@ -96,6 +108,14 @@ const props = defineProps({
         required: false,
         default: null,
     },
+    // Physics state from environment
+    physicsEnabled: { type: Boolean, required: false, default: false },
+    physicsPluginName: { type: String, required: false, default: "" },
+    gravity: {
+        type: Array as unknown as () => [number, number, number],
+        required: false,
+        default: () => [0, -9.81, 0],
+    },
 });
 
 const emit = defineEmits<{ ready: []; dispose: [] }>();
@@ -125,7 +145,6 @@ type AvatarDefinition = {
     walkSpeed: number;
     turnSpeed: number;
     blendDuration: number;
-    gravity: number;
     animations: AnimationDef[];
     disableRootMotion?: boolean; // Optional: Allow enabling root motion for specific avatars
 };
@@ -146,7 +165,6 @@ const defaultAvatarDef: AvatarDefinition = {
     walkSpeed: 1.5,
     turnSpeed: 1.5,
     blendDuration: 0.15,
-    gravity: 9.8,
     animations: [],
 };
 
@@ -168,7 +186,6 @@ const debugAxes = computed(() => effectiveAvatarDef.value.debugAxes);
 const walkSpeed = computed(() => effectiveAvatarDef.value.walkSpeed);
 const turnSpeed = computed(() => effectiveAvatarDef.value.turnSpeed);
 const blendDuration = computed(() => effectiveAvatarDef.value.blendDuration);
-const gravity = computed(() => effectiveAvatarDef.value.gravity);
 const meshPivotPoint = computed(() => effectiveAvatarDef.value.meshPivotPoint);
 const modelFileName = computed(() => effectiveAvatarDef.value.modelFileName);
 void meshPivotPoint;
@@ -229,9 +246,12 @@ function createController(position: Vector3, rotation: Quaternion): void {
     const scene = props.scene;
     if (!scene) return;
 
-    // Create node first so debug overlay can see it even if physics isn't ready yet
-    const node = new TransformNode("avatarNode", scene);
-    avatarNode.value = node;
+    // Reuse existing node if present; otherwise create
+    let node = avatarNode.value;
+    if (!node) {
+        node = new TransformNode("avatarNode", scene);
+        avatarNode.value = node;
+    }
     node.position = position;
     node.rotationQuaternion = rotation;
 
@@ -245,30 +265,50 @@ function createController(position: Vector3, rotation: Quaternion): void {
     material.diffuseColor = new Color3(0.2, 0.4, 0.8);
     capsule.material = material;
     capsule.isVisible = false;
-    capsule.setParent(node);
+    capsule.setParent(node as unknown as BabylonNode);
 
-    // Create physics shape and controller (physics is enabled by environment gating)
-    try {
-        const physicsShape = PhysicsShapeCapsule.FromMesh(capsule);
-        characterController.value = new PhysicsCharacterController(
-            node.position.clone(),
-            {
-                shape: physicsShape,
+    // Create physics shape and controller only if physics is enabled
+    if (props.physicsEnabled) {
+        try {
+            console.log("[BabylonMyAvatar] Creating character controller", {
+                position: node.position.toString(),
                 capsuleHeight: capsuleHeight.value,
                 capsuleRadius: capsuleRadius.value,
-            },
-            scene,
-        );
-        if (characterController.value) {
-            characterController.value.maxSlopeCosine = Math.cos(
-                (slopeLimit.value * Math.PI) / 180,
+                physicsPluginName: props.physicsPluginName,
+                physicsEnabled: props.physicsEnabled,
+            });
+
+            const physicsShape = PhysicsShapeCapsule.FromMesh(capsule);
+            characterController.value = new PhysicsCharacterController(
+                node.position.clone(),
+                {
+                    shape: physicsShape,
+                    capsuleHeight: capsuleHeight.value,
+                    capsuleRadius: capsuleRadius.value,
+                },
+                scene,
             );
-            characterController.value.maxCastIterations = 20;
-            characterController.value.keepContactTolerance = 0.001;
-            characterController.value.keepDistance = 0.01;
+            if (characterController.value) {
+                characterController.value.maxSlopeCosine = Math.cos(
+                    (slopeLimit.value * Math.PI) / 180,
+                );
+                characterController.value.maxCastIterations = 20;
+                characterController.value.keepContactTolerance = 0.001;
+                characterController.value.keepDistance = 0.02;
+                console.log(
+                    "[BabylonMyAvatar] Character controller created successfully",
+                );
+            }
+        } catch (e) {
+            console.error(
+                "[BabylonMyAvatar] Failed to create character controller",
+                e,
+            );
         }
-    } catch (e) {
-        console.error("[Avatar] Failed to create character controller", e);
+    } else {
+        console.log(
+            "[BabylonMyAvatar] Physics disabled, skipping character controller creation",
+        );
     }
 }
 
@@ -309,8 +349,21 @@ function checkSupport(deltaTime: number): SupportType | undefined {
 }
 function integrate(deltaTime: number, support?: SupportType): void {
     const controller = characterController.value;
-    if (!controller || !support) return;
-    controller.integrate(deltaTime, support, new Vector3(0, -gravity.value, 0));
+    if (!controller) return;
+    // Zero gravity while flying; otherwise use gravity from props
+    const gravityVector = isFlying.value
+        ? Vector3.Zero()
+        : new Vector3(props.gravity[0], props.gravity[1], props.gravity[2]);
+    // If support is missing on early frames, synthesize an unsupported surface info (typed as any to avoid enum coupling)
+    const effectiveSupport = (support ??
+        ({
+            supportedState:
+                (CharacterSupportedState as unknown as { UNSUPPORTED?: number })
+                    .UNSUPPORTED ?? 0,
+            hitPoint: Vector3.Zero(),
+            hitNormal: new Vector3(0, 1, 0),
+        } as unknown)) as SupportType;
+    controller.integrate(deltaTime, effectiveSupport, gravityVector);
 }
 
 const defaultKeyState = ref<KeyState>({
@@ -345,6 +398,49 @@ let currentMoveFileName: string | null = null;
 let moveCrossfadeT = 1;
 let talkOverlayAnimation: AnimationGroup | null = null;
 const talkOverlayBlendWeight = ref(0);
+const lastAirborne = ref(false);
+const lastVerticalVelocity = ref(0);
+const spawnSettleActive = ref(false);
+// Flight state and input edge tracking
+const isFlying = ref(false);
+let prevJumpPressed = false;
+let prevFlyTogglePressed = false;
+type CharacterState = "IN_AIR" | "ON_GROUND" | "START_JUMP";
+const characterState = ref<CharacterState>("IN_AIR");
+// Physics state now comes from props
+const lastSupportState = ref<CharacterSupportedState | null>(null);
+const hasTouchedGround = ref(false);
+// mark used in template slot
+void lastSupportState;
+void hasTouchedGround;
+
+// Ground probe debug info
+const groundProbeHit = ref(false);
+const groundProbeDistance = ref<number | null>(null);
+const groundProbeMeshName = ref<string | null>(null);
+let groundProbeTimer = 0;
+const groundProbeIntervalSec = 0.25;
+
+function isMeshUnderAvatar(mesh: AbstractMesh): boolean {
+    const root = avatarNode.value;
+    if (!root) return false;
+    const rootId = (root as unknown as { uniqueId?: number }).uniqueId;
+    let p: BabylonNode | null = mesh.parent;
+    while (p) {
+        const pid = (p as unknown as { uniqueId?: number }).uniqueId;
+        if (rootId !== undefined && pid !== undefined && pid === rootId)
+            return true;
+        p = p.parent;
+    }
+    // Also exclude meshes that are skinned to this avatar's skeleton
+    if (
+        avatarSkeleton.value &&
+        (mesh as AbstractMesh).skeleton === avatarSkeleton.value
+    ) {
+        return true;
+    }
+    return false;
+}
 
 // Morph target (blendshape) handling
 type BabylonMorphTarget = { name: string; influence: number };
@@ -415,15 +511,15 @@ const morphNameSynonyms: Record<string, string[]> = {
 
 function getTargetsByName(name: string): BabylonMorphTarget[] | undefined {
     const direct = morphTargetsByName.value.get(name);
-    if (direct && direct.length) return direct;
+    if (direct?.length) return direct;
     const lower = morphTargetsByNameLower.value.get(name.toLowerCase());
-    if (lower && lower.length) return lower;
+    if (lower?.length) return lower;
     const syn = morphNameSynonyms[name] || [];
     for (const alt of syn) {
         const viaAlt =
             morphTargetsByName.value.get(alt) ||
             morphTargetsByNameLower.value.get(alt.toLowerCase());
-        if (viaAlt && viaAlt.length) return viaAlt;
+        if (viaAlt?.length) return viaAlt;
     }
     return undefined;
 }
@@ -542,6 +638,14 @@ function getTalkingDefs(): AnimationDef[] {
     return list.filter(
         (a) => a.slMotion === "talk" || lower(a.fileName).includes("talking"),
     );
+}
+
+function getJumpDef(): AnimationDef | undefined {
+    return findAnimationDef("jump");
+}
+
+function getFallingDef(): AnimationDef | undefined {
+    return findAnimationDef("falling");
 }
 
 function getDesiredMoveDefFromKeys(): AnimationDef | undefined {
@@ -673,14 +777,28 @@ function setMoveAnimationFromDef(def: AnimationDef | undefined): void {
     walkAnimation = newGroup;
     currentMoveFileName = def.fileName;
     walkAnimation.stop();
-    walkAnimation.loopAnimation = true;
+    // Jump should be a one-shot; others loop
+    walkAnimation.loopAnimation = def.slMotion === "jump" ? false : true;
     walkAnimation.setWeightForAllAnimatables(0);
-    walkAnimation.play(true);
+    walkAnimation.play();
 }
 
 function refreshDesiredAnimations(): void {
     ensureIdleGroupReady();
-    const desired = getDesiredMoveDefFromKeys();
+    let desired: AnimationDef | undefined;
+    if (isFlying.value) {
+        desired = getDesiredMoveDefFromKeys();
+    } else if (lastAirborne.value && !spawnSettleActive.value) {
+        // Rising: jump; Falling or apex: falling
+        desired =
+            lastVerticalVelocity.value > 0 ? getJumpDef() : getFallingDef();
+        // Fallbacks if specific air animations are missing
+        if (!desired) desired = getFallingDef();
+        if (!desired) desired = getJumpDef();
+        if (!desired) desired = getDesiredMoveDefFromKeys();
+    } else {
+        desired = getDesiredMoveDefFromKeys();
+    }
     setMoveAnimationFromDef(desired);
 }
 
@@ -777,7 +895,10 @@ function updateAnimationBlending(
 ): void {
     if (!idleAnimation) return;
 
-    const targetWeight = isMoving && walkAnimation ? 1 : 0;
+    const isActiveMotion =
+        (isMoving || (lastAirborne.value && !isFlying.value)) &&
+        !!walkAnimation;
+    const targetWeight = isActiveMotion ? 1 : 0;
     const change = dt / Math.max(0.0001, blendDuration.value);
 
     if (targetWeight > blendWeight.value) {
@@ -801,15 +922,15 @@ function updateAnimationBlending(
     if (walkAnimation) {
         const activeWeight = moveMasterWeight * moveCrossfadeT;
         walkAnimation.setWeightForAllAnimatables(activeWeight);
-        if (!walkAnimation.isPlaying) walkAnimation.play(true);
+        if (!walkAnimation.isPlaying) walkAnimation.play();
     }
     if (previousMoveAnimation) {
         const prevWeight = moveMasterWeight * (1 - moveCrossfadeT);
         previousMoveAnimation.setWeightForAllAnimatables(prevWeight);
-        if (!previousMoveAnimation.isPlaying) previousMoveAnimation.play(true);
+        if (!previousMoveAnimation.isPlaying) previousMoveAnimation.play();
     }
 
-    const canTalk = !isMoving && !!isTalkingNow;
+    const canTalk = !isMoving && !lastAirborne.value && !!isTalkingNow;
     if (canTalk && !talkOverlayAnimation) ensureTalkingGroupReady();
     const talkTarget = canTalk && talkOverlayAnimation ? 1 : 0;
     if (talkTarget > talkOverlayBlendWeight.value) {
@@ -849,7 +970,7 @@ let rootMotionObserver: Observer<Scene> | null = null;
 
 onMounted(async () => {
     // Ensure controller/node exist immediately, independent of DB metadata
-    if (!characterController.value) {
+    if (!avatarNode.value) {
         const p = effectiveAvatarDef.value.initialAvatarPosition;
         const r = effectiveAvatarDef.value.initialAvatarRotation;
         createController(
@@ -873,19 +994,31 @@ onMounted(async () => {
         const deltaTime = (now - lastTime) / 1000.0;
         lastTime = now;
 
-        if (!avatarNode.value || !characterController.value) return;
+        if (!avatarNode.value) return;
+        // Lazily create character controller once physics is ready
+        // Use physics state from props passed from environment
+        if (!characterController.value && props.physicsEnabled) {
+            const pos =
+                avatarNode.value.position?.clone() ?? new Vector3(0, 0, 0);
+            const rot =
+                avatarNode.value.rotationQuaternion?.clone() ??
+                Quaternion.Identity();
+            createController(pos, rot);
+        }
+        if (!characterController.value) return;
 
         const ks = keyState.value;
+        // Only treat translational input as movement; turning alone should remain idle
         const isMoving =
-            ks.forward ||
-            ks.backward ||
-            ks.strafeLeft ||
-            ks.strafeRight ||
-            ks.turnLeft ||
-            ks.turnRight;
+            ks.forward || ks.backward || ks.strafeLeft || ks.strafeRight;
 
-        refreshDesiredAnimations();
-        updateAnimationBlending(isMoving, deltaTime, props.isTalking);
+        // Toggle flying mode on any edge of flyMode toggle from controller
+        const jumpPressed = ks.jump;
+        const flyTogglePressed = ks.flyMode;
+        if (flyTogglePressed !== prevFlyTogglePressed) {
+            isFlying.value = !isFlying.value;
+        }
+        prevFlyTogglePressed = flyTogglePressed;
 
         const moveDirection = new Vector3(0, 0, 0);
         if (ks.forward) moveDirection.z += 1;
@@ -905,12 +1038,123 @@ onMounted(async () => {
         const worldMove = Vector3.TransformCoordinates(moveDirection, m);
 
         const currentVelocity = getVelocity() ?? Vector3.Zero();
-        const newVelocity = new Vector3(
+        let newVelocity = new Vector3(
             worldMove.x,
             currentVelocity.y,
             worldMove.z,
         );
-        setVelocity(newVelocity);
+        if (isFlying.value) {
+            const verticalSpeed = jumpSpeed.value;
+            if (ks.jump) newVelocity.y = verticalSpeed;
+            else if (ks.crouch || ks.prone) newVelocity.y = -verticalSpeed;
+            else newVelocity.y = 0;
+            setVelocity(newVelocity);
+        } else {
+            // Character controller grounded/air control via calculateMovement
+            const upWorld = new Vector3(0, 1, 0);
+            const forwardWorld = new Vector3(0, 0, 1).applyRotationQuaternion(
+                avatarNode.value.rotationQuaternion ?? Quaternion.Identity(),
+            );
+            const support = checkSupport(deltaTime);
+            // State transitions
+            if (characterState.value === "IN_AIR") {
+                if (
+                    support?.supportedState ===
+                    CharacterSupportedState.SUPPORTED
+                ) {
+                    characterState.value = "ON_GROUND";
+                }
+            } else if (characterState.value === "ON_GROUND") {
+                if (
+                    support?.supportedState !==
+                    CharacterSupportedState.SUPPORTED
+                ) {
+                    characterState.value = "IN_AIR";
+                } else if (ks.jump && !prevJumpPressed) {
+                    characterState.value = "START_JUMP";
+                }
+            } else if (characterState.value === "START_JUMP") {
+                characterState.value = "IN_AIR";
+            }
+
+            // Desired velocity by state
+            if (characterState.value === "IN_AIR") {
+                const desiredVelocity = moveDirection
+                    .scale(currentSpeed)
+                    .applyRotationQuaternion(
+                        avatarNode.value.rotationQuaternion ??
+                            Quaternion.Identity(),
+                    );
+                // Use controller.calculateMovement to compute horizontal control
+                const outputVelocity =
+                    characterController.value?.calculateMovement(
+                        deltaTime,
+                        forwardWorld,
+                        (support?.averageSurfaceNormal as Vector3) ?? upWorld,
+                        currentVelocity,
+                        (support?.averageSurfaceVelocity as Vector3) ??
+                            Vector3.Zero(),
+                        desiredVelocity,
+                        upWorld,
+                    );
+                // Restore original vertical component and add gravity so we fall
+                if (outputVelocity) {
+                    // Remove any vertical that calculateMovement introduced and restore current vertical
+                    outputVelocity.addInPlace(
+                        upWorld.scale(
+                            currentVelocity.dot(upWorld) -
+                                outputVelocity.dot(upWorld),
+                        ),
+                    );
+                    // Add gravity over dt
+                    const gravityVec = isFlying.value
+                        ? Vector3.Zero()
+                        : new Vector3(
+                              props.gravity[0],
+                              props.gravity[1],
+                              props.gravity[2],
+                          );
+                    outputVelocity.addInPlace(gravityVec.scale(deltaTime));
+                    setVelocity(outputVelocity);
+                }
+            } else if (
+                characterState.value === "ON_GROUND" ||
+                characterState.value === "START_JUMP"
+            ) {
+                const desiredVelocity = moveDirection
+                    .scale(currentSpeed)
+                    .applyRotationQuaternion(
+                        avatarNode.value.rotationQuaternion ??
+                            Quaternion.Identity(),
+                    );
+                const outputVelocity =
+                    characterController.value?.calculateMovement(
+                        deltaTime,
+                        forwardWorld,
+                        upWorld,
+                        currentVelocity,
+                        desiredVelocity,
+                        Vector3.Zero(),
+                        upWorld,
+                    );
+                if (outputVelocity) setVelocity(outputVelocity);
+
+                if (characterState.value === "START_JUMP") {
+                    const gravityLen = new Vector3(
+                        props.gravity[0],
+                        props.gravity[1],
+                        props.gravity[2],
+                    ).length();
+                    const jumpHeight = Math.max(0.5, jumpSpeed.value * 0.2);
+                    const u = Math.sqrt(2 * gravityLen * jumpHeight);
+                    const curRelVel = currentVelocity.dot(upWorld);
+                    newVelocity = currentVelocity.add(
+                        upWorld.scale(u - curRelVel),
+                    );
+                    setVelocity(newVelocity);
+                }
+            }
+        }
 
         const turn = (ks.turnRight ? 1 : 0) - (ks.turnLeft ? 1 : 0);
         if (turn !== 0) {
@@ -923,14 +1167,67 @@ onMounted(async () => {
 
         // Recompute support after velocity/turn updates
         const support = checkSupport(deltaTime);
-        if (
-            ks.jump &&
-            support?.supportedState === CharacterSupportedState.SUPPORTED
-        ) {
-            const jumpVelocity = getVelocity() ?? Vector3.Zero();
-            jumpVelocity.y = jumpSpeed.value;
-            setVelocity(jumpVelocity);
+        // Track airborne state and vertical velocity for animation selection
+        const velForAnim = getVelocity() ?? Vector3.Zero();
+        lastVerticalVelocity.value = velForAnim.y;
+        lastAirborne.value =
+            support?.supportedState !== CharacterSupportedState.SUPPORTED;
+
+        // Debug logging for physics state
+        if (support) {
+            lastSupportState.value = support.supportedState;
+            if (
+                support.supportedState === CharacterSupportedState.SUPPORTED &&
+                !hasTouchedGround.value
+            ) {
+                hasTouchedGround.value = true;
+                console.log(
+                    "[BabylonMyAvatar] Character has touched ground for the first time",
+                );
+            }
         }
+
+        // (debug logging moved to top-level overlay)
+
+        // Auto-enable flight when spawn unsupported until first ground touch
+        // No auto-flight engagement; flight is manual only
+
+        prevJumpPressed = jumpPressed;
+
+        // Removed spawn settle and landing snap logic to simplify physics
+
+        // Periodic ground probe (raycast straight down), skip own capsule and meshes
+        groundProbeTimer += deltaTime;
+        if (groundProbeTimer >= groundProbeIntervalSec) {
+            groundProbeTimer = 0;
+            const pos = getPosition() ?? avatarNode.value.position;
+            const origin = pos.add(
+                new Vector3(0, 0.25 * capsuleHeight.value, 0),
+            );
+            const ray = new Ray(origin, new Vector3(0, -1, 0), 100);
+            const pick = props.scene.pickWithRay(
+                ray,
+                (m) =>
+                    m.name !== "avatarCapsule" &&
+                    !isMeshUnderAvatar(m as AbstractMesh),
+            );
+            if (pick?.hit && pick.pickedPoint) {
+                groundProbeHit.value = true;
+                const bottomY = pos.y - capsuleHeight.value * 0.5;
+                groundProbeDistance.value = bottomY - pick.pickedPoint.y;
+                groundProbeMeshName.value = pick.pickedMesh?.name || null;
+            } else {
+                groundProbeHit.value = false;
+                groundProbeDistance.value = null;
+                groundProbeMeshName.value = null;
+            }
+        }
+
+        // Landing assist removed
+
+        // With updated support/airborne we can now select and blend animations to avoid snapping on landing
+        refreshDesiredAnimations();
+        updateAnimationBlending(isMoving, deltaTime, props.isTalking);
 
         integrate(deltaTime, support);
     });

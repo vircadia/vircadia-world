@@ -12,6 +12,8 @@ import type {
 import { ModelMetadataSchema } from "../composables/schemas";
 
 import { useDebounceFn } from "@vueuse/core";
+// TODO: Move entity updates synchronization into their own component.
+// TODO: Move these into .vue's and put them under slots.
 import { useBabylonModelLoader } from "../composables/useBabylonModelLoader";
 import { useBabylonModelPhysics } from "../composables/useBabylonModelPhysics";
 import type { useVircadia } from "@vircadia/world-sdk/browser/vue";

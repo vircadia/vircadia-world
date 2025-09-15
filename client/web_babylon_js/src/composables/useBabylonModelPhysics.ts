@@ -26,6 +26,15 @@ export function useBabylonModelPhysics(
             return;
         }
 
+        console.log(
+            `[useBabylonModelPhysics] Applying physics to model: ${def.fileName}`,
+            {
+                meshCount: meshes.value.length,
+                physicsType: def.physicsType,
+                physicsOptions: def.physicsOptions,
+            },
+        );
+
         // Clean up any existing physics
         removePhysics();
 
@@ -93,6 +102,17 @@ export function useBabylonModelPhysics(
                     continue;
                 }
 
+                console.log(
+                    `[useBabylonModelPhysics] Creating physics aggregate for mesh: ${mesh.name}`,
+                    {
+                        vertexCount,
+                        shapeType: PhysicsShapeType[shapeType],
+                        mass,
+                        friction,
+                        restitution,
+                    },
+                );
+
                 const aggregate = new PhysicsAggregate(
                     mesh as unknown as import("@babylonjs/core").Mesh,
                     shapeType,
@@ -100,6 +120,9 @@ export function useBabylonModelPhysics(
                     scene,
                 );
                 physicsAggregates.value.push(aggregate);
+                console.log(
+                    `[useBabylonModelPhysics] Physics aggregate created successfully for: ${mesh.name}`,
+                );
             } catch (e) {
                 console.error(
                     `Failed to apply physics to mesh ${mesh.name}:`,
@@ -107,6 +130,11 @@ export function useBabylonModelPhysics(
                 );
             }
         }
+
+        console.log(`[useBabylonModelPhysics] Physics application completed`, {
+            aggregatesCreated: physicsAggregates.value.length,
+            model: def.fileName,
+        });
     }
 
     function removePhysics() {

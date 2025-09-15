@@ -79,6 +79,19 @@ const vircadiaWorld = ensure<ReturnType<typeof useVircadia>>(
     "Vircadia instance not found in BabylonOtherAvatars",
 );
 
+// Helper: parse JSON-like values that may arrive as strings
+function parseMaybeJson<T = unknown>(value: unknown): T | null {
+    if (value == null) return null;
+    if (typeof value === "string") {
+        try {
+            return JSON.parse(value) as T;
+        } catch {
+            return null;
+        }
+    }
+    return value as T;
+}
+
 // Discovered other avatar full session IDs (sessionId-instanceId format)
 const otherAvatarSessionIds = ref<string[]>([]);
 
@@ -164,7 +177,11 @@ async function fetchInitialAvatarMetadata(sessionId: string) {
         avatarDataMap.value[sessionId] = {
             type: "avatar",
             sessionId: (metaObj["sessionId"] as string) ?? sessionId,
-            cameraOrientation: (metaObj["cameraOrientation"] as {
+            cameraOrientation: (parseMaybeJson<{
+                alpha: number;
+                beta: number;
+                radius: number;
+            }>(metaObj["cameraOrientation"]) as {
                 alpha: number;
                 beta: number;
                 radius: number;
@@ -176,7 +193,11 @@ async function fetchInitialAvatarMetadata(sessionId: string) {
             modelFileName:
                 (metaObj["modelFileName"] as string) ?? "babylon.avatar.glb",
         } as AvatarBaseData;
-        positionDataMap.value[sessionId] = (metaObj["position"] as {
+        positionDataMap.value[sessionId] = (parseMaybeJson<{
+            x: number;
+            y: number;
+            z: number;
+        }>(metaObj["position"]) as {
             x: number;
             y: number;
             z: number;
@@ -185,7 +206,12 @@ async function fetchInitialAvatarMetadata(sessionId: string) {
             y: 0,
             z: -5,
         };
-        rotationDataMap.value[sessionId] = (metaObj["rotation"] as {
+        rotationDataMap.value[sessionId] = (parseMaybeJson<{
+            x: number;
+            y: number;
+            z: number;
+            w: number;
+        }>(metaObj["rotation"]) as {
             x: number;
             y: number;
             z: number;
@@ -253,11 +279,19 @@ async function pollPositionRotation() {
                 if (Array.isArray(res.result)) {
                     for (const row of res.result) {
                         if (row.metadata__key === "position") {
-                            positionDataMap.value[sessionId] =
-                                row.metadata__value as AvatarPositionData;
+                            const parsed = parseMaybeJson<AvatarPositionData>(
+                                row.metadata__value,
+                            );
+                            if (parsed) {
+                                positionDataMap.value[sessionId] = parsed;
+                            }
                         } else if (row.metadata__key === "rotation") {
-                            rotationDataMap.value[sessionId] =
-                                row.metadata__value as AvatarRotationData;
+                            const parsed = parseMaybeJson<AvatarRotationData>(
+                                row.metadata__value,
+                            );
+                            if (parsed) {
+                                rotationDataMap.value[sessionId] = parsed;
+                            }
                         }
                         if (row.general__updated_at) {
                             const ut = new Date(row.general__updated_at);
@@ -339,7 +373,16 @@ async function pollCameraOrientation() {
                                 (avatarDataMap.value[sessionId]
                                     ?.modelFileName as string) ||
                                 "babylon.avatar.glb",
-                            cameraOrientation: lastRow.metadata__value,
+                            cameraOrientation:
+                                (parseMaybeJson<{
+                                    alpha: number;
+                                    beta: number;
+                                    radius: number;
+                                }>(lastRow.metadata__value) as {
+                                    alpha: number;
+                                    beta: number;
+                                    radius: number;
+                                }) || base.cameraOrientation,
                         } as AvatarBaseData;
                     }
                     if (lastRow.general__updated_at) {
@@ -770,6 +813,12 @@ defineExpose({
     positionDataMap,
     rotationDataMap,
     jointDataMap,
+    lastPollTimestamps,
+    lastBasePollTimestamps,
+    lastCameraPollTimestamps,
+    isPollingPositionRotation: computed(() => isPollingPositionRotation),
+    isPollingCamera: computed(() => isPollingCamera),
+    isPollingJoints: computed(() => isPollingJoints),
 });
 </script>
 

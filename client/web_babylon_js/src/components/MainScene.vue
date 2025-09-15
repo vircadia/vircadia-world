@@ -140,6 +140,15 @@
             </v-btn>
             <v-btn
                 variant="tonal"
+                :color="otherAvatarsDebugOpen ? 'error' : 'default'"
+                prepend-icon="mdi-account-group-outline"
+                @click="otherAvatarsDebugOpen = !otherAvatarsDebugOpen"
+                class="ml-2"
+            >
+                Others
+            </v-btn>
+            <v-btn
+                variant="tonal"
                 :color="performanceMode === 'low' ? 'warning' : 'default'"
                 prepend-icon="mdi-speedometer"
                 @click="togglePerformanceMode"
@@ -376,6 +385,26 @@
                         </div>
                     </BabylonModels>
 
+                    <!-- Other Avatars Debug Overlay -->
+                    <BabylonOtherAvatarsDebugOverlay
+                        v-if="otherAvatarsRef"
+                        v-model="otherAvatarsDebugOpen"
+                        :other-avatar-session-ids="(otherAvatarsRef as any)?.otherAvatarSessionIds || []"
+                        :avatar-data-map="(otherAvatarsRef as any)?.avatarDataMap || {}"
+                        :position-data-map="(otherAvatarsRef as any)?.positionDataMap || {}"
+                        :rotation-data-map="(otherAvatarsRef as any)?.rotationDataMap || {}"
+                        :joint-data-map="(otherAvatarsRef as any)?.jointDataMap || {}"
+                        :last-poll-timestamps="(otherAvatarsRef as any)?.lastPollTimestamps || {}"
+                        :last-base-poll-timestamps="(otherAvatarsRef as any)?.lastBasePollTimestamps || {}"
+                        :last-camera-poll-timestamps="(otherAvatarsRef as any)?.lastCameraPollTimestamps || {}"
+                        :is-polling-position-rotation="(otherAvatarsRef as any)?.isPollingPositionRotation || false"
+                        :is-polling-camera="(otherAvatarsRef as any)?.isPollingCamera || false"
+                        :is-polling-joints="(otherAvatarsRef as any)?.isPollingJoints || false"
+                        :is-loading="(otherAvatarsRef as any)?.isLoading || false"
+                        :connection-status="connectionStatus"
+                        hotkey="Shift+O"
+                    />
+
                     <!-- BabylonDoor component for interactive door -->
                     <BabylonDoor
                         :scene="sceneNonNull"
@@ -508,6 +537,7 @@ import BabylonMyAvatarAnimationDebugOverlay from "../components/BabylonMyAvatarA
 import BabylonCameraDebugOverlay from "../components/BabylonCameraDebugOverlay.vue";
 import BabylonInspector from "../components/BabylonInspector.vue";
 import BabylonModelsDebugOverlay from "../components/BabylonModelsDebugOverlay.vue";
+import BabylonOtherAvatarsDebugOverlay from "../components/BabylonOtherAvatarsDebugOverlay.vue";
 import AudioControlsDialog from "../components/AudioControlsDialog.vue";
 import VircadiaWorldAuthProvider from "../components/VircadiaWorldAuthProvider.vue";
 import BabylonCanvas from "../components/BabylonCanvas.vue";
@@ -549,6 +579,8 @@ void BabylonInspector;
 void AudioControlsDialog;
 // mark as used at runtime for template
 void BabylonModelsDebugOverlay;
+// mark as used at runtime for template
+void BabylonOtherAvatarsDebugOverlay;
 // mark as used at runtime for template
 void BabylonMyAvatarEntity;
 // mark as used at runtime for template
@@ -632,6 +664,13 @@ void animDebugOpen;
 // Models debug overlay
 const modelsDebugOpen = useStorage<boolean>("vrca.debug.models", false);
 void modelsDebugOpen;
+
+// Other avatars overlay
+const otherAvatarsDebugOpen = useStorage<boolean>(
+    "vrca.debug.otherAvatars",
+    false,
+);
+void otherAvatarsDebugOpen;
 
 // Babylon managed by BabylonCanvas
 // Use the exposed API from BabylonCanvas via a component ref instead of local refs

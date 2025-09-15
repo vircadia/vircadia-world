@@ -41,6 +41,11 @@ export type AvatarSyncMetrics = {
     lastBatchSizeKb: number;
     avgBatchSizeKb: number;
     avgBatchProcessTimeMs: number;
+    // Error metrics
+    errorCount: number;
+    lastErrorAt: string | null;
+    lastErrorMessage: string | null;
+    lastErrorSource: string | null;
 };
 
 // Types imported from BabylonMyAvatar.vue
@@ -135,7 +140,7 @@ async function upsertMetadataEntries(
     const valuesClause = entries
         .map(
             (_, i) =>
-                `(${i * 4 + 1}, ${i * 4 + 2}, ${i * 4 + 3}::jsonb, ${i * 4 + 4})`,
+                `($${i * 4 + 1}, $${i * 4 + 2}, $${i * 4 + 3}::jsonb, $${i * 4 + 4})`,
         )
         .join(", ");
 
@@ -169,7 +174,73 @@ const syncStats = {
     totalBatchSizeKb: 0,
     batchCount: 0,
     recentBatchProcessTimes: [] as number[],
+    // Error tracking
+    totalErrors: 0,
+    lastErrorAtMs: 0,
+    lastErrorMessage: null as string | null,
+    lastErrorSource: null as string | null,
 };
+
+function recordError(source: string, error: unknown) {
+    syncStats.totalErrors += 1;
+    syncStats.lastErrorAtMs = Date.now();
+    syncStats.lastErrorMessage =
+        error instanceof Error ? error.message : String(error);
+    syncStats.lastErrorSource = source;
+}
+
+function computePushesPerMinute(now: number): number {
+    const cutoff = now - 60000;
+    const recent = syncStats.recentPushTimestamps.filter((t) => t >= cutoff);
+    if (recent.length === 0) return 0;
+    const oldestTimestamp = Math.min(...recent);
+    const actualWindowMs = now - oldestTimestamp;
+    return actualWindowMs > 0
+        ? Math.round((recent.length / actualWindowMs) * 60000)
+        : recent.length;
+}
+
+function emitStats(interval: number | null) {
+    const now = Date.now();
+    const pushesPerMinute = computePushesPerMinute(now);
+    const avgBatchSizeKb =
+        syncStats.batchCount > 0
+            ? Math.round(
+                  (syncStats.totalBatchSizeKb / syncStats.batchCount) * 100,
+              ) / 100
+            : 0;
+    const avgBatchProcessTimeMs =
+        syncStats.recentBatchProcessTimes.length > 0
+            ? Math.round(
+                  syncStats.recentBatchProcessTimes.reduce((a, b) => a + b, 0) /
+                      syncStats.recentBatchProcessTimes.length,
+              )
+            : 0;
+
+    emit("sync-stats", {
+        entityName: entityName.value,
+        queuedKeys: batchedUpdates.size,
+        lastBatchCount: syncStats.lastBatchCount,
+        totalPushed: syncStats.totalPushed,
+        lastPushedAt:
+            syncStats.lastPushedAtMs > 0
+                ? new Date(syncStats.lastPushedAtMs).toISOString()
+                : null,
+        pushIntervalMs: interval,
+        avgPushesPerMinute: pushesPerMinute,
+        lastKeys: syncStats.lastKeys,
+        lastBatchSizeKb: syncStats.lastBatchSizeKb,
+        avgBatchSizeKb: avgBatchSizeKb,
+        avgBatchProcessTimeMs: avgBatchProcessTimeMs,
+        errorCount: syncStats.totalErrors,
+        lastErrorAt:
+            syncStats.lastErrorAtMs > 0
+                ? new Date(syncStats.lastErrorAtMs).toISOString()
+                : null,
+        lastErrorMessage: syncStats.lastErrorMessage,
+        lastErrorSource: syncStats.lastErrorSource,
+    });
+}
 
 const pushBatchedUpdates = useThrottleFn(async () => {
     const name = entityName.value;
@@ -214,56 +285,11 @@ const pushBatchedUpdates = useThrottleFn(async () => {
         syncStats.recentPushTimestamps = syncStats.recentPushTimestamps.filter(
             (t) => t >= cutoff,
         );
-        // Calculate actual pushes per minute based on the time window
-        const pushesPerMinute =
-            syncStats.recentPushTimestamps.length > 0
-                ? (() => {
-                      const oldestTimestamp = Math.min(
-                          ...syncStats.recentPushTimestamps,
-                      );
-                      const actualWindowMs = now - oldestTimestamp;
-                      return actualWindowMs > 0
-                          ? Math.round(
-                                (syncStats.recentPushTimestamps.length /
-                                    actualWindowMs) *
-                                    60000,
-                            )
-                          : syncStats.recentPushTimestamps.length;
-                  })()
-                : 0;
-
-        // Calculate averages
-        const avgBatchSizeKb =
-            syncStats.batchCount > 0
-                ? Math.round(
-                      (syncStats.totalBatchSizeKb / syncStats.batchCount) * 100,
-                  ) / 100
-                : 0;
-        const avgBatchProcessTimeMs =
-            syncStats.recentBatchProcessTimes.length > 0
-                ? Math.round(
-                      syncStats.recentBatchProcessTimes.reduce(
-                          (a, b) => a + b,
-                          0,
-                      ) / syncStats.recentBatchProcessTimes.length,
-                  )
-                : 0;
-
-        emit("sync-stats", {
-            entityName: name,
-            queuedKeys: batchedUpdates.size,
-            lastBatchCount: syncStats.lastBatchCount,
-            totalPushed: syncStats.totalPushed,
-            lastPushedAt: new Date(now).toISOString(),
-            pushIntervalMs: interval,
-            avgPushesPerMinute: pushesPerMinute,
-            lastKeys: syncStats.lastKeys,
-            lastBatchSizeKb: syncStats.lastBatchSizeKb,
-            avgBatchSizeKb: avgBatchSizeKb,
-            avgBatchProcessTimeMs: avgBatchProcessTimeMs,
-        });
+        emitStats(interval);
     } catch (e) {
         console.error("[BabylonMyAvatarEntity] pushBatchedUpdates failed", e);
+        recordError("pushBatchedUpdates", e);
+        emitStats(null);
     }
 }, props.positionThrottleInterval);
 
@@ -364,6 +390,8 @@ async function retrieveEntityMetadata(
         }
     } catch (e) {
         console.error("Failed to retrieve metadata:", e);
+        recordError("retrieveEntityMetadata", e);
+        emitStats(null);
     }
     return null;
 }
@@ -385,14 +413,23 @@ async function initializeEntity() {
     emit("avatar-definition-loaded", props.avatarDefinition);
 
     // Check if entity exists
-    const existsResult =
-        await props.vircadiaWorld.client.Utilities.Connection.query({
-            query: "SELECT 1 FROM entity.entities WHERE general__entity_name = $1",
-            parameters: [entityName.value],
-        });
+    let exists = false;
+    try {
+        const existsResult =
+            await props.vircadiaWorld.client.Utilities.Connection.query({
+                query: "SELECT 1 FROM entity.entities WHERE general__entity_name = $1",
+                parameters: [entityName.value],
+            });
 
-    const exists =
-        Array.isArray(existsResult.result) && existsResult.result.length > 0;
+        exists =
+            Array.isArray(existsResult.result) &&
+            existsResult.result.length > 0;
+    } catch (e) {
+        console.error("Failed to check if avatar entity exists:", e);
+        recordError("checkEntityExists", e);
+        emitStats(null);
+        return;
+    }
 
     if (!exists) {
         isCreating.value = true;
@@ -408,6 +445,8 @@ async function initializeEntity() {
             await upsertMetadataEntries(entityName.value, seed);
         } catch (e) {
             console.error("Failed to create avatar entity:", e);
+            recordError("createEntity", e);
+            emitStats(null);
         } finally {
             isCreating.value = false;
         }
@@ -455,6 +494,8 @@ async function initializeEntity() {
         }
     } catch (e) {
         console.error("Failed to retrieve avatar entity:", e);
+        recordError("retrieveEntity", e);
+        emitStats(null);
     } finally {
         isRetrieving.value = false;
     }

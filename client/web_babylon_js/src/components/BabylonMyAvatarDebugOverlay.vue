@@ -101,6 +101,21 @@
 							<v-list-item title="Last batch size" :subtitle="`${syncLastBatchSizeKb} KB`" />
 							<v-list-item title="Avg batch size" :subtitle="`${syncAvgBatchSizeKb} KB`" />
 							<v-list-item title="Avg batch time" :subtitle="`${syncAvgBatchProcessTimeMs} ms`" />
+							<v-divider class="my-2" />
+							<v-list-subheader>Sync Errors</v-list-subheader>
+							<v-list-item title="Error count" :subtitle="String(syncErrorCount)" :class="{ 'text-success': syncErrorCount === 0, 'text-error': syncErrorCount > 0 }" />
+							<v-list-item title="Last error at" :subtitle="syncLastErrorAt" />
+							<v-expansion-panels variant="accordion" density="compact" v-if="syncErrorCount > 0">
+								<v-expansion-panel>
+									<v-expansion-panel-title>Last error details</v-expansion-panel-title>
+									<v-expansion-panel-text>
+										<div class="text-caption">
+											<div><strong>Source:</strong> <span class="font-mono">{{ syncLastErrorSource }}</span></div>
+											<div class="mt-1"><strong>Message:</strong> <span class="font-mono">{{ syncLastErrorMessage }}</span></div>
+										</div>
+									</v-expansion-panel-text>
+								</v-expansion-panel>
+							</v-expansion-panels>
 							<v-expansion-panels variant="accordion" density="compact" class="mt-1" v-if="(props.syncMetrics?.lastKeys?.length || 0) > 0">
 								<v-expansion-panel>
 									<v-expansion-panel-title>Last keys pushed</v-expansion-panel-title>
@@ -184,6 +199,11 @@ type SyncMetrics = {
     lastBatchSizeKb: number;
     avgBatchSizeKb: number;
     avgBatchProcessTimeMs: number;
+    // Error metrics from BabylonMyAvatarEntity
+    errorCount: number;
+    lastErrorAt: string | null;
+    lastErrorMessage: string | null;
+    lastErrorSource: string | null;
 };
 
 const props = defineProps({
@@ -302,6 +322,22 @@ const syncAvgBatchSizeKb = computed(
 const syncAvgBatchProcessTimeMs = computed(
     () => props.syncMetrics?.avgBatchProcessTimeMs ?? 0,
 );
+const syncErrorCount = computed(() => props.syncMetrics?.errorCount ?? 0);
+const syncLastErrorAt = computed(() => {
+    const s = props.syncMetrics?.lastErrorAt;
+    if (!s) return "-";
+    try {
+        return new Date(s).toLocaleTimeString();
+    } catch {
+        return s;
+    }
+});
+const syncLastErrorMessage = computed(
+    () => props.syncMetrics?.lastErrorMessage || "-",
+);
+const syncLastErrorSource = computed(
+    () => props.syncMetrics?.lastErrorSource || "-",
+);
 const lastPushedAtLabel = computed(() => {
     const s = props.syncMetrics?.lastPushedAt;
     if (!s) return "-";
@@ -330,6 +366,10 @@ void syncAvgBatchSizeKb;
 void syncAvgBatchProcessTimeMs;
 void lastPushedAtLabel;
 void pushIntervalLabel;
+void syncErrorCount;
+void syncLastErrorAt;
+void syncLastErrorMessage;
+void syncLastErrorSource;
 
 function isUnderAvatarNode(
     mesh: AbstractMesh,

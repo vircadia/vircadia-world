@@ -163,7 +163,7 @@
             />
             
             <BabylonEnvironment
-                v-if="sceneInitialized && scene && connectionStatus === 'connected' && !isConnecting"
+                v-if="sceneInitialized && connectionStatus === 'connected' && !isConnecting"
                 :scene="sceneNonNull"
                 :vircadia-world="vircadiaWorld"
                 environment-entity-name="babylon.environment.default"
@@ -178,7 +178,7 @@
                 </div>
                 <!-- TODO: scene initialized can be simplified down so scene should not have to be checked -->
                 <!-- Only render entities when scene is available, connection is stable, and full session ID is available -->
-                <template v-if="!isLoading && envPhysicsEnabled && sceneInitialized && scene && connectionStatus === 'connected' && !isConnecting && fullSessionId">
+                <template v-if="!isLoading && envPhysicsEnabled && sceneInitialized && connectionStatus === 'connected' && !isConnecting && fullSessionId">
                     <!-- BabylonMyAvatar component wrapped with MKB controller -->
                     <BabylonMyAvatarMKBController
                         :scene="sceneNonNull"

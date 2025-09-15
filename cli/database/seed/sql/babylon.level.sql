@@ -180,7 +180,7 @@ INSERT INTO entity.entity_metadata (
 )
 VALUES
     ('avatar.definition.default', 'type', '"AvatarDefinition"'::jsonb, 'public.STATIC'),
-    ('avatar.definition.default', 'initialAvatarPosition', '{"x":0,"y":0,"z":-5}'::jsonb, 'public.STATIC'),
+    ('avatar.definition.default', 'initialAvatarPosition', '{"x":0,"y":8,"z":-5}'::jsonb, 'public.STATIC'),
     ('avatar.definition.default', 'initialAvatarRotation', '{"x":0,"y":0,"z":0,"w":1}'::jsonb, 'public.STATIC'),
     ('avatar.definition.default', 'initialAvatarCameraOrientation', '{"alpha":-1.5707963267948966,"beta":1.0471975511965976,"radius":5}'::jsonb, 'public.STATIC'),
     ('avatar.definition.default', 'modelFileName', '"babylon.avatar.glb"'::jsonb, 'public.STATIC'),

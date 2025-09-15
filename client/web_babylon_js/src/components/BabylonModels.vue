@@ -3,7 +3,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from "vue";
+import { ref, onMounted, onUnmounted } from "vue";
 import type { BabylonModelDefinition } from "../composables/schemas";
 
 const props = defineProps<{
@@ -30,6 +30,17 @@ function toBabylonModelDefinition(
         | { x?: number; y?: number; z?: number; w?: number }
         | undefined;
     const ownerSessionId = meta.get("ownerSessionId");
+    const enablePhysics = meta.get("enablePhysics");
+    const physicsType = meta.get("physicsType");
+    const physicsOptions = meta.get("physicsOptions") as
+        | {
+              mass?: number;
+              friction?: number;
+              restitution?: number;
+              isKinematic?: boolean;
+          }
+        | undefined;
+    const throttleInterval = meta.get("throttleInterval");
 
     return {
         entityName,
@@ -54,6 +65,47 @@ function toBabylonModelDefinition(
                 : { x: 0, y: 0, z: 0, w: 1 },
         ownerSessionId:
             typeof ownerSessionId === "string" ? ownerSessionId : null,
+        enablePhysics:
+            typeof enablePhysics === "boolean"
+                ? enablePhysics
+                : enablePhysics === "true"
+                  ? true
+                  : enablePhysics === "false"
+                    ? false
+                    : undefined,
+        physicsType:
+            physicsType === "box" ||
+            physicsType === "convexHull" ||
+            physicsType === "mesh"
+                ? physicsType
+                : undefined,
+        physicsOptions:
+            physicsOptions && typeof physicsOptions === "object"
+                ? {
+                      mass:
+                          physicsOptions.mass != null
+                              ? Number(physicsOptions.mass)
+                              : undefined,
+                      friction:
+                          physicsOptions.friction != null
+                              ? Number(physicsOptions.friction)
+                              : undefined,
+                      restitution:
+                          physicsOptions.restitution != null
+                              ? Number(physicsOptions.restitution)
+                              : undefined,
+                      isKinematic:
+                          typeof physicsOptions.isKinematic === "boolean"
+                              ? physicsOptions.isKinematic
+                              : undefined,
+                  }
+                : undefined,
+        throttleInterval:
+            typeof throttleInterval === "number"
+                ? throttleInterval
+                : throttleInterval != null
+                  ? Number(throttleInterval)
+                  : undefined,
     } as BabylonModelDefinition;
 }
 
@@ -122,8 +174,6 @@ async function fetchMetadataForEntities(
 
 async function loadOnce() {
     if (!props.vircadiaWorld) return;
-    if (props.vircadiaWorld.connectionInfo?.value?.status !== "connected")
-        return;
     isLoading.value = true;
     error.value = null;
     try {
@@ -163,15 +213,6 @@ onMounted(async () => {
 onUnmounted(() => {
     stopPolling();
 });
-
-watch(
-    () => props.vircadiaWorld?.connectionInfo?.value?.status,
-    (status) => {
-        if (status === "connected") {
-            void loadOnce();
-        }
-    },
-);
 </script>
 
 <style scoped>

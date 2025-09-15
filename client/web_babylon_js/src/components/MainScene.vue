@@ -131,6 +131,15 @@
             </v-btn>
             <v-btn
                 variant="tonal"
+                :color="modelsDebugOpen ? 'error' : 'default'"
+                prepend-icon="mdi-cube-outline"
+                @click="modelsDebugOpen = !modelsDebugOpen"
+                class="ml-2"
+            >
+                Models
+            </v-btn>
+            <v-btn
+                variant="tonal"
                 :color="performanceMode === 'low' ? 'warning' : 'default'"
                 prepend-icon="mdi-speedometer"
                 @click="togglePerformanceMode"
@@ -283,8 +292,8 @@
                                         :has-touched-ground="hasTouchedGround"
                                         :spawn-settling="spawnSettling"
                                         :ground-probe-hit="groundProbeHit"
-                                        :ground-probe-distance="groundProbeDistance"
-                                        :ground-probe-mesh-name="groundProbeMeshName"
+                                        :ground-probe-distance="groundProbeDistance ?? undefined"
+                                        :ground-probe-mesh-name="groundProbeMeshName ?? undefined"
                                         v-model="avatarDebugOpen"
                                         hotkey="Shift+M"
                                     />
@@ -331,7 +340,26 @@
                             :scene="sceneNonNull"
                             :vircadia-world="vircadiaWorld"
                             ref="modelRefs"
+                            v-slot="{ meshes, def: slotDef }"
+                        >
+                            <BabylonModelPhysics
+                                :scene="sceneNonNull"
+                                :meshes="meshes"
+                                :def="slotDef"
+                                ref="modelPhysicsRefs"
+                            />
+                        </BabylonModel>
+
+                        <BabylonModelsDebugOverlay
+                            v-model="modelsDebugOpen"
+                            :models="models"
+                            :model-runtime="modelRuntime"
+                            :physics-summaries="physicsSummaries"
                         />
+                        <div style="display: none">
+                            {{ setModelRuntimeFromRefs(models, (modelRefs as any).map((r: any) => r?.meshes)) }}
+                            {{ refreshPhysicsSummaries(models) }}
+                        </div>
                     </BabylonModels>
 
                     <!-- BabylonDoor component for interactive door -->
@@ -358,11 +386,11 @@
         <!-- WebRTC component (hidden, just for functionality) -->
         <BabylonWebRTC
             v-if="connectionStatus === 'connected' && fullSessionId"
-            :instance-id="instanceId ?? undefined"
+            :instance-id="instanceId || ''"
             :vircadia-world="vircadiaWorld"
-            :avatar-data-map="otherAvatarsRef?.avatarDataMap || {}"
-            :position-data-map="otherAvatarsRef?.positionDataMap || {}"
-            :rotation-data-map="otherAvatarsRef?.rotationDataMap || {}"
+            :avatar-data-map="(otherAvatarsRef?.avatarDataMap as Record<string, { type: 'avatar'; sessionId: string | null; modelFileName: string; cameraOrientation: { alpha: number; beta: number; radius: number; }; }>) || {} as any"
+            :position-data-map="(otherAvatarsRef?.positionDataMap as Record<string, { x: number; y: number; z: number; }>) || {} as any"
+            :rotation-data-map="(otherAvatarsRef?.rotationDataMap as Record<string, { x: number; y: number; z: number; w: number; }>) || {} as any"
             :on-set-peer-audio-state="setPeerAudioState"
             :on-remove-peer-audio-state="removePeerAudioState"
             :on-set-peer-volume="setPeerVolume"
@@ -451,12 +479,14 @@ import BabylonMyAvatarDesktopThirdPersonCamera from "../components/BabylonMyAvat
 import BabylonOtherAvatars from "../components/BabylonOtherAvatars.vue";
 import BabylonOtherAvatar from "../components/BabylonOtherAvatar.vue";
 import BabylonModel from "../components/BabylonModel.vue";
+import BabylonModelPhysics from "../components/BabylonModelPhysics.vue";
 import BabylonModels from "../components/BabylonModels.vue";
 import BabylonWebRTC from "../components/BabylonWebRTC.vue";
 import BabylonMyAvatarDebugOverlay from "../components/BabylonMyAvatarDebugOverlay.vue";
 import BabylonMyAvatarAnimationDebugOverlay from "../components/BabylonMyAvatarAnimationDebugOverlay.vue";
 import BabylonCameraDebugOverlay from "../components/BabylonCameraDebugOverlay.vue";
 import BabylonInspector from "../components/BabylonInspector.vue";
+import BabylonModelsDebugOverlay from "../components/BabylonModelsDebugOverlay.vue";
 import AudioControlsDialog from "../components/AudioControlsDialog.vue";
 import VircadiaWorldAuthProvider from "../components/VircadiaWorldAuthProvider.vue";
 import BabylonCanvas from "../components/BabylonCanvas.vue";
@@ -481,6 +511,8 @@ void BabylonOtherAvatar;
 // mark as used at runtime for template
 void BabylonModel;
 // mark as used at runtime for template
+void BabylonModelPhysics;
+// mark as used at runtime for template
 void BabylonModels;
 // mark as used at runtime for template
 void BabylonWebRTC;
@@ -494,6 +526,8 @@ void BabylonCameraDebugOverlay;
 void BabylonInspector;
 // mark as used at runtime for template
 void AudioControlsDialog;
+// mark as used at runtime for template
+void BabylonModelsDebugOverlay;
 // mark as used at runtime for template
 void VircadiaWorldAuthProvider;
 // mark as used at runtime for template
@@ -555,6 +589,11 @@ type OtherAvatarsExposed = {
 const otherAvatarsRef = ref<OtherAvatarsExposed | null>(null);
 // Combined otherAvatarsMetadata removed; use separate maps from BabylonOtherAvatars
 const modelRefs = ref<(InstanceType<typeof BabylonModel> | null)[]>([]);
+const modelPhysicsRefs = ref<
+    (InstanceType<typeof BabylonModelPhysics> | null)[]
+>([]);
+void modelRefs;
+void modelPhysicsRefs;
 
 // Other avatar discovery handled by BabylonOtherAvatars wrapper
 
@@ -567,6 +606,9 @@ const animDebugOpen = useStorage<boolean>("vrca.debug.anim", false);
 void cameraDebugOpen;
 void avatarDebugOpen;
 void animDebugOpen;
+// Models debug overlay
+const modelsDebugOpen = useStorage<boolean>("vrca.debug.models", false);
+void modelsDebugOpen;
 
 // Babylon managed by BabylonCanvas
 // Use the exposed API from BabylonCanvas via a component ref instead of local refs
@@ -734,6 +776,68 @@ const modelsLoading = computed(() =>
     ),
 );
 void modelsLoading;
+
+// Runtime info for models to augment overlay (e.g., mesh counts)
+type ModelRuntimeInfo = { meshCount: number };
+const modelRuntime = ref<Record<string, ModelRuntimeInfo>>({});
+void modelRuntime;
+function setModelRuntimeFromRefs(
+    models: { entityName: string; fileName: string }[],
+    meshesByIndex: unknown[],
+) {
+    for (let i = 0; i < models.length; i++) {
+        const id = models[i].entityName || models[i].fileName;
+        if (!id) continue;
+        const meshArray = Array.isArray(meshesByIndex[i])
+            ? (meshesByIndex[i] as unknown[])
+            : [];
+        if (!modelRuntime.value[id]) modelRuntime.value[id] = { meshCount: 0 };
+        modelRuntime.value[id].meshCount = meshArray.length;
+    }
+}
+void setModelRuntimeFromRefs;
+function getPhysicsShape(type: unknown): string {
+    switch (type) {
+        case "convexHull":
+            return "Convex Hull";
+        case "box":
+            return "Box";
+        case "mesh":
+            return "Mesh";
+        default:
+            return type ? String(type) : "Mesh";
+    }
+}
+void modelRuntime;
+void getPhysicsShape;
+
+// Physics summaries reported by BabylonModelPhysics instances
+type PhysicsSummary = {
+    entityId: string;
+    enablePhysics: boolean;
+    aggregatesCount: number;
+    shapeType: "MESH" | "BOX" | "CONVEX_HULL";
+    mass: number;
+    friction: number;
+    restitution: number;
+    includedMeshNames: string[];
+    skippedMeshNames: string[];
+};
+const physicsSummaries = ref<Record<string, PhysicsSummary>>({});
+function refreshPhysicsSummaries(
+    models: { entityName: string; fileName: string }[],
+) {
+    for (let i = 0; i < models.length; i++) {
+        const id = models[i].entityName || models[i].fileName;
+        const comp = modelPhysicsRefs.value[i] as unknown as {
+            lastEmittedSummary?: { value?: PhysicsSummary };
+        } | null;
+        const summary = comp?.lastEmittedSummary?.value;
+        if (id && summary) physicsSummaries.value[id] = summary;
+    }
+}
+void physicsSummaries;
+void refreshPhysicsSummaries;
 
 // Avatar model loader debug state
 const avatarModelStep = ref<string>("");

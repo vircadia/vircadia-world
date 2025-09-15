@@ -155,7 +155,7 @@ async function ensureEntityAndMetadata() {
     const instance = props.vircadiaWorld;
     const name = props.entityName;
     await instance.client.Utilities.Connection.query({
-        query: "INSERT INTO entity.entities (general__entity_name, group__sync) VALUES ($1, 'public.DYNAMIC') ON CONFLICT (general__entity_name) DO NOTHING",
+        query: "INSERT INTO entity.entities (general__entity_name, group__sync) VALUES ($1, 'public.REALTIME') ON CONFLICT (general__entity_name) DO NOTHING",
         parameters: [name],
         timeoutMs: 5000,
     });
@@ -164,11 +164,11 @@ async function ensureEntityAndMetadata() {
         query: `
 			INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync)
 			VALUES
-				($1, 'type', '"Door"'::jsonb, 'public.DYNAMIC'),
-				($1, 'modelFileName', to_jsonb($2::text), 'public.DYNAMIC'),
-				($1, 'position', to_jsonb($3::json), 'public.DYNAMIC'),
-				($1, 'rotation', to_jsonb($4::json), 'public.DYNAMIC'),
-				($1, 'open', to_jsonb($5::boolean), 'public.DYNAMIC')
+				($1, 'type', '"Door"'::jsonb, 'public.REALTIME'),
+				($1, 'modelFileName', to_jsonb($2::text), 'public.REALTIME'),
+				($1, 'position', to_jsonb($3::json), 'public.REALTIME'),
+				($1, 'rotation', to_jsonb($4::json), 'public.REALTIME'),
+				($1, 'open', to_jsonb($5::boolean), 'public.REALTIME')
 			ON CONFLICT (general__entity_name, metadata__key)
 			DO UPDATE SET metadata__value = EXCLUDED.metadata__value, group__sync = EXCLUDED.group__sync
 		`,
@@ -229,8 +229,8 @@ async function pushState(open: boolean) {
         query: `
 			INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync)
 			VALUES
-				($1, 'open', to_jsonb($2::boolean), 'public.DYNAMIC'),
-				($1, 'rotation', to_jsonb($3::json), 'public.DYNAMIC')
+				($1, 'open', to_jsonb($2::boolean), 'public.REALTIME'),
+				($1, 'rotation', to_jsonb($3::json), 'public.REALTIME')
 			ON CONFLICT (general__entity_name, metadata__key)
 			DO UPDATE SET metadata__value = EXCLUDED.metadata__value, group__sync = EXCLUDED.group__sync
 		`,

@@ -14,7 +14,7 @@ const props = defineProps<{
     def: BabylonModelDefinition;
 }>();
 
-type PhysicsSummary = {
+export type PhysicsSummary = {
     entityId: string;
     enablePhysics: boolean;
     aggregatesCount: number;

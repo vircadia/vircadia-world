@@ -29,6 +29,20 @@ import { useThrottleFn } from "@vueuse/core";
 type PositionObj = { x: number; y: number; z: number };
 type RotationObj = { x: number; y: number; z: number; w: number };
 
+export type AvatarSyncMetrics = {
+    entityName: string | null;
+    queuedKeys: number;
+    lastBatchCount: number;
+    totalPushed: number;
+    lastPushedAt: string | null;
+    pushIntervalMs: number | null;
+    avgPushesPerMinute: number;
+    lastKeys: string[];
+    lastBatchSizeKb: number;
+    avgBatchSizeKb: number;
+    avgBatchProcessTimeMs: number;
+};
+
 // Types imported from BabylonMyAvatar.vue
 
 // Removed inline default avatar definition; must be provided from DB
@@ -78,6 +92,7 @@ const props = defineProps({
 const emit = defineEmits<{
     "avatar-definition-loaded": [def: AvatarDefinition];
     "entity-data-loaded": [data: EntityData];
+    "sync-stats": [data: AvatarSyncMetrics];
 }>();
 
 // Local state
@@ -143,17 +158,110 @@ async function upsertMetadataEntries(
 
 // Batching logic
 const batchedUpdates = new Map<string, unknown>();
+// Stats
+const syncStats = {
+    lastPushedAtMs: 0,
+    lastBatchCount: 0,
+    totalPushed: 0,
+    lastKeys: [] as string[],
+    recentPushTimestamps: [] as number[],
+    lastBatchSizeKb: 0,
+    totalBatchSizeKb: 0,
+    batchCount: 0,
+    recentBatchProcessTimes: [] as number[],
+};
 
 const pushBatchedUpdates = useThrottleFn(async () => {
     const name = entityName.value;
     if (!name || !name.includes(":") || batchedUpdates.size === 0) return;
 
+    const batchStartTime = Date.now();
     const updates = Array.from(batchedUpdates.entries());
     batchedUpdates.clear();
 
     updates.push(["last_seen", new Date().toISOString()]);
+
+    // Calculate batch size in KB
+    const batchDataString = JSON.stringify(updates);
+    const batchSizeKb =
+        Math.round((new Blob([batchDataString]).size / 1024) * 100) / 100;
+
     try {
         await upsertMetadataEntries(name, updates, 5000);
+        const now = Date.now();
+        const batchProcessTime = now - batchStartTime;
+        const lastAt = syncStats.lastPushedAtMs;
+        const interval = lastAt > 0 ? now - lastAt : null;
+        syncStats.lastPushedAtMs = now;
+        syncStats.lastBatchCount = updates.length;
+        syncStats.totalPushed += updates.length;
+        syncStats.lastKeys = updates.map(([k]) => k);
+        syncStats.lastBatchSizeKb = batchSizeKb;
+        syncStats.totalBatchSizeKb += batchSizeKb;
+        syncStats.batchCount += 1;
+
+        // Track recent batch processing times (last 60 seconds)
+        syncStats.recentBatchProcessTimes.push(batchProcessTime);
+        const cutoff = now - 60000;
+        // Filter out old process times - keep same number as push timestamps
+        syncStats.recentBatchProcessTimes =
+            syncStats.recentBatchProcessTimes.slice(
+                -syncStats.recentPushTimestamps.length,
+            );
+
+        // Maintain recent pushes window (last 60 seconds)
+        syncStats.recentPushTimestamps.push(now);
+        syncStats.recentPushTimestamps = syncStats.recentPushTimestamps.filter(
+            (t) => t >= cutoff,
+        );
+        // Calculate actual pushes per minute based on the time window
+        const pushesPerMinute =
+            syncStats.recentPushTimestamps.length > 0
+                ? (() => {
+                      const oldestTimestamp = Math.min(
+                          ...syncStats.recentPushTimestamps,
+                      );
+                      const actualWindowMs = now - oldestTimestamp;
+                      return actualWindowMs > 0
+                          ? Math.round(
+                                (syncStats.recentPushTimestamps.length /
+                                    actualWindowMs) *
+                                    60000,
+                            )
+                          : syncStats.recentPushTimestamps.length;
+                  })()
+                : 0;
+
+        // Calculate averages
+        const avgBatchSizeKb =
+            syncStats.batchCount > 0
+                ? Math.round(
+                      (syncStats.totalBatchSizeKb / syncStats.batchCount) * 100,
+                  ) / 100
+                : 0;
+        const avgBatchProcessTimeMs =
+            syncStats.recentBatchProcessTimes.length > 0
+                ? Math.round(
+                      syncStats.recentBatchProcessTimes.reduce(
+                          (a, b) => a + b,
+                          0,
+                      ) / syncStats.recentBatchProcessTimes.length,
+                  )
+                : 0;
+
+        emit("sync-stats", {
+            entityName: name,
+            queuedKeys: batchedUpdates.size,
+            lastBatchCount: syncStats.lastBatchCount,
+            totalPushed: syncStats.totalPushed,
+            lastPushedAt: new Date(now).toISOString(),
+            pushIntervalMs: interval,
+            avgPushesPerMinute: pushesPerMinute,
+            lastKeys: syncStats.lastKeys,
+            lastBatchSizeKb: syncStats.lastBatchSizeKb,
+            avgBatchSizeKb: avgBatchSizeKb,
+            avgBatchProcessTimeMs: avgBatchProcessTimeMs,
+        });
     } catch (e) {
         console.error("[BabylonMyAvatarEntity] pushBatchedUpdates failed", e);
     }

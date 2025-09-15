@@ -90,6 +90,30 @@
 						</v-list>
 
 						<v-list density="compact" class="bg-transparent mt-4">
+							<v-list-subheader>Sync (Entity)</v-list-subheader>
+							<v-list-item title="Entity name" :subtitle="syncEntityName" />
+							<v-list-item title="Queued keys" :subtitle="String(syncQueuedKeys)" />
+							<v-list-item title="Last batch count" :subtitle="String(syncLastBatchCount)" />
+							<v-list-item title="Total pushed" :subtitle="String(syncTotalPushed)" />
+							<v-list-item title="Last pushed" :subtitle="lastPushedAtLabel" />
+							<v-list-item title="Push interval" :subtitle="pushIntervalLabel" />
+							<v-list-item title="Pushes/min" :subtitle="String(syncPushesPerMinute)" />
+							<v-list-item title="Last batch size" :subtitle="`${syncLastBatchSizeKb} KB`" />
+							<v-list-item title="Avg batch size" :subtitle="`${syncAvgBatchSizeKb} KB`" />
+							<v-list-item title="Avg batch time" :subtitle="`${syncAvgBatchProcessTimeMs} ms`" />
+							<v-expansion-panels variant="accordion" density="compact" class="mt-1" v-if="(props.syncMetrics?.lastKeys?.length || 0) > 0">
+								<v-expansion-panel>
+									<v-expansion-panel-title>Last keys pushed</v-expansion-panel-title>
+									<v-expansion-panel-text>
+										<div v-for="k in (props.syncMetrics?.lastKeys || [])" :key="k" class="text-caption">
+											<span class="font-mono">{{ k }}</span>
+										</div>
+									</v-expansion-panel-text>
+								</v-expansion-panel>
+							</v-expansion-panels>
+						</v-list>
+
+						<v-list density="compact" class="bg-transparent mt-4">
 							<v-list-subheader>Blendshapes (Morph Targets)</v-list-subheader>
 							<v-list-item :title="'Distinct targets'" :subtitle="String(morphTargets.length)" />
 							<v-expansion-panels variant="accordion" density="compact" class="mt-1">
@@ -107,7 +131,7 @@
 												:model-value="Math.round(100 * (influenceOf(v) || 0))"
 												class="ml-2"
 											/>
-										</div>
+									</div>
 									</v-expansion-panel-text>
 								</v-expansion-panel>
 								<v-expansion-panel>
@@ -147,6 +171,20 @@ import type {
 } from "@babylonjs/core";
 import type { ArcRotateCamera } from "@babylonjs/core";
 import { useMagicKeys, whenever, useVModel, useIntervalFn } from "@vueuse/core";
+
+type SyncMetrics = {
+    entityName: string | null;
+    queuedKeys: number;
+    lastBatchCount: number;
+    totalPushed: number;
+    lastPushedAt: string | null;
+    pushIntervalMs: number | null;
+    avgPushesPerMinute: number;
+    lastKeys: string[];
+    lastBatchSizeKb: number;
+    avgBatchSizeKb: number;
+    avgBatchProcessTimeMs: number;
+};
 
 const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
@@ -189,6 +227,12 @@ const props = defineProps({
     modelValue: { type: Boolean, required: false, default: undefined },
     // Configurable hotkey (default "m")
     hotkey: { type: String, required: true },
+    // Avatar entity sync metrics
+    syncMetrics: {
+        type: Object as () => SyncMetrics | null,
+        required: false,
+        default: null,
+    },
 });
 
 const emit = defineEmits(["update:modelValue"]);
@@ -239,10 +283,53 @@ const groundProbeDistanceLabel = computed(() =>
         ? "-"
         : props.groundProbeDistance.toFixed(3),
 );
+// Sync metrics labels
+const syncEntityName = computed(() => props.syncMetrics?.entityName || "-");
+const syncQueuedKeys = computed(() => props.syncMetrics?.queuedKeys ?? 0);
+const syncLastBatchCount = computed(
+    () => props.syncMetrics?.lastBatchCount ?? 0,
+);
+const syncTotalPushed = computed(() => props.syncMetrics?.totalPushed ?? 0);
+const syncPushesPerMinute = computed(
+    () => props.syncMetrics?.avgPushesPerMinute ?? 0,
+);
+const syncLastBatchSizeKb = computed(
+    () => props.syncMetrics?.lastBatchSizeKb ?? 0,
+);
+const syncAvgBatchSizeKb = computed(
+    () => props.syncMetrics?.avgBatchSizeKb ?? 0,
+);
+const syncAvgBatchProcessTimeMs = computed(
+    () => props.syncMetrics?.avgBatchProcessTimeMs ?? 0,
+);
+const lastPushedAtLabel = computed(() => {
+    const s = props.syncMetrics?.lastPushedAt;
+    if (!s) return "-";
+    try {
+        return new Date(s).toLocaleTimeString();
+    } catch {
+        return s;
+    }
+});
+const pushIntervalLabel = computed(() => {
+    const ms = props.syncMetrics?.pushIntervalMs;
+    if (ms === null || ms === undefined) return "-";
+    return `${ms} ms`;
+});
 // mark used in template
 void verticalVelocityLabel;
 void supportStateLabel;
 void groundProbeDistanceLabel;
+void syncEntityName;
+void syncQueuedKeys;
+void syncLastBatchCount;
+void syncTotalPushed;
+void syncPushesPerMinute;
+void syncLastBatchSizeKb;
+void syncAvgBatchSizeKb;
+void syncAvgBatchProcessTimeMs;
+void lastPushedAtLabel;
+void pushIntervalLabel;
 
 function isUnderAvatarNode(
     mesh: AbstractMesh,

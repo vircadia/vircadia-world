@@ -232,6 +232,7 @@
                                         :avatar-definition="avatarDefinition"
                                         @avatar-definition-loaded="onAvatarDefinitionLoaded"
                                         @entity-data-loaded="onEntityDataLoaded"
+                                        @sync-stats="onAvatarSyncStats"
                                     />
                                 <BabylonMyAvatarModel
                                     v-if="modelFileName"
@@ -306,6 +307,7 @@
                                         :ground-probe-hit="groundProbeHit"
                                         :ground-probe-distance="groundProbeDistance ?? undefined"
                                         :ground-probe-mesh-name="groundProbeMeshName ?? undefined"
+                                        :sync-metrics="avatarSyncMetrics || undefined"
                                         v-model="avatarDebugOpen"
                                         hotkey="Shift+M"
                                     />
@@ -489,12 +491,16 @@ import BabylonMyAvatarTalking from "../components/BabylonMyAvatarTalking.vue";
 import BabylonMyAvatarMKBController from "../components/BabylonMyAvatarMKBController.vue";
 import BabylonMyAvatarModel from "../components/BabylonMyAvatarModel.vue";
 import BabylonMyAvatarAnimation from "../components/BabylonMyAvatarAnimation.vue";
-import BabylonMyAvatarEntity from "../components/BabylonMyAvatarEntity.vue";
+import BabylonMyAvatarEntity, {
+    type AvatarSyncMetrics,
+} from "../components/BabylonMyAvatarEntity.vue";
 import BabylonMyAvatarDesktopThirdPersonCamera from "../components/BabylonMyAvatarDesktopThirdPersonCamera.vue";
 import BabylonOtherAvatars from "../components/BabylonOtherAvatars.vue";
 import BabylonOtherAvatar from "../components/BabylonOtherAvatar.vue";
 import BabylonModel from "../components/BabylonModel.vue";
-import BabylonModelPhysics from "../components/BabylonModelPhysics.vue";
+import BabylonModelPhysics, {
+    type PhysicsSummary,
+} from "../components/BabylonModelPhysics.vue";
 import BabylonModels from "../components/BabylonModels.vue";
 import BabylonWebRTC from "../components/BabylonWebRTC.vue";
 import BabylonMyAvatarDebugOverlay from "../components/BabylonMyAvatarDebugOverlay.vue";
@@ -1039,17 +1045,6 @@ void modelRuntime;
 void getPhysicsShape;
 
 // Physics summaries reported by BabylonModelPhysics instances
-type PhysicsSummary = {
-    entityId: string;
-    enablePhysics: boolean;
-    aggregatesCount: number;
-    shapeType: "MESH" | "BOX" | "CONVEX_HULL";
-    mass: number;
-    friction: number;
-    restitution: number;
-    includedMeshNames: string[];
-    skippedMeshNames: string[];
-};
 const physicsSummaries = ref<Record<string, PhysicsSummary>>({});
 function refreshPhysicsSummaries(
     models: { entityName: string; fileName: string }[],
@@ -1071,6 +1066,11 @@ const avatarModelStep = ref<string>("");
 const avatarModelError = ref<string | null>(null);
 const avatarModelLoading = ref<boolean>(false);
 const modelFileNameRef = ref<string | null>(null);
+// Avatar sync metrics
+const avatarSyncMetrics = ref<AvatarSyncMetrics | null>(null);
+function onAvatarSyncStats(m: AvatarSyncMetrics) {
+    avatarSyncMetrics.value = m;
+}
 function onAvatarModelState(payload: {
     state: "loading" | "ready" | "error";
     step: string;
@@ -1089,6 +1089,7 @@ void avatarModelError;
 void avatarModelLoading;
 void modelFileNameRef;
 void onAvatarModelState;
+void onAvatarSyncStats;
 
 // Snackbar logic moved into BabylonSnackbar component
 

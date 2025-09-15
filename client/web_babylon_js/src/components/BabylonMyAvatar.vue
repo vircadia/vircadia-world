@@ -1,18 +1,4 @@
 <template>
-    <!-- TODO: This should be put out into mainscene -->
-    <BabylonMyAvatarEntity
-        v-if="vircadiaWorld.connectionInfo.value.status === 'connected'"
-        :scene="scene"
-        :vircadia-world="vircadiaWorld"
-        :avatar-node="avatarNode"
-        :target-skeleton="avatarSkeleton"
-        :camera="camera"
-        :model-file-name="modelFileName"
-        :instance-id="instanceId"
-        :avatar-definition-name="avatarDefinitionName"
-        @avatar-definition-loaded="onAvatarDefinitionLoaded"
-        @entity-data-loaded="onEntityDataLoaded"
-    />
     <slot
         :avatar-skeleton="avatarSkeleton"
         :animations="animations"
@@ -23,6 +9,8 @@
         :mesh-pivot-point="meshPivotPoint"
         :capsule-height="capsuleHeight"
         :on-set-avatar-model="onSetAvatarModel"
+        :onAvatarDefinitionLoaded="onAvatarDefinitionLoaded"
+        :onEntityDataLoaded="onEntityDataLoaded"
         :key-state="keyState"
         :airborne="lastAirborne"
         :verticalVelocity="lastVerticalVelocity"
@@ -62,8 +50,6 @@ import {
 import "@babylonjs/loaders/glTF";
 
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
-import BabylonMyAvatarEntity from "./BabylonMyAvatarEntity.vue";
-void BabylonMyAvatarEntity;
 
 // Debug viewers import
 import { SkeletonViewer, AxesViewer } from "@babylonjs/core/Debug";
@@ -95,10 +81,6 @@ const props = defineProps({
         required: true,
     },
     instanceId: { type: String, required: false, default: null },
-    avatarDefinitionName: {
-        type: String,
-        required: true,
-    },
     keyState: { type: Object as () => KeyState, required: false },
     isTalking: { type: Boolean, required: false, default: false },
     // Optional talk amplitude (0..1) from BabylonMyAvatarTalking
@@ -121,15 +103,15 @@ const props = defineProps({
 const emit = defineEmits<{ ready: []; dispose: [] }>();
 
 // AvatarDefinition type
-type Direction = "forward" | "back" | "left" | "right";
-type AnimationDef = {
+export type Direction = "forward" | "back" | "left" | "right";
+export type AnimationDef = {
     fileName: string;
     slMotion?: string;
     direction?: Direction;
     variant?: string;
     ignoreHipTranslation?: boolean;
 };
-type AvatarDefinition = {
+export type AvatarDefinition = {
     initialAvatarPosition: { x: number; y: number; z: number };
     initialAvatarRotation: { x: number; y: number; z: number; w: number };
     modelFileName: string;
@@ -147,6 +129,7 @@ type AvatarDefinition = {
     blendDuration: number;
     animations: AnimationDef[];
     disableRootMotion?: boolean; // Optional: Allow enabling root motion for specific avatars
+    startFlying?: boolean;
 };
 
 const defaultAvatarDef: AvatarDefinition = {
@@ -165,6 +148,7 @@ const defaultAvatarDef: AvatarDefinition = {
     walkSpeed: 1.5,
     turnSpeed: 1.5,
     blendDuration: 0.15,
+    startFlying: false,
     animations: [],
 };
 
@@ -205,6 +189,7 @@ const fullSessionId = computed(() => {
 
 function onAvatarDefinitionLoaded(def: AvatarDefinition) {
     dbAvatarDef.value = def;
+    isFlying.value = !!def.startFlying;
 }
 void onAvatarDefinitionLoaded;
 

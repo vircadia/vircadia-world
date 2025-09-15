@@ -185,7 +185,6 @@
                     {{ envPhysicsPluginNameRef = envPhysicsPluginName }}
                     {{ envPhysicsErrorRef = envPhysicsError }}
                 </div>
-                <!-- TODO: scene initialized can be simplified down so scene should not have to be checked -->
                 <!-- Only render entities when scene is available, connection is stable, and full session ID is available -->
                 <template v-if="!isLoading && envPhysicsEnabled && sceneInitialized && connectionStatus === 'connected' && !isConnecting && fullSessionId">
                     <!-- BabylonMyAvatar component wrapped with MKB controller -->
@@ -217,10 +216,23 @@
                                 :physics-enabled="envPhysicsEnabled"
                                 :physics-plugin-name="envPhysicsPluginName"
                                 :gravity="gravity"
-                                avatar-definition-name="avatar.definition.default"
                                 ref="avatarRef"
                             >
-                                <template #default="{ avatarSkeleton, animations, vircadiaWorld, onAnimationState, avatarNode, modelFileName, meshPivotPoint, capsuleHeight, onSetAvatarModel, airborne, verticalVelocity, supportState, physicsEnabled, hasTouchedGround, spawnSettling, groundProbeHit, groundProbeDistance, groundProbeMeshName }">
+                                <template #default="{ avatarSkeleton, animations, vircadiaWorld, onAnimationState, avatarNode, modelFileName, meshPivotPoint, capsuleHeight, onSetAvatarModel, airborne, verticalVelocity, supportState, physicsEnabled, hasTouchedGround, spawnSettling, groundProbeHit, groundProbeDistance, groundProbeMeshName, onAvatarDefinitionLoaded, onEntityDataLoaded }">
+                                    <!-- Renderless entity sync component runs outside of model v-if so it can load DB definition -->
+                                    <BabylonMyAvatarEntity
+                                        v-if="vircadiaWorld.connectionInfo.value.status === 'connected'"
+                                        :scene="sceneNonNull"
+                                        :vircadia-world="vircadiaWorld"
+                                        :avatar-node="(avatarNode as any) || null"
+                                        :target-skeleton="(avatarSkeleton as any) || null"
+                                        :camera="null"
+                                        :model-file-name="modelFileName || ''"
+                                        :instance-id="instanceId ?? undefined"
+                                        :avatar-definition="avatarDefinition"
+                                        @avatar-definition-loaded="onAvatarDefinitionLoaded"
+                                        @entity-data-loaded="onEntityDataLoaded"
+                                    />
                                 <BabylonMyAvatarModel
                                     v-if="modelFileName"
                                     :scene="sceneNonNull"
@@ -269,7 +281,7 @@
                                         :target-skeleton="(targetSkeleton as any) || null"
                                         @state="onAnimationState"
                                     />
-                                    <!-- Renderless entity sync component removed; handled within BabylonMyAvatar.vue -->
+                                    
                                     <!-- Debug overlay for avatar -->
                                     <BabylonMyAvatarDebugOverlay
                                         :scene="sceneNonNull"
@@ -470,11 +482,14 @@ import {
     getCurrentInstance,
     type defineComponent,
 } from "vue";
-import BabylonMyAvatar from "../components/BabylonMyAvatar.vue";
+import BabylonMyAvatar, {
+    type AvatarDefinition,
+} from "../components/BabylonMyAvatar.vue";
 import BabylonMyAvatarTalking from "../components/BabylonMyAvatarTalking.vue";
 import BabylonMyAvatarMKBController from "../components/BabylonMyAvatarMKBController.vue";
 import BabylonMyAvatarModel from "../components/BabylonMyAvatarModel.vue";
 import BabylonMyAvatarAnimation from "../components/BabylonMyAvatarAnimation.vue";
+import BabylonMyAvatarEntity from "../components/BabylonMyAvatarEntity.vue";
 import BabylonMyAvatarDesktopThirdPersonCamera from "../components/BabylonMyAvatarDesktopThirdPersonCamera.vue";
 import BabylonOtherAvatars from "../components/BabylonOtherAvatars.vue";
 import BabylonOtherAvatar from "../components/BabylonOtherAvatar.vue";
@@ -528,6 +543,8 @@ void BabylonInspector;
 void AudioControlsDialog;
 // mark as used at runtime for template
 void BabylonModelsDebugOverlay;
+// mark as used at runtime for template
+void BabylonMyAvatarEntity;
 // mark as used at runtime for template
 void VircadiaWorldAuthProvider;
 // mark as used at runtime for template
@@ -716,6 +733,216 @@ const envPhysicsErrorRef = ref<string | null>(null);
 void envPhysicsEnabledRef;
 void envPhysicsPluginNameRef;
 void envPhysicsErrorRef;
+
+// Avatar definition is now provided locally instead of DB
+const avatarDefinition: AvatarDefinition = {
+    initialAvatarPosition: { x: 25, y: 3, z: -5 },
+    initialAvatarRotation: { x: 0, y: 0, z: 0, w: 1 },
+    modelFileName: "babylon.avatar.glb",
+    meshPivotPoint: "bottom",
+    throttleInterval: 500,
+    capsuleHeight: 1.8,
+    capsuleRadius: 0.3,
+    slopeLimit: 45,
+    jumpSpeed: 5,
+    debugBoundingBox: false,
+    debugSkeleton: true,
+    debugAxes: false,
+    walkSpeed: 1.47,
+    turnSpeed: Math.PI,
+    blendDuration: 0.15,
+    disableRootMotion: true,
+    startFlying: true,
+    animations: [
+        {
+            fileName: "babylon.avatar.animation.f.idle.1.glb",
+            slMotion: "stand",
+        },
+        {
+            fileName: "babylon.avatar.animation.f.idle.2.glb",
+            slMotion: "stand",
+        },
+        {
+            fileName: "babylon.avatar.animation.f.idle.3.glb",
+            slMotion: "stand",
+        },
+        {
+            fileName: "babylon.avatar.animation.f.idle.4.glb",
+            slMotion: "stand",
+        },
+        {
+            fileName: "babylon.avatar.animation.f.idle.5.glb",
+            slMotion: "stand",
+        },
+        {
+            fileName: "babylon.avatar.animation.f.idle.6.glb",
+            slMotion: "stand",
+        },
+        {
+            fileName: "babylon.avatar.animation.f.idle.7.glb",
+            slMotion: "stand",
+        },
+        {
+            fileName: "babylon.avatar.animation.f.idle.8.glb",
+            slMotion: "stand",
+        },
+        {
+            fileName: "babylon.avatar.animation.f.idle.9.glb",
+            slMotion: "stand",
+        },
+        {
+            fileName: "babylon.avatar.animation.f.idle.10.glb",
+            slMotion: "stand",
+        },
+        {
+            fileName: "babylon.avatar.animation.f.walk.1.glb",
+            slMotion: "walk",
+            direction: "forward",
+        },
+        {
+            fileName: "babylon.avatar.animation.f.walk.2.glb",
+            slMotion: "walk",
+            direction: "forward",
+        },
+        {
+            fileName: "babylon.avatar.animation.f.crouch_strafe_left.glb",
+            slMotion: "crouchwalk",
+            direction: "left",
+            ignoreHipTranslation: true,
+        },
+        {
+            fileName: "babylon.avatar.animation.f.crouch_strafe_right.glb",
+            slMotion: "crouchwalk",
+            direction: "right",
+            ignoreHipTranslation: true,
+        },
+        {
+            fileName: "babylon.avatar.animation.f.crouch_walk_back.glb",
+            slMotion: "crouchwalk",
+            direction: "back",
+            ignoreHipTranslation: true,
+        },
+        {
+            fileName: "babylon.avatar.animation.f.crouch_walk.glb",
+            slMotion: "crouchwalk",
+            direction: "forward",
+        },
+        {
+            fileName: "babylon.avatar.animation.f.falling_idle.1.glb",
+            slMotion: "falling",
+        },
+        {
+            fileName: "babylon.avatar.animation.f.falling_idle.2.glb",
+            slMotion: "falling",
+        },
+        {
+            fileName: "babylon.avatar.animation.f.jog_back.glb",
+            slMotion: "run",
+            direction: "back",
+            variant: "jog",
+            ignoreHipTranslation: true,
+        },
+        {
+            fileName: "babylon.avatar.animation.f.jog.glb",
+            slMotion: "run",
+            direction: "forward",
+            variant: "jog",
+            ignoreHipTranslation: true,
+        },
+        {
+            fileName: "babylon.avatar.animation.f.jump_small.glb",
+            slMotion: "jump",
+        },
+        { fileName: "babylon.avatar.animation.f.jump.glb", slMotion: "jump" },
+        {
+            fileName: "babylon.avatar.animation.f.run_back.glb",
+            slMotion: "run",
+            direction: "back",
+            ignoreHipTranslation: true,
+        },
+        {
+            fileName: "babylon.avatar.animation.f.run_strafe_left.glb",
+            slMotion: "run",
+            direction: "left",
+            ignoreHipTranslation: true,
+        },
+        {
+            fileName: "babylon.avatar.animation.f.run_strafe_right.glb",
+            slMotion: "run",
+            direction: "right",
+            ignoreHipTranslation: true,
+        },
+        {
+            fileName: "babylon.avatar.animation.f.run.glb",
+            slMotion: "run",
+            direction: "forward",
+            ignoreHipTranslation: true,
+        },
+        {
+            fileName: "babylon.avatar.animation.f.strafe_left.glb",
+            slMotion: "walk",
+            direction: "left",
+            ignoreHipTranslation: true,
+        },
+        {
+            fileName: "babylon.avatar.animation.f.strafe_right.glb",
+            slMotion: "walk",
+            direction: "right",
+            ignoreHipTranslation: true,
+        },
+        {
+            fileName: "babylon.avatar.animation.f.talking.1.glb",
+            slMotion: "talk",
+        },
+        {
+            fileName: "babylon.avatar.animation.f.talking.2.glb",
+            slMotion: "talk",
+        },
+        {
+            fileName: "babylon.avatar.animation.f.talking.3.glb",
+            slMotion: "talk",
+        },
+        {
+            fileName: "babylon.avatar.animation.f.talking.4.glb",
+            slMotion: "talk",
+        },
+        {
+            fileName: "babylon.avatar.animation.f.talking.5.glb",
+            slMotion: "talk",
+        },
+        {
+            fileName: "babylon.avatar.animation.f.talking.6.glb",
+            slMotion: "talk",
+        },
+        {
+            fileName: "babylon.avatar.animation.f.walk_back.glb",
+            slMotion: "walk",
+            direction: "back",
+            ignoreHipTranslation: true,
+        },
+        {
+            fileName: "babylon.avatar.animation.f.walk_jump.1.glb",
+            slMotion: "jump",
+        },
+        {
+            fileName: "babylon.avatar.animation.f.walk_jump.2.glb",
+            slMotion: "jump",
+        },
+        {
+            fileName: "babylon.avatar.animation.f.walk_strafe_left.glb",
+            slMotion: "walk",
+            direction: "left",
+            ignoreHipTranslation: true,
+        },
+        {
+            fileName: "babylon.avatar.animation.f.walk_strafe_right.glb",
+            slMotion: "walk",
+            direction: "right",
+            ignoreHipTranslation: true,
+        },
+    ],
+};
+void avatarDefinition;
 
 // Debug function to check physics status
 function debugPhysicsStatus() {

@@ -3,7 +3,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch, type Ref } from "vue";
+import {
+    computed,
+    onMounted,
+    onUnmounted,
+    ref,
+    watch,
+    type Ref,
+    type PropType,
+} from "vue";
 import type {
     Scene,
     TransformNode,
@@ -15,60 +23,15 @@ import type {
 } from "@babylonjs/core";
 import { Vector3 as V3, Quaternion as Q4 } from "@babylonjs/core";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
+import type { AvatarDefinition } from "@/components/BabylonMyAvatar.vue";
 import { useThrottleFn } from "@vueuse/core";
 
 type PositionObj = { x: number; y: number; z: number };
 type RotationObj = { x: number; y: number; z: number; w: number };
 
-// Copied from BabylonMyAvatar.vue
-type Direction = "forward" | "back" | "left" | "right";
-type AnimationDef = {
-    fileName: string;
-    slMotion?: string;
-    direction?: Direction;
-    variant?: string;
-    ignoreHipTranslation?: boolean;
-};
-type AvatarDefinition = {
-    initialAvatarPosition: { x: number; y: number; z: number };
-    initialAvatarRotation: { x: number; y: number; z: number; w: number };
-    modelFileName: string;
-    meshPivotPoint: "bottom" | "center";
-    throttleInterval: number;
-    capsuleHeight: number;
-    capsuleRadius: number;
-    slopeLimit: number;
-    jumpSpeed: number;
-    debugBoundingBox: boolean;
-    debugSkeleton: boolean;
-    debugAxes: boolean;
-    walkSpeed: number;
-    turnSpeed: number;
-    blendDuration: number;
-    gravity: number;
-    animations: AnimationDef[];
-    disableRootMotion?: boolean; // Optional: Allow enabling root motion for specific avatars
-};
+// Types imported from BabylonMyAvatar.vue
 
-const defaultAvatarDef: AvatarDefinition = {
-    initialAvatarPosition: { x: 0, y: 0, z: -5 },
-    initialAvatarRotation: { x: 0, y: 0, z: 0, w: 1 },
-    modelFileName: "",
-    meshPivotPoint: "bottom",
-    throttleInterval: 500,
-    capsuleHeight: 1.8,
-    capsuleRadius: 0.3,
-    slopeLimit: 45,
-    jumpSpeed: 5,
-    debugBoundingBox: false,
-    debugSkeleton: false,
-    debugAxes: false,
-    walkSpeed: 1.5,
-    turnSpeed: 1.5,
-    blendDuration: 0.15,
-    gravity: 9.8,
-    animations: [],
-};
+// Removed inline default avatar definition; must be provided from DB
 
 type EntityData = {
     general__entity_name: string;
@@ -98,8 +61,8 @@ const props = defineProps({
     },
     modelFileName: { type: String, required: false, default: "" },
     instanceId: { type: String, required: false, default: null },
-    avatarDefinitionName: {
-        type: String,
+    avatarDefinition: {
+        type: Object as PropType<AvatarDefinition>,
         required: true,
     },
     positionThrottleInterval: { type: Number, required: false, default: 50 },
@@ -297,101 +260,7 @@ async function retrieveEntityMetadata(
     return null;
 }
 
-async function loadAvatarDefinitionFromDb(
-    definitionName: string,
-): Promise<void> {
-    try {
-        const meta = await retrieveEntityMetadata(definitionName);
-        if (!meta) {
-            console.warn(
-                `No metadata found for avatar definition: ${definitionName}`,
-            );
-            emit("avatar-definition-loaded", defaultAvatarDef);
-            return;
-        }
-
-        const merged: AvatarDefinition = {
-            ...defaultAvatarDef,
-            ...((meta.get("initialAvatarPosition") as
-                | AvatarDefinition["initialAvatarPosition"]
-                | undefined)
-                ? {
-                      initialAvatarPosition: meta.get(
-                          "initialAvatarPosition",
-                      ) as AvatarDefinition["initialAvatarPosition"],
-                  }
-                : {}),
-            ...((meta.get("initialAvatarRotation") as
-                | AvatarDefinition["initialAvatarRotation"]
-                | undefined)
-                ? {
-                      initialAvatarRotation: meta.get(
-                          "initialAvatarRotation",
-                      ) as AvatarDefinition["initialAvatarRotation"],
-                  }
-                : {}),
-            ...((meta.get("modelFileName") as string | undefined)
-                ? { modelFileName: meta.get("modelFileName") as string }
-                : {}),
-            ...((meta.get("meshPivotPoint") as
-                | AvatarDefinition["meshPivotPoint"]
-                | undefined)
-                ? {
-                      meshPivotPoint: meta.get(
-                          "meshPivotPoint",
-                      ) as AvatarDefinition["meshPivotPoint"],
-                  }
-                : {}),
-            ...((meta.get("throttleInterval") as number | undefined)
-                ? { throttleInterval: meta.get("throttleInterval") as number }
-                : {}),
-            ...((meta.get("capsuleHeight") as number | undefined)
-                ? { capsuleHeight: meta.get("capsuleHeight") as number }
-                : {}),
-            ...((meta.get("capsuleRadius") as number | undefined)
-                ? { capsuleRadius: meta.get("capsuleRadius") as number }
-                : {}),
-            ...((meta.get("slopeLimit") as number | undefined)
-                ? { slopeLimit: meta.get("slopeLimit") as number }
-                : {}),
-            ...((meta.get("jumpSpeed") as number | undefined)
-                ? { jumpSpeed: meta.get("jumpSpeed") as number }
-                : {}),
-            ...((meta.get("debugBoundingBox") as boolean | undefined)
-                ? { debugBoundingBox: meta.get("debugBoundingBox") as boolean }
-                : {}),
-            ...((meta.get("debugSkeleton") as boolean | undefined)
-                ? { debugSkeleton: meta.get("debugSkeleton") as boolean }
-                : {}),
-            ...((meta.get("debugAxes") as boolean | undefined)
-                ? { debugAxes: meta.get("debugAxes") as boolean }
-                : {}),
-            ...((meta.get("walkSpeed") as number | undefined)
-                ? { walkSpeed: meta.get("walkSpeed") as number }
-                : {}),
-            ...((meta.get("turnSpeed") as number | undefined)
-                ? { turnSpeed: meta.get("turnSpeed") as number }
-                : {}),
-            ...((meta.get("blendDuration") as number | undefined)
-                ? { blendDuration: meta.get("blendDuration") as number }
-                : {}),
-            ...((meta.get("gravity") as number | undefined)
-                ? { gravity: meta.get("gravity") as number }
-                : {}),
-            ...((meta.get("animations") as { fileName: string }[] | undefined)
-                ? {
-                      animations: meta.get("animations") as {
-                          fileName: string;
-                      }[],
-                  }
-                : {}),
-        };
-        emit("avatar-definition-loaded", merged);
-    } catch (e) {
-        console.error("Failed to load avatar definition from DB:", e);
-        emit("avatar-definition-loaded", defaultAvatarDef);
-    }
-}
+// Definition now provided by props; no DB load
 
 async function initializeEntity() {
     if (
@@ -404,8 +273,8 @@ async function initializeEntity() {
         return;
     }
 
-    // Load avatar definition
-    await loadAvatarDefinitionFromDb(props.avatarDefinitionName);
+    // Provide avatar definition from props
+    emit("avatar-definition-loaded", props.avatarDefinition);
 
     // Check if entity exists
     const existsResult =

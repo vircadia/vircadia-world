@@ -62,6 +62,9 @@ export class WorldApiManager {
     >();
     private metricsCollector = new MetricsCollector();
 
+    // In-memory ACL cache: agentId -> set of readable sync groups
+    private readableGroupsByAgent: Map<string, Set<string>> = new Map();
+
     // Add Azure AD service instance
     private azureADService: AzureADAuthService | null = null;
 
@@ -93,6 +96,39 @@ export class WorldApiManager {
         response.headers.set("Access-Control-Allow-Credentials", "true");
 
         return response;
+    }
+
+    // Warm or refresh readable sync groups for an agent into in-memory cache
+    private async warmAgentAcl(agentId: string) {
+        if (!superUserSql) return;
+        try {
+            const rows = await superUserSql<[{ group__sync: string }]>`
+                SELECT * FROM auth.get_readable_groups(${agentId}::uuid)
+            `;
+            const set = new Set<string>();
+            for (const r of rows) {
+                const group = (r as { group__sync: string } | null)
+                    ?.group__sync;
+                if (group) set.add(group);
+            }
+            this.readableGroupsByAgent.set(agentId, set);
+        } catch (error) {
+            BunLogModule({
+                message: "Failed to warm agent ACL",
+                error,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                type: "error",
+                prefix: LOG_PREFIX,
+                data: { agentId },
+            });
+        }
+    }
+
+    // Check if agent can read a sync group using the in-memory cache
+    private canRead(agentId: string, syncGroup: string): boolean {
+        const set = this.readableGroupsByAgent.get(agentId);
+        return !!set?.has(syncGroup);
     }
 
     // Helper function to create JSON response with CORS headers
@@ -343,6 +379,35 @@ export class WorldApiManager {
                         error: error instanceof Error ? error.message : error,
                         stack: error instanceof Error ? error.stack : undefined,
                     },
+                });
+            }
+            // Start listener for role changes to refresh ACLs lazily
+            try {
+                if (superUserSql) {
+                    await superUserSql.listen(
+                        "auth_roles_changed",
+                        async (raw: string) => {
+                            try {
+                                const payload = JSON.parse(raw) as {
+                                    agentId?: string;
+                                };
+                                if (payload.agentId) {
+                                    await this.warmAgentAcl(payload.agentId);
+                                }
+                            } catch {
+                                // ignore malformed payload
+                            }
+                        },
+                    );
+                }
+            } catch (error) {
+                BunLogModule({
+                    message: "Failed to start auth_roles_changed listener",
+                    error,
+                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                    suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                    type: "error",
+                    prefix: LOG_PREFIX,
                 });
             }
         } catch (error) {
@@ -1704,6 +1769,103 @@ export class WorldApiManager {
                                 break;
                             }
 
+                            case Communication.WebSocket.MessageType
+                                .REFLECT_PUBLISH_REQUEST: {
+                                const req =
+                                    data as Communication.WebSocket.ReflectPublishRequestMessage;
+
+                                // basic validation
+                                const syncGroup = (req.syncGroup || "").trim();
+                                const channel = (req.channel || "").trim();
+                                if (!syncGroup || !channel) {
+                                    ws.send(
+                                        JSON.stringify(
+                                            new Communication.WebSocket.ReflectAckResponseMessage(
+                                                {
+                                                    syncGroup,
+                                                    channel,
+                                                    delivered: 0,
+                                                    requestId: req.requestId,
+                                                    errorMessage:
+                                                        "Missing syncGroup or channel",
+                                                },
+                                            ),
+                                        ),
+                                    );
+                                    break;
+                                }
+
+                                // ensure ACL warm for sender
+                                if (
+                                    !this.readableGroupsByAgent.has(
+                                        session.agentId,
+                                    )
+                                ) {
+                                    await this.warmAgentAcl(
+                                        session.agentId,
+                                    ).catch(() => {});
+                                }
+
+                                // authorize: sender must be able to read the target group
+                                if (!this.canRead(session.agentId, syncGroup)) {
+                                    ws.send(
+                                        JSON.stringify(
+                                            new Communication.WebSocket.ReflectAckResponseMessage(
+                                                {
+                                                    syncGroup,
+                                                    channel,
+                                                    delivered: 0,
+                                                    requestId: req.requestId,
+                                                    errorMessage:
+                                                        "Not authorized",
+                                                },
+                                            ),
+                                        ),
+                                    );
+                                    break;
+                                }
+
+                                // fanout to all sessions that can read this group
+                                let delivered = 0;
+                                const delivery =
+                                    new Communication.WebSocket.ReflectDeliveryMessage(
+                                        {
+                                            syncGroup,
+                                            channel,
+                                            payload: req.payload,
+                                            fromSessionId: session.sessionId,
+                                        },
+                                    );
+                                const payloadStr = JSON.stringify(delivery);
+
+                                for (const [, s] of this.activeSessions) {
+                                    if (this.canRead(s.agentId, syncGroup)) {
+                                        try {
+                                            (
+                                                s.ws as ServerWebSocket<WebSocketData>
+                                            ).send(payloadStr);
+                                            delivered++;
+                                        } catch {
+                                            // ignore send errors per recipient
+                                        }
+                                    }
+                                }
+
+                                ws.send(
+                                    JSON.stringify(
+                                        new Communication.WebSocket.ReflectAckResponseMessage(
+                                            {
+                                                syncGroup,
+                                                channel,
+                                                delivered,
+                                                requestId: req.requestId,
+                                            },
+                                        ),
+                                    ),
+                                );
+                                break;
+                            }
+
                             default: {
                                 session.ws.send(
                                     JSON.stringify(
@@ -1763,6 +1925,9 @@ export class WorldApiManager {
                         debug: serverConfiguration.VRCA_SERVER_DEBUG,
                         type: "debug",
                     });
+
+                    // Warm ACL for this agent (non-blocking)
+                    void this.warmAgentAcl(sessionData.agentId).catch(() => {});
 
                     // Send session info to client via WebSocket using typed message
                     ws.send(

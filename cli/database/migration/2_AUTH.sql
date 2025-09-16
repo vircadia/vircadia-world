@@ -313,6 +313,20 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- Notify Bun listeners when an agent's sync group roles change
+CREATE OR REPLACE FUNCTION auth.fn_notify_role_change()
+RETURNS trigger AS $$
+BEGIN
+    PERFORM pg_notify(
+        'auth_roles_changed',
+        json_build_object(
+            'agentId', COALESCE(NEW.auth__agent_id, OLD.auth__agent_id)
+        )::text
+    );
+    RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 -- ============================================================================
 -- 6. AUTHENTICATION FUNCTIONS
 -- ============================================================================
@@ -340,6 +354,41 @@ BEGIN
     );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Authorization helper: boolean check whether agent can read a sync group
+CREATE OR REPLACE FUNCTION auth.can_read_sync_group(
+    p_agent_id UUID,
+    p_group TEXT
+) RETURNS boolean AS $$
+    SELECT
+        EXISTS (
+            SELECT 1
+            FROM auth.agent_profiles ap
+            WHERE ap.general__agent_profile_id = p_agent_id
+              AND ap.auth__is_admin = true
+        )
+    OR EXISTS (
+            SELECT 1
+            FROM auth.agent_sync_group_roles r
+            WHERE r.auth__agent_id = p_agent_id
+              AND r.group__sync = p_group
+              AND r.permissions__can_read = true
+        );
+$$ LANGUAGE sql STABLE;
+
+-- Authorization helper: fetch all sync groups readable by an agent
+CREATE OR REPLACE FUNCTION auth.get_readable_groups(
+    p_agent_id UUID
+) RETURNS TABLE (group__sync TEXT) AS $$
+    SELECT r.group__sync
+    FROM auth.agent_sync_group_roles r
+    WHERE r.auth__agent_id = p_agent_id AND r.permissions__can_read = true
+    UNION
+    SELECT sg.general__sync_group
+    FROM auth.agent_profiles ap
+    CROSS JOIN auth.sync_groups sg
+    WHERE ap.general__agent_profile_id = p_agent_id AND ap.auth__is_admin = true;
+$$ LANGUAGE sql STABLE;
 
 -- ============================================================================
 -- 7. SESSION MANAGEMENT FUNCTIONS
@@ -549,6 +598,13 @@ CREATE TRIGGER refresh_active_sessions_view_on_role_change
     AFTER INSERT OR UPDATE OR DELETE ON auth.agent_sync_group_roles
     FOR EACH STATEMENT
     EXECUTE FUNCTION auth.refresh_active_sessions_view_trigger();
+
+-- Notify trigger for role changes (per-row) to refresh in-memory ACLs in Bun
+DROP TRIGGER IF EXISTS notify_role_change ON auth.agent_sync_group_roles;
+CREATE TRIGGER notify_role_change
+    AFTER INSERT OR UPDATE OR DELETE ON auth.agent_sync_group_roles
+    FOR EACH ROW
+    EXECUTE FUNCTION auth.fn_notify_role_change();
 
 -- Audit Trail Triggers
 CREATE TRIGGER update_agent_profile_timestamps
@@ -826,3 +882,5 @@ GRANT EXECUTE ON FUNCTION auth.enforce_session_limit() TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.update_session_heartbeat_from_session_id(UUID) TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.update_profile_last_seen() TO vircadia_agent_proxy;
 GRANT EXECUTE ON FUNCTION auth.invalidate_session_from_session_id(UUID) TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.can_read_sync_group(UUID, TEXT) TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION auth.get_readable_groups(UUID) TO vircadia_agent_proxy;

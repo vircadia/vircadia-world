@@ -1,6 +1,7 @@
 // General
 const generalRules = `Use for of instead of foreach.`
 const useBun = `Use bun instead of node.`
+const preferTemplatePropsViaMainScene = `Prefer template props via MainScene.vue instead of local refs and using default prop values in components, instead require props from MainScene.vue in the template.`
 
 // Babylon.js
 const babylonRules = `For Babylon.js: use ImportMeshAsync, SceneLoader is deprecated:

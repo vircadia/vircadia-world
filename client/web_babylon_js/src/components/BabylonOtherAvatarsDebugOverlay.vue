@@ -97,7 +97,7 @@ import type {
     AvatarBaseData,
     AvatarPositionData,
     AvatarRotationData,
-} from "@/composables/schemas";
+} from "@schemas";
 
 const props = defineProps({
     // Reactive debug state from BabylonOtherAvatars
@@ -115,7 +115,10 @@ const props = defineProps({
         required: true,
     },
     jointDataMap: {
-        type: Object as () => Record<string, Map<string, AvatarJointMetadata> | undefined>,
+        type: Object as () => Record<
+            string,
+            Map<string, AvatarJointMetadata> | undefined
+        >,
         required: true,
     },
     lastPollTimestamps: {
@@ -130,7 +133,11 @@ const props = defineProps({
         type: Object as () => Record<string, Date | null | undefined>,
         required: true,
     },
-    isPollingPositionRotation: { type: Boolean, required: false, default: false },
+    isPollingPositionRotation: {
+        type: Boolean,
+        required: false,
+        default: false,
+    },
     isPollingCamera: { type: Boolean, required: false, default: false },
     isPollingJoints: { type: Boolean, required: false, default: false },
     isLoading: { type: Boolean, required: false, default: false },
@@ -142,11 +149,17 @@ const props = defineProps({
 });
 
 const emit = defineEmits(["update:modelValue"]);
-const open = useVModel(props, "modelValue", emit, { passive: true, defaultValue: false });
+const open = useVModel(props, "modelValue", emit, {
+    passive: true,
+    defaultValue: false,
+});
 const keys = useMagicKeys();
 whenever(
     computed(() => {
-        const map = keys as unknown as Record<string, { value: boolean } | undefined>;
+        const map = keys as unknown as Record<
+            string,
+            { value: boolean } | undefined
+        >;
         const r = map[props.hotkey];
         return !!r?.value;
     }),
@@ -187,7 +200,9 @@ function rotationLabel(r?: AvatarRotationData): string {
     if (!r) return "-";
     return `x:${r.x.toFixed(2)} y:${r.y.toFixed(2)} z:${r.z.toFixed(2)} w:${r.w.toFixed(2)}`;
 }
-function cameraLabel(c?: { alpha: number; beta: number; radius: number } | null): string {
+function cameraLabel(
+    c?: { alpha: number; beta: number; radius: number } | null,
+): string {
     if (!c) return "-";
     return `a:${c.alpha.toFixed(2)} b:${c.beta.toFixed(2)} r:${c.radius.toFixed(2)}`;
 }

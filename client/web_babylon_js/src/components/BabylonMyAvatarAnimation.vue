@@ -8,7 +8,7 @@ import type { Scene, AnimationGroup, Skeleton } from "@babylonjs/core";
 import { ImportMeshAsync } from "@babylonjs/core";
 import { useAsset } from "@vircadia/world-sdk/browser/vue";
 import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
-import type { BabylonAnimationDefinition } from "@/composables/schemas";
+import type { BabylonAnimationDefinition } from "@schemas";
 
 export type AnimationState = "idle" | "loading" | "ready" | "error";
 

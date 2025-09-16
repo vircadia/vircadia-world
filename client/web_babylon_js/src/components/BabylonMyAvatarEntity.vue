@@ -84,14 +84,10 @@ const props = defineProps({
         type: Object as PropType<AvatarDefinition>,
         required: true,
     },
-    positionThrottleInterval: { type: Number, required: false, default: 50 },
-    rotationThrottleInterval: { type: Number, required: false, default: 50 },
-    cameraOrientationThrottleInterval: {
-        type: Number,
-        required: false,
-        default: 100,
-    },
-    jointThrottleInterval: { type: Number, required: false, default: 500 },
+    positionThrottleInterval: { type: Number, required: true },
+    rotationThrottleInterval: { type: Number, required: true },
+    cameraOrientationThrottleInterval: { type: Number, required: true },
+    jointThrottleInterval: { type: Number, required: true },
 });
 
 const emit = defineEmits<{
@@ -258,6 +254,21 @@ const pushBatchedUpdates = useThrottleFn(async () => {
         Math.round((new Blob([batchDataString]).size / 1024) * 100) / 100;
 
     try {
+        // Belt-and-suspenders: ensure entity exists before metadata upsert
+        try {
+            await props.vircadiaWorld.client.Utilities.Connection.query({
+                query: "INSERT INTO entity.entities (general__entity_name, group__sync, general__expiry__delete_since_updated_at_ms) VALUES ($1, $2, $3) ON CONFLICT (general__entity_name) DO NOTHING",
+                parameters: [name, "public.NORMAL", 120000],
+                timeoutMs: 3000,
+            });
+        } catch (ensureErr) {
+            // Non-fatal; proceed to upsert metadata and let errors bubble if any
+            console.debug(
+                "[BabylonMyAvatarEntity] ensure entity failed (non-fatal)",
+                ensureErr,
+            );
+        }
+
         await upsertMetadataEntries(name, updates, 5000);
         const now = Date.now();
         const batchProcessTime = now - batchStartTime;
@@ -435,7 +446,7 @@ async function initializeEntity() {
         isCreating.value = true;
         try {
             await props.vircadiaWorld.client.Utilities.Connection.query({
-                query: "INSERT INTO entity.entities (general__entity_name, group__sync, general__expiry__delete_since_updated_at_ms) VALUES ($1, $2, $3)",
+                query: "INSERT INTO entity.entities (general__entity_name, group__sync, general__expiry__delete_since_updated_at_ms, general__expiry__delete_since_created_at_ms) VALUES ($1, $2, $3, NULL)",
                 parameters: [entityName.value, "public.NORMAL", 120000],
             });
             const seed: Array<[string, unknown]> = [

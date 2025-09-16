@@ -416,13 +416,13 @@ import { useWebRTCSpatialAudio } from "@/composables/useWebRTCSpatialAudio";
 import {
     createWebRTCSessionEntityName,
     PeerDiscoveryEntitySchema,
-} from "@/composables/schemas";
-import type { WebRTCMessage, PeerDiscoveryEntity } from "@/composables/schemas";
+} from "@schemas";
+import type { WebRTCMessage, PeerDiscoveryEntity } from "@schemas";
 import type {
     AvatarBaseData,
     AvatarPositionData,
     AvatarRotationData,
-} from "@/composables/schemas";
+} from "@schemas";
 import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
 
 interface Props {
@@ -588,10 +588,11 @@ const announcePeerPresence = async () => {
         // First, create or update the entity
         await vircadiaWorld.client.Utilities.Connection.query({
             query: `
-                INSERT INTO entity.entities (general__entity_name, group__sync, general__expiry__delete_since_updated_at_ms) 
-                VALUES ($1, $2, $3)
+                INSERT INTO entity.entities (general__entity_name, group__sync, general__expiry__delete_since_updated_at_ms, general__expiry__delete_since_created_at_ms) 
+                VALUES ($1, $2, $3, NULL)
                 ON CONFLICT (general__entity_name) 
-                DO UPDATE SET general__expiry__delete_since_updated_at_ms = $3
+                DO UPDATE SET general__expiry__delete_since_updated_at_ms = $3,
+                              general__expiry__delete_since_created_at_ms = NULL
             `,
             parameters: [entityName, "public.NORMAL", 30000], // Delete after 30 seconds of inactivity
         });
@@ -711,10 +712,11 @@ const sendMessage = async (
         // First ensure the session entity exists
         await vircadiaWorld.client.Utilities.Connection.query({
             query: `INSERT INTO entity.entities 
-                    (general__entity_name, group__sync, general__expiry__delete_since_updated_at_ms) 
-                    VALUES ($1, $2, $3)
+                    (general__entity_name, group__sync, general__expiry__delete_since_updated_at_ms, general__expiry__delete_since_created_at_ms) 
+                    VALUES ($1, $2, $3, NULL)
                     ON CONFLICT (general__entity_name) 
-                    DO UPDATE SET general__expiry__delete_since_updated_at_ms = $3`,
+                    DO UPDATE SET general__expiry__delete_since_updated_at_ms = $3,
+                                  general__expiry__delete_since_created_at_ms = NULL`,
             parameters: [
                 sessionEntityName,
                 "public.NORMAL",

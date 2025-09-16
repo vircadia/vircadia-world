@@ -23,6 +23,9 @@ export default defineConfig(({ command }) => {
         resolve: {
             alias: {
                 "@": fileURLToPath(new URL("./src", import.meta.url)),
+                "@schemas": fileURLToPath(
+                    new URL("./src/schemas.ts", import.meta.url),
+                ),
             },
         },
         server: {

@@ -20,8 +20,12 @@ import type {
     AvatarBaseData,
     AvatarPositionData,
     AvatarRotationData,
-} from "@/composables/schemas";
-import { AvatarJointMetadataSchema } from "@/composables/schemas";
+} from "@schemas";
+import {
+    AvatarJointMetadataSchema,
+    parseAvatarPosition,
+    parseAvatarRotation,
+} from "@schemas";
 import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
 
 // No external emits needed
@@ -39,28 +43,23 @@ const props = defineProps({
     },
     discoveryPollingInterval: {
         type: Number,
-        required: false,
-        default: 500,
+        required: true,
     },
     positionPollingInterval: {
         type: Number,
-        required: false,
-        default: 30,
+        required: true,
     },
     rotationPollingInterval: {
         type: Number,
-        required: false,
-        default: 30,
+        required: true,
     },
     jointPollingInterval: {
         type: Number,
-        required: false,
-        default: 500,
+        required: true,
     },
     cameraPollingInterval: {
         type: Number,
-        required: false,
-        default: 150,
+        required: true,
     },
 });
 const { scene } = toRefs(props);
@@ -106,10 +105,11 @@ const jointDataMap = ref<Record<string, Map<string, AvatarJointMetadata>>>({});
 // Track last poll timestamps for incremental updates
 const lastPollTimestamps = ref<Record<string, Date | null>>({});
 
-// Polling configuration (separate intervals per data type)
-const positionRotationPollingInterval = ref(30); // ms (fast)
-const cameraPollingInterval = ref(150); // ms (moderate)
-const jointPollingInterval = ref(100); // ms (fast enough, incremental)
+// Polling configuration provided by props (separate intervals per data type)
+// Use the faster of position/rotation for the combined poll loop
+const positionRotationPollingMs = computed(() =>
+    Math.min(props.positionPollingInterval, props.rotationPollingInterval),
+);
 
 // Polling intervals and state
 let positionRotationPollInterval: number | null = null;
@@ -193,35 +193,29 @@ async function fetchInitialAvatarMetadata(sessionId: string) {
             modelFileName:
                 (metaObj["modelFileName"] as string) ?? "babylon.avatar.glb",
         } as AvatarBaseData;
-        positionDataMap.value[sessionId] = (parseMaybeJson<{
-            x: number;
-            y: number;
-            z: number;
-        }>(metaObj["position"]) as {
-            x: number;
-            y: number;
-            z: number;
-        }) ?? {
+        const posParsed = parseAvatarPosition(
+            metaObj["position"],
+        ) as AvatarPositionData | null;
+        const pos: AvatarPositionData = posParsed ?? {
             x: 0,
             y: 0,
             z: -5,
         };
-        rotationDataMap.value[sessionId] = (parseMaybeJson<{
-            x: number;
-            y: number;
-            z: number;
-            w: number;
-        }>(metaObj["rotation"]) as {
-            x: number;
-            y: number;
-            z: number;
-            w: number;
-        }) ?? {
+        (positionDataMap.value as Record<string, AvatarPositionData>)[
+            sessionId
+        ] = pos;
+        const rotParsed = parseAvatarRotation(
+            metaObj["rotation"],
+        ) as AvatarRotationData | null;
+        const rot: AvatarRotationData = rotParsed ?? {
             x: 0,
             y: 0,
             z: 0,
             w: 1,
         };
+        (rotationDataMap.value as Record<string, AvatarRotationData>)[
+            sessionId
+        ] = rot;
     } catch (err) {
         console.warn(
             `Failed to parse initial avatar metadata for session ${sessionId}:`,
@@ -594,18 +588,18 @@ function startDataPolling() {
     // Poll position/rotation fast
     positionRotationPollInterval = setInterval(
         pollPositionRotation,
-        positionRotationPollingInterval.value,
+        positionRotationPollingMs.value,
     );
     // Poll camera orientation separately
     cameraPollInterval = setInterval(
         pollCameraOrientation,
-        cameraPollingInterval.value,
+        props.cameraPollingInterval,
     );
     // Poll joints separately
-    jointPollInterval = setInterval(pollJointData, jointPollingInterval.value);
+    jointPollInterval = setInterval(pollJointData, props.jointPollingInterval);
 
     console.debug(
-        `Started avatar polling: pos/rot ${positionRotationPollingInterval.value}ms, camera ${cameraPollingInterval.value}ms, joints ${jointPollingInterval.value}ms`,
+        `Started avatar polling: pos/rot ${positionRotationPollingMs.value}ms, camera ${props.cameraPollingInterval}ms, joints ${props.jointPollingInterval}ms`,
     );
 }
 

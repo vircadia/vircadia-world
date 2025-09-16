@@ -18,12 +18,12 @@ import {
 import "@babylonjs/loaders/glTF";
 import { useAsset } from "@vircadia/world-sdk/browser/vue";
 import { ImportMeshAsync } from "@babylonjs/core";
-import {
-    type AvatarJointMetadata,
-    type AvatarBaseData,
-    type AvatarPositionData,
-    type AvatarRotationData,
-} from "../composables/schemas";
+import type {
+    AvatarJointMetadata,
+    AvatarBaseData,
+    AvatarPositionData,
+    AvatarRotationData,
+} from "@schemas";
 import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
 // Local helper types (previously from physics controller composable)
 type PositionObj = { x: number; y: number; z: number };

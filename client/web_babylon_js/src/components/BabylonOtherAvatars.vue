@@ -22,9 +22,9 @@ import type {
     AvatarRotationData,
 } from "@schemas";
 import {
-    AvatarJointMetadataSchema,
     parseAvatarPosition,
     parseAvatarRotation,
+    parseAvatarJoint,
 } from "@schemas";
 import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
 
@@ -104,6 +104,44 @@ const jointDataMap = ref<Record<string, Map<string, AvatarJointMetadata>>>({});
 
 // Track last poll timestamps for incremental updates
 const lastPollTimestamps = ref<Record<string, Date | null>>({});
+
+// Polling error/metrics tracking to surface in debug overlay
+type PollCounter = {
+    lastDurationMs: number;
+    rows: number;
+    timeouts: number;
+    errors: number;
+    lastError: string | null;
+    lastErrorAt: Date | null;
+};
+const pollStats = ref({
+    discovery: {
+        lastDurationMs: 0,
+        rows: 0,
+        timeouts: 0,
+        errors: 0,
+        lastError: null as string | null,
+        lastErrorAt: null as Date | null,
+    } as PollCounter,
+    posRot: {} as Record<string, PollCounter>,
+    camera: {} as Record<string, PollCounter>,
+    joints: {} as Record<string, PollCounter>,
+});
+function ensureCounter(
+    map: Record<string, PollCounter>,
+    key: string,
+): PollCounter {
+    if (!map[key])
+        map[key] = {
+            lastDurationMs: 0,
+            rows: 0,
+            timeouts: 0,
+            errors: 0,
+            lastError: null,
+            lastErrorAt: null,
+        };
+    return map[key];
+}
 
 // Polling configuration provided by props (separate intervals per data type)
 // Use the faster of position/rotation for the combined poll loop
@@ -262,6 +300,7 @@ async function pollPositionRotation() {
             }
 
             try {
+                const t0 = performance.now();
                 const res =
                     await vircadiaWorld.client.Utilities.Connection.query({
                         query,
@@ -270,7 +309,9 @@ async function pollPositionRotation() {
                     });
 
                 let newest: Date | null = lastTimestamp ?? null;
+                let rowsProcessed = 0;
                 if (Array.isArray(res.result)) {
+                    rowsProcessed = res.result.length;
                     for (const row of res.result) {
                         if (row.metadata__key === "position") {
                             const parsed = parseMaybeJson<AvatarPositionData>(
@@ -294,10 +335,23 @@ async function pollPositionRotation() {
                     }
                 }
                 if (newest) lastBasePollTimestamps.value[sessionId] = newest;
+                const counter = ensureCounter(
+                    pollStats.value.posRot,
+                    sessionId,
+                );
+                counter.lastDurationMs = Math.round(performance.now() - t0);
+                counter.rows += rowsProcessed;
             } catch (err) {
+                const counter = ensureCounter(
+                    pollStats.value.posRot,
+                    sessionId,
+                );
                 if (err instanceof Error && err.message.includes("timeout")) {
-                    // ignore
+                    counter.timeouts += 1;
                 } else {
+                    counter.errors += 1;
+                    counter.lastError = String(err);
+                    counter.lastErrorAt = new Date();
                     console.error(
                         `Error polling position/rotation for ${sessionId}:`,
                         err,
@@ -342,6 +396,7 @@ async function pollCameraOrientation() {
             }
 
             try {
+                const t0 = performance.now();
                 const res =
                     await vircadiaWorld.client.Utilities.Connection.query({
                         query,
@@ -385,10 +440,25 @@ async function pollCameraOrientation() {
                     }
                 }
                 if (newest) lastCameraPollTimestamps.value[sessionId] = newest;
+                const counter = ensureCounter(
+                    pollStats.value.camera,
+                    sessionId,
+                );
+                counter.lastDurationMs = Math.round(performance.now() - t0);
+                counter.rows += Array.isArray(res.result)
+                    ? res.result.length
+                    : 0;
             } catch (err) {
+                const counter = ensureCounter(
+                    pollStats.value.camera,
+                    sessionId,
+                );
                 if (err instanceof Error && err.message.includes("timeout")) {
-                    // ignore
+                    counter.timeouts += 1;
                 } else {
+                    counter.errors += 1;
+                    counter.lastError = String(err);
+                    counter.lastErrorAt = new Date();
                     console.error(
                         `Error polling camera orientation for ${sessionId}:`,
                         err,
@@ -420,6 +490,7 @@ async function pollJointData() {
 
             try {
                 // First check if entity exists
+                const t0 = performance.now();
                 const entityResult =
                     await vircadiaWorld.client.Utilities.Connection.query({
                         query: "SELECT general__entity_name FROM entity.entities WHERE general__entity_name = $1",
@@ -448,7 +519,6 @@ async function pollJointData() {
                             FROM entity.entity_metadata
                             WHERE general__entity_name = $1
                             AND metadata__key LIKE 'joint:%'
-                            AND metadata__value->>'type' = 'avatarJoint'
                             AND general__updated_at > $2
                             ORDER BY general__updated_at DESC
                             LIMIT 100`;
@@ -463,7 +533,6 @@ async function pollJointData() {
                             FROM entity.entity_metadata
                             WHERE general__entity_name = $1
                             AND metadata__key LIKE 'joint:%'
-                            AND metadata__value->>'type' = 'avatarJoint'
                             ORDER BY general__updated_at DESC
                             LIMIT 200`;
                         jointParameters = [entityName];
@@ -483,15 +552,52 @@ async function pollJointData() {
 
                     let newestUpdateTime: Date | null = lastTimestamp;
 
+                    let rowsProcessed = 0;
                     if (Array.isArray(jointResult.result)) {
+                        rowsProcessed = jointResult.result.length;
                         for (const row of jointResult.result) {
                             try {
-                                // Parse each joint metadata
-                                const jointData =
-                                    AvatarJointMetadataSchema.parse(
-                                        row.metadata__value,
+                                // Joint metadata can arrive as a JSON string from PG; parse safely and enrich
+                                const key: string = row.metadata__key as string;
+                                const jointNameFromKey = key.startsWith(
+                                    "joint:",
+                                )
+                                    ? key.substring("joint:".length)
+                                    : key;
+
+                                // First attempt: direct safe parse
+                                let jointData = parseAvatarJoint(
+                                    row.metadata__value,
+                                );
+
+                                // If missing required fields or failed, try enriching with context
+                                if (!jointData) {
+                                    let rawObj: unknown = row.metadata__value;
+                                    if (typeof rawObj === "string") {
+                                        try {
+                                            rawObj = JSON.parse(rawObj);
+                                        } catch {
+                                            rawObj = {};
+                                        }
+                                    }
+                                    jointData = parseAvatarJoint({
+                                        type: "avatarJoint",
+                                        sessionId,
+                                        jointName: jointNameFromKey,
+                                        ...(rawObj as Record<string, unknown>),
+                                    });
+                                }
+
+                                if (jointData) {
+                                    joints.set(
+                                        jointData.jointName,
+                                        jointData as unknown as AvatarJointMetadata,
                                     );
-                                joints.set(jointData.jointName, jointData);
+                                } else {
+                                    throw new Error(
+                                        `Invalid joint payload after enrichment for ${jointNameFromKey}`,
+                                    );
+                                }
 
                                 // Track the newest update time
                                 if (row.general__updated_at) {
@@ -524,6 +630,14 @@ async function pollJointData() {
                             // If no joints were found and this is the first poll, set to current time
                             lastPollTimestamps.value[sessionId] = new Date();
                         }
+                        const counter = ensureCounter(
+                            pollStats.value.joints,
+                            sessionId,
+                        );
+                        counter.lastDurationMs = Math.round(
+                            performance.now() - t0,
+                        );
+                        counter.rows += rowsProcessed;
                     } else {
                         console.warn(
                             `Invalid joint query result for ${sessionId}: expected array, got ${typeof jointResult.result}`,
@@ -541,6 +655,11 @@ async function pollJointData() {
                 // Handle different types of errors appropriately
                 if (error instanceof Error) {
                     if (error.message.includes("timeout")) {
+                        const counter = ensureCounter(
+                            pollStats.value.joints,
+                            sessionId,
+                        );
+                        counter.timeouts += 1;
                         console.debug(
                             `Joint data query timed out for session ${sessionId}, will retry. Last successful poll: ${lastPollTimestamps.value[sessionId]?.toISOString() || "never"}`,
                         );
@@ -548,16 +667,37 @@ async function pollJointData() {
                         error.message.includes("connection") ||
                         error.message.includes("network")
                     ) {
+                        const counter = ensureCounter(
+                            pollStats.value.joints,
+                            sessionId,
+                        );
+                        counter.errors += 1;
+                        counter.lastError = error.message;
+                        counter.lastErrorAt = new Date();
                         console.warn(
                             `Network error polling joint data for session ${sessionId}: ${error.message}`,
                         );
                     } else {
+                        const counter = ensureCounter(
+                            pollStats.value.joints,
+                            sessionId,
+                        );
+                        counter.errors += 1;
+                        counter.lastError = String(error);
+                        counter.lastErrorAt = new Date();
                         console.error(
                             `Error polling joint data for session ${sessionId}:`,
                             error,
                         );
                     }
                 } else {
+                    const counter = ensureCounter(
+                        pollStats.value.joints,
+                        sessionId,
+                    );
+                    counter.errors += 1;
+                    counter.lastError = String(error);
+                    counter.lastErrorAt = new Date();
                     console.error(
                         `Unknown error polling joint data for session ${sessionId}:`,
                         error,
@@ -635,6 +775,7 @@ async function pollForOtherAvatars(): Promise<void> {
     }
 
     try {
+        const t0 = performance.now();
         const query =
             "SELECT general__entity_name FROM entity.entities WHERE general__entity_name LIKE 'avatar:%'";
 
@@ -710,6 +851,11 @@ async function pollForOtherAvatars(): Promise<void> {
 
             // Update list with found full session IDs
             otherAvatarSessionIds.value = foundFullSessionIds;
+            // Update discovery stats
+            pollStats.value.discovery.lastDurationMs = Math.round(
+                performance.now() - t0,
+            );
+            pollStats.value.discovery.rows += entities.length;
 
             // Remove avatars that are no longer present
             for (const fullSessionId of Object.keys(avatarDataMap.value)) {
@@ -727,10 +873,14 @@ async function pollForOtherAvatars(): Promise<void> {
         }
     } catch (error) {
         if (error instanceof Error && error.message.includes("timeout")) {
+            pollStats.value.discovery.timeouts += 1;
             console.debug(
                 "[OtherAvatars] Discovery query timed out, will retry",
             );
         } else {
+            pollStats.value.discovery.errors += 1;
+            pollStats.value.discovery.lastError = String(error);
+            pollStats.value.discovery.lastErrorAt = new Date();
             console.warn(
                 "[OtherAvatars] Error polling for other avatars:",
                 error,
@@ -810,6 +960,7 @@ defineExpose({
     lastPollTimestamps,
     lastBasePollTimestamps,
     lastCameraPollTimestamps,
+    pollStats,
     isPollingPositionRotation: computed(() => isPollingPositionRotation),
     isPollingCamera: computed(() => isPollingCamera),
     isPollingJoints: computed(() => isPollingJoints),

@@ -41,7 +41,8 @@ export const QuaternionSchema = z.object({
 
 // Schema for individual avatar joint metadata
 export const AvatarJointMetadataSchema = z.object({
-    type: z.literal("avatarJoint"),
+    // Some legacy writers omit this; default it for robustness
+    type: z.literal("avatarJoint").optional().default("avatarJoint"),
     sessionId: z.coerce.string(),
     jointName: z.coerce.string(),
     position: Vector3Schema,

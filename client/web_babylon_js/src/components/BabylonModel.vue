@@ -13,11 +13,8 @@ import {
     type BaseTexture,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
-import type {
-    BabylonModelDefinition,
-    ModelMetadata,
-} from "../composables/schemas";
-import { ModelMetadataSchema } from "../composables/schemas";
+import type { BabylonModelDefinition, ModelMetadata } from "@schemas";
+import { ModelMetadataSchema } from "@schemas";
 
 import { useDebounceFn } from "@vueuse/core";
 // TODO: Move entity updates synchronization into their own component.
@@ -595,7 +592,9 @@ watch(
                     for (const { key, value } of metadataInserts) {
                         await vircadia.client.Utilities.Connection.query({
                             query: `INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync)
-                                    VALUES ($1, $2, $3, $4)`,
+                                    VALUES ($1, $2, $3, $4)
+                                    ON CONFLICT (general__entity_name, metadata__key)
+                                    DO UPDATE SET metadata__value = EXCLUDED.metadata__value`,
                             parameters: [
                                 entityNameRef.value,
                                 key,

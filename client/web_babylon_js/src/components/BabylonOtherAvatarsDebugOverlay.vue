@@ -21,6 +21,9 @@
                             <v-list-item title="Polling: pos/rot" :subtitle="String(isPollingPositionRotation)" />
                             <v-list-item title="Polling: camera" :subtitle="String(isPollingCamera)" />
                             <v-list-item title="Polling: joints" :subtitle="String(isPollingJoints)" />
+                            <v-list-item title="Discovery rows" :subtitle="String(pollStats?.discovery?.rows ?? 0)" />
+                            <v-list-item title="Discovery last ms" :subtitle="String(pollStats?.discovery?.lastDurationMs ?? 0)" />
+                            <v-list-item title="Discovery timeouts/errors" :subtitle="`${pollStats?.discovery?.timeouts ?? 0} / ${pollStats?.discovery?.errors ?? 0}`" />
                         </v-list>
                     </v-col>
                     <v-col cols="12" md="6">
@@ -49,6 +52,9 @@
                                 <span class="text-caption">
                                     model: <span class="font-mono">{{ avatarDataMap[sid]?.modelFileName || '-' }}</span>
                                     — joints: {{ jointCount(sid) }}
+                                    — pr: {{ statFor(pollStats?.posRot, sid)?.rows ?? 0 }} rows
+                                    — cam: {{ statFor(pollStats?.camera, sid)?.rows ?? 0 }} rows
+                                    — jnt: {{ statFor(pollStats?.joints, sid)?.rows ?? 0 }} rows
                                 </span>
                             </div>
                         </v-expansion-panel-title>
@@ -63,6 +69,9 @@
                                             :subtitle="cameraLabel(avatarDataMap[sid]?.cameraOrientation)" />
                                         <v-list-item title="position" :subtitle="positionLabel(positionDataMap[sid])" />
                                         <v-list-item title="rotation (quat)" :subtitle="rotationLabel(rotationDataMap[sid])" />
+                                        <v-list-item title="Errors (pos/rot)" :subtitle="errorLabel(pollStats?.posRot, sid)" />
+                                        <v-list-item title="Errors (camera)" :subtitle="errorLabel(pollStats?.camera, sid)" />
+                                        <v-list-item title="Errors (joints)" :subtitle="errorLabel(pollStats?.joints, sid)" />
                                     </v-list>
                                 </v-col>
                                 <v-col cols="12" md="6">
@@ -70,8 +79,9 @@
                                         <v-list-subheader>Joints</v-list-subheader>
                                         <div v-if="jointCount(sid) === 0" class="text-caption">-</div>
                                         <div v-else class="text-caption">
-                                            <div v-for="jn in jointNames(sid).slice(0, 40)" :key="jn" class="mb-1">
+                                            <div v-for="jn in jointNames(sid).slice(0, 20)" :key="jn" class="mb-1">
                                                 <span class="font-mono">{{ jn }}</span>
+                                                <span class="ml-2">{{ jointPosRotLabel(sid, jn) }}</span>
                                             </div>
                                         </div>
                                     </v-list>
@@ -142,6 +152,54 @@ const props = defineProps({
     isPollingJoints: { type: Boolean, required: false, default: false },
     isLoading: { type: Boolean, required: false, default: false },
     connectionStatus: { type: String, required: false, default: "unknown" },
+    // Poll stats including errors/timeouts and row counts
+    pollStats: {
+        type: Object as () => {
+            discovery: {
+                lastDurationMs: number;
+                rows: number;
+                timeouts: number;
+                errors: number;
+                lastError: string | null;
+                lastErrorAt: Date | null;
+            };
+            posRot: Record<
+                string,
+                {
+                    lastDurationMs: number;
+                    rows: number;
+                    timeouts: number;
+                    errors: number;
+                    lastError: string | null;
+                    lastErrorAt: Date | null;
+                }
+            >;
+            camera: Record<
+                string,
+                {
+                    lastDurationMs: number;
+                    rows: number;
+                    timeouts: number;
+                    errors: number;
+                    lastError: string | null;
+                    lastErrorAt: Date | null;
+                }
+            >;
+            joints: Record<
+                string,
+                {
+                    lastDurationMs: number;
+                    rows: number;
+                    timeouts: number;
+                    errors: number;
+                    lastError: string | null;
+                    lastErrorAt: Date | null;
+                }
+            >;
+        },
+        required: false,
+        default: undefined,
+    },
     // External control (v-model)
     modelValue: { type: Boolean, required: false, default: undefined },
     // Configurable hotkey (default "o")
@@ -218,6 +276,47 @@ function jointNames(sessionId: string): string[] {
     return out.sort();
 }
 
+function statFor(
+    map: Record<string, { rows: number }> | undefined,
+    id: string,
+): { rows: number } | undefined {
+    return map ? map[id] : undefined;
+}
+
+function errorLabel(
+    map:
+        | Record<
+              string,
+              {
+                  timeouts: number;
+                  errors: number;
+                  lastError: string | null;
+                  lastErrorAt: Date | null;
+              }
+          >
+        | undefined,
+    id: string,
+): string {
+    if (!map || !map[id]) return "-";
+    const c = map[id];
+    const ts = c.lastErrorAt
+        ? new Date(c.lastErrorAt).toISOString().split("T")[1]?.split(".")[0]
+        : "";
+    if (c.errors || c.timeouts)
+        return `${c.timeouts} timeouts, ${c.errors} errors${c.lastError ? ` (${ts} ${c.lastError.substring(0, 60)}...)` : ""}`;
+    return "-";
+}
+
+function jointPosRotLabel(sessionId: string, jointName: string): string {
+    const m = props.jointDataMap[sessionId];
+    const j = m?.get(jointName);
+    if (!j) return "";
+    const px = j.position.x.toFixed(2);
+    const py = j.position.y.toFixed(2);
+    const pz = j.position.z.toFixed(2);
+    return `pos(${px},${py},${pz})`;
+}
+
 // mark used in template
 void hotkeyLabel;
 void statusColor;
@@ -228,6 +327,9 @@ void tsLabel;
 void cameraLabel;
 void positionLabel;
 void rotationLabel;
+void statFor;
+void errorLabel;
+void jointPosRotLabel;
 </script>
 
 <style scoped>

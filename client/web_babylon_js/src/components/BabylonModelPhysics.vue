@@ -6,7 +6,7 @@
 import { onMounted, onUnmounted, watch, ref } from "vue";
 import type { Scene, AbstractMesh } from "@babylonjs/core";
 import { PhysicsAggregate, PhysicsShapeType } from "@babylonjs/core";
-import type { BabylonModelDefinition } from "../composables/schemas";
+import type { BabylonModelDefinition } from "@schemas";
 
 const props = defineProps<{
     scene: Scene;

@@ -46,6 +46,8 @@ export type AvatarSyncMetrics = {
     lastErrorAt: string | null;
     lastErrorMessage: string | null;
     lastErrorSource: string | null;
+    // Detailed last entries with full values and per-entry sizes (bytes)
+    lastEntries: { key: string; value: unknown; sizeBytes: number }[];
 };
 
 // Types imported from BabylonMyAvatar.vue
@@ -88,6 +90,14 @@ const props = defineProps({
     rotationThrottleInterval: { type: Number, required: true },
     cameraOrientationThrottleInterval: { type: Number, required: true },
     jointThrottleInterval: { type: Number, required: true },
+    // Precision controls (required; passed from MainScene)
+    jointPositionDecimals: { type: Number, required: true },
+    jointRotationDecimals: { type: Number, required: true },
+    jointScaleDecimals: { type: Number, required: true },
+    // Update thresholds (required; passed from MainScene). If the change is within these decimals, skip pushing an update after the first push.
+    jointPositionUpdateDecimals: { type: Number, required: true },
+    jointRotationUpdateDecimals: { type: Number, required: true },
+    jointScaleUpdateDecimals: { type: Number, required: true },
 });
 
 const emit = defineEmits<{
@@ -115,12 +125,56 @@ const entityName = computed(() =>
 // Track previous states to minimize writes
 const previousMainStates = new Map<string, string>();
 const previousJointStates = new Map<string, string>();
+// Per-aspect gating snapshots (using update-threshold decimals)
+const previousJointPositionGate = new Map<string, string>();
+const previousJointRotationGate = new Map<string, string>();
+const previousJointScaleGate = new Map<string, string>();
 
 function vectorToObj(v: Vector3): PositionObj {
     return { x: v.x, y: v.y, z: v.z };
 }
 function quatToObj(q: Quaternion): RotationObj {
     return { x: q.x, y: q.y, z: q.z, w: q.w };
+}
+
+// Quantization helpers
+function roundToDecimals(value: number, decimals: number): number {
+    const factor = Math.pow(10, decimals);
+    return Math.round(value * factor) / factor;
+}
+function quantizePosition(pos: PositionObj, decimals: number): PositionObj {
+    return {
+        x: roundToDecimals(pos.x, decimals),
+        y: roundToDecimals(pos.y, decimals),
+        z: roundToDecimals(pos.z, decimals),
+    };
+}
+function quantizeScale(scale: PositionObj, decimals: number): PositionObj {
+    return {
+        x: roundToDecimals(scale.x, decimals),
+        y: roundToDecimals(scale.y, decimals),
+        z: roundToDecimals(scale.z, decimals),
+    };
+}
+function quantizeRotation(rot: RotationObj, decimals: number): RotationObj {
+    // Round components
+    let qx = roundToDecimals(rot.x, decimals);
+    let qy = roundToDecimals(rot.y, decimals);
+    let qz = roundToDecimals(rot.z, decimals);
+    let qw = roundToDecimals(rot.w, decimals);
+    // Renormalize to maintain unit quaternion, then round again to keep stable payload size
+    const len = Math.hypot(qx, qy, qz, qw);
+    if (len > 0) {
+        qx = qx / len;
+        qy = qy / len;
+        qz = qz / len;
+        qw = qw / len;
+        qx = roundToDecimals(qx, decimals);
+        qy = roundToDecimals(qy, decimals);
+        qz = roundToDecimals(qz, decimals);
+        qw = roundToDecimals(qw, decimals);
+    }
+    return { x: qx, y: qy, z: qz, w: qw };
 }
 
 // Helper to upsert multiple metadata entries in a single batched query
@@ -165,6 +219,7 @@ const syncStats = {
     lastBatchCount: 0,
     totalPushed: 0,
     lastKeys: [] as string[],
+    lastEntries: [] as { key: string; value: unknown; sizeBytes: number }[],
     recentPushTimestamps: [] as number[],
     lastBatchSizeKb: 0,
     totalBatchSizeKb: 0,
@@ -225,6 +280,7 @@ function emitStats(interval: number | null) {
         pushIntervalMs: interval,
         avgPushesPerMinute: pushesPerMinute,
         lastKeys: syncStats.lastKeys,
+        lastEntries: syncStats.lastEntries,
         lastBatchSizeKb: syncStats.lastBatchSizeKb,
         avgBatchSizeKb: avgBatchSizeKb,
         avgBatchProcessTimeMs: avgBatchProcessTimeMs,
@@ -252,6 +308,17 @@ const pushBatchedUpdates = useThrottleFn(async () => {
     const batchDataString = JSON.stringify(updates);
     const batchSizeKb =
         Math.round((new Blob([batchDataString]).size / 1024) * 100) / 100;
+    // Compute per-entry sizes for detailed stats
+    const entriesInfo = updates.map(([k, v]) => {
+        let sizeBytes = 0;
+        try {
+            sizeBytes = new Blob([JSON.stringify(v)]).size;
+        } catch {
+            // Fallback to rough length if stringify fails
+            sizeBytes = String(v).length;
+        }
+        return { key: k, value: v, sizeBytes };
+    });
 
     try {
         // Belt-and-suspenders: ensure entity exists before metadata upsert
@@ -278,6 +345,7 @@ const pushBatchedUpdates = useThrottleFn(async () => {
         syncStats.lastBatchCount = updates.length;
         syncStats.totalPushed += updates.length;
         syncStats.lastKeys = updates.map(([k]) => k);
+        syncStats.lastEntries = entriesInfo;
         syncStats.lastBatchSizeKb = batchSizeKb;
         syncStats.totalBatchSizeKb += batchSizeKb;
         syncStats.batchCount += 1;
@@ -364,13 +432,49 @@ const updateJoints = useThrottleFn(() => {
         const rot = new Q4();
         const scale = new V3();
         localMat.decompose(scale, rot, pos);
+        // Gating: compare quantized values using update-threshold decimals; skip if all unchanged since last send
+        const gatePos = quantizePosition(
+            vectorToObj(pos),
+            props.jointPositionUpdateDecimals,
+        );
+        const gateRot = quantizeRotation(
+            quatToObj(rot),
+            props.jointRotationUpdateDecimals,
+        );
+        const gateScale = quantizeScale(
+            vectorToObj(scale),
+            props.jointScaleUpdateDecimals,
+        );
+        const jointNameKey = bone.name;
+        const gatePosStr = JSON.stringify(gatePos);
+        const gateRotStr = JSON.stringify(gateRot);
+        const gateScaleStr = JSON.stringify(gateScale);
+        const posChanged =
+            previousJointPositionGate.get(jointNameKey) !== gatePosStr;
+        const rotChanged =
+            previousJointRotationGate.get(jointNameKey) !== gateRotStr;
+        const scaleChanged =
+            previousJointScaleGate.get(jointNameKey) !== gateScaleStr;
+        if (!(posChanged || rotChanged || scaleChanged)) {
+            continue; // No significant change beyond thresholds
+        }
+        // Update gating snapshots
+        previousJointPositionGate.set(jointNameKey, gatePosStr);
+        previousJointRotationGate.set(jointNameKey, gateRotStr);
+        previousJointScaleGate.set(jointNameKey, gateScaleStr);
         const jointMetadata = {
             type: "avatarJoint",
             sessionId: name.replace(/^avatar:/, ""),
             jointName: bone.name,
-            position: vectorToObj(pos),
-            rotation: quatToObj(rot),
-            scale: vectorToObj(scale),
+            position: quantizePosition(
+                vectorToObj(pos),
+                props.jointPositionDecimals,
+            ),
+            rotation: quantizeRotation(
+                quatToObj(rot),
+                props.jointRotationDecimals,
+            ),
+            scale: quantizeScale(vectorToObj(scale), props.jointScaleDecimals),
         };
         const jointKey = `joint:${bone.name}`;
         const state = JSON.stringify(jointMetadata);

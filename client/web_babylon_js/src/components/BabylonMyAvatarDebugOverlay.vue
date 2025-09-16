@@ -126,6 +126,23 @@
 									</v-expansion-panel-text>
 								</v-expansion-panel>
 							</v-expansion-panels>
+							<v-expansion-panels variant="accordion" density="compact" class="mt-1" v-if="(props.syncMetrics?.lastEntries?.length || 0) > 0">
+								<v-expansion-panel>
+									<v-expansion-panel-title>
+										Last entries (values + sizes) — total ~{{ lastEntriesTotalSizeKb.toFixed(2) }} KB
+									</v-expansion-panel-title>
+									<v-expansion-panel-text>
+										<div v-for="e in lastEntries" :key="e.key" class="mb-2">
+											<div class="d-flex align-center justify-space-between text-caption">
+												<span class="font-mono">{{ e.key }}</span>
+												<span>{{ e.sizeBytes }} bytes ({{ (e.sizeBytes/1024).toFixed(2) }} KB)</span>
+											</div>
+											<pre class="font-mono" style="white-space: pre-wrap; word-break: break-all; background: transparent;">{{ formatValue(e.value) }}</pre>
+											<v-divider class="my-2" />
+										</div>
+									</v-expansion-panel-text>
+								</v-expansion-panel>
+							</v-expansion-panels>
 						</v-list>
 
 						<v-list density="compact" class="bg-transparent mt-4">
@@ -204,6 +221,8 @@ type SyncMetrics = {
     lastErrorAt: string | null;
     lastErrorMessage: string | null;
     lastErrorSource: string | null;
+    // Detailed last entries with full values and per-entry sizes (bytes)
+    lastEntries: { key: string; value: unknown; sizeBytes: number }[];
 };
 
 const props = defineProps({
@@ -352,6 +371,19 @@ const pushIntervalLabel = computed(() => {
     if (ms === null || ms === undefined) return "-";
     return `${ms} ms`;
 });
+const lastEntries = computed(() => props.syncMetrics?.lastEntries || []);
+const lastEntriesTotalSizeKb = computed(
+    () =>
+        lastEntries.value.reduce((sum, e) => sum + (e?.sizeBytes || 0), 0) /
+        1024,
+);
+function formatValue(v: unknown): string {
+    try {
+        return JSON.stringify(v, null, 2);
+    } catch {
+        return String(v);
+    }
+}
 // mark used in template
 void verticalVelocityLabel;
 void supportStateLabel;
@@ -370,6 +402,9 @@ void syncErrorCount;
 void syncLastErrorAt;
 void syncLastErrorMessage;
 void syncLastErrorSource;
+void lastEntries;
+void lastEntriesTotalSizeKb;
+void formatValue;
 
 function isUnderAvatarNode(
     mesh: AbstractMesh,

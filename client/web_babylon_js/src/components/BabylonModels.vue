@@ -4,7 +4,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from "vue";
-import type { BabylonModelDefinition } from "../composables/schemas";
+import type { BabylonModelDefinition } from "@schemas";
 
 const props = defineProps<{
     vircadiaWorld: any;

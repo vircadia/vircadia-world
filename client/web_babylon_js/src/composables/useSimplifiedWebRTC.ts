@@ -143,6 +143,8 @@ export function useSimplifiedWebRTC(
                     INSERT INTO entity.entity_metadata 
                     (general__entity_name, metadata__key, metadata__value, group__sync)
                     VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (general__entity_name, metadata__key)
+                    DO UPDATE SET metadata__value = EXCLUDED.metadata__value
                 `,
                 parameters: [
                     recipientEntity,

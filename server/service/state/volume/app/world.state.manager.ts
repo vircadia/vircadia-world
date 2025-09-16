@@ -197,8 +197,19 @@ export class WorldStateManager {
                 this.handleTickCapturedNotification(payload);
             });
 
-            // Start tick loops for each sync group
-            for (const [syncGroup] of this.syncGroups.entries()) {
+            // Start tick loops for each sync group, respecting enabled flag (default enabled if undefined)
+            for (const [syncGroup, config] of this.syncGroups.entries()) {
+                if (config.server__tick__enabled === false) {
+                    BunLogModule({
+                        message: `Ticking disabled for sync group: ${syncGroup}`,
+                        debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                        suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                        type: "info",
+                        prefix: LOG_PREFIX,
+                    });
+                    continue;
+                }
+
                 if (this.intervalIds.has(syncGroup)) {
                     continue;
                 }
@@ -206,6 +217,13 @@ export class WorldStateManager {
                 // Initialize first tick for each sync group
                 this.scheduleTick(syncGroup);
             }
+
+            const enabledGroups = Array.from(this.syncGroups.entries())
+                .filter(([_, cfg]) => cfg.server__tick__enabled !== false)
+                .map(([name]) => name);
+            const disabledGroups = Array.from(this.syncGroups.entries())
+                .filter(([_, cfg]) => cfg.server__tick__enabled === false)
+                .map(([name]) => name);
 
             BunLogModule({
                 message: `World State Manager initialized successfully with ${this.syncGroups.size} sync groups, entity expiry checking, and metadata expiry checking`,
@@ -215,6 +233,9 @@ export class WorldStateManager {
                 prefix: LOG_PREFIX,
                 data: {
                     syncGroups: this.syncGroups.size,
+                    tickEnabledGroups: enabledGroups.length,
+                    tickDisabledGroups: disabledGroups.length,
+                    disabledSyncGroups: disabledGroups,
                     entityExpiryEnabled: !!this.entityConfig,
                     entityExpiryInterval:
                         this.entityConfig
@@ -279,6 +300,18 @@ export class WorldStateManager {
                 debug: serverConfiguration.VRCA_SERVER_DEBUG,
                 suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "error",
+                prefix: LOG_PREFIX,
+            });
+            return;
+        }
+
+        // Respect disabled flag (default enabled if undefined)
+        if (config.server__tick__enabled === false) {
+            BunLogModule({
+                message: `Skipping tick scheduling; disabled for sync group: ${syncGroup}`,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                type: "debug",
                 prefix: LOG_PREFIX,
             });
             return;

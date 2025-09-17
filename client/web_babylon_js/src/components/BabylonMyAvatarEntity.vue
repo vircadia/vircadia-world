@@ -98,6 +98,17 @@ const props = defineProps({
     jointPositionUpdateDecimals: { type: Number, required: true },
     jointRotationUpdateDecimals: { type: Number, required: true },
     jointScaleUpdateDecimals: { type: Number, required: true },
+    // Reflector
+    reflectSyncGroup: { type: String, required: true },
+    reflectChannel: { type: String, required: true },
+    // Main transform precision controls (required; passed from MainScene)
+    positionDecimals: { type: Number, required: true },
+    rotationDecimals: { type: Number, required: true },
+    scaleDecimals: { type: Number, required: true },
+    // Main transform update thresholds (required; passed from MainScene)
+    positionUpdateDecimals: { type: Number, required: true },
+    rotationUpdateDecimals: { type: Number, required: true },
+    scaleUpdateDecimals: { type: Number, required: true },
 });
 
 const emit = defineEmits<{
@@ -115,8 +126,9 @@ const sessionId = computed(
     () => props.vircadiaWorld.connectionInfo.value.sessionId ?? null,
 );
 const fullSessionId = computed(() => {
-    if (!sessionId.value || !props.instanceId) return null;
-    return `${sessionId.value}-${props.instanceId}`;
+    if (!sessionId.value) return null;
+    const inst = props.instanceId ?? "0";
+    return `${sessionId.value}-${inst}`;
 });
 const entityName = computed(() =>
     fullSessionId.value ? `avatar:${fullSessionId.value}` : null,
@@ -129,6 +141,10 @@ const previousJointStates = new Map<string, string>();
 const previousJointPositionGate = new Map<string, string>();
 const previousJointRotationGate = new Map<string, string>();
 const previousJointScaleGate = new Map<string, string>();
+// Main transform gating snapshots
+let previousMainPositionGate: string | null = null;
+let previousMainRotationGate: string | null = null;
+let previousMainScaleGate: string | null = null;
 
 function vectorToObj(v: Vector3): PositionObj {
     return { x: v.x, y: v.y, z: v.z };
@@ -177,38 +193,18 @@ function quantizeRotation(rot: RotationObj, decimals: number): RotationObj {
     return { x: qx, y: qy, z: qz, w: qw };
 }
 
-// Helper to upsert multiple metadata entries in a single batched query
-async function upsertMetadataEntries(
-    entity: string,
-    entries: Array<[string, unknown]>,
-    timeoutMs?: number,
-): Promise<void> {
-    if (entries.length === 0) {
-        return;
+// Ensure minimal entity row exists in DB for discovery (no transform persistence)
+async function ensureEntityRowExists(name: string): Promise<void> {
+    try {
+        await props.vircadiaWorld.client.Utilities.Connection.query({
+            query: "INSERT INTO entity.entities (general__entity_name, group__sync, general__expiry__delete_since_updated_at_ms, general__expiry__delete_since_created_at_ms) VALUES ($1, $2, $3, NULL) ON CONFLICT (general__entity_name) DO NOTHING",
+            parameters: [name, "public.NORMAL", 120000],
+            timeoutMs: 5000,
+        });
+    } catch (e) {
+        console.warn("[BabylonMyAvatarEntity] ensureEntityRowExists failed", e);
+        recordError("ensureEntityRowExists", e);
     }
-
-    const valuesClause = entries
-        .map(
-            (_, i) =>
-                `($${i * 4 + 1}, $${i * 4 + 2}, $${i * 4 + 3}::jsonb, $${i * 4 + 4})`,
-        )
-        .join(", ");
-
-    const parameters = entries.flatMap(([key, value]) => [
-        entity,
-        key,
-        JSON.stringify(value),
-        "public.NORMAL",
-    ]);
-
-    await props.vircadiaWorld.client.Utilities.Connection.query({
-        query:
-            "INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync)" +
-            `VALUES ${valuesClause}` +
-            "ON CONFLICT (general__entity_name, metadata__key) DO UPDATE SET metadata__value = EXCLUDED.metadata__value",
-        parameters,
-        timeoutMs,
-    });
 }
 
 // Batching logic
@@ -321,22 +317,65 @@ const pushBatchedUpdates = useThrottleFn(async () => {
     });
 
     try {
-        // Belt-and-suspenders: ensure entity exists before metadata upsert
-        try {
-            await props.vircadiaWorld.client.Utilities.Connection.query({
-                query: "INSERT INTO entity.entities (general__entity_name, group__sync, general__expiry__delete_since_updated_at_ms) VALUES ($1, $2, $3) ON CONFLICT (general__entity_name) DO NOTHING",
-                parameters: [name, "public.NORMAL", 120000],
-                timeoutMs: 3000,
-            });
-        } catch (ensureErr) {
-            // Non-fatal; proceed to upsert metadata and let errors bubble if any
-            console.debug(
-                "[BabylonMyAvatarEntity] ensure entity failed (non-fatal)",
-                ensureErr,
-            );
+        // Reflect all avatar data via WS reflector (DB-free hot path)
+        const avatarFrame: Record<string, unknown> = {
+            type: "avatar_frame",
+            entityName: name,
+            ts: Date.now(),
+        };
+
+        // Add position, rotation, scale, camera data
+        for (const [key, value] of updates) {
+            if (
+                key === "position" ||
+                key === "rotation" ||
+                key === "scale" ||
+                key === "cameraOrientation"
+            ) {
+                avatarFrame[key] = value;
+            }
         }
 
-        await upsertMetadataEntries(name, updates, 5000);
+        // Add joints as nested object
+        const joints: Record<string, unknown> = {};
+        for (const [key, value] of updates) {
+            if (key.startsWith("joint:")) {
+                const jointName = key.substring("joint:".length);
+                joints[jointName] = value;
+            }
+        }
+        if (Object.keys(joints).length > 0) {
+            avatarFrame.joints = joints;
+        }
+
+        // Publish if we have any data to send
+        if (Object.keys(avatarFrame).length > 3) {
+            // More than just type, entityName, ts
+            try {
+                const connection = props.vircadiaWorld.client.Utilities
+                    .Connection as unknown as {
+                    publishReflect: (args: {
+                        syncGroup: string;
+                        channel: string;
+                        payload: unknown;
+                        timeoutMs?: number;
+                    }) => Promise<unknown>;
+                };
+                await connection.publishReflect({
+                    syncGroup: props.reflectSyncGroup,
+                    channel: props.reflectChannel,
+                    payload: avatarFrame,
+                    timeoutMs: 3000,
+                });
+            } catch (e) {
+                console.warn(
+                    "[BabylonMyAvatarEntity] reflect publish failed",
+                    e,
+                );
+            }
+        }
+
+        // No DB persistence - data kept only in reflection
         const now = Date.now();
         const batchProcessTime = now - batchStartTime;
         const lastAt = syncStats.lastPushedAtMs;
@@ -380,21 +419,56 @@ function queueUpdate(key: string, value: unknown) {
 // Position & Rotation are high frequency
 function updateTransform() {
     if (!props.avatarNode) return;
-    // Position
+    // Position (gate using update decimals; send using quantization decimals)
     const pos = props.avatarNode.position ?? new V3(0, 0, 0);
-    const posObj = vectorToObj(pos);
-    const posState = JSON.stringify(posObj);
-    if (previousMainStates.get("position") !== posState) {
-        queueUpdate("position", posObj);
-        previousMainStates.set("position", posState);
+    const posGate = quantizePosition(
+        vectorToObj(pos),
+        props.positionUpdateDecimals,
+    );
+    const posGateStr = JSON.stringify(posGate);
+    if (previousMainPositionGate !== posGateStr) {
+        previousMainPositionGate = posGateStr;
+        const posSend = quantizePosition(
+            vectorToObj(pos),
+            props.positionDecimals,
+        );
+        const posState = JSON.stringify(posSend);
+        if (previousMainStates.get("position") !== posState) {
+            queueUpdate("position", posSend);
+            previousMainStates.set("position", posState);
+        }
     }
-    // Rotation
+    // Rotation (gate and send)
     const rot = props.avatarNode.rotationQuaternion ?? new Q4(0, 0, 0, 1);
-    const rotObj = quatToObj(rot);
-    const rotState = JSON.stringify(rotObj);
-    if (previousMainStates.get("rotation") !== rotState) {
-        queueUpdate("rotation", rotObj);
-        previousMainStates.set("rotation", rotState);
+    const rotGate = quantizeRotation(
+        quatToObj(rot),
+        props.rotationUpdateDecimals,
+    );
+    const rotGateStr = JSON.stringify(rotGate);
+    if (previousMainRotationGate !== rotGateStr) {
+        previousMainRotationGate = rotGateStr;
+        const rotSend = quantizeRotation(
+            quatToObj(rot),
+            props.rotationDecimals,
+        );
+        const rotState = JSON.stringify(rotSend);
+        if (previousMainStates.get("rotation") !== rotState) {
+            queueUpdate("rotation", rotSend);
+            previousMainStates.set("rotation", rotState);
+        }
+    }
+    // Scale (gate and send)
+    const scl = props.avatarNode.scaling ?? new V3(1, 1, 1);
+    const sclGate = quantizeScale(vectorToObj(scl), props.scaleUpdateDecimals);
+    const sclGateStr = JSON.stringify(sclGate);
+    if (previousMainScaleGate !== sclGateStr) {
+        previousMainScaleGate = sclGateStr;
+        const sclSend = quantizeScale(vectorToObj(scl), props.scaleDecimals);
+        const sclState = JSON.stringify(sclSend);
+        if (previousMainStates.get("scale") !== sclState) {
+            queueUpdate("scale", sclSend);
+            previousMainStates.set("scale", sclState);
+        }
     }
 }
 
@@ -485,32 +559,6 @@ const updateJoints = useThrottleFn(() => {
     }
 }, props.jointThrottleInterval);
 
-// Logic moved from BabylonMyAvatar.vue
-async function retrieveEntityMetadata(
-    requestedEntityName: string,
-): Promise<Map<string, unknown> | null> {
-    try {
-        const metadataResult =
-            await props.vircadiaWorld.client.Utilities.Connection.query({
-                query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1",
-                parameters: [requestedEntityName],
-            });
-
-        if (Array.isArray(metadataResult.result)) {
-            const metadataMap = new Map<string, unknown>();
-            for (const row of metadataResult.result) {
-                metadataMap.set(row.metadata__key, row.metadata__value);
-            }
-            return metadataMap;
-        }
-    } catch (e) {
-        console.error("Failed to retrieve metadata:", e);
-        recordError("retrieveEntityMetadata", e);
-        emitStats(null);
-    }
-    return null;
-}
-
 // Definition now provided by props; no DB load
 
 async function initializeEntity() {
@@ -527,93 +575,21 @@ async function initializeEntity() {
     // Provide avatar definition from props
     emit("avatar-definition-loaded", props.avatarDefinition);
 
-    // Check if entity exists
-    let exists = false;
-    try {
-        const existsResult =
-            await props.vircadiaWorld.client.Utilities.Connection.query({
-                query: "SELECT 1 FROM entity.entities WHERE general__entity_name = $1",
-                parameters: [entityName.value],
-            });
-
-        exists =
-            Array.isArray(existsResult.result) &&
-            existsResult.result.length > 0;
-    } catch (e) {
-        console.error("Failed to check if avatar entity exists:", e);
-        recordError("checkEntityExists", e);
-        emitStats(null);
-        return;
+    // Ensure a minimal entity row exists in DB so others can discover us
+    if (entityName.value) {
+        await ensureEntityRowExists(entityName.value);
     }
 
-    if (!exists) {
-        isCreating.value = true;
-        try {
-            await props.vircadiaWorld.client.Utilities.Connection.query({
-                query: "INSERT INTO entity.entities (general__entity_name, group__sync, general__expiry__delete_since_updated_at_ms, general__expiry__delete_since_created_at_ms) VALUES ($1, $2, $3, NULL)",
-                parameters: [entityName.value, "public.NORMAL", 120000],
-            });
-            const seed: Array<[string, unknown]> = [
-                ["type", "avatar"],
-                ["sessionId", fullSessionId.value],
-            ];
-            await upsertMetadataEntries(entityName.value, seed);
-        } catch (e) {
-            console.error("Failed to create avatar entity:", e);
-            recordError("createEntity", e);
-            emitStats(null);
-        } finally {
-            isCreating.value = false;
-        }
-    }
-
-    // Retrieve entity data
-    isRetrieving.value = true;
-    try {
-        const name = entityName.value;
-        const currentFullSessionId = fullSessionId.value;
-
-        const entityResult =
-            await props.vircadiaWorld.client.Utilities.Connection.query({
-                query: "SELECT general__entity_name FROM entity.entities WHERE general__entity_name = $1",
-                parameters: [name],
-            });
-
-        if (
-            Array.isArray(entityResult.result) &&
-            entityResult.result.length > 0
-        ) {
-            const metadata = await retrieveEntityMetadata(name);
-            if (metadata) {
-                const retrievedSessionId = metadata.get("sessionId") as
-                    | string
-                    | undefined;
-                if (retrievedSessionId !== currentFullSessionId) {
-                    console.error(
-                        "[AVATAR ENTITY] Retrieved wrong entity! Ignoring.",
-                        {
-                            retrievedSessionId,
-                            expectedSessionId: currentFullSessionId,
-                        },
-                    );
-                    entityData.value = null;
-                    return;
-                }
-
-                entityData.value = {
-                    general__entity_name: name,
-                    metadata: metadata,
-                };
-                emit("entity-data-loaded", entityData.value);
-            }
-        }
-    } catch (e) {
-        console.error("Failed to retrieve avatar entity:", e);
-        recordError("retrieveEntity", e);
-        emitStats(null);
-    } finally {
-        isRetrieving.value = false;
-    }
+    // Create minimal entity data structure for compatibility
+    // No DB persistence, so we create a simple in-memory structure
+    entityData.value = {
+        general__entity_name: entityName.value,
+        metadata: new Map([
+            ["type", "avatar"],
+            ["sessionId", fullSessionId.value],
+        ]),
+    };
+    emit("entity-data-loaded", entityData.value);
 }
 
 // Frame hooks

@@ -20,7 +20,7 @@
                             <v-list-item title="Any loading" :subtitle="String(!!isLoading)" />
                             <v-list-item title="Polling: pos/rot" :subtitle="String(isPollingPositionRotation)" />
                             <v-list-item title="Polling: camera" :subtitle="String(isPollingCamera)" />
-                            <v-list-item title="Polling: joints" :subtitle="String(isPollingJoints)" />
+                            <v-list-item title="Joints" subtitle="via reflect (no DB polling)" />
                             <v-list-item title="Discovery rows" :subtitle="String(pollStats?.discovery?.rows ?? 0)" />
                             <v-list-item title="Discovery last ms" :subtitle="String(pollStats?.discovery?.lastDurationMs ?? 0)" />
                             <v-list-item title="Discovery timeouts/errors" :subtitle="`${pollStats?.discovery?.timeouts ?? 0} / ${pollStats?.discovery?.errors ?? 0}`" />
@@ -54,7 +54,7 @@
                                     — joints: {{ jointCount(sid) }}
                                     — pr: {{ statFor(pollStats?.posRot, sid)?.rows ?? 0 }} rows
                                     — cam: {{ statFor(pollStats?.camera, sid)?.rows ?? 0 }} rows
-                                    — jnt: {{ statFor(pollStats?.joints, sid)?.rows ?? 0 }} rows
+                                    — joints via reflect
                                 </span>
                             </div>
                         </v-expansion-panel-title>
@@ -71,7 +71,7 @@
                                         <v-list-item title="rotation (quat)" :subtitle="rotationLabel(rotationDataMap[sid])" />
                                         <v-list-item title="Errors (pos/rot)" :subtitle="errorLabel(pollStats?.posRot, sid)" />
                                         <v-list-item title="Errors (camera)" :subtitle="errorLabel(pollStats?.camera, sid)" />
-                                        <v-list-item title="Errors (joints)" :subtitle="errorLabel(pollStats?.joints, sid)" />
+                                        <!-- No joint DB polling errors; joints are via reflect -->
                                     </v-list>
                                 </v-col>
                                 <v-col cols="12" md="6">
@@ -149,7 +149,7 @@ const props = defineProps({
         default: false,
     },
     isPollingCamera: { type: Boolean, required: false, default: false },
-    isPollingJoints: { type: Boolean, required: false, default: false },
+    // Joints are handled via reflect; no polling flag needed
     isLoading: { type: Boolean, required: false, default: false },
     connectionStatus: { type: String, required: false, default: "unknown" },
     // Poll stats including errors/timeouts and row counts

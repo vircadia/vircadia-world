@@ -122,14 +122,9 @@ const isCreating = ref(false);
 const isRetrieving = ref(false);
 const entityData: Ref<EntityData | null> = ref(null);
 
-const sessionId = computed(
-    () => props.vircadiaWorld.connectionInfo.value.sessionId ?? null,
+const fullSessionId = computed(
+    () => props.vircadiaWorld.connectionInfo.value.fullSessionId ?? null,
 );
-const fullSessionId = computed(() => {
-    if (!sessionId.value) return null;
-    const inst = props.instanceId ?? "0";
-    return `${sessionId.value}-${inst}`;
-});
 const entityName = computed(() =>
     fullSessionId.value ? `avatar:${fullSessionId.value}` : null,
 );
@@ -562,12 +557,7 @@ const updateJoints = useThrottleFn(() => {
 // Definition now provided by props; no DB load
 
 async function initializeEntity() {
-    if (
-        !sessionId.value ||
-        !props.instanceId ||
-        !fullSessionId.value ||
-        !entityName.value
-    ) {
+    if (!props.instanceId || !fullSessionId.value || !entityName.value) {
         console.error("[AVATAR ENTITY] Missing required IDs, cannot proceed");
         return;
     }

@@ -182,10 +182,9 @@ const sessionId = computed(
     () => props.vircadiaWorld.connectionInfo.value.sessionId ?? null,
 );
 const instanceId = computed(() => props.instanceId ?? null);
-const fullSessionId = computed(() => {
-    if (!sessionId.value || !instanceId.value) return null;
-    return `${sessionId.value}-${instanceId.value}`;
-});
+const fullSessionId = computed(
+    () => props.vircadiaWorld.connectionInfo.value.fullSessionId ?? null,
+);
 
 function onAvatarDefinitionLoaded(def: AvatarDefinition) {
     dbAvatarDef.value = def;

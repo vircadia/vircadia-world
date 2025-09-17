@@ -1,5 +1,5 @@
 <template>
-    <v-dialog v-model="open" max-width="880">
+    <v-dialog v-model="open" max-width="920">
         <template #activator="{ props: activatorProps }">
             <v-btn v-bind="activatorProps" size="small" variant="text" icon="mdi-account-group-outline" class="ma-2" />
         </template>
@@ -12,23 +12,43 @@
                 </div>
             </v-card-title>
             <v-card-text>
-                <v-row dense>
-                    <v-col cols="12" md="6">
+                <v-tabs v-model="tab" density="compact">
+                    <v-tab value="overview">Overview</v-tab>
+                    <v-tab value="reflect">Reflect</v-tab>
+                    <v-tab value="sessions">Sessions</v-tab>
+                    <v-tab value="errors">Errors</v-tab>
+                </v-tabs>
+                <v-window v-model="tab" class="mt-3">
+                    <v-window-item value="overview">
+                        <v-row dense>
+                            <v-col cols="12" md="6">
+                                <v-list density="compact" class="bg-transparent">
+                                    <v-list-subheader>Overview</v-list-subheader>
+                                    <v-list-item title="# other avatars" :subtitle="String(otherAvatarSessionIds.length)" />
+                                    <v-list-item title="Any loading" :subtitle="String(!!isLoading)" />
+                                    <v-list-item title="Discovery rows" :subtitle="String(pollStats?.discovery?.rows ?? 0)" />
+                                    <v-list-item title="Discovery last ms" :subtitle="String(pollStats?.discovery?.lastDurationMs ?? 0)" />
+                                    <v-list-item title="Discovery timeouts/errors" :subtitle="`${pollStats?.discovery?.timeouts ?? 0} / ${pollStats?.discovery?.errors ?? 0}`" />
+                                </v-list>
+                            </v-col>
+                            <v-col cols="12" md="6">
+                                <v-list density="compact" class="bg-transparent">
+                                    <v-list-subheader>Latest Discovery (UTC)</v-list-subheader>
+                                    <div v-if="otherAvatarSessionIds.length === 0" class="text-caption">-</div>
+                                    <div v-else class="text-caption">
+                                        <div v-for="sid in otherAvatarSessionIds.slice(0, 20)" :key="sid" class="mb-1">
+                                            <span class="font-mono">{{ shortId(sid) }}</span>
+                                            — last joints: <span class="font-mono">{{ tsLabel(lastPollTimestamps[sid]) }}</span>
+                                        </div>
+                                    </div>
+                                </v-list>
+                            </v-col>
+                        </v-row>
+                    </v-window-item>
+
+                    <v-window-item value="reflect">
                         <v-list density="compact" class="bg-transparent">
-                            <v-list-subheader>Overview</v-list-subheader>
-                            <v-list-item title="# other avatars" :subtitle="String(otherAvatarSessionIds.length)" />
-                            <v-list-item title="Any loading" :subtitle="String(!!isLoading)" />
-                            <v-list-item title="Polling: pos/rot" :subtitle="String(isPollingPositionRotation)" />
-                            <v-list-item title="Polling: camera" :subtitle="String(isPollingCamera)" />
-                            <v-list-item title="Joints" subtitle="via reflect (no DB polling)" />
-                            <v-list-item title="Discovery rows" :subtitle="String(pollStats?.discovery?.rows ?? 0)" />
-                            <v-list-item title="Discovery last ms" :subtitle="String(pollStats?.discovery?.lastDurationMs ?? 0)" />
-                            <v-list-item title="Discovery timeouts/errors" :subtitle="`${pollStats?.discovery?.timeouts ?? 0} / ${pollStats?.discovery?.errors ?? 0}`" />
-                        </v-list>
-                    </v-col>
-                    <v-col cols="12" md="6">
-                        <v-list density="compact" class="bg-transparent">
-                            <v-list-subheader>Latest Poll Timestamps (UTC)</v-list-subheader>
+                            <v-list-subheader>Reflect (Deliveries)</v-list-subheader>
                             <div v-if="otherAvatarSessionIds.length === 0" class="text-caption">-</div>
                             <div v-else class="text-caption">
                                 <div v-for="sid in otherAvatarSessionIds.slice(0, 20)" :key="sid" class="mb-1">
@@ -39,57 +59,61 @@
                                 </div>
                             </div>
                         </v-list>
-                    </v-col>
-                </v-row>
+                    </v-window-item>
 
-                <v-divider class="my-3" />
+                    <v-window-item value="sessions">
+                        <v-expansion-panels variant="accordion" density="compact">
+                            <v-expansion-panel v-for="sid in otherAvatarSessionIds" :key="sid">
+                                <v-expansion-panel-title>
+                                    <div class="d-flex align-center justify-space-between w-100">
+                                        <span class="font-mono">{{ sid }}</span>
+                                        <span class="text-caption">
+                                            model: <span class="font-mono">{{ avatarDataMap[sid]?.modelFileName || '-' }}</span>
+                                            — joints: {{ jointCount(sid) }}
+                                        </span>
+                                    </div>
+                                </v-expansion-panel-title>
+                                <v-expansion-panel-text>
+                                    <v-row dense>
+                                        <v-col cols="12" md="6">
+                                            <v-list density="compact" class="bg-transparent">
+                                                <v-list-subheader>Base</v-list-subheader>
+                                                <v-list-item title="sessionId" :subtitle="avatarDataMap[sid]?.sessionId || '-'" />
+                                                <v-list-item title="modelFileName" :subtitle="avatarDataMap[sid]?.modelFileName || '-'" />
+                                                <v-list-item title="camera (alpha, beta, radius)"
+                                                    :subtitle="cameraLabel(avatarDataMap[sid]?.cameraOrientation)" />
+                                                <v-list-item title="position" :subtitle="positionLabel(positionDataMap[sid])" />
+                                                <v-list-item title="rotation (quat)" :subtitle="rotationLabel(rotationDataMap[sid])" />
+                                            </v-list>
+                                        </v-col>
+                                        <v-col cols="12" md="6">
+                                            <v-list density="compact" class="bg-transparent">
+                                                <v-list-subheader>Joints</v-list-subheader>
+                                                <div v-if="jointCount(sid) === 0" class="text-caption">-</div>
+                                                <div v-else class="text-caption">
+                                                    <div v-for="jn in jointNames(sid).slice(0, 20)" :key="jn" class="mb-1">
+                                                        <span class="font-mono">{{ jn }}</span>
+                                                        <span class="ml-2">{{ jointPosRotLabel(sid, jn) }}</span>
+                                                    </div>
+                                                </div>
+                                            </v-list>
+                                        </v-col>
+                                    </v-row>
+                                </v-expansion-panel-text>
+                            </v-expansion-panel>
+                        </v-expansion-panels>
+                    </v-window-item>
 
-                <v-expansion-panels variant="accordion" density="compact">
-                    <v-expansion-panel v-for="sid in otherAvatarSessionIds" :key="sid">
-                        <v-expansion-panel-title>
-                            <div class="d-flex align-center justify-space-between w-100">
-                                <span class="font-mono">{{ sid }}</span>
-                                <span class="text-caption">
-                                    model: <span class="font-mono">{{ avatarDataMap[sid]?.modelFileName || '-' }}</span>
-                                    — joints: {{ jointCount(sid) }}
-                                    — pr: {{ statFor(pollStats?.posRot, sid)?.rows ?? 0 }} rows
-                                    — cam: {{ statFor(pollStats?.camera, sid)?.rows ?? 0 }} rows
-                                    — joints via reflect
-                                </span>
-                            </div>
-                        </v-expansion-panel-title>
-                        <v-expansion-panel-text>
-                            <v-row dense>
-                                <v-col cols="12" md="6">
-                                    <v-list density="compact" class="bg-transparent">
-                                        <v-list-subheader>Base</v-list-subheader>
-                                        <v-list-item title="sessionId" :subtitle="avatarDataMap[sid]?.sessionId || '-'" />
-                                        <v-list-item title="modelFileName" :subtitle="avatarDataMap[sid]?.modelFileName || '-'" />
-                                        <v-list-item title="camera (alpha, beta, radius)"
-                                            :subtitle="cameraLabel(avatarDataMap[sid]?.cameraOrientation)" />
-                                        <v-list-item title="position" :subtitle="positionLabel(positionDataMap[sid])" />
-                                        <v-list-item title="rotation (quat)" :subtitle="rotationLabel(rotationDataMap[sid])" />
-                                        <v-list-item title="Errors (pos/rot)" :subtitle="errorLabel(pollStats?.posRot, sid)" />
-                                        <v-list-item title="Errors (camera)" :subtitle="errorLabel(pollStats?.camera, sid)" />
-                                        <!-- No joint DB polling errors; joints are via reflect -->
-                                    </v-list>
-                                </v-col>
-                                <v-col cols="12" md="6">
-                                    <v-list density="compact" class="bg-transparent">
-                                        <v-list-subheader>Joints</v-list-subheader>
-                                        <div v-if="jointCount(sid) === 0" class="text-caption">-</div>
-                                        <div v-else class="text-caption">
-                                            <div v-for="jn in jointNames(sid).slice(0, 20)" :key="jn" class="mb-1">
-                                                <span class="font-mono">{{ jn }}</span>
-                                                <span class="ml-2">{{ jointPosRotLabel(sid, jn) }}</span>
-                                            </div>
-                                        </div>
-                                    </v-list>
-                                </v-col>
-                            </v-row>
-                        </v-expansion-panel-text>
-                    </v-expansion-panel>
-                </v-expansion-panels>
+                    <v-window-item value="errors">
+                        <v-list density="compact" class="bg-transparent">
+                            <v-list-subheader>Discovery Errors</v-list-subheader>
+                            <v-list-item title="Timeouts" :subtitle="String(pollStats?.discovery?.timeouts ?? 0)" />
+                            <v-list-item title="Errors" :subtitle="String(pollStats?.discovery?.errors ?? 0)" />
+                            <v-list-item title="Last error at" :subtitle="tsLabel(pollStats?.discovery?.lastErrorAt || null)" />
+                            <v-list-item title="Last error" :subtitle="pollStats?.discovery?.lastError || '-'" />
+                        </v-list>
+                    </v-window-item>
+                </v-window>
             </v-card-text>
             <v-card-actions>
                 <v-spacer />
@@ -100,7 +124,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useMagicKeys, whenever, useVModel } from "@vueuse/core";
 import type {
     AvatarJointMetadata,
@@ -143,16 +167,10 @@ const props = defineProps({
         type: Object as () => Record<string, Date | null | undefined>,
         required: true,
     },
-    isPollingPositionRotation: {
-        type: Boolean,
-        required: false,
-        default: false,
-    },
-    isPollingCamera: { type: Boolean, required: false, default: false },
-    // Joints are handled via reflect; no polling flag needed
+    // Loading/connection
     isLoading: { type: Boolean, required: false, default: false },
     connectionStatus: { type: String, required: false, default: "unknown" },
-    // Poll stats including errors/timeouts and row counts
+    // Poll stats (discovery only retained)
     pollStats: {
         type: Object as () => {
             discovery: {
@@ -163,39 +181,6 @@ const props = defineProps({
                 lastError: string | null;
                 lastErrorAt: Date | null;
             };
-            posRot: Record<
-                string,
-                {
-                    lastDurationMs: number;
-                    rows: number;
-                    timeouts: number;
-                    errors: number;
-                    lastError: string | null;
-                    lastErrorAt: Date | null;
-                }
-            >;
-            camera: Record<
-                string,
-                {
-                    lastDurationMs: number;
-                    rows: number;
-                    timeouts: number;
-                    errors: number;
-                    lastError: string | null;
-                    lastErrorAt: Date | null;
-                }
-            >;
-            joints: Record<
-                string,
-                {
-                    lastDurationMs: number;
-                    rows: number;
-                    timeouts: number;
-                    errors: number;
-                    lastError: string | null;
-                    lastErrorAt: Date | null;
-                }
-            >;
         },
         required: false,
         default: undefined,
@@ -226,6 +211,8 @@ whenever(
     },
 );
 
+// Tabs
+const tab = ref("overview");
 const hotkeyLabel = computed(() => props.hotkey.replace("+", " + "));
 const statusColor = computed(() => {
     switch (props.connectionStatus) {
@@ -275,38 +262,6 @@ function jointNames(sessionId: string): string[] {
     for (const [k] of m) out.push(k);
     return out.sort();
 }
-
-function statFor(
-    map: Record<string, { rows: number }> | undefined,
-    id: string,
-): { rows: number } | undefined {
-    return map ? map[id] : undefined;
-}
-
-function errorLabel(
-    map:
-        | Record<
-              string,
-              {
-                  timeouts: number;
-                  errors: number;
-                  lastError: string | null;
-                  lastErrorAt: Date | null;
-              }
-          >
-        | undefined,
-    id: string,
-): string {
-    if (!map || !map[id]) return "-";
-    const c = map[id];
-    const ts = c.lastErrorAt
-        ? new Date(c.lastErrorAt).toISOString().split("T")[1]?.split(".")[0]
-        : "";
-    if (c.errors || c.timeouts)
-        return `${c.timeouts} timeouts, ${c.errors} errors${c.lastError ? ` (${ts} ${c.lastError.substring(0, 60)}...)` : ""}`;
-    return "-";
-}
-
 function jointPosRotLabel(sessionId: string, jointName: string): string {
     const m = props.jointDataMap[sessionId];
     const j = m?.get(jointName);
@@ -327,13 +282,13 @@ void tsLabel;
 void cameraLabel;
 void positionLabel;
 void rotationLabel;
-void statFor;
-void errorLabel;
 void jointPosRotLabel;
+void tab;
 </script>
 
 <style scoped>
 .font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
 </style>
+
 
 

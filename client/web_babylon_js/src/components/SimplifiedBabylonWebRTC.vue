@@ -50,11 +50,9 @@ const props = defineProps<Props>();
 const vircadiaWorld = props.vircadiaWorld;
 
 // Computed session ID
-const fullSessionId = computed(() => {
-    const base = vircadiaWorld?.connectionInfo?.value?.sessionId ?? null;
-    if (!base) return null;
-    return `${base}-${props.instanceId}`;
-});
+const fullSessionId = computed(
+    () => vircadiaWorld?.connectionInfo?.value?.fullSessionId ?? null,
+);
 
 // Initialize simplified WebRTC
 const webrtc = fullSessionId.value

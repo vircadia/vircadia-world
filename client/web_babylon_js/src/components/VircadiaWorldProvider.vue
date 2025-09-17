@@ -162,36 +162,6 @@ const isConnecting = ref(false);
 const lastConnectedToken = ref<string | null>(null);
 const lastConnectedAgentId = ref<string | null>(null);
 
-const instanceId = ref<string | null>(null);
-
-function generateInstanceId(): string {
-    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-    let result = "";
-    for (let i = 0; i < 6; i++) {
-        result += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return result;
-}
-
-// Ensure a per-tab instanceId exists as early as possible
-if (!instanceId.value) {
-    instanceId.value = generateInstanceId();
-    console.log(
-        "[VircadiaWorldProvider] Generated instance ID:",
-        instanceId.value,
-        "at",
-        new Date().toISOString(),
-        "Tab ID:",
-        window.name || "unnamed",
-    );
-    // Store in sessionStorage to verify it's unique per tab
-    sessionStorage.setItem("vircadia-instance-id", instanceId.value);
-    sessionStorage.setItem(
-        "vircadia-instance-created",
-        new Date().toISOString(),
-    );
-}
-
 // Derived state
 const connectionInfoComputed = computed(
     () => vircadiaWorldNonNull.connectionInfo.value,
@@ -213,18 +183,13 @@ const agentIdComputed = computed(
 );
 const authProviderComputed = computed(() => props.authProvider ?? "anon");
 
-// Computed property for full session ID that combines sessionId and instanceId
-const fullSessionIdComputed = computed(() => {
-    const session = sessionIdComputed.value;
-    const instance = instanceId.value;
-
-    // Both must be present to create a valid fullSessionId
-    if (!session || !instance) {
-        return null;
-    }
-
-    return `${session}-${instance}`;
-});
+// Pull instanceId and fullSessionId directly from core connection info
+const instanceId = computed(
+    () => connectionInfoComputed.value.instanceId ?? null,
+);
+const fullSessionIdComputed = computed(
+    () => connectionInfoComputed.value.fullSessionId ?? null,
+);
 
 type MinimalAccount =
     | {

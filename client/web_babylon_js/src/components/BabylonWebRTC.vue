@@ -548,14 +548,17 @@ const spatialAudio = useWebRTCSpatialAudio(
 );
 
 // Computed properties for session management
-const baseSessionId = computed(
-    () => vircadiaWorld.connectionInfo.value.sessionId ?? null,
+const fullSessionId = computed(
+    () => vircadiaWorld.connectionInfo.value.fullSessionId ?? null,
 );
-const fullSessionId = computed(() => {
-    const base = baseSessionId.value;
-    if (!base) return null;
-    return `${base}-${props.instanceId}`;
+// Base session (without instance suffix) for display
+const baseSessionId = computed(() => {
+    const full = fullSessionId.value || "";
+    const idx = full.indexOf("@");
+    return idx >= 0 ? full.slice(0, idx) : full || null;
 });
+// mark used in template
+void baseSessionId;
 
 const audioTracks = computed(() => {
     if (!localStream.value) return [];

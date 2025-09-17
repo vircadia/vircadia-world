@@ -10,87 +10,97 @@
 				<v-chip size="x-small" color="primary" label>{{ hotkeyLabel }}</v-chip>
 			</v-card-title>
 			<v-card-text>
-				<v-row dense>
-					<v-col cols="12" md="6">
-						<v-list density="compact" class="bg-transparent">
-							<v-list-subheader>General</v-list-subheader>
-							<v-list-item title="Scene initialized" :subtitle="String(!!scene)" />
-							<v-list-item title="Active camera" :subtitle="cameraLabel" />
-							<v-list-item title="Avatar node" :subtitle="avatarNode ? 'yes' : 'no'" />
-							<v-list-item title="Model file" :subtitle="modelFileName || '-'" />
-							<v-list-item title="Model load step" :subtitle="modelStep || '-'" />
-							<v-list-item title="Model state" :subtitle="modelStateLabel" :class="{ 'text-error': modelError, 'text-success': modelReady }" />
-							<v-list-item v-if="modelError" title="Model error" :subtitle="modelError" class="text-error" />
-							<v-list-item title="Talking" :subtitle="String(isTalking)" />
-							<v-list-item title="Talk level" :subtitle="talkLevelLabel" />
-							<v-divider class="my-2" />
-							<v-list-subheader>Physics/State</v-list-subheader>
-							<v-list-item title="Physics enabled" :subtitle="String(physicsEnabled)" />
-							<v-list-item title="Airborne" :subtitle="String(airborne)" />
-							<v-list-item title="Vertical velocity" :subtitle="verticalVelocityLabel" />
-							<v-list-item title="Support state" :subtitle="supportStateLabel" />
-							<v-list-item title="Spawn settling" :subtitle="String(spawnSettling)" />
-							<v-list-item title="Has touched ground" :subtitle="String(hasTouchedGround)" />
-							<v-divider class="my-2" />
-							<v-list-subheader>Ground Probe</v-list-subheader>
-							<v-list-item title="Probe hit" :subtitle="String(groundProbeHit)" />
-							<v-list-item title="Probe distance" :subtitle="groundProbeDistanceLabel" />
-							<v-list-item title="Probe mesh" :subtitle="groundProbeMeshName || '-'" />
-						</v-list>
-					</v-col>
-					<v-col cols="12" md="6">
-						<v-list density="compact" class="bg-transparent">
-							<v-list-subheader>Avatar Meshes</v-list-subheader>
-							<v-list-item title="# under avatar" :subtitle="String(meshesUnderAvatar.length)" />
-							<v-list-item title="# skinned (match skeleton)" :subtitle="String(skinnedMeshesUnderAvatar.length)" />
-							<v-expansion-panels variant="accordion" density="compact">
-								<v-expansion-panel>
-									<v-expansion-panel-title>Mesh visibility (first 15)</v-expansion-panel-title>
-									<v-expansion-panel-text>
-										<div v-for="m in meshesUnderAvatar.slice(0, 15)" :key="m.uniqueId" class="text-caption">
-											<span class="font-mono">{{ m.name || '(unnamed)' }}</span>
-											— vis: {{ m.isVisible }} — enabled: {{ m.isEnabled() }}
-										</div>
-									</v-expansion-panel-text>
-								</v-expansion-panel>
-							</v-expansion-panels>
-						</v-list>
-					</v-col>
-				</v-row>
-				<v-divider class="my-3" />
-				<v-row dense>
-					<v-col cols="12" md="6">
-						<v-list density="compact" class="bg-transparent">
-							<v-list-subheader>Skeleton</v-list-subheader>
-							<v-list-item title="Present" :subtitle="avatarSkeleton ? 'yes' : 'no'" />
-							<v-list-item title="Bone count" :subtitle="avatarSkeleton ? String(avatarSkeleton.bones.length) : '-'" />
-						</v-list>
-					</v-col>
-					<v-col cols="12" md="6">
-						<v-list density="compact" class="bg-transparent">
-							<v-list-subheader>Camera</v-list-subheader>
-							<v-list-item title="Position" :subtitle="cameraPositionLabel" />
-							<v-list-item title="Target" :subtitle="cameraTargetLabel" />
-						</v-list>
+				<v-tabs v-model="tab" density="compact">
+					<v-tab value="overview">Overview</v-tab>
+					<v-tab value="physics">Physics</v-tab>
+					<v-tab value="cameraAudio">Camera & Audio</v-tab>
+					<v-tab value="reflect">Reflect Sync</v-tab>
+					<v-tab value="meshes">Meshes & Skeleton</v-tab>
+					<v-tab value="blend">Blendshapes</v-tab>
+				</v-tabs>
+				<v-window v-model="tab" class="mt-3">
+					<v-window-item value="overview">
+						<v-row dense>
+							<v-col cols="12" md="6">
+								<v-list density="compact" class="bg-transparent">
+									<v-list-subheader>General</v-list-subheader>
+									<v-list-item title="Scene initialized" :subtitle="String(!!scene)" />
+									<v-list-item title="Active camera" :subtitle="cameraLabel" />
+									<v-list-item title="Avatar node" :subtitle="avatarNode ? 'yes' : 'no'" />
+									<v-list-item title="Model file" :subtitle="modelFileName || '-'" />
+									<v-list-item title="Model load step" :subtitle="modelStep || '-'" />
+									<v-list-item title="Model state" :subtitle="modelStateLabel" :class="{ 'text-error': modelError, 'text-success': modelReady }" />
+									<v-list-item v-if="modelError" title="Model error" :subtitle="modelError" class="text-error" />
+									<v-list-item title="Talking" :subtitle="String(isTalking)" />
+									<v-list-item title="Talk level" :subtitle="talkLevelLabel" />
+								</v-list>
+							</v-col>
+							<v-col cols="12" md="6">
+								<v-list density="compact" class="bg-transparent">
+									<v-list-subheader>Status</v-list-subheader>
+									<v-list-item title="# meshes under avatar" :subtitle="String(meshesUnderAvatar.length)" />
+									<v-list-item title="# skinned (match skeleton)" :subtitle="String(skinnedMeshesUnderAvatar.length)" />
+								</v-list>
+							</v-col>
+						</v-row>
+					</v-window-item>
 
-						<v-list density="compact" class="bg-transparent mt-4">
-							<v-list-subheader>Audio</v-list-subheader>
-							<v-list-item title="Threshold" :subtitle="String(talkThreshold)" />
-							<v-list-item title="Inputs" :subtitle="String(audioInputDevices.length)" />
-							<v-expansion-panels variant="accordion" density="compact" v-if="audioInputDevices.length">
-								<v-expansion-panel>
-									<v-expansion-panel-title>Input devices</v-expansion-panel-title>
-									<v-expansion-panel-text>
-										<div v-for="d in audioInputDevices" :key="d.deviceId" class="text-caption">
-											<span class="font-mono">{{ d.label }}</span>
-										</div>
-									</v-expansion-panel-text>
-								</v-expansion-panel>
-							</v-expansion-panels>
-						</v-list>
+					<v-window-item value="physics">
+						<v-row dense>
+							<v-col cols="12" md="6">
+								<v-list density="compact" class="bg-transparent">
+									<v-list-subheader>Physics/State</v-list-subheader>
+									<v-list-item title="Physics enabled" :subtitle="String(physicsEnabled)" />
+									<v-list-item title="Airborne" :subtitle="String(airborne)" />
+									<v-list-item title="Vertical velocity" :subtitle="verticalVelocityLabel" />
+									<v-list-item title="Support state" :subtitle="supportStateLabel" />
+									<v-list-item title="Spawn settling" :subtitle="String(spawnSettling)" />
+									<v-list-item title="Has touched ground" :subtitle="String(hasTouchedGround)" />
+								</v-list>
+							</v-col>
+							<v-col cols="12" md="6">
+								<v-list density="compact" class="bg-transparent">
+									<v-list-subheader>Ground Probe</v-list-subheader>
+									<v-list-item title="Probe hit" :subtitle="String(groundProbeHit)" />
+									<v-list-item title="Probe distance" :subtitle="groundProbeDistanceLabel" />
+									<v-list-item title="Probe mesh" :subtitle="groundProbeMeshName || '-'" />
+								</v-list>
+							</v-col>
+						</v-row>
+					</v-window-item>
 
-						<v-list density="compact" class="bg-transparent mt-4">
-							<v-list-subheader>Sync (Entity)</v-list-subheader>
+					<v-window-item value="cameraAudio">
+						<v-row dense>
+							<v-col cols="12" md="6">
+								<v-list density="compact" class="bg-transparent">
+									<v-list-subheader>Camera</v-list-subheader>
+									<v-list-item title="Position" :subtitle="cameraPositionLabel" />
+									<v-list-item title="Target" :subtitle="cameraTargetLabel" />
+								</v-list>
+							</v-col>
+							<v-col cols="12" md="6">
+								<v-list density="compact" class="bg-transparent">
+									<v-list-subheader>Audio</v-list-subheader>
+									<v-list-item title="Threshold" :subtitle="String(talkThreshold)" />
+									<v-list-item title="Inputs" :subtitle="String(audioInputDevices.length)" />
+									<v-expansion-panels variant="accordion" density="compact" v-if="audioInputDevices.length">
+										<v-expansion-panel>
+											<v-expansion-panel-title>Input devices</v-expansion-panel-title>
+											<v-expansion-panel-text>
+												<div v-for="d in audioInputDevices" :key="d.deviceId" class="text-caption">
+													<span class="font-mono">{{ d.label }}</span>
+												</div>
+											</v-expansion-panel-text>
+										</v-expansion-panel>
+									</v-expansion-panels>
+								</v-list>
+							</v-col>
+						</v-row>
+					</v-window-item>
+
+					<v-window-item value="reflect">
+						<v-list density="compact" class="bg-transparent">
+							<v-list-subheader>Reflect Sync (Publish)</v-list-subheader>
 							<v-list-item title="Entity name" :subtitle="syncEntityName" />
 							<v-list-item title="Queued keys" :subtitle="String(syncQueuedKeys)" />
 							<v-list-item title="Last batch count" :subtitle="String(syncLastBatchCount)" />
@@ -144,8 +154,40 @@
 								</v-expansion-panel>
 							</v-expansion-panels>
 						</v-list>
+					</v-window-item>
 
-						<v-list density="compact" class="bg-transparent mt-4">
+					<v-window-item value="meshes">
+						<v-row dense>
+							<v-col cols="12" md="6">
+								<v-list density="compact" class="bg-transparent">
+									<v-list-subheader>Avatar Meshes</v-list-subheader>
+									<v-list-item title="# under avatar" :subtitle="String(meshesUnderAvatar.length)" />
+									<v-list-item title="# skinned (match skeleton)" :subtitle="String(skinnedMeshesUnderAvatar.length)" />
+									<v-expansion-panels variant="accordion" density="compact">
+										<v-expansion-panel>
+											<v-expansion-panel-title>Mesh visibility (first 15)</v-expansion-panel-title>
+											<v-expansion-panel-text>
+												<div v-for="m in meshesUnderAvatar.slice(0, 15)" :key="m.uniqueId" class="text-caption">
+													<span class="font-mono">{{ m.name || '(unnamed)' }}</span>
+													— vis: {{ m.isVisible }} — enabled: {{ m.isEnabled() }}
+												</div>
+											</v-expansion-panel-text>
+										</v-expansion-panel>
+									</v-expansion-panels>
+								</v-list>
+							</v-col>
+							<v-col cols="12" md="6">
+								<v-list density="compact" class="bg-transparent">
+									<v-list-subheader>Skeleton</v-list-subheader>
+									<v-list-item title="Present" :subtitle="avatarSkeleton ? 'yes' : 'no'" />
+									<v-list-item title="Bone count" :subtitle="avatarSkeleton ? String(avatarSkeleton.bones.length) : '-'" />
+								</v-list>
+							</v-col>
+						</v-row>
+					</v-window-item>
+
+					<v-window-item value="blend">
+						<v-list density="compact" class="bg-transparent">
 							<v-list-subheader>Blendshapes (Morph Targets)</v-list-subheader>
 							<v-list-item :title="'Distinct targets'" :subtitle="String(morphTargets.length)" />
 							<v-expansion-panels variant="accordion" density="compact" class="mt-1">
@@ -163,7 +205,7 @@
 												:model-value="Math.round(100 * (influenceOf(v) || 0))"
 												class="ml-2"
 											/>
-									</div>
+										</div>
 									</v-expansion-panel-text>
 								</v-expansion-panel>
 								<v-expansion-panel>
@@ -180,8 +222,8 @@
 								</v-expansion-panel>
 							</v-expansion-panels>
 						</v-list>
-					</v-col>
-				</v-row>
+					</v-window-item>
+				</v-window>
 			</v-card-text>
 			<v-card-actions>
 				<v-spacer />
@@ -273,6 +315,9 @@ const props = defineProps({
         default: null,
     },
 });
+
+// Local tab state
+const tab = ref("overview");
 
 const emit = defineEmits(["update:modelValue"]);
 // Support external v-model while remaining fully backward-compatible
@@ -405,6 +450,7 @@ void syncLastErrorSource;
 void lastEntries;
 void lastEntriesTotalSizeKb;
 void formatValue;
+void tab;
 
 function isUnderAvatarNode(
     mesh: AbstractMesh,
@@ -551,14 +597,16 @@ const morphTargetsSorted = computed(() =>
 );
 
 function hasMorph(name: string): boolean {
+    const needle = name.toLowerCase();
     for (const t of morphTargets.value) {
-        if (t.name === name) return true;
+        if ((t.name || "").toLowerCase() === needle) return true;
     }
     return false;
 }
 function influenceOf(name: string): number | null {
+    const needle = name.toLowerCase();
     for (const t of morphTargets.value) {
-        if (t.name === name) return t.avg;
+        if ((t.name || "").toLowerCase() === needle) return t.avg;
     }
     return null;
 }

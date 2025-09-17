@@ -5,7 +5,7 @@
 import type { Server, ServerWebSocket } from "bun";
 import { verify } from "jsonwebtoken";
 // Switched to legacy postgres.js client for now
-import type { Sql } from "postgres";
+import type { SQL } from "bun";
 import { serverConfiguration } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
 import { BunLogModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
 import { BunPostgresClientModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
@@ -21,9 +21,12 @@ import {
 } from "./service/azure.ad.auth";
 import { createAnonymousUser, signOut } from "./util/auth";
 import { MetricsCollector } from "./service/metrics";
+import type { Sql } from "postgres";
 
-let superUserSql: Sql | null = null;
-let proxyUserSql: Sql | null = null;
+let legacySuperUserSql: Sql | null = null;
+let legacyProxyUserSql: Sql | null = null;
+let superUserSql: SQL | null = null;
+let proxyUserSql: SQL | null = null;
 
 // TODO: Needs heavy optimization, especially for SQL flow.
 
@@ -297,8 +300,7 @@ export class WorldApiManager {
         });
 
         try {
-            // Prefer legacy postgres.js clients for now (super and proxy)
-            superUserSql = await BunPostgresClientModule.getInstance({
+            legacySuperUserSql = await BunPostgresClientModule.getInstance({
                 debug: serverConfiguration.VRCA_SERVER_DEBUG,
                 suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
             }).getLegacySuperClient({
@@ -313,10 +315,40 @@ export class WorldApiManager {
                         serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
                 },
             });
-            proxyUserSql = await BunPostgresClientModule.getInstance({
+            legacyProxyUserSql = await BunPostgresClientModule.getInstance({
                 debug: serverConfiguration.VRCA_SERVER_DEBUG,
                 suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
             }).getLegacyProxyClient({
+                postgres: {
+                    host: serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
+                    port: serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL,
+                    database:
+                        serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
+                    username:
+                        serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME,
+                    password:
+                        serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_PASSWORD,
+                },
+            });
+            superUserSql = await BunPostgresClientModule.getInstance({
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+            }).getSuperClient({
+                postgres: {
+                    host: serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
+                    port: serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL,
+                    database:
+                        serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
+                    username:
+                        serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                    password:
+                        serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                },
+            });
+            proxyUserSql = await BunPostgresClientModule.getInstance({
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+            }).getProxyClient({
                 postgres: {
                     host: serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
                     port: serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL,
@@ -383,8 +415,8 @@ export class WorldApiManager {
             }
             // Start listener for role changes to refresh ACLs lazily
             try {
-                if (superUserSql) {
-                    await superUserSql.listen(
+                if (legacySuperUserSql) {
+                    await legacySuperUserSql.listen(
                         "auth_roles_changed",
                         async (raw: string) => {
                             try {

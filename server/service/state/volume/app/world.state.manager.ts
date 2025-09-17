@@ -1,6 +1,7 @@
 import { BunLogModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
 // Switched to legacy postgres.js client for now
 import type { Sql } from "postgres";
+import type { SQL } from "bun";
 import { serverConfiguration } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
 import {
     Service,
@@ -17,7 +18,7 @@ export class WorldStateManager {
     private intervalIds: Map<string, Timer> = new Map();
     private syncGroups: Map<string, Auth.SyncGroup.I_SyncGroup> = new Map();
     private tickCounts: Map<string, number> = new Map();
-    private superUserSql: Sql | null = null;
+    private superUserSql: SQL | null = null;
     private legacySuperSql: Sql | null = null;
     private processingTicks: Set<string> = new Set(); // Track which sync groups are currently processing
     private pendingTicks: Map<string, boolean> = new Map(); // Track pending ticks for sync groups
@@ -128,7 +129,7 @@ export class WorldStateManager {
             this.superUserSql = await BunPostgresClientModule.getInstance({
                 debug: serverConfiguration.VRCA_SERVER_DEBUG,
                 suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-            }).getLegacySuperClient({
+            }).getSuperClient({
                 postgres: {
                     host: serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
                     port: serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL,
@@ -868,9 +869,9 @@ export class WorldStateManager {
         this.stop();
 
         // Unlisten from notifications if possible
-        if (this.superUserSql) {
+        if (this.legacySuperSql) {
             try {
-                this.superUserSql`UNLISTEN tick_captured`.catch(
+                this.legacySuperSql`UNLISTEN tick_captured`.catch(
                     (error: unknown) => {
                         BunLogModule({
                             message: `Error unlistening from tick notifications: ${error}`,

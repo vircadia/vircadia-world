@@ -17,6 +17,7 @@
 					<v-tab value="reflect">Reflect Sync</v-tab>
 					<v-tab value="meshes">Meshes & Skeleton</v-tab>
 					<v-tab value="blend">Blendshapes</v-tab>
+                    <v-tab value="anim">Animations</v-tab>
 				</v-tabs>
 				<v-window v-model="tab" class="mt-3">
 					<v-window-item value="overview">
@@ -223,6 +224,29 @@
 							</v-expansion-panels>
 						</v-list>
 					</v-window-item>
+
+                    <v-window-item value="anim">
+                        <v-list density="compact" class="bg-transparent">
+                            <v-list-subheader>Primary Groups</v-list-subheader>
+                            <v-list-item title="Idle ready" :subtitle="boolLabel(animDebug.idle.ready)" />
+                            <v-list-item title="Walk ready" :subtitle="boolLabel(animDebug.walk.ready)" />
+                            <v-list-item title="Blend weight" :subtitle="animDebug.blendWeight.toFixed(2)" />
+                        </v-list>
+                        <v-divider class="my-3" />
+                        <v-list density="compact" class="bg-transparent">
+                            <v-list-subheader>All Animations</v-list-subheader>
+                            <div class="font-mono text-caption">
+                                <div v-for="(row, idx) in animDebug.animations" :key="idx">{{ row.fileName }} — {{ row.state }}</div>
+                            </div>
+                        </v-list>
+                        <v-divider class="my-3" />
+                        <v-list density="compact" class="bg-transparent">
+                            <v-list-subheader>Last Loader Events</v-list-subheader>
+                            <div class="font-mono text-caption">
+                                <div v-for="(line, idx) in animDebug.events.slice(-30)" :key="idx">{{ line }}</div>
+                            </div>
+                        </v-list>
+                    </v-window-item>
 				</v-window>
 			</v-card-text>
 			<v-card-actions>
@@ -314,6 +338,18 @@ const props = defineProps({
         required: false,
         default: null,
     },
+    // Animation debug data from MyAvatar
+    animationDebug: {
+        type: Object as () => {
+            idle: { ready: boolean };
+            walk: { ready: boolean };
+            blendWeight: number;
+            events: string[];
+            animations: { fileName: string; state: string }[];
+        } | null,
+        required: false,
+        default: null,
+    },
 });
 
 // Local tab state
@@ -341,6 +377,16 @@ whenever(
 );
 
 const hotkeyLabel = computed(() => props.hotkey.replace("+", " + "));
+const animDebug = computed(
+    () =>
+        props.animationDebug || {
+            idle: { ready: false },
+            walk: { ready: false },
+            blendWeight: 0,
+            events: [],
+            animations: [],
+        },
+);
 
 const modelReady = computed(
     () => !props.modelError && !!props.modelFileName && !!props.scene,
@@ -631,6 +677,11 @@ void morphTargetsSorted;
 void supportedVisemeNames;
 void hasMorph;
 void influenceOf;
+function boolLabel(v: boolean) {
+    return v ? "yes" : "no";
+}
+void boolLabel;
+void animDebug;
 </script>
 
 <style scoped>

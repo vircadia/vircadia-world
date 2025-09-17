@@ -120,15 +120,7 @@
             >
                 Avatar
             </v-btn>
-            <v-btn
-                variant="tonal"
-                :color="animDebugOpen ? 'error' : 'default'"
-                prepend-icon="mdi-motion-outline"
-                @click="animDebugOpen = !animDebugOpen"
-                class="ml-2"
-            >
-                Anim
-            </v-btn>
+            
             <v-btn
                 variant="tonal"
                 :color="modelsDebugOpen ? 'error' : 'default'"
@@ -335,6 +327,7 @@
                                         :ground-probe-distance="groundProbeDistance ?? undefined"
                                         :ground-probe-mesh-name="groundProbeMeshName ?? undefined"
                                         :sync-metrics="avatarSyncMetrics || undefined"
+                                        :animation-debug="(avatarRef as any)?.animationDebug || undefined"
                                         v-model="avatarDebugOpen"
                                         hotkey="Shift+M"
                                     />
@@ -445,8 +438,7 @@
                 </template>
             </BabylonEnvironment>
         </main>
-        <!-- Animation Debug Overlay (Shift+B) -->
-        <BabylonMyAvatarAnimationDebugOverlay v-model="animDebugOpen" hotkey="Shift+B" />
+        
         <!-- WebRTC component (hidden, just for functionality) -->
         <BabylonWebRTC
             v-if="connectionStatus === 'connected' && fullSessionId"
@@ -518,6 +510,7 @@
                 :get-peer-audio-state="getPeerAudioState"
                 :on-set-peer-volume="setPeerVolume"
                 :on-set-peer-muted="setPeerMuted"
+                :on-clear-peer-audio-states="clearPeerAudioStates"
             />
         </v-dialog>
 
@@ -554,7 +547,6 @@ import BabylonModelPhysics, {
 import BabylonModels from "../components/BabylonModels.vue";
 import BabylonWebRTC from "../components/BabylonWebRTC.vue";
 import BabylonMyAvatarDebugOverlay from "../components/BabylonMyAvatarDebugOverlay.vue";
-import BabylonMyAvatarAnimationDebugOverlay from "../components/BabylonMyAvatarAnimationDebugOverlay.vue";
 import BabylonCameraDebugOverlay from "../components/BabylonCameraDebugOverlay.vue";
 import BabylonInspector from "../components/BabylonInspector.vue";
 import BabylonModelsDebugOverlay from "../components/BabylonModelsDebugOverlay.vue";
@@ -591,8 +583,6 @@ void BabylonWebRTC;
 // mark as used at runtime for template
 // mark as used at runtime for template
 void BabylonMyAvatarDebugOverlay;
-// mark as used at runtime for template
-void BabylonMyAvatarAnimationDebugOverlay;
 void BabylonCameraDebugOverlay;
 // mark as used at runtime for template
 void BabylonInspector;
@@ -678,10 +668,8 @@ void modelPhysicsRefs;
 // State for debug overlays with persistence across reloads
 const cameraDebugOpen = useStorage<boolean>("vrca.debug.camera", false);
 const avatarDebugOpen = useStorage<boolean>("vrca.debug.avatar", false);
-const animDebugOpen = useStorage<boolean>("vrca.debug.anim", false);
 void cameraDebugOpen;
 void avatarDebugOpen;
-void animDebugOpen;
 // Models debug overlay
 const modelsDebugOpen = useStorage<boolean>("vrca.debug.models", false);
 void modelsDebugOpen;

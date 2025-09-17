@@ -21,6 +21,7 @@
         :groundProbeHit="groundProbeHit"
         :groundProbeDistance="groundProbeDistance"
         :groundProbeMeshName="groundProbeMeshName"
+        :animationDebug="animationDebug"
     />
 </template>
 
@@ -185,6 +186,8 @@ const instanceId = computed(() => props.instanceId ?? null);
 const fullSessionId = computed(
     () => props.vircadiaWorld.connectionInfo.value.fullSessionId ?? null,
 );
+void sessionId;
+void instanceId;
 
 function onAvatarDefinitionLoaded(def: AvatarDefinition) {
     dbAvatarDef.value = def;
@@ -852,6 +855,7 @@ type AnimationInfo = {
     group?: AnimationGroup | null;
 };
 const animationsMap = ref<Map<string, AnimationInfo>>(new Map());
+const animationEvents = ref<string[]>([]);
 
 function onAnimationState(payload: {
     fileName: string;
@@ -864,6 +868,13 @@ function onAnimationState(payload: {
         error: payload.error,
         group: payload.group,
     });
+    try {
+        const ts = new Date().toLocaleTimeString();
+        const line = `${ts} — ${payload.fileName} — ${payload.state}${payload.error ? ` — ${payload.error}` : ""}`;
+        animationEvents.value.push(line);
+        if (animationEvents.value.length > 200)
+            animationEvents.value.splice(0, animationEvents.value.length - 200);
+    } catch {}
     refreshDesiredAnimations();
 }
 void onAnimationState;
@@ -1253,4 +1264,30 @@ onUnmounted(() => {
     // Controller does not expose dispose in types; clear references and dispose nodes
     avatarNode.value?.dispose(false, true);
 });
+
+type AnimRow = { fileName: string; state: string };
+type AnimationDebugData = {
+    idle: { ready: boolean };
+    walk: { ready: boolean };
+    blendWeight: number;
+    events: string[];
+    animations: AnimRow[];
+};
+
+const animationDebug = computed<AnimationDebugData>(() => {
+    const rows: AnimRow[] = [];
+    for (const entry of animationsMap.value.entries()) {
+        const fileName = entry[0];
+        const info = entry[1];
+        rows.push({ fileName, state: info.state });
+    }
+    return {
+        idle: { ready: !!idleAnimation },
+        walk: { ready: !!walkAnimation },
+        blendWeight: blendWeight.value,
+        events: animationEvents.value,
+        animations: rows,
+    };
+});
+void animationDebug;
 </script>

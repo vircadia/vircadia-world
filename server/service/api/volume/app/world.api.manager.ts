@@ -542,6 +542,8 @@ export class WorldApiManager {
                                 memory: systemMetrics.memory,
                                 cpu: systemMetrics.cpu,
                                 queries: this.metricsCollector.getMetrics(),
+                                reflect:
+                                    this.metricsCollector.getReflectMetrics(),
                             }),
                         );
                         return this.addCorsHeaders(response, req);
@@ -1774,10 +1776,24 @@ export class WorldApiManager {
                                 const req =
                                     data as Communication.WebSocket.ReflectPublishRequestMessage;
 
+                                // Metrics tracking
+                                const startTime = performance.now();
+                                const messageSize = new TextEncoder().encode(
+                                    message,
+                                ).length;
+
                                 // basic validation
                                 const syncGroup = (req.syncGroup || "").trim();
                                 const channel = (req.channel || "").trim();
                                 if (!syncGroup || !channel) {
+                                    const endTime = performance.now();
+                                    const duration = endTime - startTime;
+                                    this.metricsCollector.recordReflect(
+                                        duration,
+                                        messageSize,
+                                        0, // delivered
+                                        false, // acknowledged
+                                    );
                                     ws.send(
                                         JSON.stringify(
                                             new Communication.WebSocket.ReflectAckResponseMessage(
@@ -1808,6 +1824,14 @@ export class WorldApiManager {
 
                                 // authorize: sender must be able to read the target group
                                 if (!this.canRead(session.agentId, syncGroup)) {
+                                    const endTime = performance.now();
+                                    const duration = endTime - startTime;
+                                    this.metricsCollector.recordReflect(
+                                        duration,
+                                        messageSize,
+                                        0, // delivered
+                                        false, // acknowledged
+                                    );
                                     ws.send(
                                         JSON.stringify(
                                             new Communication.WebSocket.ReflectAckResponseMessage(
@@ -1850,6 +1874,15 @@ export class WorldApiManager {
                                         }
                                     }
                                 }
+
+                                const endTime = performance.now();
+                                const duration = endTime - startTime;
+                                this.metricsCollector.recordReflect(
+                                    duration,
+                                    messageSize,
+                                    delivered,
+                                    true, // acknowledged
+                                );
 
                                 ws.send(
                                     JSON.stringify(

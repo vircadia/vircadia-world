@@ -4,7 +4,6 @@
 
 import type { Server, ServerWebSocket } from "bun";
 import { verify } from "jsonwebtoken";
-// Switched to legacy postgres.js client for now
 import type { SQL } from "bun";
 import { serverConfiguration } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
 import { BunLogModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
@@ -22,6 +21,8 @@ import {
 import { createAnonymousUser, signOut } from "./util/auth";
 import { MetricsCollector } from "./service/metrics";
 import type { Sql } from "postgres";
+import { mkdir, rm, stat, readdir } from "node:fs/promises";
+import path from "node:path";
 
 let legacySuperUserSql: Sql | null = null;
 let legacyProxyUserSql: Sql | null = null;
@@ -72,6 +73,18 @@ export class WorldApiManager {
     private azureADService: AzureADAuthService | null = null;
 
     private CONNECTION_HEARTBEAT_INTERVAL = 500;
+
+    // Disk-backed asset cache configuration
+    private readonly assetCacheDir: string =
+        process.env.VRCA_SERVER_ASSET_CACHE_DIR ||
+        path.join("./", "assets-cache");
+    private readonly assetCacheMaxBytes: number = Number(
+        process.env.VRCA_SERVER_ASSET_CACHE_MAX_BYTES || 536870912,
+    );
+    private readonly assetPrewarmLimit: number = Number(
+        process.env.VRCA_SERVER_ASSET_PREWARM_LIMIT || 64,
+    );
+    private assetInFlight: Map<string, Promise<string>> = new Map();
 
     // Add CORS helper function
     private addCorsHeaders(response: Response, req: Request): Response {
@@ -144,6 +157,173 @@ export class WorldApiManager {
             ? Response.json(data, { status })
             : Response.json(data);
         return this.addCorsHeaders(response, req);
+    }
+
+    // =================== Asset Cache Helpers ===================
+    private sanitizeKey(key: string): string {
+        return key.replace(/[^a-zA-Z0-9._-]/g, "_");
+    }
+
+    private getCachedPathForKey(key: string): string {
+        const safe = this.sanitizeKey(key);
+        return path.join(this.assetCacheDir, safe);
+    }
+
+    private async ensureAssetCacheDir(): Promise<void> {
+        await mkdir(this.assetCacheDir, { recursive: true });
+    }
+
+    private async clearAssetCache(): Promise<void> {
+        const start = performance.now();
+        let files = 0;
+        let bytes = 0;
+        const gatherStats = async (dir: string) => {
+            try {
+                const entries = await readdir(dir, { withFileTypes: true });
+                for (const entry of entries) {
+                    const full = path.join(dir, entry.name);
+                    if (entry.isDirectory()) {
+                        await gatherStats(full);
+                    } else if (entry.isFile()) {
+                        try {
+                            const s = await stat(full);
+                            files += 1;
+                            bytes += s.size;
+                        } catch {}
+                    }
+                }
+            } catch {}
+        };
+        await gatherStats(this.assetCacheDir).catch(() => {});
+        await rm(this.assetCacheDir, { recursive: true, force: true }).catch(
+            () => {},
+        );
+        await this.ensureAssetCacheDir();
+        const durationMs = Math.round(performance.now() - start);
+        BunLogModule({
+            message: "Asset cache cleaned",
+            debug: serverConfiguration.VRCA_SERVER_DEBUG,
+            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+            type: "info",
+            prefix: LOG_PREFIX,
+            data: { filesRemoved: files, bytesRemoved: bytes, durationMs },
+        });
+    }
+
+    private async cacheWriteFile(filePath: string, bytes: Uint8Array) {
+        const file = Bun.file(filePath);
+        await Bun.write(file, bytes);
+    }
+
+    private async isCached(filePath: string): Promise<boolean> {
+        try {
+            const s = await stat(filePath);
+            return s.isFile() && s.size > 0;
+        } catch {
+            return false;
+        }
+    }
+
+    private async prewarmAssets() {
+        if (!superUserSql) return;
+        try {
+            const t0 = performance.now();
+            let totalBytes = 0;
+            let totalFiles = 0;
+            const rows = await superUserSql<
+                [
+                    {
+                        general__asset_file_name: string;
+                        asset__mime_type: string | null;
+                        approx_size: number | null;
+                    },
+                ]
+            >`
+                SELECT 
+                    general__asset_file_name,
+                    asset__mime_type,
+                    COALESCE(octet_length(asset__data__bytea), 0) as approx_size
+                FROM entity.entity_assets
+                ORDER BY asset__data__bytea_updated_at DESC NULLS LAST
+                LIMIT ${this.assetPrewarmLimit}
+            `;
+
+            for (const r of rows) {
+                if (typeof r !== "object" || !r) continue;
+                const key = r.general__asset_file_name as string;
+                const size = Number(r.approx_size || 0);
+                if (!key) continue;
+                if (
+                    this.assetCacheMaxBytes &&
+                    totalBytes + size > this.assetCacheMaxBytes
+                ) {
+                    break;
+                }
+                const cachedPath = this.getCachedPathForKey(key);
+                if (await this.isCached(cachedPath)) {
+                    totalBytes += size;
+                    totalFiles += 1;
+                    continue;
+                }
+                try {
+                    const [dataRow] = await superUserSql<
+                        [
+                            {
+                                asset__data__bytea:
+                                    | Uint8Array
+                                    | ArrayBuffer
+                                    | Buffer
+                                    | null;
+                            },
+                        ]
+                    >`
+                        SELECT asset__data__bytea
+                        FROM entity.entity_assets
+                        WHERE general__asset_file_name = ${key}
+                    `;
+                    const payload = dataRow?.asset__data__bytea;
+                    if (!payload) continue;
+                    const bytes =
+                        payload instanceof Uint8Array
+                            ? payload
+                            : payload instanceof ArrayBuffer
+                              ? new Uint8Array(payload)
+                              : Buffer.isBuffer(payload)
+                                ? new Uint8Array(payload)
+                                : undefined;
+                    if (!bytes) continue;
+                    await this.cacheWriteFile(cachedPath, bytes);
+                    totalBytes += bytes.byteLength;
+                    totalFiles += 1;
+                } catch {
+                    // ignore individual failures
+                }
+            }
+            const durationMs = Math.round(performance.now() - t0);
+            BunLogModule({
+                message: "Asset cache prewarm complete",
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                type: "info",
+                prefix: LOG_PREFIX,
+                data: {
+                    candidates: rows.length,
+                    filesWarmed: totalFiles,
+                    bytesWarmed: totalBytes,
+                    durationMs,
+                    byteBudget: this.assetCacheMaxBytes,
+                },
+            });
+        } catch (error) {
+            BunLogModule({
+                message: "Asset prewarm failed",
+                error,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                type: "error",
+                prefix: LOG_PREFIX,
+            });
+        }
     }
 
     async validateJWT(data: { provider: string; token: string }): Promise<{
@@ -452,6 +632,23 @@ export class WorldApiManager {
             });
             return;
         }
+
+        // Prepare disk cache (clear on start to avoid orphans)
+        try {
+            await this.clearAssetCache();
+        } catch (error) {
+            BunLogModule({
+                message: "Failed to clear asset cache directory",
+                error,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                type: "error",
+                prefix: LOG_PREFIX,
+            });
+        }
+
+        // Prewarm a bounded set of assets
+        await this.prewarmAssets();
 
         // Start server
         this.server = Bun.serve({
@@ -1598,6 +1795,365 @@ export class WorldApiManager {
                                 }
                             }
 
+                            // Asset fetch by key (authenticated)
+                            case url.pathname ===
+                                Communication.REST.Endpoint.ASSET_GET_BY_KEY
+                                    .path && req.method === "GET": {
+                                try {
+                                    // Log request details for troubleshooting
+                                    BunLogModule({
+                                        message: "Asset GET request",
+                                        debug: true,
+                                        suppress: false,
+                                        type: "debug",
+                                        prefix: LOG_PREFIX,
+                                        data: {
+                                            url: url.toString(),
+                                            headers: {
+                                                origin: req.headers.get(
+                                                    "origin",
+                                                ),
+                                                referer:
+                                                    req.headers.get("referer"),
+                                                userAgent:
+                                                    req.headers.get(
+                                                        "user-agent",
+                                                    ),
+                                            },
+                                            query: Object.fromEntries(
+                                                url.searchParams,
+                                            ),
+                                        },
+                                    });
+                                    const key = url.searchParams.get("key");
+                                    const token = url.searchParams.get("token");
+                                    const provider =
+                                        url.searchParams.get("provider");
+                                    const sessionIdFromQuery =
+                                        url.searchParams.get("sessionId");
+
+                                    if (!key) {
+                                        const response =
+                                            this.createJsonResponse(
+                                                Communication.REST.Endpoint.ASSET_GET_BY_KEY.createError(
+                                                    "Missing key",
+                                                ),
+                                                req,
+                                                400,
+                                            );
+                                        return this.addCorsHeaders(
+                                            response,
+                                            req,
+                                        );
+                                    }
+
+                                    let agentIdForAcl: string | null = null;
+                                    if (sessionIdFromQuery) {
+                                        const [sessionResult] =
+                                            await superUserSql<
+                                                [{ agent_id: string }]
+                                            >`
+                                            SELECT * FROM auth.validate_session_id(${sessionIdFromQuery}::UUID) as agent_id
+                                        `;
+                                        agentIdForAcl =
+                                            sessionResult?.agent_id || null;
+                                    } else {
+                                        if (!token || !provider) {
+                                            BunLogModule({
+                                                message:
+                                                    "Asset GET missing auth",
+                                                debug: true,
+                                                suppress: false,
+                                                type: "debug",
+                                                prefix: LOG_PREFIX,
+                                                data: {
+                                                    hasToken: !!token,
+                                                    hasProvider: !!provider,
+                                                    key,
+                                                },
+                                            });
+                                            const response =
+                                                this.createJsonResponse(
+                                                    Communication.REST.Endpoint.ASSET_GET_BY_KEY.createError(
+                                                        "Missing auth",
+                                                    ),
+                                                    req,
+                                                    401,
+                                                );
+                                            return this.addCorsHeaders(
+                                                response,
+                                                req,
+                                            );
+                                        }
+                                        const jwtValidationResult =
+                                            await this.validateJWT({
+                                                provider,
+                                                token,
+                                            });
+                                        if (!jwtValidationResult.isValid) {
+                                            BunLogModule({
+                                                message:
+                                                    "Asset GET invalid JWT",
+                                                debug: true,
+                                                suppress: false,
+                                                type: "debug",
+                                                prefix: LOG_PREFIX,
+                                                data: {
+                                                    reason: jwtValidationResult.errorReason,
+                                                },
+                                            });
+                                            const response =
+                                                this.createJsonResponse(
+                                                    Communication.REST.Endpoint.ASSET_GET_BY_KEY.createError(
+                                                        `Invalid token: ${jwtValidationResult.errorReason}`,
+                                                    ),
+                                                    req,
+                                                    401,
+                                                );
+                                            return this.addCorsHeaders(
+                                                response,
+                                                req,
+                                            );
+                                        }
+                                        const [sessionResult] =
+                                            await superUserSql<
+                                                [{ agent_id: string }]
+                                            >`
+                                            SELECT * FROM auth.validate_session_id(${jwtValidationResult.sessionId}::UUID) as agent_id
+                                        `;
+                                        agentIdForAcl =
+                                            sessionResult?.agent_id || null;
+                                    }
+                                    if (!agentIdForAcl) {
+                                        BunLogModule({
+                                            message:
+                                                "Asset GET invalid session",
+                                            debug: true,
+                                            suppress: false,
+                                            type: "debug",
+                                            prefix: LOG_PREFIX,
+                                            data: { key },
+                                        });
+                                        const response =
+                                            this.createJsonResponse(
+                                                Communication.REST.Endpoint.ASSET_GET_BY_KEY.createError(
+                                                    "Invalid session",
+                                                ),
+                                                req,
+                                                401,
+                                            );
+                                        return this.addCorsHeaders(
+                                            response,
+                                            req,
+                                        );
+                                    }
+
+                                    // Fetch asset metadata (group for ACL and mime)
+                                    const [meta] = await superUserSql<
+                                        [
+                                            {
+                                                general__asset_file_name: string;
+                                                group__sync: string;
+                                                asset__mime_type: string | null;
+                                                asset__data__bytea_updated_at:
+                                                    | string
+                                                    | null;
+                                            },
+                                        ]
+                                    >`
+                                        SELECT general__asset_file_name, group__sync, asset__mime_type, asset__data__bytea_updated_at
+                                        FROM entity.entity_assets
+                                        WHERE general__asset_file_name = ${key}
+                                    `;
+
+                                    if (!meta) {
+                                        const response =
+                                            this.createJsonResponse(
+                                                Communication.REST.Endpoint.ASSET_GET_BY_KEY.createError(
+                                                    "Asset not found",
+                                                ),
+                                                req,
+                                                404,
+                                            );
+                                        return this.addCorsHeaders(
+                                            response,
+                                            req,
+                                        );
+                                    }
+
+                                    // Ensure ACL warmed and check
+                                    if (
+                                        !this.readableGroupsByAgent.has(
+                                            agentIdForAcl,
+                                        )
+                                    ) {
+                                        await this.warmAgentAcl(
+                                            agentIdForAcl,
+                                        ).catch(() => {});
+                                    }
+                                    if (
+                                        !this.canRead(
+                                            agentIdForAcl,
+                                            meta.group__sync,
+                                        )
+                                    ) {
+                                        BunLogModule({
+                                            message: "Asset GET not authorized",
+                                            debug: true,
+                                            suppress: false,
+                                            type: "debug",
+                                            prefix: LOG_PREFIX,
+                                            data: {
+                                                agentIdForAcl,
+                                                syncGroup: meta.group__sync,
+                                                key,
+                                            },
+                                        });
+                                        const response =
+                                            this.createJsonResponse(
+                                                Communication.REST.Endpoint.ASSET_GET_BY_KEY.createError(
+                                                    "Not authorized",
+                                                ),
+                                                req,
+                                                403,
+                                            );
+                                        return this.addCorsHeaders(
+                                            response,
+                                            req,
+                                        );
+                                    }
+
+                                    // Resolve or populate cache
+                                    const cachedPath = this.getCachedPathForKey(
+                                        meta.general__asset_file_name,
+                                    );
+
+                                    let ensureCached =
+                                        this.assetInFlight.get(cachedPath);
+                                    if (!ensureCached) {
+                                        ensureCached = (async () => {
+                                            if (
+                                                await this.isCached(cachedPath)
+                                            ) {
+                                                return cachedPath;
+                                            }
+                                            const [dataRow] =
+                                                await superUserSql<
+                                                    [
+                                                        {
+                                                            asset__data__bytea:
+                                                                | Uint8Array
+                                                                | ArrayBuffer
+                                                                | Buffer
+                                                                | null;
+                                                        },
+                                                    ]
+                                                >`
+                                                SELECT asset__data__bytea
+                                                FROM entity.entity_assets
+                                                WHERE general__asset_file_name = ${key}
+                                            `;
+                                            const payload =
+                                                dataRow?.asset__data__bytea;
+                                            if (!payload) {
+                                                throw new Error(
+                                                    "Asset data not available",
+                                                );
+                                            }
+                                            const bytes =
+                                                payload instanceof Uint8Array
+                                                    ? payload
+                                                    : payload instanceof
+                                                        ArrayBuffer
+                                                      ? new Uint8Array(payload)
+                                                      : Buffer.isBuffer(payload)
+                                                        ? new Uint8Array(
+                                                              payload,
+                                                          )
+                                                        : undefined;
+                                            if (!bytes) {
+                                                throw new Error(
+                                                    "Invalid asset payload",
+                                                );
+                                            }
+                                            await this.cacheWriteFile(
+                                                cachedPath,
+                                                bytes,
+                                            );
+                                            return cachedPath;
+                                        })().finally(() => {
+                                            this.assetInFlight.delete(
+                                                cachedPath,
+                                            );
+                                        });
+                                        this.assetInFlight.set(
+                                            cachedPath,
+                                            ensureCached,
+                                        );
+                                    }
+
+                                    let filePath: string;
+                                    try {
+                                        filePath = await ensureCached;
+                                    } catch (error) {
+                                        const response =
+                                            this.createJsonResponse(
+                                                Communication.REST.Endpoint.ASSET_GET_BY_KEY.createError(
+                                                    error instanceof Error
+                                                        ? error.message
+                                                        : "Failed to populate cache",
+                                                ),
+                                                req,
+                                                500,
+                                            );
+                                        return this.addCorsHeaders(
+                                            response,
+                                            req,
+                                        );
+                                    }
+
+                                    const file = Bun.file(filePath, {
+                                        type:
+                                            meta.asset__mime_type ||
+                                            "application/octet-stream",
+                                    });
+                                    const response = new Response(file);
+                                    response.headers.set(
+                                        "Content-Type",
+                                        file.type,
+                                    );
+                                    response.headers.set(
+                                        "Cache-Control",
+                                        "public, max-age=600",
+                                    );
+                                    return this.addCorsHeaders(response, req);
+                                } catch (error) {
+                                    BunLogModule({
+                                        message: "Asset fetch endpoint failed",
+                                        error,
+                                        debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                                        suppress:
+                                            serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                        type: "error",
+                                        prefix: LOG_PREFIX,
+                                        data: {
+                                            url: url.toString(),
+                                            query: Object.fromEntries(
+                                                url.searchParams,
+                                            ),
+                                        },
+                                    });
+                                    const response = this.createJsonResponse(
+                                        Communication.REST.Endpoint.ASSET_GET_BY_KEY.createError(
+                                            "Failed to retrieve asset",
+                                        ),
+                                        req,
+                                        500,
+                                    );
+                                    return this.addCorsHeaders(response, req);
+                                }
+                            }
+
                             default: {
                                 const response = new Response("Not Found", {
                                     status: 404,
@@ -2122,6 +2678,17 @@ export class WorldApiManager {
             }
             this.activeSessions.clear();
         });
+        // Clear asset cache on teardown to avoid orphaned files lingering
+        void this.clearAssetCache().catch((error) =>
+            BunLogModule({
+                message: "Failed to clear asset cache during cleanup",
+                error,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                type: "error",
+                prefix: LOG_PREFIX,
+            }),
+        );
         BunPostgresClientModule.getInstance({
             debug: serverConfiguration.VRCA_SERVER_DEBUG,
             suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,

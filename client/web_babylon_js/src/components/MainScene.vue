@@ -10,16 +10,8 @@
             :authError="authProps.authError"
             :autoConnect="clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT"
             @auth-denied="onAuthDenied($event, authProps)"
-            v-slot="{ vircadiaWorld, connectionStatus, isConnecting, isAuthenticated, isAuthenticating, accountDisplayName, sessionId, fullSessionId, agentId, instanceId }">
-        <!-- Sync slot values to refs for script usage -->
-        <div style="display: none">
-            {{ vircadiaWorldRef = vircadiaWorld }}
-            
-            {{ sessionIdRef = sessionId }}
-            {{ fullSessionIdRef = fullSessionId }}
-            {{ agentIdRef = agentId }}
-            {{ instanceIdRef = instanceId }}
-        </div>
+            v-slot="{ vircadiaWorld, connectionStatus, isConnecting, isAuthenticated, isAuthenticating, accountDisplayName, sessionId, fullSessionId, agentId, lastCloseCode, lastCloseReason }">
+        
         <!-- Component Loader -->
         <template v-for="comp in availableComponents" :key="comp">
             <component 
@@ -47,15 +39,24 @@
             <v-app-bar-title>Debug</v-app-bar-title>
 
             <!-- Connection State -->
-            <v-chip
-                :color="getConnectionStatusColor(connectionStatus)"
-                size="small"
-                variant="flat"
-                class="ml-4"
-            >
-                <v-icon start size="small">{{ getConnectionStatusIcon(connectionStatus) }}</v-icon>
-                {{ connectionStatus }}
-            </v-chip>
+            <v-tooltip location="bottom">
+                <template #activator="{ props }">
+                    <v-chip
+                        v-bind="props"
+                        :color="getConnectionStatusColor(connectionStatus)"
+                        size="small"
+                        variant="flat"
+                        class="ml-4"
+                    >
+                        <v-icon start size="small">{{ getConnectionStatusIcon(connectionStatus) }}</v-icon>
+                        {{ connectionStatus }}
+                    </v-chip>
+                </template>
+                <div class="text-caption">
+                    <div><strong>Last close code:</strong> {{ lastCloseCode ?? '-' }}</div>
+                    <div><strong>Last close reason:</strong> {{ lastCloseReason || '-' }}</div>
+                </div>
+            </v-tooltip>
 
             <!-- Auth State -->
             <v-chip
@@ -210,7 +211,6 @@
                             <BabylonMyAvatar
                                 :scene="sceneNonNull"
                                 :vircadia-world="vircadiaWorld"
-                                :instance-id="instanceId ?? undefined"
                                 :key-state="controls.keyState"
                                 :is-talking="isTalking"
                                 :talk-level="talkLevel"
@@ -229,7 +229,6 @@
                                         :target-skeleton="(avatarSkeleton as any) || null"
                                         :camera="null"
                                         :model-file-name="modelFileName || ''"
-                                        :instance-id="instanceId ?? undefined"
                                         :avatar-definition="avatarDefinition"
                                         :position-throttle-interval="50"
                                         :rotation-throttle-interval="50"
@@ -411,7 +410,7 @@
                         :last-poll-timestamps="(otherAvatarsRef as any)?.lastPollTimestamps || {}"
                         :last-base-poll-timestamps="(otherAvatarsRef as any)?.lastBasePollTimestamps || {}"
                         :last-camera-poll-timestamps="(otherAvatarsRef as any)?.lastCameraPollTimestamps || {}"
-                        :poll-stats="(otherAvatarsRef as any)?.pollStats || undefined"
+                        :poll-stats="(otherAvatarsRef as any)?.discoveryStats ? { discovery: (otherAvatarsRef as any).discoveryStats } : undefined"
                         :is-polling-position-rotation="(otherAvatarsRef as any)?.isPollingPositionRotation || false"
                         :is-polling-camera="(otherAvatarsRef as any)?.isPollingCamera || false"
                         :is-loading="(otherAvatarsRef as any)?.isLoading || false"
@@ -442,7 +441,6 @@
         <!-- WebRTC component (hidden, just for functionality) -->
         <BabylonWebRTC
             v-if="connectionStatus === 'connected' && fullSessionId"
-            :instance-id="instanceId || ''"
             :vircadia-world="vircadiaWorld"
             :avatar-data-map="(otherAvatarsRef?.avatarDataMap as Record<string, { type: 'avatar'; sessionId: string | null; modelFileName: string; cameraOrientation: { alpha: number; beta: number; radius: number; }; }>) || {} as any"
             :position-data-map="(otherAvatarsRef?.positionDataMap as Record<string, { x: number; y: number; z: number; }>) || {} as any"
@@ -624,22 +622,7 @@ void webrtcStatus;
 const activeAudioCount = computed(() => webrtcStatus.value?.peers?.size ?? 0);
 void activeAudioCount;
 
-// Track slot values in refs for script usage
-const vircadiaWorldRef = ref<unknown>(null);
-const sessionIdRef = ref<string | null>(null);
-const fullSessionIdRef = ref<string | null>(null);
-const agentIdRef = ref<string | null>(null);
-const instanceIdRef = ref<string | null>(null);
-// These are synced from template but not directly used in script
-void vircadiaWorldRef;
-void sessionIdRef;
-void fullSessionIdRef;
-void agentIdRef;
-void instanceIdRef;
-
-// Auth state now handled via slot props from VircadiaWorldProvider in the template
-
-// Session/agent syncing handled by provider
+// Session/agent and world instance are provided reactively via slot props; no local refs needed
 
 // Scene readiness derived from BabylonCanvas exposed API
 // Track if avatar is ready

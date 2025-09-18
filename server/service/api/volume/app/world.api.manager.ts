@@ -30,7 +30,7 @@ let legacyProxyUserSql: Sql | null = null;
 let superUserSql: SQL | null = null;
 let proxyUserSql: SQL | null = null;
 
-// TODO: Needs heavy optimization, especially for SQL flow.
+// TODO: Needs heavy optimization, especially for SQL flow, reflect, asset API, etc. to prevent major hangs.
 
 // =================================================================================
 // ================ WORLD API MANAGER: Server Startup and Routing ==================
@@ -984,6 +984,25 @@ export class WorldApiManager {
                             });
                             return new Response("Invalid session", {
                                 status: 401,
+                            });
+                        }
+
+                        // Enforce hard limit: only one active WebSocket per session
+                        const existingSession = this.activeSessions.get(jwtValidationResult.sessionId);
+                        if (existingSession) {
+                            BunLogModule({
+                                prefix: LOG_PREFIX,
+                                message: "Rejecting WebSocket upgrade: session already connected",
+                                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                type: "debug",
+                                data: {
+                                    sessionId: jwtValidationResult.sessionId,
+                                    agentId: jwtValidationResult.agentId,
+                                },
+                            });
+                            return new Response("Session already connected", {
+                                status: 409, // Conflict - resource already exists
                             });
                         }
 

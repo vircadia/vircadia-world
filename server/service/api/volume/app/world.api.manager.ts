@@ -85,6 +85,11 @@ export class WorldApiManager {
     );
     private assetInFlight: Map<string, Promise<string>> = new Map();
 
+    // Asset cache metrics
+    private lastAssetMaintenanceAt: number | null = null;
+    private lastAssetMaintenanceDurationMs: number | null = null;
+    private lastAssetFilesWarmed: number | null = null;
+
     // Add CORS helper function
     private addCorsHeaders(response: Response, req: Request): Response {
         const origin = req.headers.get("origin");
@@ -384,6 +389,9 @@ export class WorldApiManager {
         await this.saveManifest(manifest);
 
         const durationMs = Math.round(performance.now() - t0);
+        this.lastAssetMaintenanceAt = Date.now();
+        this.lastAssetMaintenanceDurationMs = durationMs;
+        this.lastAssetFilesWarmed = filesWarmed;
         BunLogModule({
             message: fullRefresh
                 ? "Asset cache full refresh complete"
@@ -399,6 +407,31 @@ export class WorldApiManager {
                 durationMs,
             },
         });
+    }
+
+    private async getAssetCacheStats(): Promise<Service.API.I_AssetCacheStats> {
+        let totalBytes = 0;
+        let fileCount = 0;
+        try {
+            const manifest = await this.loadManifest();
+            const keys = Object.keys(manifest);
+            fileCount = keys.length;
+            for (const key of keys) {
+                totalBytes += Number(manifest[key]?.size || 0);
+            }
+        } catch {}
+
+        return {
+            dir: this.assetCacheDir,
+            maxBytes: this.assetCacheMaxBytes,
+            totalBytes,
+            fileCount,
+            inFlight: this.assetInFlight.size,
+            lastMaintenanceAt: this.lastAssetMaintenanceAt ?? null,
+            lastMaintenanceDurationMs:
+                this.lastAssetMaintenanceDurationMs ?? null,
+            filesWarmedLastRun: this.lastAssetFilesWarmed ?? null,
+        };
     }
 
     async validateJWT(data: { provider: string; token: string }): Promise<{
@@ -862,6 +895,9 @@ export class WorldApiManager {
                                 queries: this.metricsCollector.getMetrics(),
                                 reflect:
                                     this.metricsCollector.getReflectMetrics(),
+                                assets: {
+                                    cache: await this.getAssetCacheStats(),
+                                },
                             }),
                         );
                         return this.addCorsHeaders(response, req);
@@ -1922,6 +1958,18 @@ export class WorldApiManager {
                                         url.searchParams.get("sessionId");
 
                                     if (!key) {
+                                        BunLogModule({
+                                            message: "Asset GET missing key",
+                                            debug: true,
+                                            suppress: false,
+                                            type: "debug",
+                                            prefix: LOG_PREFIX,
+                                            data: {
+                                                query: Object.fromEntries(
+                                                    url.searchParams,
+                                                ),
+                                            },
+                                        });
                                         const response =
                                             this.createJsonResponse(
                                                 Communication.REST.Endpoint.ASSET_GET_BY_KEY.createError(
@@ -2056,6 +2104,14 @@ export class WorldApiManager {
                                     `;
 
                                     if (!meta) {
+                                        BunLogModule({
+                                            message: "Asset GET not found",
+                                            debug: true,
+                                            suppress: false,
+                                            type: "debug",
+                                            prefix: LOG_PREFIX,
+                                            data: { key },
+                                        });
                                         const response =
                                             this.createJsonResponse(
                                                 Communication.REST.Endpoint.ASSET_GET_BY_KEY.createError(
@@ -2185,6 +2241,17 @@ export class WorldApiManager {
                                     try {
                                         filePath = await ensureCached;
                                     } catch (error) {
+                                        BunLogModule({
+                                            message:
+                                                "Asset cache populate failed",
+                                            error,
+                                            debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                                            suppress:
+                                                serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                            type: "error",
+                                            prefix: LOG_PREFIX,
+                                            data: { key },
+                                        });
                                         const response =
                                             this.createJsonResponse(
                                                 Communication.REST.Endpoint.ASSET_GET_BY_KEY.createError(
@@ -2211,6 +2278,13 @@ export class WorldApiManager {
                                         "Content-Type",
                                         file.type,
                                     );
+                                    try {
+                                        const s = await stat(filePath);
+                                        response.headers.set(
+                                            "Content-Length",
+                                            String(s.size),
+                                        );
+                                    } catch {}
                                     response.headers.set(
                                         "Cache-Control",
                                         "public, max-age=600",

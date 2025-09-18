@@ -108,6 +108,41 @@ END;
 $$ LANGUAGE plpgsql;
 
 
+-- 5.2 ENTITY METADATA -> ENTITY TOUCH FUNCTIONS (STATEMENT-LEVEL)
+-- ============================================================================
+
+-- Touch parent entities for INSERT/UPDATE using transition NEW TABLE
+CREATE OR REPLACE FUNCTION entity.touch_entity_on_metadata_change_from_new()
+RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE entity.entities e
+    SET general__updated_at = now(),
+        general__updated_by = auth.current_agent_id()
+    FROM (
+        SELECT DISTINCT general__entity_name FROM new_table
+    ) d
+    WHERE e.general__entity_name = d.general__entity_name;
+
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = entity, public, pg_temp;
+
+-- Touch parent entities for DELETE using transition OLD TABLE
+CREATE OR REPLACE FUNCTION entity.touch_entity_on_metadata_change_from_old()
+RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE entity.entities e
+    SET general__updated_at = now(),
+        general__updated_by = auth.current_agent_id()
+    FROM (
+        SELECT DISTINCT general__entity_name FROM old_table
+    ) d
+    WHERE e.general__entity_name = d.general__entity_name;
+
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = entity, public, pg_temp;
+
 -- ============================================================================
 -- 6. TRIGGERS
 -- ============================================================================
@@ -141,6 +176,31 @@ CREATE TRIGGER update_audit_columns
     FOR EACH ROW
     EXECUTE FUNCTION entity.update_audit_columns();
 
+
+-- 6.5 TOUCH PARENT ENTITY ON METADATA CHANGE (STATEMENT-LEVEL)
+-- ==========================================================================
+
+-- Consolidated parent update for INSERT/UPDATE
+-- INSERT: transition NEW TABLE
+CREATE TRIGGER touch_parent_entity_on_meta_change_stmt_ins
+    AFTER INSERT ON entity.entity_metadata
+    REFERENCING NEW TABLE AS new_table
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION entity.touch_entity_on_metadata_change_from_new();
+
+-- UPDATE: transition NEW TABLE
+CREATE TRIGGER touch_parent_entity_on_meta_change_stmt_upd
+    AFTER UPDATE ON entity.entity_metadata
+    REFERENCING NEW TABLE AS new_table
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION entity.touch_entity_on_metadata_change_from_new();
+
+-- Consolidated parent update for DELETE
+CREATE TRIGGER touch_parent_entity_on_meta_change_stmt_del
+    AFTER DELETE ON entity.entity_metadata
+    REFERENCING OLD TABLE AS old_table
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION entity.touch_entity_on_metadata_change_from_old();
 
 -- ============================================================================
 -- 7. POLICIES AND PERMISSIONS

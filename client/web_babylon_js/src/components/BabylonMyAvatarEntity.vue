@@ -81,7 +81,6 @@ const props = defineProps({
         default: null,
     },
     modelFileName: { type: String, required: false, default: "" },
-    instanceId: { type: String, required: false, default: null },
     avatarDefinition: {
         type: Object as PropType<AvatarDefinition>,
         required: true,
@@ -318,6 +317,16 @@ const pushBatchedUpdates = useThrottleFn(async () => {
             entityName: name,
             ts: Date.now(),
         };
+
+        // Include sessionId and modelFileName for consumers expecting them
+        try {
+            const sid = name.replace(/^avatar:/, "");
+            (avatarFrame as { sessionId?: string }).sessionId = sid;
+        } catch {}
+        if (props.modelFileName && props.modelFileName.length > 0) {
+            (avatarFrame as { modelFileName?: string }).modelFileName =
+                props.modelFileName;
+        }
 
         // Add position, rotation, scale, camera data
         for (const [key, value] of updates) {
@@ -557,7 +566,7 @@ const updateJoints = useThrottleFn(() => {
 // Definition now provided by props; no DB load
 
 async function initializeEntity() {
-    if (!props.instanceId || !fullSessionId.value || !entityName.value) {
+    if (!fullSessionId.value || !entityName.value) {
         console.error("[AVATAR ENTITY] Missing required IDs, cannot proceed");
         return;
     }

@@ -25,11 +25,6 @@
         </v-list-item>
         <v-list-item>
           <v-list-item-title>
-            Instance ID: {{ props.instanceId }}
-          </v-list-item-title>
-        </v-list-item>
-        <v-list-item>
-          <v-list-item-title>
             Full Session: {{ fullSessionId || 'Not ready' }}
           </v-list-item-title>
         </v-list-item>
@@ -426,7 +421,6 @@ import type {
 import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
 
 interface Props {
-    instanceId: string;
     vircadiaWorld: ReturnType<typeof useVircadia>;
     // Separated avatar data streams
     avatarDataMap?: Record<string, AvatarBaseData>;

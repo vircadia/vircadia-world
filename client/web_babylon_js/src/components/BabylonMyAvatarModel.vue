@@ -9,6 +9,7 @@
 </template>
 
 <script setup lang="ts">
+// FIXME: Needs a teardown. Other similar components probably do need as well.
 import { ref, watch, onMounted, type Ref, computed } from "vue";
 import type { Scene, AbstractMesh, Skeleton } from "@babylonjs/core";
 import { ImportMeshAsync, type TransformNode } from "@babylonjs/core";

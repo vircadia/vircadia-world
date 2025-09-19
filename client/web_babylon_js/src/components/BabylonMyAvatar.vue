@@ -81,7 +81,6 @@ const props = defineProps({
         type: Object as () => VircadiaWorldInstance,
         required: true,
     },
-    instanceId: { type: String, required: false, default: null },
     keyState: { type: Object as () => KeyState, required: false },
     isTalking: { type: Boolean, required: false, default: false },
     // Optional talk amplitude (0..1) from BabylonMyAvatarTalking
@@ -182,12 +181,10 @@ const animations = computed(
 const sessionId = computed(
     () => props.vircadiaWorld.connectionInfo.value.sessionId ?? null,
 );
-const instanceId = computed(() => props.instanceId ?? null);
 const fullSessionId = computed(
     () => props.vircadiaWorld.connectionInfo.value.fullSessionId ?? null,
 );
 void sessionId;
-void instanceId;
 
 function onAvatarDefinitionLoaded(def: AvatarDefinition) {
     dbAvatarDef.value = def;

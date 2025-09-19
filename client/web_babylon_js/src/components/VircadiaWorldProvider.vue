@@ -15,6 +15,8 @@
         :agentId="agentIdComputed"
         :authProvider="authProviderComputed"
         :instanceId="instanceId"
+        :lastCloseCode="lastCloseCode"
+        :lastCloseReason="lastCloseReason"
         :connect="connect"
         :disconnect="disconnect"
     />
@@ -57,6 +59,8 @@ export type VircadiaWorldSlotProps = {
     agentId: string | null;
     authProvider: string | null;
     instanceId: string | null;
+    lastCloseCode: number | null;
+    lastCloseReason: string | null;
     connect: () => Promise<void>;
     disconnect: () => void;
 };
@@ -129,6 +133,15 @@ const connectionInfo = ref<ClientCoreConnectionInfo>(
 
 const updateConnectionStatus = () => {
     connectionInfo.value = client.Utilities.Connection.getConnectionInfo();
+    // Surface specific close reasons (session already connected) without treating as auth failure
+    const last = connectionInfo.value;
+    if (
+        last.status === "disconnected" &&
+        last.sessionValidation?.status !== "invalid"
+    ) {
+        // No-op: validation states are handled via REST; WS close reasons are logged in ClientCore
+        // Here we could emit a non-auth notification if needed
+    }
 };
 
 client.Utilities.Connection.addEventListener(
@@ -189,6 +202,23 @@ const instanceId = computed(
 );
 const fullSessionIdComputed = computed(
     () => connectionInfoComputed.value.fullSessionId ?? null,
+);
+
+type ConnectionInfoMaybeLastClose = ClientCoreConnectionInfo & {
+    lastClose?: { code: number; reason: string };
+};
+
+const lastCloseCode = computed(
+    () =>
+        (
+            connectionInfoComputed.value as ConnectionInfoMaybeLastClose
+        ).lastClose?.code ?? null,
+);
+const lastCloseReason = computed(
+    () =>
+        (
+            connectionInfoComputed.value as ConnectionInfoMaybeLastClose
+        ).lastClose?.reason ?? null,
 );
 
 type MinimalAccount =

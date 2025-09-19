@@ -41,7 +41,6 @@ import { useSimplifiedWebRTC } from "@/composables/useSimplifiedWebRTC";
 import { useWebRTCSpatialAudio } from "@/composables/useWebRTCSpatialAudio";
 
 interface Props {
-    instanceId: string;
     vircadiaWorld: any;
 }
 

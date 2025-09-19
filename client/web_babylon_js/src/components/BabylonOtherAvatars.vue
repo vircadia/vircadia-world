@@ -14,6 +14,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, toRefs } from "vue";
+import { useInterval } from "@vueuse/core";
 
 import type {
     AvatarJointMetadata,
@@ -98,16 +99,18 @@ function markDisposed(sessionId: string): void {
 void markLoaded;
 void markDisposed;
 
-let avatarDiscoveryInterval: number | null = null;
-
 async function pollForOtherAvatars(): Promise<void> {
     try {
         const startTime = Date.now();
+        console.log("[Discovery] Starting poll for other avatars...");
+
         const result = await vircadiaWorld.client.Utilities.Connection.query({
             query: "SELECT general__entity_name FROM entity.entities WHERE group__sync = $1 AND general__entity_name LIKE 'avatar:%'",
             parameters: ["public.NORMAL"],
             timeoutMs: 5000,
         });
+
+        console.log("[Discovery] Query result:", result);
 
         if (result.result && Array.isArray(result.result)) {
             const currentFullSessionId = currentFullSessionIdComputed.value;
@@ -115,6 +118,10 @@ async function pollForOtherAvatars(): Promise<void> {
             const entities = result.result as Array<{
                 general__entity_name: string;
             }>;
+
+            console.log(
+                `[Discovery] Found ${entities.length} entities, current session: ${currentFullSessionId}`,
+            );
 
             for (const entity of entities) {
                 const match =
@@ -131,11 +138,19 @@ async function pollForOtherAvatars(): Promise<void> {
 
             otherAvatarSessionIds.value = foundFullSessionIds;
             discoveryStats.value.rows = entities.length;
+            console.log(
+                `[Discovery] Found ${foundFullSessionIds.length} other avatars:`,
+                foundFullSessionIds,
+            );
         }
 
         discoveryStats.value.lastDurationMs = Date.now() - startTime;
         discoveryStats.value.timeouts = 0;
+        console.log(
+            `[Discovery] Poll completed in ${discoveryStats.value.lastDurationMs}ms`,
+        );
     } catch (error) {
+        console.error("[Discovery] Poll error:", error);
         discoveryStats.value.errors += 1;
         discoveryStats.value.lastError =
             error instanceof Error ? error.message : String(error);
@@ -153,8 +168,18 @@ function subscribeReflect(): void {
                 try {
                     const payload = message.payload as unknown;
                     if (!payload || typeof payload !== "object") return;
-                    const target = (payload as { sessionId?: string })
-                        .sessionId;
+                    // Support both old per-type payloads and new aggregated avatar_frame
+                    let target = (payload as { sessionId?: string }).sessionId;
+                    if (!target) {
+                        const entityName = (
+                            payload as {
+                                entityName?: string;
+                            }
+                        ).entityName;
+                        if (entityName && entityName.startsWith("avatar:")) {
+                            target = entityName.replace(/^avatar:/, "");
+                        }
+                    }
                     if (!target) return;
                     if (target === currentFullSessionIdComputed.value) return;
 
@@ -185,6 +210,72 @@ function subscribeReflect(): void {
                         >();
 
                     const typeField = (payload as { type?: string }).type;
+                    if (typeField === "avatar_frame") {
+                        // Populate base data if present
+                        const frame = payload as {
+                            modelFileName?: string;
+                            cameraOrientation?: {
+                                alpha: number;
+                                beta: number;
+                                radius: number;
+                            };
+                            position?: unknown;
+                            rotation?: unknown;
+                            joints?: Record<string, unknown>;
+                        };
+                        const existingBase = avatarDataMap.value[target];
+                        const modelFileName =
+                            frame.modelFileName ||
+                            existingBase?.modelFileName ||
+                            "babylon.avatar.glb";
+                        const cameraOrientation = frame.cameraOrientation ||
+                            existingBase?.cameraOrientation || {
+                                alpha: 0,
+                                beta: 0,
+                                radius: 0,
+                            };
+                        avatarDataMap.value[target] = {
+                            type: "avatar",
+                            sessionId: target,
+                            modelFileName,
+                            cameraOrientation,
+                        } as unknown as (typeof avatarDataMap.value)[string];
+
+                        // Position / rotation
+                        if (frame.position) {
+                            const parsed = parseAvatarPosition(frame.position);
+                            if (parsed) positionDataMap.value[target] = parsed;
+                        }
+                        if (frame.rotation) {
+                            const parsed = parseAvatarRotation(frame.rotation);
+                            if (parsed) rotationDataMap.value[target] = parsed;
+                        }
+
+                        // Joints map
+                        if (
+                            frame.joints &&
+                            typeof frame.joints === "object" &&
+                            jointDataMap.value[target]
+                        ) {
+                            for (const [
+                                jointName,
+                                jointPayload,
+                            ] of Object.entries(frame.joints)) {
+                                const parsed = parseAvatarJoint(jointPayload) as
+                                    | (AvatarJointMetadata & {
+                                          type: "avatarJoint";
+                                      })
+                                    | null;
+                                if (parsed) {
+                                    jointDataMap.value[target].set(
+                                        jointName,
+                                        parsed,
+                                    );
+                                }
+                            }
+                        }
+                        return;
+                    }
                     if (typeField === "avatar") {
                         const parsed = payload as AvatarBaseData;
                         avatarDataMap.value[target] = parsed;
@@ -211,19 +302,30 @@ function subscribeReflect(): void {
         );
 }
 
+// Use useInterval for polling other avatars
+const { pause: pauseDiscovery, resume: resumeDiscovery } = useInterval(
+    computed(() => {
+        const interval = props.discoveryPollingInterval;
+        console.log(`[Discovery] Polling interval: ${interval}ms`);
+        return interval;
+    }),
+    {
+        controls: true,
+        immediate: true,
+        callback: pollForOtherAvatars,
+    },
+);
+
 onMounted(() => {
+    console.log("[Discovery] Component mounted, starting discovery...");
     subscribeReflect();
-    if (avatarDiscoveryInterval) window.clearInterval(avatarDiscoveryInterval);
-    avatarDiscoveryInterval = window.setInterval(
-        pollForOtherAvatars,
-        props.discoveryPollingInterval,
-    );
-    void pollForOtherAvatars();
+    resumeDiscovery();
 });
 
 onUnmounted(() => {
+    console.log("[Discovery] Component unmounting, stopping discovery...");
     if (reflectUnsubscribe) reflectUnsubscribe();
-    if (avatarDiscoveryInterval) window.clearInterval(avatarDiscoveryInterval);
+    pauseDiscovery();
 });
 
 watch(
@@ -237,6 +339,7 @@ defineExpose({
     positionDataMap,
     rotationDataMap,
     jointDataMap,
+    discoveryStats,
 });
 </script>
 

@@ -31,6 +31,7 @@ let superUserSql: SQL | null = null;
 let proxyUserSql: SQL | null = null;
 
 // TODO: Needs heavy optimization, especially for SQL flow, reflect, asset API, etc. to prevent major hangs.
+// TODO: Split this into world.api.asset.manager.ts and world.api.reflect.manager.ts, and world.api.manager.ts. These will be new Docker containers.
 
 // =================================================================================
 // ================ WORLD API MANAGER: Server Startup and Routing ==================

@@ -1,14 +1,10 @@
 <template>
     <slot
-        v-for="otherFullSessionId in otherAvatarSessionIds"
-        :key="otherFullSessionId"
-        :session-id="otherFullSessionId"
-        :avatar-data="avatarDataMap[otherFullSessionId]"
-        :position-data="positionDataMap[otherFullSessionId]"
-        :rotation-data="rotationDataMap[otherFullSessionId]"
-        :joint-data="jointDataMap[otherFullSessionId]"
-        :on-ready="() => markLoaded(otherFullSessionId)"
-        :on-dispose="() => markDisposed(otherFullSessionId)"
+        :other-avatar-session-ids="otherAvatarSessionIds"
+        :avatar-data-map="avatarDataMap"
+        :position-data-map="positionDataMap"
+        :rotation-data-map="rotationDataMap"
+        :joint-data-map="jointDataMap"
     />
 </template>
 

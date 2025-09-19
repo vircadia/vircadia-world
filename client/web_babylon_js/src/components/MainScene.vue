@@ -352,19 +352,45 @@
                         :discovery-polling-interval="500"
                         :reflect-sync-group="'public.NORMAL'"
                         :reflect-channel="'avatar_joints'"
-                        ref="otherAvatarsRef"
-                        v-slot="{ sessionId: otherFullSessionId, avatarData, positionData, rotationData, jointData, onReady, onDispose }"
+                        :message-polling-interval="200"
+                        :presence-announce-interval="10000"
+                        :peer-discovery-interval="5000"
+                        :debug-refresh-interval="5000"
+                        :on-set-peer-audio-state="setPeerAudioState"
+                        :on-remove-peer-audio-state="removePeerAudioState"
+                        :on-set-peer-volume="setPeerVolume"
+                        :on-clear-peer-audio-states="clearPeerAudioStates"
+                        v-slot="{ otherAvatarSessionIds, avatarDataMap, positionDataMap, rotationDataMap, jointDataMap }"
                     >
                         <BabylonOtherAvatar
+                            v-for="otherFullSessionId in otherAvatarSessionIds || []"
+                            :key="otherFullSessionId"
                             :scene="sceneNonNull"
                             :vircadia-world="vircadiaWorld"
                             :session-id="otherFullSessionId"
-                            :avatar-data="avatarData"
-                            :position-data="positionData"
-                            :rotation-data="rotationData"
-                            :joint-data="jointData"
-                            @ready="onReady"
-                            @dispose="onDispose"
+                            :avatar-data="avatarDataMap?.[otherFullSessionId]"
+                            :position-data="positionDataMap?.[otherFullSessionId]"
+                            :rotation-data="rotationDataMap?.[otherFullSessionId]"
+                            :joint-data="jointDataMap?.[otherFullSessionId]"
+                            :on-ready="() => markLoaded(otherFullSessionId)"
+                            :on-dispose="() => markDisposed(otherFullSessionId)"
+                        />
+
+                        <!-- WebRTC component (now under OtherAvatars slot) -->
+                        <BabylonWebRTC
+                            :vircadia-world="vircadiaWorld"
+                            :avatar-data-map="(avatarDataMap as Record<string, { type: 'avatar'; sessionId: string | null; modelFileName: string; cameraOrientation: { alpha: number; beta: number; radius: number; }; }>) || {}"
+                            :position-data-map="(positionDataMap as Record<string, { x: number; y: number; z: number; }>) || {}"
+                            :rotation-data-map="(rotationDataMap as Record<string, { x: number; y: number; z: number; w: number; }>) || {}"
+                            :on-set-peer-audio-state="setPeerAudioState"
+                            :on-remove-peer-audio-state="removePeerAudioState"
+                            :on-set-peer-volume="setPeerVolume"
+                            :on-clear-peer-audio-states="clearPeerAudioStates"
+                            :message-polling-interval-ms="200"
+                            :presence-announce-interval-ms="10000"
+                            :peer-discovery-interval-ms="5000"
+                            :debug-refresh-interval-ms="5000"
+                            ref="webrtcStatus"
                         />
                     </BabylonOtherAvatars>
 
@@ -399,25 +425,6 @@
                         </div>
                     </BabylonModels>
 
-                    <!-- Other Avatars Debug Overlay -->
-                    <BabylonOtherAvatarsDebugOverlay
-                        v-if="otherAvatarsRef"
-                        v-model="otherAvatarsDebugOpen"
-                        :other-avatar-session-ids="(otherAvatarsRef as any)?.otherAvatarSessionIds || []"
-                        :avatar-data-map="(otherAvatarsRef as any)?.avatarDataMap || {}"
-                        :position-data-map="(otherAvatarsRef as any)?.positionDataMap || {}"
-                        :rotation-data-map="(otherAvatarsRef as any)?.rotationDataMap || {}"
-                        :joint-data-map="(otherAvatarsRef as any)?.jointDataMap || {}"
-                        :last-poll-timestamps="(otherAvatarsRef as any)?.lastPollTimestamps || {}"
-                        :last-base-poll-timestamps="(otherAvatarsRef as any)?.lastBasePollTimestamps || {}"
-                        :last-camera-poll-timestamps="(otherAvatarsRef as any)?.lastCameraPollTimestamps || {}"
-                        :poll-stats="(otherAvatarsRef as any)?.discoveryStats ? { discovery: (otherAvatarsRef as any).discoveryStats } : undefined"
-                        :is-polling-position-rotation="(otherAvatarsRef as any)?.isPollingPositionRotation || false"
-                        :is-polling-camera="(otherAvatarsRef as any)?.isPollingCamera || false"
-                        :is-loading="(otherAvatarsRef as any)?.isLoading || false"
-                        :connection-status="connectionStatus"
-                        hotkey="Shift+O"
-                    />
 
                     <!-- BabylonDoor component for interactive door -->
                     <BabylonDoor
@@ -439,20 +446,7 @@
             </BabylonEnvironment>
         </main>
         
-        <!-- WebRTC component (hidden, just for functionality) -->
-        <BabylonWebRTC
-            v-if="connectionStatus === 'connected' && fullSessionId"
-            :vircadia-world="vircadiaWorld"
-            :avatar-data-map="(otherAvatarsRef?.avatarDataMap as Record<string, { type: 'avatar'; sessionId: string | null; modelFileName: string; cameraOrientation: { alpha: number; beta: number; radius: number; }; }>) || {} as any"
-            :position-data-map="(otherAvatarsRef?.positionDataMap as Record<string, { x: number; y: number; z: number; }>) || {} as any"
-            :rotation-data-map="(otherAvatarsRef?.rotationDataMap as Record<string, { x: number; y: number; z: number; w: number; }>) || {} as any"
-            :on-set-peer-audio-state="setPeerAudioState"
-            :on-remove-peer-audio-state="removePeerAudioState"
-            :on-set-peer-volume="setPeerVolume"
-            :on-clear-peer-audio-states="clearPeerAudioStates"
-            ref="webrtcStatus"
-            style="display: none;"
-        />
+        <!-- WebRTC moved inside BabylonOtherAvatars -->
         
         <!-- Floating Control Toolbar -->
         <div class="floating-toolbar">
@@ -477,7 +471,7 @@
                         fab 
                         small
                         color="primary" 
-                        @click="audioDialog = true"
+                        @click="webrtcStatus?.openControls?.()"
                         v-bind="props"
                         class="toolbar-btn"
                     >
@@ -499,19 +493,7 @@
             <BabylonInspector :scene="sceneNonNull" />
         </div>
         
-        <!-- Audio controls dialog -->
-        <v-dialog v-model="audioDialog" max-width="600" eager>
-            <AudioControlsDialog 
-                :webrtc-ref="webrtcStatus || undefined"
-                :spatial-audio-enabled="spatialAudioEnabled"
-                :on-toggle-spatial-audio="toggleSpatialAudio"
-                :active-peer-audio-states="activePeerAudioStates"
-                :get-peer-audio-state="getPeerAudioState"
-                :on-set-peer-volume="setPeerVolume"
-                :on-set-peer-muted="setPeerMuted"
-                :on-clear-peer-audio-states="clearPeerAudioStates"
-            />
-        </v-dialog>
+        <!-- Audio controls dialog now lives inside BabylonWebRTC -->
 
         </VircadiaWorldProvider>
     </VircadiaWorldAuthProvider>
@@ -544,13 +526,12 @@ import BabylonModelPhysics, {
     type PhysicsSummary,
 } from "../components/BabylonModelPhysics.vue";
 import BabylonModels from "../components/BabylonModels.vue";
-import BabylonWebRTC from "../components/BabylonWebRTC.vue";
 import BabylonMyAvatarDebugOverlay from "../components/BabylonMyAvatarDebugOverlay.vue";
+import BabylonWebRTC from "../components/BabylonWebRTC.vue";
 import BabylonCameraDebugOverlay from "../components/BabylonCameraDebugOverlay.vue";
 import BabylonInspector from "../components/BabylonInspector.vue";
 import BabylonModelsDebugOverlay from "../components/BabylonModelsDebugOverlay.vue";
 import BabylonOtherAvatarsDebugOverlay from "../components/BabylonOtherAvatarsDebugOverlay.vue";
-import AudioControlsDialog from "../components/AudioControlsDialog.vue";
 import VircadiaWorldAuthProvider from "../components/VircadiaWorldAuthProvider.vue";
 import BabylonCanvas from "../components/BabylonCanvas.vue";
 import BabylonSnackbar from "../components/BabylonSnackbar.vue";
@@ -578,7 +559,6 @@ void BabylonModelPhysics;
 // mark as used at runtime for template
 void BabylonModels;
 // mark as used at runtime for template
-void BabylonWebRTC;
 // mark as used at runtime for template
 // mark as used at runtime for template
 void BabylonMyAvatarDebugOverlay;
@@ -586,7 +566,6 @@ void BabylonCameraDebugOverlay;
 // mark as used at runtime for template
 void BabylonInspector;
 // mark as used at runtime for template
-void AudioControlsDialog;
 // mark as used at runtime for template
 void BabylonModelsDebugOverlay;
 // mark as used at runtime for template
@@ -608,6 +587,12 @@ import BabylonEnvironment from "../components/BabylonEnvironment.vue";
 import BabylonDoor from "../components/BabylonDoor.vue";
 import { clientBrowserConfiguration } from "@/vircadia.browser.config";
 import { useStorage } from "@vueuse/core";
+import type {
+    AvatarJointMetadata,
+    AvatarBaseData,
+    AvatarPositionData,
+    AvatarRotationData,
+} from "@/schemas";
 
 // BabylonJS types
 import type { Scene, WebGPUEngine } from "@babylonjs/core";
@@ -617,8 +602,6 @@ import type { Scene, WebGPUEngine } from "@babylonjs/core";
 // Connection count is now managed by BabylonWebRTC component
 const webrtcStatus = ref<InstanceType<typeof BabylonWebRTC> | null>(null);
 void webrtcStatus;
-// const connectionCount = computed(() => webrtcStatus.value?.peers.size || 0);
-
 // Active audio connections derived from WebRTC peers
 const activeAudioCount = computed(() => webrtcStatus.value?.peers?.size ?? 0);
 void activeAudioCount;
@@ -630,13 +613,14 @@ void activeAudioCount;
 const avatarRef = ref<InstanceType<typeof BabylonMyAvatar> | null>(null);
 void avatarRef;
 // targetSkeleton now provided via slot; no local ref needed
-type OtherAvatarsExposed = {
-    isLoading: boolean;
-    avatarDataMap: Record<string, unknown>;
-    positionDataMap: Record<string, unknown>;
-    rotationDataMap: Record<string, unknown>;
+// Other avatar types for v-slot destructuring
+type OtherAvatarSlotProps = {
+    otherAvatarSessionIds?: string[];
+    avatarDataMap?: Record<string, AvatarBaseData>;
+    positionDataMap?: Record<string, AvatarPositionData>;
+    rotationDataMap?: Record<string, AvatarRotationData>;
+    jointDataMap?: Record<string, Map<string, AvatarJointMetadata>>;
 };
-const otherAvatarsRef = ref<OtherAvatarsExposed | null>(null);
 // Combined otherAvatarsMetadata removed; use separate maps from BabylonOtherAvatars
 const modelRefs = ref<(InstanceType<typeof BabylonModel> | null)[]>([]);
 const modelPhysicsRefs = ref<
@@ -1027,9 +1011,8 @@ const avatarLoading = computed(
         avatarModelLoading.value,
 );
 void avatarLoading;
-const otherAvatarsLoading = computed(
-    () => otherAvatarsRef.value?.isLoading ?? false,
-);
+// Other avatars loading state is handled internally by BabylonOtherAvatars component
+const otherAvatarsLoading = computed(() => false); // Placeholder - loading state managed by component
 void otherAvatarsLoading;
 const modelsLoading = computed(() =>
     modelRefs.value.some(
@@ -1125,11 +1108,7 @@ void onAvatarSyncStats;
 
 // Snackbar logic moved into BabylonSnackbar component
 
-// State for Audio dialog
-const audioDialog = ref(false);
-void audioDialog;
-
-// Local audio state (replaces store for dialog)
+// Audio dialog is owned by BabylonWebRTC now
 type PeerAudioState = {
     sessionId: string;
     volume: number;
@@ -1178,13 +1157,10 @@ function toggleSpatialAudio(enabled: boolean) {
     spatialAudioEnabled.value = enabled;
 }
 
-// Mark dialog helpers used in template
-void activePeerAudioStates;
-void getPeerAudioState;
+// Mark audio helpers used in template
 void setPeerAudioState;
 void removePeerAudioState;
 void setPeerVolume;
-void setPeerMuted;
 void clearPeerAudioStates;
 void toggleSpatialAudio;
 
@@ -1231,6 +1207,15 @@ function onAuthDenied(payload: AuthDeniedPayload, authProps: AuthSlotProps) {
 }
 void onAuthDenied;
 
+// Other avatar event handlers
+function markLoaded(sessionId: string) {
+    console.debug("[MainScene] Other avatar loaded", sessionId);
+}
+
+function markDisposed(sessionId: string) {
+    console.debug("[MainScene] Other avatar disposed", sessionId);
+}
+
 // Door event handlers
 function onDoorState(payload: {
     state: "loading" | "ready" | "error";
@@ -1254,6 +1239,8 @@ function onDoorOpen(payload: { open: boolean }) {
 
 void onDoorState;
 void onDoorOpen;
+void markLoaded;
+void markDisposed;
 
 // Debug bar helper functions
 function getConnectionStatusColor(status: string): string {

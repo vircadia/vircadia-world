@@ -1,5 +1,5 @@
 import { ref, watch, computed, type Ref } from "vue";
-import type { AvatarPositionData } from "./schemas";
+import type { AvatarPositionData } from "@schemas";
 
 export interface SpatialAudioOptions {
     refDistance?: number;

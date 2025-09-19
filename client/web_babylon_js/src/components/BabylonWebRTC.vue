@@ -441,7 +441,16 @@ interface Props {
     onClearPeerAudioStates?: () => void;
 }
 
-const props = defineProps<Props>();
+const props = defineProps<Props & {
+    // Polling interval for per-peer message checks (ms)
+    messagePollingIntervalMs: number;
+    // Interval for presence announcements (ms)
+    presenceAnnounceIntervalMs: number;
+    // Interval for peer discovery/connection management (ms)
+    peerDiscoveryIntervalMs: number;
+    // Interval for DB debug refresh (ms)
+    debugRefreshIntervalMs: number;
+}>();
 
 // Enhanced peer info interface with simplified state
 interface PeerInfo {
@@ -598,10 +607,15 @@ const announcePeerPresence = async () => {
         for (const [key, value] of Object.entries(discoveryData)) {
             await vircadiaWorld.client.Utilities.Connection.query({
                 query: `INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync)
-                        VALUES ($1, $2, $3, $4)
+                        VALUES ($1, $2, $3::jsonb, $4)
                         ON CONFLICT (general__entity_name, metadata__key) 
                         DO UPDATE SET metadata__value = EXCLUDED.metadata__value`,
-                parameters: [entityName, key, value, "public.NORMAL"],
+                parameters: [
+                    entityName,
+                    key,
+                    JSON.stringify(value),
+                    "public.NORMAL",
+                ],
             });
         }
     } catch (error) {
@@ -621,9 +635,9 @@ const discoverPeers = async (): Promise<string[]> => {
             await vircadiaWorld.client.Utilities.Connection.query({
                 query: `
                 SELECT general__entity_name FROM entity.entities 
-                WHERE general__entity_name LIKE 'webrtc-peer-%'
+                WHERE group__sync = $1 AND general__entity_name LIKE 'webrtc-peer-%'
             `,
-                parameters: [],
+                parameters: ["public.NORMAL"],
             });
 
         const activePeers: string[] = [];
@@ -638,9 +652,9 @@ const discoverPeers = async (): Promise<string[]> => {
                         query: `
                         SELECT metadata__key, metadata__value 
                         FROM entity.entity_metadata 
-                        WHERE general__entity_name = $1
+                        WHERE general__entity_name = $1 AND group__sync = $2
                     `,
-                        parameters: [entityName],
+                        parameters: [entityName, "public.NORMAL"],
                     });
 
                 if (Array.isArray(metadataResult.result)) {
@@ -735,7 +749,9 @@ const sendMessage = async (
         await vircadiaWorld.client.Utilities.Connection.query({
             query: `INSERT INTO entity.entity_metadata 
                     (general__entity_name, metadata__key, metadata__value, group__sync)
-                    VALUES ($1, $2, $3, $4)`,
+                    VALUES ($1, $2, $3::jsonb, $4)
+                    ON CONFLICT (general__entity_name, metadata__key)
+                    DO UPDATE SET metadata__value = EXCLUDED.metadata__value`,
             parameters: [
                 sessionEntityName,
                 messageKey,
@@ -782,9 +798,10 @@ const receiveMessagesForPeer = async (
                     SELECT metadata__key, metadata__value 
                     FROM entity.entity_metadata 
                     WHERE general__entity_name = $1
+                    AND group__sync = $2
                     AND metadata__key LIKE 'msg-%'
                 `,
-                parameters: [sessionEntityName],
+                parameters: [sessionEntityName, "public.NORMAL"],
             });
 
         const messages: WebRTCMessageWithKey[] = [];
@@ -844,7 +861,7 @@ const markMessageProcessed = async (
 
         await vircadiaWorld.client.Utilities.Connection.query({
             query: `UPDATE entity.entity_metadata 
-                    SET metadata__value = $1 
+                    SET metadata__value = $1::jsonb 
                     WHERE general__entity_name = $2 AND metadata__key = $3`,
             parameters: [
                 JSON.stringify(updatedMessage),
@@ -1024,8 +1041,8 @@ const setupPerfectNegotiation = (
         }
     };
 
-    // Start simple fixed-interval polling (200ms)
-    const messageTimer = setInterval(pollForMessages, 200);
+    // Start message polling using provided interval
+    const messageTimer = setInterval(pollForMessages, props.messagePollingIntervalMs);
 
     return {
         cleanup: () => {
@@ -1455,8 +1472,8 @@ async function refreshDatabaseState() {
         // Get all webrtc session entities
         const entitiesResult =
             await vircadiaWorld.client.Utilities.Connection.query({
-                query: "SELECT general__entity_name FROM entity.entities WHERE general__entity_name LIKE 'webrtc-session-%' ORDER BY general__created_at DESC LIMIT 20",
-                parameters: [],
+                query: "SELECT general__entity_name FROM entity.entities WHERE group__sync = $1 AND general__entity_name LIKE 'webrtc-session-%' ORDER BY general__created_at DESC LIMIT 20",
+                parameters: ["public.NORMAL"],
             });
 
         messageEntities.value = [];
@@ -1468,8 +1485,8 @@ async function refreshDatabaseState() {
                 // Get all message metadata for this session
                 const metadataResult =
                     await vircadiaWorld.client.Utilities.Connection.query({
-                        query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1 AND metadata__key LIKE 'msg-%'",
-                        parameters: [entityName],
+                        query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1 AND group__sync = $2 AND metadata__key LIKE 'msg-%'",
+                        parameters: [entityName, "public.NORMAL"],
                     });
 
                 if (Array.isArray(metadataResult.result)) {
@@ -1569,10 +1586,10 @@ onMounted(async () => {
         console.error("[WebRTC] Failed to initialize:", error);
     }
 
-    // Start periodic tasks
-    intervals.push(setInterval(announcePeerPresence, 10000)); // Announce every 10 seconds
-    intervals.push(setInterval(manageConnections, 5000)); // Check for peers every 5 seconds
-    intervals.push(setInterval(refreshDatabaseState, 5000)); // Database debug every 5 seconds
+    // Start periodic tasks using provided intervals
+    intervals.push(setInterval(announcePeerPresence, props.presenceAnnounceIntervalMs));
+    intervals.push(setInterval(manageConnections, props.peerDiscoveryIntervalMs));
+    intervals.push(setInterval(refreshDatabaseState, props.debugRefreshIntervalMs));
 });
 
 onUnmounted(async () => {
@@ -1650,8 +1667,8 @@ async function cleanupStaleMessages() {
         // Find all WebRTC session entities
         const sessionEntitiesResult =
             await vircadiaWorld.client.Utilities.Connection.query({
-                query: "SELECT general__entity_name FROM entity.entities WHERE general__entity_name LIKE 'webrtc-session-%'",
-                parameters: [],
+                query: "SELECT general__entity_name FROM entity.entities WHERE group__sync = $1 AND general__entity_name LIKE 'webrtc-session-%'",
+                parameters: ["public.NORMAL"],
             });
 
         let deletedCount = 0;
@@ -1662,8 +1679,8 @@ async function cleanupStaleMessages() {
                 // Get all message metadata for this session
                 const messagesResult =
                     await vircadiaWorld.client.Utilities.Connection.query({
-                        query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1 AND metadata__key LIKE 'msg-%'",
-                        parameters: [entityName],
+                        query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1 AND group__sync = $2 AND metadata__key LIKE 'msg-%'",
+                        parameters: [entityName, "public.NORMAL"],
                     });
 
                 if (Array.isArray(messagesResult.result)) {
@@ -1677,10 +1694,11 @@ async function cleanupStaleMessages() {
                             if (message.timestamp < cutoffTime) {
                                 await vircadiaWorld.client.Utilities.Connection.query(
                                     {
-                                        query: "DELETE FROM entity.entity_metadata WHERE general__entity_name = $1 AND metadata__key = $2",
+                                        query: "DELETE FROM entity.entity_metadata WHERE general__entity_name = $1 AND metadata__key = $2 AND group__sync = $3",
                                         parameters: [
                                             entityName,
                                             row.metadata__key,
+                                            "public.NORMAL",
                                         ],
                                     },
                                 );
@@ -1690,8 +1708,12 @@ async function cleanupStaleMessages() {
                             // If we can't parse it, delete it
                             await vircadiaWorld.client.Utilities.Connection.query(
                                 {
-                                    query: "DELETE FROM entity.entity_metadata WHERE general__entity_name = $1 AND metadata__key = $2",
-                                    parameters: [entityName, row.metadata__key],
+                                    query: "DELETE FROM entity.entity_metadata WHERE general__entity_name = $1 AND metadata__key = $2 AND group__sync = $3",
+                                    parameters: [
+                                        entityName,
+                                        row.metadata__key,
+                                        "public.NORMAL",
+                                    ],
                                 },
                             );
                             deletedCount++;
@@ -1702,8 +1724,8 @@ async function cleanupStaleMessages() {
                 // Clean up empty session entities
                 const remainingMetadata =
                     await vircadiaWorld.client.Utilities.Connection.query({
-                        query: "SELECT COUNT(*) as count FROM entity.entity_metadata WHERE general__entity_name = $1",
-                        parameters: [entityName],
+                        query: "SELECT COUNT(*) as count FROM entity.entity_metadata WHERE general__entity_name = $1 AND group__sync = $2",
+                        parameters: [entityName, "public.NORMAL"],
                     });
 
                 if (
@@ -1727,11 +1749,13 @@ async function cleanupStaleMessages() {
                 SELECT DISTINCT e.general__entity_name 
                 FROM entity.entities e
                 JOIN entity.entity_metadata m ON e.general__entity_name = m.general__entity_name
-                WHERE e.general__entity_name LIKE 'webrtc-peer-%' 
+                WHERE e.group__sync = $1
+                AND m.group__sync = $1
+                AND e.general__entity_name LIKE 'webrtc-peer-%' 
                 AND m.metadata__key = 'timestamp'
-                AND CAST(m.metadata__value AS BIGINT) < $1
+                AND CAST(m.metadata__value AS BIGINT) < $2
             `,
-                parameters: [cutoffTime],
+                parameters: ["public.NORMAL", cutoffTime],
             });
 
         let deletedPeersCount = 0;

@@ -85,6 +85,7 @@ const props = defineProps({
         type: Object as PropType<AvatarDefinition>,
         required: true,
     },
+    persistPoseSnapshotInterval: { type: Number, required: true },
     positionThrottleInterval: { type: Number, required: true },
     rotationThrottleInterval: { type: Number, required: true },
     cameraOrientationThrottleInterval: { type: Number, required: true },
@@ -198,6 +199,142 @@ async function ensureEntityRowExists(name: string): Promise<void> {
     } catch (e) {
         console.warn("[BabylonMyAvatarEntity] ensureEntityRowExists failed", e);
         recordError("ensureEntityRowExists", e);
+    }
+}
+
+// Persist a single metadata key/value for this avatar entity
+async function upsertMetadata(
+    entityNameArg: string,
+    key: string,
+    value: unknown,
+): Promise<void> {
+    try {
+        await props.vircadiaWorld.client.Utilities.Connection.query({
+            query:
+                "INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync) VALUES ($1, $2, $3, $4) ON CONFLICT (general__entity_name, metadata__key) DO UPDATE SET metadata__value = EXCLUDED.metadata__value",
+            parameters: [
+                entityNameArg,
+                key,
+                value,
+                "public.NORMAL",
+            ],
+            timeoutMs: 5000,
+        });
+    } catch (e) {
+        recordError("upsertMetadata", e);
+        console.warn("[BabylonMyAvatarEntity] upsertMetadata failed", e);
+    }
+}
+
+// Persist core avatar metadata immediately when available/changed
+async function persistCoreAvatarMetadata(): Promise<void> {
+    const name = entityName.value;
+    const sid = fullSessionId.value;
+    if (!name || !sid) return;
+    await upsertMetadata(name, "type", "avatar");
+    await upsertMetadata(name, "sessionId", sid);
+    if (props.modelFileName && props.modelFileName.length > 0) {
+        await upsertMetadata(name, "modelFileName", props.modelFileName);
+    }
+}
+
+// Periodically persist a compact pose snapshot for late joiners
+let poseSnapshotInterval: number | null = null;
+async function persistPoseSnapshot(): Promise<void> {
+    const name = entityName.value;
+    if (!name) return;
+
+    // Position
+    let positionValue: PositionObj | null = null;
+    if (props.avatarNode) {
+        const pos = props.avatarNode.position ?? new V3(0, 0, 0);
+        positionValue = quantizePosition(vectorToObj(pos), props.positionDecimals);
+    }
+
+    // Rotation
+    let rotationValue: RotationObj | null = null;
+    if (props.avatarNode) {
+        const rot = props.avatarNode.rotationQuaternion ?? new Q4(0, 0, 0, 1);
+        rotationValue = quantizeRotation(quatToObj(rot), props.rotationDecimals);
+    }
+
+    // Scale
+    let scaleValue: PositionObj | null = null;
+    if (props.avatarNode) {
+        const scl = props.avatarNode.scaling ?? new V3(1, 1, 1);
+        scaleValue = quantizeScale(vectorToObj(scl), props.scaleDecimals);
+    }
+
+    // Camera orientation
+    let cameraOrientationValue:
+        | { alpha: number; beta: number; radius: number }
+        | null = null;
+    if (props.camera) {
+        const cam = props.camera as unknown as { alpha?: number; beta?: number; radius?: number };
+        if (
+            cam.alpha !== undefined &&
+            cam.beta !== undefined &&
+            cam.radius !== undefined
+        ) {
+            cameraOrientationValue = {
+                alpha: cam.alpha,
+                beta: cam.beta,
+                radius: cam.radius,
+            };
+        }
+    }
+
+    // Joints snapshot as a single object (reduces DB rows)
+    let jointsValue: Record<string, unknown> | null = null;
+    if (props.targetSkeleton) {
+        jointsValue = {};
+        const bones = props.targetSkeleton.bones || [];
+        for (const bone of bones) {
+            const localMat = bone.getLocalMatrix();
+            const pos = new V3();
+            const rot = new Q4();
+            const scale = new V3();
+            localMat.decompose(scale, rot, pos);
+            jointsValue[bone.name] = {
+                type: "avatarJoint",
+                jointName: bone.name,
+                position: quantizePosition(
+                    vectorToObj(pos),
+                    props.jointPositionDecimals,
+                ),
+                rotation: quantizeRotation(
+                    quatToObj(rot),
+                    props.jointRotationDecimals,
+                ),
+                scale: quantizeScale(
+                    vectorToObj(scale),
+                    props.jointScaleDecimals,
+                ),
+            };
+        }
+    }
+
+    // Aggregate snapshot for convenience consumers
+    const snapshot: Record<string, unknown> = { type: "avatar_snapshot" };
+    if (positionValue) snapshot.position = positionValue;
+    if (rotationValue) snapshot.rotation = rotationValue;
+    if (scaleValue) snapshot.scale = scaleValue;
+    if (cameraOrientationValue) snapshot.cameraOrientation = cameraOrientationValue;
+    if (jointsValue && Object.keys(jointsValue).length > 0)
+        snapshot.joints = jointsValue;
+
+    try {
+        // Write individual keys so readers can pick selectively
+        if (positionValue) await upsertMetadata(name, "position", positionValue);
+        if (rotationValue) await upsertMetadata(name, "rotation", rotationValue);
+        if (scaleValue) await upsertMetadata(name, "scale", scaleValue);
+        if (cameraOrientationValue)
+            await upsertMetadata(name, "cameraOrientation", cameraOrientationValue);
+        if (jointsValue) await upsertMetadata(name, "joints", jointsValue);
+        // Also write aggregated snapshot
+        await upsertMetadata(name, "avatar_snapshot", snapshot);
+    } catch (e) {
+        recordError("persistPoseSnapshot", e);
     }
 }
 
@@ -601,6 +738,7 @@ onMounted(async () => {
         async (s) => {
             if (s === "connected") {
                 await initializeEntity();
+                await persistCoreAvatarMetadata();
                 stop();
             }
         },
@@ -613,12 +751,35 @@ onMounted(async () => {
         if (props.camera) updateCamera();
         if (props.targetSkeleton) updateJoints();
     });
+
+    // Start periodic pose snapshot persistence
+    if (poseSnapshotInterval == null) {
+        poseSnapshotInterval = setInterval(async () => {
+            // Only persist when we have a valid entity name
+            if (entityName.value) {
+                await persistPoseSnapshot();
+            }
+        }, props.persistPoseSnapshotInterval) as unknown as number;
+    }
 });
 
 onUnmounted(() => {
     if (afterPhysicsObserver)
         props.scene.onAfterRenderObservable.remove(afterPhysicsObserver);
+    if (poseSnapshotInterval != null) {
+        clearInterval(poseSnapshotInterval as unknown as number);
+        poseSnapshotInterval = null;
+    }
 });
+
+// React to core metadata changes
+watch(
+    () => [props.modelFileName, fullSessionId.value],
+    async () => {
+        await persistCoreAvatarMetadata();
+    },
+    { immediate: false },
+);
 
 defineExpose({ isCreating, isRetrieving });
 </script>

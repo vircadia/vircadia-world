@@ -230,6 +230,7 @@
                                         :camera="null"
                                         :model-file-name="modelFileName || ''"
                                         :avatar-definition="avatarDefinition"
+                                        :persist-pose-snapshot-interval="5000"
                                         :position-throttle-interval="50"
                                         :rotation-throttle-interval="50"
                                         :camera-orientation-throttle-interval="100"

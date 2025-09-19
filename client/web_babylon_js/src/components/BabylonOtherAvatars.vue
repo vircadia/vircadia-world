@@ -88,6 +88,10 @@ let reflectUnsubscribe: (() => void) | null = null;
 
 const loadingBySession = ref<Record<string, boolean>>({});
 
+// Track metadata loads per session to avoid repeated queries
+const metadataLoadedSessions = new Set<string>();
+const metadataLoadingSessions = new Set<string>();
+
 function markLoaded(sessionId: string): void {
     loadingBySession.value[sessionId] = false;
 }
@@ -132,6 +136,10 @@ async function pollForOtherAvatars(): Promise<void> {
                         if (loadingBySession.value[match[1]] == null) {
                             loadingBySession.value[match[1]] = true;
                         }
+                        // Initialize data holders immediately to avoid undefineds downstream
+                        initializeSessionDefaults(match[1]);
+                        // Attempt metadata backfill for this session
+                        void backfillSessionFromMetadata(match[1]);
                     }
                 }
             }
@@ -302,6 +310,120 @@ function subscribeReflect(): void {
         );
 }
 
+function initializeSessionDefaults(sessionId: string): void {
+    if (!avatarDataMap.value[sessionId])
+        avatarDataMap.value[sessionId] = {
+            type: "avatar",
+            sessionId,
+            cameraOrientation: { alpha: 0, beta: 0, radius: 0 },
+            modelFileName: "babylon.avatar.glb",
+        } as AvatarBaseData;
+    if (!positionDataMap.value[sessionId])
+        positionDataMap.value[sessionId] = { x: 0, y: 0, z: 0 } as AvatarPositionData;
+    if (!rotationDataMap.value[sessionId])
+        rotationDataMap.value[sessionId] = { x: 0, y: 0, z: 0, w: 1 } as AvatarRotationData;
+    if (!jointDataMap.value[sessionId])
+        jointDataMap.value[sessionId] = new Map<string, AvatarJointMetadata>();
+}
+
+async function backfillSessionFromMetadata(sessionId: string): Promise<void> {
+    if (metadataLoadedSessions.has(sessionId) || metadataLoadingSessions.has(sessionId)) return;
+    metadataLoadingSessions.add(sessionId);
+    try {
+        const entityName = `avatar:${sessionId}`;
+        const result = await vircadiaWorld.client.Utilities.Connection.query({
+            query:
+                "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1 AND group__sync = $2 AND metadata__key IN ('type','sessionId','modelFileName','position','rotation','scale','cameraOrientation','joints','avatar_snapshot')",
+            parameters: [entityName, "public.NORMAL"],
+            timeoutMs: 5000,
+        });
+        if (!result || !Array.isArray(result.result)) return;
+
+        initializeSessionDefaults(sessionId);
+
+        // Apply individual keys first
+        const rows = result.result as Array<{ metadata__key: string; metadata__value: unknown }>;
+        const keyToValue = new Map(rows.map((r) => [r.metadata__key, r.metadata__value]));
+
+        const base = avatarDataMap.value[sessionId];
+        const modelFileName = (keyToValue.get("modelFileName") as string) || base.modelFileName || "babylon.avatar.glb";
+        const cameraOrientation =
+            (keyToValue.get("cameraOrientation") as { alpha: number; beta: number; radius: number }) ||
+            base.cameraOrientation || { alpha: 0, beta: 0, radius: 0 };
+        avatarDataMap.value[sessionId] = {
+            type: "avatar",
+            sessionId,
+            modelFileName,
+            cameraOrientation,
+        } as AvatarBaseData;
+
+        const posPayload = keyToValue.get("position");
+        if (posPayload) {
+            const parsed = parseAvatarPosition(posPayload);
+            if (parsed) positionDataMap.value[sessionId] = parsed;
+        }
+        const rotPayload = keyToValue.get("rotation");
+        if (rotPayload) {
+            const parsed = parseAvatarRotation(rotPayload);
+            if (parsed) rotationDataMap.value[sessionId] = parsed;
+        }
+        const jointsPayload = keyToValue.get("joints");
+        if (jointsPayload && typeof jointsPayload === "object") {
+            for (const [jointName, jointPayload] of Object.entries(
+                jointsPayload as Record<string, unknown>,
+            )) {
+                const parsed = parseAvatarJoint(jointPayload) as
+                    | (AvatarJointMetadata & { type: "avatarJoint" })
+                    | null;
+                if (parsed) jointDataMap.value[sessionId].set(jointName, parsed);
+            }
+        }
+
+        // If aggregated snapshot exists, apply any missing aspects
+        const snapshot = keyToValue.get("avatar_snapshot") as
+            | {
+                  position?: unknown;
+                  rotation?: unknown;
+                  scale?: unknown;
+                  cameraOrientation?: { alpha: number; beta: number; radius: number };
+                  joints?: Record<string, unknown>;
+              }
+            | undefined;
+        if (snapshot) {
+            if (snapshot.position && !posPayload) {
+                const parsed = parseAvatarPosition(snapshot.position);
+                if (parsed) positionDataMap.value[sessionId] = parsed;
+            }
+            if (snapshot.rotation && !rotPayload) {
+                const parsed = parseAvatarRotation(snapshot.rotation);
+                if (parsed) rotationDataMap.value[sessionId] = parsed;
+            }
+            if (snapshot.cameraOrientation && !keyToValue.get("cameraOrientation")) {
+                avatarDataMap.value[sessionId] = {
+                    ...avatarDataMap.value[sessionId],
+                    cameraOrientation: snapshot.cameraOrientation,
+                } as AvatarBaseData;
+            }
+            if (snapshot.joints && !jointsPayload) {
+                for (const [jointName, jointPayload] of Object.entries(
+                    snapshot.joints as Record<string, unknown>,
+                )) {
+                    const parsed = parseAvatarJoint(jointPayload) as
+                        | (AvatarJointMetadata & { type: "avatarJoint" })
+                        | null;
+                    if (parsed) jointDataMap.value[sessionId].set(jointName, parsed);
+                }
+            }
+        }
+
+        metadataLoadedSessions.add(sessionId);
+    } catch (e) {
+        console.warn("[OtherAvatars] metadata backfill failed", e);
+    } finally {
+        metadataLoadingSessions.delete(sessionId);
+    }
+}
+
 // Use useInterval for polling other avatars
 const { pause: pauseDiscovery, resume: resumeDiscovery } = useInterval(
     computed(() => {
@@ -318,8 +440,23 @@ const { pause: pauseDiscovery, resume: resumeDiscovery } = useInterval(
 
 onMounted(() => {
     console.log("[Discovery] Component mounted, starting discovery...");
-    subscribeReflect();
-    resumeDiscovery();
+    // Wait for connection to be ready before subscribing
+    let unwatch: (() => void) | null = null;
+    unwatch = watch(
+        () => vircadiaWorld.connectionInfo.value.status,
+        (s) => {
+            if (s === "connected") {
+                subscribeReflect();
+                resumeDiscovery();
+                if (unwatch) {
+                    const stop = unwatch;
+                    unwatch = null;
+                    stop();
+                }
+            }
+        },
+        { immediate: true },
+    );
 });
 
 onUnmounted(() => {

@@ -18,7 +18,7 @@ import {
     createAzureADConfig,
     parseOAuthState,
 } from "./service/azure.ad.auth";
-import { createAnonymousUser, signOut } from "./util/auth";
+import { createAnonymousUser, signOut } from "./service/general.auth";
 import { MetricsCollector } from "./service/metrics";
 import type { Sql } from "postgres";
 import { mkdir, rm, stat, readdir } from "node:fs/promises";

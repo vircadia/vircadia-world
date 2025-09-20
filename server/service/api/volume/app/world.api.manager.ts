@@ -69,6 +69,24 @@ export class WorldApiManager {
     >();
     private metricsCollector = new MetricsCollector();
 
+    // Helper method to record endpoint metrics
+    private recordEndpointMetrics(
+        endpoint: string,
+        startTime: number,
+        requestSize: number,
+        responseSize: number,
+        success: boolean,
+    ) {
+        const duration = performance.now() - startTime;
+        this.metricsCollector.recordEndpoint(
+            endpoint,
+            duration,
+            requestSize,
+            responseSize,
+            success,
+        );
+    }
+
     // In-memory ACL cache: agentId -> set of readable sync groups
     private readableGroupsByAgent: Map<string, Set<string>> = new Map();
 
@@ -896,6 +914,7 @@ export class WorldApiManager {
                                 queries: this.metricsCollector.getMetrics(),
                                 reflect:
                                     this.metricsCollector.getReflectMetrics(),
+                                endpoints: this.metricsCollector.getEndpointMetrics(),
                                 assets: {
                                     cache: await this.getAssetCacheStats(),
                                 },
@@ -1062,17 +1081,24 @@ export class WorldApiManager {
                                 Communication.REST.Endpoint
                                     .AUTH_SESSION_VALIDATE.path &&
                                 req.method === "POST": {
-                                // Parse request body to get token and provider
+                                const startTime = performance.now();
+                                let requestSize = 0;
+                                let success = false;
+                                let response: Response;
+
                                 let body: {
                                     token: string;
                                     provider: string;
                                 };
+
                                 try {
-                                    body = await req.json();
+                                    const requestBody = await req.text();
+                                    requestSize = new Blob([requestBody]).size;
+                                    body = JSON.parse(requestBody);
 
                                     // Validate required fields
                                     if (!body.token) {
-                                        const response =
+                                        response =
                                             this.createJsonResponse(
                                                 Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
                                                     "No token provided",
@@ -1080,6 +1106,7 @@ export class WorldApiManager {
                                                 req,
                                                 401,
                                             );
+                                        success = false;
                                         return this.addCorsHeaders(
                                             response,
                                             req,
@@ -1087,7 +1114,7 @@ export class WorldApiManager {
                                     }
 
                                     if (!body.provider) {
-                                        const response =
+                                        response =
                                             this.createJsonResponse(
                                                 Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
                                                     "No provider specified",
@@ -1095,19 +1122,21 @@ export class WorldApiManager {
                                                 req,
                                                 400,
                                             );
+                                        success = false;
                                         return this.addCorsHeaders(
                                             response,
                                             req,
                                         );
                                     }
                                 } catch (_error) {
-                                    const response = this.createJsonResponse(
+                                    response = this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
                                             "Invalid request body",
                                         ),
                                         req,
                                         400,
                                     );
+                                    success = false;
                                     return this.addCorsHeaders(response, req);
                                 }
 
@@ -1172,7 +1201,7 @@ export class WorldApiManager {
                                                 },
                                             });
 
-                                            const response =
+                                            response =
                                                 this.createJsonResponse(
                                                     Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createSuccess(
                                                         jwtValidationResult.agentId,
@@ -1180,10 +1209,21 @@ export class WorldApiManager {
                                                     ),
                                                     req,
                                                 );
-                                            return this.addCorsHeaders(
+                                            success = true;
+                                            const finalResponse = this.addCorsHeaders(
                                                 response,
                                                 req,
                                             );
+                                            // Clone to avoid consuming body when sizing
+                                            const finalClone = finalResponse.clone();
+                                            this.recordEndpointMetrics(
+                                                "AUTH_SESSION_VALIDATE",
+                                                startTime,
+                                                requestSize,
+                                                new Blob([await finalClone.text()]).size,
+                                                success,
+                                            );
+                                            return finalResponse;
                                         },
                                     );
                                 } catch (_error) {
@@ -1198,14 +1238,24 @@ export class WorldApiManager {
                                             error: "Validation error",
                                         },
                                     });
-                                    const response = this.createJsonResponse(
+                                    response = this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
                                             "Failed to validate session",
                                         ),
                                         req,
                                         500,
                                     );
-                                    return this.addCorsHeaders(response, req);
+                                    success = false;
+                                    const finalResponse = this.addCorsHeaders(response, req);
+                                    const finalClone = finalResponse.clone();
+                                    this.recordEndpointMetrics(
+                                        "AUTH_SESSION_VALIDATE",
+                                        startTime,
+                                        requestSize,
+                                        new Blob([await finalClone.text()]).size,
+                                        success,
+                                    );
+                                    return finalResponse;
                                 }
                             }
 
@@ -1213,7 +1263,15 @@ export class WorldApiManager {
                             case url.pathname ===
                                 Communication.REST.Endpoint.AUTH_ANONYMOUS_LOGIN
                                     .path && req.method === "POST": {
+                                const startTime = performance.now();
+                                let requestSize = 0;
+                                let success = false;
+                                let response: Response;
+
                                 try {
+                                    const requestBody = await req.text();
+                                    requestSize = new Blob([requestBody]).size;
+
                                     if (!superUserSql) {
                                         throw new Error(
                                             "Database service is not initialized.",
@@ -1222,11 +1280,20 @@ export class WorldApiManager {
                                     const result =
                                         await createAnonymousUser(superUserSql);
 
-                                    const response = this.createJsonResponse(
+                                    response = this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_ANONYMOUS_LOGIN.createSuccess(
                                             result,
                                         ),
                                         req,
+                                    );
+                                    success = true;
+                                    const responseClone = response.clone();
+                                    this.recordEndpointMetrics(
+                                        "AUTH_ANONYMOUS_LOGIN",
+                                        startTime,
+                                        requestSize,
+                                        new Blob([await responseClone.text()]).size,
+                                        success,
                                     );
                                     return response;
                                 } catch (error) {
@@ -1239,13 +1306,23 @@ export class WorldApiManager {
                                         type: "error",
                                         prefix: LOG_PREFIX,
                                     });
-                                    return this.createJsonResponse(
+                                    response = this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_ANONYMOUS_LOGIN.createError(
                                             "Failed to create anonymous user.",
                                         ),
                                         req,
                                         500,
                                     );
+                                    success = false;
+                                    const responseClone = response.clone();
+                                    this.recordEndpointMetrics(
+                                        "AUTH_ANONYMOUS_LOGIN",
+                                        startTime,
+                                        requestSize,
+                                        new Blob([await responseClone.text()]).size,
+                                        success,
+                                    );
+                                    return response;
                                 }
                             }
 
@@ -1945,6 +2022,11 @@ export class WorldApiManager {
                                 Communication.REST.Endpoint.ASSET_GET_BY_KEY
                                     .path && req.method === "GET": {
                                 try {
+                                    const startTime = performance.now();
+                                    const requestSize = new TextEncoder().encode(
+                                        url.toString(),
+                                    ).length;
+                                    let success = false;
                                     // Log request details for troubleshooting
                                     BunLogModule({
                                         message: "Asset GET request",
@@ -1998,6 +2080,17 @@ export class WorldApiManager {
                                                 req,
                                                 400,
                                             );
+                                        const clone = response.clone();
+                                        const responseSize = new Blob([
+                                            await clone.text(),
+                                        ]).size;
+                                        this.recordEndpointMetrics(
+                                            "ASSET_GET_BY_KEY",
+                                            startTime,
+                                            requestSize,
+                                            responseSize,
+                                            false,
+                                        );
                                         return this.addCorsHeaders(
                                             response,
                                             req,
@@ -2037,6 +2130,17 @@ export class WorldApiManager {
                                                     req,
                                                     401,
                                                 );
+                                            const clone = response.clone();
+                                            const responseSize = new Blob([
+                                                await clone.text(),
+                                            ]).size;
+                                            this.recordEndpointMetrics(
+                                                "ASSET_GET_BY_KEY",
+                                                startTime,
+                                                requestSize,
+                                                responseSize,
+                                                false,
+                                            );
                                             return this.addCorsHeaders(
                                                 response,
                                                 req,
@@ -2067,6 +2171,17 @@ export class WorldApiManager {
                                                     req,
                                                     401,
                                                 );
+                                            const clone = response.clone();
+                                            const responseSize = new Blob([
+                                                await clone.text(),
+                                            ]).size;
+                                            this.recordEndpointMetrics(
+                                                "ASSET_GET_BY_KEY",
+                                                startTime,
+                                                requestSize,
+                                                responseSize,
+                                                false,
+                                            );
                                             return this.addCorsHeaders(
                                                 response,
                                                 req,
@@ -2099,6 +2214,17 @@ export class WorldApiManager {
                                                 req,
                                                 401,
                                             );
+                                        const clone = response.clone();
+                                        const responseSize = new Blob([
+                                            await clone.text(),
+                                        ]).size;
+                                        this.recordEndpointMetrics(
+                                            "ASSET_GET_BY_KEY",
+                                            startTime,
+                                            requestSize,
+                                            responseSize,
+                                            false,
+                                        );
                                         return this.addCorsHeaders(
                                             response,
                                             req,
@@ -2140,6 +2266,17 @@ export class WorldApiManager {
                                                 req,
                                                 404,
                                             );
+                                        const clone = response.clone();
+                                        const responseSize = new Blob([
+                                            await clone.text(),
+                                        ]).size;
+                                        this.recordEndpointMetrics(
+                                            "ASSET_GET_BY_KEY",
+                                            startTime,
+                                            requestSize,
+                                            responseSize,
+                                            false,
+                                        );
                                         return this.addCorsHeaders(
                                             response,
                                             req,
@@ -2182,6 +2319,17 @@ export class WorldApiManager {
                                                 req,
                                                 403,
                                             );
+                                        const clone = response.clone();
+                                        const responseSize = new Blob([
+                                            await clone.text(),
+                                        ]).size;
+                                        this.recordEndpointMetrics(
+                                            "ASSET_GET_BY_KEY",
+                                            startTime,
+                                            requestSize,
+                                            responseSize,
+                                            false,
+                                        );
                                         return this.addCorsHeaders(
                                             response,
                                             req,
@@ -2282,6 +2430,17 @@ export class WorldApiManager {
                                                 req,
                                                 500,
                                             );
+                                        const clone = response.clone();
+                                        const responseSize = new Blob([
+                                            await clone.text(),
+                                        ]).size;
+                                        this.recordEndpointMetrics(
+                                            "ASSET_GET_BY_KEY",
+                                            startTime,
+                                            requestSize,
+                                            responseSize,
+                                            false,
+                                        );
                                         return this.addCorsHeaders(
                                             response,
                                             req,
@@ -2298,16 +2457,26 @@ export class WorldApiManager {
                                         "Content-Type",
                                         file.type,
                                     );
+                                    let responseSize = 0;
                                     try {
                                         const s = await stat(filePath);
                                         response.headers.set(
                                             "Content-Length",
                                             String(s.size),
                                         );
+                                        responseSize = Number(s.size) || 0;
                                     } catch {}
                                     response.headers.set(
                                         "Cache-Control",
                                         "public, max-age=600",
+                                    );
+                                    success = true;
+                                    this.recordEndpointMetrics(
+                                        "ASSET_GET_BY_KEY",
+                                        startTime,
+                                        requestSize,
+                                        responseSize,
+                                        success,
                                     );
                                     return this.addCorsHeaders(response, req);
                                 } catch (error) {
@@ -2332,6 +2501,17 @@ export class WorldApiManager {
                                         ),
                                         req,
                                         500,
+                                    );
+                                    const clone = response.clone();
+                                    const responseSize = new Blob([
+                                        await clone.text(),
+                                    ]).size;
+                                    this.recordEndpointMetrics(
+                                        "ASSET_GET_BY_KEY",
+                                        performance.now(), // start unknown here; fallback to now so duration ~0
+                                        new TextEncoder().encode(url.toString()).length,
+                                        responseSize,
+                                        false,
                                     );
                                     return this.addCorsHeaders(response, req);
                                 }
@@ -2530,10 +2710,9 @@ export class WorldApiManager {
                                     ws.send(errorResponseString);
                                 } finally {
                                     // Record metrics
-                                    const endTime = performance.now();
-                                    const duration = endTime - startTime;
-                                    this.metricsCollector.recordQuery(
-                                        duration,
+                                    this.recordEndpointMetrics(
+                                        "WS_QUERY_REQUEST",
+                                        startTime,
                                         requestSize,
                                         responseSize,
                                         success,
@@ -2646,13 +2825,23 @@ export class WorldApiManager {
                                     }
                                 }
 
-                                const endTime = performance.now();
-                                const duration = endTime - startTime;
-                                this.metricsCollector.recordReflect(
-                                    duration,
+                                this.recordEndpointMetrics(
+                                    "WS_REFLECT_PUBLISH_REQUEST",
+                                    startTime,
                                     messageSize,
-                                    delivered,
-                                    true, // acknowledged
+                                    new TextEncoder().encode(
+                                        JSON.stringify(
+                                            new Communication.WebSocket.ReflectAckResponseMessage(
+                                                {
+                                                    syncGroup,
+                                                    channel,
+                                                    delivered,
+                                                    requestId: req.requestId,
+                                                },
+                                            ),
+                                        ),
+                                    ).length,
+                                    delivered > 0, // success
                                 );
 
                                 ws.send(
@@ -2669,6 +2858,7 @@ export class WorldApiManager {
                                 );
                                 break;
                             }
+
 
                             default: {
                                 session.ws.send(

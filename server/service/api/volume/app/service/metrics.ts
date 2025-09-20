@@ -21,7 +21,7 @@ export class MetricsCollector {
     private totalQueryTime = 0;
     private totalRequestSize = 0;
     private totalResponseSize = 0;
-    private startTime = Date.now();
+    private startTime = performance.now();
 
     // System metrics tracking
     private cpuUserTimes: number[] = [];
@@ -48,6 +48,19 @@ export class MetricsCollector {
     private peakReflectsPerSecond = 0;
     private totalReflectTime = 0;
     private totalReflectMessageSize = 0;
+
+    // Endpoint-specific metrics tracking
+    private endpointRequestTimes: Map<string, number[]> = new Map();
+    private endpointRequestSizes: Map<string, number[]> = new Map();
+    private endpointResponseSizes: Map<string, number[]> = new Map();
+    private endpointRequestCounts: Map<string, number> = new Map();
+    private endpointFailedCounts: Map<string, number> = new Map();
+    private endpointPerSecond: Map<string, number> = new Map();
+    private endpointPerSecondLast: Map<string, number> = new Map();
+    private endpointPerSecondPeak: Map<string, number> = new Map();
+    private endpointTotalTimes: Map<string, number> = new Map();
+    private endpointTotalRequestSizes: Map<string, number> = new Map();
+    private endpointTotalResponseSizes: Map<string, number> = new Map();
 
     // Circular buffers for percentile calculations (keep last 1000 samples)
     private readonly MAX_SAMPLES = 1000;
@@ -178,6 +191,79 @@ export class MetricsCollector {
         this.reflectMessageSizes.push(messageSizeBytes);
     }
 
+    recordEndpoint(
+        endpoint: string,
+        durationMs: number,
+        requestSizeBytes: number,
+        responseSizeBytes: number,
+        success: boolean,
+    ) {
+        const currentSecond = Math.floor(Date.now() / 1000);
+
+        // Track requests per second for this endpoint
+        if (!this.endpointPerSecond.has(endpoint)) {
+            this.endpointPerSecond.set(endpoint, 0);
+            this.endpointPerSecondLast.set(endpoint, 0);
+            this.endpointPerSecondPeak.set(endpoint, 0);
+        }
+
+        const endpointSecondKey = `${endpoint}-${currentSecond}`;
+        const currentCount = this.endpointPerSecond.get(endpointSecondKey) || 0;
+        this.endpointPerSecond.set(endpointSecondKey, currentCount + 1);
+
+        // Update last second and peak values when second changes
+        if (currentSecond !== Math.floor(Date.now() / 1000) - 1) {
+            // Update last second and peak
+            const lastSecondCount = this.endpointPerSecond.get(endpoint) || 0;
+            this.endpointPerSecondLast.set(endpoint, lastSecondCount);
+            this.endpointPerSecondPeak.set(endpoint, Math.max(
+                this.endpointPerSecondPeak.get(endpoint) || 0,
+                lastSecondCount
+            ));
+            this.endpointPerSecond.set(endpoint, 0);
+        }
+
+        // Record metrics for this endpoint
+        const totalCount = this.endpointRequestCounts.get(endpoint) || 0;
+        this.endpointRequestCounts.set(endpoint, totalCount + 1);
+
+        if (!success) {
+            const currentFailed = this.endpointFailedCounts.get(endpoint) || 0;
+            this.endpointFailedCounts.set(endpoint, currentFailed + 1);
+        }
+
+        const currentTotalTime = this.endpointTotalTimes.get(endpoint) || 0;
+        this.endpointTotalTimes.set(endpoint, currentTotalTime + durationMs);
+
+        const currentTotalRequestSize = this.endpointTotalRequestSizes.get(endpoint) || 0;
+        this.endpointTotalRequestSizes.set(endpoint, currentTotalRequestSize + requestSizeBytes);
+
+        const currentTotalResponseSize = this.endpointTotalResponseSizes.get(endpoint) || 0;
+        this.endpointTotalResponseSizes.set(endpoint, currentTotalResponseSize + responseSizeBytes);
+
+        // Maintain circular buffers for percentile calculations
+        const initArray = (map: Map<string, number[]>, key: string): number[] => {
+            if (!map.has(key)) {
+                map.set(key, []);
+            }
+            return map.get(key)!;
+        };
+
+        let times = initArray(this.endpointRequestTimes, endpoint);
+        let requestSizes = initArray(this.endpointRequestSizes, endpoint);
+        let responseSizes = initArray(this.endpointResponseSizes, endpoint);
+
+        if (times.length >= this.MAX_SAMPLES) {
+            times.shift();
+            requestSizes.shift();
+            responseSizes.shift();
+        }
+
+        times.push(durationMs);
+        requestSizes.push(requestSizeBytes);
+        responseSizes.push(responseSizeBytes);
+    }
+
     private calculatePercentile(values: number[], percentile: number): number {
         if (values.length === 0) return 0;
         const sorted = [...values].sort((a, b) => a - b);
@@ -248,7 +334,7 @@ export class MetricsCollector {
                   100
                 : 100;
 
-        const uptimeSeconds = (Date.now() - this.startTime) / 1000;
+        const uptimeSeconds = (performance.now() - this.startTime) / 1000;
 
         return {
             queriesPerSecond: {
@@ -298,7 +384,7 @@ export class MetricsCollector {
                   100
                 : 100;
 
-        const uptimeSeconds = (Date.now() - this.startTime) / 1000;
+        const uptimeSeconds = (performance.now() - this.startTime) / 1000;
 
         return {
             messagesPerSecond: {
@@ -331,6 +417,56 @@ export class MetricsCollector {
         };
     }
 
+    getEndpointMetrics(): Service.API.I_EndpointStats {
+        const result: Service.API.I_EndpointStats = {};
+        const uptimeSeconds = (performance.now() - this.startTime) / 1000;
+
+        for (const [endpoint, count] of this.endpointRequestCounts.entries()) {
+            const times = this.endpointRequestTimes.get(endpoint) || [];
+            const requestSizes = this.endpointRequestSizes.get(endpoint) || [];
+            const responseSizes = this.endpointResponseSizes.get(endpoint) || [];
+
+            const averageRequestTime = count > 0 ? (this.endpointTotalTimes.get(endpoint) || 0) / count : 0;
+            const averageRequestSize = count > 0 ? (this.endpointTotalRequestSizes.get(endpoint) || 0) / count : 0;
+            const averageResponseSize = count > 0 ? (this.endpointTotalResponseSizes.get(endpoint) || 0) / count : 0;
+            const failedCount = this.endpointFailedCounts.get(endpoint) || 0;
+            const successRate = count > 0 ? ((count - failedCount) / count) * 100 : 100;
+
+            // Calculate current/second metrics
+            const currentRequestsPerSecond = this.endpointPerSecondLast.get(endpoint) || 0;
+            const averageRequestsPerSecond = count > 0 && uptimeSeconds > 0 ? count / uptimeSeconds : 0;
+            const peakRequestsPerSecond = this.endpointPerSecondPeak.get(endpoint) || 0;
+
+            result[endpoint] = {
+                requestsPerSecond: {
+                    current: currentRequestsPerSecond,
+                    average: averageRequestsPerSecond,
+                    peak: peakRequestsPerSecond,
+                },
+                requestCompletionTime: {
+                    averageMs: averageRequestTime,
+                    p99Ms: this.calculatePercentile(times, 99),
+                    p999Ms: this.calculatePercentile(times, 99.9),
+                },
+                requestSize: {
+                    averageKB: averageRequestSize / 1024,
+                    p99KB: this.calculatePercentile(requestSizes, 99) / 1024,
+                    p999KB: this.calculatePercentile(requestSizes, 99.9) / 1024,
+                },
+                responseSize: {
+                    averageKB: averageResponseSize / 1024,
+                    p99KB: this.calculatePercentile(responseSizes, 99) / 1024,
+                    p999KB: this.calculatePercentile(responseSizes, 99.9) / 1024,
+                },
+                totalRequests: count,
+                failedRequests: failedCount,
+                successRate,
+            };
+        }
+
+        return result;
+    }
+
     reset() {
         this.queryTimes = [];
         this.requestSizes = [];
@@ -359,7 +495,7 @@ export class MetricsCollector {
         this.totalReflectTime = 0;
         this.totalReflectMessageSize = 0;
 
-        this.startTime = Date.now();
+        this.startTime = performance.now();
 
         // Reset system metrics
         this.cpuUserTimes = [];
@@ -372,5 +508,18 @@ export class MetricsCollector {
         this.dbConnectionCounts = [];
         this.totalConnections = 0;
         this.failedConnections = 0;
+
+        // Reset endpoint metrics
+        this.endpointRequestTimes.clear();
+        this.endpointRequestSizes.clear();
+        this.endpointResponseSizes.clear();
+        this.endpointRequestCounts.clear();
+        this.endpointFailedCounts.clear();
+        this.endpointPerSecond.clear();
+        this.endpointPerSecondLast.clear();
+        this.endpointPerSecondPeak.clear();
+        this.endpointTotalTimes.clear();
+        this.endpointTotalRequestSizes.clear();
+        this.endpointTotalResponseSizes.clear();
     }
 }

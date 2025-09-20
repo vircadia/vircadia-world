@@ -6,7 +6,16 @@
         "useIgnoreFile": true
     },
     "files": {
-        "ignoreUnknown": true
+        "ignoreUnknown": true,
+        "includes": [
+            "**",
+            "!node_modules"
+        ],
+        "experimentalScannerIgnores": [
+            ".next",
+            "dist",
+            "node_modules"
+        ]
     },
     "formatter": {
         "enabled": true,

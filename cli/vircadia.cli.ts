@@ -1049,9 +1049,9 @@ export namespace Server_CLI {
             // Get already executed seeds - querying by hash
             const result =
                 await sql`SELECT general__hash, general__name FROM config.seeds`;
-            const executedHashes = new Set(result.map((r) => r.general__hash));
+            const executedHashes = new Set(result.map((r: any) => r.general__hash));
             const executedNames = new Map(
-                result.map((r) => [r.general__name, r.general__hash]),
+                result.map((r: any) => [r.general__name, r.general__hash]),
             );
 
             // Process system SQL files

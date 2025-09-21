@@ -175,6 +175,41 @@ export namespace Server_CLI {
         "../server/service/server.docker.compose.yml",
     );
 
+    async function isContainerHealthyByDocker(
+        containerName: string,
+    ): Promise<{ isHealthy: boolean; error?: Error }> {
+        try {
+            const proc = Bun.spawn(["docker", "inspect", containerName], {
+                stdout: "pipe",
+                stderr: "pipe",
+            });
+            const stdout = await new Response(proc.stdout).text();
+            const stderr = await new Response(proc.stderr).text();
+            if (proc.exitCode !== 0) {
+                return {
+                    isHealthy: false,
+                    error: new Error(
+                        `docker inspect failed (${proc.exitCode}): ${stderr || "no stderr"}`,
+                    ),
+                };
+            }
+            const info = JSON.parse(stdout);
+            const state = Array.isArray(info) ? info[0]?.State : info?.State;
+            const status: string | undefined = state?.Health?.Status;
+            if (status === "healthy") {
+                return { isHealthy: true };
+            }
+            return {
+                isHealthy: false,
+                error: new Error(
+                    `container health: ${status ?? "unknown"} (state: ${state?.Status ?? "unknown"})`,
+                ),
+            };
+        } catch (error) {
+            return { isHealthy: false, error: error as Error };
+        }
+    }
+
     export async function runServerDockerCommand(data: {
         args: string[];
         /** If true, treat 'exec' on non-zero exit as an error */
@@ -239,23 +274,41 @@ export namespace Server_CLI {
             VRCA_SERVER_SERVICE_CADDY_TLS_APP:
                 serverConfiguration.VRCA_SERVER_SERVICE_CADDY_TLS_APP,
 
-            VRCA_SERVER_SERVICE_WORLD_API_MANAGER_CONTAINER_NAME:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_CONTAINER_NAME,
-            VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
-            VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString(),
-            VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_PUBLIC_AVAILABLE_AT:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_PUBLIC_AVAILABLE_AT,
-            VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_PUBLIC_AVAILABLE_AT:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_PUBLIC_AVAILABLE_AT.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_CONTAINER_NAME:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_CONTAINER_NAME,
+            VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_HOST_CONTAINER_BIND_EXTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
+            VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_CONTAINER_BIND_EXTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_HOST_PUBLIC_AVAILABLE_AT:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_HOST_PUBLIC_AVAILABLE_AT,
+            VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_PUBLIC_AVAILABLE_AT:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_PUBLIC_AVAILABLE_AT.toString(),
+
+            VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_CONTAINER_NAME:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_CONTAINER_NAME,
+            VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_HOST_CONTAINER_BIND_EXTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
+            VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_CONTAINER_BIND_EXTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_HOST_PUBLIC_AVAILABLE_AT:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_HOST_PUBLIC_AVAILABLE_AT,
+            VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_PUBLIC_AVAILABLE_AT:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_PUBLIC_AVAILABLE_AT.toString(),    
+
+            VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_CONTAINER_NAME:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_CONTAINER_NAME,
+            VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_HOST_CONTAINER_BIND_EXTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
+            VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_PORT_CONTAINER_BIND_EXTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_HOST_PUBLIC_AVAILABLE_AT:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_HOST_PUBLIC_AVAILABLE_AT,
+            VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_PORT_PUBLIC_AVAILABLE_AT:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_PORT_PUBLIC_AVAILABLE_AT.toString(),
 
             VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_CONTAINER_NAME:
                 serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_CONTAINER_NAME,
-            VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_EXTERNAL:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
-            VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString(),
 
             VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_CONTAINER_NAME:
                 serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_CONTAINER_NAME,
@@ -366,24 +419,60 @@ export namespace Server_CLI {
     }
 
     export async function printEgressInfo(): Promise<void> {
-        const apiHostExternal =
+        const apiWsHostExternal =
             (await EnvManager.getVariable(
-                "VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL",
+                "VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_HOST_CONTAINER_BIND_EXTERNAL",
                 "cli",
             )) ||
             process.env
-                .VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL ||
-            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_CONTAINER_BIND_EXTERNAL;
+                .VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_HOST_CONTAINER_BIND_EXTERNAL ||
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_HOST_CONTAINER_BIND_EXTERNAL;
 
-        const apiPortExternal =
+        const apiWsPortExternal =
             (await EnvManager.getVariable(
-                "VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL",
+                "VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_CONTAINER_BIND_EXTERNAL",
                 "cli",
             )) ||
             process.env
-                .VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL ||
-            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString();
+                .VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_CONTAINER_BIND_EXTERNAL ||
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString();
 
+        const apiAuthHostExternal =
+            (await EnvManager.getVariable(
+                "VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_HOST_CONTAINER_BIND_EXTERNAL",
+                "cli",
+            )) ||
+            process.env
+                .VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_HOST_CONTAINER_BIND_EXTERNAL ||
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_HOST_CONTAINER_BIND_EXTERNAL;
+
+        const apiAuthPortExternal =
+            (await EnvManager.getVariable(
+                "VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_CONTAINER_BIND_EXTERNAL",
+                "cli",
+            )) ||
+            process.env
+                .VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_CONTAINER_BIND_EXTERNAL ||
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString();
+
+        const apiAssetHostExternal =
+            (await EnvManager.getVariable(
+                "VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_HOST_CONTAINER_BIND_EXTERNAL",
+                "cli",
+            )) ||
+            process.env
+                .VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_HOST_CONTAINER_BIND_EXTERNAL ||
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_HOST_CONTAINER_BIND_EXTERNAL;
+
+        const apiAssetPortExternal =
+            (await EnvManager.getVariable(
+                "VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_PORT_CONTAINER_BIND_EXTERNAL",
+                "cli",
+            )) ||
+            process.env
+                .VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_PORT_CONTAINER_BIND_EXTERNAL ||
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString();
+            
         const appHostExternal =
             (await EnvManager.getVariable(
                 "VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL",
@@ -392,6 +481,7 @@ export namespace Server_CLI {
             process.env
                 .VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL ||
             serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL;
+
 
         const appPortExternal =
             (await EnvManager.getVariable(
@@ -402,7 +492,9 @@ export namespace Server_CLI {
                 .VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL ||
             serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL.toString();
 
-        const apiUpstream = `${apiHostExternal}:${apiPortExternal}`;
+        const apiWsUpstream = `${apiWsHostExternal}:${apiWsPortExternal}`;
+        const apiAuthUpstream = `${apiAuthHostExternal}:${apiAuthPortExternal}`;
+        const apiAssetUpstream = `${apiAssetHostExternal}:${apiAssetPortExternal}`;
         const appUpstream = `${appHostExternal}:${appPortExternal}`;
 
         BunLogModule({
@@ -414,14 +506,22 @@ export namespace Server_CLI {
 
         console.log(`\nHost-published endpoints (for proxies on the host):`);
         console.log(
-            `  API Manager:  http://${apiHostExternal}:${apiPortExternal}`,
+            `  API WS Manager:  http://${apiWsHostExternal}:${apiWsPortExternal}`,
+        );
+        console.log(
+            `  API REST Auth Manager:  http://${apiAuthHostExternal}:${apiAuthPortExternal}`,
+        );
+        console.log(
+            `  API REST Asset Manager:  http://${apiAssetHostExternal}:${apiAssetPortExternal}`,
         );
         console.log(
             `  Web Babylon.js Client App:   http://${appHostExternal}:${appPortExternal}`,
         );
 
         console.log(`\nDocker network upstreams (for proxies inside Docker):`);
-        console.log(`  API Manager:  ${apiUpstream}`);
+        console.log(`  API WS Manager:  ${apiWsUpstream}`);
+        console.log(`  API REST Auth Manager:  ${apiAuthUpstream}`);
+        console.log(`  API REST Asset Manager:  ${apiAssetUpstream}`);
         console.log(`  Web Babylon.js Client App:   ${appUpstream}`);
     }
 
@@ -431,6 +531,41 @@ export namespace Server_CLI {
         isHealthy: boolean;
         error?: Error;
     }> {
+        async function isContainerHealthyByDocker(
+            containerName: string,
+        ): Promise<{ isHealthy: boolean; error?: Error }> {
+            try {
+                const proc = Bun.spawn(["docker", "inspect", containerName], {
+                    stdout: "pipe",
+                    stderr: "pipe",
+                });
+                const stdout = await new Response(proc.stdout).text();
+                const stderr = await new Response(proc.stderr).text();
+                if (proc.exitCode !== 0) {
+                    return {
+                        isHealthy: false,
+                        error: new Error(
+                            `docker inspect failed (${proc.exitCode}): ${stderr || "no stderr"}`,
+                        ),
+                    };
+                }
+                const info = JSON.parse(stdout);
+                const state = Array.isArray(info) ? info[0]?.State : info?.State;
+                const status: string | undefined = state?.Health?.Status;
+                if (status === "healthy") {
+                    return { isHealthy: true };
+                }
+                return {
+                    isHealthy: false,
+                    error: new Error(
+                        `container health: ${status ?? "unknown"} (state: ${state?.Status ?? "unknown"})`,
+                    ),
+                };
+            } catch (error) {
+                return { isHealthy: false, error: error as Error };
+            }
+        }
+
         // Default wait settings for postgres
         const defaultWait = { interval: 100, timeout: 10000 };
 
@@ -446,29 +581,9 @@ export namespace Server_CLI {
             isHealthy: boolean;
             error?: Error;
         }> => {
-            try {
-                const db = BunPostgresClientModule.getInstance({
-                    debug: cliConfiguration.VRCA_CLI_DEBUG,
-                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                });
-
-                const sql = await db.getSuperClient({
-                    postgres: {
-                        host: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                        port: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                        database:
-                            cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
-                        username:
-                            cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
-                        password:
-                            cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
-                    },
-                });
-                await sql`SELECT 1`;
-                return { isHealthy: true };
-            } catch (error: unknown) {
-                return { isHealthy: false, error: error as Error };
-            }
+            const containerName =
+                serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME;
+            return await isContainerHealthyByDocker(containerName);
         };
 
         // If waiting is not enabled, just check once
@@ -489,6 +604,68 @@ export namespace Server_CLI {
             await Bun.sleep(waitConfig.interval);
         }
 
+        return { isHealthy: false, error: lastError };
+    }
+
+    export async function isPostgresDbReady(
+        wait?: { interval: number; timeout: number } | boolean,
+    ): Promise<{
+        isHealthy: boolean;
+        error?: Error;
+    }> {
+        const defaultWait = { interval: 100, timeout: 10000 };
+
+        const waitConfig =
+            wait === true
+                ? defaultWait
+                : wait && typeof wait !== "boolean"
+                  ? wait
+                  : null;
+
+        const checkDbReady = async (): Promise<{
+            isHealthy: boolean;
+            error?: Error;
+        }> => {
+            try {
+                const db = BunPostgresClientModule.getInstance({
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                });
+                const sql = await db.getSuperClient({
+                    postgres: {
+                        host: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                        port: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                        database:
+                            cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                        username:
+                            cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                        password:
+                            cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                    },
+                });
+
+                // Minimal check that succeeds pre-migration
+                await sql`SELECT 1`;
+                return { isHealthy: true };
+            } catch (error) {
+                return { isHealthy: false, error: error as Error };
+            }
+        };
+
+        if (!waitConfig) {
+            return await checkDbReady();
+        }
+
+        const startTime = Date.now();
+        let lastError: Error | undefined;
+        while (Date.now() - startTime < waitConfig.timeout) {
+            const result = await checkDbReady();
+            if (result.isHealthy) {
+                return result;
+            }
+            lastError = result.error;
+            await Bun.sleep(waitConfig.interval);
+        }
         return { isHealthy: false, error: lastError };
     }
 
@@ -516,13 +693,9 @@ export namespace Server_CLI {
             isHealthy: boolean;
             error?: Error;
         }> => {
-            try {
-                const pgwebAccessURL = await generatePgwebAccessURL();
-                const response = await fetch(pgwebAccessURL);
-                return { isHealthy: response.ok };
-            } catch (error: unknown) {
-                return { isHealthy: false, error: error as Error };
-            }
+            const containerName =
+                serverConfiguration.VRCA_SERVER_SERVICE_PGWEB_CONTAINER_NAME;
+            return await isContainerHealthyByDocker(containerName);
         };
 
         // If waiting is not enabled, just check once
@@ -546,7 +719,31 @@ export namespace Server_CLI {
         return { isHealthy: false, error: lastError };
     }
 
-    export async function isWorldApiManagerHealthy(
+    export async function markDatabaseAsReady(): Promise<void> {
+        const db = BunPostgresClientModule.getInstance({
+            debug: cliConfiguration.VRCA_CLI_DEBUG,
+            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+        });
+        const sql = await db.getSuperClient({
+            postgres: {
+                host: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                username:
+                    cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                password:
+                    cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+            },
+        });
+
+        // Set the setup timestamp to now() in the config.database_config table
+        await sql`
+            UPDATE config.database_config
+            SET database_config__setup_timestamp = NOW()
+        `;
+    }
+
+    export async function isWorldApiWsManagerHealthy(
         wait?:
             | {
                   interval: number;
@@ -570,25 +767,18 @@ export namespace Server_CLI {
                   ? wait
                   : null;
 
-        const checkWorldApiManager = async (): Promise<{
+        const checkWorldApiWsManager = async (): Promise<{
             isHealthy: boolean;
             error?: Error;
         }> => {
-            try {
-                // Host-side health check: fetch stats with x-forwarded-for header
-                const url = `http://${cliConfiguration.VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST}:${cliConfiguration.VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT}${Service.API.Stats_Endpoint.path}`;
-                const response = await fetch(url, {
-                    headers: { "x-forwarded-for": "127.0.0.1" },
-                });
-                return { isHealthy: response.ok };
-            } catch (error: unknown) {
-                return { isHealthy: false, error: error as Error };
-            }
+            const containerName =
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_CONTAINER_NAME;
+            return await isContainerHealthyByDocker(containerName);
         };
 
         // If waiting is not enabled, just check once
         if (!waitConfig) {
-            return await checkWorldApiManager();
+            return await checkWorldApiWsManager();
         }
 
         // With waiting enabled, retry until timeout
@@ -596,7 +786,7 @@ export namespace Server_CLI {
         let lastError: Error | undefined;
 
         while (Date.now() - startTime < waitConfig.timeout) {
-            const result = await checkWorldApiManager();
+            const result = await checkWorldApiWsManager();
             if (result.isHealthy) {
                 return result;
             }
@@ -610,6 +800,124 @@ export namespace Server_CLI {
             waitConfig: waitConfig,
         };
     }
+
+    export async function isWorldApiRestAuthManagerHealthy( 
+        wait?:
+            | {
+                  interval: number;
+                  timeout: number;
+              }
+            | boolean,
+    ): Promise<{
+        isHealthy: boolean;
+        error?: Error;
+        waitConfig?: {
+            interval: number;
+            timeout: number;
+        };
+    }> {
+
+        const defaultWait = { interval: 100, timeout: 10000 };
+
+        const waitConfig =
+            wait === true
+                ? defaultWait
+                : wait && typeof wait !== "boolean"
+                  ? wait
+                  : null;
+
+        const checkWorldApiRestAuthManager = async (): Promise<{
+            isHealthy: boolean;
+            error?: Error;
+        }> => {
+            const containerName =
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_CONTAINER_NAME;
+            return await isContainerHealthyByDocker(containerName);
+        };
+
+        // If waiting is not enabled, just check once
+        if (!waitConfig) {
+            return await checkWorldApiRestAuthManager();
+        }
+
+        // With waiting enabled, retry until timeout
+        const startTime = Date.now();
+        let lastError: Error | undefined;
+
+        while (Date.now() - startTime < waitConfig.timeout) {
+            const result = await checkWorldApiRestAuthManager();
+            if (result.isHealthy) {
+                return result;
+            }
+            lastError = result.error;
+            await Bun.sleep(waitConfig.interval);
+        }
+
+        return {
+            isHealthy: false,
+            error: lastError,
+            waitConfig: waitConfig,
+        };
+    }
+
+    export async function isWorldApiRestAssetManagerHealthy(
+        wait?:
+            | {
+                  interval: number;
+                  timeout: number;
+              }
+            | boolean,
+    ): Promise<{
+        isHealthy: boolean;
+        error?: Error;
+        waitConfig?: {
+            interval: number;
+            timeout: number;
+        };
+    }> {
+
+        const defaultWait = { interval: 100, timeout: 10000 };
+
+        const waitConfig =
+            wait === true
+                ? defaultWait
+                : wait && typeof wait !== "boolean"
+                  ? wait
+                  : null;
+
+        const checkWorldApiRestAssetManager = async (): Promise<{
+            isHealthy: boolean;
+            error?: Error;
+        }> => {
+            const containerName =
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_CONTAINER_NAME;
+            return await isContainerHealthyByDocker(containerName);
+        };
+
+        // If waiting is not enabled, just check once
+        if (!waitConfig) {
+            return await checkWorldApiRestAssetManager();
+        }
+
+        // With waiting enabled, retry until timeout
+        const startTime = Date.now();
+        let lastError: Error | undefined;
+
+        while (Date.now() - startTime < waitConfig.timeout) {
+            const result = await checkWorldApiRestAssetManager();
+            if (result.isHealthy) {
+                return result;
+            }
+            lastError = result.error;
+            await Bun.sleep(waitConfig.interval);
+        }
+
+        return {
+            isHealthy: false,
+            error: lastError,
+            waitConfig: waitConfig,
+        };
+    }   
 
     export async function isWorldStateManagerHealthy(
         wait?:
@@ -639,16 +947,9 @@ export namespace Server_CLI {
             isHealthy: boolean;
             error?: Error;
         }> => {
-            try {
-                // Host-side health check: fetch stats with x-forwarded-for header
-                const url = `http://${cliConfiguration.VRCA_CLI_SERVICE_WORLD_STATE_MANAGER_HOST}:${cliConfiguration.VRCA_CLI_SERVICE_WORLD_STATE_MANAGER_PORT}${Service.State.Stats_Endpoint.path}`;
-                const response = await fetch(url, {
-                    headers: { "x-forwarded-for": "127.0.0.1" },
-                });
-                return { isHealthy: response.ok };
-            } catch (error: unknown) {
-                return { isHealthy: false, error: error as Error };
-            }
+            const containerName =
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_CONTAINER_NAME;
+            return await isContainerHealthyByDocker(containerName);
         };
 
         // If waiting is not enabled, just check once
@@ -704,13 +1005,9 @@ export namespace Server_CLI {
             isHealthy: boolean;
             error?: Error;
         }> => {
-            try {
-                const url = `http://${serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL}:${serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL}`;
-                const response = await fetch(url);
-                return { isHealthy: response.ok };
-            } catch (error: unknown) {
-                return { isHealthy: false, error: error as Error };
-            }
+            const containerName =
+                serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_CONTAINER_NAME;
+            return await isContainerHealthyByDocker(containerName);
         };
 
         if (!waitConfig) {
@@ -1763,7 +2060,8 @@ export namespace Server_CLI {
     }
 
     export async function generatePgwebAccessURL(): Promise<string> {
-        return `http://${cliConfiguration.VRCA_CLI_SERVICE_PGWEB_HOST}:${cliConfiguration.VRCA_CLI_SERVICE_PGWEB_PORT}`;
+        // Fall back to server config for host-published PGWEB address
+        return `http://${serverConfiguration.VRCA_SERVER_SERVICE_PGWEB_HOST_CONTAINER_BIND_EXTERNAL}:${serverConfiguration.VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_BIND_EXTERNAL}`;
     }
 
     export async function downloadAssetsFromDatabase(data: {
@@ -2244,12 +2542,40 @@ if (import.meta.main) {
         switch (command) {
             // SERVER CONTAINER HEALTH
             case "server:postgres:health":
-                await runHealthCommand(
-                    "PostgreSQL",
-                    Server_CLI.isPostgresHealthy,
-                    additionalArgs,
-                );
+                if (
+                    additionalArgs.includes("--db") ||
+                    additionalArgs.includes("--mode=db")
+                ) {
+                    await runHealthCommand(
+                        "PostgreSQL (DB Ready)",
+                        Server_CLI.isPostgresDbReady,
+                        additionalArgs,
+                    );
+                } else {
+                    await runHealthCommand(
+                        "PostgreSQL (DB Healthy)",
+                        Server_CLI.isPostgresHealthy,
+                        additionalArgs,
+                    );
+                }
                 break;
+
+            case "server:postgres:mark-as-ready": {
+                BunLogModule({
+                    message: "Marking database as ready...",
+                    type: "info",
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                });
+                await Server_CLI.markDatabaseAsReady();
+                BunLogModule({
+                    message: "Database marked as ready.",
+                    type: "success",
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                });
+                break;
+            }
 
             case "server:pgweb:health":
                 await runHealthCommand(
@@ -2259,10 +2585,26 @@ if (import.meta.main) {
                 );
                 break;
 
-            case "server:world-api-manager:health":
+            case "server:world-api-ws-manager:health":
                 await runHealthCommand(
-                    "World API Manager",
-                    Server_CLI.isWorldApiManagerHealthy,
+                    "World API WS Manager",
+                    Server_CLI.isWorldApiWsManagerHealthy,
+                    additionalArgs,
+                );
+                break;
+
+            case "server:world-api-rest-auth-manager:health":
+                await runHealthCommand(
+                    "World API REST Auth Manager",
+                    Server_CLI.isWorldApiRestAuthManagerHealthy,
+                    additionalArgs,
+                );
+                break;
+
+            case "server:world-api-rest-asset-manager:health":
+                await runHealthCommand(
+                    "World API REST Asset Manager",
+                    Server_CLI.isWorldApiRestAssetManagerHealthy,
                     additionalArgs,
                 );
                 break;

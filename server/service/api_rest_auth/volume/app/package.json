@@ -1,8 +1,8 @@
 {
-    "name": "world-api-manager",
+    "name": "world-api-rest-auth-manager",
     "version": "1.0.0",
-    "description": "Vircadia World API Manager",
-    "main": "dist/world.api.manager.js",
+    "description": "Vircadia World API REST Auth Manager",
+    "main": "dist/world.api.rest.auth.manager.js",
     "dependencies": {
         "@azure/msal-node": "catalog:auth-server",
         "jsonwebtoken": "catalog:",
@@ -15,8 +15,8 @@
         "@types/node": "catalog:types"
     },
     "scripts": {
-        "build": "bun build world.api.manager.ts --target bun --outfile ./dist/world.api.manager.js",
-        "start": "bun ./dist/world.api.manager.js",
+        "build": "bun build world.api.rest.auth.manager.ts --target bun --outfile ./dist/world.api.rest.auth.manager.js",
+        "start": "bun ./dist/world.api.rest.auth.manager.js",
         "deploy": "bun run build && bun run start"
     }
 }

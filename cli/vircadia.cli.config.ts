@@ -128,38 +128,5 @@ const cliEnvSchema = z.object({
         .string()
         .nullable()
         .default(null),
-
-    VRCA_CLI_SERVICE_PGWEB_HOST: z
-        .string()
-        .default(
-            serverConfiguration.VRCA_SERVER_SERVICE_PGWEB_HOST_CONTAINER_BIND_EXTERNAL,
-        ),
-    VRCA_CLI_SERVICE_PGWEB_PORT: z.coerce
-        .number()
-        .default(
-            serverConfiguration.VRCA_SERVER_SERVICE_PGWEB_PORT_CONTAINER_BIND_EXTERNAL,
-        ),
-
-    VRCA_CLI_SERVICE_WORLD_API_MANAGER_HOST: z
-        .string()
-        .default(
-            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_HOST_PUBLIC_AVAILABLE_AT,
-        ),
-    VRCA_CLI_SERVICE_WORLD_API_MANAGER_PORT: z.coerce
-        .number()
-        .default(
-            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_MANAGER_PORT_PUBLIC_AVAILABLE_AT,
-        ),
-
-    VRCA_CLI_SERVICE_WORLD_STATE_MANAGER_HOST: z
-        .string()
-        .default(
-            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
-        ),
-    VRCA_CLI_SERVICE_WORLD_STATE_MANAGER_PORT: z.coerce
-        .number()
-        .default(
-            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL,
-        ),
 });
 export const cliConfiguration = cliEnvSchema.parse(process.env);

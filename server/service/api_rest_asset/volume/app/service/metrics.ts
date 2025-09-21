@@ -271,7 +271,7 @@ export class MetricsCollector {
         return sorted[Math.max(0, index)];
     }
 
-    private createSystemMetrics(values: number[]): Service.API.I_SystemMetrics {
+    private createSystemMetrics(values: number[]): Service.API.Common.I_SystemMetrics {
         const current = values.length > 0 ? values[values.length - 1] : 0;
         const average =
             values.length > 0
@@ -320,7 +320,7 @@ export class MetricsCollector {
         };
     }
 
-    getMetrics(): Service.API.I_QueryMetrics {
+    getMetrics(): Service.API.Common.I_QueryMetrics {
         const averageQueryTime =
             this.queryCount > 0 ? this.totalQueryTime / this.queryCount : 0;
         const averageRequestSize =
@@ -368,7 +368,7 @@ export class MetricsCollector {
         };
     }
 
-    getReflectMetrics(): Service.API.I_ReflectMetrics {
+    getReflectMetrics(): Service.API.Common.I_ReflectMetrics {
         const averageReflectTime =
             this.reflectCount > 0
                 ? this.totalReflectTime / this.reflectCount
@@ -417,8 +417,8 @@ export class MetricsCollector {
         };
     }
 
-    getEndpointMetrics(): Service.API.I_EndpointStats {
-        const result: Service.API.I_EndpointStats = {};
+    getEndpointMetrics(): Service.API.Common.I_EndpointStats {
+        const result: Service.API.Common.I_EndpointStats = {};
         const uptimeSeconds = (performance.now() - this.startTime) / 1000;
 
         for (const [endpoint, count] of this.endpointRequestCounts.entries()) {

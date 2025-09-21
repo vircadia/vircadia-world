@@ -20,7 +20,7 @@ import { cliConfiguration } from "../vircadia.cli.config";
 import { Service } from "../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 import { serverConfiguration } from "../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
 import { BunLogModule } from "../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
-import { WorldApiManager } from "../../server/service/api/volume/app/world.api.manager";
+import { WorldApiManager } from "../../server/service/api_ws/volume/app/world.api.ws.manager";
 import {
     AzureADAuthService,
     createAzureADConfig,
@@ -28,7 +28,7 @@ import {
     type I_UserInfo,
     type I_TokenResponse,
     type I_OAuthState,
-} from "../../server/service/api/volume/app/service/azure.ad.auth";
+} from "../../server/service/api_rest_auth/volume/app/service/azure.ad.auth";
 import { sign, verify } from "jsonwebtoken";
 import { randomUUID } from "node:crypto";
 

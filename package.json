@@ -6,7 +6,9 @@
             "cli",
             "client/web_babylon_js",
             "sdk/vircadia-world-sdk-ts",
-            "server/service/api/volume/app",
+            "server/service/api_ws/volume/app",
+            "server/service/api_rest_auth/volume/app",
+            "server/service/api_rest_asset/volume/app",
             "server/service/state/volume/app"
         ],
         "catalog": {

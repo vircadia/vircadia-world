@@ -104,6 +104,91 @@ export class AzureADAuthService {
     }
 
     /**
+     * Handle OAuth login/link callback end-to-end
+     */
+    async handleLoginCallback(args: {
+        code: string;
+        state: I_OAuthState | string;
+    }): Promise<{
+        token: string;
+        agentId: string;
+        sessionId: string;
+        email: string;
+        displayName: string;
+        username: string;
+    }> {
+        const { code } = args;
+
+        // Determine raw state param and parsed state object
+        let stateParam: string;
+        let stateObj: I_OAuthState;
+        if (typeof args.state === "string") {
+            stateParam = args.state;
+            stateObj = parseOAuthState(stateParam);
+        } else {
+            stateObj = args.state;
+            // Reconstruct the original base64url state string for PKCE cache lookup
+            stateParam = Buffer.from(JSON.stringify(stateObj)).toString("base64url");
+        }
+
+        // Exchange code for tokens using PKCE verifier tied to the raw state string
+        const tokenResponse = await this.exchangeCodeForTokens(code, stateParam);
+
+        // Fetch user info from Graph
+        const userInfo = await this.getUserInfo(tokenResponse.accessToken);
+
+        if (stateObj.action === "login") {
+            const result = await this.createOrUpdateUser(userInfo, tokenResponse);
+            return {
+                token: result.jwt,
+                agentId: result.agentId,
+                sessionId: result.sessionId,
+                email: result.email,
+                displayName: result.displayName,
+                username: result.username,
+            };
+        }
+
+        if (stateObj.action === "link" && stateObj.agentId) {
+            await this.linkProvider(stateObj.agentId, userInfo, tokenResponse);
+
+            // Retrieve profile details to populate response
+            const [profile] = await this.db<[
+                {
+                    profile__username: string;
+                    auth__email: string;
+                    azure_display_name: string | null;
+                },
+            ]>`
+                SELECT 
+                    p.profile__username, 
+                    p.auth__email,
+                    ap.auth__metadata->>'displayName' as azure_display_name
+                FROM auth.agent_profiles p
+                LEFT JOIN auth.agent_auth_providers ap 
+                    ON p.general__agent_profile_id = ap.auth__agent_id 
+                    AND ap.auth__provider_name = 'azure'
+                WHERE p.general__agent_profile_id = ${stateObj.agentId}::UUID
+            `;
+
+            const email = profile?.auth__email || userInfo.email;
+            const displayName = profile?.azure_display_name || userInfo.displayName || profile?.profile__username || "";
+            const username = profile?.profile__username || (email ? email.split("@")[0] : "");
+
+            return {
+                token: "",
+                agentId: stateObj.agentId,
+                sessionId: stateObj.sessionId || "",
+                email,
+                displayName,
+                username,
+            };
+        }
+
+        throw new Error("Invalid state action");
+    }
+
+    /**
      * Get the authorization URL for OAuth flow
      */
     async getAuthorizationUrl(state: I_OAuthState): Promise<string> {

@@ -132,6 +132,7 @@ export type AvatarDefinition = {
     startFlying?: boolean;
 };
 
+// TODO: This should not be here with defaults, all defaults should be defined in MainScene.
 const defaultAvatarDef: AvatarDefinition = {
     initialAvatarPosition: { x: 0, y: 0, z: -5 },
     initialAvatarRotation: { x: 0, y: 0, z: 0, w: 1 },

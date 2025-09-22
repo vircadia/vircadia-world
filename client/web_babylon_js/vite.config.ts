@@ -6,7 +6,7 @@ import vueJsx from "@vitejs/plugin-vue-jsx";
 import vueDevTools from "vite-plugin-vue-devtools";
 import vuetify from "vite-plugin-vuetify";
 
-import { clientBrowserConfiguration } from "./src/vircadia.browser.config";
+import { clientBrowserConfiguration } from "../../sdk/vircadia-world-sdk-ts/browser/src/config/vircadia.browser.config";
 
 // https://vite.dev/config/
 export default defineConfig(({ command }) => {

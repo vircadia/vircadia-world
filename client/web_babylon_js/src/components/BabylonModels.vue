@@ -5,9 +5,10 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from "vue";
 import type { BabylonModelDefinition } from "@schemas";
+import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 
 const props = defineProps<{
-    vircadiaWorld: any;
+    vircadiaWorld: VircadiaWorldInstance;
     pollIntervalMs?: number;
 }>();
 
@@ -111,7 +112,7 @@ function toBabylonModelDefinition(
 
 async function fetchModelEntityNames(): Promise<string[]> {
     try {
-        const res = await props.vircadiaWorld.client.Utilities.Connection.query(
+        const res = await props.vircadiaWorld.client.connection.query(
             {
                 query: "SELECT DISTINCT general__entity_name FROM entity.entity_metadata WHERE metadata__key = $1 AND metadata__value = $2::jsonb",
                 parameters: ["type", "Model"],
@@ -149,7 +150,7 @@ async function fetchMetadataForEntities(
     const query = `SELECT general__entity_name, metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name IN (${placeholders.join(", ")})`;
 
     try {
-        const res = await props.vircadiaWorld.client.Utilities.Connection.query(
+        const res = await props.vircadiaWorld.client.connection.query(
             {
                 query,
                 parameters,

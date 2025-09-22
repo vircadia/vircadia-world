@@ -1,5 +1,6 @@
 <template>
-  <v-card class="webrtc-status" variant="outlined">
+  <v-dialog v-model="dialogVisible" max-width="800px">
+    <v-card class="webrtc-status" variant="outlined">
     <v-card-title class="d-flex align-center">
       <span class="text-subtitle-1">WebRTC Status</span>
       <v-spacer />
@@ -401,7 +402,8 @@
         </v-list-item>
       </v-list>
     </v-card-text>
-  </v-card>
+    </v-card>
+  </v-dialog>
 </template>
 
 <script setup lang="ts">
@@ -418,10 +420,10 @@ import type {
     AvatarPositionData,
     AvatarRotationData,
 } from "@schemas";
-import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
+import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 
 interface Props {
-    vircadiaWorld: ReturnType<typeof useVircadia>;
+    vircadiaWorld: VircadiaWorldInstance;
     // Separated avatar data streams
     avatarDataMap?: Record<string, AvatarBaseData>;
     positionDataMap?: Record<string, AvatarPositionData>;
@@ -439,6 +441,8 @@ interface Props {
     onRemovePeerAudioState?: (sessionId: string) => void;
     onSetPeerVolume?: (sessionId: string, volume: number) => void;
     onClearPeerAudioStates?: () => void;
+    // Dialog visibility control
+    modelValue?: boolean;
 }
 
 const props = defineProps<Props & {
@@ -451,6 +455,16 @@ const props = defineProps<Props & {
     // Interval for DB debug refresh (ms)
     debugRefreshIntervalMs: number;
 }>();
+
+const emit = defineEmits<{
+    'update:modelValue': [value: boolean];
+}>();
+
+// Computed property for v-model binding
+const dialogVisible = computed({
+    get: () => props.modelValue ?? false,
+    set: (value: boolean) => emit('update:modelValue', value)
+});
 
 // Enhanced peer info interface with simplified state
 interface PeerInfo {
@@ -592,7 +606,7 @@ const announcePeerPresence = async () => {
 
     try {
         // First, create or update the entity
-        await vircadiaWorld.client.Utilities.Connection.query({
+        await vircadiaWorld.client.connection.query({
             query: `
                 INSERT INTO entity.entities (general__entity_name, group__sync, general__expiry__delete_since_updated_at_ms, general__expiry__delete_since_created_at_ms) 
                 VALUES ($1, $2, $3, NULL)
@@ -605,7 +619,7 @@ const announcePeerPresence = async () => {
 
         // Then update metadata using the new entity_metadata table
         for (const [key, value] of Object.entries(discoveryData)) {
-            await vircadiaWorld.client.Utilities.Connection.query({
+            await vircadiaWorld.client.connection.query({
                 query: `INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync)
                         VALUES ($1, $2, $3::jsonb, $4)
                         ON CONFLICT (general__entity_name, metadata__key) 
@@ -632,7 +646,7 @@ const discoverPeers = async (): Promise<string[]> => {
 
         // First get all webrtc-peer entities
         const entitiesResult =
-            await vircadiaWorld.client.Utilities.Connection.query({
+            await vircadiaWorld.client.connection.query({
                 query: `
                 SELECT general__entity_name FROM entity.entities 
                 WHERE group__sync = $1 AND general__entity_name LIKE 'webrtc-peer-%'
@@ -648,7 +662,7 @@ const discoverPeers = async (): Promise<string[]> => {
 
                 // Get metadata for this entity
                 const metadataResult =
-                    await vircadiaWorld.client.Utilities.Connection.query({
+                    await vircadiaWorld.client.connection.query({
                         query: `
                         SELECT metadata__key, metadata__value 
                         FROM entity.entity_metadata 
@@ -693,7 +707,7 @@ const announcePeerDeparture = async () => {
     const entityName = `webrtc-peer-${fullSessionId.value}`;
 
     try {
-        await vircadiaWorld.client.Utilities.Connection.query({
+        await vircadiaWorld.client.connection.query({
             query: "DELETE FROM entity.entities WHERE general__entity_name = $1",
             parameters: [entityName],
         });
@@ -721,7 +735,7 @@ const sendMessage = async (
 
     try {
         // First ensure the session entity exists
-        await vircadiaWorld.client.Utilities.Connection.query({
+        await vircadiaWorld.client.connection.query({
             query: `INSERT INTO entity.entities 
                     (general__entity_name, group__sync, general__expiry__delete_since_updated_at_ms, general__expiry__delete_since_created_at_ms) 
                     VALUES ($1, $2, $3, NULL)
@@ -746,7 +760,7 @@ const sendMessage = async (
         };
 
         // Store the message as a metadata entry
-        await vircadiaWorld.client.Utilities.Connection.query({
+        await vircadiaWorld.client.connection.query({
             query: `INSERT INTO entity.entity_metadata 
                     (general__entity_name, metadata__key, metadata__value, group__sync)
                     VALUES ($1, $2, $3::jsonb, $4)
@@ -793,7 +807,7 @@ const receiveMessagesForPeer = async (
 
         // Get all message metadata for this session
         const metadataResult =
-            await vircadiaWorld.client.Utilities.Connection.query({
+            await vircadiaWorld.client.connection.query({
                 query: `
                     SELECT metadata__key, metadata__value 
                     FROM entity.entity_metadata 
@@ -859,7 +873,7 @@ const markMessageProcessed = async (
         // Update the message with processed = true
         const updatedMessage = { ...message, processed: true };
 
-        await vircadiaWorld.client.Utilities.Connection.query({
+        await vircadiaWorld.client.connection.query({
             query: `UPDATE entity.entity_metadata 
                     SET metadata__value = $1::jsonb 
                     WHERE general__entity_name = $2 AND metadata__key = $3`,
@@ -1471,7 +1485,7 @@ async function refreshDatabaseState() {
 
         // Get all webrtc session entities
         const entitiesResult =
-            await vircadiaWorld.client.Utilities.Connection.query({
+            await vircadiaWorld.client.connection.query({
                 query: "SELECT general__entity_name FROM entity.entities WHERE group__sync = $1 AND general__entity_name LIKE 'webrtc-session-%' ORDER BY general__created_at DESC LIMIT 20",
                 parameters: ["public.NORMAL"],
             });
@@ -1484,7 +1498,7 @@ async function refreshDatabaseState() {
 
                 // Get all message metadata for this session
                 const metadataResult =
-                    await vircadiaWorld.client.Utilities.Connection.query({
+                    await vircadiaWorld.client.connection.query({
                         query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1 AND group__sync = $2 AND metadata__key LIKE 'msg-%'",
                         parameters: [entityName, "public.NORMAL"],
                     });
@@ -1666,7 +1680,7 @@ async function cleanupStaleMessages() {
 
         // Find all WebRTC session entities
         const sessionEntitiesResult =
-            await vircadiaWorld.client.Utilities.Connection.query({
+            await vircadiaWorld.client.connection.query({
                 query: "SELECT general__entity_name FROM entity.entities WHERE group__sync = $1 AND general__entity_name LIKE 'webrtc-session-%'",
                 parameters: ["public.NORMAL"],
             });
@@ -1678,7 +1692,7 @@ async function cleanupStaleMessages() {
 
                 // Get all message metadata for this session
                 const messagesResult =
-                    await vircadiaWorld.client.Utilities.Connection.query({
+                    await vircadiaWorld.client.connection.query({
                         query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1 AND group__sync = $2 AND metadata__key LIKE 'msg-%'",
                         parameters: [entityName, "public.NORMAL"],
                     });
@@ -1692,7 +1706,7 @@ async function cleanupStaleMessages() {
 
                             // Delete old messages
                             if (message.timestamp < cutoffTime) {
-                                await vircadiaWorld.client.Utilities.Connection.query(
+                                await vircadiaWorld.client.connection.query(
                                     {
                                         query: "DELETE FROM entity.entity_metadata WHERE general__entity_name = $1 AND metadata__key = $2 AND group__sync = $3",
                                         parameters: [
@@ -1706,7 +1720,7 @@ async function cleanupStaleMessages() {
                             }
                         } catch (error) {
                             // If we can't parse it, delete it
-                            await vircadiaWorld.client.Utilities.Connection.query(
+                            await vircadiaWorld.client.connection.query(
                                 {
                                     query: "DELETE FROM entity.entity_metadata WHERE general__entity_name = $1 AND metadata__key = $2 AND group__sync = $3",
                                     parameters: [
@@ -1723,7 +1737,7 @@ async function cleanupStaleMessages() {
 
                 // Clean up empty session entities
                 const remainingMetadata =
-                    await vircadiaWorld.client.Utilities.Connection.query({
+                    await vircadiaWorld.client.connection.query({
                         query: "SELECT COUNT(*) as count FROM entity.entity_metadata WHERE general__entity_name = $1 AND group__sync = $2",
                         parameters: [entityName, "public.NORMAL"],
                     });
@@ -1732,7 +1746,7 @@ async function cleanupStaleMessages() {
                     Array.isArray(remainingMetadata.result) &&
                     remainingMetadata.result[0]?.count === 0
                 ) {
-                    await vircadiaWorld.client.Utilities.Connection.query({
+                    await vircadiaWorld.client.connection.query({
                         query: "DELETE FROM entity.entities WHERE general__entity_name = $1",
                         parameters: [entityName],
                     });
@@ -1744,7 +1758,7 @@ async function cleanupStaleMessages() {
 
         // Also clean up old peer discovery entries
         const oldPeersResult =
-            await vircadiaWorld.client.Utilities.Connection.query({
+            await vircadiaWorld.client.connection.query({
                 query: `
                 SELECT DISTINCT e.general__entity_name 
                 FROM entity.entities e
@@ -1761,7 +1775,7 @@ async function cleanupStaleMessages() {
         let deletedPeersCount = 0;
         if (Array.isArray(oldPeersResult.result)) {
             for (const entity of oldPeersResult.result) {
-                await vircadiaWorld.client.Utilities.Connection.query({
+                await vircadiaWorld.client.connection.query({
                     query: "DELETE FROM entity.entities WHERE general__entity_name = $1",
                     parameters: [entity.general__entity_name],
                 });

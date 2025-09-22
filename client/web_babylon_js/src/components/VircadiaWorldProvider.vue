@@ -24,19 +24,20 @@
 </template>
 
 <script setup lang="ts">
-// TODO: Move this to the Vircadia World SDK.
-import { computed, watch, ref, onUnmounted, onMounted, type Ref } from "vue";
+import { computed, watch, ref, onUnmounted, readonly, type Ref, type ComputedRef, type DeepReadonly } from "vue";
+import { useStorage, StorageSerializers } from "@vueuse/core";
 import {
     Communication,
-    ClientCore,
-    type ClientCoreConnectionInfo,
+    VircadiaBrowserClient,
+    type VircadiaBrowserClientConfig,
+    type WsConnectionCoreInfo,
 } from "@vircadia/world-sdk/browser/vue";
-import { clientBrowserConfiguration } from "@/vircadia.browser.config";
+import { clientBrowserConfiguration } from "../../../../sdk/vircadia-world-sdk-ts/browser/src/config/vircadia.browser.config";
 
 // Strongly type the slot props so consumers don't get `any`
 export type VircadiaWorldInstance = {
-    client: ClientCore;
-    connectionInfo: Ref<ClientCoreConnectionInfo>;
+    client: VircadiaBrowserClient;
+    connectionInfo: Ref<WsConnectionCoreInfo>;
     dispose: () => void;
 };
 export type VircadiaConnectionInfo =
@@ -86,14 +87,6 @@ const emit = defineEmits<{
 const props = defineProps<{
     autoConnect?: boolean;
     reconnectDelayMs?: number;
-    // Optional external auth state. If provided, these take precedence over store values
-    sessionToken?: string | null;
-    agentId?: string | null;
-    authProvider?: string | null;
-    isAuthenticated?: boolean;
-    account?: unknown | null;
-    isAuthenticating?: boolean;
-    authError?: string | null;
 }>();
 
 const autoConnect = computed(() => props.autoConnect !== false);
@@ -103,8 +96,12 @@ const reconnectDelayMs = computed(() => props.reconnectDelayMs ?? 2000);
 console.log(
     "[VircadiaWorldProvider] Initializing Vircadia client with config",
     {
-        ssl: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL,
-        apiUri: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI,
+        apiWsUriUsingSsl: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI_USING_SSL,
+        apiWsUri: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI,
+        apiRestAuthUriUsingSsl: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI_USING_SSL,
+        apiRestAuthUri: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI,
+        apiRestAssetUriUsingSsl: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI_USING_SSL,
+        apiRestAssetUri: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI,
         wsPath: Communication.WS_UPGRADE_PATH,
         hasDebugToken:
             !!clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
@@ -114,11 +111,20 @@ console.log(
     },
 );
 
-const client = new ClientCore({
-    serverUrl:
-        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL
-            ? `https://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`
-            : `http://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}${Communication.WS_UPGRADE_PATH}`,
+// New unified browser client for REST/Auth orchestration
+const browserClient = new VircadiaBrowserClient({
+    apiWsUri:
+        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI_USING_SSL
+            ? `https://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI}${Communication.WS_UPGRADE_PATH}`
+            : `http://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI}${Communication.WS_UPGRADE_PATH}`,
+    apiRestAuthUri:
+        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI_USING_SSL
+            ? `https://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI}${Communication.REST_BASE_AUTH_PATH}`
+            : `http://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI}${Communication.REST_BASE_AUTH_PATH}`,
+    apiRestAssetUri:
+        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI_USING_SSL
+            ? `https://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI}${Communication.REST_BASE_ASSET_PATH}`
+            : `http://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI}${Communication.REST_BASE_ASSET_PATH}`,
     authToken:
         clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
     authProvider:
@@ -127,12 +133,12 @@ const client = new ClientCore({
     suppress: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
 });
 
-const connectionInfo = ref<ClientCoreConnectionInfo>(
-    client.Utilities.Connection.getConnectionInfo(),
+const connectionInfo = ref<WsConnectionCoreInfo>(
+    browserClient.connection.getConnectionInfo(),
 );
 
 const updateConnectionStatus = () => {
-    connectionInfo.value = client.Utilities.Connection.getConnectionInfo();
+    connectionInfo.value = browserClient.connection.getConnectionInfo();
     // Surface specific close reasons (session already connected) without treating as auth failure
     const last = connectionInfo.value;
     if (
@@ -144,31 +150,29 @@ const updateConnectionStatus = () => {
     }
 };
 
-client.Utilities.Connection.addEventListener(
+browserClient.connection.addEventListener(
     "statusChange",
     updateConnectionStatus,
 );
 
 const dispose = () => {
-    client.Utilities.Connection.removeEventListener(
+    browserClient.connection.removeEventListener(
         "statusChange",
         updateConnectionStatus,
     );
 
     if (connectionInfo.value.isConnected) {
-        client.Utilities.Connection.disconnect();
+        browserClient.connection.disconnect();
     }
-
-    client.dispose();
 };
 
 onUnmounted(dispose);
 
-const vircadiaWorldNonNull: VircadiaWorldInstance = {
-    client,
+const vircadiaWorldNonNull = {
+    client: browserClient,
     connectionInfo,
     dispose,
-};
+} as unknown as VircadiaWorldInstance;
 
 // Connection state
 const isConnecting = ref(false);
@@ -181,12 +185,31 @@ const connectionInfoComputed = computed(
 );
 const connectionStatus = computed(() => connectionInfoComputed.value.status);
 
-// Auth state is provided via props
-const isAuthenticatedComputed = computed(() => !!props.isAuthenticated);
-const isAuthenticatingComputed = computed(() => !!props.isAuthenticating);
-const authErrorComputed = computed(() => props.authError ?? null);
-const accountComputed = computed(() => props.account ?? null);
-const sessionTokenComputed = computed(() => props.sessionToken ?? null);
+// Auth state is mirrored from shared storage so AuthProvider and World share state
+const account = useStorage<Record<string, unknown> | null>(
+    "vircadia-account",
+    null,
+    localStorage,
+    { serializer: StorageSerializers.object },
+);
+const sessionToken = useStorage<string | null>(
+    "vircadia-session-token",
+    null,
+    localStorage,
+);
+const storedAuthProvider = useStorage<string>(
+    "vircadia-auth-provider",
+    "anon",
+    localStorage,
+);
+
+const isAuthenticatedComputed = computed(
+    () => !!sessionToken.value && !!account.value,
+);
+const isAuthenticatingComputed = computed(() => false);
+const authErrorComputed = computed(() => null as string | null);
+const accountComputed = computed(() => account.value);
+const sessionTokenComputed = computed(() => sessionToken.value);
 // session and agent IDs from connection info
 const sessionIdComputed = computed(
     () => connectionInfoComputed.value.sessionId ?? null,
@@ -194,7 +217,7 @@ const sessionIdComputed = computed(
 const agentIdComputed = computed(
     () => connectionInfoComputed.value.agentId ?? null,
 );
-const authProviderComputed = computed(() => props.authProvider ?? "anon");
+const authProviderComputed = computed(() => storedAuthProvider.value ?? "anon");
 
 // Pull instanceId and fullSessionId directly from core connection info
 const instanceId = computed(
@@ -204,7 +227,7 @@ const fullSessionIdComputed = computed(
     () => connectionInfoComputed.value.fullSessionId ?? null,
 );
 
-type ConnectionInfoMaybeLastClose = ClientCoreConnectionInfo & {
+type ConnectionInfoMaybeLastClose = WsConnectionCoreInfo & {
     lastClose?: { code: number; reason: string };
 };
 
@@ -247,7 +270,7 @@ const accountDisplayName = computed(() => {
 function ensureDisconnected() {
     const info = connectionInfoComputed.value;
     if (info.isConnected || info.isConnecting) {
-        vircadiaWorldNonNull.client.Utilities.Connection.disconnect();
+        browserClient.connection.disconnect();
     }
     lastConnectedToken.value = null;
     lastConnectedAgentId.value = null;
@@ -294,7 +317,7 @@ async function connect() {
         // Disconnect only if connected with a different token
         if (connectionInfoComputed.value.isConnected) {
             if (lastConnectedToken.value !== currentToken) {
-                vircadiaWorldNonNull.client.Utilities.Connection.disconnect();
+                browserClient.connection.disconnect();
                 await new Promise((resolve) => setTimeout(resolve, 100));
             }
         } else if (connectionInfoComputed.value.isConnecting) {
@@ -308,12 +331,13 @@ async function connect() {
             token: currentToken,
             authProvider: authProvider,
         });
-        vircadiaWorldNonNull.client.setAuthToken(currentToken);
-        vircadiaWorldNonNull.client.setAuthProvider(authProvider);
+        // Keep browser client in sync for REST & WS flows
+        browserClient.setAuthToken(currentToken);
+        browserClient.setAuthProvider(authProvider);
 
         console.log("[VircadiaWorldProvider] Attempting WebSocket connection");
         // Attempt connection with timeout
-        await vircadiaWorldNonNull.client.Utilities.Connection.connect({
+        await browserClient.connection.connect({
             timeoutMs: 15000,
         });
 
@@ -448,6 +472,6 @@ defineExpose({
     authProvider: authProviderComputed,
     instanceId,
 });
+
+//
 </script>
-
-

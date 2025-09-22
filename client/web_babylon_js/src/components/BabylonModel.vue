@@ -18,12 +18,12 @@ import { ModelMetadataSchema } from "@schemas";
 
 import { useDebounceFn } from "@vueuse/core";
 // TODO: Move entity updates synchronization into their own component.
-import { useAsset, type useVircadia } from "@vircadia/world-sdk/browser/vue";
+import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 
 const props = defineProps<{
     def: BabylonModelDefinition;
     scene: Scene | null;
-    vircadiaWorld: ReturnType<typeof useVircadia>;
+    vircadiaWorld: VircadiaWorldInstance;
 }>();
 
 // --- Set up Babylon model pipelines ---
@@ -69,7 +69,7 @@ async function retrieveEntityMetadata(
 
     try {
         // Fetch all metadata for this entity
-        const metadataResult = await vircadia.client.Utilities.Connection.query(
+        const metadataResult = await vircadia.client.connection.query(
             {
                 query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1",
                 parameters: [entityName],
@@ -106,7 +106,7 @@ const debouncedUpdate = useDebounceFn(async () => {
 
         // Helper function to update metadata
         const updateMetadata = async (key: string, value: unknown) => {
-            await vircadia.client.Utilities.Connection.query({
+            await vircadia.client.connection.query({
                 query: `INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync)
                         VALUES ($1, $2, $3, $4)
                         ON CONFLICT (general__entity_name, metadata__key) 
@@ -252,12 +252,19 @@ namespace glTF {
 // only track top-level array changes, never recurse into mesh properties
 const meshes = shallowRef<AbstractMesh[]>([]);
 const fileNameRef = ref(props.def.fileName);
-const asset = useAsset({
-    fileName: fileNameRef,
-    useCache: true,
-    debug: false,
-    instance: vircadia,
-});
+function extensionFromFileName(fileName: string): string {
+    const ext = fileName.split(".").pop()?.toLowerCase();
+    switch (ext) {
+        case "glb":
+            return ".glb";
+        case "gltf":
+            return ".gltf";
+        case "fbx":
+            return ".fbx";
+        default:
+            return "";
+    }
+}
 
 async function loadModel(scene: Scene) {
     if (!scene) {
@@ -265,26 +272,16 @@ async function loadModel(scene: Scene) {
         return;
     }
 
-    // trigger asset fetch
-    await asset.executeLoad();
-    const assetData = asset.assetData.value;
-    if (!assetData?.blobUrl) {
-        console.warn(
-            `Asset blob URL not available for '${props.def.fileName}'`,
-        );
-        return;
-    }
-    console.log("Loading model... ", props.def.fileName);
+    // Build direct asset URL with auth/session query params
+    const directUrl = vircadia.client.buildAssetRequestUrl(props.def.fileName);
+    console.log("Loading model via direct URL... ", props.def.fileName);
     if (meshes.value.length > 0) {
         console.log(`Model '${props.def.fileName}' already loaded. Skipping.`);
         return;
     }
     try {
-        console.log(
-            `Loading model '${props.def.fileName}' using blob URL with plugin extension ${asset.fileExtension.value}...`,
-        );
-        const result = await ImportMeshAsync(assetData.blobUrl, scene, {
-            pluginExtension: asset.fileExtension.value,
+        const result = await ImportMeshAsync(directUrl, scene, {
+            pluginExtension: extensionFromFileName(props.def.fileName),
         });
         const hasLightmapData = result.meshes.some((m) =>
             m.name.startsWith(glTF.Lightmap.DATA_MESH_NAME),
@@ -507,7 +504,7 @@ watch(
             try {
                 // First check if entity exists
                 const entityResult =
-                    await vircadia.client.Utilities.Connection.query({
+                    await vircadia.client.connection.query({
                         query: "SELECT general__entity_name FROM entity.entities WHERE general__entity_name = $1",
                         parameters: [entityNameRef.value],
                     });
@@ -564,7 +561,7 @@ watch(
                 isCreating.value = true;
                 try {
                     // First create the entity
-                    await vircadia.client.Utilities.Connection.query({
+                    await vircadia.client.connection.query({
                         query: "INSERT INTO entity.entities (general__entity_name, group__sync, general__expiry__delete_since_updated_at_ms) VALUES ($1, $2, $3) RETURNING general__entity_name",
                         parameters: [
                             entityNameRef.value,
@@ -590,7 +587,7 @@ watch(
                     ];
 
                     for (const { key, value } of metadataInserts) {
-                        await vircadia.client.Utilities.Connection.query({
+                        await vircadia.client.connection.query({
                             query: `INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync)
                                     VALUES ($1, $2, $3, $4)
                                     ON CONFLICT (general__entity_name, metadata__key)
@@ -644,7 +641,6 @@ watch(
 
 // Clean up on unmount
 onUnmounted(() => {
-    asset.cleanup();
     for (const m of meshes.value) {
         m.dispose();
     }
@@ -653,7 +649,7 @@ onUnmounted(() => {
 // Expose loading state for parent tracking
 // isLoading combines asset loading and initial entity retrieval/creation only
 defineExpose({
-    isAssetLoading: asset.loading,
+    // asset loading state not available with direct REST fetch
     isEntityRetrieving: isRetrieving,
     isEntityCreating: isCreating,
     isEntityUpdating: isUpdating,

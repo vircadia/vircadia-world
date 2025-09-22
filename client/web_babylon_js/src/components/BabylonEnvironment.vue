@@ -8,7 +8,7 @@
     ></slot>
 </template>
 <script setup lang="ts">
-import { ref, watch, toRef, computed } from "vue";
+import { ref, watch, toRef, computed, type Ref } from "vue";
 import {
     HDRCubeTexture,
     type Scene,
@@ -24,8 +24,7 @@ import {
 } from "@babylonjs/core";
 import { HavokPlugin } from "@babylonjs/core/Physics/v2/Plugins/havokPlugin";
 import HavokPhysics from "@babylonjs/havok";
-import { useAsset } from "@vircadia/world-sdk/browser/vue";
-import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
+import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 
 type LightVector = [number, number, number];
 
@@ -57,7 +56,7 @@ interface GroundOptions {
 const props = withDefaults(
     defineProps<{
         scene: Scene;
-        vircadiaWorld: ReturnType<typeof useVircadia>;
+        vircadiaWorld: VircadiaWorldInstance;
         environmentEntityName: string;
         // defaults configuration
         enableDefaults?: boolean;
@@ -328,22 +327,9 @@ function addGroundIfNeeded(targetScene: Scene) {
 
 // Removed: setupDefaultEnvironmentIfNeeded (inlined in loadAll after engine ready)
 
-async function loadHdrFiles(
-    scene: Scene,
-    instance: ReturnType<typeof useVircadia>,
-    hdrFiles: string[],
-) {
+async function loadHdrFiles(scene: Scene, hdrFiles: string[]) {
     for (const fileName of hdrFiles) {
-        const asset = useAsset({
-            fileName: ref(fileName),
-            instance,
-            useCache: true,
-        });
-        await asset.executeLoad();
-        const url = asset.assetData.value?.blobUrl;
-        if (!url)
-            throw new Error(`[BabylonEnvironment] Failed to load ${fileName}`);
-
+        const { url, revoke } = await vircadiaRef.value.client.fetchAssetAsBabylonUrl(fileName);
         const hdr = new HDRCubeTexture(
             url,
             scene,
@@ -353,10 +339,9 @@ async function loadHdrFiles(
             false,
             true,
         );
-        await new Promise<void>((resolve) =>
-            hdr.onLoadObservable.addOnce(() => resolve()),
-        );
-
+        await new Promise<void>((resolve) => hdr.onLoadObservable.addOnce(() => resolve()));
+        // After the HDR texture has loaded, revoke the object URL if provided
+        try { revoke?.(); } catch {}
         scene.environmentTexture = hdr;
         scene.environmentIntensity = 1.2;
         scene.createDefaultSkybox(hdr, true, 1000);
@@ -407,12 +392,12 @@ async function loadAll(scene: Scene) {
             console.error("[BabylonEnvironment] Vircadia instance missing");
             return;
         }
-        const metadataResult = await instance.client.Utilities.Connection.query(
+        const metadataResult = (await instance.client.connection.query(
             {
                 query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1",
                 parameters: [envEntityNameRef.value],
             },
-        );
+        )) as any;
 
         const metadataMap = new Map<string, unknown>();
         if (Array.isArray(metadataResult.result)) {
@@ -443,7 +428,7 @@ async function loadAll(scene: Scene) {
             );
         }
 
-        await loadHdrFiles(scene, instance, hdrFiles);
+        await loadHdrFiles(scene, hdrFiles);
         hasLoaded.value = true;
     } catch (e) {
         console.error(e);

@@ -23,12 +23,12 @@ import {
     parseAvatarRotation,
     parseAvatarJoint,
 } from "@schemas";
-import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
+import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 
 const props = defineProps({
     scene: { type: Object, required: true },
     vircadiaWorld: {
-        type: Object as () => ReturnType<typeof useVircadia>,
+        type: Object as () => VircadiaWorldInstance,
         required: true,
     },
     currentFullSessionId: {
@@ -51,7 +51,7 @@ function ensure<T = unknown>(value: unknown, message: string): T {
     return value as T;
 }
 
-const vircadiaWorld = ensure<ReturnType<typeof useVircadia>>(
+const vircadiaWorld = ensure<VircadiaWorldInstance>(
     props.vircadiaWorld,
     "Vircadia instance not found in BabylonOtherAvatars",
 );
@@ -104,7 +104,7 @@ async function pollForOtherAvatars(): Promise<void> {
         const startTime = Date.now();
         console.log("[Discovery] Starting poll for other avatars...");
 
-        const result = await vircadiaWorld.client.Utilities.Connection.query({
+        const result = await vircadiaWorld.client.connection.query({
             query: "SELECT general__entity_name FROM entity.entities WHERE group__sync = $1 AND general__entity_name LIKE 'avatar:%'",
             parameters: ["public.NORMAL"],
             timeoutMs: 5000,
@@ -165,7 +165,7 @@ async function pollForOtherAvatars(): Promise<void> {
 function subscribeReflect(): void {
     if (reflectUnsubscribe) reflectUnsubscribe();
     reflectUnsubscribe =
-        vircadiaWorld.client.Utilities.Connection.subscribeReflect(
+        vircadiaWorld.client.connection.subscribeReflect(
             props.reflectSyncGroup,
             props.reflectChannel,
             (message) => {
@@ -327,7 +327,7 @@ async function backfillSessionFromMetadata(sessionId: string): Promise<void> {
     metadataLoadingSessions.add(sessionId);
     try {
         const entityName = `avatar:${sessionId}`;
-        const result = await vircadiaWorld.client.Utilities.Connection.query({
+        const result = await vircadiaWorld.client.connection.query({
             query:
                 "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1 AND group__sync = $2 AND metadata__key IN ('type','sessionId','modelFileName','position','rotation','scale','cameraOrientation','joints','avatar_snapshot')",
             parameters: [entityName, "public.NORMAL"],

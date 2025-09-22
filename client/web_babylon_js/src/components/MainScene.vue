@@ -1,17 +1,18 @@
 <template>
-    <VircadiaWorldAuthProvider v-slot="authProps">
-        <VircadiaWorldProvider 
-            :sessionToken="authProps.sessionToken"
-            :agentId="authProps.agentId"
-            :authProvider="authProps.authProvider"
-            :isAuthenticated="authProps.isAuthenticated"
-            :account="authProps.account"
-            :isAuthenticating="authProps.isAuthenticating"
-            :authError="authProps.authError"
-            :autoConnect="clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT"
-            @auth-denied="onAuthDenied($event, authProps)"
-            v-slot="{ vircadiaWorld, connectionStatus, isConnecting, isAuthenticated, isAuthenticating, accountDisplayName, sessionId, fullSessionId, agentId, lastCloseCode, lastCloseReason }">
-        
+    <VircadiaWorldProvider 
+        :autoConnect="clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT"
+        @auth-denied="onAuthDenied($event)"
+        v-slot="{ vircadiaWorld, connectionStatus, isConnecting, isAuthenticated, isAuthenticating, accountDisplayName, sessionId, fullSessionId, agentId, lastCloseCode, lastCloseReason, connect }">
+
+        <!-- Auth Screen when not authenticated -->
+        <VircadiaWorldAuthProvider 
+            v-if="!isAuthenticated" 
+            :vircadia-world="vircadiaWorld" 
+            @authenticated="connect" 
+        />
+
+        <!-- Main world when authenticated -->
+        <template v-else>
         <!-- Component Loader -->
         <template v-for="comp in availableComponents" :key="comp">
             <component 
@@ -19,7 +20,7 @@
                 :scene="scene"
                 :engine="engine"
                 :canvas="renderCanvas"
-                :vircadia-world="vircadiaWorld"
+                :vircadia-world="vircadiaWorld as any"
                 :connection-status="connectionStatus"
                 :session-id="sessionId ?? undefined"
                 :agent-id="agentId ?? undefined"
@@ -210,7 +211,7 @@
                         <BabylonMyAvatarTalking v-slot="{ isTalking, level: talkLevel, devices: audioDevices, threshold: talkThreshold }">
                             <BabylonMyAvatar
                                 :scene="sceneNonNull"
-                                :vircadia-world="vircadiaWorld"
+                                :vircadia-world="vircadiaWorld as any"
                                 :key-state="controls.keyState"
                                 :is-talking="isTalking"
                                 :talk-level="talkLevel"
@@ -224,7 +225,7 @@
                                     <BabylonMyAvatarEntity
                                         v-if="vircadiaWorld.connectionInfo.value.status === 'connected'"
                                         :scene="sceneNonNull"
-                                        :vircadia-world="vircadiaWorld"
+                                        :vircadia-world="vircadiaWorld as any"
                                         :avatar-node="(avatarNode as any) || null"
                                         :target-skeleton="(avatarSkeleton as any) || null"
                                         :camera="null"
@@ -347,26 +348,18 @@
                     <!-- Other avatars wrapper -->
                     <BabylonOtherAvatars
                         :scene="sceneNonNull"
-                        :vircadia-world="vircadiaWorld"
+                        :vircadia-world="vircadiaWorld as any"
                         :current-full-session-id="fullSessionId ?? undefined"
                         :discovery-polling-interval="500"
                         :reflect-sync-group="'public.NORMAL'"
                         :reflect-channel="'avatar_joints'"
-                        :message-polling-interval="200"
-                        :presence-announce-interval="10000"
-                        :peer-discovery-interval="5000"
-                        :debug-refresh-interval="5000"
-                        :on-set-peer-audio-state="setPeerAudioState"
-                        :on-remove-peer-audio-state="removePeerAudioState"
-                        :on-set-peer-volume="setPeerVolume"
-                        :on-clear-peer-audio-states="clearPeerAudioStates"
                         v-slot="{ otherAvatarSessionIds, avatarDataMap, positionDataMap, rotationDataMap, jointDataMap }"
                     >
                         <BabylonOtherAvatar
                             v-for="otherFullSessionId in otherAvatarSessionIds || []"
                             :key="otherFullSessionId"
                             :scene="sceneNonNull"
-                            :vircadia-world="vircadiaWorld"
+                            :vircadia-world="vircadiaWorld as any"
                             :session-id="otherFullSessionId"
                             :avatar-data="avatarDataMap?.[otherFullSessionId]"
                             :position-data="positionDataMap?.[otherFullSessionId]"
@@ -378,6 +371,7 @@
 
                         <!-- WebRTC component (now under OtherAvatars slot) -->
                         <BabylonWebRTC
+                            v-model="showWebRTCControls"
                             :vircadia-world="vircadiaWorld"
                             :avatar-data-map="(avatarDataMap as Record<string, { type: 'avatar'; sessionId: string | null; modelFileName: string; cameraOrientation: { alpha: number; beta: number; radius: number; }; }>) || {}"
                             :position-data-map="(positionDataMap as Record<string, { x: number; y: number; z: number; }>) || {}"
@@ -395,13 +389,13 @@
                     </BabylonOtherAvatars>
 
                     <!-- BabylonModel components provided by DB-scanned list -->
-                    <BabylonModels :vircadia-world="vircadiaWorld" v-slot="{ models }">
+                    <BabylonModels :vircadia-world="vircadiaWorld as any" v-slot="{ models }">
                         <BabylonModel
                             v-for="def in models"
                             :key="def.fileName"
                             :def="def"
                             :scene="sceneNonNull"
-                            :vircadia-world="vircadiaWorld"
+                            :vircadia-world="vircadiaWorld as any"
                             ref="modelRefs"
                             v-slot="{ meshes, def: slotDef }"
                         >
@@ -429,7 +423,7 @@
                     <!-- BabylonDoor component for interactive door -->
                     <BabylonDoor
                         :scene="sceneNonNull"
-                        :vircadia-world="vircadiaWorld"
+                        :vircadia-world="vircadiaWorld as any"
                         entity-name="babylon.door.main"
                         model-file-name="babylon.model.wooden_door.glb"
                         :initial-position="{ x: 0, y: 0, z: 0 }"
@@ -458,7 +452,7 @@
                 </v-chip>
                 <LogoutButton 
                     :isAuthenticated="isAuthenticated"
-                    :onLogout="authProps.logout"
+                    :onLogout="() => vircadiaWorld.client.logout()"
                 />
             </div>
             
@@ -467,11 +461,11 @@
             <!-- Audio Controls -->
             <v-tooltip bottom>
                 <template v-slot:activator="{ props }">
-                    <v-btn 
-                        fab 
+                    <v-btn
+                        fab
                         small
-                        color="primary" 
-                        @click="webrtcStatus?.openControls?.()"
+                        color="primary"
+                        @click="showWebRTCControls = true"
                         v-bind="props"
                         class="toolbar-btn"
                     >
@@ -495,8 +489,8 @@
         
         <!-- Audio controls dialog now lives inside BabylonWebRTC -->
 
-        </VircadiaWorldProvider>
-    </VircadiaWorldAuthProvider>
+        </template>
+    </VircadiaWorldProvider>
 </template>
 
 <script setup lang="ts">
@@ -532,11 +526,11 @@ import BabylonCameraDebugOverlay from "../components/BabylonCameraDebugOverlay.v
 import BabylonInspector from "../components/BabylonInspector.vue";
 import BabylonModelsDebugOverlay from "../components/BabylonModelsDebugOverlay.vue";
 import BabylonOtherAvatarsDebugOverlay from "../components/BabylonOtherAvatarsDebugOverlay.vue";
-import VircadiaWorldAuthProvider from "../components/VircadiaWorldAuthProvider.vue";
+import VircadiaWorldAuthProvider from "./VircadiaWorldAuthProvider.vue";
 import BabylonCanvas from "../components/BabylonCanvas.vue";
 import BabylonSnackbar from "../components/BabylonSnackbar.vue";
 import LogoutButton from "../components/LogoutButton.vue";
-import VircadiaWorldProvider from "../components/VircadiaWorldProvider.vue";
+import VircadiaWorldProvider from "./VircadiaWorldProvider.vue";
 // mark as used at runtime for template
 void BabylonMyAvatar;
 void BabylonMyAvatarTalking;
@@ -585,7 +579,7 @@ void VircadiaWorldProvider;
 // mark as used at runtime for template
 import BabylonEnvironment from "../components/BabylonEnvironment.vue";
 import BabylonDoor from "../components/BabylonDoor.vue";
-import { clientBrowserConfiguration } from "@/vircadia.browser.config";
+import { clientBrowserConfiguration } from "@vircadia/world-sdk/browser/vue";
 import { useStorage } from "@vueuse/core";
 import type {
     AvatarJointMetadata,
@@ -605,6 +599,8 @@ void webrtcStatus;
 // Active audio connections derived from WebRTC peers
 const activeAudioCount = computed(() => webrtcStatus.value?.peers?.size ?? 0);
 void activeAudioCount;
+// WebRTC controls dialog visibility
+const showWebRTCControls = ref(false);
 
 // Session/agent and world instance are provided reactively via slot props; no local refs needed
 
@@ -1187,22 +1183,14 @@ type AuthDeniedPayload = {
     reason: "expired" | "invalid" | "unauthorized" | "authentication_failed";
     message: string;
 };
-type AuthSlotProps = {
-    logoutLocal?: (reason?: string) => void;
-    logout?: () => void;
-};
-
-function onAuthDenied(payload: AuthDeniedPayload, authProps: AuthSlotProps) {
+function onAuthDenied(payload: AuthDeniedPayload) {
     console.warn("[MainScene] Auth denied, logging out locally", payload);
     // Clear local auth state only; do not call server logout
-    if (typeof authProps.logoutLocal === "function") {
-        authProps.logoutLocal(
-            `Logged out due to ${payload.reason}: ${payload.message}`,
-        );
-    } else if (typeof authProps.logout === "function") {
-        // Fallback to full logout if logoutLocal is not available
-        authProps.logout();
-    }
+    localStorage.removeItem("vircadia-account");
+    localStorage.removeItem("vircadia-session-token");
+    localStorage.removeItem("vircadia-session-id");
+    localStorage.removeItem("vircadia-agent-id");
+    localStorage.setItem("vircadia-auth-provider", "anon");
     // TODO: show a toast/snackbar using your global notification system
 }
 void onAuthDenied;
@@ -1302,9 +1290,9 @@ function getAuthStatusText(
 
 function getConnectedUrl(): string {
     const baseUri =
-        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI;
+        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI;
     const useSSL =
-        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL;
+        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI_USING_SSL;
     return `${useSSL ? "wss" : "ws"}://${baseUri}`;
 }
 

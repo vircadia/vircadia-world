@@ -6,8 +6,7 @@
 import { ref, watch, onMounted, onUnmounted, type Ref } from "vue";
 import type { Scene, AnimationGroup, Skeleton } from "@babylonjs/core";
 import { ImportMeshAsync } from "@babylonjs/core";
-import { useAsset } from "@vircadia/world-sdk/browser/vue";
-import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
+import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 import type { BabylonAnimationDefinition } from "@schemas";
 
 export type AnimationState = "idle" | "loading" | "ready" | "error";
@@ -20,7 +19,7 @@ interface AnimationInfo {
 
 const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
-    vircadiaWorld: { type: Object as () => unknown, required: true },
+    vircadiaWorld: { type: Object as () => VircadiaWorldInstance, required: true },
     animation: {
         type: Object as () => BabylonAnimationDefinition,
         required: true,
@@ -97,43 +96,51 @@ async function load(): Promise<void> {
 
     await waitForSlot();
     try {
-        const asset = useAsset({
-            fileName: ref(props.animation.fileName),
-            useCache: true,
-            debug: false,
-            instance: props.vircadiaWorld as ReturnType<typeof useVircadia>,
-        });
-
         // Retry a few times on timeout
         let attempts = 0;
         const maxAttempts = 3;
-        // biome-ignore lint/suspicious/noExplicitAny: relying on error message text
-        const isTimeout = (e: any) =>
-            e && typeof e.message === "string" && e.message.includes("timeout");
-        while (true) {
+        const fetchOnce = async () => {
+            const response = await (props.vircadiaWorld as any).client.restAsset.assetGetByKey({ key: props.animation.fileName });
+            if (!response.ok) {
+                let serverError: string | undefined;
+                try {
+                    const ct = response.headers.get("Content-Type") || "";
+                    if (ct.includes("application/json")) {
+                        const j = await response.clone().json();
+                        serverError = (j as any)?.error || JSON.stringify(j);
+                    }
+                } catch {}
+                throw new Error(`HTTP ${response.status}${serverError ? ` - ${serverError}` : ""}`);
+            }
+            const mimeType = response.headers.get("Content-Type") || "application/octet-stream";
+            const arrayBuffer = await response.arrayBuffer();
+            const blob = new Blob([arrayBuffer], { type: mimeType });
+            const url = mimeType.startsWith("model/")
+                ? await (async () => new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onloadend = () => resolve(reader.result as string); reader.onerror = () => reject(new Error("Failed to convert blob to data URL")); reader.readAsDataURL(blob);} ))()
+                : URL.createObjectURL(blob);
+            return { url, mimeType } as const;
+        };
+        let fetched: { url: string; mimeType: string } | null = null;
+        while (!fetched) {
             try {
-                await asset.executeLoad();
-                break;
+                fetched = await fetchOnce();
             } catch (e) {
                 attempts++;
-                if (!isTimeout(e) || attempts >= maxAttempts) throw e;
+                const msg = e instanceof Error ? e.message : String(e);
+                if (!msg.includes("timeout") || attempts >= maxAttempts) throw e;
                 await new Promise((r) => setTimeout(r, 200 + attempts * 200));
             }
         }
-        // If executeLoad succeeded but provided no data, surface underlying error
-        if (!asset.assetData.value) {
-            // biome-ignore lint/suspicious/noExplicitAny: debug logging of error
-            const errAny: any = (
-                asset as unknown as { error?: Ref<Error | null> }
-            )?.error?.value;
-            if (errAny) throw errAny;
-        }
-        const blobUrl = asset.assetData.value?.blobUrl;
-        if (!blobUrl)
-            throw new Error(`Missing blobUrl for ${props.animation.fileName}`);
 
-        const result = await ImportMeshAsync(blobUrl, props.scene, {
-            pluginExtension: asset.fileExtension.value,
+        const result = await ImportMeshAsync(fetched.url, props.scene, {
+            pluginExtension: (() => {
+                switch (fetched!.mimeType) {
+                    case "model/gltf-binary": return ".glb";
+                    case "model/gltf+json": return ".gltf";
+                    case "model/fbx": return ".fbx";
+                    default: return "";
+                }
+            })(),
         });
 
         // Debug: report what we loaded

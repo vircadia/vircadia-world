@@ -7,7 +7,6 @@ import type { SQL } from "bun";
 import type { Sql } from "postgres";
 import { mkdir, rm, stat, readdir } from "node:fs/promises";
 import path from "node:path";
-import { verify } from "jsonwebtoken";
 import { serverConfiguration } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
 import { BunLogModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
 import { BunPostgresClientModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";

@@ -71,11 +71,19 @@
 </template>
 
 <script setup lang="ts">
-// TODO: Move this to the Vircadia World SDK.
 import { computed, onMounted, ref } from "vue";
 import { useStorage, StorageSerializers } from "@vueuse/core";
-import { clientBrowserConfiguration } from "@/vircadia.browser.config";
+import { clientBrowserConfiguration } from "../../../../sdk/vircadia-world-sdk-ts/browser/src/config/vircadia.browser.config";
 import type { AccountInfo } from "@azure/msal-browser";
+import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
+
+const props = defineProps<{
+    vircadiaWorld: VircadiaWorldInstance;
+}>();
+
+const emit = defineEmits<{
+    authenticated: [];
+}>();
 
 const isAuthenticating = ref(false);
 const authError = ref<string | null>(null);
@@ -113,41 +121,13 @@ const showDebugLogin = computed(() => {
     return !!clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN;
 });
 
-const getApiUrl = () => {
-    const protocol =
-        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL
-            ? "https"
-            : "http";
-    return `${protocol}://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI}`;
-};
-
 const loginWithAzure = async () => {
     isAuthenticating.value = true;
     authError.value = null;
 
     try {
-        const response = await fetch(
-            `${getApiUrl()}/world/rest/auth/oauth/authorize?provider=azure`,
-        );
-
-        // Debug logs
-        console.log("Auth URL Response:", {
-            status: response.status,
-            statusText: response.statusText,
-            headers: Object.fromEntries(response.headers.entries()),
-            url: response.url,
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error("Auth URL Error Response:", errorText);
-            throw new Error(
-                `Failed to get authorization URL: ${response.status} ${response.statusText}`,
-            );
-        }
-
-        const data = await response.json();
-        console.log("Auth URL Response Data:", data);
+        const data = await props.vircadiaWorld.client.restAuth.authorizeOAuth("azure");
+        console.log("Auth authorize response:", data);
 
         if (data.success && data.redirectUrl) {
             sessionStorage.setItem(
@@ -169,25 +149,9 @@ const loginAnonymously = async () => {
     isAuthenticating.value = true;
     authError.value = null;
     try {
-        const response = await fetch(
-            `${getApiUrl()}/world/rest/auth/anonymous`,
-            {
-                method: "POST",
-            },
-        );
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(
-                `Failed to login anonymously: ${response.status} ${response.statusText} - ${errorText}`,
-            );
-        }
-        const data = await response.json();
-        if (data.success && data.data) {
-            const {
-                token,
-                agentId: newAgentId,
-                sessionId: newSessionId,
-            } = data.data;
+        const data = await props.vircadiaWorld.client.loginAnonymous();
+        if (data && data.success && data.data) {
+            const { token, agentId: newAgentId, sessionId: newSessionId } = data.data;
             sessionToken.value = token;
             sessionId.value = newSessionId;
             agentId.value = newAgentId;
@@ -200,6 +164,7 @@ const loginAnonymously = async () => {
                 localAccountId: newAgentId,
                 name: `Anonymous ${newAgentId.substring(0, 8)}`,
             } as AccountInfo;
+            emit("authenticated");
         } else {
             throw new Error("Invalid response from server");
         }
@@ -256,6 +221,9 @@ const loginWithDebugToken = async () => {
 
         sessionToken.value = token;
         authProvider.value = configuredProvider;
+        // Update client config to use this token/provider
+        props.vircadiaWorld.client.setAuthToken(token);
+        props.vircadiaWorld.client.setAuthProvider(configuredProvider);
         account.value = {
             homeAccountId: agentId.value || "debug-user",
             environment: "debug",
@@ -272,6 +240,7 @@ const loginWithDebugToken = async () => {
             authProvider: authProvider.value,
             isAuthenticated: isAuthenticated.value,
         });
+        emit("authenticated");
     } catch (err) {
         console.error("Debug token login failed:", err);
         authError.value =
@@ -293,11 +262,7 @@ async function logout() {
         return;
     }
     try {
-        await fetch(`${getApiUrl()}/world/rest/auth/logout`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ sessionId: sessionId.value }),
-        });
+        await props.vircadiaWorld.client.logout();
     } catch (e) {
         console.warn("Logout request failed:", e);
     } finally {

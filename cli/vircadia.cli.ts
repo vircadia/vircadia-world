@@ -1,6 +1,6 @@
 import { serverConfiguration } from "../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
 import { cliConfiguration } from "./vircadia.cli.config";
-import { clientBrowserConfiguration } from "../client/web_babylon_js/src/vircadia.browser.config";
+import { clientBrowserConfiguration } from "../sdk/vircadia-world-sdk-ts/browser/src/config/vircadia.browser.config";
 import { BunLogModule } from "../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

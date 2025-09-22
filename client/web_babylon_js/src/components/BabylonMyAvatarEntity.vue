@@ -191,7 +191,7 @@ function quantizeRotation(rot: RotationObj, decimals: number): RotationObj {
 // Ensure minimal entity row exists in DB for discovery (no transform persistence)
 async function ensureEntityRowExists(name: string): Promise<void> {
     try {
-        await props.vircadiaWorld.client.Utilities.Connection.query({
+        await props.vircadiaWorld.client.connection.query({
             query: "INSERT INTO entity.entities (general__entity_name, group__sync, general__expiry__delete_since_updated_at_ms, general__expiry__delete_since_created_at_ms) VALUES ($1, $2, $3, NULL) ON CONFLICT (general__entity_name) DO NOTHING",
             parameters: [name, "public.NORMAL", 120000],
             timeoutMs: 5000,
@@ -209,7 +209,7 @@ async function upsertMetadata(
     value: unknown,
 ): Promise<void> {
     try {
-        await props.vircadiaWorld.client.Utilities.Connection.query({
+        await props.vircadiaWorld.client.connection.query({
             query:
                 "INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync) VALUES ($1, $2, $3, $4) ON CONFLICT (general__entity_name, metadata__key) DO UPDATE SET metadata__value = EXCLUDED.metadata__value",
             parameters: [
@@ -493,16 +493,7 @@ const pushBatchedUpdates = useThrottleFn(async () => {
         if (Object.keys(avatarFrame).length > 3) {
             // More than just type, entityName, ts
             try {
-                const connection = props.vircadiaWorld.client.Utilities
-                    .Connection as unknown as {
-                    publishReflect: (args: {
-                        syncGroup: string;
-                        channel: string;
-                        payload: unknown;
-                        timeoutMs?: number;
-                    }) => Promise<unknown>;
-                };
-                await connection.publishReflect({
+                await props.vircadiaWorld.client.connection.publishReflect({
                     syncGroup: props.reflectSyncGroup,
                     channel: props.reflectChannel,
                     payload: avatarFrame,

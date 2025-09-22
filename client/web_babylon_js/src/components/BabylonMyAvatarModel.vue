@@ -14,14 +14,11 @@ import { ref, watch, onMounted, type Ref, computed } from "vue";
 import type { Scene, AbstractMesh, Skeleton } from "@babylonjs/core";
 import { ImportMeshAsync, type TransformNode } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
-import { useAsset, type useVircadia } from "@vircadia/world-sdk/browser/vue";
+import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 
 const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
-    vircadiaWorld: {
-        type: Object as () => ReturnType<typeof useVircadia>,
-        required: true,
-    },
+    vircadiaWorld: { type: Object as () => VircadiaWorldInstance, required: true },
     avatarNode: {
         type: Object as () => TransformNode | null,
         required: false,
@@ -79,15 +76,18 @@ const targetSkeleton: Ref<Skeleton | null> = ref(null);
 const loadedMeshes: Ref<AbstractMesh[]> = ref([]);
 const hasAttachedToAvatarNode = ref(false);
 
-// Create a computed ref that tracks the modelFileName prop
-const modelFileNameRef = computed(() => props.modelFileName);
-
-const asset = useAsset({
-    fileName: modelFileNameRef,
-    useCache: true,
-    debug: true, // Enable debug to see what's happening
-    instance: vircadiaWorld,
-});
+function extensionFromMime(mimeType: string): string {
+    switch (mimeType) {
+        case "model/gltf-binary":
+            return ".glb";
+        case "model/gltf+json":
+            return ".gltf";
+        case "model/fbx":
+            return ".fbx";
+        default:
+            return "";
+    }
+}
 
 async function loadAndAttach(): Promise<void> {
     // Avoid duplicate loads
@@ -115,52 +115,28 @@ async function loadAndAttach(): Promise<void> {
         details: { fileName: props.modelFileName },
     });
 
-    // Debug the asset state before loading
-    console.log("[BabylonMyAvatarModel] Asset state before load:", {
-        fileName: props.modelFileName,
-        hasAssetData: !!asset.assetData.value,
-        assetData: asset.assetData.value,
-    });
-
-    await asset.executeLoad();
-
-    // Debug the asset state after loading
-    console.log("[BabylonMyAvatarModel] Asset state after load:", {
-        fileName: props.modelFileName,
-        hasAssetData: !!asset.assetData.value,
-        blobUrl: asset.assetData.value?.blobUrl,
-        assetData: asset.assetData.value,
-    });
-
-    const blobUrl = asset.assetData.value?.blobUrl;
-    if (!blobUrl) {
-        console.warn(
-            `[BabylonMyAvatarModel] No blobUrl for ${props.modelFileName}`,
-            "Asset details:",
-            asset.assetData.value,
-        );
-        emit("state", {
-            state: "error",
-            step: "assetLoad",
-            message: "No blobUrl from asset loader",
-            details: {
-                fileName: props.modelFileName,
-                assetData: asset.assetData.value,
-            },
-        });
+    const response = await vircadiaWorld.client.restAsset.assetGetByKey({ key: props.modelFileName });
+    if (!response.ok) {
+        let serverError: string | undefined;
+        try {
+            const ct = response.headers.get("Content-Type") || "";
+            if (ct.includes("application/json")) {
+                const j = await response.clone().json();
+                serverError = (j as any)?.error || JSON.stringify(j);
+            }
+        } catch {}
+        emit("state", { state: "error", step: "assetLoad", message: `HTTP ${response.status}${serverError ? ` - ${serverError}` : ""}` });
         return;
     }
-    emit("state", {
-        state: "loading",
-        step: "importingMesh",
-        details: {
-            fileName: props.modelFileName,
-            blobUrl,
-            extension: asset.fileExtension.value,
-        },
-    });
+    const mimeType = response.headers.get("Content-Type") || "application/octet-stream";
+    const arrayBuffer = await response.arrayBuffer();
+    const blob = new Blob([arrayBuffer], { type: mimeType });
+    const blobUrl = mimeType.startsWith("model/")
+        ? await (async () => new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onloadend = () => resolve(reader.result as string); reader.onerror = () => reject(new Error("Failed to convert blob to data URL")); reader.readAsDataURL(blob);} ))()
+        : URL.createObjectURL(blob);
+    emit("state", { state: "loading", step: "importingMesh", details: { fileName: props.modelFileName } });
     const result = await ImportMeshAsync(blobUrl, props.scene, {
-        pluginExtension: asset.fileExtension.value,
+        pluginExtension: extensionFromMime(mimeType),
     });
     emit("state", {
         state: "loading",

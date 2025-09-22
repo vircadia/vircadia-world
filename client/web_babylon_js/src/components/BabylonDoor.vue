@@ -8,7 +8,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from "vue";
+import { ref, computed, onMounted, onUnmounted, watch, type Ref } from "vue";
 import type {
     Scene,
     AbstractMesh,
@@ -25,17 +25,14 @@ import {
     Vector3,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
-import { useAsset, type useVircadia } from "@vircadia/world-sdk/browser/vue";
+import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 
 type QuaternionJson = { x: number; y: number; z: number; w: number };
 type PositionJson = { x: number; y: number; z: number };
 
 const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
-    vircadiaWorld: {
-        type: Object as () => ReturnType<typeof useVircadia>,
-        required: true,
-    },
+    vircadiaWorld: { type: Object as () => VircadiaWorldInstance, required: true },
     entityName: { type: String, required: true },
     modelFileName: {
         type: String,
@@ -44,7 +41,7 @@ const props = defineProps({
     initialPosition: {
         type: Object as () => PositionJson,
         required: false,
-        default: () => ({ x: 0, y: 0, z: 0 }),
+        default: () => ({ x: 25, y: 3, z: -5 }),
     },
     initialRotation: {
         type: Object as () => QuaternionJson,
@@ -113,14 +110,20 @@ console.debug("[BabylonDoor] Initial state", {
     entityName: props.entityName,
 });
 
-// Asset loader setup
-const modelFileNameRef = computed(() => props.modelFileName);
-const asset = useAsset({
-    fileName: modelFileNameRef,
-    useCache: true,
-    debug: false,
-    instance: props.vircadiaWorld,
-});
+// Helper to derive Babylon loader extension from file name
+function extensionFromFileName(fileName: string): string {
+    const ext = fileName.split(".").pop()?.toLowerCase();
+    switch (ext) {
+        case "glb":
+            return ".glb";
+        case "gltf":
+            return ".gltf";
+        case "fbx":
+            return ".fbx";
+        default:
+            return "";
+    }
+}
 
 function getDoorRotationRadians(open: boolean): number {
     return open ? props.rotationOpenRadians : 0;
@@ -154,13 +157,13 @@ function applyTransform(position: PositionJson, rotation: QuaternionJson) {
 async function ensureEntityAndMetadata() {
     const instance = props.vircadiaWorld;
     const name = props.entityName;
-    await instance.client.Utilities.Connection.query({
+    await instance.client.connection.query({
         query: "INSERT INTO entity.entities (general__entity_name, group__sync) VALUES ($1, 'public.REALTIME') ON CONFLICT (general__entity_name) DO NOTHING",
         parameters: [name],
         timeoutMs: 5000,
     });
     // Upsert metadata: type, modelFileName, position, rotation, open
-    await instance.client.Utilities.Connection.query({
+    await instance.client.connection.query({
         query: `
 			INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync)
 			VALUES
@@ -190,7 +193,7 @@ async function fetchMetadata(): Promise<{
 }> {
     const instance = props.vircadiaWorld;
     const name = props.entityName;
-    const res = await instance.client.Utilities.Connection.query({
+    const res = await instance.client.connection.query({
         query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1 AND metadata__key IN ('position','rotation','open')",
         parameters: [name],
         timeoutMs: 3000,
@@ -225,7 +228,7 @@ async function pushState(open: boolean) {
               node.rotation.y,
               node.rotation.z,
           );
-    await props.vircadiaWorld.client.Utilities.Connection.query({
+    await props.vircadiaWorld.client.connection.query({
         query: `
 			INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync)
 			VALUES
@@ -247,6 +250,8 @@ async function pushState(open: boolean) {
         timeoutMs: 3000,
     });
 }
+
+let revokeAssetUrl: (() => void) | null = null;
 
 async function loadAndAttach() {
     if (!props.scene || !props.modelFileName) {
@@ -272,12 +277,9 @@ async function loadAndAttach() {
         isOpen.value = !!meta.open;
 
         emit("state", { state: "loading", step: "assetLoad:start" });
-        await asset.executeLoad();
-        const blobUrl = asset.assetData.value?.blobUrl;
-        if (!blobUrl) throw new Error("No blobUrl from asset loader");
-
-        const result = await ImportMeshAsync(blobUrl, props.scene, {
-            pluginExtension: asset.fileExtension.value,
+        const directUrl = props.vircadiaWorld.client.buildAssetRequestUrl(props.modelFileName);
+        const result = await ImportMeshAsync(directUrl, props.scene, {
+            pluginExtension: extensionFromFileName(props.modelFileName),
         });
 
         // Root to parent imported meshes and control hinge rotation
@@ -520,7 +522,12 @@ onUnmounted(() => {
         props.scene.onPointerObservable.remove(pointerObserver);
         pointerObserver = null;
     }
-    asset.cleanup();
+    if (revokeAssetUrl) {
+        try {
+            revokeAssetUrl();
+        } catch {}
+        revokeAssetUrl = null;
+    }
     if (rootNode.value) {
         rootNode.value.dispose();
         rootNode.value = null;

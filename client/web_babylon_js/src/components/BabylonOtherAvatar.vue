@@ -16,7 +16,7 @@ import {
     type Bone,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
-import { useAsset } from "@vircadia/world-sdk/browser/vue";
+import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 import { ImportMeshAsync } from "@babylonjs/core";
 import type {
     AvatarJointMetadata,
@@ -24,7 +24,7 @@ import type {
     AvatarPositionData,
     AvatarRotationData,
 } from "@schemas";
-import type { useVircadia } from "@vircadia/world-sdk/browser/vue";
+
 // Local helper types (previously from physics controller composable)
 type PositionObj = { x: number; y: number; z: number };
 type RotationObj = { x: number; y: number; z: number; w: number };
@@ -33,10 +33,7 @@ type RotationObj = { x: number; y: number; z: number; w: number };
 const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
     sessionId: { type: String, required: true }, // Full sessionId in format "sessionId-instanceId"
-    vircadiaWorld: {
-        type: Object as () => ReturnType<typeof useVircadia>,
-        required: true,
-    },
+    vircadiaWorld: { type: Object as () => VircadiaWorldInstance, required: true },
     avatarData: { type: Object as () => AvatarBaseData, required: false },
     positionData: { type: Object as () => AvatarPositionData, required: false },
     rotationData: { type: Object as () => AvatarRotationData, required: false },
@@ -80,14 +77,10 @@ const vircadiaWorld = props.vircadiaWorld;
 
 // Audio playback is now handled by BabylonWebRTC component
 
-// Asset loader for the avatar model
-const modelFileNameRef: Ref<string> = ref(modelFileName.value);
-const asset = useAsset({
-    fileName: modelFileNameRef,
-    useCache: true,
-    debug: false,
-    instance: vircadiaWorld,
-});
+// Build direct asset URL helper
+function buildDirectUrl(fileName: string): string {
+    return vircadiaWorld.client.buildAssetRequestUrl(fileName);
+}
 
 // Helper functions
 function objToVector(obj: PositionObj): Vector3 {
@@ -200,17 +193,18 @@ async function loadAvatarModel() {
     }
 
     try {
-        // Load the asset
-        await asset.executeLoad();
-        const assetData = asset.assetData.value;
-        if (!assetData?.blobUrl) {
-            console.warn("Asset blob URL not available for avatar model");
-            return;
-        }
-
-        // Import the model
-        const result = await ImportMeshAsync(assetData.blobUrl, props.scene, {
-            pluginExtension: asset.fileExtension.value,
+        // Load the asset using direct URL and extension from filename
+        const directUrl = buildDirectUrl(modelFileName.value);
+        const result = await ImportMeshAsync(directUrl, props.scene, {
+            pluginExtension: (() => {
+                const ext = modelFileName.value.split(".").pop()?.toLowerCase();
+                switch (ext) {
+                    case "glb": return ".glb";
+                    case "gltf": return ".gltf";
+                    case "fbx": return ".fbx";
+                    default: return "";
+                }
+            })(),
         });
 
         // Stop and dispose any default animations to prevent interference
@@ -586,8 +580,7 @@ onUnmounted(() => {
         avatarNode.value = null;
     }
 
-    // Clean up asset
-    asset.cleanup();
+    // No object URL to revoke (using data URL or revoked immediately for objects)
 
     isModelLoaded.value = false;
 });

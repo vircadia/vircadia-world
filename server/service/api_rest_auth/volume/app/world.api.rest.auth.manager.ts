@@ -392,7 +392,35 @@ class WorldApiAuthManager {
                                             req,
                                             400,
                                         );
+
+                                    // Lookup provider for this session (before we invalidate)
+                                    let providerName: string | null = null;
+                                    try {
+                                        const [row] = await superUserSql<[{ auth__provider_name: string }]>`
+                                            SELECT auth__provider_name
+                                            FROM auth.agent_sessions
+                                            WHERE general__session_id = ${sessionId}::UUID
+                                            LIMIT 1
+                                        `;
+                                        providerName = row?.auth__provider_name || null;
+                                    } catch {}
+
                                     await signOut(superUserSql, sessionId);
+
+                                    // Optionally compute an end-session URL for Azure
+                                    if (providerName === Auth.E_Provider.AZURE && this.azureADService) {
+                                        const endSessionUrl = this.azureADService.getEndSessionUrl();
+                                        if (endSessionUrl) {
+                                            // Inline response with optional provider logout URL
+                                            const response = Response.json({
+                                                success: true,
+                                                timestamp: Date.now(),
+                                                providerLogoutUrl: endSessionUrl,
+                                            });
+                                            return this.addCorsHeaders(response, req);
+                                        }
+                                    }
+
                                     return this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_LOGOUT.createSuccess(),
                                         req,

@@ -128,5 +128,6 @@ const cliEnvSchema = z.object({
         .string()
         .nullable()
         .default(null),
+    VRCA_CLI_SERVICE_POSTGRES_SEED_AUTH_PROVIDER_SQL: z.string().nullable().default(null),
 });
 export const cliConfiguration = cliEnvSchema.parse(process.env);

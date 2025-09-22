@@ -109,6 +109,10 @@ CREATE TABLE auth.auth_providers (
     provider__auth_url TEXT,                        -- OAuth authorization endpoint
     provider__token_url TEXT,                       -- OAuth token endpoint
     provider__userinfo_url TEXT,                    -- OAuth userinfo endpoint
+    provider__end_session_url TEXT,                 -- OIDC end-session endpoint (logout)
+    provider__revocation_url TEXT,                  -- RFC 7009 token revocation endpoint
+    provider__device_authorization_url TEXT,        -- OAuth 2.0 Device Authorization Grant endpoint
+    provider__discovery_url TEXT,                   -- OIDC discovery document URL
     provider__scope TEXT[],                         -- Required OAuth scopes
     provider__redirect_uris TEXT[],                 -- Allowed redirect URIs for OAuth
     provider__issuer TEXT,                          -- Identity provider issuer URL

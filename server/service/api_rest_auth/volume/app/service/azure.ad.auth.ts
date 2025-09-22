@@ -30,6 +30,10 @@ export interface I_AzureADConfig {
     redirectUri: string;
     scopes: string[];
     jwtSecret: string;
+    endSessionUrl?: string;
+    discoveryUrl?: string;
+    revocationUrl?: string;
+    deviceAuthorizationUrl?: string;
 }
 
 export interface I_OAuthState {
@@ -101,6 +105,22 @@ export class AzureADAuthService {
         };
 
         this.msalClient = new ConfidentialClientApplication(msalConfig);
+    }
+
+    /**
+     * Build an OIDC end-session (logout) URL if configured
+     */
+    public getEndSessionUrl(args?: {
+        postLogoutRedirectUri?: string;
+        idTokenHint?: string;
+    }): string | null {
+        const base = this.config.endSessionUrl;
+        if (!base) return null;
+        const url = new URL(base);
+        const postRedirect = args?.postLogoutRedirectUri ?? this.config.redirectUri;
+        if (postRedirect) url.searchParams.set("post_logout_redirect_uri", postRedirect);
+        if (args?.idTokenHint) url.searchParams.set("id_token_hint", args.idTokenHint);
+        return url.toString();
     }
 
     /**
@@ -1121,6 +1141,10 @@ export async function createAzureADConfig(db: SQL): Promise<I_AzureADConfig> {
                     provider__scope: string[];
                     provider__jwt_secret: string;
                     provider__metadata: { tenant_id?: string } | null;
+                    provider__end_session_url?: string | null;
+                    provider__discovery_url?: string | null;
+                    provider__revocation_url?: string | null;
+                    provider__device_authorization_url?: string | null;
                 },
             ]
         >`
@@ -1130,7 +1154,11 @@ export async function createAzureADConfig(db: SQL): Promise<I_AzureADConfig> {
                 provider__redirect_uris,
                 provider__scope,
                 provider__jwt_secret,
-                provider__metadata
+                provider__metadata,
+                provider__end_session_url,
+                provider__discovery_url,
+                provider__revocation_url,
+                provider__device_authorization_url
             FROM auth.auth_providers
             WHERE provider__name = 'azure'
               AND provider__enabled = true
@@ -1169,6 +1197,11 @@ export async function createAzureADConfig(db: SQL): Promise<I_AzureADConfig> {
                 "User.Read",
             ],
             jwtSecret: config.provider__jwt_secret,
+            endSessionUrl: config.provider__end_session_url ?? undefined,
+            discoveryUrl: config.provider__discovery_url ?? undefined,
+            revocationUrl: config.provider__revocation_url ?? undefined,
+            deviceAuthorizationUrl:
+                config.provider__device_authorization_url ?? undefined,
         };
     } catch (error) {
         BunLogModule({

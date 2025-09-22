@@ -12,7 +12,7 @@ import { serverConfiguration } from "../../../../../sdk/vircadia-world-sdk-ts/bu
 import { BunLogModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
 import { BunPostgresClientModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
 import { Communication, Service } from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
-import { AclService } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.server.auth.module";
+import { AclService, validateJWT } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.server.auth.module";
 import { MetricsCollector } from "./service/metrics";
 
 let legacySuperUserSql: Sql | null = null;
@@ -240,44 +240,6 @@ class WorldApiAssetManager {
         };
     }
 
-    private async validateJWT(data: { provider: string; token: string }): Promise<{
-        agentId: string;
-        sessionId: string;
-        isValid: boolean;
-        errorReason?: string;
-    }> {
-        const { provider, token } = data;
-        if (!superUserSql) throw new Error("No database connection available");
-        try {
-            if (!provider) return { agentId: "", sessionId: "", isValid: false, errorReason: "Provider is not set." };
-            if (!token || token.split(".").length !== 3)
-                return { agentId: "", sessionId: "", isValid: false, errorReason: "Token is empty or malformed." };
-            const [providerConfig] = await superUserSql<[{ provider__jwt_secret: string }]>`
-                SELECT provider__jwt_secret
-                FROM auth.auth_providers
-                WHERE provider__name = ${provider}
-                  AND provider__enabled = true
-            `;
-            if (!providerConfig)
-                return { agentId: "", sessionId: "", isValid: false, errorReason: `Provider '${provider}' not found or not enabled.` };
-            const jwtSecret = providerConfig.provider__jwt_secret;
-            try {
-                const decoded = verify(token, jwtSecret) as { sessionId: string; agentId: string };
-                if (!decoded.sessionId)
-                    return { agentId: decoded.agentId || "", sessionId: "", isValid: false, errorReason: "Token is missing sessionId claim." };
-                if (!decoded.agentId)
-                    return { agentId: "", sessionId: decoded.sessionId || "", isValid: false, errorReason: "Token is missing agentId claim." };
-                return { agentId: decoded.agentId, sessionId: decoded.sessionId, isValid: true };
-            } catch (verifyError) {
-                const msg = verifyError instanceof Error ? verifyError.message : String(verifyError);
-                return { agentId: "", sessionId: "", isValid: false, errorReason: `JWT error: ${msg}` };
-            }
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            return { agentId: "", sessionId: "", isValid: false, errorReason: `Internal validation error: ${errorMessage}` };
-        }
-    }
-
     async initialize() {
         BunLogModule({ prefix: LOG_PREFIX, message: "Initializing World API Asset Manager", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "debug" });
 
@@ -329,6 +291,31 @@ class WorldApiAssetManager {
                 try {
                     const url = new URL(req.url);
 
+                            // Request trace (with sensitive data redacted)
+                            try {
+                                const redactedSearch = (() => {
+                                    try {
+                                        const sp = new URLSearchParams(url.search);
+                                        if (sp.has("token")) sp.set("token", "[REDACTED]");
+                                        return sp.toString();
+                                    } catch {
+                                        return "";
+                                    }
+                                })();
+                                BunLogModule({
+                                    prefix: LOG_PREFIX,
+                                    message: "Incoming HTTP request",
+                                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                                    suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                    type: "debug",
+                                    data: {
+                                        method: req.method,
+                                        pathname: url.pathname,
+                                        search: redactedSearch,
+                                    },
+                                });
+                            } catch {}
+
                     if (req.method === "OPTIONS") {
                         const response = new Response(null, { status: 204 });
                         return this.addCorsHeaders(response, req);
@@ -370,7 +357,8 @@ class WorldApiAssetManager {
                         return this.createJsonResponse({ error: "Internal server error" }, req, 500);
                     }
 
-                    if (url.pathname.startsWith(Communication.REST_BASE_AUTH_PATH)) {
+                    if (url.pathname.startsWith(Communication.REST_BASE_ASSET_PATH)) {
+                        BunLogModule({ prefix: LOG_PREFIX, message: "Asset base path matched", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "debug", data: { pathname: url.pathname } });
                         switch (true) {
                             // Asset fetch by key (authenticated)
                             case url.pathname === Communication.REST.Endpoint.ASSET_GET_BY_KEY.path && req.method === "GET": {
@@ -380,6 +368,20 @@ class WorldApiAssetManager {
                                 const token = url.searchParams.get("token");
                                 const provider = url.searchParams.get("provider");
                                 const sessionIdFromQuery = url.searchParams.get("sessionId");
+
+                                BunLogModule({
+                                    prefix: LOG_PREFIX,
+                                    message: "ASSET_GET_BY_KEY request received",
+                                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                                    suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                    type: "debug",
+                                    data: {
+                                        key,
+                                        provider,
+                                        sessionIdProvided: !!sessionIdFromQuery,
+                                        tokenProvided: !!token,
+                                    },
+                                });
                                 if (!key)
                                     return this.createJsonResponse(
                                         Communication.REST.Endpoint.ASSET_GET_BY_KEY.createError("Missing key"),
@@ -389,18 +391,20 @@ class WorldApiAssetManager {
 
                                 let agentIdForAcl: string | null = null;
                                 if (sessionIdFromQuery) {
+                                    BunLogModule({ prefix: LOG_PREFIX, message: "Validating session from query for ACL", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "debug", data: { sessionIdProvided: true } });
                                     const [sessionResult] = await superUserSql<[{ agent_id: string }]>`
                                         SELECT * FROM auth.validate_session_id(${sessionIdFromQuery}::UUID) as agent_id
                                     `;
                                     agentIdForAcl = sessionResult?.agent_id || null;
                                 } else {
+                                    BunLogModule({ prefix: LOG_PREFIX, message: "Validating JWT for ACL", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "debug", data: { provider, tokenProvided: !!token } });
                                     if (!token || !provider)
                                         return this.createJsonResponse(
                                             Communication.REST.Endpoint.ASSET_GET_BY_KEY.createError("Missing auth"),
                                             req,
                                             401,
                                         );
-                                    const jwtValidationResult = await this.validateJWT({ provider, token });
+                                    const jwtValidationResult = await validateJWT({ superUserSql, provider, token });
                                     if (!jwtValidationResult.isValid)
                                         return this.createJsonResponse(
                                             Communication.REST.Endpoint.ASSET_GET_BY_KEY.createError("Invalid token"),
@@ -422,6 +426,7 @@ class WorldApiAssetManager {
                                 const agentId = agentIdForAcl || "";
                                 if (agentId) await this.aclService?.warmAgentAcl(agentId);
                                 const canRead = agentId ? this.aclService?.canRead(agentId, syncGroup) : false;
+                                BunLogModule({ prefix: LOG_PREFIX, message: "ACL evaluated for asset", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "debug", data: { key, agentIdProvided: !!agentId, syncGroup, canRead } });
                                 if (!canRead)
                                     return this.createJsonResponse(
                                         Communication.REST.Endpoint.ASSET_GET_BY_KEY.createError("Forbidden"),
@@ -431,13 +436,16 @@ class WorldApiAssetManager {
 
                                 // Try local cache
                                 const filePath = this.getCachedPathForKey(key);
-                                if (await this.isCached(filePath)) {
+                                const cached = await this.isCached(filePath);
+                                BunLogModule({ prefix: LOG_PREFIX, message: "Asset cache lookup", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "debug", data: { key, filePath, cached } });
+                                if (cached) {
                                     const file = Bun.file(filePath);
                                     const response = new Response(file);
                                     return this.addCorsHeaders(response, req);
                                 }
 
                                 // Fallback to DB
+                                BunLogModule({ prefix: LOG_PREFIX, message: "Fetching asset from database", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "debug", data: { key } });
                                 const [row] = await superUserSql<[
                                     { asset__data__bytea: Uint8Array | ArrayBuffer | Buffer | null; asset__mime_type: string | null },
                                 ]>`
@@ -447,11 +455,14 @@ class WorldApiAssetManager {
                                 `;
                                 const payload = row?.asset__data__bytea;
                                 if (!payload)
+                                    {
+                                        BunLogModule({ prefix: LOG_PREFIX, message: "Asset not found in database", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "debug", data: { key } });
                                     return this.createJsonResponse(
                                         Communication.REST.Endpoint.ASSET_GET_BY_KEY.createError("Not found"),
                                         req,
                                         404,
                                     );
+                                    }
                                 let bytes: Uint8Array | null = null;
                                 if (payload instanceof Uint8Array) {
                                     bytes = payload;
@@ -473,14 +484,17 @@ class WorldApiAssetManager {
                                 const response = new Response(file, { headers });
                                 const responseSize = bytes.byteLength;
                                 this.metricsCollector.recordEndpoint("ASSET_GET_BY_KEY", performance.now() - startTime, requestSize, responseSize, true);
+                                BunLogModule({ prefix: LOG_PREFIX, message: "Asset served from database and cached", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "debug", data: { key, filePath, responseSize, contentType: row?.asset__mime_type || null } });
                                 return this.addCorsHeaders(response, req);
                             }
 
                             default:
+                                BunLogModule({ prefix: LOG_PREFIX, message: "Asset manager route 404 under asset base path", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "debug", data: { pathname: url.pathname, method: req.method } });
                                 return this.createJsonResponse({ error: "Not found" }, req, 404);
                         }
                     }
 
+                    BunLogModule({ prefix: LOG_PREFIX, message: "Asset manager route 404 (outside asset base path)", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "debug", data: { pathname: url.pathname, method: req.method } });
                     return this.createJsonResponse({ error: "Not found" }, req, 404);
                 } catch (error) {
                     BunLogModule({ prefix: LOG_PREFIX, message: "Unexpected error in asset manager", error, debug: true, suppress: false, type: "error" });

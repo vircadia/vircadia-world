@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { serverConfiguration } from "../../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
 
 // Browser Client environment schema
 const clientBrowserEnvSchema = z.object({
@@ -54,10 +55,10 @@ const clientBrowserEnvSchema = z.object({
         .url()
         .default("https://app.vircadia.com"),
 
-    VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI: z
+    VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI: z
         .string()
-        .default("localhost:3020"),
-    VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL: z
+        .default(serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_HOST_PUBLIC_AVAILABLE_AT + ":" + serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_PUBLIC_AVAILABLE_AT),
+    VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI_USING_SSL: z
         .union([
             z.boolean(),
             z
@@ -66,7 +67,35 @@ const clientBrowserEnvSchema = z.object({
                     (val) => val === "1" || val.toLowerCase() === "true",
                 ),
         ])
-        .default(false),
+        .default(serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_SSL_ENABLED_PUBLIC_AVAILABLE_AT),
+
+    VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI: z
+        .string()
+        .default(serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_HOST_PUBLIC_AVAILABLE_AT + ":" + serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_PUBLIC_AVAILABLE_AT),
+    VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI_USING_SSL: z
+        .union([
+            z.boolean(),
+            z
+                .string()
+                .transform(
+                    (val) => val === "1" || val.toLowerCase() === "true",
+                ),
+        ])
+        .default(serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_SSL_ENABLED_PUBLIC_AVAILABLE_AT),
+
+    VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI: z
+        .string()
+        .default(serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_HOST_PUBLIC_AVAILABLE_AT + ":" + serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_PORT_PUBLIC_AVAILABLE_AT),
+    VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI_USING_SSL: z
+        .union([
+            z.boolean(),
+            z
+                .string()
+                .transform(
+                    (val) => val === "1" || val.toLowerCase() === "true",
+                ),
+        ])
+        .default(serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_SSL_ENABLED_PUBLIC_AVAILABLE_AT),
 
     VRCA_CLIENT_WEB_BABYLON_JS_PROD_HOST: z.string().default("0.0.0.0"),
     VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT: z.coerce.number().default(3025),

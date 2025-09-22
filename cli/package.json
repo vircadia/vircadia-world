@@ -50,6 +50,7 @@
         "server:postgres:seed:sql": "bun vircadia.cli.ts server:postgres:seed:sql",
         "server:postgres:seed:assets": "bun vircadia.cli.ts server:postgres:seed:assets",
         "server:postgres:seed:assets:by-group": "bun vircadia.cli.ts server:postgres:seed:assets --sync-group",
+        "server:postgres:seed:auth-providers": "bun vircadia.cli.ts server:postgres:seed:auth-providers",
         "server:postgres:mark-as-ready": "bun vircadia.cli.ts server:postgres:mark-as-ready",
         "server:world-api-ws-manager:health": "bun vircadia.cli.ts server:world-api-ws-manager:health",
         "server:world-api-rest-auth-manager:health": "bun vircadia.cli.ts server:world-api-rest-auth-manager:health",

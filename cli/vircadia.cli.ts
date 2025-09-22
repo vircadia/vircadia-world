@@ -16,11 +16,6 @@ import {
     type Auth,
 } from "../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 
-// TODO: Optimize the commands, get up and down rebuilds including init to work well.
-
-// https://github.com/tj/commander.js
-// https://www.npmjs.com/package/inquirer
-
 // Environment Variable Management Module
 export namespace EnvManager {
     const CLI_ENV_FILE_PATH = path.join(
@@ -1554,6 +1549,92 @@ export namespace Server_CLI {
         }
     }
 
+    // Seed auth providers using a raw SQL string from configuration
+    export async function seedAuthProvidersFromSqlString(): Promise<void> {
+        const rawSql = cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SEED_AUTH_PROVIDER_SQL;
+
+        if (!rawSql || rawSql.trim().length === 0) {
+            BunLogModule({
+                message: "No auth provider SQL configured (VRCA_CLI_SERVICE_POSTGRES_SEED_AUTH_PROVIDER_SQL). Skipping.",
+                type: "info",
+                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                debug: cliConfiguration.VRCA_CLI_DEBUG,
+            });
+            return;
+        }
+
+        const db = BunPostgresClientModule.getInstance({
+            debug: cliConfiguration.VRCA_CLI_DEBUG,
+            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+        });
+        const sql = await db.getSuperClient({
+            postgres: {
+                host: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                port: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                database: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                username:
+                    cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                password:
+                    cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+            },
+        });
+
+        try {
+            // Determine hash of provided SQL to achieve idempotency via config.seeds
+            const [{ content_hash }] = await sql<[{ content_hash: string }]>`
+                SELECT encode(digest(${rawSql}, 'sha256'), 'hex') as content_hash
+            `;
+
+            // Fetch executed seeds
+            const executed = await sql<{ general__hash: string; general__name: string }[]>`
+                SELECT general__hash, general__name FROM config.seeds
+            `;
+            const executedHashes = new Set(executed.map((r) => r.general__hash));
+
+            if (executedHashes.has(content_hash)) {
+                BunLogModule({
+                    message: "Auth provider SQL already executed (hash match). Skipping.",
+                    type: "debug",
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                });
+                return;
+            }
+
+            const seedName = `cli.auth_providers.inline.sql`;
+
+            BunLogModule({
+                message: `Executing auth provider SQL seed (hash: ${content_hash})...`,
+                type: "info",
+                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                debug: cliConfiguration.VRCA_CLI_DEBUG,
+            });
+
+            await sql.begin(async (txn) => {
+                await txn.unsafe(rawSql);
+                await txn`
+                    INSERT INTO config.seeds (general__hash, general__name)
+                    VALUES (${content_hash}, ${seedName})
+                `;
+            });
+
+            BunLogModule({
+                message: "Auth provider SQL seed executed successfully.",
+                type: "success",
+                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                debug: cliConfiguration.VRCA_CLI_DEBUG,
+            });
+        } catch (error) {
+            BunLogModule({
+                message: `Failed to execute auth provider SQL seed: ${error instanceof Error ? error.message : String(error)}`,
+                type: "error",
+                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                debug: cliConfiguration.VRCA_CLI_DEBUG,
+            });
+            throw error;
+        }
+    }
+
     export async function seedAssets(data: {
         options?: {
             parallelProcessing?: boolean;
@@ -2740,6 +2821,23 @@ if (import.meta.main) {
                 await Server_CLI.seedSql();
                 BunLogModule({
                     message: "SQL seeds applied.",
+                    type: "success",
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                });
+                break;
+            }
+
+            case "server:postgres:seed:auth-providers": {
+                BunLogModule({
+                    message: "Seeding auth providers from configured SQL...",
+                    type: "info",
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                });
+                await Server_CLI.seedAuthProvidersFromSqlString();
+                BunLogModule({
+                    message: "Auth provider seed completed.",
                     type: "success",
                     suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                     debug: cliConfiguration.VRCA_CLI_DEBUG,

@@ -3,6 +3,7 @@ import { cliConfiguration } from "./vircadia.cli.config";
 import { clientBrowserConfiguration } from "../sdk/vircadia-world-sdk-ts/browser/src/config/vircadia.browser.config";
 import { BunLogModule } from "../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
 import path from "node:path";
+import { $ } from "bun";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
@@ -2558,6 +2559,57 @@ export namespace Server_CLI {
     }
 }
 
+async function ensureBranchForAutoUpgrade(branch: string) {
+    await $`git fetch --all --prune`.nothrow();
+
+    const local = await $`git rev-parse --verify ${branch}`.nothrow().quiet();
+    if (local.exitCode !== 0) {
+        const remoteCheck = await $`git ls-remote --heads origin ${branch}`
+            .nothrow()
+            .quiet();
+        if (
+            remoteCheck.exitCode === 0 &&
+            remoteCheck.stdout.toString().trim().length > 0
+        ) {
+            const co = await $`git checkout -B ${branch} origin/${branch}`
+                .nothrow()
+                .quiet();
+            if (co.exitCode !== 0) {
+                throw new Error(
+                    `checkout -B from origin failed: ${co.stderr.toString()}`,
+                );
+            }
+        } else {
+            const cb = await $`git checkout -b ${branch}`.nothrow().quiet();
+            if (cb.exitCode !== 0) {
+                throw new Error(`create branch failed: ${cb.stderr.toString()}`);
+            }
+            const push = await $`git push -u origin ${branch}`
+                .nothrow()
+                .quiet();
+            if (push.exitCode !== 0) {
+                throw new Error(`push upstream failed: ${push.stderr.toString()}`);
+            }
+        }
+    } else {
+        const co = await $`git checkout ${branch}`.nothrow().quiet();
+        if (co.exitCode !== 0) {
+            throw new Error(`checkout failed: ${co.stderr.toString()}`);
+        }
+    }
+}
+
+async function updateBranchForAutoUpgrade(branch: string) {
+    const co = await $`git checkout ${branch}`.nothrow().quiet();
+    if (co.exitCode !== 0) throw new Error(`checkout failed: ${co.stderr.toString()}`);
+    const fetch = await $`git fetch origin ${branch}`.nothrow().quiet();
+    if (fetch.exitCode !== 0) throw new Error(`fetch failed: ${fetch.stderr.toString()}`);
+    const pull = await $`git pull --rebase origin ${branch}`.nothrow().quiet();
+    if (pull.exitCode !== 0) throw new Error(`pull failed: ${pull.stderr.toString()}`);
+}
+
+// No dedicated rebuild helper: we run `bun run server:rebuild-all` in current working directory
+
 // Helper: parse --interval, --timeout, --no-wait
 function parseWaitFlags(
     args: string[],
@@ -4082,6 +4134,73 @@ if (import.meta.main) {
                 //     compileForce: true,
                 // });
                 break;
+            }
+
+            // PROJECT AUTO-UPGRADE (long-running)
+            case "project:auto-upgrade": {
+                const branch = cliConfiguration.VRCA_CLI_AUTO_UPGRADE_BRANCH ?? "next";
+                const intervalHoursRaw = cliConfiguration.VRCA_CLI_AUTO_UPGRADE_INTERVAL_HOURS;
+                const intervalHours = Number.parseFloat(String(intervalHoursRaw));
+                if (Number.isNaN(intervalHours) || intervalHours <= 0) {
+                    throw new Error(`Invalid --interval-hours: ${intervalHoursRaw}`);
+                }
+                const once = cliConfiguration.VRCA_CLI_AUTO_UPGRADE_ONCE;
+
+                BunLogModule({
+                    message: `Auto-upgrade loop starting`,
+                    data: { branch, intervalHours, once },
+                    type: "info",
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                });
+
+                await ensureBranchForAutoUpgrade(branch);
+
+                const cycle = async () => {
+                    try {
+                        BunLogModule({
+                            message: `Updating branch '${branch}'...`,
+                            type: "info",
+                            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                            debug: cliConfiguration.VRCA_CLI_DEBUG,
+                        });
+                        await updateBranchForAutoUpgrade(branch);
+                        BunLogModule({
+                            message: `Rebuilding server...`,
+                            type: "info",
+                            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                            debug: cliConfiguration.VRCA_CLI_DEBUG,
+                        });
+                        const result = await $`bun run server:rebuild-all`.nothrow();
+                        if (result.exitCode !== 0) {
+                            throw new Error(`rebuild failed: ${result.stderr.toString()}`);
+                        }
+                        BunLogModule({
+                            message: `Rebuild complete`,
+                            type: "success",
+                            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                            debug: cliConfiguration.VRCA_CLI_DEBUG,
+                        });
+                    } catch (error) {
+                        BunLogModule({
+                            message: `Cycle error: ${error instanceof Error ? error.message : String(error)}`,
+                            type: "error",
+                            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                            debug: cliConfiguration.VRCA_CLI_DEBUG,
+                        });
+                    }
+                };
+
+                await cycle();
+                if (once) {
+                    break;
+                }
+
+                const intervalMs = intervalHours * 60 * 60 * 1000;
+                while (true) {
+                    await Bun.sleep(intervalMs);
+                    await cycle();
+                }
             }
 
             default:

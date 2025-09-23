@@ -63,13 +63,15 @@
         "server:caddy:up": "bun run server:run-command up --build vircadia_world_caddy -d",
         "server:caddy:down": "bun run server:run-command down vircadia_world_caddy",
         "project:configure": "bun vircadia.cli.ts configure",
-        "project:init": "bun run install:all && bun run project:configure && bun run server:init"
+        "project:init": "bun run install:all && bun run project:configure && bun run server:init",
+        "project:auto-upgrade": "bun vircadia.cli.ts project:auto-upgrade"
     },
     "dependencies": {
         "@babylonjs/core": "catalog:babylon",
         "@babylonjs/inspector": "catalog:babylon",
         "@babylonjs/loaders": "catalog:babylon",
         "@inquirer/prompts": "^7.5.3",
+        "dotenv": "^17.2.2",
         "jsonwebtoken": "catalog:",
         "postgres": "catalog:",
         "zod": "catalog:"

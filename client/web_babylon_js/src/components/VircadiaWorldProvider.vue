@@ -19,6 +19,7 @@
         :lastCloseReason="lastCloseReason"
         :connect="connect"
         :disconnect="disconnect"
+        :logout="logout"
     />
     
 </template>
@@ -64,6 +65,7 @@ export type VircadiaWorldSlotProps = {
     lastCloseReason: string | null;
     connect: () => Promise<void>;
     disconnect: () => void;
+    logout: () => Promise<void>;
 };
 
 defineSlots<{
@@ -383,6 +385,22 @@ function disconnect() {
     ensureDisconnected();
 }
 
+async function logout() {
+    try {
+        await browserClient.logout();
+    } catch {}
+    // Clear mirrored local auth state so UI switches to auth screen
+    account.value = null;
+    sessionToken.value = null;
+    try {
+        localStorage.setItem("vircadia-auth-suppressed", "1");
+        localStorage.removeItem("vircadia-session-id");
+        localStorage.removeItem("vircadia-agent-id");
+        localStorage.setItem("vircadia-auth-provider", "anon");
+    } catch {}
+    ensureDisconnected();
+}
+
 function handleAuthChange() {
     console.log("[VircadiaWorldProvider] handleAuthChange called", {
         autoConnect: autoConnect.value,
@@ -456,6 +474,7 @@ watch(
 defineExpose({
     connect,
     disconnect,
+    logout,
     vircadiaWorld: vircadiaWorldNonNull,
     connectionInfo: connectionInfoComputed,
     connectionStatus,

@@ -301,8 +301,10 @@ onMounted(async () => {
         },
     );
 
+    const suppressed = localStorage.getItem("vircadia-auth-suppressed") === "1";
     if (
         !isAuthenticated.value &&
+        !suppressed &&
         clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN
     ) {
         console.log(

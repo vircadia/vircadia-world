@@ -2,7 +2,7 @@
     <VircadiaWorldProvider 
         :autoConnect="clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT"
         @auth-denied="onAuthDenied($event)"
-        v-slot="{ vircadiaWorld, connectionStatus, isConnecting, isAuthenticated, isAuthenticating, accountDisplayName, sessionId, fullSessionId, agentId, lastCloseCode, lastCloseReason, connect }">
+        v-slot="{ vircadiaWorld, connectionStatus, isConnecting, isAuthenticated, isAuthenticating, accountDisplayName, sessionId, fullSessionId, agentId, lastCloseCode, lastCloseReason, connect, logout }">
 
         <!-- Auth Screen when not authenticated -->
         <VircadiaWorldAuthProvider 
@@ -452,7 +452,7 @@
                 </v-chip>
                 <LogoutButton 
                     :isAuthenticated="isAuthenticated"
-                    :onLogout="() => vircadiaWorld.client.logout()"
+                    :onLogout="logout"
                 />
             </div>
             
@@ -1011,13 +1011,10 @@ void avatarLoading;
 const otherAvatarsLoading = computed(() => false); // Placeholder - loading state managed by component
 void otherAvatarsLoading;
 const modelsLoading = computed(() =>
-    modelRefs.value.some(
-        (m) =>
-            (m?.isEntityCreating ||
-                m?.isEntityRetrieving ||
-                m?.isAssetLoading) ??
-            false,
-    ),
+    modelRefs.value.some((m) => {
+        const mm = m as unknown as { isEntityCreating?: boolean; isEntityRetrieving?: boolean; isAssetLoading?: boolean } | null;
+        return Boolean(mm?.isEntityCreating || mm?.isEntityRetrieving || mm?.isAssetLoading);
+    }),
 );
 void modelsLoading;
 
@@ -1191,6 +1188,7 @@ function onAuthDenied(payload: AuthDeniedPayload) {
     localStorage.removeItem("vircadia-session-id");
     localStorage.removeItem("vircadia-agent-id");
     localStorage.setItem("vircadia-auth-provider", "anon");
+    localStorage.setItem("vircadia-auth-suppressed", "1");
     // TODO: show a toast/snackbar using your global notification system
 }
 void onAuthDenied;

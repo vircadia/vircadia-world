@@ -7,6 +7,7 @@ import vueDevTools from "vite-plugin-vue-devtools";
 import vuetify from "vite-plugin-vuetify";
 
 import { clientBrowserConfiguration } from "../../sdk/vircadia-world-sdk-ts/browser/src/config/vircadia.browser.config";
+import packageJson from "./package.json"
 
 // https://vite.dev/config/
 export default defineConfig(({ command }) => {
@@ -20,6 +21,10 @@ export default defineConfig(({ command }) => {
             // Only include Vue DevTools in development
             !isProd && vueDevTools(),
         ].filter(Boolean),
+        define: {
+            __APP_VERSION__: JSON.stringify(packageJson.version || "0.0.0"),
+            __BUILD_DATE__: JSON.stringify(new Date().toISOString()),
+        },
         resolve: {
             alias: {
                 "@": fileURLToPath(new URL("./src", import.meta.url)),

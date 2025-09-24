@@ -3130,7 +3130,7 @@ if (import.meta.main) {
                                     "The default world API WS URI for the browser client to connect to.\nBy default, this should be the same as the Caddy API Domain.",
                             },
                             {
-                                name: `User Browser Client -> Public World API SSL Enabled\n    Current: ${currentSslEnabled}`,
+                                name: `User Browser Client -> Public World API WS SSL Enabled\n    Current: ${currentSslEnabled}`,
                                 value: "world-api-ws-ssl",
                                 description:
                                     "Whether the world API WS uses SSL (HTTPS).",

@@ -133,7 +133,7 @@ services:
     restart: always
     read_only: true
     ports:
-      - "${VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_HOST_PUBLIC_AVAILABLE_AT}:${VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_CONTAINER_BIND_EXTERNAL}:3022"
+      - "${VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_CONTAINER_BIND_EXTERNAL}:3022"
     volumes:
       - ./api_rest_auth/volume/app:/app
     working_dir: /app
@@ -174,7 +174,7 @@ services:
     restart: always
     read_only: true
     ports:
-      - "${VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_HOST_PUBLIC_AVAILABLE_AT}:${VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_PORT_CONTAINER_BIND_EXTERNAL}:3023"
+      - "${VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_PORT_CONTAINER_BIND_EXTERNAL}:3023"
     volumes:
       - ./api_rest_asset/volume/app:/app
     working_dir: /app
@@ -254,7 +254,7 @@ services:
     ports:
       - "${VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_PORT_CONTAINER_BIND_EXTERNAL}:${VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT}"
     volumes:
-      - ../../client/web_babylon_js/${VRCA_CLIENT_WEB_BABYLON_JS_BUILD_OUTPUT_DIR:-dist-docker}:/srv:ro
+      - ../../client/web_babylon_js/dist-docker:/srv:ro
     # Serve prebuilt static assets produced on the host
     command: ["caddy", "file-server", "--root", "/srv", "--listen", ":${VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT}"]
     tmpfs:
@@ -282,7 +282,6 @@ services:
       VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI_USING_SSL: ${VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI_USING_SSL}
       VRCA_CLIENT_WEB_BABYLON_JS_PROD_HOST: ${VRCA_CLIENT_WEB_BABYLON_JS_PROD_HOST}
       VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT: ${VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT}
-      VRCA_CLIENT_WEB_BABYLON_JS_BUILD_OUTPUT_DIR: "dist-docker"
     depends_on:
       vircadia_world_api_ws_manager:
         condition: service_healthy
@@ -297,8 +296,14 @@ services:
       - vircadia_internal_network
       - vircadia_public_network
 
-  # Caddy reverse proxy service
+  # Caddy reverse proxy service (optional)
+  # This service is excluded from regular `docker compose up/down` by default.
+  # Manage it manually when needed, e.g.:
+  #   Start: docker compose --profile caddy up -d vircadia_world_caddy
+  #   Stop:  docker compose stop vircadia_world_caddy
+  #   Down:  docker compose rm -fsv vircadia_world_caddy
   vircadia_world_caddy:
+    profiles: ["caddy"]
     image: caddy:2.10.2-alpine
     container_name: ${VRCA_SERVER_SERVICE_CADDY_CONTAINER_NAME}
     user: "1000:1000"

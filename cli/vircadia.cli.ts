@@ -239,9 +239,7 @@ export namespace Server_CLI {
             VRCA_SERVER_SERVICE_POSTGRES_DATABASE:
                 serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
             VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS:
-                serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS.join(
-                    ",",
-                ),
+                serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS,
 
             VRCA_SERVER_SERVICE_PGWEB_CONTAINER_NAME:
                 serverConfiguration.VRCA_SERVER_SERVICE_PGWEB_CONTAINER_NAME,
@@ -281,6 +279,10 @@ export namespace Server_CLI {
                 serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_HOST_PUBLIC_AVAILABLE_AT,
             VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_PUBLIC_AVAILABLE_AT:
                 serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_PUBLIC_AVAILABLE_AT.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_DEBUG:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_DEBUG.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_SUPPRESS:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_SUPPRESS.toString(),
 
             // API REST Auth Manager
             VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_CONTAINER_NAME:
@@ -293,6 +295,10 @@ export namespace Server_CLI {
                 serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_HOST_PUBLIC_AVAILABLE_AT,
             VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_PUBLIC_AVAILABLE_AT:
                 serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_PUBLIC_AVAILABLE_AT.toString(),    
+            VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_DEBUG:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_DEBUG.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_SUPPRESS:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_SUPPRESS.toString(),
 
             // API REST Asset Manager
             VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_CONTAINER_NAME:
@@ -311,10 +317,18 @@ export namespace Server_CLI {
                 serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_ASSET_CACHE_DIR,
             VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_ASSET_CACHE_MAINTENANCE_INTERVAL_MS:
                 serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_ASSET_CACHE_MAINTENANCE_INTERVAL_MS.toString(),    
+            VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_DEBUG:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_DEBUG.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_SUPPRESS:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_SUPPRESS.toString(),
 
             // State Manager
             VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_CONTAINER_NAME:
                 serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_CONTAINER_NAME,
+            VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_DEBUG:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_DEBUG.toString(),
+            VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_SUPPRESS:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_SUPPRESS.toString(),
 
             // Web Babylon JS Client service
             VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_CONTAINER_NAME:
@@ -1220,7 +1234,7 @@ export namespace Server_CLI {
 
         let migrationsRan = false;
 
-        for (const name of serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS) {
+        for (const name of serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS.split(",")) {
             BunLogModule({
                 message: `Installing PostgreSQL extension: ${name}...`,
                 type: "debug",

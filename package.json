@@ -13,7 +13,7 @@
         ],
         "catalog": {
             "postgres": "^3.4.7",
-            "zod": "^3.24.4",
+            "zod": "^4.1.11",
             "jsonwebtoken": "^9.0.2",
             "typescript": "~5.8.0"
         },

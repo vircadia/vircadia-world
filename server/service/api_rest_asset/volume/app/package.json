@@ -16,6 +16,7 @@
     "scripts": {
         "build": "bun build world.api.rest.asset.manager.ts --target bun --outfile ./dist/world.api.rest.asset.manager.js",
         "start": "bun ./dist/world.api.rest.asset.manager.js",
-        "deploy": "bun run build && bun run start"
+        "deploy": "bun run build && bun run start",
+        "dev": "bun --watch ./world.api.rest.asset.manager.ts"
     }
 }

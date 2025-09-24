@@ -105,7 +105,7 @@ The REST API is accessible at the base path:
 ## WebSocket API
 
 WebSocket connections are established by upgrading a connection at:
-<pre>{`${SchemaGeneral.Communication.WS_UPGRADE_PATH}`}</pre>
+<pre>{`${SchemaGeneral.Communication.REST_BASE_WS_PATH}`}</pre>
 
 ### Establish Connection
 
@@ -113,7 +113,7 @@ The WebSocket connection is established by creating a connection with search par
 
 ```typescript title="TypeScript WS upgrade example"
 // Format for WebSocket connection URL
-const url = new URL(`https://server-domain${Communication.WS_UPGRADE_PATH}`);
+const url = new URL(`https://server-domain${Communication.REST_BASE_WS_PATH}`);
 url.searchParams.set("token", authToken);    // Authentication token
 url.searchParams.set("provider", authProvider);  // Authentication provider name
 const ws = new WebSocket(url);

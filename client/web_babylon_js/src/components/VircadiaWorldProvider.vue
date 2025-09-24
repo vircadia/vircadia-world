@@ -30,7 +30,6 @@ import { useStorage, StorageSerializers } from "@vueuse/core";
 import {
     Communication,
     VircadiaBrowserClient,
-    type VircadiaBrowserClientConfig,
     type WsConnectionCoreInfo,
 } from "@vircadia/world-sdk/browser/vue";
 import { clientBrowserConfiguration } from "../../../../sdk/vircadia-world-sdk-ts/browser/src/config/vircadia.browser.config";
@@ -104,7 +103,7 @@ console.log(
         apiRestAuthUri: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI,
         apiRestAssetUriUsingSsl: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI_USING_SSL,
         apiRestAssetUri: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI,
-        wsPath: Communication.WS_UPGRADE_PATH,
+        wsPath: Communication.REST_BASE_WS_PATH,
         hasDebugToken:
             !!clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
         debugProvider:
@@ -117,8 +116,8 @@ console.log(
 const browserClient = new VircadiaBrowserClient({
     apiWsUri:
         clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI_USING_SSL
-            ? `https://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI}${Communication.WS_UPGRADE_PATH}`
-            : `http://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI}${Communication.WS_UPGRADE_PATH}`,
+            ? `https://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI}${Communication.REST_BASE_WS_PATH}`
+            : `http://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI}${Communication.REST_BASE_WS_PATH}`,
     apiRestAuthUri:
         clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI_USING_SSL
             ? `https://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI}${Communication.REST_BASE_AUTH_PATH}`
@@ -131,7 +130,7 @@ const browserClient = new VircadiaBrowserClient({
         clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
     authProvider:
         clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER,
-    debug: false,
+    debug: true,
     suppress: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
 });
 
@@ -338,19 +337,24 @@ async function connect() {
         browserClient.setAuthProvider(authProvider);
 
         console.log("[VircadiaWorldProvider] Attempting WebSocket connection");
+
         // Attempt connection with timeout
+        console.log("[VircadiaWorldProvider] About to call browserClient.connection.connect()");
         await browserClient.connection.connect({
             timeoutMs: 15000,
         });
+        console.log("[VircadiaWorldProvider] WebSocket connection succeeded");
 
         lastConnectedToken.value = currentToken;
         lastConnectedAgentId.value = currentAgentId;
     } catch (error) {
+        console.log("[VircadiaWorldProvider] Connection failed with error:", error);
         // Reset last connected state on failure
         lastConnectedToken.value = null;
         lastConnectedAgentId.value = null;
 
         if (error instanceof Error) {
+            console.log("[VircadiaWorldProvider] Error is instance of Error, message:", error.message);
             if (
                 error.message.includes("Authentication") ||
                 error.message.includes("401") ||

@@ -16,6 +16,7 @@
     "scripts": {
         "build": "bun build world.api.ws.manager.ts --target bun --outfile ./dist/world.api.ws.manager.js",
         "start": "bun ./dist/world.api.ws.manager.js",
-        "deploy": "bun run build && bun run start"
+        "deploy": "bun run build && bun run start",
+        "dev": "bun --watch ./world.api.ws.manager.ts"
     }
 }

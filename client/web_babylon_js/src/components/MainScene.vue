@@ -32,7 +32,6 @@
 
         <!-- Dev Debug App Bar -->
         <v-app-bar
-            v-if="clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG"
             density="comfortable"
             color="primary"
             flat

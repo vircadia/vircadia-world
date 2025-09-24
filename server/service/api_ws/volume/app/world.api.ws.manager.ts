@@ -79,6 +79,8 @@ export class WorldApiWsManager {
     private aclService: AclService | null = null;
 
     private CONNECTION_HEARTBEAT_INTERVAL = 500;
+    private DEBUG = true || serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_DEBUG;
+    private SUPPRESS = serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_SUPPRESS;
 
     // Add CORS helper function
     private addCorsHeaders(response: Response, req: Request): Response {
@@ -119,15 +121,15 @@ export class WorldApiWsManager {
     async initialize() {
         BunLogModule({
             message: "Initializing World API WS Manager",
-            debug: serverConfiguration.VRCA_SERVER_DEBUG,
-            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+            debug: this.DEBUG,
+            suppress: this.SUPPRESS,
             type: "debug",
         });
 
         try {
             legacySuperUserSql = await BunPostgresClientModule.getInstance({
-                debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                debug: this.DEBUG,
+                suppress: this.SUPPRESS,
             }).getLegacySuperClient({
                 postgres: {
                     host: serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
@@ -141,8 +143,8 @@ export class WorldApiWsManager {
                 },
             });
             legacyProxyUserSql = await BunPostgresClientModule.getInstance({
-                debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                debug: this.DEBUG,
+                suppress: this.SUPPRESS,
             }).getLegacyProxyClient({
                 postgres: {
                     host: serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
@@ -156,8 +158,8 @@ export class WorldApiWsManager {
                 },
             });
             superUserSql = await BunPostgresClientModule.getInstance({
-                debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                debug: this.DEBUG,
+                suppress: this.SUPPRESS,
             }).getSuperClient({
                 postgres: {
                     host: serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
@@ -171,8 +173,8 @@ export class WorldApiWsManager {
                 },
             });
             proxyUserSql = await BunPostgresClientModule.getInstance({
-                debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                debug: this.DEBUG,
+                suppress: this.SUPPRESS,
             }).getProxyClient({
                 postgres: {
                     host: serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
@@ -202,8 +204,8 @@ export class WorldApiWsManager {
                 BunLogModule({
                     message: "Failed to start auth_roles_changed listener",
                     error,
-                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                    suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                    debug: this.DEBUG,
+                    suppress: this.SUPPRESS,
                     type: "error",
                     prefix: LOG_PREFIX,
                 });
@@ -212,8 +214,8 @@ export class WorldApiWsManager {
             BunLogModule({
                 message: "Failed to initialize DB connection",
                 error: error,
-                debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                debug: this.DEBUG,
+                suppress: this.SUPPRESS,
                 type: "error",
             });
             return;
@@ -223,7 +225,7 @@ export class WorldApiWsManager {
         this.server = Bun.serve({
             hostname: "0.0.0.0",
             port: 3020,
-            development: serverConfiguration.VRCA_SERVER_DEBUG,
+            development: this.DEBUG,
 
             // #region API -> HTTP Routes
             fetch: async (req: Request, server: Server) => {
@@ -236,26 +238,167 @@ export class WorldApiWsManager {
                         return this.addCorsHeaders(response, req);
                     }
 
-                    if (!superUserSql || !proxyUserSql) {
-                        BunLogModule({
-                            message: "No database connection available",
-                            debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-                            type: "error",
-                        });
-                        const response = new Response("Internal server error", {
-                            status: 500,
-                        });
-                        return this.addCorsHeaders(response, req);
-                    }
-
-                    // Handle stats
+                    // Validate-upgrade diagnostic endpoint: must run BEFORE DB guard to return JSON even if DB is down
                     if (
                         url.pathname.startsWith(
-                            Service.API.WS.Stats_Endpoint.path,
+                            Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.path,
                         ) &&
-                        req.method === Service.API.WS.Stats_Endpoint.method
+                        req.method === Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.method
                     ) {
+                        const token = url.searchParams.get("token") || undefined;
+                        const provider = url.searchParams.get("provider") || undefined;
+
+                        if (!superUserSql || !proxyUserSql) {
+                            const response = Response.json(
+                                Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createSuccess({
+                                    ok: false,
+                                    reason: "DB_UNAVAILABLE",
+                                }),
+                            );
+                            return this.addCorsHeaders(response, req);
+                        }
+
+                        if (!token) {
+                            const response = Response.json(
+                                Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createSuccess({
+                                    ok: false,
+                                    reason: "MISSING_TOKEN",
+                                }),
+                            );
+                            return this.addCorsHeaders(response, req);
+                        }
+
+                        if (!provider) {
+                            const response = Response.json(
+                                Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createSuccess({
+                                    ok: false,
+                                    reason: "MISSING_PROVIDER",
+                                }),
+                            );
+                            return this.addCorsHeaders(response, req);
+                        }
+
+                        let jwtValidationResult: {
+                            isValid: boolean;
+                            errorReason?: string;
+                            sessionId: string;
+                            agentId: string;
+                        };
+                        try {
+                            jwtValidationResult = await validateJWT({
+                                superUserSql,
+                                provider,
+                                token,
+                            });
+                        } catch (e) {
+                            // FIXME: These should all be createError not success.
+                            const response = Response.json(
+                                Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createSuccess({
+                                    ok: false,
+                                    reason: "JWT_INVALID",
+                                    details: {
+                                        errorReason:
+                                            e instanceof Error ? e.message : String(e),
+                                    },
+                                }),
+                            );
+                            return this.addCorsHeaders(response, req);
+                        }
+
+                        if (!jwtValidationResult.isValid) {
+                            const response = Response.json(
+                                Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createSuccess({
+                                    ok: false,
+                                    reason: "JWT_INVALID",
+                                    details: {
+                                        errorReason: jwtValidationResult.errorReason,
+                                    },
+                                }),
+                            );
+                            return this.addCorsHeaders(response, req);
+                        }
+
+                        try {
+                            const sessionValidationResult = await superUserSql<[
+                                { agent_id: string }
+                            ]>`
+                                SELECT * FROM auth.validate_session_id(${jwtValidationResult.sessionId}::UUID) as agent_id
+                            `;
+
+                            if (!sessionValidationResult[0].agent_id) {
+                                const response = Response.json(
+                                    Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createSuccess({
+                                        ok: false,
+                                        reason: "SESSION_INVALID",
+                                        details: {
+                                            sessionId: jwtValidationResult.sessionId,
+                                        },
+                                    }),
+                                );
+                                return this.addCorsHeaders(response, req);
+                            }
+                        } catch (error) {
+                            const response = Response.json(
+                                Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createSuccess({
+                                    ok: false,
+                                    reason: "SESSION_INVALID",
+                                    details: {
+                                        sessionId: jwtValidationResult.sessionId,
+                                    },
+                                }),
+                            );
+                            return this.addCorsHeaders(response, req);
+                        }
+
+                        const existingSession = this.activeSessions.get(
+                            jwtValidationResult.sessionId,
+                        );
+                        if (existingSession) {
+                            const response = Response.json(
+                                Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createSuccess({
+                                    ok: false,
+                                    reason: "SESSION_ALREADY_CONNECTED",
+                                    details: {
+                                        agentId: jwtValidationResult.agentId,
+                                        sessionId: jwtValidationResult.sessionId,
+                                    },
+                                }),
+                            );
+                            return this.addCorsHeaders(response, req);
+                        }
+
+                        const okResponse = Response.json(
+                            Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createSuccess({
+                                ok: true,
+                                reason: "OK",
+                                details: {
+                                    agentId: jwtValidationResult.agentId,
+                                    sessionId: jwtValidationResult.sessionId,
+                                },
+                            }),
+                        );
+                        return this.addCorsHeaders(okResponse, req);
+                    }
+
+                    // Handle stats (moved to official REST endpoint)
+                    if (
+                        url.pathname.startsWith(Communication.REST.Endpoint.WS_STATS.path) &&
+                        req.method === Communication.REST.Endpoint.WS_STATS.method
+                    ) {
+                        BunLogModule({
+                            prefix: LOG_PREFIX,
+                            message: "Stats endpoint hit",
+                            debug: this.DEBUG,
+                            suppress: this.SUPPRESS,
+                            type: "debug",
+                            data: {
+                                pathname: url.pathname,
+                                method: req.method,
+                                expectedPath: Communication.REST.Endpoint.WS_STATS.path,
+                                expectedMethod: Communication.REST.Endpoint.WS_STATS.method,
+                            },
+                        });
+
                         const requestIP =
                             req.headers.get("x-forwarded-for")?.split(",")[0] ||
                             server.requestIP(req)?.address ||
@@ -265,8 +408,8 @@ export class WorldApiWsManager {
                         BunLogModule({
                             prefix: LOG_PREFIX,
                             message: `Stats endpoint access attempt from IP: ${requestIP}`,
-                            debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                            debug: this.DEBUG,
+                            suppress: this.SUPPRESS,
                             type: "debug",
                             data: {
                                 requestIP,
@@ -287,13 +430,20 @@ export class WorldApiWsManager {
                             requestIP.startsWith("10.") ||
                             requestIP === "::ffff:127.0.0.1";
 
+                        BunLogModule({
+                            prefix: LOG_PREFIX,
+                            message: `Stats endpoint IP check: ${requestIP}, isLocalhost: ${isLocalhost}, isDockerInternal: ${isDockerInternal}`,
+                            debug: this.DEBUG,
+                            suppress: this.SUPPRESS,
+                            type: "debug",
+                        });
+
                         if (!isLocalhost && !isDockerInternal) {
                             BunLogModule({
                                 prefix: LOG_PREFIX,
                                 message: `Stats endpoint access denied for IP: ${requestIP}`,
-                                debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                                suppress:
-                                    serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                debug: this.DEBUG,
+                                suppress: this.SUPPRESS,
                                 type: "debug",
                             });
                             const response = Response.json(
@@ -322,15 +472,57 @@ export class WorldApiWsManager {
                             this.metricsCollector.getSystemMetrics(
                                 !!superUserSql && !!proxyUserSql,
                             );
-                        const poolStats =
-                            await BunPostgresClientModule.getInstance({
-                                debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                                suppress:
-                                    serverConfiguration.VRCA_SERVER_SUPPRESS,
+
+                        BunLogModule({
+                            prefix: LOG_PREFIX,
+                            message: "Stats endpoint gathering database pool stats",
+                            debug: this.DEBUG,
+                            suppress: this.SUPPRESS,
+                            type: "debug",
+                        });
+
+                        let poolStats;
+                        try {
+                            const poolPromise = BunPostgresClientModule.getInstance({
+                                debug: this.DEBUG,
+                                suppress: this.SUPPRESS,
                             }).getDatabasePoolStats();
 
+                            // Prevent stats endpoint from hanging if DB is slow/unavailable
+                            poolStats = await Promise.race([
+                                poolPromise,
+                                new Promise((resolve) => setTimeout(() => resolve({}), 750)),
+                            ]);
+
+                            BunLogModule({
+                                prefix: LOG_PREFIX,
+                                message: "Stats endpoint database pool stats gathered",
+                                debug: this.DEBUG,
+                                suppress: this.SUPPRESS,
+                                type: "debug",
+                            });
+                        } catch (error) {
+                            BunLogModule({
+                                prefix: LOG_PREFIX,
+                                message: "Stats endpoint error gathering pool stats",
+                                debug: this.DEBUG,
+                                suppress: this.SUPPRESS,
+                                type: "error",
+                                error: error,
+                            });
+                            poolStats = {}; // Provide empty fallback
+                        }
+
+                        BunLogModule({
+                            prefix: LOG_PREFIX,
+                            message: "Stats endpoint generating response",
+                            debug: this.DEBUG,
+                            suppress: this.SUPPRESS,
+                            type: "debug",
+                        });
+
                         const response = Response.json(
-                            Service.API.WS.Stats_Endpoint.createSuccess({
+                            Communication.REST.Endpoint.WS_STATS.createSuccess({
                                 uptime: process.uptime(),
                                 connections: systemMetrics.connections,
                                 database: {
@@ -340,30 +532,86 @@ export class WorldApiWsManager {
                                 memory: systemMetrics.memory,
                                 cpu: systemMetrics.cpu,
                                 queries: this.metricsCollector.getMetrics(),
-                                reflect:
-                                    this.metricsCollector.getReflectMetrics(),
+                                reflect: this.metricsCollector.getReflectMetrics(),
                                 endpoints: this.metricsCollector.getEndpointMetrics(),
                             }),
                         );
+
+                        BunLogModule({
+                            prefix: LOG_PREFIX,
+                            message: "Stats endpoint returning response",
+                            debug: this.DEBUG,
+                            suppress: this.SUPPRESS,
+                            type: "debug",
+                            data: {
+                                responseStatus: response.status,
+                                responseHeaders: response.headers.toJSON(),
+                                hasBody: !!response.body,
+                            },
+                        });
+
+                        const corsResponse = this.addCorsHeaders(response, req);
+
+                        BunLogModule({
+                            prefix: LOG_PREFIX,
+                            message: "Stats endpoint CORS response prepared",
+                            debug: this.DEBUG,
+                            suppress: this.SUPPRESS,
+                            type: "debug",
+                            data: {
+                                corsResponseStatus: corsResponse.status,
+                                corsResponseHeaders: corsResponse.headers.toJSON(),
+                            },
+                        });
+
+                        return corsResponse;
+                    }
+
+                    if (!superUserSql || !proxyUserSql) {
+                        BunLogModule({
+                            message: "No database connection available",
+                            debug: this.DEBUG,
+                            suppress: this.SUPPRESS,
+                            type: "error",
+                        });
+                        const response = new Response("Internal server error", {
+                            status: 500,
+                        });
                         return this.addCorsHeaders(response, req);
                     }
 
+
                     // Handle WebSocket upgrade
                     if (
-                        url.pathname.startsWith(Communication.WS_UPGRADE_PATH)
+                        url.pathname.startsWith(Communication.REST.Endpoint.WS_UPGRADE_REQUEST.path) && 
+                        req.method === Communication.REST.Endpoint.WS_UPGRADE_REQUEST.method
                     ) {
+                        const upgradeStart = performance.now();
                         const url = new URL(req.url);
                         const token = url.searchParams.get("token");
                         const provider = url.searchParams.get("provider");
+
+                        BunLogModule({
+                            prefix: LOG_PREFIX,
+                            message: "WS upgrade request received",
+                            debug: this.DEBUG,
+                            suppress: this.SUPPRESS,
+                            type: "debug",
+                            data: {
+                                pathname: url.pathname,
+                                hasToken: !!token,
+                                hasProvider: !!provider,
+                            },
+                        });
 
                         // Handle missing token first
                         if (!token) {
                             BunLogModule({
                                 prefix: LOG_PREFIX,
                                 message: "No token found in query parameters",
-                                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                                debug: this.DEBUG,
                                 suppress:
-                                    serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                    this.SUPPRESS,
                                 type: "debug",
                             });
                             return new Response(
@@ -380,9 +628,9 @@ export class WorldApiWsManager {
                                 prefix: LOG_PREFIX,
                                 message:
                                     "No provider found in query parameters",
-                                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                                debug: this.DEBUG,
                                 suppress:
-                                    serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                    this.SUPPRESS,
                                 type: "debug",
                             });
                             return new Response("Provider required", {
@@ -390,20 +638,25 @@ export class WorldApiWsManager {
                             });
                         }
 
+                        const jwtStart = performance.now();
                         const jwtValidationResult = await validateJWT({
                             superUserSql,
                             provider,
                             token,
                         });
+                        const jwtMs = performance.now() - jwtStart;
 
                         if (!jwtValidationResult.isValid) {
                             BunLogModule({
                                 prefix: LOG_PREFIX,
                                 message: `Token JWT validation failed: ${jwtValidationResult.errorReason}`,
-                                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                                debug: this.DEBUG,
                                 suppress:
-                                    serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                    this.SUPPRESS,
                                 type: "debug",
+                                data: {
+                                    jwtMs,
+                                },
                             });
                             return new Response(
                                 `Invalid token: ${jwtValidationResult.errorReason}`,
@@ -413,20 +666,38 @@ export class WorldApiWsManager {
                             );
                         }
 
+                        const sessionStart = performance.now();
                         const sessionValidationResult = await superUserSql<
                             [{ agent_id: string }]
                         >`
                                 SELECT * FROM auth.validate_session_id(${jwtValidationResult.sessionId}::UUID) as agent_id
                             `;
+                        const sessionMs = performance.now() - sessionStart;
+
+                        BunLogModule({
+                            prefix: LOG_PREFIX,
+                            message: "WS session validated",
+                            debug: this.DEBUG,
+                            suppress: this.SUPPRESS,
+                            type: "debug",
+                            data: {
+                                sessionId: jwtValidationResult.sessionId,
+                                agentId: jwtValidationResult.agentId,
+                                sessionMs,
+                            },
+                        });
 
                         if (!sessionValidationResult[0].agent_id) {
                             BunLogModule({
                                 prefix: LOG_PREFIX,
                                 message: "WS Upgrade Session validation failed",
-                                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                                debug: this.DEBUG,
                                 suppress:
-                                    serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                    this.SUPPRESS,
                                 type: "debug",
+                                data: {
+                                    sessionMs,
+                                },
                             });
                             return new Response("Invalid session", {
                                 status: 401,
@@ -439,8 +710,8 @@ export class WorldApiWsManager {
                             BunLogModule({
                                 prefix: LOG_PREFIX,
                                 message: "Rejecting WebSocket upgrade: session already connected",
-                                debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                debug: this.DEBUG,
+                                suppress: this.SUPPRESS,
                                 type: "debug",
                                 data: {
                                     sessionId: jwtValidationResult.sessionId,
@@ -453,6 +724,7 @@ export class WorldApiWsManager {
                         }
 
                         // Only attempt upgrade if validation passes
+                        const upgradeAttemptStart = performance.now();
                         const upgraded = server.upgrade(req, {
                             data: {
                                 token,
@@ -460,25 +732,46 @@ export class WorldApiWsManager {
                                 sessionId: jwtValidationResult.sessionId,
                             },
                         });
+                        const upgradeAttemptMs = performance.now() - upgradeAttemptStart;
 
                         if (!upgraded) {
                             BunLogModule({
                                 prefix: LOG_PREFIX,
                                 message: "WebSocket upgrade failed",
-                                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                                debug: this.DEBUG,
                                 data: {
                                     token,
                                     agentId: jwtValidationResult.agentId,
                                     sessionId: jwtValidationResult.sessionId,
+                                    jwtMs,
+                                    sessionMs,
+                                    upgradeAttemptMs,
+                                    totalMs: performance.now() - upgradeStart,
                                 },
                                 suppress:
-                                    serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                    this.SUPPRESS,
                                 type: "error",
                             });
                             return new Response("WebSocket upgrade failed", {
                                 status: 500,
                             });
                         }
+
+                        BunLogModule({
+                            prefix: LOG_PREFIX,
+                            message: "WebSocket upgrade succeeded",
+                            debug: this.DEBUG,
+                            suppress: this.SUPPRESS,
+                            type: "debug",
+                            data: {
+                                agentId: jwtValidationResult.agentId,
+                                sessionId: jwtValidationResult.sessionId,
+                                jwtMs,
+                                sessionMs,
+                                upgradeAttemptMs,
+                                totalMs: performance.now() - upgradeStart,
+                            },
+                        });
 
                         return undefined;
                     }
@@ -503,7 +796,7 @@ export class WorldApiWsManager {
                         type: "error",
                         message: "Unexpected error in fetch handler",
                         error: error,
-                        suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                        suppress: this.SUPPRESS,
                         debug: true, // Force debug for troubleshooting
                         prefix: LOG_PREFIX,
                         data: {
@@ -533,19 +826,26 @@ export class WorldApiWsManager {
                     ws: ServerWebSocket<WebSocketData>,
                     message: string,
                 ) => {
+                    const receivedAt = performance.now();
                     BunLogModule({
-                        message: "WebSocket message received",
-                        suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-                        debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                        prefix: LOG_PREFIX,
+                        message: "WS message received",
+                        suppress: this.SUPPRESS,
+                        debug: this.DEBUG,
                         type: "debug",
+                        data: {
+                            bytes: new TextEncoder().encode(message).length,
+                            sessionId: ws.data.sessionId,
+                            agentId: ws.data.agentId,
+                        },
                     });
                     let data: Communication.WebSocket.Message | undefined;
 
                     if (!superUserSql || !proxyUserSql) {
                         BunLogModule({
                             message: "No database connections available",
-                            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-                            debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                            suppress: this.SUPPRESS,
+                            debug: this.DEBUG,
                             type: "error",
                         });
                         return;
@@ -564,6 +864,47 @@ export class WorldApiWsManager {
                             message,
                         ) as Communication.WebSocket.Message;
 
+                        BunLogModule({
+                            prefix: LOG_PREFIX,
+                            message: "WS message parsed",
+                            suppress: this.SUPPRESS,
+                            debug: this.DEBUG,
+                            type: "debug",
+                            data: {
+                                type: data.type,
+                                requestId: (data as any)?.requestId,
+                                parseMs: performance.now() - receivedAt,
+                            },
+                        });
+
+                        // Zod-validate incoming WS message
+                        const parsed = Communication.WebSocket.Z.AnyMessage.safeParse(data);
+                        if (!parsed.success) {
+                            const requestId = (data as any)?.requestId ?? "";
+                            ws.send(
+                                JSON.stringify(
+                                    new Communication.WebSocket.GeneralErrorResponseMessage(
+                                        {
+                                            error: "Invalid message format",
+                                            requestId,
+                                        },
+                                    ),
+                                ),
+                            );
+                            BunLogModule({
+                                prefix: LOG_PREFIX,
+                                message: "WS message validation failed",
+                                suppress: this.SUPPRESS,
+                                debug: this.DEBUG,
+                                type: "debug",
+                                data: {
+                                    requestId,
+                                    elapsedMs: performance.now() - receivedAt,
+                                },
+                            });
+                            return;
+                        }
+
                         if (!sessionToken || !sessionId || !session) {
                             ws.send(
                                 JSON.stringify(
@@ -576,6 +917,17 @@ export class WorldApiWsManager {
                                 ),
                             );
                             ws.close(1000, "Invalid session");
+                            BunLogModule({
+                                prefix: LOG_PREFIX,
+                                message: "WS invalid session on message",
+                                suppress: this.SUPPRESS,
+                                debug: this.DEBUG,
+                                type: "debug",
+                                data: {
+                                    requestId: data.requestId,
+                                    elapsedMs: performance.now() - receivedAt,
+                                },
+                            });
                             return;
                         }
 
@@ -585,9 +937,9 @@ export class WorldApiWsManager {
                                 BunLogModule({
                                     message:
                                         "Failed to update session heartbeat",
-                                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                                    debug: this.DEBUG,
                                     suppress:
-                                        serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                        this.SUPPRESS,
                                     type: "error",
                                     prefix: LOG_PREFIX,
                                     data: { error, sessionId },
@@ -639,6 +991,19 @@ export class WorldApiWsManager {
                                         success = true;
 
                                         ws.send(responseString);
+                                        BunLogModule({
+                                            prefix: LOG_PREFIX,
+                                            message: "WS QUERY_REQUEST handled",
+                                            debug: this.DEBUG,
+                                            suppress: this.SUPPRESS,
+                                            type: "debug",
+                                            data: {
+                                                requestId: typedRequest.requestId,
+                                                durationMs: performance.now() - receivedAt,
+                                                requestSize,
+                                                responseSize,
+                                            },
+                                        });
                                     });
                                 } catch (error) {
                                     // Improved error handling with more structured information
@@ -649,9 +1014,9 @@ export class WorldApiWsManager {
 
                                     BunLogModule({
                                         message: `Query failed: ${errorMessage}`,
-                                        debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                                        debug: this.DEBUG,
                                         suppress:
-                                            serverConfiguration.VRCA_SERVER_SUPPRESS,
+                                            this.SUPPRESS,
                                         type: "error",
                                         prefix: LOG_PREFIX,
                                         data: {
@@ -678,6 +1043,20 @@ export class WorldApiWsManager {
                                     success = false;
 
                                     ws.send(errorResponseString);
+                                    BunLogModule({
+                                        prefix: LOG_PREFIX,
+                                        message: "WS QUERY_REQUEST error",
+                                        debug: this.DEBUG,
+                                        suppress: this.SUPPRESS,
+                                        type: "debug",
+                                        data: {
+                                            requestId: typedRequest.requestId,
+                                            durationMs: performance.now() - receivedAt,
+                                            requestSize,
+                                            responseSize,
+                                            errorMessage,
+                                        },
+                                    });
                                 } finally {
                                     // Record metrics
                                     this.recordEndpointMetrics(
@@ -706,8 +1085,8 @@ export class WorldApiWsManager {
                                 const syncGroup = (req.syncGroup || "").trim();
                                 const channel = (req.channel || "").trim();
                                 if (!syncGroup || !channel) {
-                                    const endTime = performance.now();
-                                    const duration = endTime - startTime;
+                                const endTime = performance.now();
+                                const duration = endTime - startTime;
                                     this.metricsCollector.recordReflect(
                                         duration,
                                         messageSize,
@@ -728,6 +1107,18 @@ export class WorldApiWsManager {
                                             ),
                                         ),
                                     );
+                                    BunLogModule({
+                                        prefix: LOG_PREFIX,
+                                        message: "WS REFLECT_PUBLISH_REQUEST validation failed",
+                                        debug: this.DEBUG,
+                                        suppress: this.SUPPRESS,
+                                        type: "debug",
+                                        data: {
+                                            syncGroup,
+                                            channel,
+                                            durationMs: performance.now() - receivedAt,
+                                        },
+                                    });
                                     break;
                                 }
 
@@ -762,6 +1153,18 @@ export class WorldApiWsManager {
                                             ),
                                         ),
                                     );
+                                    BunLogModule({
+                                        prefix: LOG_PREFIX,
+                                        message: "WS REFLECT_PUBLISH_REQUEST unauthorized",
+                                        debug: this.DEBUG,
+                                        suppress: this.SUPPRESS,
+                                        type: "debug",
+                                        data: {
+                                            syncGroup,
+                                            channel,
+                                            durationMs: performance.now() - receivedAt,
+                                        },
+                                    });
                                     break;
                                 }
 
@@ -822,6 +1225,19 @@ export class WorldApiWsManager {
                                         ),
                                     ),
                                 );
+                                BunLogModule({
+                                    prefix: LOG_PREFIX,
+                                    message: "WS REFLECT_PUBLISH_REQUEST fanout complete",
+                                    debug: this.DEBUG,
+                                    suppress: this.SUPPRESS,
+                                    type: "debug",
+                                    data: {
+                                        syncGroup,
+                                        channel,
+                                        delivered,
+                                        durationMs: performance.now() - receivedAt,
+                                    },
+                                });
                                 break;
                             }
 
@@ -837,6 +1253,18 @@ export class WorldApiWsManager {
                                         ),
                                     ),
                                 );
+                                BunLogModule({
+                                    prefix: LOG_PREFIX,
+                                    message: "WS unsupported message type",
+                                    debug: this.DEBUG,
+                                    suppress: this.SUPPRESS,
+                                    type: "debug",
+                                    data: {
+                                        type: data.type,
+                                        requestId: data.requestId,
+                                        durationMs: performance.now() - receivedAt,
+                                    },
+                                });
                             }
                         }
                     } catch (error) {
@@ -844,8 +1272,18 @@ export class WorldApiWsManager {
                             type: "error",
                             message: "Received WS message handling failed.",
                             error: error,
-                            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-                            debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                            suppress: this.SUPPRESS,
+                            debug: this.DEBUG,
+                        });
+                        BunLogModule({
+                            prefix: LOG_PREFIX,
+                            message: "WS message handler threw",
+                            debug: this.DEBUG,
+                            suppress: this.SUPPRESS,
+                            type: "debug",
+                            data: {
+                                elapsedMs: performance.now() - receivedAt,
+                            },
                         });
                     }
                 },
@@ -855,8 +1293,8 @@ export class WorldApiWsManager {
                     BunLogModule({
                         prefix: LOG_PREFIX,
                         message: "New WebSocket connection attempt",
-                        debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                        suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                        debug: this.DEBUG,
+                        suppress: this.SUPPRESS,
                         type: "debug",
                         data: {
                             agentId: sessionData.agentId,
@@ -881,8 +1319,8 @@ export class WorldApiWsManager {
                     BunLogModule({
                         prefix: LOG_PREFIX,
                         message: `Connection established with agent ${sessionData.agentId}`,
-                        suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-                        debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                        suppress: this.SUPPRESS,
+                        debug: this.DEBUG,
                         type: "debug",
                     });
 
@@ -906,8 +1344,8 @@ export class WorldApiWsManager {
                 ) => {
                     BunLogModule({
                         message: `WebSocket connection closed, code: ${code}, reason: ${reason}`,
-                        debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                        suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                        debug: this.DEBUG,
+                        suppress: this.SUPPRESS,
                         type: "debug",
                     });
                     const session = this.activeSessions.get(ws.data.sessionId);
@@ -915,8 +1353,8 @@ export class WorldApiWsManager {
                         BunLogModule({
                             prefix: LOG_PREFIX,
                             message: "WebSocket disconnection",
-                            debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                            debug: this.DEBUG,
+                            suppress: this.SUPPRESS,
                             type: "debug",
                             data: {
                                 sessionId: session.sessionId,
@@ -973,8 +1411,8 @@ export class WorldApiWsManager {
                             prefix: LOG_PREFIX,
                             message:
                                 "Session expired / invalid, closing WebSocket",
-                            debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                            debug: this.DEBUG,
+                            suppress: this.SUPPRESS,
                             type: "debug",
                             data: {
                                 sessionId,
@@ -995,8 +1433,8 @@ export class WorldApiWsManager {
             message: "Bun WS World API Server running.",
             prefix: LOG_PREFIX,
             type: "success",
-            debug: serverConfiguration.VRCA_SERVER_DEBUG,
-            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+            debug: this.DEBUG,
+            suppress: this.SUPPRESS,
         });
 
         // #endregion
@@ -1022,62 +1460,15 @@ export class WorldApiWsManager {
         });
         // Do not forcibly clear cache on shutdown; keep warmed files for faster next start
         BunPostgresClientModule.getInstance({
-            debug: serverConfiguration.VRCA_SERVER_DEBUG,
-            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+            debug: this.DEBUG,
+            suppress: this.SUPPRESS,
         }).disconnect();
     }
 }
 
 // #endregion
 
-// Add command line entry point
-if (import.meta.main) {
-    try {
-        BunLogModule({
-            message: "Starting World API WS Manager",
-            debug: serverConfiguration.VRCA_SERVER_DEBUG,
-            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-            type: "info",
-            prefix: LOG_PREFIX,
-        });
-        const manager = new WorldApiWsManager();
-        await manager.initialize();
-
-        // Handle cleanup on process termination
-        process.on("SIGINT", () => {
-            BunLogModule({
-                message: "\nReceived SIGINT. Cleaning up...",
-                debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-                type: "debug",
-                prefix: LOG_PREFIX,
-            });
-            manager.cleanup();
-            process.exit(0);
-        });
-
-        process.on("SIGTERM", () => {
-            BunLogModule({
-                message: "\nReceived SIGTERM. Cleaning up...",
-                debug: serverConfiguration.VRCA_SERVER_DEBUG,
-                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-                type: "debug",
-                prefix: LOG_PREFIX,
-            });
-            manager.cleanup();
-            process.exit(0);
-        });
-    } catch (error) {
-        BunLogModule({
-            message: "Failed to start World API WS Manager.",
-            data: {
-                error,
-            },
-            type: "error",
-            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-            debug: true,
-            prefix: LOG_PREFIX,
-        });
-        process.exit(1);
-    }
-}
+void (async () => {
+    const manager = new WorldApiWsManager();
+    await manager.initialize();
+})();

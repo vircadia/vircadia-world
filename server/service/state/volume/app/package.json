@@ -14,6 +14,7 @@
     "scripts": {
         "build": "bun build world.state.manager.ts --target bun --outfile ./dist/world.state.manager.js",
         "start": "bun ./dist/world.state.manager.js",
-        "deploy": "bun run build && bun run start"
+        "deploy": "bun run build && bun run start",
+        "dev": "bun --watch ./world.state.manager.ts"
     }
 }

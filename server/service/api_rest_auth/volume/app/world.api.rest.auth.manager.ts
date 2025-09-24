@@ -14,12 +14,13 @@ import {
     Communication,
     Service,
 } from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
+import { z } from "zod";
 import {
     AzureADAuthService,
     createAzureADConfig,
     parseOAuthState,
 } from "./service/azure.ad.auth";
-import { AclService, createAnonymousUser, signOut } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.server.auth.module";
+import { AclService, createAnonymousUser, signOut, validateJWT } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.server.auth.module";
 import { MetricsCollector } from "./service/metrics";
 
 let legacySuperUserSql: Sql | null = null;
@@ -62,71 +63,6 @@ class WorldApiAuthManager {
         this.metricsCollector.recordEndpoint(endpoint, duration, requestSize, responseSize, success);
     }
 
-    async validateJWT(data: { provider: string; token: string }): Promise<{
-        agentId: string;
-        sessionId: string;
-        isValid: boolean;
-        errorReason?: string;
-    }> {
-        const { provider, token } = data;
-        if (!superUserSql) throw new Error("No database connection available");
-
-        try {
-            if (!provider) {
-                return { agentId: "", sessionId: "", isValid: false, errorReason: "Provider is not set." };
-            }
-            if (!token || token.split(".").length !== 3) {
-                return { agentId: "", sessionId: "", isValid: false, errorReason: "Token is empty or malformed." };
-            }
-
-            const [providerConfig] = await superUserSql<[{ provider__jwt_secret: string }]>`
-                SELECT provider__jwt_secret
-                FROM auth.auth_providers
-                WHERE provider__name = ${provider}
-                  AND provider__enabled = true
-            `;
-
-            if (!providerConfig) {
-                return {
-                    agentId: "",
-                    sessionId: "",
-                    isValid: false,
-                    errorReason: `Provider '${provider}' not found or not enabled.`,
-                };
-            }
-
-            const jwtSecret = providerConfig.provider__jwt_secret;
-            try {
-                const decoded = verify(token, jwtSecret) as {
-                    sessionId: string;
-                    agentId: string;
-                    exp?: number;
-                };
-
-                if (!decoded.sessionId) {
-                    return { agentId: decoded.agentId || "", sessionId: "", isValid: false, errorReason: "Token is missing sessionId claim." };
-                }
-                if (!decoded.agentId) {
-                    return { agentId: "", sessionId: decoded.sessionId || "", isValid: false, errorReason: "Token is missing agentId claim." };
-                }
-
-                return { agentId: decoded.agentId, sessionId: decoded.sessionId, isValid: true };
-            } catch (verifyError) {
-                if (verifyError instanceof Error) {
-                    let errorReason: string;
-                    if (verifyError.name === "TokenExpiredError") errorReason = "Token has expired.";
-                    else if (verifyError.name === "JsonWebTokenError") errorReason = `JWT error: ${verifyError.message}`;
-                    else if (verifyError.name === "NotBeforeError") errorReason = "Token is not yet valid.";
-                    else errorReason = `Token verification failed: ${verifyError.message}`;
-                    return { agentId: "", sessionId: "", isValid: false, errorReason };
-                }
-                return { agentId: "", sessionId: "", isValid: false, errorReason: "Unknown token verification error." };
-            }
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            return { agentId: "", sessionId: "", isValid: false, errorReason: `Internal validation error: ${errorMessage}` };
-        }
-    }
 
     async initialize() {
         BunLogModule({ message: "Initializing World API Auth Manager", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "debug", prefix: LOG_PREFIX });
@@ -186,10 +122,10 @@ class WorldApiAuthManager {
 
                     
 
-                    // Stats (local-only)
+                    // Stats (moved to official REST endpoint)
                     if (
-                        url.pathname.startsWith(Service.API.Auth.Stats_Endpoint.path) &&
-                        req.method === Service.API.Auth.Stats_Endpoint.method
+                        url.pathname.startsWith(Communication.REST.Endpoint.AUTH_STATS.path) &&
+                        req.method === Communication.REST.Endpoint.AUTH_STATS.method
                     ) {
                         const requestIP =
                             req.headers.get("x-forwarded-for")?.split(",")[0] ||
@@ -201,7 +137,7 @@ class WorldApiAuthManager {
                             return this.createJsonResponse(Service.API.Auth.Stats_Endpoint.createError("Forbidden."), req, 403);
                         }
                         const response = Response.json(
-                            Service.API.Auth.Stats_Endpoint.createSuccess({
+                            Communication.REST.Endpoint.AUTH_STATS.createSuccess({
                                 uptime: process.uptime(),
                                 connections: this.metricsCollector.getSystemMetrics(true).connections,
                                 database: {
@@ -226,23 +162,26 @@ class WorldApiAuthManager {
                                 let requestSize = 0;
                                 let response: Response;
                                 try {
-                                    const requestBody = await req.text();
-                                    requestSize = new Blob([requestBody]).size;
-                                    const body = JSON.parse(requestBody) as { token: string; provider: string };
-                                    if (!body.token)
+                                    // Safely parse JSON once
+                                    const bodyRaw = await req.text().catch(() => "");
+                                    const bodyJson = bodyRaw ? JSON.parse(bodyRaw) : {};
+                                    const body = Communication.REST.Z.AuthSessionValidateRequest.safeParse(bodyJson);
+                                    const raw = body ? JSON.stringify(body) : "";
+                                    requestSize = new Blob([raw]).size;
+                                    if (!body.success)
                                         return this.createJsonResponse(
                                             Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError("No token provided"),
                                             req,
                                             401,
                                         );
-                                    if (!body.provider)
+                                    if (!body.data.provider)
                                         return this.createJsonResponse(
                                             Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError("No provider specified"),
                                             req,
                                             400,
                                         );
 
-                                    const jwtValidationResult = await this.validateJWT({ provider: body.provider, token: body.token });
+                                    const jwtValidationResult = await validateJWT({ superUserSql, provider: body.data.provider, token: body.data.token });
                                     if (!jwtValidationResult.isValid)
                                         return this.createJsonResponse(
                                             Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
@@ -272,9 +211,9 @@ class WorldApiAuthManager {
                                     );
                                 } catch {
                                     response = this.createJsonResponse(
-                                        Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError("Invalid request body"),
+                                        Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError("Internal server error"),
                                         req,
-                                        400,
+                                        500,
                                     );
                                 }
                                 const finalClone = response.clone();
@@ -305,7 +244,9 @@ class WorldApiAuthManager {
                             }
 
                             case url.pathname === Communication.REST.Endpoint.AUTH_OAUTH_AUTHORIZE.path && req.method === "GET": {
-                                const provider = new URL(req.url).searchParams.get("provider");
+                                const qp = Object.fromEntries(new URL(req.url).searchParams.entries());
+                                const parsed = Communication.REST.Z.OAuthAuthorizeQuery.safeParse(qp);
+                                const provider = parsed.success ? parsed.data.provider : null;
                                 if (provider !== Auth.E_Provider.AZURE)
                                     return this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_OAUTH_AUTHORIZE.createError("Unsupported provider"),
@@ -340,10 +281,12 @@ class WorldApiAuthManager {
                                         req,
                                         500,
                                     );
-                                const url = new URL(req.url);
-                                const provider = url.searchParams.get("provider");
-                                const code = url.searchParams.get("code");
-                                const stateParam = url.searchParams.get("state");
+                                const u = new URL(req.url);
+                                const qp = Object.fromEntries(u.searchParams.entries());
+                                const parsed = Communication.REST.Z.OAuthCallbackQuery.safeParse(qp);
+                                const provider = parsed.success ? parsed.data.provider : null;
+                                const code = parsed.success ? parsed.data.code : null;
+                                const stateParam = parsed.success ? parsed.data.state : null;
                                 if (provider !== Auth.E_Provider.AZURE)
                                     return this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_OAUTH_CALLBACK.createError("Unsupported provider"),
@@ -385,7 +328,9 @@ class WorldApiAuthManager {
 
                             case url.pathname === Communication.REST.Endpoint.AUTH_LOGOUT.path && req.method === "POST": {
                                 try {
-                                    const { sessionId } = (await req.json()) as { sessionId?: string };
+                                    const raw = await req.text();
+                                    const parsed = Communication.REST.Z.LogoutRequest.safeParse(raw ? JSON.parse(raw) : {});
+                                    const sessionId = parsed.success ? parsed.data.sessionId : undefined;
                                     if (!sessionId)
                                         return this.createJsonResponse(
                                             Communication.REST.Endpoint.AUTH_LOGOUT.createError("No session ID provided"),
@@ -435,7 +380,10 @@ class WorldApiAuthManager {
                             }
 
                             case url.pathname === Communication.REST.Endpoint.AUTH_LINK_PROVIDER.path && req.method === "POST": {
-                                const { provider, sessionId } = (await req.json()) as { provider?: string; sessionId?: string };
+                                const raw = await req.text();
+                                const parsed = Communication.REST.Z.LinkProviderRequest.safeParse(raw ? JSON.parse(raw) : {});
+                                const provider = parsed.success ? parsed.data.provider : undefined;
+                                const sessionId = parsed.success ? parsed.data.sessionId : undefined;
                                 if (!provider || !sessionId)
                                     return this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_LINK_PROVIDER.createError("Missing provider or sessionId"),
@@ -456,11 +404,11 @@ class WorldApiAuthManager {
                             }
 
                             case url.pathname === Communication.REST.Endpoint.AUTH_UNLINK_PROVIDER.path && req.method === "POST": {
-                                const { provider, providerUid, sessionId } = (await req.json()) as {
-                                    provider?: string;
-                                    providerUid?: string;
-                                    sessionId?: string;
-                                };
+                                const raw = await req.text();
+                                const parsed = Communication.REST.Z.UnlinkProviderRequest.safeParse(raw ? JSON.parse(raw) : {});
+                                const provider = parsed.success ? parsed.data.provider : undefined;
+                                const providerUid = parsed.success ? parsed.data.providerUid : undefined;
+                                const sessionId = parsed.success ? parsed.data.sessionId : undefined;
                                 if (!provider || !providerUid || !sessionId)
                                     return this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_UNLINK_PROVIDER.createError("Missing required fields"),
@@ -485,7 +433,9 @@ class WorldApiAuthManager {
                             }
 
                             case url.pathname === Communication.REST.Endpoint.AUTH_LIST_PROVIDERS.path && req.method === "GET": {
-                                const sessionId = new URL(req.url).searchParams.get("sessionId");
+                                const qp = Object.fromEntries(new URL(req.url).searchParams.entries());
+                                const parsed = Communication.REST.Z.ListProvidersQuery.safeParse(qp);
+                                const sessionId = parsed.success ? parsed.data.sessionId : null;
                                 if (!sessionId)
                                     return this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_LIST_PROVIDERS.createError("Missing sessionId"),

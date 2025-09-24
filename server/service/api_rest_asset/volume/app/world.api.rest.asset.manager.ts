@@ -11,6 +11,7 @@ import { serverConfiguration } from "../../../../../sdk/vircadia-world-sdk-ts/bu
 import { BunLogModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
 import { BunPostgresClientModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
 import { Communication, Service } from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
+import { z } from "zod";
 import { AclService, validateJWT } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.server.auth.module";
 import { MetricsCollector } from "./service/metrics";
 
@@ -322,10 +323,10 @@ class WorldApiAssetManager {
 
                     
 
-                    // Stats
+                    // Stats (moved to official REST endpoint)
                     if (
-                        url.pathname.startsWith(Service.API.Asset.Stats_Endpoint.path) &&
-                        req.method === Service.API.Asset.Stats_Endpoint.method
+                        url.pathname.startsWith(Communication.REST.Endpoint.ASSET_STATS.path) &&
+                        req.method === Communication.REST.Endpoint.ASSET_STATS.method
                     ) {
                         const requestIP =
                             req.headers.get("x-forwarded-for")?.split(",")[0] ||
@@ -337,7 +338,7 @@ class WorldApiAssetManager {
                             return this.createJsonResponse(Service.API.Asset.Stats_Endpoint.createError("Forbidden."), req, 403);
                         }
                         const response = Response.json(
-                            Service.API.Asset.Stats_Endpoint.createSuccess({
+                            Communication.REST.Endpoint.ASSET_STATS.createSuccess({
                                 uptime: process.uptime(),
                                 connections: this.metricsCollector.getSystemMetrics(true).connections,
                                 database: {
@@ -363,10 +364,12 @@ class WorldApiAssetManager {
                             case url.pathname === Communication.REST.Endpoint.ASSET_GET_BY_KEY.path && req.method === "GET": {
                                 const startTime = performance.now();
                                 const requestSize = new TextEncoder().encode(url.toString()).length;
-                                const key = url.searchParams.get("key");
-                                const token = url.searchParams.get("token");
-                                const provider = url.searchParams.get("provider");
-                                const sessionIdFromQuery = url.searchParams.get("sessionId");
+                                const qp = Object.fromEntries(url.searchParams.entries());
+                                const parsed = Communication.REST.Z.AssetGetByKeyQuery.safeParse(qp);
+                                const key = parsed.success ? (parsed.data as any).key : null;
+                                const token = parsed.success ? (parsed.data as any).token : undefined;
+                                const provider = parsed.success ? (parsed.data as any).provider : undefined;
+                                const sessionIdFromQuery = parsed.success ? (parsed.data as any).sessionId : undefined;
 
                                 BunLogModule({
                                     prefix: LOG_PREFIX,

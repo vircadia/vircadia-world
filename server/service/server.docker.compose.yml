@@ -96,10 +96,10 @@ services:
     volumes:
       - ./api_ws/volume/app:/app
     working_dir: /app
-    command: ["bun", "run", "dist/world.api.ws.manager.js"]
+    command: ["bun", "run", "start"]
     environment:
-      VRCA_SERVER_DEBUG: ${VRCA_SERVER_DEBUG}
-      VRCA_SERVER_SUPPRESS: ${VRCA_SERVER_SUPPRESS}
+      VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_DEBUG: ${VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_DEBUG}
+      VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_SUPPRESS: ${VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_SUPPRESS}
 
       VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME: ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME}
       VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME: ${VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME}
@@ -116,7 +116,7 @@ services:
         condition: service_healthy
         restart: true
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider http://127.0.0.1:3020/stats"]
+      test: ["CMD-SHELL", "wget --spider http://127.0.0.1:3020/world/rest/ws/stats"]
       interval: 10s
       timeout: 10s
       retries: 3
@@ -137,10 +137,10 @@ services:
     volumes:
       - ./api_rest_auth/volume/app:/app
     working_dir: /app
-    command: ["bun", "run", "dist/world.api.rest.auth.manager.js"]
+    command: ["bun", "run", "start"]
     environment:
-      VRCA_SERVER_DEBUG: ${VRCA_SERVER_DEBUG}
-      VRCA_SERVER_SUPPRESS: ${VRCA_SERVER_SUPPRESS}
+      VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_DEBUG: ${VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_DEBUG}
+      VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_SUPPRESS: ${VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_SUPPRESS}
 
       VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME: ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME}
       VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME: ${VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME}
@@ -157,7 +157,7 @@ services:
         condition: service_healthy
         restart: true
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider http://127.0.0.1:3022/stats"]
+      test: ["CMD-SHELL", "wget --spider http://127.0.0.1:3022/world/rest/auth/stats"]
       interval: 10s
       timeout: 10s
       retries: 3
@@ -183,10 +183,10 @@ services:
         tmpfs:
           size: ${VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_ASSET_CACHE_MAX_BYTES}
     working_dir: /app
-    command: ["bun", "run", "dist/world.api.rest.asset.manager.js"]
+    command: ["bun", "run", "start"]
     environment:
-      VRCA_SERVER_DEBUG: ${VRCA_SERVER_DEBUG}
-      VRCA_SERVER_SUPPRESS: ${VRCA_SERVER_SUPPRESS}
+      VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_DEBUG: ${VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_DEBUG}
+      VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_SUPPRESS: ${VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_SUPPRESS}
       # Asset cache configuration
       VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_ASSET_CACHE_DIR: ${VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_ASSET_CACHE_DIR}
       VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_ASSET_CACHE_MAX_BYTES: ${VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_ASSET_CACHE_MAX_BYTES}
@@ -206,7 +206,7 @@ services:
         condition: service_healthy
         restart: true
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider http://127.0.0.1:3023/stats"]
+      test: ["CMD-SHELL", "wget --spider http://127.0.0.1:3023/world/rest/asset/stats"]
       interval: 10s
       timeout: 10s
       retries: 3
@@ -225,10 +225,10 @@ services:
     volumes:
       - ./state/volume/app:/app
     working_dir: /app
-    command: ["bun", "run", "dist/world.state.manager.js"]
+    command: ["bun", "run", "start"]
     environment:
-      VRCA_SERVER_DEBUG: ${VRCA_SERVER_DEBUG}
-      VRCA_SERVER_SUPPRESS: ${VRCA_SERVER_SUPPRESS}
+      VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_DEBUG: ${VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_DEBUG}
+      VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_SUPPRESS: ${VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_SUPPRESS}
 
       VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME: ${VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME}
       VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME: ${VRCA_SERVER_SERVICE_POSTGRES_AGENT_PROXY_USER_USERNAME}
@@ -254,6 +254,7 @@ services:
 
   # BabylonJS Web Client service
   vircadia_world_client_web_babylon_js:
+    profiles: ["client"]
     image: caddy:2.10.2-alpine
     container_name: ${VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_CONTAINER_NAME}
     user: "1000:1000"
@@ -292,6 +293,12 @@ services:
       VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT: ${VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT}
     depends_on:
       vircadia_world_api_ws_manager:
+        condition: service_healthy
+        restart: true
+      vircadia_world_api_rest_auth_manager:
+        condition: service_healthy
+        restart: true
+      vircadia_world_api_rest_asset_manager:
         condition: service_healthy
         restart: true
     healthcheck:

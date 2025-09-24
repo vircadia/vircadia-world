@@ -5,7 +5,7 @@
 import type { Server } from "bun";
 import type { SQL } from "bun";
 import type { Sql } from "postgres";
-import { mkdir, rm, stat, readdir } from "node:fs/promises";
+import { mkdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { serverConfiguration } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
 import { BunLogModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
@@ -25,8 +25,8 @@ class WorldApiAssetManager {
     private aclService: AclService | null = null;
     private maintenanceInterval: Timer | null = null;
 
-    private readonly assetCacheDir: string = process.env.VRCA_SERVER_ASSET_CACHE_DIR || path.join("./", "assets-cache");
-    private readonly assetCacheMaxBytes: number = Number(process.env.VRCA_SERVER_ASSET_CACHE_MAX_BYTES || 536870912);
+    private readonly assetCacheDir: string = serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_ASSET_CACHE_DIR;
+    private readonly assetCacheMaxBytes: number = serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_ASSET_CACHE_MAX_BYTES;
     private readonly assetCacheMaintenanceIntervalMs: number = serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_ASSET_CACHE_MAINTENANCE_INTERVAL_MS;
     private assetInFlight: Map<string, Promise<string>> = new Map();
     private lastAssetMaintenanceAt: number | null = null;
@@ -229,8 +229,8 @@ class WorldApiAssetManager {
         } catch {}
         return {
             dir: this.assetCacheDir,
-            maxBytes: this.assetCacheMaxBytes,
-            totalBytes,
+            maxMegabytes: this.assetCacheMaxBytes / 1024 / 1024,
+            totalMegabytes: totalBytes / 1024 / 1024,
             fileCount,
             inFlight: this.assetInFlight.size,
             lastMaintenanceAt: this.lastAssetMaintenanceAt ?? null,

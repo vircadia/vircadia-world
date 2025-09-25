@@ -6,6 +6,12 @@ import "vuetify/styles";
 import "./assets/main.css";
 import { createPinia } from "pinia";
 
+// Buffer polyfill for browser compatibility
+import { Buffer } from "buffer";
+if (typeof window !== "undefined") {
+    (window as any).Buffer = Buffer;
+}
+
 // Vuetify setup
 import { createVuetify } from "vuetify";
 

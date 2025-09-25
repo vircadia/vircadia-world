@@ -19,6 +19,7 @@
         "@babylonjs/loaders": "catalog:babylon",
         "@vircadia/world-sdk": "workspace:*",
         "@vueuse/core": "^13.5.0",
+        "buffer": "^6.0.3",
         "lodash-es": "^4.17.21",
         "pinia": "^3.0.3",
         "vite-plugin-vuetify": "^2.1.1",

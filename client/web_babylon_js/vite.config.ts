@@ -24,6 +24,7 @@ export default defineConfig(({ command }) => {
         define: {
             __APP_VERSION__: JSON.stringify(packageJson.version || "0.0.0"),
             __BUILD_DATE__: JSON.stringify(new Date().toISOString()),
+            global: "globalThis",
         },
         resolve: {
             alias: {
@@ -51,6 +52,7 @@ export default defineConfig(({ command }) => {
             rollupOptions: {},
         },
         optimizeDeps: {
+            include: ["buffer"],
             exclude: [
                 "@babylonjs/havok",
                 "@babylonjs/core/Shaders/default.vertex",

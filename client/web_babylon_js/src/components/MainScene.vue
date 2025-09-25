@@ -1174,21 +1174,22 @@ void BabylonEnvironment;
 void BabylonDoor;
 void clientBrowserConfiguration;
 
-// Handle auth denial from provider by clearing local auth state without server logout
+// Handle auth denial from provider by showing user feedback
 type AuthDeniedPayload = {
     reason: "expired" | "invalid" | "unauthorized" | "authentication_failed";
     message: string;
 };
 function onAuthDenied(payload: AuthDeniedPayload) {
-    console.warn("[MainScene] Auth denied, logging out locally", payload);
-    // Clear local auth state only; do not call server logout
-    localStorage.removeItem("vircadia-account");
-    localStorage.removeItem("vircadia-session-token");
-    localStorage.removeItem("vircadia-session-id");
-    localStorage.removeItem("vircadia-agent-id");
-    localStorage.setItem("vircadia-auth-provider", "anon");
-    localStorage.setItem("vircadia-auth-suppressed", "1");
-    // TODO: show a toast/snackbar using your global notification system
+    console.warn("[MainScene] Auth denied, showing user feedback", payload);
+    // Show a toast/snackbar using your global notification system
+    // The VircadiaWorldProvider already handles clearing auth state and disconnecting
+    // This function now only handles UI feedback for the user
+
+    // For now, just log the message - you can integrate with your notification system here
+    console.log(`Authentication failed: ${payload.message}`);
+
+    // TODO: Replace with actual notification system call
+    // Example: notificationService.error(`Authentication failed: ${payload.message}`);
 }
 void onAuthDenied;
 

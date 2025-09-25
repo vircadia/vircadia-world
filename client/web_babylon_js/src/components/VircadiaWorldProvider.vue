@@ -31,8 +31,8 @@ import {
     Communication,
     VircadiaBrowserClient,
     type WsConnectionCoreInfo,
+    clientBrowserConfiguration,
 } from "@vircadia/world-sdk/browser/vue";
-import { clientBrowserConfiguration } from "../../../../sdk/vircadia-world-sdk-ts/browser/src/config/vircadia.browser.config";
 
 // Strongly type the slot props so consumers don't get `any`
 export type VircadiaWorldInstance = {
@@ -364,9 +364,7 @@ async function connect() {
                     "[VircadiaWorldProvider] Authentication failed:",
                     error,
                 );
-                // Ensure any in-flight connection is closed
-                ensureDisconnected();
-                // Determine a structured reason and notify parent to clear local auth
+                // Determine a structured reason for cleanup
                 let reason:
                     | "expired"
                     | "invalid"
@@ -377,7 +375,9 @@ async function connect() {
                 else if (msg.includes("Invalid session")) reason = "invalid";
                 else if (msg.includes("401") || msg.includes("Unauthorized"))
                     reason = "unauthorized";
-                emit("auth-denied", { reason, message: msg });
+
+                // Handle auth cleanup and emit event for UI feedback
+                handleAuthDenied(reason, msg);
             }
         }
     } finally {
@@ -403,6 +403,30 @@ async function logout() {
         localStorage.setItem("vircadia-auth-provider", "anon");
     } catch {}
     ensureDisconnected();
+}
+
+async function handleAuthDenied(reason: "expired" | "invalid" | "unauthorized" | "authentication_failed", message: string) {
+    console.warn("[VircadiaWorldProvider] Auth denied, clearing local auth state", { reason, message });
+
+    // Clear local auth state - this will automatically trigger UI to show auth provider
+    account.value = null;
+    sessionToken.value = null;
+
+    // Clear localStorage to ensure clean state
+    try {
+        localStorage.setItem("vircadia-auth-suppressed", "1");
+        localStorage.removeItem("vircadia-session-id");
+        localStorage.removeItem("vircadia-agent-id");
+        localStorage.setItem("vircadia-auth-provider", "anon");
+    } catch (error) {
+        console.warn("[VircadiaWorldProvider] Failed to clear localStorage:", error);
+    }
+
+    // Disconnect if connected
+    ensureDisconnected();
+
+    // Emit event for UI feedback (notifications, etc.)
+    emit("auth-denied", { reason, message });
 }
 
 function handleAuthChange() {

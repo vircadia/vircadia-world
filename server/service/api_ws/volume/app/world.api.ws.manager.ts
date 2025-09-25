@@ -247,30 +247,30 @@ export class WorldApiWsManager {
 
                         if (!superUserSql || !proxyUserSql) {
                             const response = Response.json(
-                                Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createSuccess({
-                                    ok: false,
-                                    reason: "DB_UNAVAILABLE",
-                                }),
+                                Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createError(
+                                    Communication.REST.E_ErrorCode.WS_UPGRADE_DB_UNAVAILABLE,
+                                    "Database unavailable",
+                                ),
                             );
                             return this.addCorsHeaders(response, req);
                         }
 
                         if (!token) {
                             const response = Response.json(
-                                Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createSuccess({
-                                    ok: false,
-                                    reason: "MISSING_TOKEN",
-                                }),
+                                Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createError(
+                                    Communication.REST.E_ErrorCode.WS_UPGRADE_MISSING_TOKEN,
+                                    "Missing authentication token",
+                                ),
                             );
                             return this.addCorsHeaders(response, req);
                         }
 
                         if (!provider) {
                             const response = Response.json(
-                                Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createSuccess({
-                                    ok: false,
-                                    reason: "MISSING_PROVIDER",
-                                }),
+                                Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createError(
+                                    Communication.REST.E_ErrorCode.WS_UPGRADE_MISSING_PROVIDER,
+                                    "Missing authentication provider",
+                                ),
                             );
                             return this.addCorsHeaders(response, req);
                         }
@@ -288,29 +288,21 @@ export class WorldApiWsManager {
                                 token,
                             });
                         } catch (e) {
-                            // FIXME: These should all be createError not success.
                             const response = Response.json(
-                                Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createSuccess({
-                                    ok: false,
-                                    reason: "JWT_INVALID",
-                                    details: {
-                                        errorReason:
-                                            e instanceof Error ? e.message : String(e),
-                                    },
-                                }),
+                                Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createError(
+                                    Communication.REST.E_ErrorCode.WS_UPGRADE_JWT_INVALID,
+                                    `JWT validation failed: ${e instanceof Error ? e.message : String(e)}`,
+                                ),
                             );
                             return this.addCorsHeaders(response, req);
                         }
 
                         if (!jwtValidationResult.isValid) {
                             const response = Response.json(
-                                Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createSuccess({
-                                    ok: false,
-                                    reason: "JWT_INVALID",
-                                    details: {
-                                        errorReason: jwtValidationResult.errorReason,
-                                    },
-                                }),
+                                Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createError(
+                                    Communication.REST.E_ErrorCode.WS_UPGRADE_JWT_INVALID,
+                                    jwtValidationResult.errorReason || "JWT validation failed",
+                                ),
                             );
                             return this.addCorsHeaders(response, req);
                         }
@@ -324,25 +316,19 @@ export class WorldApiWsManager {
 
                             if (!sessionValidationResult[0].agent_id) {
                                 const response = Response.json(
-                                    Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createSuccess({
-                                        ok: false,
-                                        reason: "SESSION_INVALID",
-                                        details: {
-                                            sessionId: jwtValidationResult.sessionId,
-                                        },
-                                    }),
+                                    Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createError(
+                                        Communication.REST.E_ErrorCode.WS_UPGRADE_SESSION_INVALID,
+                                        `Invalid session ID: ${jwtValidationResult.sessionId}`,
+                                    ),
                                 );
                                 return this.addCorsHeaders(response, req);
                             }
                         } catch (error) {
                             const response = Response.json(
-                                Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createSuccess({
-                                    ok: false,
-                                    reason: "SESSION_INVALID",
-                                    details: {
-                                        sessionId: jwtValidationResult.sessionId,
-                                    },
-                                }),
+                                Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createError(
+                                    Communication.REST.E_ErrorCode.WS_UPGRADE_SESSION_INVALID,
+                                    `Session validation failed for session ${jwtValidationResult.sessionId}: ${error instanceof Error ? error.message : String(error)}`,
+                                ),
                             );
                             return this.addCorsHeaders(response, req);
                         }
@@ -352,14 +338,10 @@ export class WorldApiWsManager {
                         );
                         if (existingSession) {
                             const response = Response.json(
-                                Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createSuccess({
-                                    ok: false,
-                                    reason: "SESSION_ALREADY_CONNECTED",
-                                    details: {
-                                        agentId: jwtValidationResult.agentId,
-                                        sessionId: jwtValidationResult.sessionId,
-                                    },
-                                }),
+                                Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createError(
+                                    Communication.REST.E_ErrorCode.WS_UPGRADE_SESSION_ALREADY_CONNECTED,
+                                    `Session ${jwtValidationResult.sessionId} is already connected`,
+                                ),
                             );
                             return this.addCorsHeaders(response, req);
                         }
@@ -864,16 +846,16 @@ export class WorldApiWsManager {
                         const parsed = Communication.WebSocket.Z.AnyMessage.safeParse(data);
                         if (!parsed.success) {
                             const requestId = (data as any)?.requestId ?? "";
-                            ws.send(
-                                JSON.stringify(
-                                    new Communication.WebSocket.GeneralErrorResponseMessage(
-                                        {
-                                            error: "Invalid message format",
-                                            requestId,
-                                        },
-                                    ),
-                                ),
-                            );
+                            const errorMessageData = {
+                                type: Communication.WebSocket.MessageType.GENERAL_ERROR_RESPONSE,
+                                timestamp: Date.now(),
+                                requestId,
+                                errorMessage: "Invalid message format",
+                            };
+                            const errorParsed = Communication.WebSocket.Z.GeneralErrorResponse.safeParse(errorMessageData);
+                            if (errorParsed.success) {
+                                ws.send(JSON.stringify(errorParsed.data));
+                            }
                             BunLogModule({
                                 prefix: LOG_PREFIX,
                                 message: "WS message validation failed",
@@ -889,16 +871,16 @@ export class WorldApiWsManager {
                         }
 
                         if (!sessionToken || !sessionId || !session) {
-                            ws.send(
-                                JSON.stringify(
-                                    new Communication.WebSocket.GeneralErrorResponseMessage(
-                                        {
-                                            error: "Invalid session",
-                                            requestId: data.requestId,
-                                        },
-                                    ),
-                                ),
-                            );
+                            const errorMessageData = {
+                                type: Communication.WebSocket.MessageType.GENERAL_ERROR_RESPONSE,
+                                timestamp: Date.now(),
+                                requestId: parsed.data.requestId,
+                                errorMessage: "Invalid session",
+                            };
+                            const errorParsed = Communication.WebSocket.Z.GeneralErrorResponse.safeParse(errorMessageData);
+                            if (errorParsed.success) {
+                                ws.send(JSON.stringify(errorParsed.data));
+                            }
                             ws.close(1000, "Invalid session");
                             BunLogModule({
                                 prefix: LOG_PREFIX,
@@ -907,7 +889,7 @@ export class WorldApiWsManager {
                                 debug: this.DEBUG,
                                 type: "debug",
                                 data: {
-                                    requestId: data.requestId,
+                                    requestId: parsed.data.requestId,
                                     elapsedMs: performance.now() - receivedAt,
                                 },
                             });
@@ -955,19 +937,21 @@ export class WorldApiWsManager {
                                             typedRequest.parameters || [],
                                         );
 
-                                        const response =
-                                            new Communication.WebSocket.QueryResponseMessage(
-                                                {
-                                                    result: results,
-                                                    requestId:
-                                                        typedRequest.requestId,
-                                                    errorMessage:
-                                                        typedRequest.errorMessage,
-                                                },
-                                            );
+                                        const responseData = {
+                                            type: Communication.WebSocket.MessageType.QUERY_RESPONSE,
+                                            timestamp: Date.now(),
+                                            requestId: typedRequest.requestId,
+                                            errorMessage: typedRequest.errorMessage,
+                                            result: results,
+                                        };
+
+                                        const responseParsed = Communication.WebSocket.Z.QueryResponse.safeParse(responseData);
+                                        if (!responseParsed.success) {
+                                            throw new Error(`Invalid query response format: ${responseParsed.error.message}`);
+                                        }
 
                                         const responseString =
-                                            JSON.stringify(response);
+                                            JSON.stringify(responseParsed.data);
                                         responseSize = new TextEncoder().encode(
                                             responseString,
                                         ).length;
@@ -1008,18 +992,21 @@ export class WorldApiWsManager {
                                         },
                                     });
 
-                                    const errorResponse =
-                                        new Communication.WebSocket.QueryResponseMessage(
-                                            {
-                                                requestId:
-                                                    typedRequest.requestId,
-                                                errorMessage,
-                                                result: [],
-                                            },
-                                        );
+                                    const errorResponseData = {
+                                        type: Communication.WebSocket.MessageType.QUERY_RESPONSE,
+                                        timestamp: Date.now(),
+                                        requestId: typedRequest.requestId,
+                                        errorMessage,
+                                        result: [],
+                                    };
+
+                                    const errorResponseParsed = Communication.WebSocket.Z.QueryResponse.safeParse(errorResponseData);
+                                    if (!errorResponseParsed.success) {
+                                        throw new Error(`Invalid error response format: ${errorResponseParsed.error.message}`);
+                                    }
 
                                     const errorResponseString =
-                                        JSON.stringify(errorResponse);
+                                        JSON.stringify(errorResponseParsed.data);
                                     responseSize = new TextEncoder().encode(
                                         errorResponseString,
                                     ).length;
@@ -1076,20 +1063,19 @@ export class WorldApiWsManager {
                                         0, // delivered
                                         false, // acknowledged
                                     );
-                                    ws.send(
-                                        JSON.stringify(
-                                            new Communication.WebSocket.ReflectAckResponseMessage(
-                                                {
-                                                    syncGroup,
-                                                    channel,
-                                                    delivered: 0,
-                                                    requestId: req.requestId,
-                                                    errorMessage:
-                                                        "Missing syncGroup or channel",
-                                                },
-                                            ),
-                                        ),
-                                    );
+                                    const errorAckData = {
+                                        type: Communication.WebSocket.MessageType.REFLECT_ACK_RESPONSE,
+                                        timestamp: Date.now(),
+                                        requestId: req.requestId,
+                                        errorMessage: "Missing syncGroup or channel",
+                                        syncGroup,
+                                        channel,
+                                        delivered: 0,
+                                    };
+                                    const errorAckParsed = Communication.WebSocket.Z.ReflectAckResponse.safeParse(errorAckData);
+                                    if (errorAckParsed.success) {
+                                        ws.send(JSON.stringify(errorAckParsed.data));
+                                    }
                                     BunLogModule({
                                         prefix: LOG_PREFIX,
                                         message: "WS REFLECT_PUBLISH_REQUEST validation failed",
@@ -1122,20 +1108,19 @@ export class WorldApiWsManager {
                                         0, // delivered
                                         false, // acknowledged
                                     );
-                                    ws.send(
-                                        JSON.stringify(
-                                            new Communication.WebSocket.ReflectAckResponseMessage(
-                                                {
-                                                    syncGroup,
-                                                    channel,
-                                                    delivered: 0,
-                                                    requestId: req.requestId,
-                                                    errorMessage:
-                                                        "Not authorized",
-                                                },
-                                            ),
-                                        ),
-                                    );
+                                    const unauthorizedAckData = {
+                                        type: Communication.WebSocket.MessageType.REFLECT_ACK_RESPONSE,
+                                        timestamp: Date.now(),
+                                        requestId: req.requestId,
+                                        errorMessage: "Not authorized",
+                                        syncGroup,
+                                        channel,
+                                        delivered: 0,
+                                    };
+                                    const unauthorizedAckParsed = Communication.WebSocket.Z.ReflectAckResponse.safeParse(unauthorizedAckData);
+                                    if (unauthorizedAckParsed.success) {
+                                        ws.send(JSON.stringify(unauthorizedAckParsed.data));
+                                    }
                                     BunLogModule({
                                         prefix: LOG_PREFIX,
                                         message: "WS REFLECT_PUBLISH_REQUEST unauthorized",
@@ -1153,15 +1138,22 @@ export class WorldApiWsManager {
 
                                 // fanout to all sessions that can read this group
                                 let delivered = 0;
-                                const delivery =
-                                    new Communication.WebSocket.ReflectDeliveryMessage(
-                                        {
-                                            syncGroup,
-                                            channel,
-                                            payload: req.payload,
-                                            fromSessionId: session.sessionId,
-                                        },
-                                    );
+                                const deliveryData = {
+                                    type: Communication.WebSocket.MessageType.REFLECT_MESSAGE_DELIVERY,
+                                    timestamp: Date.now(),
+                                    requestId: "",
+                                    errorMessage: null,
+                                    syncGroup,
+                                    channel,
+                                    payload: req.payload,
+                                    fromSessionId: session.sessionId,
+                                };
+
+                                const deliveryParsed = Communication.WebSocket.Z.ReflectDelivery.safeParse(deliveryData);
+                                if (!deliveryParsed.success) {
+                                    throw new Error(`Invalid delivery message format: ${deliveryParsed.error.message}`);
+                                }
+                                const delivery = deliveryParsed.data;
                                 const payloadStr = JSON.stringify(delivery);
 
                                 for (const [, s] of this.activeSessions) {
@@ -1177,37 +1169,30 @@ export class WorldApiWsManager {
                                     }
                                 }
 
+                                const successAckData = {
+                                    type: Communication.WebSocket.MessageType.REFLECT_ACK_RESPONSE,
+                                    timestamp: Date.now(),
+                                    requestId: req.requestId,
+                                    errorMessage: null,
+                                    syncGroup,
+                                    channel,
+                                    delivered,
+                                };
+
+                                const successAckParsed = Communication.WebSocket.Z.ReflectAckResponse.safeParse(successAckData);
+                                if (!successAckParsed.success) {
+                                    throw new Error(`Invalid success ack format: ${successAckParsed.error.message}`);
+                                }
+
                                 this.recordEndpointMetrics(
                                     "WS_REFLECT_PUBLISH_REQUEST",
                                     startTime,
                                     messageSize,
-                                    new TextEncoder().encode(
-                                        JSON.stringify(
-                                            new Communication.WebSocket.ReflectAckResponseMessage(
-                                                {
-                                                    syncGroup,
-                                                    channel,
-                                                    delivered,
-                                                    requestId: req.requestId,
-                                                },
-                                            ),
-                                        ),
-                                    ).length,
+                                    new TextEncoder().encode(JSON.stringify(successAckParsed.data)).length,
                                     delivered > 0, // success
                                 );
 
-                                ws.send(
-                                    JSON.stringify(
-                                        new Communication.WebSocket.ReflectAckResponseMessage(
-                                            {
-                                                syncGroup,
-                                                channel,
-                                                delivered,
-                                                requestId: req.requestId,
-                                            },
-                                        ),
-                                    ),
-                                );
+                                ws.send(JSON.stringify(successAckParsed.data));
                                 BunLogModule({
                                     prefix: LOG_PREFIX,
                                     message: "WS REFLECT_PUBLISH_REQUEST fanout complete",
@@ -1226,16 +1211,16 @@ export class WorldApiWsManager {
 
 
                             default: {
-                                session.ws.send(
-                                    JSON.stringify(
-                                        new Communication.WebSocket.GeneralErrorResponseMessage(
-                                            {
-                                                error: `Unsupported message type: ${data.type}`,
-                                                requestId: data.requestId,
-                                            },
-                                        ),
-                                    ),
-                                );
+                                const unsupportedErrorData = {
+                                    type: Communication.WebSocket.MessageType.GENERAL_ERROR_RESPONSE,
+                                    timestamp: Date.now(),
+                                    requestId: parsed.data.requestId,
+                                    errorMessage: `Unsupported message type: ${parsed.data.type}`,
+                                };
+                                const unsupportedErrorParsed = Communication.WebSocket.Z.GeneralErrorResponse.safeParse(unsupportedErrorData);
+                                if (unsupportedErrorParsed.success) {
+                                    session.ws.send(JSON.stringify(unsupportedErrorParsed.data));
+                                }
                                 BunLogModule({
                                     prefix: LOG_PREFIX,
                                     message: "WS unsupported message type",
@@ -1243,8 +1228,8 @@ export class WorldApiWsManager {
                                     suppress: this.SUPPRESS,
                                     type: "debug",
                                     data: {
-                                        type: data.type,
-                                        requestId: data.requestId,
+                                        type: parsed.data.type,
+                                        requestId: parsed.data.requestId,
                                         durationMs: performance.now() - receivedAt,
                                     },
                                 });
@@ -1311,14 +1296,19 @@ export class WorldApiWsManager {
                     void this.warmAgentAcl(sessionData.agentId).catch(() => {});
 
                     // Send session info to client via WebSocket using typed message
-                    ws.send(
-                        JSON.stringify(
-                            new Communication.WebSocket.SessionInfoMessage({
-                                agentId: sessionData.agentId,
-                                sessionId: sessionData.sessionId,
-                            }),
-                        ),
-                    );
+                    const sessionInfoData = {
+                        type: Communication.WebSocket.MessageType.SESSION_INFO_RESPONSE,
+                        timestamp: Date.now(),
+                        requestId: "",
+                        errorMessage: null,
+                        agentId: sessionData.agentId,
+                        sessionId: sessionData.sessionId,
+                    };
+
+                    const sessionInfoParsed = Communication.WebSocket.Z.SessionInfo.safeParse(sessionInfoData);
+                    if (sessionInfoParsed.success) {
+                        ws.send(JSON.stringify(sessionInfoParsed.data));
+                    }
                 },
                 close: (
                     ws: ServerWebSocket<WebSocketData>,

@@ -368,10 +368,18 @@ class WorldApiAssetManager {
                                 const requestSize = new TextEncoder().encode(url.toString()).length;
                                 const qp = Object.fromEntries(url.searchParams.entries());
                                 const parsed = Communication.REST.Z.AssetGetByKeyQuery.safeParse(qp);
-                                const key = parsed.success ? (parsed.data as any).key : null;
-                                const token = parsed.success ? (parsed.data as any).token : undefined;
-                                const provider = parsed.success ? (parsed.data as any).provider : undefined;
-                                const sessionIdFromQuery = parsed.success ? (parsed.data as any).sessionId : undefined;
+                                if (!parsed.success) {
+                                    return this.createJsonResponse(
+                                        Communication.REST.Endpoint.ASSET_GET_BY_KEY.createError("Invalid query parameters"),
+                                        req,
+                                        400,
+                                    );
+                                }
+                                const queryData = parsed.data;
+                                const key = queryData.key;
+                                const token = queryData.token;
+                                const provider = queryData.provider;
+                                const sessionIdFromQuery = queryData.sessionId;
 
                                 BunLogModule({
                                     prefix: LOG_PREFIX,

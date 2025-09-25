@@ -37,7 +37,7 @@
             </template>
           </v-tooltip>
 
-          <v-tooltip text="Audio being received">
+          <v-tooltip :text="`Audio being received (Level: ${receivingAudioLevel.toFixed(1)}%)`">
             <template v-slot:activator="{ props }">
               <v-icon
                 v-bind="props"
@@ -47,6 +47,24 @@
               >
                 {{ isReceivingAudio ? 'mdi-volume-high' : 'mdi-volume-off' }}
               </v-icon>
+            </template>
+          </v-tooltip>
+
+          <!-- Audio Level Indicator -->
+          <v-tooltip text="Audio level indicator">
+            <template v-slot:activator="{ props }">
+              <v-progress-circular
+                v-bind="props"
+                size="20"
+                width="3"
+                :value="receivingAudioLevel"
+                :color="audioLevelColor"
+                class="ml-1"
+              >
+                <v-icon size="10" :color="audioLevelColor">
+                  {{ receivingAudioLevel > 50 ? 'mdi-volume-high' : receivingAudioLevel > 25 ? 'mdi-volume-medium' : 'mdi-volume-low' }}
+                </v-icon>
+              </v-progress-circular>
             </template>
           </v-tooltip>
 
@@ -87,8 +105,8 @@
         
         <v-list-item>
           <v-list-item-title class="text-caption">
-            Signaling State: 
-            <v-chip size="x-small">
+            Signaling State:
+            <v-chip size="x-small" :color="signalingStateColor">
               {{ peer.pc.signalingState }}
             </v-chip>
           </v-list-item-title>
@@ -171,6 +189,37 @@
             >
               {{ (isSendingAudio && isReceivingAudio) ? 'Bidirectional' : 'One-way' }}
             </v-chip>
+          </v-list-item-title>
+        </v-list-item>
+
+        <!-- Audio Level Information -->
+        <v-list-item>
+          <v-list-item-title class="text-caption">
+            <strong>Audio Levels:</strong>
+            <div class="d-flex align-center ml-2 mt-1">
+              <span class="text-caption mr-2">Receiving:</span>
+              <v-progress-linear
+                :value="receivingAudioLevel"
+                :color="audioLevelColor"
+                height="8"
+                rounded
+                style="min-width: 100px"
+                class="mr-2"
+              />
+              <span class="text-caption">{{ receivingAudioLevel.toFixed(1) }}%</span>
+            </div>
+            <div class="d-flex align-center ml-2 mt-1" v-if="audioAnalyserData">
+              <span class="text-caption mr-2">RMS:</span>
+              <v-progress-linear
+                :value="audioAnalyserData.rmsLevel"
+                :color="audioAnalyserData.rmsLevel > 50 ? 'success' : 'warning'"
+                height="6"
+                rounded
+                style="min-width: 100px"
+                class="mr-2"
+              />
+              <span class="text-caption">{{ audioAnalyserData.rmsLevel.toFixed(1) }}%</span>
+            </div>
           </v-list-item-title>
         </v-list-item>
 
@@ -274,6 +323,15 @@ const localVolume = ref(props.volume ?? 100);
 const isDisconnecting = ref(false);
 const connectionCreatedTime = ref(Date.now());
 const sentIceCandidates = ref(0);
+const receivingAudioLevel = ref(0);
+const currentTime = ref(Date.now());
+const audioAnalyserData = ref<{
+  rmsLevel: number;
+  peakLevel: number;
+  analyser: AnalyserNode;
+  source: MediaStreamAudioSourceNode;
+} | null>(null);
+const audioAnalysisInterval = ref<ReturnType<typeof setInterval> | null>(null);
 
 // Computed properties
 const displayName = computed(() => {
@@ -338,15 +396,32 @@ const connectionStateColor = computed(() => {
 const iceStateColor = computed(() => {
   const state = props.peer.pc.iceConnectionState;
   switch (state) {
-    case 'connected': 
-    case 'completed': 
+    case 'connected':
+    case 'completed':
       return 'success';
-    case 'checking': 
+    case 'checking':
       return 'warning';
     case 'disconnected':
     case 'failed':
       return 'error';
-    default: 
+    default:
+      return 'grey';
+  }
+});
+
+const signalingStateColor = computed(() => {
+  const state = props.peer.pc.signalingState;
+  switch (state) {
+    case 'stable':
+      return 'success';
+    case 'have-local-offer':
+    case 'have-remote-offer':
+    case 'have-local-pranswer':
+    case 'have-remote-pranswer':
+      return 'warning';
+    case 'closed':
+      return 'error';
+    default:
       return 'grey';
   }
 });
@@ -362,7 +437,7 @@ const distance = computed(() => {
 });
 
 const connectionAge = computed(() => {
-  return Math.floor((Date.now() - connectionCreatedTime.value) / 1000);
+  return Math.floor((currentTime.value - connectionCreatedTime.value) / 1000);
 });
 
 // Audio state computed properties
@@ -422,10 +497,108 @@ const connectionQualityText = computed(() => {
   return `ICE: ${iceState}${audioText}`;
 });
 
+const audioLevelColor = computed(() => {
+  if (receivingAudioLevel.value < 10) return 'grey';
+  if (receivingAudioLevel.value < 25) return 'success';
+  if (receivingAudioLevel.value < 50) return 'warning';
+  return 'error';
+});
+
 // Methods
 function updateVolume(value: number) {
   localVolume.value = value;
   emit('volumeChange', value);
+}
+
+// Setup audio analysis for received audio
+function setupAudioAnalysis(stream: MediaStream) {
+  try {
+    // Create audio context if not available
+    const audioContext = new AudioContext();
+
+    // Create analyser node
+    const analyser = audioContext.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.8;
+
+    // Create source from stream
+    const source = audioContext.createMediaStreamSource(stream);
+
+    // Connect source to analyser
+    source.connect(analyser);
+
+    // Store analyser data
+    audioAnalyserData.value = {
+      analyser,
+      source,
+      rmsLevel: 0,
+      peakLevel: 0
+    };
+
+    // Start analysis loop
+    startAudioAnalysis();
+
+    console.log(`[WebRTC Audio Debug] Started audio analysis for peer ${props.peerId}`);
+  } catch (err) {
+    console.error(`[WebRTC Audio Debug] Failed to setup audio analysis:`, err);
+  }
+}
+
+// Start audio level analysis loop
+function startAudioAnalysis() {
+  if (audioAnalysisInterval.value) {
+    clearInterval(audioAnalysisInterval.value);
+  }
+
+  audioAnalysisInterval.value = setInterval(() => {
+    if (!audioAnalyserData.value) return;
+
+    const { analyser } = audioAnalyserData.value;
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+
+    analyser.getByteFrequencyData(dataArray);
+
+    // Calculate RMS (Root Mean Square) for overall volume
+    let sum = 0;
+    for (let i = 0; i < bufferLength; i++) {
+      sum += (dataArray[i] / 255) ** 2;
+    }
+    const rms = Math.sqrt(sum / bufferLength);
+    const rmsLevel = Math.min(rms * 100 * 2, 100); // Scale and clamp to 0-100
+
+    // Calculate peak level
+    const peakLevel = Math.min((Math.max(...dataArray) / 255) * 100, 100);
+
+    // Update reactive values
+    receivingAudioLevel.value = rmsLevel;
+    audioAnalyserData.value.rmsLevel = rmsLevel;
+    audioAnalyserData.value.peakLevel = peakLevel;
+
+    // Update audio state if we detect audio
+    if (rmsLevel > 5 && !isReceivingAudio.value) {
+      // Audio detected, might need to trigger re-render
+      console.log(`[WebRTC Audio Debug] Audio detected: ${rmsLevel.toFixed(1)}% RMS`);
+    }
+
+  }, 100); // Update every 100ms
+}
+
+// Stop audio analysis
+function stopAudioAnalysis() {
+  if (audioAnalysisInterval.value) {
+    clearInterval(audioAnalysisInterval.value);
+    audioAnalysisInterval.value = null;
+  }
+
+  if (audioAnalyserData.value) {
+    audioAnalyserData.value.source.disconnect();
+    audioAnalyserData.value.analyser.disconnect();
+    audioAnalyserData.value = null;
+  }
+
+  receivingAudioLevel.value = 0;
+  console.log(`[WebRTC Audio Debug] Stopped audio analysis for peer ${props.peerId}`);
 }
 
 function setupDebugTracking() {
@@ -472,21 +645,47 @@ watch(() => props.volume, (newVolume) => {
 });
 
 // Handle spatial audio node when remote stream is available
-watch(() => props.peer.remoteStream, (stream) => {
-  if (stream && !props.spatialAudioNode) {
-    // Parent component should handle spatial audio node creation
-    // We just notify that we need one
-    emit('spatialNodeCreated', new Audio());
+watch(() => props.peer.remoteStream, (stream, oldStream) => {
+  // Stop analysis on old stream
+  if (oldStream) {
+    stopAudioAnalysis();
+  }
+
+  // Start analysis on new stream
+  if (stream) {
+    setupAudioAnalysis(stream);
+
+    if (!props.spatialAudioNode) {
+      // Parent component should handle spatial audio node creation
+      // We just notify that we need one
+      emit('spatialNodeCreated', new Audio());
+    }
   }
 });
+
+// Timer for updating current time
+let timeUpdateInterval: ReturnType<typeof setInterval> | null = null;
 
 // Setup debug tracking
 onMounted(() => {
   setupDebugTracking();
+  
+  // Update current time every second for reactive connection age
+  timeUpdateInterval = setInterval(() => {
+    currentTime.value = Date.now();
+  }, 1000);
 });
 
 // Cleanup
 onUnmounted(() => {
+  // Stop audio analysis
+  stopAudioAnalysis();
+  
+  // Clear time update interval
+  if (timeUpdateInterval) {
+    clearInterval(timeUpdateInterval);
+  }
+
   if (props.spatialAudioNode) {
     emit('spatialNodeRemoved');
   }

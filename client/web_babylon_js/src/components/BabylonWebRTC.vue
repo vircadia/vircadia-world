@@ -169,6 +169,35 @@
             <v-row dense class="mt-2">
               <v-col cols="6">
                 <v-list-item-title class="text-caption">
+                  <strong>Reconnection:</strong>
+                  <v-chip
+                    :color="reflectApi.isReconnecting.value ? 'warning' : 'success'"
+                    size="x-small"
+                    variant="flat"
+                    class="ml-1"
+                  >
+                    {{ reflectApi.isReconnecting.value ? `Attempt ${reflectApi.reconnectAttempts.value}` : 'Ready' }}
+                  </v-chip>
+                </v-list-item-title>
+              </v-col>
+              <v-col cols="6">
+                <v-list-item-title class="text-caption">
+                  <strong>Queued Messages:</strong>
+                  <v-chip
+                    :color="reflectApi.messageQueueSize.value > 0 ? 'warning' : 'success'"
+                    size="x-small"
+                    variant="flat"
+                    class="ml-1"
+                  >
+                    {{ reflectApi.messageQueueSize.value }}
+                  </v-chip>
+                </v-list-item-title>
+              </v-col>
+            </v-row>
+
+            <v-row dense class="mt-2">
+              <v-col cols="6">
+                <v-list-item-title class="text-caption">
                   <strong>Last Debug Test:</strong>
                 </v-list-item-title>
                 <div class="text-caption text-grey">
@@ -383,6 +412,81 @@
             </v-row>
 
             <v-row dense class="mt-2">
+              <v-col cols="6">
+                <v-btn
+                  size="small"
+                  variant="outlined"
+                  @click="forceReconnectToSelectedPeer"
+                  :disabled="!debugTestPeerId || connectingPeers.has(debugTestPeerId)"
+                  block
+                >
+                  Force Reconnect
+                </v-btn>
+              </v-col>
+              <v-col cols="6">
+                <v-btn
+                  size="small"
+                  variant="outlined"
+                  @click="refreshConnections"
+                  :loading="isRefreshing"
+                  block
+                >
+                  Refresh All
+                </v-btn>
+              </v-col>
+            </v-row>
+
+            <v-row dense class="mt-2">
+              <v-col cols="6">
+                <v-btn
+                  size="small"
+                  variant="outlined"
+                  @click="fixStuckConnections"
+                  :disabled="peers.size === 0"
+                  block
+                >
+                  Fix Stuck Connections
+                </v-btn>
+              </v-col>
+              <v-col cols="6">
+                <v-btn
+                  size="small"
+                  variant="outlined"
+                  @click="checkNegotiationState"
+                  :disabled="peers.size === 0"
+                  block
+                >
+                  Check Negotiation
+                </v-btn>
+              </v-col>
+            </v-row>
+
+            <v-row dense class="mt-2">
+              <v-col cols="6">
+                <v-btn
+                  size="small"
+                  variant="outlined"
+                  @click="checkIceCandidateIssues"
+                  :disabled="peers.size === 0"
+                  block
+                >
+                  Check ICE Issues
+                </v-btn>
+              </v-col>
+              <v-col cols="6">
+                <v-btn
+                  size="small"
+                  variant="outlined"
+                  @click="checkAndRecoverAudioConnections"
+                  :disabled="peers.size === 0"
+                  block
+                >
+                  Fix Audio
+                </v-btn>
+              </v-col>
+            </v-row>
+
+            <v-row dense class="mt-2">
               <v-col cols="12">
                 <v-text-field
                   v-model="debugTestPeerId"
@@ -495,6 +599,16 @@ const peerVolumes = ref<Map<string, number>>(new Map());
 const spatialAudioNodes = ref<Map<string, HTMLAudioElement>>(new Map());
 const connectingPeers = ref<Set<string>>(new Set());
 const isRefreshing = ref(false);
+const registeredMessageHandlers = ref<Set<string>>(new Set());
+
+// Connection recovery state
+const peerRecoveryAttempts = ref<Map<string, number>>(new Map());
+const peerRecoveryTimeouts = ref<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+const maxRecoveryAttempts = 3;
+const recoveryBackoffMs = [1000, 2000, 5000]; // Progressive backoff
+
+// Negotiation state tracking
+// REMOVED: negotiationTimeouts - not needed with perfect negotiation
 
 // Debug state
 const debugMode = ref(false);
@@ -509,38 +623,77 @@ const debugTestTimestamp = ref<number>(0);
 const networkStatus = ref<'unknown' | 'online' | 'offline'>('unknown');
 const audioContextResumed = ref(false);
 
-// WebRTC configuration
+// WebRTC configuration with TURN servers for NAT traversal
 const rtcConfig: RTCConfiguration = {
     iceServers: [
+        // STUN servers for basic connectivity
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun2.l.google.com:19302' },
         { urls: 'stun:stun3.l.google.com:19302' },
         { urls: 'stun:stun4.l.google.com:19302' },
-        // Add a fallback STUN server
         { urls: 'stun:stun.services.mozilla.com' },
+        // Add TURN servers if available (replace with your actual TURN server URLs)
+        // { urls: 'turn:your-turn-server.com:3478', username: 'user', credential: 'pass' },
+        // { urls: 'turn:your-turn-server.com:3478?transport=tcp', username: 'user', credential: 'pass' },
     ],
     iceCandidatePoolSize: 10,
+    iceTransportPolicy: 'all', // Try all candidates, not just relay
+    bundlePolicy: 'max-bundle',
+    rtcpMuxPolicy: 'require',
 };
 
 // Add ICE candidate debugging
 function setupIceCandidateDebugging(peerId: string, pc: RTCPeerConnection) {
     let candidateCount = 0;
+    let localCandidates: RTCIceCandidate[] = [];
+    let remoteCandidates: RTCIceCandidate[] = [];
 
     // Override the onicecandidate handler to add debugging
     const originalHandler = pc.onicecandidate;
     pc.onicecandidate = (event) => {
         if (event.candidate) {
             candidateCount++;
+            localCandidates.push(event.candidate);
+
             console.log(`[WebRTC ICE] ${peerId}: ICE candidate ${candidateCount}:`, {
                 type: event.candidate.type,
                 protocol: event.candidate.protocol,
                 address: event.candidate.address,
                 port: event.candidate.port,
-                candidate: event.candidate.candidate
+                candidate: event.candidate.candidate,
+                foundation: event.candidate.foundation,
+                priority: event.candidate.priority,
+                component: event.candidate.component
             });
+
+            // Log detailed candidate info
+            if (event.candidate.type === 'srflx') {
+                console.log(`[WebRTC ICE] ${peerId}: Server-reflexive candidate found - this is good for NAT traversal`);
+            } else if (event.candidate.type === 'relay') {
+                console.log(`[WebRTC ICE] ${peerId}: Relay candidate found - using TURN server`);
+            } else if (event.candidate.type === 'host') {
+                console.log(`[WebRTC ICE] ${peerId}: Host candidate found - direct connection`);
+            }
         } else {
             console.log(`[WebRTC ICE] ${peerId}: ICE candidate gathering completed. Total candidates: ${candidateCount}`);
+            console.log(`[WebRTC ICE] ${peerId}: Candidate summary:`, {
+                total: candidateCount,
+                host: localCandidates.filter(c => c.type === 'host').length,
+                srflx: localCandidates.filter(c => c.type === 'srflx').length,
+                relay: localCandidates.filter(c => c.type === 'relay').length,
+                prflx: localCandidates.filter(c => c.type === 'prflx').length
+            });
+
+            // Warn if no candidates found
+            if (candidateCount === 0) {
+                console.warn(`[WebRTC ICE] ${peerId}: NO ICE CANDIDATES GENERATED! This indicates a serious connectivity issue.`);
+                console.warn(`[WebRTC ICE] ${peerId}: Possible causes: `);
+                console.warn(`  - Network interface issues`);
+                console.warn(`  - Firewall blocking STUN/TURN`);
+                console.warn(`  - WebRTC not properly initialized`);
+                console.warn(`  - Browser security restrictions`);
+            }
         }
 
         // Call original handler if it exists
@@ -551,15 +704,23 @@ function setupIceCandidateDebugging(peerId: string, pc: RTCPeerConnection) {
 
     // Monitor ICE gathering state changes
     pc.onicegatheringstatechange = () => {
-        console.log(`[WebRTC ICE] ${peerId}: ICE gathering state changed to: ${pc.iceGatheringState}`);
+        console.log(`[WebRTC ICE] ${peerId}: ICE gathering state changed to: ${pc.iceGatheringState} (${candidateCount} candidates so far)`);
+
+        if (pc.iceGatheringState === 'complete' && candidateCount === 0) {
+            console.error(`[WebRTC ICE] ${peerId}: ICE gathering completed with 0 candidates!`);
+        }
     };
 
     // Monitor ICE connection state changes
     pc.oniceconnectionstatechange = () => {
-        console.log(`[WebRTC ICE] ${peerId}: ICE connection state changed to: ${pc.iceConnectionState}`);
+        console.log(`[WebRTC ICE] ${peerId}: ICE connection state changed to: ${pc.iceConnectionState} (${candidateCount} local candidates)`);
+
+        if (pc.iceConnectionState === 'failed' && candidateCount === 0) {
+            console.error(`[WebRTC ICE] ${peerId}: ICE connection failed with no candidates - this is a critical issue`);
+        }
     };
 
-    return candidateCount;
+    return { candidateCount, localCandidates, remoteCandidates };
 }
 
 // Initialize Reflect API for WebRTC signaling
@@ -732,45 +893,83 @@ async function initialize() {
 
 // Start automatic peer discovery
 function startPeerDiscovery() {
-    // Watch for discovered peers
-    watch(reflectApi.discoveredPeers, (discovered) => {
+    // Watch for discovered peers with immediate execution
+    watch(() => reflectApi.discoveredPeers.value, (discovered) => {
+        console.log('[WebRTC] Peer discovery update:', discovered.length, 'peers discovered');
+
         // Auto-connect to new peers
         for (const peerId of discovered) {
             if (!peers.value.has(peerId) && !connectingPeers.value.has(peerId)) {
+                console.log(`[WebRTC] Attempting to connect to discovered peer: ${peerId}`);
                 connectToPeer(peerId);
             }
         }
-        
-        // Clean up disconnected peers
-        for (const [peerId] of peers.value) {
+
+        // Clean up disconnected peers - only remove if they're not announcing AND connection is failed/closed
+        for (const [peerId] of [...peers.value.keys()]) {
             if (!discovered.includes(peerId)) {
-                // Peer is no longer announcing, might be disconnected
-                // But don't immediately disconnect - wait for ICE failure
+                console.log(`[WebRTC] Peer ${peerId} is no longer announcing, checking connection state...`);
+                const peer = peers.value.get(peerId);
+                if (peer && (peer.pc.connectionState === 'failed' || peer.pc.connectionState === 'closed')) {
+                    console.log(`[WebRTC] Removing failed/closed peer: ${peerId}`);
+                    disconnectFromPeer(peerId);
+                } else if (peer) {
+                    console.log(`[WebRTC] Peer ${peerId} still has active connection (${peer.pc.connectionState}), keeping`);
+                }
             }
         }
-    });
+
+        // Clean up stale message handlers for peers that are truly gone
+        cleanupStaleMessageHandlers(discovered);
+    }, { immediate: true });
+}
+
+// Clean up message handlers for peers that are no longer announcing and not connected
+function cleanupStaleMessageHandlers(discoveredPeers: string[]) {
+    // Get all currently registered message handlers from our local tracking
+    for (const handlerPeerId of registeredMessageHandlers.value) {
+        // Skip if peer is currently connected
+        if (peers.value.has(handlerPeerId)) {
+            continue;
+        }
+
+        // Skip if peer is still announcing
+        if (discoveredPeers.includes(handlerPeerId)) {
+            continue;
+        }
+
+        // Skip if peer is currently connecting
+        if (connectingPeers.value.has(handlerPeerId)) {
+            continue;
+        }
+
+        // If we reach here, the peer is not connected, not announcing, and not connecting
+        // This means they're truly gone, so we can safely remove the message handler
+        console.log(`[WebRTC] Cleaning up stale message handler for ${handlerPeerId}`);
+        reflectApi.unregisterMessageHandler(handlerPeerId);
+        registeredMessageHandlers.value.delete(handlerPeerId);
+    }
 }
 
 // Connect to a peer
 async function connectToPeer(remoteSessionId: string) {
-    if (!fullSessionId.value || peers.value.has(remoteSessionId)) {
+    if (!fullSessionId.value) {
         return;
     }
-    
+
+    // If we already have a connection, don't create another one
+    if (peers.value.has(remoteSessionId)) {
+        console.log(`[WebRTC] Already have connection to peer ${remoteSessionId}, skipping`);
+        return;
+    }
+
     connectingPeers.value.add(remoteSessionId);
-    
+
     try {
         console.log(`[WebRTC] Connecting to peer: ${remoteSessionId}`);
-        
+
         const pc = new RTCPeerConnection(rtcConfig);
-        
-        // Add local stream
-        if (localStream.value) {
-            for (const track of localStream.value.getTracks()) {
-                pc.addTrack(track, localStream.value);
-            }
-        }
-        
+
         // Create peer info
         const peerInfo: PeerInfo = {
             pc,
@@ -782,27 +981,37 @@ async function connectToPeer(remoteSessionId: string) {
             ignoreOffer: false,
             isSettingRemoteAnswerPending: false,
         };
-        
-        peers.value.set(remoteSessionId, peerInfo);
-        
-        // Set up ICE candidate debugging
-        setupIceCandidateDebugging(remoteSessionId, pc);
 
-        // Set up perfect negotiation
+        peers.value.set(remoteSessionId, peerInfo);
+
+        // Set up ICE candidate debugging
+        const iceDebugData = setupIceCandidateDebugging(remoteSessionId, pc);
+
+        // Log initial setup
+        console.log(`[WebRTC ICE] ${remoteSessionId}: ICE debugging initialized`, {
+            candidateCount: iceDebugData.candidateCount,
+            iceServers: rtcConfig.iceServers?.length || 0
+        });
+
+        // Set up perfect negotiation BEFORE adding tracks
         setupPerfectNegotiation(remoteSessionId, pc, peerInfo);
 
-        // Register message handler for this peer
+        // Register message handler BEFORE adding tracks
         reflectApi.registerMessageHandler(remoteSessionId, (msg) => {
             handlePeerMessage(remoteSessionId, msg);
         });
-        
-        // If we're polite, wait for offer. Otherwise, create offer.
-        if (!peerInfo.polite) {
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            await reflectApi.sendOffer(remoteSessionId, offer.sdp!);
+        registeredMessageHandlers.value.add(remoteSessionId);
+
+        // Add local stream AFTER setting up negotiation and message handlers
+        // This ensures offers can be sent when onnegotiationneeded fires
+        if (localStream.value) {
+            for (const track of localStream.value.getTracks()) {
+                pc.addTrack(track, localStream.value);
+            }
         }
-        
+
+        console.log(`[WebRTC] Connection setup completed for ${remoteSessionId}`);
+
     } catch (err) {
         console.error(`[WebRTC] Failed to connect to peer ${remoteSessionId}:`, err);
         peers.value.delete(remoteSessionId);
@@ -817,18 +1026,33 @@ function setupPerfectNegotiation(
     pc: RTCPeerConnection,
     peerInfo: PeerInfo
 ) {
-    // Handle negotiation needed
+    // Handle negotiation needed - following perfect negotiation pattern
     pc.onnegotiationneeded = async () => {
         try {
+            console.log(`[WebRTC] Negotiation needed for ${remoteSessionId}, current state:`, {
+                signalingState: pc.signalingState,
+                iceState: pc.iceConnectionState,
+                polite: peerInfo.polite,
+                isInitialized: reflectApi.isInitialized.value,
+                hasMessageHandler: registeredMessageHandlers.value.has(remoteSessionId)
+            });
+
+            // Set makingOffer immediately before setLocalDescription to prevent races
             peerInfo.makingOffer = true;
-            const offer = await pc.createOffer();
-            if (pc.signalingState !== 'stable') return;
-            await pc.setLocalDescription(offer);
-            await reflectApi.sendOffer(remoteSessionId, offer.sdp!);
+            await pc.setLocalDescription(); // Let WebRTC create the appropriate offer
+            peerInfo.makingOffer = false; // Reset immediately after setLocalDescription
+            
+            console.log(`[WebRTC] Created ${pc.localDescription?.type} for ${remoteSessionId}, sending...`);
+            
+            // Send the offer through signaling
+            await reflectApi.sendOffer(remoteSessionId, pc.localDescription!.sdp).catch((err: unknown) => {
+                console.error(`[WebRTC] Failed to send offer to ${remoteSessionId}:`, err);
+            });
+
+            console.log(`[WebRTC] Sent offer to ${remoteSessionId}`);
         } catch (err) {
             console.error('[WebRTC] Negotiation failed:', err);
-        } finally {
-            peerInfo.makingOffer = false;
+            peerInfo.makingOffer = false; // Ensure flag is reset on error
         }
     };
     
@@ -864,13 +1088,37 @@ function setupPerfectNegotiation(
         });
     };
     
-    // Handle connection state changes
+    // Connection state monitoring - simplified for perfect negotiation
     pc.onconnectionstatechange = () => {
-        console.log(`[WebRTC] Peer ${remoteSessionId} connection state: ${pc.connectionState}`);
-        
-        if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
-            disconnectFromPeer(remoteSessionId);
+        console.log(`[WebRTC] Peer ${remoteSessionId} connection state: ${pc.connectionState} (ICE: ${pc.iceConnectionState})`);
+
+        switch (pc.connectionState) {
+            case 'connected':
+                // Clear any recovery attempts on successful connection
+                peerRecoveryAttempts.value.delete(remoteSessionId);
+                console.log(`[WebRTC] Peer ${remoteSessionId} successfully connected`);
+                break;
+
+            case 'failed':
+                console.log(`[WebRTC] Connection failed for ${remoteSessionId}`);
+                // With perfect negotiation, peer discovery will handle reconnection
+                // Clean disconnect to avoid complex recovery that can interfere
+                disconnectFromPeer(remoteSessionId);
+                break;
+
+            case 'closed':
+                console.log(`[WebRTC] Peer ${remoteSessionId} connection closed`);
+                disconnectFromPeer(remoteSessionId);
+                break;
         }
+    };
+
+    // ICE connection state monitoring - simplified for perfect negotiation
+    pc.oniceconnectionstatechange = () => {
+        console.log(`[WebRTC] Peer ${remoteSessionId} ICE connection state: ${pc.iceConnectionState}`);
+        
+        // For perfect negotiation, we rely on the connection state handler
+        // and avoid complex ICE restart logic that can interfere
     };
 }
 
@@ -879,42 +1127,96 @@ async function handlePeerMessage(
     remoteSessionId: string,
     msg: WebRTCReflectMessage
 ) {
-    const peerInfo = peers.value.get(remoteSessionId);
-    if (!peerInfo) return;
+    console.log(`[WebRTC] Received message from ${remoteSessionId}:`, {
+        type: msg.type,
+        hasPeerInfo: peers.value.has(remoteSessionId)
+    });
     
+    let peerInfo = peers.value.get(remoteSessionId);
+
+    // If we don't have a peer connection but received a message, try to create one
+    if (!peerInfo) {
+        console.log(`[WebRTC] Received ${msg.type} from ${remoteSessionId} but no active connection. Attempting to reconnect...`);
+
+        // Check if this peer is in discovered peers (they're announcing presence)
+        if (reflectApi.discoveredPeers.value.includes(remoteSessionId) && !connectingPeers.value.has(remoteSessionId)) {
+            console.log(`[WebRTC] Peer ${remoteSessionId} is discovered and announcing, creating new connection...`);
+            await connectToPeer(remoteSessionId);
+            peerInfo = peers.value.get(remoteSessionId);
+
+            if (!peerInfo) {
+                console.log(`[WebRTC] Failed to create connection for ${remoteSessionId}`);
+                return;
+            }
+        } else {
+            console.log(`[WebRTC] Ignoring ${msg.type} from ${remoteSessionId} - peer not discovered or already connecting`);
+            return;
+        }
+    }
+
     const pc = peerInfo.pc;
-    
+
     try {
         switch (msg.type) {
             case 'offer': {
-                const offerCollision = 
-                    (peerInfo.makingOffer || pc.signalingState !== 'stable');
-                    
+                console.log(`[WebRTC] Received offer from ${remoteSessionId}, current state:`, {
+                    signalingState: pc.signalingState,
+                    iceState: pc.iceConnectionState,
+                    polite: peerInfo.polite
+                });
+
+                // Perfect negotiation collision detection
+                const readyForOffer = !peerInfo.makingOffer && 
+                    (pc.signalingState === 'stable' || peerInfo.isSettingRemoteAnswerPending);
+                const offerCollision = !!msg.payload.sdp && !readyForOffer;
+
                 peerInfo.ignoreOffer = !peerInfo.polite && offerCollision;
-                if (peerInfo.ignoreOffer) return;
-                
-                peerInfo.isSettingRemoteAnswerPending = false;
+                if (peerInfo.ignoreOffer) {
+                    console.log(`[WebRTC] Ignoring offer due to collision (impolite peer)`);
+                    return;
+                }
+
+                // Set the remote description
                 await pc.setRemoteDescription({ type: 'offer', sdp: msg.payload.sdp as string });
-                peerInfo.isSettingRemoteAnswerPending = false;
-                
-                const answer = await pc.createAnswer();
-                await pc.setLocalDescription(answer);
-                await reflectApi.sendAnswer(remoteSessionId, answer.sdp!);
+
+                // Create and send answer using simplified pattern
+                await pc.setLocalDescription(); // Let WebRTC create the answer
+                await reflectApi.sendAnswer(remoteSessionId, pc.localDescription!.sdp).catch((err: unknown) => {
+                    console.error(`[WebRTC] Failed to send answer to ${remoteSessionId}:`, err);
+                });
+
+                console.log(`[WebRTC] Sent answer to ${remoteSessionId}`);
                 break;
             }
             
             case 'answer': {
+                console.log(`[WebRTC] Received answer from ${remoteSessionId}, current state:`, {
+                    signalingState: pc.signalingState,
+                    iceState: pc.iceConnectionState,
+                    connectionState: pc.connectionState
+                });
+
+                // Mark that we're setting a remote answer to handle glare scenarios
                 peerInfo.isSettingRemoteAnswerPending = true;
                 await pc.setRemoteDescription({ type: 'answer', sdp: msg.payload.sdp as string });
                 peerInfo.isSettingRemoteAnswerPending = false;
+
+                console.log(`[WebRTC] Successfully set remote answer from ${remoteSessionId}`);
                 break;
             }
             
             case 'ice-candidate': {
                 const candidateData = msg.payload.candidate as string | null;
                 if (candidateData) {
-                    const candidate = JSON.parse(candidateData);
-                    await pc.addIceCandidate(candidate);
+                    try {
+                        const candidate = JSON.parse(candidateData);
+                        await pc.addIceCandidate(candidate);
+                    } catch (err) {
+                        // If we ignored an offer, we may get ICE candidates for it - that's expected
+                        if (!peerInfo.ignoreOffer) {
+                            console.error(`[WebRTC] Failed to add ICE candidate from ${remoteSessionId}:`, err);
+                        }
+                    }
                 }
                 break;
             }
@@ -929,28 +1231,109 @@ async function handlePeerMessage(
     }
 }
 
-// Disconnect from a peer
+// Attempt to recover a peer connection
+async function attemptPeerRecovery(remoteSessionId: string) {
+    const peerInfo = peers.value.get(remoteSessionId);
+    if (!peerInfo) return;
+
+    console.log(`[WebRTC] Attempting recovery for peer: ${remoteSessionId}`);
+
+    try {
+        // Don't attempt recovery if we're already connecting
+        if (connectingPeers.value.has(remoteSessionId)) {
+            console.log(`[WebRTC] Already connecting to ${remoteSessionId}, skipping recovery`);
+            return;
+        }
+
+        // Close existing connection
+        peerInfo.pc.close();
+
+        // Create new peer connection
+        const pc = new RTCPeerConnection(rtcConfig);
+
+        // Update peer info
+        peerInfo.pc = pc;
+        peerInfo.remoteStream = null;
+        peerInfo.makingOffer = false;
+        peerInfo.ignoreOffer = false;
+        peerInfo.isSettingRemoteAnswerPending = false;
+
+        // Set up ICE candidate debugging
+        const iceDebugDataRecovery = setupIceCandidateDebugging(remoteSessionId, pc);
+
+        // Log recovery setup
+        console.log(`[WebRTC ICE] ${remoteSessionId}: ICE debugging initialized for recovery`, {
+            candidateCount: iceDebugDataRecovery.candidateCount,
+            iceServers: rtcConfig.iceServers?.length || 0
+        });
+
+        // Set up perfect negotiation BEFORE adding tracks
+        setupPerfectNegotiation(remoteSessionId, pc, peerInfo);
+
+        // Re-register message handler BEFORE adding tracks
+        reflectApi.registerMessageHandler(remoteSessionId, (msg) => {
+            handlePeerMessage(remoteSessionId, msg);
+        });
+
+        // Add local stream AFTER setting up negotiation and message handlers
+        if (localStream.value) {
+            for (const track of localStream.value.getTracks()) {
+                pc.addTrack(track, localStream.value);
+            }
+        }
+
+        console.log(`[WebRTC] Recovery attempt completed for ${remoteSessionId}`);
+
+    } catch (err) {
+        console.error(`[WebRTC] Failed to recover peer ${remoteSessionId}:`, err);
+        disconnectFromPeer(remoteSessionId);
+    }
+}
+
+// REMOVED: setupNegotiationTimeout and attemptNegotiationRecovery
+// These functions are not needed with proper perfect negotiation pattern.
+// Perfect negotiation handles all cases without complex timeout/recovery logic.
+
+// Disconnect from a peer (final cleanup)
 function disconnectFromPeer(remoteSessionId: string) {
     const peerInfo = peers.value.get(remoteSessionId);
     if (!peerInfo) return;
-    
+
     console.log(`[WebRTC] Disconnecting from peer: ${remoteSessionId}`);
-    
+
+    // Clear any pending recovery attempts
+    const timeout = peerRecoveryTimeouts.value.get(remoteSessionId);
+    if (timeout) {
+        clearTimeout(timeout);
+        peerRecoveryTimeouts.value.delete(remoteSessionId);
+    }
+    peerRecoveryAttempts.value.delete(remoteSessionId);
+
+    // Clear negotiation timeout
+    // Perfect negotiation handles cleanup automatically
+
     // Send session end
     reflectApi.sendSessionEnd(remoteSessionId).catch(() => {});
-    
-    // Unregister message handler
-    reflectApi.unregisterMessageHandler(remoteSessionId);
-    
+
+    // Only unregister message handler if peer is not in discovered peers (truly gone)
+    // If they're still announcing, keep the handler so we can reconnect
+    if (!reflectApi.discoveredPeers.value.includes(remoteSessionId)) {
+        reflectApi.unregisterMessageHandler(remoteSessionId);
+        registeredMessageHandlers.value.delete(remoteSessionId);
+        console.log(`[WebRTC] Unregistered message handler for ${remoteSessionId} (peer not announcing)`);
+    } else {
+        console.log(`[WebRTC] Keeping message handler for ${remoteSessionId} (peer still announcing)`);
+    }
+
     // Clean up spatial audio
     handleSpatialNodeRemoved(remoteSessionId);
-    
+
     // Close peer connection
     peerInfo.pc.close();
-    
+
     // Remove from peers
     peers.value.delete(remoteSessionId);
-    
+
     // Notify audio state removal
     props.onRemovePeerAudioState?.(remoteSessionId);
 }
@@ -1035,14 +1418,32 @@ function updateMicVolume(volume: number) {
 async function refreshConnections() {
     isRefreshing.value = true;
     try {
+        console.log('[WebRTC] Starting connection refresh...');
+
         // Disconnect all peers
         for (const [peerId] of [...peers.value]) {
             disconnectFromPeer(peerId);
         }
-        
+
+        // Clean up reflect API state to ensure fresh start
+        reflectApi.cleanup();
+
+        // Wait a bit for cleanup to complete
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Reinitialize reflect API
+        await reflectApi.initialize();
+
+        // Wait another moment before announcing presence
+        await new Promise(resolve => setTimeout(resolve, 500));
+
         // Force re-announce
         await reflectApi.announcePresence();
-        
+
+        console.log('[WebRTC] Connection refresh completed');
+
+    } catch (err) {
+        console.error('[WebRTC] Failed to refresh connections:', err);
     } finally {
         isRefreshing.value = false;
     }
@@ -1075,15 +1476,31 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+    // Clear all recovery timeouts
+    for (const timeout of peerRecoveryTimeouts.value.values()) {
+        clearTimeout(timeout);
+    }
+    peerRecoveryTimeouts.value.clear();
+    peerRecoveryAttempts.value.clear();
+
+    // Clear all negotiation timeouts
+    // Perfect negotiation doesn't use timeouts
+
     // Disconnect all peers
     for (const [peerId] of peers.value) {
         disconnectFromPeer(peerId);
     }
-    
+
+    // Clean up any remaining message handlers
+    for (const peerId of registeredMessageHandlers.value) {
+        reflectApi.unregisterMessageHandler(peerId);
+    }
+    registeredMessageHandlers.value.clear();
+
     // Cleanup
     reflectApi.cleanup();
     spatialAudio.cleanup();
-    
+
     // Stop local stream
     if (localStream.value) {
         for (const track of localStream.value.getTracks()) {
@@ -1198,6 +1615,8 @@ async function forceRefreshPeers() {
 
     isForceRefreshing.value = true;
     try {
+        console.log('[WebRTC Debug] Starting force refresh...');
+
         // Disconnect all peers
         for (const [peerId] of [...peers.value]) {
             disconnectFromPeer(peerId);
@@ -1205,6 +1624,9 @@ async function forceRefreshPeers() {
 
         // Clean up reflect API
         reflectApi.cleanup();
+
+        // Wait for cleanup
+        await new Promise(resolve => setTimeout(resolve, 1000));
 
         // Reinitialize
         await initialize();
@@ -1214,6 +1636,159 @@ async function forceRefreshPeers() {
         console.error('[WebRTC Debug] Force refresh failed:', err);
     } finally {
         isForceRefreshing.value = false;
+    }
+}
+
+async function forceReconnectToPeer(peerId: string) {
+    if (!debugMode.value) return;
+
+    console.log(`[WebRTC Debug] Forcing reconnection to peer: ${peerId}`);
+
+    // Disconnect if already connected
+    if (peers.value.has(peerId)) {
+        disconnectFromPeer(peerId);
+    }
+
+    // Wait a moment
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Try to reconnect
+    if (!peers.value.has(peerId) && !connectingPeers.value.has(peerId)) {
+        connectToPeer(peerId);
+    }
+}
+
+async function forceReconnectToSelectedPeer() {
+    if (!debugMode.value || !debugTestPeerId.value) return;
+
+    await forceReconnectToPeer(debugTestPeerId.value);
+}
+
+async function fixStuckConnections() {
+    if (!debugMode.value) return;
+
+    console.log('[WebRTC Debug] Checking for stuck connections...');
+
+    for (const [peerId, peer] of peers.value) {
+        const pc = peer.pc;
+        const stuckStates = ['have-local-offer', 'have-remote-offer'];
+
+        if (stuckStates.includes(pc.signalingState)) {
+            console.log(`[WebRTC Debug] Found stuck connection: ${peerId} (${pc.signalingState})`);
+            console.log(`  ICE State: ${pc.iceConnectionState}`);
+            console.log(`  Connection State: ${pc.connectionState}`);
+
+            // Try to recover the stuck connection
+            if (pc.signalingState === 'have-local-offer') {
+                console.log(`[WebRTC Debug] Attempting recovery for stuck offer...`);
+                try {
+                    pc.restartIce();
+                } catch (err) {
+                    console.error(`[WebRTC Debug] ICE restart failed:`, err);
+                }
+            }
+
+            // If we're polite and stable, create new offer
+            if (peer.polite && pc.signalingState === 'stable') {
+                console.log(`[WebRTC Debug] Creating new offer as polite peer...`);
+                try {
+                    const offer = await pc.createOffer();
+                    await pc.setLocalDescription(offer);
+                    await reflectApi.sendOffer(peerId, offer.sdp!);
+                } catch (err) {
+                    console.error(`[WebRTC Debug] Failed to create new offer:`, err);
+                }
+            }
+        }
+    }
+}
+
+async function checkNegotiationState() {
+    if (!debugMode.value) return;
+
+    console.log('[WebRTC Debug] Checking negotiation state for all peers...');
+
+    for (const [peerId, peer] of peers.value) {
+        const pc = peer.pc;
+        console.log(`[WebRTC Debug] Peer ${peerId}:`, {
+            signalingState: pc.signalingState,
+            iceState: pc.iceConnectionState,
+            connectionState: pc.connectionState,
+            polite: peer.polite,
+            makingOffer: peer.makingOffer,
+            ignoreOffer: peer.ignoreOffer
+        });
+
+        // Count ICE candidates
+        const senders = pc.getSenders();
+        const receivers = pc.getReceivers();
+        console.log(`  Senders: ${senders.length}, Receivers: ${receivers.length}`);
+        console.log(`  Local tracks: ${senders.filter(s => s.track).length}`);
+        console.log(`  Remote tracks: ${receivers.filter(r => r.track).length}`);
+
+        // Check ICE gathering state and candidate count
+        if (pc.iceGatheringState !== 'complete') {
+            console.log(`  ICE gathering state: ${pc.iceGatheringState} (not complete yet)`);
+        } else {
+            console.log(`  ICE gathering complete`);
+        }
+    }
+}
+
+// Check for ICE candidate issues
+async function checkIceCandidateIssues() {
+    if (!debugMode.value) return;
+
+    console.log('[WebRTC Debug] Checking for ICE candidate issues...');
+
+    let peersWithNoCandidates = 0;
+    let peersWithFewCandidates = 0;
+    let peersWithManyCandidates = 0;
+
+    for (const [peerId, peer] of peers.value) {
+        const pc = peer.pc;
+        console.log(`[WebRTC Debug] Peer ${peerId} ICE candidate analysis:`);
+
+        // We don't have direct access to candidate count here, but we can check ICE gathering state
+        if (pc.iceGatheringState === 'new') {
+            console.log(`  ICE gathering hasn't started yet`);
+            peersWithNoCandidates++;
+        } else if (pc.iceGatheringState === 'gathering') {
+            console.log(`  ICE gathering in progress`);
+        } else if (pc.iceGatheringState === 'complete') {
+            console.log(`  ICE gathering complete`);
+            if (pc.iceConnectionState === 'checking') {
+                console.log(`  ICE connection state: checking (this is normal)`);
+            } else if (pc.iceConnectionState === 'connected') {
+                console.log(`  ICE connection state: connected (good!)`);
+                peersWithManyCandidates++;
+            } else if (pc.iceConnectionState === 'failed') {
+                console.log(`  ICE connection state: failed (bad!)`);
+                peersWithFewCandidates++;
+            } else {
+                console.log(`  ICE connection state: ${pc.iceConnectionState}`);
+            }
+        }
+
+        // Check if we have any candidates by looking at ICE connection state
+        if (pc.iceConnectionState === 'new' || pc.iceConnectionState === 'checking') {
+            console.log(`  This peer is still establishing ICE connectivity`);
+        }
+
+        console.log('');
+    }
+
+    console.log(`[WebRTC Debug] ICE candidate summary:`);
+    console.log(`  Peers that haven't started gathering: ${peersWithNoCandidates}`);
+    console.log(`  Peers with potential issues: ${peersWithFewCandidates}`);
+    console.log(`  Peers with good connectivity: ${peersWithManyCandidates}`);
+
+    if (peersWithNoCandidates > 0) {
+        console.warn(`[WebRTC Debug] ${peersWithNoCandidates} peer(s) haven't started ICE candidate gathering yet. This might indicate a timing issue.`);
+    }
+
+    if (peersWithFewCandidates > 0) {
+        console.warn(`[WebRTC Debug] ${peersWithFewCandidates} peer(s) have ICE connectivity issues. This might indicate network problems.`);
     }
 }
 

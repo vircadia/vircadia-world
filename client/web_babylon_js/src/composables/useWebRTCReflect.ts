@@ -20,6 +20,10 @@ export interface UseWebRTCReflectOptions {
     syncGroup: string; // Default: world ID or 'default'
     announceIntervalMs: number; // Default: 5000
     presenceTimeoutMs: number; // Default: 15000
+    autoReconnect?: boolean; // Default: true
+    reconnectDelayMs?: number; // Default: 1000
+    maxReconnectAttempts?: number; // Default: 5
+    enableMessageQueuing?: boolean; // Default: true
 }
 
 export function useWebRTCReflect(
@@ -29,21 +33,37 @@ export function useWebRTCReflect(
         syncGroup: 'public.NORMAL',
         announceIntervalMs: 2000,
         presenceTimeoutMs: 10000,
+        autoReconnect: true,
+        reconnectDelayMs: 1000,
+        maxReconnectAttempts: 5,
+        enableMessageQueuing: true,
     }
 ) {
     // Configuration
     const syncGroup = options.syncGroup;
     const announceIntervalMs = options.announceIntervalMs;
     const presenceTimeoutMs = options.presenceTimeoutMs;
-    
+    const autoReconnect = options.autoReconnect ?? true;
+    const reconnectDelayMs = options.reconnectDelayMs ?? 1000;
+    const maxReconnectAttempts = options.maxReconnectAttempts ?? 5;
+    const enableMessageQueuing = options.enableMessageQueuing ?? true;
+
     // Channels
     const ANNOUNCE_CHANNEL = 'webrtc.announce';
     const SIGNALING_CHANNEL = 'webrtc.signal';
-    
+
     // State
     const activePeers = ref<Map<string, PeerAnnouncement>>(new Map());
     const messageHandlers = ref<Map<string, (msg: WebRTCReflectMessage) => void>>(new Map());
     const isInitialized = ref(false);
+
+    // Reconnection state
+    const reconnectAttempts = ref(0);
+    const reconnectTimeout = ref<ReturnType<typeof setTimeout> | null>(null);
+    const isReconnecting = ref(false);
+
+    // Message queuing
+    const messageQueue = ref<Map<string, WebRTCReflectMessage[]>>(new Map());
     
     // Intervals
     let announceInterval: ReturnType<typeof setInterval> | null = null;
@@ -82,18 +102,34 @@ export function useWebRTCReflect(
         
         // Start cleanup interval for stale peers
         cleanupInterval = setInterval(cleanupStalePeers, presenceTimeoutMs / 2);
-        
+
+        // Flush any queued messages after successful initialization
+        if (enableMessageQueuing) {
+            flushMessageQueue();
+        }
+
         console.log('[WebRTC Reflect] Initialized', {
             syncGroup,
             session: fullSessionId.value,
-            channels: [ANNOUNCE_CHANNEL, SIGNALING_CHANNEL]
+            channels: [ANNOUNCE_CHANNEL, SIGNALING_CHANNEL],
+            autoReconnect,
+            maxReconnectAttempts,
+            enableMessageQueuing
         });
     }
     
     // Cleanup and stop
     function cleanup() {
         if (!isInitialized.value) return;
-        
+
+        // Cancel any pending reconnection
+        if (reconnectTimeout.value) {
+            clearTimeout(reconnectTimeout.value);
+            reconnectTimeout.value = null;
+        }
+        reconnectAttempts.value = 0;
+        isReconnecting.value = false;
+
         // Send offline announcement
         if (client && fullSessionId.value) {
             const announcement: PeerAnnouncement = {
@@ -101,7 +137,7 @@ export function useWebRTCReflect(
                 timestamp: Date.now(),
                 status: 'offline'
             };
-            
+
             client.client.connection.publishReflect({
                 syncGroup,
                 channel: ANNOUNCE_CHANNEL,
@@ -111,7 +147,7 @@ export function useWebRTCReflect(
                 console.error('[WebRTC Reflect] Failed to send offline announcement:', err);
             });
         }
-        
+
         // Clear intervals
         if (announceInterval) {
             clearInterval(announceInterval);
@@ -121,18 +157,19 @@ export function useWebRTCReflect(
             clearInterval(cleanupInterval);
             cleanupInterval = null;
         }
-        
+
         // Unsubscribe
         unsubscribeAnnounce?.();
         unsubscribeSignaling?.();
         unsubscribeAnnounce = null;
         unsubscribeSignaling = null;
-        
+
         // Clear state
         activePeers.value.clear();
         messageHandlers.value.clear();
+        messageQueue.value.clear();
         isInitialized.value = false;
-        
+
         console.log('[WebRTC Reflect] Cleaned up');
     }
     
@@ -220,7 +257,7 @@ export function useWebRTCReflect(
         }
     }
     
-    // Send a signaling message to a specific peer
+    // Send a signaling message to a specific peer with queuing support
     async function sendSignalingMessage(
         toSession: string,
         type: WebRTCReflectMessage['type'],
@@ -229,7 +266,7 @@ export function useWebRTCReflect(
         if (!client || !fullSessionId.value) {
             throw new Error('WebRTC Reflect not initialized');
         }
-        
+
         const message: WebRTCReflectMessage = {
             type,
             fromSession: fullSessionId.value,
@@ -237,22 +274,119 @@ export function useWebRTCReflect(
             payload,
             timestamp: Date.now()
         };
-        
+
+        // If message queuing is enabled and we're not initialized, queue the message
+        if (enableMessageQueuing && !isInitialized.value) {
+            const queue = messageQueue.value.get(toSession) || [];
+            queue.push(message);
+            messageQueue.value.set(toSession, queue);
+
+            console.log('[WebRTC Reflect] Queued signaling message (not initialized):', {
+                type,
+                to: toSession.substring(0, 8) + '...',
+                queueLength: queue.length
+            });
+
+            // Attempt reconnection if auto-reconnect is enabled
+            if (autoReconnect && !isReconnecting.value) {
+                attemptReconnection();
+            }
+
+            return; // Don't throw error for queued messages
+        }
+
         try {
             await client.client.connection.publishReflect({
                 syncGroup,
                 channel: SIGNALING_CHANNEL,
                 payload: message
             });
-            
+
             console.log('[WebRTC Reflect] Sent signaling message:', {
                 type,
                 to: toSession.substring(0, 8) + '...'
             });
         } catch (err) {
             console.error('[WebRTC Reflect] Failed to send signaling message:', err);
-            throw err;
+
+            // If queuing is enabled, add to queue and attempt reconnection
+            if (enableMessageQueuing) {
+                const queue = messageQueue.value.get(toSession) || [];
+                queue.push(message);
+                messageQueue.value.set(toSession, queue);
+
+                console.log('[WebRTC Reflect] Queued failed message:', {
+                    type,
+                    to: toSession.substring(0, 8) + '...',
+                    queueLength: queue.length
+                });
+
+                if (autoReconnect && !isReconnecting.value) {
+                    attemptReconnection();
+                }
+            } else {
+                throw err;
+            }
         }
+    }
+
+    // Attempt to reconnect and flush message queue
+    async function attemptReconnection() {
+        if (!autoReconnect || isReconnecting.value || reconnectAttempts.value >= maxReconnectAttempts) {
+            return;
+        }
+
+        isReconnecting.value = true;
+        reconnectAttempts.value++;
+
+        console.log(`[WebRTC Reflect] Attempting reconnection ${reconnectAttempts.value}/${maxReconnectAttempts}`);
+
+        // Wait before attempting reconnection
+        reconnectTimeout.value = setTimeout(async () => {
+            try {
+                // Try to re-initialize
+                await initialize();
+            } catch (err) {
+                console.error('[WebRTC Reflect] Reconnection failed:', err);
+                isReconnecting.value = false;
+
+                // Schedule another attempt if we haven't exceeded max attempts
+                if (reconnectAttempts.value < maxReconnectAttempts) {
+                    attemptReconnection();
+                } else {
+                    console.error('[WebRTC Reflect] Max reconnection attempts reached');
+                    // Flush any remaining queued messages as failed
+                    flushMessageQueue();
+                }
+            }
+        }, reconnectDelayMs);
+    }
+
+    // Flush queued messages
+    function flushMessageQueue() {
+        console.log('[WebRTC Reflect] Flushing message queue...');
+
+        for (const [toSession, messages] of messageQueue.value) {
+            console.log(`[WebRTC Reflect] Flushing ${messages.length} messages to ${toSession.substring(0, 8)}...`);
+
+            // Try to send each message
+            for (const message of messages) {
+                try {
+                    client.client.connection.publishReflect({
+                        syncGroup,
+                        channel: SIGNALING_CHANNEL,
+                        payload: message
+                    }).catch(err => {
+                        console.error('[WebRTC Reflect] Failed to flush queued message:', err);
+                    });
+                } catch (err) {
+                    console.error('[WebRTC Reflect] Error flushing queued message:', err);
+                }
+            }
+        }
+
+        messageQueue.value.clear();
+        console.log('[WebRTC Reflect] Message queue flushed');
     }
     
     // Register a message handler for a specific peer
@@ -302,23 +436,36 @@ export function useWebRTCReflect(
         isInitialized,
         activePeers: computed(() => activePeers.value),
         discoveredPeers,
-        
+        isReconnecting: computed(() => isReconnecting.value),
+        reconnectAttempts: computed(() => reconnectAttempts.value),
+        messageQueueSize: computed(() => {
+            let total = 0;
+            for (const messages of messageQueue.value.values()) {
+                total += messages.length;
+            }
+            return total;
+        }),
+
         // Lifecycle
         initialize,
         cleanup,
-        
+
         // Message handling
         registerMessageHandler,
         unregisterMessageHandler,
-        
+
         // Signaling methods
         sendOffer,
         sendAnswer,
         sendIceCandidate,
         sendSessionEnd,
         sendSignalingMessage,
-        
+
         // Manual presence
-        announcePresence
+        announcePresence,
+
+        // Reconnection and queuing
+        attemptReconnection,
+        flushMessageQueue
     };
 }

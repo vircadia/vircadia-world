@@ -4,10 +4,10 @@ import type { Sql } from "postgres";
 import type { SQL } from "bun";
 import { serverConfiguration } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
 import {
-    Service,
     type Auth,
     type Tick,
     type Config,
+    Communication,
 } from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 import { BunPostgresClientModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
 import type { Server } from "bun";
@@ -52,9 +52,9 @@ export class WorldStateManager {
                     // Handle stats
                     if (
                         url.pathname.startsWith(
-                            Service.State.Stats_Endpoint.path,
+                            Communication.REST_BASE_STATE_PATH,
                         ) &&
-                        req.method === Service.State.Stats_Endpoint.method
+                        req.method === Communication.REST.Endpoint.STATE_STATS.method
                     ) {
                         const requestIP =
                             req.headers.get("x-forwarded-for")?.split(",")[0] ||
@@ -68,7 +68,7 @@ export class WorldStateManager {
                             requestIP !== "localhost"
                         ) {
                             return Response.json(
-                                Service.State.Stats_Endpoint.createError(
+                                Communication.REST.Endpoint.STATE_STATS.createError(
                                     "Forbidden.",
                                 ),
                             );
@@ -117,7 +117,7 @@ export class WorldStateManager {
 
                         // Create response with additional data and return
                         const responseData =
-                            Service.State.Stats_Endpoint.createSuccess(
+                            Communication.REST.Endpoint.STATE_STATS.createSuccess(
                                 standardStatsData,
                             );
 

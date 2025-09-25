@@ -243,7 +243,7 @@ services:
         condition: service_healthy
         restart: true
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider http://127.0.0.1:3021/stats"]
+      test: ["CMD-SHELL", "wget --spider http://127.0.0.1:3021/world/rest/state/stats"]
       interval: 10s
       timeout: 10s
       retries: 3

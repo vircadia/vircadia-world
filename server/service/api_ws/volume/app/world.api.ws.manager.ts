@@ -9,7 +9,6 @@ import { BunLogModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/m
 import { BunPostgresClientModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
 import {
     Communication,
-    Service,
 } from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 import { AclService, validateJWT } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.server.auth.module";
 import { MetricsCollector } from "./service/metrics";
@@ -447,7 +446,7 @@ export class WorldApiWsManager {
                                 type: "debug",
                             });
                             const response = Response.json(
-                                Service.API.WS.Stats_Endpoint.createError(
+                                Communication.REST.Endpoint.WS_STATS.createError(
                                     "Forbidden.",
                                 ),
                             );

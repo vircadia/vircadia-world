@@ -10,7 +10,8 @@ import path from "node:path";
 import { serverConfiguration } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
 import { BunLogModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
 import { BunPostgresClientModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
-import { Communication, Service } from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
+import type { Service } from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
+import { Communication } from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 import { z } from "zod";
 import { AclService, validateJWT } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.server.auth.module";
 import { MetricsCollector } from "./service/metrics";
@@ -335,10 +336,10 @@ class WorldApiAssetManager {
                         const isLocalhost = requestIP === "127.0.0.1" || requestIP === "::1" || requestIP === "localhost";
                         const isDockerInternal = requestIP.startsWith("172.") || requestIP.startsWith("192.168.") || requestIP.startsWith("10.") || requestIP === "::ffff:127.0.0.1";
                         if (!isLocalhost && !isDockerInternal) {
-                            return this.createJsonResponse(Service.API.Asset.Stats_Endpoint.createError("Forbidden."), req, 403);
+                            return this.createJsonResponse(Communication.REST.Endpoint.ASSET_STATS.createError("Forbidden."), req, 403);
                         }
-                        const response = Response.json(
-                            Communication.REST.Endpoint.ASSET_STATS.createSuccess({
+                        const response = this.createJsonResponse(
+                            Communication.REST.Z.AssetStatsSuccess.parse({
                                 uptime: process.uptime(),
                                 connections: this.metricsCollector.getSystemMetrics(true).connections,
                                 database: {
@@ -349,8 +350,9 @@ class WorldApiAssetManager {
                                 cpu: this.metricsCollector.getSystemMetrics(true).cpu,
                                 assets: { cache: await this.getAssetCacheStats() },
                             }),
+                            req,
                         );
-                        return this.addCorsHeaders(response, req);
+                        return response;
                     }
 
                     if (!superUserSql) {

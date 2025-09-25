@@ -261,7 +261,7 @@ describe("Azure AD Authentication", () => {
     describe("Can connect to the API server", () => {
         test("should be able to connect to the API server", async () => {
             const response = await fetch(
-                `${apiServerUrl}${Service.API.Stats_Endpoint.path}`,
+                `${apiServerUrl}/world/rest/auth/stats`,
                 {
                     method: "GET",
                 },
@@ -583,7 +583,7 @@ describe("Azure AD Authentication", () => {
             );
 
             const response = await fetch(
-                `${apiServerUrl}/api/auth/session/validate`,
+                `${apiServerUrl}/world/rest/auth/session/validate`,
                 {
                     method: "POST",
                     headers: {
@@ -605,7 +605,7 @@ describe("Azure AD Authentication", () => {
 
         test("should reject invalid JWT", async () => {
             const response = await fetch(
-                `${apiServerUrl}/api/auth/session/validate`,
+                `${apiServerUrl}/world/rest/auth/session/validate`,
                 {
                     method: "POST",
                     headers: {
@@ -626,7 +626,7 @@ describe("Azure AD Authentication", () => {
 
         test("should generate OAuth authorization URL", async () => {
             const response = await fetch(
-                `${apiServerUrl}/api/auth/oauth/authorize?provider=${Auth.E_Provider.AZURE}`,
+                `${apiServerUrl}/world/rest/auth/oauth/authorize?provider=${Auth.E_Provider.AZURE}`,
                 {
                     method: "GET",
                 },
@@ -665,7 +665,7 @@ describe("Azure AD Authentication", () => {
             `;
 
             const response = await fetch(
-                `${apiServerUrl}/api/auth/oauth/callback?code=test-code&state=${stateParam}&provider=${Auth.E_Provider.AZURE}`,
+                `${apiServerUrl}/world/rest/auth/oauth/callback?code=test-code&state=${stateParam}&provider=${Auth.E_Provider.AZURE}`,
                 {
                     method: "GET",
                 },
@@ -688,7 +688,7 @@ describe("Azure AD Authentication", () => {
             );
 
             const response = await fetch(
-                `${apiServerUrl}/api/auth/providers?sessionId=${result.sessionId}`,
+                `${apiServerUrl}/world/rest/auth/providers?sessionId=${result.sessionId}`,
                 {
                     method: "GET",
                 },
@@ -712,7 +712,7 @@ describe("Azure AD Authentication", () => {
             );
 
             const response = await fetch(
-                `${apiServerUrl}/api/auth/providers/unlink`,
+                `${apiServerUrl}/world/rest/auth/providers/unlink`,
                 {
                     method: "POST",
                     headers: {
@@ -746,7 +746,7 @@ describe("Azure AD Authentication", () => {
                 mockTokenResponse,
             );
 
-            const response = await fetch(`${apiServerUrl}/api/auth/logout`, {
+            const response = await fetch(`${apiServerUrl}/world/rest/auth/logout`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",

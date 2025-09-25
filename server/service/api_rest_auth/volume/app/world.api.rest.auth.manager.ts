@@ -12,7 +12,6 @@ import { BunPostgresClientModule } from "../../../../../sdk/vircadia-world-sdk-t
 import {
     Auth,
     Communication,
-    Service,
 } from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 import { z } from "zod";
 import {
@@ -134,10 +133,10 @@ class WorldApiAuthManager {
                         const isLocalhost = requestIP === "127.0.0.1" || requestIP === "::1" || requestIP === "localhost";
                         const isDockerInternal = requestIP.startsWith("172.") || requestIP.startsWith("192.168.") || requestIP.startsWith("10.") || requestIP === "::ffff:127.0.0.1";
                         if (!isLocalhost && !isDockerInternal) {
-                            return this.createJsonResponse(Service.API.Auth.Stats_Endpoint.createError("Forbidden."), req, 403);
+                            return this.createJsonResponse(Communication.REST.Endpoint.AUTH_STATS.createError("Forbidden."), req, 403);
                         }
-                        const response = Response.json(
-                            Communication.REST.Endpoint.AUTH_STATS.createSuccess({
+                        const response = this.createJsonResponse(
+                            Communication.REST.Z.AuthStatsSuccess.parse({
                                 uptime: process.uptime(),
                                 connections: this.metricsCollector.getSystemMetrics(true).connections,
                                 database: {
@@ -147,8 +146,9 @@ class WorldApiAuthManager {
                                 memory: this.metricsCollector.getSystemMetrics(true).memory,
                                 cpu: this.metricsCollector.getSystemMetrics(true).cpu,
                             }),
+                            req,
                         );
-                        return this.addCorsHeaders(response, req);
+                        return response;
                     }
 
                     if (!superUserSql) {

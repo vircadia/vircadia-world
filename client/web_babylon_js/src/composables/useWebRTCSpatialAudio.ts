@@ -1,22 +1,9 @@
 import { ref, watch, computed, type Ref } from "vue";
-import type { AvatarPositionData } from "@schemas";
-
-export interface SpatialAudioOptions {
-    refDistance?: number;
-    maxDistance?: number;
-    rolloffFactor?: number;
-    coneInnerAngle?: number;
-    coneOuterAngle?: number;
-    panningModel?: PanningModelType;
-    distanceModel?: DistanceModelType;
-}
-
-export interface PeerAudioNode {
-    audioElement: HTMLAudioElement;
-    source: MediaStreamAudioSourceNode;
-    panner: PannerNode;
-    gain: GainNode;
-}
+import type {
+    AvatarPositionData,
+    SpatialAudioOptions,
+    PeerAudioNode,
+} from "@schemas";
 
 export function useWebRTCSpatialAudio(
     options: SpatialAudioOptions = {},
@@ -54,7 +41,11 @@ export function useWebRTCSpatialAudio(
             audioContext.value = new AudioContext();
             isInitialized.value = true;
 
-            console.log("[SpatialAudio] Audio context initialized");
+            console.log("[SpatialAudio] Audio context initialized", {
+                state: audioContext.value.state,
+                sampleRate: audioContext.value.sampleRate,
+                baseLatency: audioContext.value.baseLatency,
+            });
 
             // Set initial listener position
             updateListenerPosition();
@@ -69,6 +60,7 @@ export function useWebRTCSpatialAudio(
                     .then(() => {
                         console.log(
                             "[SpatialAudio] Audio context resumed successfully",
+                            { newState: audioContext.value?.state }
                         );
                     })
                     .catch((error) => {
@@ -78,6 +70,12 @@ export function useWebRTCSpatialAudio(
                         );
                     });
             }
+
+            // Monitor audio context state changes
+            audioContext.value.onstatechange = () => {
+                console.log("[SpatialAudio] Audio context state changed to:", audioContext.value?.state);
+            };
+
         } catch (error) {
             console.error(
                 "[SpatialAudio] Failed to initialize audio context:",
@@ -200,6 +198,17 @@ export function useWebRTCSpatialAudio(
             `[SpatialAudio] Creating spatial audio node for peer: ${peerId.substring(0, 8)}...`,
         );
 
+        // Validate stream
+        const audioTracks = remoteStream.getAudioTracks();
+        if (audioTracks.length === 0) {
+            console.warn(`[SpatialAudio] No audio tracks in remote stream for peer ${peerId.substring(0, 8)}...`);
+        } else {
+            console.log(`[SpatialAudio] Remote stream has ${audioTracks.length} audio track(s)`);
+            audioTracks.forEach((track, i) => {
+                console.log(`  Track ${i}: ${track.kind} (${track.readyState}) - enabled: ${track.enabled}`);
+            });
+        }
+
         try {
             // Create audio element
             const audio = new Audio();
@@ -212,11 +221,39 @@ export function useWebRTCSpatialAudio(
             audio.volume = 0;
             document.body.appendChild(audio);
 
-            // Create Web Audio nodes
-            const source =
-                audioContext.value.createMediaStreamSource(remoteStream);
-            const panner = audioContext.value.createPanner();
-            const gain = audioContext.value.createGain();
+            console.log(`[SpatialAudio] Created audio element for peer ${peerId.substring(0, 8)}...`);
+
+            // Create Web Audio nodes with error handling
+            let source: MediaStreamAudioSourceNode;
+            let panner: PannerNode;
+            let gain: GainNode;
+
+            try {
+                source = audioContext.value.createMediaStreamSource(remoteStream);
+                console.log(`[SpatialAudio] Created MediaStreamSource for peer ${peerId.substring(0, 8)}...`);
+            } catch (error) {
+                console.error(`[SpatialAudio] Failed to create MediaStreamSource for peer ${peerId.substring(0, 8)}...`, error);
+                throw error;
+            }
+
+            try {
+                panner = audioContext.value.createPanner();
+                console.log(`[SpatialAudio] Created PannerNode for peer ${peerId.substring(0, 8)}...`);
+            } catch (error) {
+                console.error(`[SpatialAudio] Failed to create PannerNode for peer ${peerId.substring(0, 8)}...`, error);
+                source.disconnect();
+                throw error;
+            }
+
+            try {
+                gain = audioContext.value.createGain();
+                console.log(`[SpatialAudio] Created GainNode for peer ${peerId.substring(0, 8)}...`);
+            } catch (error) {
+                console.error(`[SpatialAudio] Failed to create GainNode for peer ${peerId.substring(0, 8)}...`, error);
+                source.disconnect();
+                panner.disconnect();
+                throw error;
+            }
 
             // Configure panner
             panner.panningModel = settings.panningModel;
@@ -231,10 +268,21 @@ export function useWebRTCSpatialAudio(
             // Set initial volume
             gain.gain.value = initialVolume / 100;
 
+            console.log(`[SpatialAudio] Connecting audio nodes for peer ${peerId.substring(0, 8)}...`);
+
             // Connect nodes: source -> panner -> gain -> destination
-            source.connect(panner);
-            panner.connect(gain);
-            gain.connect(audioContext.value.destination);
+            try {
+                source.connect(panner);
+                panner.connect(gain);
+                gain.connect(audioContext.value.destination);
+                console.log(`[SpatialAudio] Audio nodes connected successfully for peer ${peerId.substring(0, 8)}...`);
+            } catch (error) {
+                console.error(`[SpatialAudio] Failed to connect audio nodes for peer ${peerId.substring(0, 8)}...`, error);
+                source.disconnect();
+                panner.disconnect();
+                gain.disconnect();
+                throw error;
+            }
 
             // Store node references
             const nodeInfo: PeerAudioNode = {
@@ -250,11 +298,14 @@ export function useWebRTCSpatialAudio(
             updatePeerPosition(peerId);
 
             // Try to play (may be blocked by autoplay policy)
-            audio.play().catch((error) => {
+            audio.play().then(() => {
+                console.log(`[SpatialAudio] Audio element playing for peer ${peerId.substring(0, 8)}...`);
+            }).catch((error) => {
                 console.warn(
                     `[SpatialAudio] Audio autoplay blocked for peer ${peerId.substring(0, 8)}...:`,
                     error,
                 );
+                // This is expected in most browsers, the Web Audio API should still work
             });
 
             console.log(

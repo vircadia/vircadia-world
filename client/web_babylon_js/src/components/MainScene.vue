@@ -369,21 +369,17 @@
                         />
 
                         <!-- WebRTC component (now under OtherAvatars slot) -->
-                        <BabylonWebRTC
+                        <BabylonWebRTCRefactored
                             v-model="showWebRTCControls"
                             :vircadia-world="vircadiaWorld"
-                            :avatar-data-map="(avatarDataMap as Record<string, { type: 'avatar'; sessionId: string | null; modelFileName: string; cameraOrientation: { alpha: number; beta: number; radius: number; }; }>) || {}"
-                            :position-data-map="(positionDataMap as Record<string, { x: number; y: number; z: number; }>) || {}"
-                            :rotation-data-map="(rotationDataMap as Record<string, { x: number; y: number; z: number; w: number; }>) || {}"
+                            :avatar-data-map="(avatarDataMap as Record<string, AvatarBaseData>) || {}"
+                            :position-data-map="(positionDataMap as Record<string, AvatarPositionData>) || {}"
+                            :rotation-data-map="(rotationDataMap as Record<string, AvatarRotationData>) || {}"
+                            :my-position-data="null"
+                            :my-camera-orientation="null"
                             :on-set-peer-audio-state="setPeerAudioState"
                             :on-remove-peer-audio-state="removePeerAudioState"
-                            :on-set-peer-volume="setPeerVolume"
-                            :on-clear-peer-audio-states="clearPeerAudioStates"
-                            :message-polling-interval-ms="200"
-                            :presence-announce-interval-ms="10000"
-                            :peer-discovery-interval-ms="5000"
-                            :debug-refresh-interval-ms="5000"
-                            ref="webrtcStatus"
+                            :webrtc-sync-group="'public.NORMAL'"
                         />
                     </BabylonOtherAvatars>
 
@@ -520,7 +516,7 @@ import BabylonModelPhysics, {
 } from "../components/BabylonModelPhysics.vue";
 import BabylonModels from "../components/BabylonModels.vue";
 import BabylonMyAvatarDebugOverlay from "../components/BabylonMyAvatarDebugOverlay.vue";
-import BabylonWebRTC from "../components/BabylonWebRTC.vue";
+import BabylonWebRTCRefactored from "../components/BabylonWebRTCRefactored.vue";
 import BabylonCameraDebugOverlay from "../components/BabylonCameraDebugOverlay.vue";
 import BabylonInspector from "../components/BabylonInspector.vue";
 import BabylonModelsDebugOverlay from "../components/BabylonModelsDebugOverlay.vue";
@@ -576,6 +572,8 @@ void BabylonCanvas;
 // mark as used at runtime for template
 void VircadiaWorldProvider;
 // mark as used at runtime for template
+void BabylonWebRTCRefactored;
+// mark as used at runtime for template
 import BabylonEnvironment from "../components/BabylonEnvironment.vue";
 import BabylonDoor from "../components/BabylonDoor.vue";
 import { clientBrowserConfiguration } from "@vircadia/world-sdk/browser/vue";
@@ -592,12 +590,7 @@ import type { Scene, WebGPUEngine } from "@babylonjs/core";
 
 // Auth change handling moved to provider
 
-// Connection count is now managed by BabylonWebRTC component
-const webrtcStatus = ref<InstanceType<typeof BabylonWebRTC> | null>(null);
-void webrtcStatus;
-// Active audio connections derived from WebRTC peers
-const activeAudioCount = computed(() => webrtcStatus.value?.peers?.size ?? 0);
-void activeAudioCount;
+// Connection count is now managed by BabylonWebRTCRefactored component
 // WebRTC controls dialog visibility
 const showWebRTCControls = ref(false);
 
@@ -726,8 +719,8 @@ function togglePerformanceMode() {
 
 // Connection watchers migrated to provider
 
-// Variables referenced only in template - mark to satisfy linter
-void activeAudioCount;
+// Active audio connections - now handled internally by BabylonWebRTCRefactored
+const activeAudioCount = computed(() => 0);
 // removed legacy showDebugOverlay marker
 void performanceMode;
 void togglePerformanceMode;

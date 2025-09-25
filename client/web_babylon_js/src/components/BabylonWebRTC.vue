@@ -1,6 +1,6 @@
 <template>
   <v-dialog v-model="dialogVisible" max-width="800px">
-    <v-card class="webrtc-status" variant="outlined">
+    <v-card class="webrtc-status" variant="elevated" color="surface">
     <v-card-title class="d-flex align-center">
       <span class="text-subtitle-1">WebRTC Status</span>
       <v-spacer />
@@ -414,7 +414,18 @@ import {
     createWebRTCSessionEntityName,
     PeerDiscoveryEntitySchema,
 } from "@schemas";
-import type { WebRTCMessage, PeerDiscoveryEntity } from "@schemas";
+import type {
+    WebRTCMessage,
+    PeerDiscoveryEntity,
+    PeerInfo,
+    OfferAnswerPayload,
+    IceCandidatePayload,
+    SessionEndPayload,
+    ProcessedMessage,
+    WebRTCMessageWithKey,
+    MessageEntityInfo,
+    MessagePayload,
+} from "@schemas";
 import type {
     AvatarBaseData,
     AvatarPositionData,
@@ -466,49 +477,13 @@ const dialogVisible = computed({
     set: (value: boolean) => emit('update:modelValue', value)
 });
 
-// Enhanced peer info interface with simplified state
-interface PeerInfo {
-    pc: RTCPeerConnection;
-    remoteStream: MediaStream | null;
-    isPolite: boolean;
-    connectionStartTime: number;
-    lastProcessedTimestamp: number;
-    cleanup: (() => void) | null;
-}
+// Enhanced peer info interface with simplified state (now imported from @schemas)
 
-// Message payload types
-interface OfferAnswerPayload {
-    sdp: string;
-}
+// Message payload types (now imported from @schemas)
 
-interface IceCandidatePayload {
-    candidate: string | null;
-    sdpMLineIndex: number | null;
-    sdpMid: string | null;
-}
+// ProcessedMessage interface (now imported from @schemas)
 
-interface SessionEndPayload {
-    [key: string]: never;
-}
-
-type MessagePayload =
-    | OfferAnswerPayload
-    | IceCandidatePayload
-    | SessionEndPayload;
-
-interface ProcessedMessage {
-    type: "offer" | "answer" | "ice-candidate" | "session-end";
-    payload: MessagePayload;
-    fromSession: string;
-    toSession: string;
-    timestamp: number;
-    processed: boolean;
-}
-
-// Extended message type with metadata key for processing
-interface WebRTCMessageWithKey extends WebRTCMessage {
-    metadataKey: string;
-}
+// Extended message type with metadata key for processing (now imported from @schemas)
 
 // Initialize services
 const vircadiaWorld = props.vircadiaWorld;
@@ -523,15 +498,7 @@ const micVolume = ref(100);
 const peerVolumes = ref<Map<string, number>>(new Map());
 const discoveredPeers = ref<Set<string>>(new Set());
 
-// Database debugging state
-interface MessageEntityInfo {
-    entityName: string;
-    type: string;
-    fromSession: string;
-    toSession: string;
-    timestamp: number;
-    processed: boolean;
-}
+// Database debugging state (MessageEntityInfo now imported from @schemas)
 
 const messageEntities = ref<MessageEntityInfo[]>([]);
 const isRefreshingDatabase = ref(false);

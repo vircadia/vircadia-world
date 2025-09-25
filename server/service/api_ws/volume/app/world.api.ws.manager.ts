@@ -195,20 +195,6 @@ export class WorldApiWsManager {
                 });
                 await this.aclService.startRoleChangeListener();
             }
-
-            // Start listener for role changes to refresh ACLs lazily
-            try {
-                // Role change listener now handled by AclService
-            } catch (error) {
-                BunLogModule({
-                    message: "Failed to start auth_roles_changed listener",
-                    error,
-                    debug: this.DEBUG,
-                    suppress: this.SUPPRESS,
-                    type: "error",
-                    prefix: LOG_PREFIX,
-                });
-            }
         } catch (error) {
             BunLogModule({
                 message: "Failed to initialize DB connection",
@@ -229,6 +215,18 @@ export class WorldApiWsManager {
             // #region API -> HTTP Routes
             fetch: async (req: Request, server: Server) => {
                 try {
+                    if (!superUserSql || !proxyUserSql) {
+                        BunLogModule({
+                            message: "No database connection available",
+                            debug: this.DEBUG,
+                            suppress: this.SUPPRESS,
+                            type: "error",
+                        });
+                        return new Response("Internal server error", {
+                            status: 500,
+                        });
+                    }
+
                     const url = new URL(req.url);
 
                     // Handle CORS preflight requests
@@ -565,20 +563,6 @@ export class WorldApiWsManager {
 
                         return corsResponse;
                     }
-
-                    if (!superUserSql || !proxyUserSql) {
-                        BunLogModule({
-                            message: "No database connection available",
-                            debug: this.DEBUG,
-                            suppress: this.SUPPRESS,
-                            type: "error",
-                        });
-                        const response = new Response("Internal server error", {
-                            status: 500,
-                        });
-                        return this.addCorsHeaders(response, req);
-                    }
-
 
                     // Handle WebSocket upgrade
                     if (

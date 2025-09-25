@@ -7,15 +7,11 @@ import { ref, watch, onMounted, onUnmounted, type Ref } from "vue";
 import type { Scene, AnimationGroup, Skeleton } from "@babylonjs/core";
 import { ImportMeshAsync } from "@babylonjs/core";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
-import type { BabylonAnimationDefinition } from "@schemas";
-
-export type AnimationState = "idle" | "loading" | "ready" | "error";
-
-interface AnimationInfo {
-    state: AnimationState;
-    error?: string;
-    group?: AnimationGroup;
-}
+import type {
+    BabylonAnimationDefinition,
+    AnimationState,
+    AnimationInfo,
+} from "@schemas";
 
 const props = defineProps({
     scene: { type: Object as () => Scene, required: true },

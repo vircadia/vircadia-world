@@ -25,33 +25,15 @@ import {
 import { HavokPlugin } from "@babylonjs/core/Physics/v2/Plugins/havokPlugin";
 import HavokPhysics from "@babylonjs/havok";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
+import type {
+    HemisphericLightOptions,
+    DirectionalLightOptions,
+    GroundOptions,
+} from "@schemas";
 
 type LightVector = [number, number, number];
 
-interface HemisphericLightOptions {
-    enabled?: boolean;
-    direction?: LightVector;
-    intensity?: number;
-}
-
-interface DirectionalLightOptions {
-    enabled?: boolean;
-    direction?: LightVector;
-    position?: LightVector;
-    intensity?: number;
-}
-
-interface GroundOptions {
-    enabled?: boolean;
-    width?: number;
-    height?: number;
-    position?: LightVector;
-    diffuseColor?: [number, number, number];
-    specularColor?: [number, number, number];
-    mass?: number;
-    friction?: number;
-    restitution?: number;
-}
+// Environment interfaces now imported from @schemas
 
 const props = withDefaults(
     defineProps<{

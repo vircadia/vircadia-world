@@ -23,6 +23,8 @@ import type {
     AvatarBaseData,
     AvatarPositionData,
     AvatarRotationData,
+    DebugData,
+    DebugWindow,
 } from "@schemas";
 
 // Local helper types (previously from physics controller composable)
@@ -91,28 +93,7 @@ function objToQuat(obj: RotationObj): Quaternion {
     return new Quaternion(obj.x, obj.y, obj.z, obj.w);
 }
 
-// Type for debug data
-interface DebugData {
-    timestamp: string;
-    sessionId: string;
-    skeleton: {
-        boneCount: number;
-    };
-    bones: Record<
-        string,
-        {
-            p: string[];
-            r: string;
-        }
-    >;
-}
-
-// Type for debug window properties
-interface DebugWindow extends Window {
-    debugSkeletonLoop?: boolean;
-    debugBoneNames?: boolean;
-    debugOtherAvatar?: boolean;
-}
+// Debug interfaces now imported from @schemas
 
 // Watch for changes in avatar base data
 watch(

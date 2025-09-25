@@ -102,7 +102,7 @@ void markDisposed;
 async function pollForOtherAvatars(): Promise<void> {
     try {
         const startTime = Date.now();
-        console.log("[Discovery] Starting poll for other avatars...");
+        console.debug("[Discovery] Starting poll for other avatars...");
 
         const result = await vircadiaWorld.client.connection.query({
             query: "SELECT general__entity_name FROM entity.entities WHERE group__sync = $1 AND general__entity_name LIKE 'avatar:%'",
@@ -110,7 +110,7 @@ async function pollForOtherAvatars(): Promise<void> {
             timeoutMs: 5000,
         });
 
-        console.log("[Discovery] Query result:", result);
+        console.debug("[Discovery] Query result:", result);
 
         if (result.result && Array.isArray(result.result)) {
             const currentFullSessionId = currentFullSessionIdComputed.value;
@@ -119,7 +119,7 @@ async function pollForOtherAvatars(): Promise<void> {
                 general__entity_name: string;
             }>;
 
-            console.log(
+            console.debug(
                 `[Discovery] Found ${entities.length} entities, current session: ${currentFullSessionId}`,
             );
 
@@ -142,7 +142,7 @@ async function pollForOtherAvatars(): Promise<void> {
 
             otherAvatarSessionIds.value = foundFullSessionIds;
             discoveryStats.value.rows = entities.length;
-            console.log(
+            console.debug(
                 `[Discovery] Found ${foundFullSessionIds.length} other avatars:`,
                 foundFullSessionIds,
             );
@@ -150,7 +150,7 @@ async function pollForOtherAvatars(): Promise<void> {
 
         discoveryStats.value.lastDurationMs = Date.now() - startTime;
         discoveryStats.value.timeouts = 0;
-        console.log(
+        console.debug(
             `[Discovery] Poll completed in ${discoveryStats.value.lastDurationMs}ms`,
         );
     } catch (error) {

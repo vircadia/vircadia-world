@@ -1,4 +1,31 @@
 import { z } from "zod";
+import type { AnimationGroup } from "@babylonjs/core";
+
+// Babylon.js environment interfaces
+export interface HemisphericLightOptions {
+    enabled?: boolean;
+    direction?: [number, number, number];
+    intensity?: number;
+}
+
+export interface DirectionalLightOptions {
+    enabled?: boolean;
+    direction?: [number, number, number];
+    position?: [number, number, number];
+    intensity?: number;
+}
+
+export interface GroundOptions {
+    enabled?: boolean;
+    width?: number;
+    height?: number;
+    position?: [number, number, number];
+    diffuseColor?: [number, number, number];
+    specularColor?: [number, number, number];
+    mass?: number;
+    friction?: number;
+    restitution?: number;
+}
 
 // Local definitions moved from composables/schemas.ts to centralize schemas
 export interface BabylonModelDefinition {
@@ -24,6 +51,14 @@ export interface BabylonAnimationDefinition {
     fileName: string;
     /** If true, strip horizontal (X/Z) translation from hip/root track during mapping */
     ignoreHipTranslation?: boolean;
+}
+
+export type AnimationState = "idle" | "loading" | "ready" | "error";
+
+export interface AnimationInfo {
+    state: AnimationState;
+    error?: string;
+    group?: AnimationGroup;
 }
 
 export const Vector3Schema = z.object({
@@ -78,6 +113,28 @@ export type AvatarPositionData = z.infer<typeof AvatarPositionDataSchema>;
 export const AvatarRotationDataSchema = QuaternionSchema;
 
 export type AvatarRotationData = z.infer<typeof AvatarRotationDataSchema>;
+
+// Avatar debug interfaces
+export interface DebugData {
+    timestamp: string;
+    sessionId: string;
+    skeleton: {
+        boneCount: number;
+    };
+    bones: Record<
+        string,
+        {
+            p: string[];
+            r: string;
+        }
+    >;
+}
+
+export interface DebugWindow extends Window {
+    debugSkeletonLoop?: boolean;
+    debugBoneNames?: boolean;
+    debugOtherAvatar?: boolean;
+}
 
 // Note: Combined avatar metadata schemas removed.
 
@@ -150,7 +207,77 @@ export const WebRTCSessionEntitySchema = z.object({
 
 export type WebRTCSessionEntity = z.infer<typeof WebRTCSessionEntitySchema>;
 
-// Spatial audio interface
+// WebRTC interfaces
+export interface PeerInfo {
+    pc: RTCPeerConnection;
+    localStream: MediaStream | null;
+    remoteStream: MediaStream | null;
+    dataChannel: RTCDataChannel | null;
+    polite: boolean;
+    makingOffer: boolean;
+    ignoreOffer: boolean;
+    isSettingRemoteAnswerPending: boolean;
+}
+
+export interface OfferAnswerPayload {
+    sdp: string;
+}
+
+export interface IceCandidatePayload {
+    candidate: string | null;
+    sdpMLineIndex: number | null;
+    sdpMid: string | null;
+}
+
+export interface SessionEndPayload {
+    [key: string]: never;
+}
+
+export type MessagePayload =
+    | OfferAnswerPayload
+    | IceCandidatePayload
+    | SessionEndPayload;
+
+export interface ProcessedMessage {
+    type: "offer" | "answer" | "ice-candidate" | "session-end";
+    payload: MessagePayload;
+    fromSession: string;
+    toSession: string;
+    timestamp: number;
+    processed: boolean;
+}
+
+export interface WebRTCMessageWithKey extends WebRTCMessage {
+    metadataKey: string;
+}
+
+export interface MessageEntityInfo {
+    entityName: string;
+    type: string;
+    fromSession: string;
+    toSession: string;
+    timestamp: number;
+    processed: boolean;
+}
+
+// Spatial audio interfaces
+export interface SpatialAudioOptions {
+    refDistance?: number;
+    maxDistance?: number;
+    rolloffFactor?: number;
+    coneInnerAngle?: number;
+    coneOuterAngle?: number;
+    panningModel?: PanningModelType;
+    distanceModel?: DistanceModelType;
+}
+
+export interface PeerAudioNode {
+    audioElement: HTMLAudioElement;
+    source: MediaStreamAudioSourceNode;
+    panner: PannerNode;
+    gain: GainNode;
+}
+
 export interface PeerAudioState {
     sessionId: string;
     volume: number;

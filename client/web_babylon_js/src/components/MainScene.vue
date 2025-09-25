@@ -369,7 +369,7 @@
                         />
 
                         <!-- WebRTC component (now under OtherAvatars slot) -->
-                        <BabylonWebRTCRefactored
+                        <BabylonWebRTC
                             v-model="showWebRTCControls"
                             :vircadia-world="vircadiaWorld"
                             :avatar-data-map="(avatarDataMap as Record<string, AvatarBaseData>) || {}"
@@ -516,7 +516,7 @@ import BabylonModelPhysics, {
 } from "../components/BabylonModelPhysics.vue";
 import BabylonModels from "../components/BabylonModels.vue";
 import BabylonMyAvatarDebugOverlay from "../components/BabylonMyAvatarDebugOverlay.vue";
-import BabylonWebRTCRefactored from "../components/BabylonWebRTCRefactored.vue";
+import BabylonWebRTC from "./BabylonWebRTC.vue";
 import BabylonCameraDebugOverlay from "../components/BabylonCameraDebugOverlay.vue";
 import BabylonInspector from "../components/BabylonInspector.vue";
 import BabylonModelsDebugOverlay from "../components/BabylonModelsDebugOverlay.vue";
@@ -572,7 +572,7 @@ void BabylonCanvas;
 // mark as used at runtime for template
 void VircadiaWorldProvider;
 // mark as used at runtime for template
-void BabylonWebRTCRefactored;
+void BabylonWebRTC;
 // mark as used at runtime for template
 import BabylonEnvironment from "../components/BabylonEnvironment.vue";
 import BabylonDoor from "../components/BabylonDoor.vue";
@@ -590,7 +590,7 @@ import type { Scene, WebGPUEngine } from "@babylonjs/core";
 
 // Auth change handling moved to provider
 
-// Connection count is now managed by BabylonWebRTCRefactored component
+// Connection count is now managed by BabylonWebRTC component
 // WebRTC controls dialog visibility
 const showWebRTCControls = ref(false);
 

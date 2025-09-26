@@ -137,6 +137,8 @@ class WorldApiAuthManager {
                         }
                         const response = this.createJsonResponse(
                             Communication.REST.Z.AuthStatsSuccess.parse({
+                                success: true,
+                                timestamp: Date.now(),
                                 uptime: process.uptime(),
                                 connections: this.metricsCollector.getSystemMetrics(true).connections,
                                 database: {

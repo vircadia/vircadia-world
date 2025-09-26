@@ -1081,6 +1081,62 @@ export namespace Server_CLI {
         };
     }
 
+    export async function isCaddyHealthy(
+        wait?:
+            | {
+                  interval: number;
+                  timeout: number;
+              }
+            | boolean,
+    ): Promise<{
+        isHealthy: boolean;
+        error?: Error;
+        waitConfig?: {
+            interval: number;
+            timeout: number;
+        };
+    }> {
+        const defaultWait = { interval: 100, timeout: 10000 };
+
+        const waitConfig =
+            wait === true
+                ? defaultWait
+                : wait && typeof wait !== "boolean"
+                  ? wait
+                  : null;
+
+        const checkCaddy = async (): Promise<{
+            isHealthy: boolean;
+            error?: Error;
+        }> => {
+            const containerName =
+                serverConfiguration.VRCA_SERVER_SERVICE_CADDY_CONTAINER_NAME;
+            return await isContainerHealthyByDocker(containerName);
+        };
+
+        if (!waitConfig) {
+            return await checkCaddy();
+        }
+
+        const startTime = Date.now();
+        let lastError: Error | undefined;
+
+        while (Date.now() - startTime < waitConfig.timeout) {
+            const result = await checkCaddy();
+            if (result.isHealthy) {
+                return result;
+            }
+            lastError = result.error;
+            await Bun.sleep(waitConfig.interval);
+        }
+
+        return {
+            isHealthy: false,
+            error: lastError,
+            waitConfig: waitConfig,
+        };
+    }
+
     export async function wipeDatabase() {
         const db = BunPostgresClientModule.getInstance({
             debug: cliConfiguration.VRCA_CLI_DEBUG,
@@ -1584,92 +1640,6 @@ export namespace Server_CLI {
         } catch (error) {
             BunLogModule({
                 message: `Error processing SQL seed files: ${error instanceof Error ? error.message : String(error)}`,
-                type: "error",
-                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                debug: cliConfiguration.VRCA_CLI_DEBUG,
-            });
-            throw error;
-        }
-    }
-
-    // Seed auth providers using a raw SQL string from configuration
-    export async function seedAuthProvidersFromSqlString(): Promise<void> {
-        const rawSql = cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SEED_AUTH_PROVIDER_SQL;
-
-        if (!rawSql || rawSql.trim().length === 0) {
-            BunLogModule({
-                message: "No auth provider SQL configured (VRCA_CLI_SERVICE_POSTGRES_SEED_AUTH_PROVIDER_SQL). Skipping.",
-                type: "info",
-                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                debug: cliConfiguration.VRCA_CLI_DEBUG,
-            });
-            return;
-        }
-
-        const db = BunPostgresClientModule.getInstance({
-            debug: cliConfiguration.VRCA_CLI_DEBUG,
-            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-        });
-        const sql = await db.getSuperClient({
-            postgres: {
-                host: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                port: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                database: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
-                username:
-                    cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
-                password:
-                    cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
-            },
-        });
-
-        try {
-            // Determine hash of provided SQL to achieve idempotency via config.seeds
-            const [{ content_hash }] = await sql<[{ content_hash: string }]>`
-                SELECT encode(digest(${rawSql}, 'sha256'), 'hex') as content_hash
-            `;
-
-            // Fetch executed seeds
-            const executed = await sql<{ general__hash: string; general__name: string }[]>`
-                SELECT general__hash, general__name FROM config.seeds
-            `;
-            const executedHashes = new Set(executed.map((r) => r.general__hash));
-
-            if (executedHashes.has(content_hash)) {
-                BunLogModule({
-                    message: "Auth provider SQL already executed (hash match). Skipping.",
-                    type: "debug",
-                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                    debug: cliConfiguration.VRCA_CLI_DEBUG,
-                });
-                return;
-            }
-
-            const seedName = `cli.auth_providers.inline.sql`;
-
-            BunLogModule({
-                message: `Executing auth provider SQL seed (hash: ${content_hash})...`,
-                type: "info",
-                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                debug: cliConfiguration.VRCA_CLI_DEBUG,
-            });
-
-            await sql.begin(async (txn) => {
-                await txn.unsafe(rawSql);
-                await txn`
-                    INSERT INTO config.seeds (general__hash, general__name)
-                    VALUES (${content_hash}, ${seedName})
-                `;
-            });
-
-            BunLogModule({
-                message: "Auth provider SQL seed executed successfully.",
-                type: "success",
-                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                debug: cliConfiguration.VRCA_CLI_DEBUG,
-            });
-        } catch (error) {
-            BunLogModule({
-                message: `Failed to execute auth provider SQL seed: ${error instanceof Error ? error.message : String(error)}`,
                 type: "error",
                 suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                 debug: cliConfiguration.VRCA_CLI_DEBUG,
@@ -2853,23 +2823,6 @@ if (import.meta.main) {
                 await Server_CLI.seedSql();
                 BunLogModule({
                     message: "SQL seeds applied.",
-                    type: "success",
-                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                    debug: cliConfiguration.VRCA_CLI_DEBUG,
-                });
-                break;
-            }
-
-            case "server:postgres:seed:auth-providers": {
-                BunLogModule({
-                    message: "Seeding auth providers from configured SQL...",
-                    type: "info",
-                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                    debug: cliConfiguration.VRCA_CLI_DEBUG,
-                });
-                await Server_CLI.seedAuthProvidersFromSqlString();
-                BunLogModule({
-                    message: "Auth provider seed completed.",
                     type: "success",
                     suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                     debug: cliConfiguration.VRCA_CLI_DEBUG,
@@ -4119,11 +4072,13 @@ if (import.meta.main) {
 
             // PROJECT AUTO-UPGRADE (one-time upgrade)
             case "project:auto-upgrade": {
+                const isCore = additionalArgs.includes("--core");
+                const isAll = additionalArgs.includes("--all");
                 const result = await $`git rev-parse --abbrev-ref HEAD`;
                 const currentBranch = result.stdout.toString().trim();
 
                 BunLogModule({
-                    message: `Starting one-time auto-upgrade on current branch`,
+                    message: `Starting one-time auto-upgrade on current branch for ${isCore ? "core services only" : "all services" }`,
                     data: { currentBranch },
                     type: "info",
                     suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
@@ -4134,7 +4089,7 @@ if (import.meta.main) {
 
                 try {
                     BunLogModule({
-                        message: `Updating current branch '${currentBranch}'...`,
+                        message: `Updating current branch '${currentBranch}' for ${isCore ? "core services only" : "all services" }...`,
                         type: "info",
                         suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                         debug: cliConfiguration.VRCA_CLI_DEBUG,
@@ -4148,25 +4103,25 @@ if (import.meta.main) {
                     if (pull.exitCode !== 0) throw new Error(`pull failed: ${pull.stderr.toString()}`);
 
                     BunLogModule({
-                        message: `Rebuilding server...`,
+                        message: `Rebuilding ${isCore ? "core services only" : "all services" }...`,
                         type: "info",
                         suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                         debug: cliConfiguration.VRCA_CLI_DEBUG,
                     });
-                    const result = await $`bun run server:rebuild-all`.nothrow();
+                    const result = await $`bun run server:rebuild-${isCore ? "core" : "all"}`.nothrow();
                     if (result.exitCode !== 0) {
                         throw new Error(`rebuild failed: ${result.stderr.toString()}`);
                     }
 
                     BunLogModule({
-                        message: `Auto-upgrade completed successfully`,
+                        message: `Auto-upgrade completed successfully for ${isCore ? "core services only" : "all services" }`,
                         type: "success",
                         suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                         debug: cliConfiguration.VRCA_CLI_DEBUG,
                     });
                 } catch (error) {
                     BunLogModule({
-                        message: `Auto-upgrade failed: ${error instanceof Error ? error.message : String(error)}`,
+                        message: `Auto-upgrade failed for ${isCore ? "core services only" : "all services" }: ${error instanceof Error ? error.message : String(error)}`,
                         type: "error",
                         suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                         debug: cliConfiguration.VRCA_CLI_DEBUG,

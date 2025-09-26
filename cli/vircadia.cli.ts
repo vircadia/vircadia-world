@@ -16,6 +16,27 @@ import {
     type Auth,
 } from "../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 
+// Hardcoded system directories
+const SYSTEM_SQL_DIR = path.join(
+    dirname(fileURLToPath(import.meta.url)),
+    "./database/seed/sql/",
+);
+
+const SYSTEM_ASSET_DIR = path.join(
+    dirname(fileURLToPath(import.meta.url)),
+    "./database/seed/asset/",
+);
+
+const SYSTEM_RESET_DIR = path.join(
+    dirname(fileURLToPath(import.meta.url)),
+    "./database/reset",
+);
+
+const MIGRATION_DIR = path.join(
+    dirname(fileURLToPath(import.meta.url)),
+    "./database/migration",
+);
+
 // Environment Variable Management Module
 export namespace EnvManager {
     const CLI_ENV_FILE_PATH = path.join(
@@ -358,7 +379,7 @@ export namespace Server_CLI {
                 clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_APP_URL,
             VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI:
                 clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI,
-            VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_URI_USING_SSL:
+            VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI_USING_SSL:
                 clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI_USING_SSL.toString(),
             VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI:
                 clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI,
@@ -1078,11 +1099,10 @@ export namespace Server_CLI {
         });
 
         try {
-            // Get list of migration files
-            const systemResetDir =
-                cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SYSTEM_RESET_DIR;
+            // Use hardcoded system reset directory
+            const systemResetDir = SYSTEM_RESET_DIR;
             const userResetDir =
-                cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_USER_RESET_DIR;
+                cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_RESET_USER_DIR;
 
             // Process system reset files
             let systemResetFiles: string[] = [];
@@ -1261,7 +1281,7 @@ export namespace Server_CLI {
 
         // Get list of migration files
         const migrations = await readdir(
-            cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_MIGRATION_DIR,
+            MIGRATION_DIR,
             {
                 recursive: true,
             },
@@ -1302,7 +1322,7 @@ export namespace Server_CLI {
                 migrationsRan = true;
                 try {
                     const filePath = path.join(
-                        cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_MIGRATION_DIR,
+                        MIGRATION_DIR,
                         file,
                     );
                     const sqlContent = await readFile(filePath, "utf-8");
@@ -1362,9 +1382,8 @@ export namespace Server_CLI {
             },
         });
 
-        // Ensure we resolve the seed path to absolute path
-        const systemSqlDir =
-            cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SEED_SYSTEM_SQL_DIR;
+        // Use hardcoded system SQL directory
+        const systemSqlDir = SYSTEM_SQL_DIR;
 
         const userSqlDir =
             cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SEED_USER_SQL_DIR;
@@ -1689,9 +1708,8 @@ export namespace Server_CLI {
             },
         });
 
-        // Get paths for both system and user asset directories
-        const systemAssetDir =
-            cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SEED_SYSTEM_ASSET_DIR;
+        // Use hardcoded system asset directory
+        const systemAssetDir = SYSTEM_ASSET_DIR;
         const userAssetDir =
             cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SEED_USER_ASSET_DIR;
 
@@ -2024,10 +2042,10 @@ export namespace Server_CLI {
                 {
                     provider__jwt_secret: string;
                     provider__session_duration_ms: number;
-                    provider__default_permissions__can_read: boolean;
-                    provider__default_permissions__can_insert: boolean;
-                    provider__default_permissions__can_update: boolean;
-                    provider__default_permissions__can_delete: boolean;
+                    provider__default_permissions__can_read: string[];
+                    provider__default_permissions__can_insert: string[];
+                    provider__default_permissions__can_update: string[];
+                    provider__default_permissions__can_delete: string[];
                 },
             ]
         >`
@@ -2092,38 +2110,27 @@ export namespace Server_CLI {
             WHERE general__session_id = ${sessionResult.general__session_id}
         `;
 
-        // Get all available sync groups
-        const syncGroups = await sql<[Auth.SyncGroup.I_SyncGroup]>`
-            SELECT general__sync_group
-            FROM auth.sync_groups
+        // Manually assign permissions to system agent for all sync groups (system provider defaults)
+        await sql`
+            INSERT INTO auth.agent_sync_group_roles (
+                auth__agent_id,
+                group__sync,
+                permissions__can_read,
+                permissions__can_insert,
+                permissions__can_update,
+                permissions__can_delete
+            ) VALUES
+                (${systemAgentId}, 'public.REALTIME', true, true, true, true),
+                (${systemAgentId}, 'public.NORMAL', true, true, true, true),
+                (${systemAgentId}, 'public.BACKGROUND', true, true, true, true),
+                (${systemAgentId}, 'public.STATIC', true, true, true, true)
+            ON CONFLICT (auth__agent_id, group__sync)
+            DO UPDATE SET
+                permissions__can_read = true,
+                permissions__can_insert = true,
+                permissions__can_update = true,
+                permissions__can_delete = true
         `;
-
-        // Assign the system agent to all sync groups with provider default permissions
-        for (const group of syncGroups) {
-            await sql`
-                INSERT INTO auth.agent_sync_group_roles (
-                    auth__agent_id,
-                    group__sync,
-                    permissions__can_read,
-                    permissions__can_insert,
-                    permissions__can_update,
-                    permissions__can_delete
-                ) VALUES (
-                    ${systemAgentId},
-                    ${group.general__sync_group},
-                    ${providerConfig.provider__default_permissions__can_read},
-                    ${providerConfig.provider__default_permissions__can_insert},
-                    ${providerConfig.provider__default_permissions__can_update},
-                    ${providerConfig.provider__default_permissions__can_delete}
-                )
-                ON CONFLICT (auth__agent_id, group__sync) 
-                DO UPDATE SET
-                    permissions__can_read = ${providerConfig.provider__default_permissions__can_read},
-                    permissions__can_insert = ${providerConfig.provider__default_permissions__can_insert},
-                    permissions__can_update = ${providerConfig.provider__default_permissions__can_update},
-                    permissions__can_delete = ${providerConfig.provider__default_permissions__can_delete}
-            `;
-        }
 
         return {
             token,
@@ -3195,6 +3202,7 @@ if (import.meta.main) {
                                 description:
                                     "Show the egress points to setup reverse proxies.",
                             },
+                            // TODO: Doesn't list all configuration? Double check.
                             {
                                 name: "View all current configuration",
                                 value: "view-all",

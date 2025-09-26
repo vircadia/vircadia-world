@@ -78,36 +78,10 @@ const cliEnvSchema = z.object({
                 "./database/backup/backup.sql",
             ),
         ),
-    VRCA_CLI_SERVICE_POSTGRES_MIGRATION_DIR: z
-        .string()
-        .default(
-            path.join(
-                dirname(fileURLToPath(import.meta.url)),
-                "./database/migration",
-            ),
-        ),
-    VRCA_CLI_SERVICE_POSTGRES_SEED_SYSTEM_SQL_DIR: z
-        .string()
-        .nullable()
-        .default(
-            path.join(
-                dirname(fileURLToPath(import.meta.url)),
-                "./database/seed/sql/",
-            ),
-        ),
     VRCA_CLI_SERVICE_POSTGRES_SEED_USER_SQL_DIR: z
         .string()
         .nullable()
         .default(null),
-    VRCA_CLI_SERVICE_POSTGRES_SEED_SYSTEM_ASSET_DIR: z
-        .string()
-        .nullable()
-        .default(
-            path.join(
-                dirname(fileURLToPath(import.meta.url)),
-                "./database/seed/asset/",
-            ),
-        ),
     VRCA_CLI_SERVICE_POSTGRES_SEED_USER_ASSET_DIR: z
         .string()
         .nullable()
@@ -117,16 +91,7 @@ const cliEnvSchema = z.object({
         .nullable()
         .default(null),
 
-    VRCA_CLI_SERVICE_POSTGRES_SYSTEM_RESET_DIR: z
-        .string()
-        .nullable()
-        .default(
-            path.join(
-                dirname(fileURLToPath(import.meta.url)),
-                "./database/reset",
-            ),
-        ),
-    VRCA_CLI_SERVICE_POSTGRES_USER_RESET_DIR: z
+    VRCA_CLI_SERVICE_POSTGRES_RESET_USER_DIR: z
         .string()
         .nullable()
         .default(null),
@@ -138,6 +103,8 @@ const cliConfiguration = cliEnvSchema.parse(process.env);
 
 if (cliConfiguration.VRCA_CLI_SEED_ENV_FILE && existsSync(cliConfiguration.VRCA_CLI_SEED_ENV_FILE)) {
   dotenvConfig({ path: cliConfiguration.VRCA_CLI_SEED_ENV_FILE, override: true }); // override if you want extra.env to win
+  // Re-parse configuration to merge seed env file values
+  Object.assign(cliConfiguration, cliEnvSchema.parse(process.env));
 }
 
 export { cliConfiguration };

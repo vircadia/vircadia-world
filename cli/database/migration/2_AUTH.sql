@@ -98,7 +98,6 @@ CREATE TABLE auth.agent_sessions (
 ) INHERITS (auth._template);
 ALTER TABLE auth.agent_sessions ENABLE ROW LEVEL SECURITY;
 
--- TODO: We need to add configuration (possibly another table) to associate Azure AD groups and local sync groups and the permissions that should be assigned based on each.
 -- Auth Provider Configurations Table
 CREATE TABLE auth.auth_providers (
     provider__name TEXT PRIMARY KEY,                -- Provider identifier (e.g., 'google', 'github')
@@ -228,7 +227,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- TODO: Update cleanup_old_sessions() function to automatically wipe anonymous users past a certain inactivity and/or creation period
 -- Session Cleanup Functions
 CREATE OR REPLACE FUNCTION auth.cleanup_old_sessions()
 RETURNS trigger AS $$ 

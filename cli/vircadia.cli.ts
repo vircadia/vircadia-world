@@ -3155,7 +3155,6 @@ if (import.meta.main) {
                                 description:
                                     "Show the egress points to setup reverse proxies.",
                             },
-                            // TODO: Doesn't list all configuration? Double check.
                             {
                                 name: "View all current configuration",
                                 value: "view-all",
@@ -4046,6 +4045,8 @@ if (import.meta.main) {
                         console.log(
                             `  HTTPS Port Bind: ${currentCaddyPortBindHttps}`,
                         );
+                        console.log(`  TLS Mode (API): ${currentCaddyTlsApi || "Default (SSL enabled)"}`);
+                        console.log(`  TLS Mode (APP): ${currentCaddyTlsApp || "Default (SSL enabled)"}`);
 
                         console.log(`\nCLI Configuration:`);
                         console.log(

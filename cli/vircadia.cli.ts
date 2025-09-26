@@ -13,7 +13,6 @@ import { BunPostgresClientModule } from "../sdk/vircadia-world-sdk-ts/bun/src/mo
 import { input, select, Separator } from "@inquirer/prompts";
 import {
     type Entity,
-    Service,
     type Auth,
 } from "../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 
@@ -2274,12 +2273,7 @@ export namespace Server_CLI {
             });
 
             // Function to process a single asset
-            const processAsset = async (asset: {
-                general__asset_file_name: string;
-                asset__data__bytea?: Buffer | Uint8Array | null;
-                asset__mime_type?: string;
-                [key: string]: unknown;
-            }) => {
+            const processAsset = async (asset: Pick<Entity.Asset.I_Asset, "general__asset_file_name" | "asset__data__bytea" | "asset__mime_type">) => {
                 try {
                     const fileName = asset.general__asset_file_name;
 
@@ -2295,10 +2289,13 @@ export namespace Server_CLI {
 
                     // Save the binary data to file
                     if (asset.asset__data__bytea) {
-                        await writeFile(
-                            filePath,
-                            Buffer.from(asset.asset__data__bytea),
-                        );
+                        let buffer: Buffer;
+                        if (asset.asset__data__bytea instanceof ArrayBuffer) {
+                            buffer = Buffer.from(asset.asset__data__bytea);
+                        } else {
+                            buffer = Buffer.from(asset.asset__data__bytea as Buffer);
+                        }
+                        await writeFile(filePath, buffer);
 
                         BunLogModule({
                             message: `Downloaded asset: ${fileName}`,
@@ -2583,54 +2580,6 @@ export namespace Server_CLI {
     }
 }
 
-async function ensureBranchForAutoUpgrade(branch: string) {
-    await $`git fetch --all --prune`.nothrow();
-
-    const local = await $`git rev-parse --verify ${branch}`.nothrow().quiet();
-    if (local.exitCode !== 0) {
-        const remoteCheck = await $`git ls-remote --heads origin ${branch}`
-            .nothrow()
-            .quiet();
-        if (
-            remoteCheck.exitCode === 0 &&
-            remoteCheck.stdout.toString().trim().length > 0
-        ) {
-            const co = await $`git checkout -B ${branch} origin/${branch}`
-                .nothrow()
-                .quiet();
-            if (co.exitCode !== 0) {
-                throw new Error(
-                    `checkout -B from origin failed: ${co.stderr.toString()}`,
-                );
-            }
-        } else {
-            const cb = await $`git checkout -b ${branch}`.nothrow().quiet();
-            if (cb.exitCode !== 0) {
-                throw new Error(`create branch failed: ${cb.stderr.toString()}`);
-            }
-            const push = await $`git push -u origin ${branch}`
-                .nothrow()
-                .quiet();
-            if (push.exitCode !== 0) {
-                throw new Error(`push upstream failed: ${push.stderr.toString()}`);
-            }
-        }
-    } else {
-        const co = await $`git checkout ${branch}`.nothrow().quiet();
-        if (co.exitCode !== 0) {
-            throw new Error(`checkout failed: ${co.stderr.toString()}`);
-        }
-    }
-}
-
-async function updateBranchForAutoUpgrade(branch: string) {
-    const co = await $`git checkout ${branch}`.nothrow().quiet();
-    if (co.exitCode !== 0) throw new Error(`checkout failed: ${co.stderr.toString()}`);
-    const fetch = await $`git fetch origin ${branch}`.nothrow().quiet();
-    if (fetch.exitCode !== 0) throw new Error(`fetch failed: ${fetch.stderr.toString()}`);
-    const pull = await $`git pull --rebase origin ${branch}`.nothrow().quiet();
-    if (pull.exitCode !== 0) throw new Error(`pull failed: ${pull.stderr.toString()}`);
-}
 
 // No dedicated rebuild helper: we run `bun run server:rebuild-all` in current working directory
 
@@ -4160,71 +4109,97 @@ if (import.meta.main) {
                 break;
             }
 
-            // PROJECT AUTO-UPGRADE (long-running)
+            // PROJECT AUTO-UPGRADE (one-time upgrade)
             case "project:auto-upgrade": {
                 const branch = cliConfiguration.VRCA_CLI_AUTO_UPGRADE_BRANCH ?? "next";
-                const intervalHoursRaw = cliConfiguration.VRCA_CLI_AUTO_UPGRADE_INTERVAL_HOURS;
-                const intervalHours = Number.parseFloat(String(intervalHoursRaw));
-                if (Number.isNaN(intervalHours) || intervalHours <= 0) {
-                    throw new Error(`Invalid --interval-hours: ${intervalHoursRaw}`);
-                }
-                const once = cliConfiguration.VRCA_CLI_AUTO_UPGRADE_ONCE;
 
                 BunLogModule({
-                    message: `Auto-upgrade loop starting`,
-                    data: { branch, intervalHours, once },
+                    message: `Starting one-time auto-upgrade`,
+                    data: { branch },
                     type: "info",
                     suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                     debug: cliConfiguration.VRCA_CLI_DEBUG,
                 });
 
-                await ensureBranchForAutoUpgrade(branch);
+                await $`git fetch --all --prune`.nothrow();
 
-                const cycle = async () => {
-                    try {
-                        BunLogModule({
-                            message: `Updating branch '${branch}'...`,
-                            type: "info",
-                            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                            debug: cliConfiguration.VRCA_CLI_DEBUG,
-                        });
-                        await updateBranchForAutoUpgrade(branch);
-                        BunLogModule({
-                            message: `Rebuilding server...`,
-                            type: "info",
-                            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                            debug: cliConfiguration.VRCA_CLI_DEBUG,
-                        });
-                        const result = await $`bun run server:rebuild-all`.nothrow();
-                        if (result.exitCode !== 0) {
-                            throw new Error(`rebuild failed: ${result.stderr.toString()}`);
+                const local = await $`git rev-parse --verify ${branch}`.nothrow().quiet();
+                if (local.exitCode !== 0) {
+                    const remoteCheck = await $`git ls-remote --heads origin ${branch}`
+                        .nothrow()
+                        .quiet();
+                    if (
+                        remoteCheck.exitCode === 0 &&
+                        remoteCheck.stdout.toString().trim().length > 0
+                    ) {
+                        const co = await $`git checkout -B ${branch} origin/${branch}`
+                            .nothrow()
+                            .quiet();
+                        if (co.exitCode !== 0) {
+                            throw new Error(
+                                `checkout -B from origin failed: ${co.stderr.toString()}`,
+                            );
                         }
-                        BunLogModule({
-                            message: `Rebuild complete`,
-                            type: "success",
-                            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                            debug: cliConfiguration.VRCA_CLI_DEBUG,
-                        });
-                    } catch (error) {
-                        BunLogModule({
-                            message: `Cycle error: ${error instanceof Error ? error.message : String(error)}`,
-                            type: "error",
-                            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                            debug: cliConfiguration.VRCA_CLI_DEBUG,
-                        });
+                    } else {
+                        const cb = await $`git checkout -b ${branch}`.nothrow().quiet();
+                        if (cb.exitCode !== 0) {
+                            throw new Error(`create branch failed: ${cb.stderr.toString()}`);
+                        }
+                        const push = await $`git push -u origin ${branch}`
+                            .nothrow()
+                            .quiet();
+                        if (push.exitCode !== 0) {
+                            throw new Error(`push upstream failed: ${push.stderr.toString()}`);
+                        }
                     }
-                };
-
-                await cycle();
-                if (once) {
-                    break;
+                } else {
+                    const co = await $`git checkout ${branch}`.nothrow().quiet();
+                    if (co.exitCode !== 0) {
+                        throw new Error(`checkout failed: ${co.stderr.toString()}`);
+                    }
                 }
 
-                const intervalMs = intervalHours * 60 * 60 * 1000;
-                while (true) {
-                    await Bun.sleep(intervalMs);
-                    await cycle();
+                try {
+                    BunLogModule({
+                        message: `Updating branch '${branch}'...`,
+                        type: "info",
+                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                    });
+                    const co = await $`git checkout ${branch}`.nothrow().quiet();
+                    if (co.exitCode !== 0) throw new Error(`checkout failed: ${co.stderr.toString()}`);
+                    const fetch = await $`git fetch origin ${branch}`.nothrow().quiet();
+                    if (fetch.exitCode !== 0) throw new Error(`fetch failed: ${fetch.stderr.toString()}`);
+                    const pull = await $`git pull --rebase origin ${branch}`.nothrow().quiet();
+                    if (pull.exitCode !== 0) throw new Error(`pull failed: ${pull.stderr.toString()}`);
+
+                    BunLogModule({
+                        message: `Rebuilding server...`,
+                        type: "info",
+                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                    });
+                    const result = await $`bun run server:rebuild-all`.nothrow();
+                    if (result.exitCode !== 0) {
+                        throw new Error(`rebuild failed: ${result.stderr.toString()}`);
+                    }
+
+                    BunLogModule({
+                        message: `Auto-upgrade completed successfully`,
+                        type: "success",
+                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                    });
+                } catch (error) {
+                    BunLogModule({
+                        message: `Auto-upgrade failed: ${error instanceof Error ? error.message : String(error)}`,
+                        type: "error",
+                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                    });
+                    throw error;
                 }
+                break;
             }
 
             default:

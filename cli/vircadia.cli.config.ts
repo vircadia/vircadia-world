@@ -132,9 +132,6 @@ const cliEnvSchema = z.object({
         .default(null),
     VRCA_CLI_SERVICE_POSTGRES_SEED_AUTH_PROVIDER_SQL: z.string().nullable().default(null),
     VRCA_CLI_SEED_ENV_FILE: z.string().nullable().default(null),
-    VRCA_CLI_AUTO_UPGRADE_BRANCH: z.string().nullable().default("next"),
-    VRCA_CLI_AUTO_UPGRADE_INTERVAL_HOURS: z.coerce.number().nullable().default(1),
-    VRCA_CLI_AUTO_UPGRADE_ONCE: z.boolean().nullable().default(false),
 });
 
 const cliConfiguration = cliEnvSchema.parse(process.env);

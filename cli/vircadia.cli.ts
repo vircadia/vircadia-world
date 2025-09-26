@@ -4111,66 +4111,32 @@ if (import.meta.main) {
 
             // PROJECT AUTO-UPGRADE (one-time upgrade)
             case "project:auto-upgrade": {
-                const branch = cliConfiguration.VRCA_CLI_AUTO_UPGRADE_BRANCH ?? "next";
+                const result = await $`git rev-parse --abbrev-ref HEAD`;
+                const currentBranch = result.stdout.toString().trim();
 
                 BunLogModule({
-                    message: `Starting one-time auto-upgrade`,
-                    data: { branch },
+                    message: `Starting one-time auto-upgrade on current branch`,
+                    data: { currentBranch },
                     type: "info",
                     suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                     debug: cliConfiguration.VRCA_CLI_DEBUG,
                 });
 
-                await $`git fetch --all --prune`.nothrow();
-
-                const local = await $`git rev-parse --verify ${branch}`.nothrow().quiet();
-                if (local.exitCode !== 0) {
-                    const remoteCheck = await $`git ls-remote --heads origin ${branch}`
-                        .nothrow()
-                        .quiet();
-                    if (
-                        remoteCheck.exitCode === 0 &&
-                        remoteCheck.stdout.toString().trim().length > 0
-                    ) {
-                        const co = await $`git checkout -B ${branch} origin/${branch}`
-                            .nothrow()
-                            .quiet();
-                        if (co.exitCode !== 0) {
-                            throw new Error(
-                                `checkout -B from origin failed: ${co.stderr.toString()}`,
-                            );
-                        }
-                    } else {
-                        const cb = await $`git checkout -b ${branch}`.nothrow().quiet();
-                        if (cb.exitCode !== 0) {
-                            throw new Error(`create branch failed: ${cb.stderr.toString()}`);
-                        }
-                        const push = await $`git push -u origin ${branch}`
-                            .nothrow()
-                            .quiet();
-                        if (push.exitCode !== 0) {
-                            throw new Error(`push upstream failed: ${push.stderr.toString()}`);
-                        }
-                    }
-                } else {
-                    const co = await $`git checkout ${branch}`.nothrow().quiet();
-                    if (co.exitCode !== 0) {
-                        throw new Error(`checkout failed: ${co.stderr.toString()}`);
-                    }
-                }
+                await $`git fetch --all --prune --recurse-submodules`.nothrow();
 
                 try {
                     BunLogModule({
-                        message: `Updating branch '${branch}'...`,
+                        message: `Updating current branch '${currentBranch}'...`,
                         type: "info",
                         suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                         debug: cliConfiguration.VRCA_CLI_DEBUG,
                     });
-                    const co = await $`git checkout ${branch}`.nothrow().quiet();
-                    if (co.exitCode !== 0) throw new Error(`checkout failed: ${co.stderr.toString()}`);
-                    const fetch = await $`git fetch origin ${branch}`.nothrow().quiet();
-                    if (fetch.exitCode !== 0) throw new Error(`fetch failed: ${fetch.stderr.toString()}`);
-                    const pull = await $`git pull --rebase origin ${branch}`.nothrow().quiet();
+
+                    // Update submodules recursively
+                    await $`git submodule update --init --recursive`.nothrow();
+
+                    // Fetch and pull current branch with recursive submodules
+                    const pull = await $`git pull --rebase --recurse-submodules origin ${currentBranch}`.nothrow().quiet();
                     if (pull.exitCode !== 0) throw new Error(`pull failed: ${pull.stderr.toString()}`);
 
                     BunLogModule({

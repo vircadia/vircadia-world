@@ -363,6 +363,8 @@ class WorldApiAssetManager {
                         }
                         const response = this.createJsonResponse(
                             Communication.REST.Z.AssetStatsSuccess.parse({
+                                success: true,
+                                timestamp: Date.now(),
                                 uptime: process.uptime(),
                                 connections: this.metricsCollector.getSystemMetrics(true).connections,
                                 database: {

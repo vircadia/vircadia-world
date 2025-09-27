@@ -85,15 +85,32 @@ export class WorldApiWsManager {
     private addCorsHeaders(response: Response, req: Request): Response {
         const origin = req.headers.get("origin");
 
-        // Allow requests from localhost development servers
-        if (
-            origin &&
-            (origin.includes("localhost") || origin.includes("127.0.0.1"))
-        ) {
+        // Auto-allow localhost and 127.0.0.1 on any port for development
+        const isLocalhost = origin && (
+            origin.startsWith("http://localhost:") ||
+            origin.startsWith("https://localhost:") ||
+            origin.startsWith("http://127.0.0.1:") ||
+            origin.startsWith("https://127.0.0.1:")
+        );
+
+        // Build allowed origins for production
+        const allowedOrigins = [
+            // Frontend domain
+            `https://${serverConfiguration.VRCA_SERVER_SERVICE_CADDY_DOMAIN_APP}`,
+            // WS Manager's own public endpoint
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_SSL_ENABLED_PUBLIC_AVAILABLE_AT
+                ? `https://${serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_HOST_PUBLIC_AVAILABLE_AT}${serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_PUBLIC_AVAILABLE_AT !== 443 ? `:${serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_PUBLIC_AVAILABLE_AT}` : ""}`
+                : `http://${serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_HOST_PUBLIC_AVAILABLE_AT}${serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_PUBLIC_AVAILABLE_AT !== 80 ? `:${serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_PORT_PUBLIC_AVAILABLE_AT}` : ""}`,
+        ];
+
+        // Check if origin is allowed (localhost on any port OR in allowed list)
+        if (origin && (isLocalhost || allowedOrigins.includes(origin))) {
             response.headers.set("Access-Control-Allow-Origin", origin);
+            response.headers.set("Access-Control-Allow-Credentials", "true");
         } else {
-            // In production, you might want to restrict this to specific domains
+            // For non-matching origins, don't set credentials
             response.headers.set("Access-Control-Allow-Origin", "*");
+            // Note: We don't set Access-Control-Allow-Credentials for wildcard origins
         }
 
         response.headers.set(
@@ -102,9 +119,8 @@ export class WorldApiWsManager {
         );
         response.headers.set(
             "Access-Control-Allow-Headers",
-            "Content-Type, Authorization",
+            "Content-Type, Authorization, X-Requested-With",
         );
-        response.headers.set("Access-Control-Allow-Credentials", "true");
 
         return response;
     }

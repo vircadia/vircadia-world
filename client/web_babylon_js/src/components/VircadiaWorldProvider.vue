@@ -444,6 +444,17 @@ function handleAuthChange() {
     }
 
     if (isAuthenticatedComputed.value) {
+        const currentToken = sessionTokenComputed.value;
+        // Skip if we are already connected with the same token
+        if (
+            connectionInfoComputed.value.isConnected &&
+            lastConnectedToken.value === currentToken
+        ) {
+            console.log(
+                "[VircadiaWorldProvider] Already connected with current token, skipping connect",
+            );
+            return;
+        }
         console.log(
             "[VircadiaWorldProvider] User authenticated, initiating connection",
         );
@@ -456,29 +467,22 @@ function handleAuthChange() {
     }
 }
 
-// React to authentication changes
+// React only to session token changes (simpler and avoids duplicate triggers)
 watch(
-    () => ({
-        isAuthenticated: isAuthenticatedComputed.value,
-        sessionToken: sessionTokenComputed.value,
-        agentId: agentIdComputed.value,
-        account: accountComputed.value,
-    }),
-    // Debounce auth change handling to avoid connect/disconnect races
-    (() => {
-        const authChangeDebounceMs = 150;
-        let authChangeTimer: number | null = null;
-        return () => {
-            if (authChangeTimer) {
-                clearTimeout(authChangeTimer);
-            }
-            authChangeTimer = window.setTimeout(() => {
-                handleAuthChange();
-                authChangeTimer = null;
-            }, authChangeDebounceMs);
-        };
-    })(),
-    { immediate: true, deep: true },
+    () => sessionTokenComputed.value,
+    (newToken, oldToken) => {
+        // Skip if auto-connect disabled
+        if (!autoConnect.value) return;
+        // If token didn't change and we're already connected, do nothing
+        if (
+            newToken === oldToken &&
+            connectionInfoComputed.value.isConnected
+        ) {
+            return;
+        }
+        handleAuthChange();
+    },
+    { immediate: true },
 );
 
 // Reconnect on unexpected disconnect when authenticated

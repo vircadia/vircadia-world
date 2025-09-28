@@ -8,7 +8,6 @@
         <VircadiaWorldAuthProvider 
             v-if="!isAuthenticated" 
             :vircadia-world="vircadiaWorld" 
-            @authenticated="connect" 
         />
 
         <!-- Main world when authenticated -->

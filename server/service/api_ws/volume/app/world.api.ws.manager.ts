@@ -78,7 +78,7 @@ export class WorldApiWsManager {
     private aclService: AclService | null = null;
 
     private CONNECTION_HEARTBEAT_INTERVAL = 500;
-    private DEBUG = true || serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_DEBUG;
+    private DEBUG =  serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_DEBUG;
     private SUPPRESS = serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_SUPPRESS;
 
     // Add CORS helper function
@@ -135,10 +135,11 @@ export class WorldApiWsManager {
 
     async initialize() {
         BunLogModule({
+            prefix: LOG_PREFIX,
             message: "Initializing World API WS Manager",
             debug: this.DEBUG,
             suppress: this.SUPPRESS,
-            type: "debug",
+            type: "info",
         });
 
         try {
@@ -213,6 +214,7 @@ export class WorldApiWsManager {
             }
         } catch (error) {
             BunLogModule({
+                prefix: LOG_PREFIX,
                 message: "Failed to initialize DB connection",
                 error: error,
                 debug: this.DEBUG,
@@ -233,6 +235,7 @@ export class WorldApiWsManager {
                 try {
                     if (!superUserSql || !proxyUserSql) {
                         BunLogModule({
+                            prefix: LOG_PREFIX,
                             message: "No database connection available",
                             debug: this.DEBUG,
                             suppress: this.SUPPRESS,
@@ -577,7 +580,7 @@ export class WorldApiWsManager {
                             message: "WS upgrade request received",
                             debug: this.DEBUG,
                             suppress: this.SUPPRESS,
-                            type: "debug",
+                            type: "info",
                             data: {
                                 pathname: url.pathname,
                                 hasToken: !!token,
@@ -593,7 +596,7 @@ export class WorldApiWsManager {
                                 debug: this.DEBUG,
                                 suppress:
                                     this.SUPPRESS,
-                                type: "debug",
+                                type: "info",
                             });
                             return new Response(
                                 "Authentication required: No token provided",
@@ -612,7 +615,7 @@ export class WorldApiWsManager {
                                 debug: this.DEBUG,
                                 suppress:
                                     this.SUPPRESS,
-                                type: "debug",
+                                type: "info",
                             });
                             return new Response("Provider required", {
                                 status: 401,
@@ -634,7 +637,7 @@ export class WorldApiWsManager {
                                 debug: this.DEBUG,
                                 suppress:
                                     this.SUPPRESS,
-                                type: "debug",
+                                type: "info",
                                 data: {
                                     jwtMs,
                                 },
@@ -660,7 +663,7 @@ export class WorldApiWsManager {
                             message: "WS session validated",
                             debug: this.DEBUG,
                             suppress: this.SUPPRESS,
-                            type: "debug",
+                            type: "info",
                             data: {
                                 sessionId: jwtValidationResult.sessionId,
                                 agentId: jwtValidationResult.agentId,
@@ -675,7 +678,7 @@ export class WorldApiWsManager {
                                 debug: this.DEBUG,
                                 suppress:
                                     this.SUPPRESS,
-                                type: "debug",
+                                type: "info",
                                 data: {
                                     sessionMs,
                                 },
@@ -693,7 +696,7 @@ export class WorldApiWsManager {
                                 message: "Rejecting WebSocket upgrade: session already connected",
                                 debug: this.DEBUG,
                                 suppress: this.SUPPRESS,
-                                type: "debug",
+                                type: "info",
                                 data: {
                                     sessionId: jwtValidationResult.sessionId,
                                     agentId: jwtValidationResult.agentId,
@@ -743,7 +746,7 @@ export class WorldApiWsManager {
                             message: "WebSocket upgrade succeeded",
                             debug: this.DEBUG,
                             suppress: this.SUPPRESS,
-                            type: "debug",
+                            type: "info",
                             data: {
                                 agentId: jwtValidationResult.agentId,
                                 sessionId: jwtValidationResult.sessionId,
@@ -762,7 +765,7 @@ export class WorldApiWsManager {
                         message: "404 Not Found",
                         debug: true, // Force debug for troubleshooting
                         suppress: false,
-                        type: "debug",
+                        type: "info",
                         prefix: LOG_PREFIX,
                         data: {
                             pathname: url.pathname,
@@ -813,7 +816,7 @@ export class WorldApiWsManager {
                         message: "WS message received",
                         suppress: this.SUPPRESS,
                         debug: this.DEBUG,
-                        type: "debug",
+                        type: "info",
                         data: {
                             bytes: new TextEncoder().encode(message).length,
                             sessionId: ws.data.sessionId,
@@ -850,7 +853,7 @@ export class WorldApiWsManager {
                             message: "WS message parsed",
                             suppress: this.SUPPRESS,
                             debug: this.DEBUG,
-                            type: "debug",
+                            type: "info",
                             data: {
                                 type: data.type,
                                 requestId: (data as any)?.requestId,
@@ -877,7 +880,7 @@ export class WorldApiWsManager {
                                 message: "WS message validation failed",
                                 suppress: this.SUPPRESS,
                                 debug: this.DEBUG,
-                                type: "debug",
+                                type: "info",
                                 data: {
                                     requestId,
                                     elapsedMs: performance.now() - receivedAt,
@@ -903,7 +906,7 @@ export class WorldApiWsManager {
                                 message: "WS invalid session on message",
                                 suppress: this.SUPPRESS,
                                 debug: this.DEBUG,
-                                type: "debug",
+                                type: "info",
                                 data: {
                                     requestId: parsed.data.requestId,
                                     elapsedMs: performance.now() - receivedAt,
@@ -979,7 +982,7 @@ export class WorldApiWsManager {
                                             message: "WS QUERY_REQUEST handled",
                                             debug: this.DEBUG,
                                             suppress: this.SUPPRESS,
-                                            type: "debug",
+                                            type: "info",
                                             data: {
                                                 requestId: typedRequest.requestId,
                                                 durationMs: performance.now() - receivedAt,
@@ -1034,7 +1037,7 @@ export class WorldApiWsManager {
                                         message: "WS QUERY_REQUEST error",
                                         debug: this.DEBUG,
                                         suppress: this.SUPPRESS,
-                                        type: "debug",
+                                        type: "info",
                                         data: {
                                             requestId: typedRequest.requestId,
                                             durationMs: performance.now() - receivedAt,
@@ -1097,7 +1100,7 @@ export class WorldApiWsManager {
                                         message: "WS REFLECT_PUBLISH_REQUEST validation failed",
                                         debug: this.DEBUG,
                                         suppress: this.SUPPRESS,
-                                        type: "debug",
+                                        type: "info",
                                         data: {
                                             syncGroup,
                                             channel,
@@ -1142,7 +1145,7 @@ export class WorldApiWsManager {
                                         message: "WS REFLECT_PUBLISH_REQUEST unauthorized",
                                         debug: this.DEBUG,
                                         suppress: this.SUPPRESS,
-                                        type: "debug",
+                                        type: "info",
                                         data: {
                                             syncGroup,
                                             channel,
@@ -1214,7 +1217,7 @@ export class WorldApiWsManager {
                                     message: "WS REFLECT_PUBLISH_REQUEST fanout complete",
                                     debug: this.DEBUG,
                                     suppress: this.SUPPRESS,
-                                    type: "debug",
+                                    type: "info",
                                     data: {
                                         syncGroup,
                                         channel,
@@ -1242,7 +1245,7 @@ export class WorldApiWsManager {
                                     message: "WS unsupported message type",
                                     debug: this.DEBUG,
                                     suppress: this.SUPPRESS,
-                                    type: "debug",
+                                    type: "info",
                                     data: {
                                         type: parsed.data.type,
                                         requestId: parsed.data.requestId,
@@ -1253,19 +1256,13 @@ export class WorldApiWsManager {
                         }
                     } catch (error) {
                         BunLogModule({
-                            type: "error",
-                            message: "Received WS message handling failed.",
-                            error: error,
-                            suppress: this.SUPPRESS,
-                            debug: this.DEBUG,
-                        });
-                        BunLogModule({
                             prefix: LOG_PREFIX,
                             message: "WS message handler threw",
                             debug: this.DEBUG,
                             suppress: this.SUPPRESS,
-                            type: "debug",
+                            type: "info",
                             data: {
+                                error: error instanceof Error ? error.message : String(error),
                                 elapsedMs: performance.now() - receivedAt,
                             },
                         });
@@ -1279,7 +1276,7 @@ export class WorldApiWsManager {
                         message: "New WebSocket connection attempt",
                         debug: this.DEBUG,
                         suppress: this.SUPPRESS,
-                        type: "debug",
+                        type: "info",
                         data: {
                             agentId: sessionData.agentId,
                             sessionId: sessionData.sessionId,
@@ -1305,7 +1302,7 @@ export class WorldApiWsManager {
                         message: `Connection established with agent ${sessionData.agentId}`,
                         suppress: this.SUPPRESS,
                         debug: this.DEBUG,
-                        type: "debug",
+                        type: "info",
                     });
 
                     // Warm ACL for this agent (non-blocking)
@@ -1331,30 +1328,27 @@ export class WorldApiWsManager {
                     code: number,
                     reason: string,
                 ) => {
-                    BunLogModule({
-                        message: `WebSocket connection closed, code: ${code}, reason: ${reason}`,
-                        debug: this.DEBUG,
-                        suppress: this.SUPPRESS,
-                        type: "debug",
-                    });
+                    
                     const session = this.activeSessions.get(ws.data.sessionId);
                     if (session) {
-                        BunLogModule({
-                            prefix: LOG_PREFIX,
-                            message: "WebSocket disconnection",
-                            debug: this.DEBUG,
-                            suppress: this.SUPPRESS,
-                            type: "debug",
-                            data: {
-                                sessionId: session.sessionId,
-                                agentId: session.agentId,
-                            },
-                        });
-
                         // Clean up both maps
                         this.wsToSessionMap.delete(session.ws);
                         this.activeSessions.delete(session.sessionId);
                     }
+
+                    BunLogModule({
+                        message: "WebSocket disconnection",
+                        debug: this.DEBUG,
+                        suppress: this.SUPPRESS,
+                        prefix: LOG_PREFIX,
+                        data: {
+                            sessionId: session?.sessionId,
+                            agentId: session?.agentId,
+                            code,
+                            reason,
+                        },
+                        type: "info",
+                    });
                 },
             },
 
@@ -1402,7 +1396,7 @@ export class WorldApiWsManager {
                                 "Session expired / invalid, closing WebSocket",
                             debug: this.DEBUG,
                             suppress: this.SUPPRESS,
-                            type: "debug",
+                            type: "info",
                             data: {
                                 sessionId,
                                 agentId: session.agentId,

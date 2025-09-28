@@ -331,7 +331,7 @@ class WorldApiAssetManager {
                                     message: "Incoming HTTP request",
                                     debug: serverConfiguration.VRCA_SERVER_DEBUG,
                                     suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-                                    type: "debug",
+                                    type: "info",
                                     data: {
                                         method: req.method,
                                         pathname: url.pathname,
@@ -352,6 +352,14 @@ class WorldApiAssetManager {
                         url.pathname.startsWith(Communication.REST.Endpoint.ASSET_STATS.path) &&
                         req.method === Communication.REST.Endpoint.ASSET_STATS.method
                     ) {
+                        BunLogModule({
+                            prefix: LOG_PREFIX,
+                            message: "Stats endpoint accessed",
+                            debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                            type: "debug",
+                            data: { method: req.method, pathname: url.pathname },
+                        });
                         const requestIP =
                             req.headers.get("x-forwarded-for")?.split(",")[0] ||
                             server.requestIP(req)?.address ||
@@ -411,7 +419,7 @@ class WorldApiAssetManager {
                                     message: "ASSET_GET_BY_KEY request received",
                                     debug: serverConfiguration.VRCA_SERVER_DEBUG,
                                     suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
-                                    type: "debug",
+                                    type: "info",
                                     data: {
                                         key,
                                         provider,
@@ -478,6 +486,7 @@ class WorldApiAssetManager {
                                 if (cached) {
                                     const file = Bun.file(filePath);
                                     const response = new Response(file);
+                                    BunLogModule({ prefix: LOG_PREFIX, message: "Asset served from cache", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "info", data: { key, filePath, responseSize: file.size } });
                                     return this.addCorsHeaders(response, req);
                                 }
 
@@ -493,7 +502,7 @@ class WorldApiAssetManager {
                                 const payload = row?.asset__data__bytea;
                                 if (!payload)
                                     {
-                                        BunLogModule({ prefix: LOG_PREFIX, message: "Asset not found in database", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "debug", data: { key } });
+                                        BunLogModule({ prefix: LOG_PREFIX, message: "Asset not found in database", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "info", data: { key } });
                                     return this.createJsonResponse(
                                         Communication.REST.Endpoint.ASSET_GET_BY_KEY.createError("Not found"),
                                         req,
@@ -521,17 +530,17 @@ class WorldApiAssetManager {
                                 const response = new Response(file, { headers });
                                 const responseSize = bytes.byteLength;
                                 this.metricsCollector.recordEndpoint("ASSET_GET_BY_KEY", performance.now() - startTime, requestSize, responseSize, true);
-                                BunLogModule({ prefix: LOG_PREFIX, message: "Asset served from database and cached", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "debug", data: { key, filePath, responseSize, contentType: row?.asset__mime_type || null } });
+                                BunLogModule({ prefix: LOG_PREFIX, message: "Asset served from database and cached", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "info", data: { key, filePath, responseSize, contentType: row?.asset__mime_type || null } });
                                 return this.addCorsHeaders(response, req);
                             }
 
                             default:
-                                BunLogModule({ prefix: LOG_PREFIX, message: "Asset manager route 404 under asset base path", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "debug", data: { pathname: url.pathname, method: req.method } });
+                                BunLogModule({ prefix: LOG_PREFIX, message: "Asset manager route 404 under asset base path", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "info", data: { pathname: url.pathname, method: req.method } });
                                 return this.createJsonResponse({ error: "Not found" }, req, 404);
                         }
                     }
 
-                    BunLogModule({ prefix: LOG_PREFIX, message: "Asset manager route 404 (outside asset base path)", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "debug", data: { pathname: url.pathname, method: req.method } });
+                    BunLogModule({ prefix: LOG_PREFIX, message: "Asset manager route 404 (outside asset base path)", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "info", data: { pathname: url.pathname, method: req.method } });
                     return this.createJsonResponse({ error: "Not found" }, req, 404);
                 } catch (error) {
                     BunLogModule({ prefix: LOG_PREFIX, message: "Unexpected error in asset manager", error, debug: true, suppress: false, type: "error" });

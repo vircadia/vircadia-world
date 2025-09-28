@@ -1,11 +1,8 @@
 <template>
-    <slot 
-        :isLoading="isLoading"
-        :physicsEnabled="physicsEnabled"
-        :physicsPluginName="physicsPluginName"
-        :physicsError="physicsError"
-        :gravity="gravity"
-    ></slot>
+    <slot :environmentInitialized="environmentInitialized" :physicsEnabled="physicsEnabled"
+        :physicsPluginName="physicsPluginName" :physicsError="physicsError" :gravity="gravity"
+        :physicsEngineType="physicsEngineType" :physicsInitialized="physicsInitialized"
+        :havokInstanceLoaded="!!havokInstance" :physicsPluginCreated="!!physicsPlugin"></slot>
 </template>
 <script setup lang="ts">
 import { ref, watch, toRef, computed, type Ref } from "vue";
@@ -39,7 +36,7 @@ const props = withDefaults(
     defineProps<{
         scene: Scene;
         vircadiaWorld: VircadiaWorldInstance;
-        environmentEntityName: string;
+        hdrFiles: string[];
         // defaults configuration
         enableDefaults?: boolean;
         enablePhysics?: boolean;
@@ -79,14 +76,18 @@ const props = withDefaults(
 
 const sceneRef = toRef(props, "scene");
 const vircadiaRef = toRef(props, "vircadiaWorld");
-const envEntityNameRef = toRef(props, "environmentEntityName");
+const hdrFilesRef = toRef(props, "hdrFiles");
 
-const isLoading = ref(false);
-const hasLoaded = ref(false);
+// Flag that marks when default lights and ground have been created (if enabled)
+const defaultsReady = ref(false);
 const physicsError = ref<string | null>(null);
 // Reactive trigger to force re-evaluation of computed properties after physics init
 const physicsInitialized = ref(false);
-// Derive directly from the scene to avoid stale local flags
+// Environment is considered initialized after defaults (lights/ground) are created, regardless of physics
+// If defaults are disabled, consider environment initialized once defaults phase has been processed
+const environmentInitialized = computed<boolean>(() => {
+    return defaultsReady.value || props.enableDefaults === false;
+});
 const physicsEnabled = computed<boolean>(() => {
     // Force re-evaluation when physicsInitialized changes
     const initialized = physicsInitialized.value;
@@ -138,6 +139,15 @@ const physicsPluginName = computed<string>(() => {
         getPhysicsPluginName?: () => string | undefined;
     } | null;
     return engineAny?.getPhysicsPluginName?.() || (engineAny ? "Havok" : "");
+});
+
+const physicsEngineType = computed<string>(() => {
+    const s = sceneRef.value as unknown as { getPhysicsEngine?: () => unknown } | null;
+    const engine = s?.getPhysicsEngine?.();
+    // Best-effort: constructor name is informative across plugins
+    return engine && (engine as { constructor?: { name?: string } }).constructor?.name
+        ? (engine as { constructor: { name: string } }).constructor.name
+        : "";
 });
 
 let havokInstance: unknown | null = null;
@@ -307,9 +317,13 @@ function addGroundIfNeeded(targetScene: Scene) {
     }
 }
 
-// Removed: setupDefaultEnvironmentIfNeeded (inlined in loadAll after engine ready)
-
-async function loadHdrFiles(scene: Scene, hdrFiles: string[]) {
+// TODO: Make it a SINGLE HDR.
+async function loadHdrFiles(scene: Scene) {
+    const hdrFiles = hdrFilesRef.value;
+    if (!hdrFiles) {
+        console.error("[BabylonEnvironment] hdrFiles not provided");
+        return;
+    }
     for (const fileName of hdrFiles) {
         const { url, revoke } = await vircadiaRef.value.client.fetchAssetAsBabylonUrl(fileName);
         const hdr = new HDRCubeTexture(
@@ -323,7 +337,7 @@ async function loadHdrFiles(scene: Scene, hdrFiles: string[]) {
         );
         await new Promise<void>((resolve) => hdr.onLoadObservable.addOnce(() => resolve()));
         // After the HDR texture has loaded, revoke the object URL if provided
-        try { revoke?.(); } catch {}
+        try { revoke?.(); } catch { }
         scene.environmentTexture = hdr;
         scene.environmentIntensity = 1.2;
         scene.createDefaultSkybox(hdr, true, 1000);
@@ -339,19 +353,18 @@ async function loadAll(scene: Scene) {
         console.error("[BabylonEnvironment] Vircadia instance not provided");
         return;
     }
-    if (!envEntityNameRef.value) {
+    if (!hdrFilesRef.value || hdrFilesRef.value.length === 0) {
         console.error(
-            "[BabylonEnvironment] environmentEntityName not provided",
+            "[BabylonEnvironment] hdrFiles not provided",
         );
         return;
     }
     // Prevent concurrent loads
-    if (isLoading.value || hasLoaded.value) {
+    if (environmentInitialized.value) {
         console.log("[BabylonEnvironment] Already loading or loaded, skipping");
         return;
     }
 
-    isLoading.value = true;
     try {
         await initializePhysicsIfNeeded(scene);
         // Wait up to ~1s for the physics engine to be fully ready before creating ground
@@ -368,57 +381,13 @@ async function loadAll(scene: Scene) {
         // Create lights and ground now that physics engine is available
         addDefaultLightsIfNeeded(scene);
         addGroundIfNeeded(scene);
-        // Fetch all metadata for this environment entity
-        const instance = vircadiaRef.value;
-        if (!instance) {
-            console.error("[BabylonEnvironment] Vircadia instance missing");
-            return;
-        }
-        const metadataResult = await instance.client.connection.query<{
-            metadata__key: string;
-            metadata__value: unknown;
-        }[]>(
-            {
-                query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1",
-                parameters: [envEntityNameRef.value],
-            },
-        )
-
-        const metadataMap = new Map<string, unknown>();
-        if (Array.isArray(metadataResult.result)) {
-            for (const row of metadataResult.result) {
-                metadataMap.set(
-                    row.metadata__key as string,
-                    row.metadata__value as unknown,
-                );
-            }
-        }
-
-        const entityType = metadataMap.get("type");
-        if (entityType !== "Environment") {
-            console.warn(
-                `[BabylonEnvironment] Entity '${envEntityNameRef.value}' is not of type 'Environment' (type=${String(entityType)})`,
-            );
-        }
-
-        const hdrFilesMeta = metadataMap.get("hdrFiles");
-        const hdrFiles = Array.isArray(hdrFilesMeta)
-            ? (hdrFilesMeta as unknown[]).filter(
-                  (v): v is string => typeof v === "string",
-              )
-            : [];
-        if (hdrFiles.length === 0) {
-            console.warn(
-                `[BabylonEnvironment] No hdrFiles defined for '${envEntityNameRef.value}'`,
-            );
-        }
-
-        await loadHdrFiles(scene, hdrFiles);
-        hasLoaded.value = true;
+        // Mark defaults phase complete irrespective of physics
+        defaultsReady.value = true;
+        await loadHdrFiles(scene);
     } catch (e) {
         console.error(e);
     } finally {
-        isLoading.value = false;
+        defaultsReady.value = true;
     }
 }
 
@@ -426,17 +395,17 @@ async function loadAll(scene: Scene) {
 watch(
     () => ({
         scene: sceneRef.value,
-        v: vircadiaRef.value,
-        name: envEntityNameRef.value,
+        hdrFiles: hdrFilesRef.value?.length ?? 0,
     }),
     ({ scene }) => {
-        if (scene && vircadiaRef.value && envEntityNameRef.value) {
+        if (scene && hdrFilesRef.value) {
             void loadAll(scene);
         }
     },
     { immediate: true },
 );
 
+// TODO: Move physics into its own component.
 // Manual physics check function for debugging
 function checkPhysicsStatus() {
     const s = sceneRef.value;
@@ -459,10 +428,10 @@ function checkPhysicsStatus() {
 }
 
 defineExpose({
-    isLoading,
     physicsError,
     physicsEnabled,
     physicsPluginName,
+    physicsEngineType,
     checkPhysicsStatus,
     initializePhysicsIfNeeded,
 });

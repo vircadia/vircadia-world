@@ -1,5 +1,8 @@
 {
     "editor.defaultFormatter": "biomejs.biome",
     "editor.formatOnSave": true,
-    "kiroAgent.configureMCP": "Enabled"
+    "kiroAgent.configureMCP": "Enabled",
+    "[vue]": {
+        "editor.defaultFormatter": "Vue.volar"
+    }
 }

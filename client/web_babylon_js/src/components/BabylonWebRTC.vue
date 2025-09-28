@@ -576,6 +576,13 @@ const props = defineProps<Props>();
 
 const emit = defineEmits<{
     'update:modelValue': [value: boolean];
+    'permissions': [
+        {
+            microphone: 'granted' | 'denied' | 'prompt' | 'unknown';
+            audioContext: 'resumed' | 'suspended' | 'unknown';
+            localStreamActive: boolean;
+        }
+    ];
 }>();
 
 // Dialog visibility
@@ -622,6 +629,43 @@ const debugTestResults = ref<string>('');
 const debugTestTimestamp = ref<number>(0);
 const networkStatus = ref<'unknown' | 'online' | 'offline'>('unknown');
 const audioContextResumed = ref(false);
+
+// Microphone permission state
+const microphonePermission = ref<'granted' | 'denied' | 'prompt' | 'unknown'>('unknown');
+
+function emitPermissionState() {
+    const audioState: 'resumed' | 'suspended' | 'unknown' = audioContextResumed.value
+        ? 'resumed'
+        : spatialAudio.isInitialized.value
+            ? 'suspended'
+            : 'unknown';
+    emit('permissions', {
+        microphone: microphonePermission.value,
+        audioContext: audioState,
+        localStreamActive: !!localStream.value,
+    });
+}
+
+async function queryMicrophonePermission() {
+    try {
+        if ('permissions' in navigator && (navigator as any).permissions?.query) {
+            const status = await (navigator as any).permissions.query({ name: 'microphone' as PermissionName });
+            microphonePermission.value = (status.state as 'granted' | 'denied' | 'prompt');
+            emitPermissionState();
+            status.onchange = () => {
+                microphonePermission.value = (status.state as 'granted' | 'denied' | 'prompt');
+                emitPermissionState();
+            };
+        } else {
+            // Fallback when Permissions API is unavailable
+            microphonePermission.value = localStream.value ? 'granted' : 'unknown';
+            emitPermissionState();
+        }
+    } catch {
+        microphonePermission.value = 'unknown';
+        emitPermissionState();
+    }
+}
 
 // WebRTC configuration with TURN servers for NAT traversal
 const rtcConfig: RTCConfiguration = {
@@ -757,9 +801,11 @@ async function ensureAudioContextResumed() {
         if (resumed) {
             console.log('[WebRTC] Audio context resumed successfully');
             audioContextResumed.value = true;
+            emitPermissionState();
         } else {
             console.warn('[WebRTC] Audio context could not be resumed - user interaction may be required');
             audioContextResumed.value = false;
+            emitPermissionState();
         }
         return resumed;
     }
@@ -865,6 +911,8 @@ async function initialize() {
     }
 
     try {
+        // Query permission as early as possible
+        await queryMicrophonePermission();
         // Initialize spatial audio
         spatialAudio.initialize();
         
@@ -879,6 +927,11 @@ async function initialize() {
         });
         
         console.log('[WebRTC] Got local media stream');
+        // If we successfully got media, permission is effectively granted
+        if (localStream.value) {
+            microphonePermission.value = 'granted';
+            emitPermissionState();
+        }
         
         // Initialize Reflect API
         await reflectApi.initialize();
@@ -888,6 +941,11 @@ async function initialize() {
         
     } catch (err) {
         console.error('[WebRTC] Failed to initialize:', err);
+        // If getUserMedia failed, update permission state (could be denied)
+        if (typeof (err as any)?.name === 'string' && (err as any).name === 'NotAllowedError') {
+            microphonePermission.value = 'denied';
+        }
+        emitPermissionState();
     }
 }
 
@@ -1473,6 +1531,8 @@ onMounted(() => {
     if (fullSessionId.value) {
         initialize();
     }
+    // initial permission ping
+    queryMicrophonePermission();
 });
 
 onUnmounted(() => {

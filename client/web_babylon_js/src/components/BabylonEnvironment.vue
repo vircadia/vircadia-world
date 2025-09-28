@@ -374,12 +374,15 @@ async function loadAll(scene: Scene) {
             console.error("[BabylonEnvironment] Vircadia instance missing");
             return;
         }
-        const metadataResult = (await instance.client.connection.query(
+        const metadataResult = await instance.client.connection.query<{
+            metadata__key: string;
+            metadata__value: unknown;
+        }[]>(
             {
                 query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1",
                 parameters: [envEntityNameRef.value],
             },
-        )) as any;
+        )
 
         const metadataMap = new Map<string, unknown>();
         if (Array.isArray(metadataResult.result)) {

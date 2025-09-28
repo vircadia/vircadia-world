@@ -1,4 +1,14 @@
 <template>
+    <SceneDrawer
+        v-model:open="drawerOpen"
+        v-model:tab="drawerTab"
+        :environment-is-loading="environmentLoading"
+        :physics-enabled="envPhysicsEnabledRef"
+        :physics-plugin-name="envPhysicsPluginNameRef"
+        :physics-error="envPhysicsErrorRef"
+        :gravity="envGravityRef"
+    />
+
     <VircadiaWorldProvider 
         :autoConnect="clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT"
         @auth-denied="onAuthDenied($event)"
@@ -12,6 +22,7 @@
 
         <!-- Main world when authenticated -->
         <template v-else>
+
         <!-- Component Loader -->
         <template v-for="comp in availableComponents" :key="comp">
             <component 
@@ -148,6 +159,15 @@
             >
                 Perf ({{ performanceMode }})
             </v-btn>
+            <v-btn
+				variant="tonal"
+                :color="drawerOpen ? 'error' : 'default'"
+				prepend-icon="mdi-dock-right"
+                @click="drawerOpen = !drawerOpen"
+				class="ml-2"
+			>
+				Sidebar
+			</v-btn>
         </v-app-bar>
 
         <main>
@@ -185,7 +205,11 @@
                     {{ envPhysicsEnabledRef = envPhysicsEnabled }}
                     {{ envPhysicsPluginNameRef = envPhysicsPluginName }}
                     {{ envPhysicsErrorRef = envPhysicsError }}
+                    {{ envGravityRef = gravity as any }}
                 </div>
+
+				<!-- Sidebar Drawer with Tabs (Environment Info) -->
+				<!-- Global drawer lives in App.vue; removed local drawer UI -->
                 <!-- Only render entities when scene is available, connection is stable, and full session ID is available -->
                 <template v-if="!isLoading && envPhysicsEnabled && sceneInitialized && connectionStatus === 'connected' && !isConnecting && fullSessionId">
                     <!-- BabylonMyAvatar component wrapped with MKB controller -->
@@ -301,7 +325,9 @@
                                         @state="onAnimationState"
                                     />
                                     
-                                    <!-- Debug overlay for avatar -->
+                                </BabylonMyAvatarModel>
+                                    
+                                    <!-- Debug overlays moved outside of model to render regardless of model availability -->
                                     <BabylonMyAvatarDebugOverlay
                                         :scene="sceneNonNull"
                                         :vircadia-world="vircadiaWorld"
@@ -337,7 +363,6 @@
                                         :avatar-node="(avatarNode as any) || null"
                                         hotkey="Shift+N"
                                     />
-                                </BabylonMyAvatarModel>
                                 </template>
                             </BabylonMyAvatar>
                         </BabylonMyAvatarTalking>
@@ -494,6 +519,7 @@ import {
     ref,
     onMounted,
     getCurrentInstance,
+    inject,
     type defineComponent,
 } from "vue";
 import BabylonMyAvatar, {
@@ -525,6 +551,7 @@ import BabylonCanvas from "../components/BabylonCanvas.vue";
 import BabylonSnackbar from "../components/BabylonSnackbar.vue";
 import LogoutButton from "../components/LogoutButton.vue";
 import VircadiaWorldProvider from "./VircadiaWorldProvider.vue";
+import SceneDrawer from "./SceneDrawer.vue";
 // mark as used at runtime for template
 void BabylonMyAvatar;
 void BabylonMyAvatarTalking;
@@ -572,6 +599,8 @@ void BabylonCanvas;
 void VircadiaWorldProvider;
 // mark as used at runtime for template
 void BabylonWebRTC;
+// mark as used at runtime for template
+void SceneDrawer;
 // mark as used at runtime for template
 import BabylonEnvironment from "../components/BabylonEnvironment.vue";
 import BabylonDoor from "../components/BabylonDoor.vue";
@@ -716,6 +745,12 @@ function togglePerformanceMode() {
     }
 }
 
+// Local debug drawer state
+const drawerOpen = useStorage<boolean>("vrca.debug.sidebar.open", false);
+const drawerTab = useStorage<string>("vrca.debug.sidebar.tab", "environment");
+void drawerOpen;
+void drawerTab;
+
 // Connection watchers migrated to provider
 
 // Active audio connections - now handled internally by BabylonWebRTCRefactored
@@ -739,9 +774,11 @@ void envRef; // envPhysicsEnabled, envPhysicsPluginName, envPhysicsError, gravit
 const envPhysicsEnabledRef = ref<boolean>(false);
 const envPhysicsPluginNameRef = ref<string | null>(null);
 const envPhysicsErrorRef = ref<string | null>(null);
+const envGravityRef = ref<[number, number, number]>([0, -9.81, 0]);
 void envPhysicsEnabledRef;
 void envPhysicsPluginNameRef;
 void envPhysicsErrorRef;
+void envGravityRef;
 
 // Avatar definition is now provided locally instead of DB
 const avatarDefinition: AvatarDefinition = {

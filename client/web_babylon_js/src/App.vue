@@ -1,12 +1,13 @@
 <template>
     <v-app>
         <MainScene />
+
         <div class="build-overlay" aria-label="Build info">
             <span class="build-overlay__dot" />
             <span class="build-overlay__text">v{{ appVersion }} • {{ buildDate }}</span>
         </div>
     </v-app>
-</template>
+ </template>
 
 <script setup lang="ts">
 import MainScene from "./components/MainScene.vue";
@@ -15,6 +16,8 @@ void MainScene;
 
 const appVersion = __APP_VERSION__;
 const buildDate = new Date(__BUILD_DATE__).toLocaleString();
+
+// no global provides; drawer lives in MainScene
 </script>
 
 <style>

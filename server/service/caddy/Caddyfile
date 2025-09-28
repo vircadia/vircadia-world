@@ -6,9 +6,10 @@
   {$CADDY_TLS_API}
   encode zstd gzip
 
-  # Route WebSocket, REST auth, and REST asset subpaths to their managers
-  @ws path /world/ws
-  reverse_proxy @ws http://{$CADDY_UPSTREAM_API_WS}
+  # Route REST auth, REST WS, and REST asset subpaths to their managers
+
+  @rest_ws path /world/rest/ws*
+  reverse_proxy @rest_ws http://{$CADDY_UPSTREAM_API_WS}
 
   @rest_auth path /world/rest/auth*
   reverse_proxy @rest_auth http://{$CADDY_UPSTREAM_API_AUTH}

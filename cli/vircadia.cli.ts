@@ -1309,7 +1309,7 @@ export namespace Server_CLI {
 
         let migrationsRan = false;
 
-        for (const name of serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS.split(",")) {
+        for (const name of serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS) {
             BunLogModule({
                 message: `Installing PostgreSQL extension: ${name}...`,
                 type: "debug",

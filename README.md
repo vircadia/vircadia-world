@@ -82,5 +82,3 @@ See the main [website](https://vircadia.com) for an alternate overview of the fe
 ## Next
 
 The `next` branch is where new updates are merged before being pushed to `master`.
-
-<!-- TODO: Use https://github.com/pinojs/pino for logging -->

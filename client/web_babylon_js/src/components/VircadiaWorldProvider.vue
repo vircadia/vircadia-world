@@ -204,28 +204,26 @@ const storedAuthProvider = useStorage<string>(
     localStorage,
 );
 
-const isAuthenticatedComputed = computed(
-    () => !!sessionToken.value && !!account.value,
-);
+const isAuthenticatedComputed = computed(() => !!sessionToken.value);
 const isAuthenticatingComputed = computed(() => false);
 const authErrorComputed = computed(() => null as string | null);
 const accountComputed = computed(() => account.value);
 const sessionTokenComputed = computed(() => sessionToken.value);
 // session and agent IDs from connection info
 const sessionIdComputed = computed(
-    () => connectionInfoComputed.value.sessionId ?? null,
+    () => connectionInfoComputed.value.sessionId,
 );
 const agentIdComputed = computed(
-    () => connectionInfoComputed.value.agentId ?? null,
+    () => connectionInfoComputed.value.agentId,
 );
 const authProviderComputed = computed(() => storedAuthProvider.value ?? "anon");
 
 // Pull instanceId and fullSessionId directly from core connection info
 const instanceId = computed(
-    () => connectionInfoComputed.value.instanceId ?? null,
+    () => connectionInfoComputed.value.instanceId,
 );
 const fullSessionIdComputed = computed(
-    () => connectionInfoComputed.value.fullSessionId ?? null,
+    () => connectionInfoComputed.value.fullSessionId,
 );
 
 type ConnectionInfoMaybeLastClose = WsConnectionCoreInfo & {

@@ -93,6 +93,7 @@ VALUES
 -- ENTITIES: MODEL DEFINITIONS
 -- ============================================================================
 
+-- TODO: Make this a separate component here in seeds.
 -- Babylon level entity (used by client to discover and sync model metadata)
 INSERT INTO entity.entities (
     general__entity_name,

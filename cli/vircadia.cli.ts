@@ -259,7 +259,7 @@ export namespace Server_CLI {
             VRCA_SERVER_SERVICE_POSTGRES_DATABASE:
                 serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
             VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS:
-                serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS,
+                serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS.join(","),
 
             VRCA_SERVER_SERVICE_PGWEB_CONTAINER_NAME:
                 serverConfiguration.VRCA_SERVER_SERVICE_PGWEB_CONTAINER_NAME,
@@ -2676,7 +2676,7 @@ if (import.meta.main) {
                 );
                 break;
 
-            case "server:world-api-ws-manager:health":
+            case "server:api:ws:manager:health":
                 await runHealthCommand(
                     "World API WS Manager",
                     Server_CLI.isWorldApiWsManagerHealthy,
@@ -2684,7 +2684,7 @@ if (import.meta.main) {
                 );
                 break;
 
-            case "server:world-api-rest-auth-manager:health":
+            case "server:api:rest:auth:manager:health":
                 await runHealthCommand(
                     "World API REST Auth Manager",
                     Server_CLI.isWorldApiRestAuthManagerHealthy,
@@ -2692,7 +2692,7 @@ if (import.meta.main) {
                 );
                 break;
 
-            case "server:world-api-rest-asset-manager:health":
+            case "server:api:rest:asset:manager:health":
                 await runHealthCommand(
                     "World API REST Asset Manager",
                     Server_CLI.isWorldApiRestAssetManagerHealthy,
@@ -2700,7 +2700,7 @@ if (import.meta.main) {
                 );
                 break;
 
-            case "server:world-state-manager:health":
+            case "server:state:manager:health":
                 await runHealthCommand(
                     "World State Manager",
                     Server_CLI.isWorldStateManagerHealthy,
@@ -2708,7 +2708,7 @@ if (import.meta.main) {
                 );
                 break;
 
-            case "server:client-web-babylon-js:health":
+            case "server:client:web_babylon_js:health":
                 await runHealthCommand(
                     "Client Web Babylon JS",
                     Server_CLI.isClientWebBabylonJsHealthy,

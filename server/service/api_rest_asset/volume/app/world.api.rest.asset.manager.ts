@@ -5,14 +5,13 @@
 import type { Server } from "bun";
 import type { SQL } from "bun";
 import type { Sql } from "postgres";
-import { mkdir, rm, stat } from "node:fs/promises";
+import { mkdir, rm, stat, readdir } from "node:fs/promises";
 import path from "node:path";
 import { serverConfiguration } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
 import { BunLogModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
 import { BunPostgresClientModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
 import type { Service } from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 import { Communication } from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
-import { z } from "zod";
 import { AclService, validateJWT } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.server.auth.module";
 import { MetricsCollector } from "./service/metrics";
 
@@ -83,24 +82,32 @@ class WorldApiAssetManager {
         const safe = this.sanitizeKey(key);
         return path.join(this.assetCacheDir, safe);
     }
-    private getManifestPath(): string {
-        return path.join(this.assetCacheDir, "cache.manifest.json");
-    }
-    private async loadManifest(): Promise<Record<string, { updatedAt: string; size: number }>> {
-        try {
-            const file = Bun.file(this.getManifestPath());
-            if (!(await file.exists())) return {};
-            const text = await file.text();
-            const data = JSON.parse(text) as Record<string, { updatedAt: string; size: number }>;
-            return data || {};
-        } catch {
-            return {};
-        }
-    }
-    private async saveManifest(manifest: Record<string, { updatedAt: string; size: number }>): Promise<void> {
-        const json = JSON.stringify(manifest);
-        await Bun.write(this.getManifestPath(), json);
-    }
+	private async getCacheCurrentTotalBytes(): Promise<number> {
+		try {
+			const entries = await readdir(this.assetCacheDir, { withFileTypes: true });
+			let total = 0;
+			for (const entry of entries) {
+				if (!entry.isFile()) continue;
+				try {
+					const s = await stat(path.join(this.assetCacheDir, entry.name));
+					if (s.isFile()) total += s.size;
+				} catch {}
+			}
+			return total;
+		} catch {
+			return 0;
+		}
+	}
+
+	private async getCachedFileStat(filePath: string): Promise<{ size: number; mtimeMs: number } | null> {
+		try {
+			const s = await stat(filePath);
+			if (!s.isFile()) return null;
+			return { size: s.size, mtimeMs: s.mtimeMs };
+		} catch {
+			return null;
+		}
+	}
     private async ensureAssetCacheDir(): Promise<void> {
         await mkdir(this.assetCacheDir, { recursive: true });
     }
@@ -108,6 +115,15 @@ class WorldApiAssetManager {
         await rm(this.assetCacheDir, { recursive: true, force: true }).catch(() => {});
         await this.ensureAssetCacheDir();
     }
+
+	private async fatalShutdown(message: string, error?: unknown): Promise<never> {
+		BunLogModule({ prefix: LOG_PREFIX, message, error, debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "error" });
+		try {
+			await this.shutdown();
+		} catch {}
+		process.exit(1);
+		throw new Error("Process exiting due to fatal error");
+	}
     private async cacheWriteFile(filePath: string, bytes: Uint8Array) {
         const file = Bun.file(filePath);
         await Bun.write(file, bytes);
@@ -120,6 +136,20 @@ class WorldApiAssetManager {
             return false;
         }
     }
+
+	private async getDbAssetSize(key: string): Promise<number | null> {
+		if (!superUserSql) return null;
+		try {
+			const [r] = await superUserSql<[{ size: number | null }]>`
+				SELECT COALESCE(octet_length(asset__data__bytea), 0) AS size
+				FROM entity.entity_assets
+				WHERE general__asset_file_name = ${key}
+			`;
+			return typeof r?.size === "number" ? r.size : 0;
+		} catch {
+			return null;
+		}
+	}
 
     private startPeriodicMaintenance(): void {
         if (this.assetCacheMaintenanceIntervalMs <= 0) {
@@ -134,13 +164,18 @@ class WorldApiAssetManager {
 
         this.maintenanceInterval = setInterval(async () => {
             try {
-                await this.maintainAssetCache(false);
+                try {
+                    await this.maintainAssetCache(false);
+                } catch (error) {
+                    // If a capacity error happens during periodic maintenance, shut down
+                    await this.fatalShutdown("Periodic cache maintenance failed", error);
+                }
             } catch (error) {
                 BunLogModule({ prefix: LOG_PREFIX, message: "Error during periodic asset cache maintenance", error, debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "error" });
             }
         }, this.assetCacheMaintenanceIntervalMs);
 
-        BunLogModule({ prefix: LOG_PREFIX, message: `Started periodic asset cache maintenance every ${this.assetCacheMaintenanceIntervalMs}ms`, debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "info" });
+        // Periodic maintenance startup logged in combined server startup message
     }
 
     private stopPeriodicMaintenance(): void {
@@ -151,121 +186,177 @@ class WorldApiAssetManager {
         }
     }
 
-    private async maintainAssetCache(fullRefresh = false): Promise<void> {
-        if (!superUserSql) return;
-        const t0 = performance.now();
-        await this.ensureAssetCacheDir();
-        let manifest = await this.loadManifest();
-        if (fullRefresh) {
-            await this.clearAssetCache();
-            manifest = {};
-        }
-        const rows = await superUserSql<[
-            { general__asset_file_name: string; asset__data__bytea_updated_at: string | null; approx_size: number | null },
-        ]>`
-            SELECT general__asset_file_name,
-                   asset__data__bytea_updated_at,
-                   COALESCE(octet_length(asset__data__bytea), 0) as approx_size
-            FROM entity.entity_assets
-            ORDER BY asset__data__bytea_updated_at DESC NULLS LAST
-        `;
+	private async maintainAssetCache(fullRefresh = false): Promise<void> {
+		if (!superUserSql) return;
+		const t0 = performance.now();
+		await this.ensureAssetCacheDir();
+		if (fullRefresh) {
+			await this.clearAssetCache();
+		}
+		const rows = await superUserSql<[
+			{ general__asset_file_name: string; asset__data__bytea_updated_at: string | null; approx_size: number | null },
+		]>`
+			SELECT general__asset_file_name,
+			       asset__data__bytea_updated_at,
+			       COALESCE(octet_length(asset__data__bytea), 0) as approx_size
+			FROM entity.entity_assets
+			ORDER BY asset__data__bytea_updated_at DESC NULLS LAST
+		`;
 
-        const dbKeys = new Set<string>();
-        for (const r of rows) {
-            const key = r?.general__asset_file_name;
-            if (key) dbKeys.add(key);
-        }
-        for (const key of Object.keys(manifest)) {
-            if (!dbKeys.has(key)) {
-                const filePath = this.getCachedPathForKey(key);
-                await rm(filePath, { force: true }).catch(() => {});
-                delete manifest[key];
-            }
-        }
+		// Track asset size statistics for warning on init
+		let normalAssets = 0;
+		let smallAssets = 0;
+		const smallSizeThreshold = 500; // bytes - assets smaller than this are considered "small"
 
-        let totalBytes = 0;
-        for (const key of Object.keys(manifest)) totalBytes += Number(manifest[key]?.size || 0);
-        const byteBudget = this.assetCacheMaxBytes || Number.MAX_SAFE_INTEGER;
+		// Remove cached files that no longer exist in DB
+		const dbKeys = new Set<string>();
+		for (const r of rows) {
+			const key = r?.general__asset_file_name;
+			if (key) dbKeys.add(this.sanitizeKey(key));
+		}
+		try {
+			const entries = await readdir(this.assetCacheDir, { withFileTypes: true });
+			for (const entry of entries) {
+				if (!entry.isFile()) continue;
+				if (!dbKeys.has(entry.name)) {
+					await rm(path.join(this.assetCacheDir, entry.name), { force: true }).catch(() => {});
+				}
+			}
+		} catch {}
 
-        const evictUntilFits = async (requiredBytes: number) => {
-            if (totalBytes + requiredBytes <= byteBudget) return;
-            const entries = Object.entries(manifest).sort((a, b) => new Date(a[1].updatedAt).getTime() - new Date(b[1].updatedAt).getTime());
-            for (const [oldKey, meta] of entries) {
-                if (totalBytes + requiredBytes <= byteBudget) break;
-                const filePath = this.getCachedPathForKey(oldKey);
-                await rm(filePath, { force: true }).catch(() => {});
-                totalBytes -= Number(meta.size || 0);
-                delete manifest[oldKey];
-            }
-        };
+		let totalBytes = await this.getCacheCurrentTotalBytes();
+		const byteBudget = this.assetCacheMaxBytes || Number.MAX_SAFE_INTEGER;
+		const totalDbBytes = rows.reduce((sum, r) => sum + Number(r.approx_size || 0), 0);
+		if (byteBudget !== Number.MAX_SAFE_INTEGER && totalDbBytes > byteBudget) {
+			await this.fatalShutdown("Asset cache budget is smaller than total asset size; cannot warm cache without eviction.");
+		}
 
-        let filesWarmed = 0;
-        for (const r of rows) {
-            const key = r?.general__asset_file_name;
-            if (!key) continue;
-            const updatedAt = r.asset__data__bytea_updated_at || new Date(0).toISOString();
-            const approxSize = Number(r.approx_size || 0);
-            const cachedMeta = manifest[key];
-            const isUpToDate = cachedMeta && new Date(cachedMeta.updatedAt).getTime() >= new Date(updatedAt).getTime();
-            const filePath = this.getCachedPathForKey(key);
-            if (isUpToDate) continue;
-            await evictUntilFits(approxSize);
-            try {
-                const [dataRow] = await superUserSql<[{ asset__data__bytea: Uint8Array | ArrayBuffer | Buffer | null }]>`
-                    SELECT asset__data__bytea
-                    FROM entity.entity_assets
-                    WHERE general__asset_file_name = ${key}
-                `;
-                const payload = dataRow?.asset__data__bytea;
-                if (!payload) continue;
-                const bytes =
-                    payload instanceof Uint8Array
-                        ? payload
-                        : payload instanceof ArrayBuffer
-                          ? new Uint8Array(payload)
-                          : Buffer.isBuffer(payload)
-                            ? new Uint8Array(payload)
-                            : undefined;
-                if (!bytes) continue;
-                await this.cacheWriteFile(filePath, bytes);
-                const size = bytes.byteLength;
-                totalBytes += size - Number(cachedMeta?.size || 0);
-                manifest[key] = { updatedAt, size };
-                filesWarmed += 1;
-            } catch {}
-        }
+		let filesWarmed = 0;
+		for (const r of rows) {
+			const key = r?.general__asset_file_name;
+			if (!key) continue;
+			const filePath = this.getCachedPathForKey(key);
+			const fileStat = await this.getCachedFileStat(filePath);
+			const dbUpdatedAt = new Date(r.asset__data__bytea_updated_at || 0).getTime();
+			const isUpToDate = fileStat && fileStat.mtimeMs >= dbUpdatedAt;
+			const approxSize = Number(r.approx_size || 0);
 
-        await this.saveManifest(manifest);
-        const durationMs = Math.round(performance.now() - t0);
-        this.lastAssetMaintenanceAt = Date.now();
-        this.lastAssetMaintenanceDurationMs = durationMs;
-        this.lastAssetFilesWarmed = filesWarmed;
-        BunLogModule({ prefix: LOG_PREFIX, message: "Asset cache maintenance complete", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "info", data: { filesWarmed, totalBytes, byteBudget: this.assetCacheMaxBytes, durationMs } });
-    }
+			// Track asset size statistics
+			if (approxSize <= smallSizeThreshold) {
+				smallAssets++;
+			} else {
+				normalAssets++;
+			}
 
-    private async getAssetCacheStats(): Promise<Service.API.Asset.I_AssetCacheStats> {
-        let totalBytes = 0;
-        let fileCount = 0;
-        try {
-            const manifest = await this.loadManifest();
-            const keys = Object.keys(manifest);
-            fileCount = keys.length;
-            for (const key of keys) totalBytes += Number(manifest[key]?.size || 0);
-        } catch {}
-        return {
-            dir: this.assetCacheDir,
-            maxMegabytes: this.assetCacheMaxBytes / 1024 / 1024,
-            totalMegabytes: totalBytes / 1024 / 1024,
-            fileCount,
-            inFlight: this.assetInFlight.size,
-            lastMaintenanceAt: this.lastAssetMaintenanceAt ?? null,
-            lastMaintenanceDurationMs: this.lastAssetMaintenanceDurationMs ?? null,
-            filesWarmedLastRun: this.lastAssetFilesWarmed ?? null,
-        };
-    }
+			if (isUpToDate) continue;
+
+			// Capacity check before fetching
+			const projected = totalBytes - Number(fileStat?.size || 0) + approxSize;
+			if (projected > byteBudget) {
+				await this.fatalShutdown("Asset cache budget exceeded while warming cache; refusing to proceed.");
+			}
+
+			try {
+				const [dataRow] = await superUserSql<[{ asset__data__bytea: Uint8Array | ArrayBuffer | Buffer | null }]>`
+					SELECT asset__data__bytea
+					FROM entity.entity_assets
+					WHERE general__asset_file_name = ${key}
+				`;
+				const payload = dataRow?.asset__data__bytea;
+				if (!payload) continue;
+				const bytes =
+					payload instanceof Uint8Array
+						? payload
+						: payload instanceof ArrayBuffer
+						  ? new Uint8Array(payload)
+						  : Buffer.isBuffer(payload)
+							? new Uint8Array(payload)
+							: undefined;
+				if (!bytes) continue;
+				await this.cacheWriteFile(filePath, bytes);
+				totalBytes = totalBytes - Number(fileStat?.size || 0) + bytes.byteLength;
+				filesWarmed += 1;
+			} catch {}
+		}
+
+		const durationMs = Math.round(performance.now() - t0);
+		this.lastAssetMaintenanceAt = Date.now();
+		this.lastAssetMaintenanceDurationMs = durationMs;
+		this.lastAssetFilesWarmed = filesWarmed;
+
+		// Log asset cache maintenance results
+		if (fullRefresh && (smallAssets > 0 || normalAssets > 0)) {
+			const totalAssets = smallAssets + normalAssets;
+			const smallPercent = totalAssets > 0 ? Math.round((smallAssets / totalAssets) * 100) : 0;
+
+			let message = `Asset cache initialization complete - found ${totalAssets} assets (${filesWarmed} warmed in ${durationMs}ms)`;
+			if (smallAssets > 0) {
+				message += ` with ${smallAssets} small assets (${smallPercent}%) ≤${smallSizeThreshold} bytes`;
+			}
+
+			BunLogModule({
+				prefix: LOG_PREFIX,
+				message,
+				debug: serverConfiguration.VRCA_SERVER_DEBUG,
+				suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+				type: smallAssets > 0 ? "warning" : "info",
+				data: {
+					smallAssets,
+					normalAssets,
+					totalAssets,
+					smallPercent,
+					smallSizeThreshold,
+					filesWarmed,
+					totalBytes,
+					durationMs
+				}
+			});
+		} else {
+			BunLogModule({
+				prefix: LOG_PREFIX,
+				message: `Asset cache maintenance complete - ${filesWarmed} files warmed in ${durationMs}ms`,
+				debug: serverConfiguration.VRCA_SERVER_DEBUG,
+				suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+				type: "debug",
+				data: { filesWarmed, totalBytes, byteBudget: this.assetCacheMaxBytes, durationMs }
+			});
+		}
+	}
+
+	private async getAssetCacheStats(): Promise<Service.API.Asset.I_AssetCacheStats> {
+		let totalBytes = 0;
+		let fileCount = 0;
+		try {
+			const entries = await readdir(this.assetCacheDir, { withFileTypes: true });
+			for (const entry of entries) {
+				if (!entry.isFile()) continue;
+				fileCount += 1;
+				try {
+					const s = await stat(path.join(this.assetCacheDir, entry.name));
+					if (s.isFile()) totalBytes += s.size;
+				} catch {}
+			}
+		} catch {}
+		return {
+			dir: this.assetCacheDir,
+			maxMegabytes: this.assetCacheMaxBytes / 1024 / 1024,
+			totalMegabytes: totalBytes / 1024 / 1024,
+			fileCount,
+			inFlight: this.assetInFlight.size,
+			lastMaintenanceAt: this.lastAssetMaintenanceAt ?? null,
+			lastMaintenanceDurationMs: this.lastAssetMaintenanceDurationMs ?? null,
+			filesWarmedLastRun: this.lastAssetFilesWarmed ?? null,
+		};
+	}
 
     async initialize() {
-        BunLogModule({ prefix: LOG_PREFIX, message: "Initializing World API Asset Manager", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "debug" });
+        BunLogModule({ prefix: LOG_PREFIX, message: "Initializing World API Asset Manager", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "info",
+            data: {
+                assetCacheDir: this.assetCacheDir,
+                assetCacheMaxBytes: this.assetCacheMaxBytes,
+                assetCacheMaintenanceIntervalMs: this.assetCacheMaintenanceIntervalMs,
+            }
+         });
 
         legacySuperUserSql = await BunPostgresClientModule.getInstance({
             debug: serverConfiguration.VRCA_SERVER_DEBUG,
@@ -298,10 +389,12 @@ class WorldApiAssetManager {
             await this.aclService.startRoleChangeListener();
         }
 
-        // Initial cache warm
+        // Initial cache warm (fatal if capacity cannot be satisfied)
         try {
             await this.maintainAssetCache(true);
-        } catch {}
+        } catch (error) {
+            await this.fatalShutdown("Initial cache warm failed", error);
+        }
 
         // Start periodic maintenance
         this.startPeriodicMaintenance();
@@ -461,9 +554,9 @@ class WorldApiAssetManager {
 
                                 // Determine asset's group and check ACL
                                 const [assetRow] = await superUserSql<[
-                                    { group__sync: string | null; general__asset_file_name: string | null },
+                                    { group__sync: string | null; general__asset_file_name: string | null; asset__mime_type: string | null },
                                 ]>`
-                                    SELECT group__sync, general__asset_file_name
+                                    SELECT group__sync, general__asset_file_name, asset__mime_type
                                     FROM entity.entity_assets
                                     WHERE general__asset_file_name = ${key}
                                 `;
@@ -483,12 +576,23 @@ class WorldApiAssetManager {
                                 const filePath = this.getCachedPathForKey(key);
                                 const cached = await this.isCached(filePath);
                                 BunLogModule({ prefix: LOG_PREFIX, message: "Asset cache lookup", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "debug", data: { key, filePath, cached } });
-                                if (cached) {
-                                    const file = Bun.file(filePath);
-                                    const response = new Response(file);
-                                    BunLogModule({ prefix: LOG_PREFIX, message: "Asset served from cache", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "info", data: { key, filePath, responseSize: file.size } });
-                                    return this.addCorsHeaders(response, req);
-                                }
+									if (cached) {
+										const file = Bun.file(filePath);
+										const headers = new Headers();
+										if (assetRow?.asset__mime_type) headers.set("Content-Type", assetRow.asset__mime_type);
+										let diskSize = 0;
+										try {
+											const s = await stat(filePath);
+											diskSize = s.isFile() ? s.size : 0;
+										} catch {}
+										if (diskSize > 0) headers.set("Content-Length", String(diskSize));
+										const response = new Response(file, { headers });
+										const dbSize = await this.getDbAssetSize(key);
+										const responseSize = diskSize || file.size || 0;
+										this.metricsCollector.recordEndpoint("ASSET_GET_BY_KEY", performance.now() - startTime, requestSize, responseSize, true);
+										BunLogModule({ prefix: LOG_PREFIX, message: "Asset served from cache", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "info", data: { key, filePath, dbSize, diskSize, responseSize, contentType: assetRow?.asset__mime_type || null } });
+										return this.addCorsHeaders(response, req);
+									}
 
                                 // Fallback to DB
                                 BunLogModule({ prefix: LOG_PREFIX, message: "Fetching asset from database", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "debug", data: { key } });
@@ -523,15 +627,28 @@ class WorldApiAssetManager {
                                         req,
                                         500,
                                     );
+                                await this.ensureAssetCacheDir();
+                                // Enforce capacity strictly: must write to cache or shutdown
+                                const currentTotal = await this.getCacheCurrentTotalBytes();
+                                const byteBudget = this.assetCacheMaxBytes || Number.MAX_SAFE_INTEGER;
+                                if (currentTotal + bytes.byteLength > byteBudget) {
+                                    await this.fatalShutdown("Asset cache budget exceeded during request-time population");
+                                }
                                 await this.cacheWriteFile(filePath, bytes);
-                                const headers = new Headers();
-                                if (row?.asset__mime_type) headers.set("Content-Type", row.asset__mime_type);
-                                const file = Bun.file(filePath);
-                                const response = new Response(file, { headers });
-                                const responseSize = bytes.byteLength;
-                                this.metricsCollector.recordEndpoint("ASSET_GET_BY_KEY", performance.now() - startTime, requestSize, responseSize, true);
-                                BunLogModule({ prefix: LOG_PREFIX, message: "Asset served from database and cached", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "info", data: { key, filePath, responseSize, contentType: row?.asset__mime_type || null } });
-                                return this.addCorsHeaders(response, req);
+									const headers = new Headers();
+									if (row?.asset__mime_type) headers.set("Content-Type", row.asset__mime_type);
+									let diskSize = 0;
+									try {
+										const s = await stat(filePath);
+										diskSize = s.isFile() ? s.size : 0;
+									} catch {}
+									if (diskSize > 0) headers.set("Content-Length", String(diskSize));
+									const response = new Response(Bun.file(filePath), { headers });
+									const dbSize = bytes.byteLength;
+									const responseSize = diskSize || dbSize;
+									this.metricsCollector.recordEndpoint("ASSET_GET_BY_KEY", performance.now() - startTime, requestSize, responseSize, true);
+									BunLogModule({ prefix: LOG_PREFIX, message: "Asset served from cache after DB fetch", debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "info", data: { key, filePath, dbSize, diskSize, responseSize, contentType: row?.asset__mime_type || null } });
+									return this.addCorsHeaders(response, req);
                             }
 
                             default:
@@ -549,7 +666,7 @@ class WorldApiAssetManager {
             },
         });
 
-        BunLogModule({ prefix: LOG_PREFIX, message: `Asset Manager listening on 3023`, debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "info" });
+        BunLogModule({ prefix: LOG_PREFIX, message: `Asset Manager startup complete - listening on 3023 with periodic maintenance every ${this.assetCacheMaintenanceIntervalMs}ms`, debug: serverConfiguration.VRCA_SERVER_DEBUG, suppress: serverConfiguration.VRCA_SERVER_SUPPRESS, type: "info" });
     }
 
     async shutdown(): Promise<void> {

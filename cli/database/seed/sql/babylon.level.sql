@@ -120,7 +120,7 @@ VALUES
     ('babylon.level.glb', 'enablePhysics', 'true'::jsonb, 'public.STATIC'),
     ('babylon.level.glb', 'physicsType', '"mesh"'::jsonb, 'public.STATIC'),
     ('babylon.level.glb', 'physicsOptions', '{"mass":0,"friction":0.5,"restitution":0.3}'::jsonb, 'public.STATIC'),
-    ('babylon.level.glb', 'ownerSessionId', 'null'::jsonb, 'public.STATIC'),
+    ('babylon.level.glb', 'ownerSessionId', 'null'::jsonb, 'public.STATIC')
 ON CONFLICT (general__entity_name, metadata__key) DO UPDATE SET
     metadata__value = EXCLUDED.metadata__value,
     group__sync = EXCLUDED.group__sync;

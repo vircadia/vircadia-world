@@ -1,18 +1,8 @@
 <template>
     <div>
-        <slot 
-            v-if="isAuthenticated" 
-            :isAuthenticated="isAuthenticated"
-            :isAuthenticating="isAuthenticating"
-            :authError="authError"
-            :account="account"
-            :sessionToken="sessionToken"
-            :sessionId="sessionId"
-            :agentId="agentId"
-            :authProvider="authProvider"
-            :logout="logout"
-            :logoutLocal="logoutLocal"
-        />
+        <slot v-if="isAuthenticated" :isAuthenticated="isAuthenticated" :isAuthenticating="isAuthenticating"
+            :authError="authError" :account="account" :sessionToken="sessionToken" :sessionId="sessionId"
+            :agentId="agentId" :authProvider="authProvider" :logout="logout" :logoutLocal="logoutLocal" />
         <v-container v-else fluid fill-height class="intro-screen">
             <v-row align="center" justify="center">
                 <v-col cols="12" sm="8" md="6" lg="4">
@@ -29,36 +19,18 @@
                             </v-alert>
                         </v-card-text>
                         <v-card-actions class="d-flex flex-column pa-6 pt-0">
-                            <v-btn
-                                block
-                                x-large
-                                color="primary"
-                                @click="loginWithAzure"
-                                :disabled="isAuthenticating"
-                                class="mb-4"
-                            >
+                            <v-btn block x-large color="primary" @click="loginWithAzure" :disabled="isAuthenticating"
+                                class="mb-4">
                                 <v-icon left>mdi-microsoft-azure</v-icon>
                                 Login with Azure AD
                             </v-btn>
-                            <v-btn
-                                block
-                                x-large
-                                color="secondary"
-                                @click="loginAnonymously"
-                                :disabled="isAuthenticating"
-                                class="mb-4"
-                            >
+                            <v-btn block x-large color="secondary" @click="loginAnonymously"
+                                :disabled="isAuthenticating" class="mb-4">
                                 <v-icon left>mdi-account-circle-outline</v-icon>
                                 Continue as Anonymous
                             </v-btn>
-                            <v-btn
-                                v-if="showDebugLogin"
-                                block
-                                x-large
-                                color="accent"
-                                @click="loginWithDebugToken"
-                                :disabled="isAuthenticating"
-                            >
+                            <v-btn v-if="showDebugLogin" block x-large color="accent" @click="loginWithDebugToken"
+                                :disabled="isAuthenticating">
                                 <v-icon left>mdi-bug-check</v-icon>
                                 Continue with Debug Token
                             </v-btn>
@@ -71,11 +43,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
-import { useStorage, StorageSerializers } from "@vueuse/core";
-import { clientBrowserConfiguration } from "../../../../sdk/vircadia-world-sdk-ts/browser/src/config/vircadia.browser.config";
 import type { AccountInfo } from "@azure/msal-browser";
+import { StorageSerializers, useStorage } from "@vueuse/core";
+import { computed, onMounted, ref } from "vue";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
+import { clientBrowserConfiguration } from "../../../../sdk/vircadia-world-sdk-ts/browser/src/config/vircadia.browser.config";
 
 const props = defineProps<{
     vircadiaWorld: VircadiaWorldInstance;
@@ -126,7 +98,8 @@ const loginWithAzure = async () => {
     authError.value = null;
 
     try {
-        const data = await props.vircadiaWorld.client.restAuth.authorizeOAuth("azure");
+        const data =
+            await props.vircadiaWorld.client.restAuth.authorizeOAuth("azure");
         console.log("Auth authorize response:", data);
 
         if (data.success && data.redirectUrl) {
@@ -150,8 +123,12 @@ const loginAnonymously = async () => {
     authError.value = null;
     try {
         const data = await props.vircadiaWorld.client.loginAnonymous();
-        if (data && data.success && data.data) {
-            const { token, agentId: newAgentId, sessionId: newSessionId } = data.data;
+        if (data.success && data.data) {
+            const {
+                token,
+                agentId: newAgentId,
+                sessionId: newSessionId,
+            } = data.data;
             sessionToken.value = token;
             sessionId.value = newSessionId;
             agentId.value = newAgentId;
@@ -347,4 +324,4 @@ defineExpose({
     z-index: 2000;
     background: #202020;
 }
-</style> 
+</style>

@@ -1,10 +1,10 @@
 <template>
-  <canvas ref="canvasRef" id="renderCanvas"></canvas>
+    <canvas ref="canvasRef" id="renderCanvas"></canvas>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch, toRef, nextTick } from "vue";
-import { Scene, Vector3, WebGPUEngine, ArcRotateCamera } from "@babylonjs/core";
+import { ArcRotateCamera, Scene, Vector3, WebGPUEngine } from "@babylonjs/core";
+import { nextTick, onMounted, onUnmounted, ref, toRef, watch } from "vue";
 
 const props = defineProps({
     performanceMode: { type: String, default: "low" },
@@ -64,7 +64,10 @@ function startRenderLoop() {
             const now = performance.now();
             if (now - lastFpsEmitTime >= 500) {
                 const currentFps = Math.round(engine.getFps());
-                emit("update:fps", currentFps);
+                // Defer FPS update to avoid recursive updates
+                nextTick(() => {
+                    emit("update:fps", currentFps);
+                });
                 lastFpsEmitTime = now;
             }
         });
@@ -80,7 +83,10 @@ function startRenderLoop() {
                 // throttle FPS emit to ~2Hz
                 if (currentTime - lastFpsEmitTime >= 500) {
                     const currentFps = Math.round(engine.getFps());
-                    emit("update:fps", currentFps);
+                    // Defer FPS update to avoid recursive updates
+                    nextTick(() => {
+                        emit("update:fps", currentFps);
+                    });
                     lastFpsEmitTime = currentTime;
                 }
             }
@@ -208,12 +214,10 @@ onUnmounted(() => {
 
 <style scoped>
 #renderCanvas {
-  width: 100%;
-  height: 100%;
-  display: block;
-  touch-action: none;
-  outline: none;
+    width: 100%;
+    height: 100%;
+    display: block;
+    touch-action: none;
+    outline: none;
 }
 </style>
-
-

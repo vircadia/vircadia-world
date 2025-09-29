@@ -1,10 +1,8 @@
 <template>
-    <slot :vircadiaWorld="vircadiaWorldNonNull" :connectionInfo="connectionInfoComputed"
-        :connectionStatus="connectionStatus" :isConnecting="isConnecting" :isAuthenticated="isAuthenticatedComputed"
-        :isAuthenticating="isAuthenticatingComputed" :authError="authErrorComputed" :account="accountComputed"
-        :accountDisplayName="accountDisplayName" :sessionToken="sessionTokenComputed" :sessionId="sessionIdComputed"
-        :fullSessionId="fullSessionIdComputed" :agentId="agentIdComputed" :authProvider="authProviderComputed"
-        :instanceId="instanceId" :lastCloseCode="lastCloseCode" :lastCloseReason="lastCloseReason" :connect="connect"
+    <slot :vircadiaWorld="vircadiaWorldNonNull" :connectionInfo="connectionInfo" :connectionStatus="connectionStatus"
+        :isConnecting="isConnecting" :isAuthenticated="isAuthenticatedComputed"
+        :isAuthenticating="isAuthenticatingComputed" :authError="authErrorComputed" :account="account"
+        :accountDisplayName="accountDisplayName" :sessionToken="sessionToken" :connect="connect"
         :disconnect="disconnect" :logout="logout" />
 
 </template>
@@ -14,16 +12,11 @@ import {
     Communication,
     clientBrowserConfiguration,
     VircadiaBrowserClient,
+    type VircadiaBrowserClientConfig,
     type WsConnectionCoreInfo,
 } from "@vircadia/world-sdk/browser/vue";
 import { StorageSerializers, useStorage } from "@vueuse/core";
-import {
-    computed,
-    onUnmounted,
-    type Ref,
-    ref,
-    watch,
-} from "vue";
+import { computed, onUnmounted, type Ref, ref, shallowRef, watch } from "vue";
 
 // Strongly type the slot props so consumers don't get `any`
 export type VircadiaWorldInstance = {
@@ -46,13 +39,6 @@ export type VircadiaWorldSlotProps = {
     account: unknown | null;
     accountDisplayName: string;
     sessionToken: string | null;
-    sessionId: string | null;
-    fullSessionId: string | null;
-    agentId: string | null;
-    authProvider: string | null;
-    instanceId: string | null;
-    lastCloseCode: number | null;
-    lastCloseReason: string | null;
     connect: () => Promise<void>;
     disconnect: () => void;
     logout: () => Promise<void>;
@@ -84,33 +70,7 @@ const props = defineProps<{
 const autoConnect = computed(() => props.autoConnect !== false);
 const reconnectDelayMs = computed(() => props.reconnectDelayMs ?? 2000);
 
-// Initialize Vircadia client directly in the provider (replaces useVircadia)
-console.log(
-    "[VircadiaWorldProvider] Initializing Vircadia client with config",
-    {
-        apiWsUriUsingSsl:
-            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI_USING_SSL,
-        apiWsUri:
-            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI,
-        apiRestAuthUriUsingSsl:
-            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI_USING_SSL,
-        apiRestAuthUri:
-            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI,
-        apiRestAssetUriUsingSsl:
-            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI_USING_SSL,
-        apiRestAssetUri:
-            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI,
-        wsPath: Communication.REST_BASE_WS_PATH,
-        hasDebugToken:
-            !!clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
-        debugProvider:
-            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER,
-        debug: false,
-    },
-);
-
-// New unified browser client for REST/Auth orchestration
-const browserClient = new VircadiaBrowserClient({
+const vircadiaClientConfig: VircadiaBrowserClientConfig = {
     apiWsUri:
         clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI_USING_SSL
             ? `https://${clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI}`
@@ -129,14 +89,24 @@ const browserClient = new VircadiaBrowserClient({
         clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER,
     debug: false,
     suppress: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
-});
+};
 
-const connectionInfo = ref<WsConnectionCoreInfo>(
+// Initialize Vircadia client directly in the provider (replaces useVircadia)
+console.log(
+    "[VircadiaWorldProvider] Initializing Vircadia client with config",
+    vircadiaClientConfig,
+);
+
+// New unified browser client for REST/Auth orchestration
+const browserClient = new VircadiaBrowserClient(vircadiaClientConfig);
+
+const connectionInfo = shallowRef<WsConnectionCoreInfo>(
     browserClient.connection.getConnectionInfo(),
 );
 
 const updateConnectionStatus = () => {
-    connectionInfo.value = browserClient.connection.getConnectionInfo();
+    // Create a new object to ensure Vue detects the change with shallowRef
+    connectionInfo.value = { ...browserClient.connection.getConnectionInfo() };
     // Surface specific close reasons (session already connected) without treating as auth failure
     const last = connectionInfo.value;
     if (
@@ -173,15 +143,10 @@ const vircadiaWorldNonNull = {
 } as unknown as VircadiaWorldInstance;
 
 // Connection state derives from core connection info
-const isConnecting = computed(() => connectionInfoComputed.value.isConnecting);
+const isConnecting = computed(() => connectionInfo.value.isConnecting);
+const connectionStatus = computed(() => connectionInfo.value.status);
 const lastConnectedToken = ref<string | null>(null);
 const lastConnectedAgentId = ref<string | null>(null);
-
-// Derived state
-const connectionInfoComputed = computed(
-    () => vircadiaWorldNonNull.connectionInfo.value,
-);
-const connectionStatus = computed(() => connectionInfoComputed.value.status);
 
 // Auth state is mirrored from shared storage so AuthProvider and World share state
 const account = useStorage<Record<string, unknown> | null>(
@@ -197,46 +162,26 @@ const sessionToken = useStorage<string | null>(
 );
 // Deprecated: local provider storage is no longer the source of truth.
 
-const isAuthenticatedComputed = computed(() =>
-    !!sessionToken.value ||
-    connectionInfoComputed.value.hasAuthToken ||
-    !!connectionInfoComputed.value.sessionId,
+const isAuthenticatedComputed = computed(
+    () =>
+        !!sessionToken.value ||
+        connectionInfo.value.hasAuthToken ||
+        !!connectionInfo.value.sessionId,
 );
 const isAuthenticatingComputed = computed(
-    () => connectionInfoComputed.value.sessionValidation?.status === "validating" || false,
+    () =>
+        connectionInfo.value.sessionValidation?.status ===
+        "validating" || false,
 );
-const authErrorComputed = computed(() =>
-    connectionInfoComputed.value.sessionValidation?.error ?? lastCloseReason.value,
-);
-const accountComputed = computed(() => account.value);
-const sessionTokenComputed = computed(() => sessionToken.value);
-// session and agent IDs from connection info
-const sessionIdComputed = computed(
-    () => connectionInfoComputed.value.sessionId,
-);
-const agentIdComputed = computed(() => connectionInfoComputed.value.agentId);
-const authProviderComputed = computed(() => connectionInfoComputed.value.authProvider ?? "anon");
-
-// Pull instanceId and fullSessionId directly from core connection info
-const instanceId = computed(() => connectionInfoComputed.value.instanceId);
-const fullSessionIdComputed = computed(
-    () => connectionInfoComputed.value.fullSessionId,
+const authErrorComputed = computed(
+    () =>
+        connectionInfo.value.sessionValidation?.error ??
+        (connectionInfo.value as ConnectionInfoMaybeLastClose).lastClose?.reason ?? null,
 );
 
 type ConnectionInfoMaybeLastClose = WsConnectionCoreInfo & {
     lastClose?: { code: number; reason: string };
 };
-
-const lastCloseCode = computed(
-    () =>
-        (connectionInfoComputed.value as ConnectionInfoMaybeLastClose).lastClose
-            ?.code ?? null,
-);
-const lastCloseReason = computed(
-    () =>
-        (connectionInfoComputed.value as ConnectionInfoMaybeLastClose).lastClose
-            ?.reason ?? null,
-);
 
 type MinimalAccount =
     | {
@@ -249,7 +194,7 @@ type MinimalAccount =
     | undefined;
 
 const accountDisplayName = computed(() => {
-    const value = accountComputed.value as MinimalAccount;
+    const value = account.value as MinimalAccount;
     if (!value) return "Not signed in";
     return (
         value.username ||
@@ -262,7 +207,7 @@ const accountDisplayName = computed(() => {
 });
 
 function ensureDisconnected() {
-    const info = connectionInfoComputed.value;
+    const info = connectionInfo.value;
     if (info.isConnected || info.isConnecting) {
         browserClient.connection.disconnect();
     }
@@ -273,9 +218,9 @@ function ensureDisconnected() {
 async function connect() {
     console.log("[VircadiaWorldProvider] connect() called", {
         isConnecting: isConnecting.value,
-        currentToken: sessionTokenComputed.value,
-        currentAgentId: agentIdComputed.value,
-        connectionInfo: connectionInfoComputed.value,
+        currentToken: sessionToken.value,
+        currentAgentId: connectionInfo.value.agentId,
+        connectionInfo: connectionInfo.value,
         lastConnectedToken: lastConnectedToken.value,
         lastConnectedAgentId: lastConnectedAgentId.value,
     });
@@ -285,8 +230,8 @@ async function connect() {
         return;
     }
 
-    const currentToken = sessionTokenComputed.value;
-    const currentAgentId = agentIdComputed.value;
+    const currentToken = sessionToken.value;
+    const currentAgentId = connectionInfo.value.agentId;
 
     if (!currentToken) {
         console.log("[VircadiaWorldProvider] No token, ensuring disconnected");
@@ -296,7 +241,7 @@ async function connect() {
 
     // No-op if already connected with same token (agentId changes don't require reconnect)
     if (
-        connectionInfoComputed.value.isConnected &&
+        connectionInfo.value.isConnected &&
         lastConnectedToken.value === currentToken
     ) {
         console.log(
@@ -308,18 +253,18 @@ async function connect() {
     console.log("[VircadiaWorldProvider] Starting connection attempt");
     try {
         // Disconnect only if connected with a different token
-        if (connectionInfoComputed.value.isConnected) {
+        if (connectionInfo.value.isConnected) {
             if (lastConnectedToken.value !== currentToken) {
                 browserClient.connection.disconnect();
                 await new Promise((resolve) => setTimeout(resolve, 100));
             }
-        } else if (connectionInfoComputed.value.isConnecting) {
+        } else if (connectionInfo.value.isConnecting) {
             console.log("[VircadiaWorldProvider] Already connecting, skipping");
             return;
         }
 
         // Update client configuration using current auth
-        const authProvider = authProviderComputed.value;
+        const authProvider = connectionInfo.value.authProvider ?? "anon";
         console.log("[VircadiaWorldProvider] Setting auth configuration", {
             token: currentToken,
             authProvider: authProvider,
@@ -442,8 +387,8 @@ function handleAuthChange() {
     console.log("[VircadiaWorldProvider] handleAuthChange called", {
         autoConnect: autoConnect.value,
         isAuthenticated: isAuthenticatedComputed.value,
-        sessionToken: sessionTokenComputed.value,
-        agentId: agentIdComputed.value,
+        sessionToken: sessionToken.value,
+        agentId: connectionInfo.value.agentId,
         connectionStatus: connectionStatus.value,
     });
 
@@ -453,10 +398,10 @@ function handleAuthChange() {
     }
 
     if (isAuthenticatedComputed.value) {
-        const currentToken = sessionTokenComputed.value;
+        const currentToken = sessionToken.value;
         // Skip if we are already connected with the same token
         if (
-            connectionInfoComputed.value.isConnected &&
+            connectionInfo.value.isConnected &&
             lastConnectedToken.value === currentToken
         ) {
             console.log(
@@ -478,12 +423,12 @@ function handleAuthChange() {
 
 // React only to session token changes (simpler and avoids duplicate triggers)
 watch(
-    () => sessionTokenComputed.value,
+    () => sessionToken.value,
     (newToken, oldToken) => {
         // Skip if auto-connect disabled
         if (!autoConnect.value) return;
         // If token didn't change and we're already connected, do nothing
-        if (newToken === oldToken && connectionInfoComputed.value.isConnected) {
+        if (newToken === oldToken && connectionInfo.value.isConnected) {
             return;
         }
         handleAuthChange();
@@ -500,7 +445,7 @@ watch(
             newStatus === "disconnected" &&
             oldStatus === "connected" &&
             isAuthenticatedComputed.value &&
-            !connectionInfoComputed.value.isConnecting
+            !connectionInfo.value.isConnecting
         ) {
             setTimeout(() => {
                 connect();
@@ -514,20 +459,15 @@ defineExpose({
     disconnect,
     logout,
     vircadiaWorld: vircadiaWorldNonNull,
-    connectionInfo: connectionInfoComputed,
+    connectionInfo,
     connectionStatus,
     isConnecting,
     isAuthenticated: isAuthenticatedComputed,
     isAuthenticating: isAuthenticatingComputed,
     authError: authErrorComputed,
-    account: accountComputed,
+    account,
     accountDisplayName,
-    sessionToken: sessionTokenComputed,
-    sessionId: sessionIdComputed,
-    fullSessionId: fullSessionIdComputed,
-    agentId: agentIdComputed,
-    authProvider: authProviderComputed,
-    instanceId,
+    sessionToken,
 });
 
 //

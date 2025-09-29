@@ -1,7 +1,7 @@
 <template>
     <VircadiaWorldProvider :autoConnect="clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT"
         @auth-denied="onAuthDenied($event)"
-        v-slot="{ vircadiaWorld, connectionStatus, isConnecting, isAuthenticated, isAuthenticating, accountDisplayName, sessionId, fullSessionId, agentId, instanceId, authProvider, lastCloseCode, lastCloseReason, connect, logout }">
+        v-slot="{ vircadiaWorld, connectionInfo, connectionStatus, isConnecting, isAuthenticated, isAuthenticating, accountDisplayName, sessionToken, connect, logout }">
 
         <!-- Auth Screen when not authenticated -->
         <VircadiaWorldAuthProvider v-if="!isAuthenticated" :vircadia-world="vircadiaWorld" />
@@ -16,16 +16,19 @@
                 :physics-engine-type="envPhysicsEngineTypeRef || ''" :physics-initialized="envPhysicsInitializedRef"
                 :havok-instance-loaded="envHavokInstanceLoadedRef" :physics-plugin-created="envPhysicsPluginCreatedRef"
                 :connection-status="connectionStatus" :is-connecting="isConnecting" :is-authenticated="isAuthenticated"
-                :is-authenticating="isAuthenticating" :account-display-name="accountDisplayName" :session-id="sessionId"
-                :full-session-id="fullSessionId" :agent-id="agentId" :instance-id="instanceId"
-                :auth-provider="authProvider" :last-close-code="lastCloseCode" :last-close-reason="lastCloseReason"
+                :is-authenticating="isAuthenticating" :account-display-name="accountDisplayName"
+                :session-id="connectionInfo.sessionId" :full-session-id="connectionInfo.fullSessionId"
+                :agent-id="connectionInfo.agentId" :instance-id="connectionInfo.instanceId"
+                :auth-provider="connectionInfo.authProvider ?? 'anon'"
+                :last-close-code="(connectionInfo).lastClose?.code ?? null"
+                :last-close-reason="(connectionInfo).lastClose?.reason ?? null"
                 :connected-url="connectionStatus !== 'disconnected' ? getConnectedUrl() : null" />
 
             <!-- Component Loader -->
             <template v-for="comp in availableComponents" :key="comp">
                 <component :is="comp" :scene="scene" :engine="engine" :canvas="renderCanvas"
-                    :vircadia-world="vircadiaWorld as any" :connection-status="connectionStatus"
-                    :session-id="sessionId ?? undefined" :agent-id="agentId ?? undefined"
+                    :vircadia-world="vircadiaWorld" :connection-status="connectionStatus"
+                    :session-id="connectionInfo.sessionId ?? undefined" :agent-id="connectionInfo.agentId ?? undefined"
                     :scene-initialized="sceneInitialized" :fps="fps" :performance-mode="performanceMode" />
             </template>
 
@@ -43,8 +46,8 @@
                         </v-chip>
                     </template>
                     <div class="text-caption">
-                        <div><strong>Last close code:</strong> {{ lastCloseCode ?? '-' }}</div>
-                        <div><strong>Last close reason:</strong> {{ lastCloseReason || '-' }}</div>
+                        <div><strong>Last close code:</strong> {{ (connectionInfo).lastClose?.code ?? '-' }}</div>
+                        <div><strong>Last close reason:</strong> {{ (connectionInfo).lastClose?.reason || '-' }}</div>
                     </div>
                 </v-tooltip>
 
@@ -147,7 +150,7 @@
                                 {{ envPhysicsEnabledRef = envPhysicsEnabled }}
                                 {{ envPhysicsPluginNameRef = envPhysicsPluginName }}
                                 {{ envPhysicsErrorRef = envPhysicsError }}
-                                {{ envGravityRef = sceneGravity as any }}
+                                {{ envGravityRef = sceneGravity }}
                                 {{ envPhysicsEngineTypeRef = envPhysicsEngineType || '' }}
                                 {{ envPhysicsInitializedRef = !!envPhysicsInitialized }}
                                 {{ envHavokInstanceLoadedRef = !!envHavokInstanceLoaded }}
@@ -166,7 +169,7 @@
                                     :prone-toggle-codes="['KeyZ']" :slow-run-toggle-codes="[]" v-slot="controls">
                                     <BabylonMyAvatarTalking
                                         v-slot="{ isTalking, level: talkLevel, devices: audioDevices, threshold: talkThreshold }">
-                                        <BabylonMyAvatar :scene="sceneNonNull" :vircadia-world="vircadiaWorld as any"
+                                        <BabylonMyAvatar :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
                                             :key-state="controls.keyState" :is-talking="isTalking"
                                             :talk-level="talkLevel" :physics-enabled="envPhysicsEnabled"
                                             :physics-plugin-name="envPhysicsPluginName" :gravity="sceneGravity"
@@ -176,9 +179,9 @@
                                                 <!-- Renderless entity sync component runs outside of model v-if so it can load DB definition -->
                                                 <BabylonMyAvatarEntity
                                                     v-if="vircadiaWorld.connectionInfo.value.status === 'connected'"
-                                                    :scene="sceneNonNull" :vircadia-world="vircadiaWorld as any"
-                                                    :avatar-node="(avatarNode as any) || null"
-                                                    :target-skeleton="(avatarSkeleton as any) || null" :camera="null"
+                                                    :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
+                                                    :avatar-node="(avatarNode) || null"
+                                                    :target-skeleton="(avatarSkeleton) || null" :camera="null"
                                                     :model-file-name="modelFileName || ''"
                                                     :avatar-definition="avatarDefinition"
                                                     :persist-pose-snapshot-interval="5000"
@@ -197,17 +200,15 @@
                                                     @entity-data-loaded="onEntityDataLoaded"
                                                     @sync-stats="onAvatarSyncStats" />
                                                 <BabylonMyAvatarModel v-if="modelFileName" :scene="sceneNonNull"
-                                                    :vircadia-world="vircadiaWorld"
-                                                    :avatar-node="(avatarNode as any) || null"
+                                                    :vircadia-world="vircadiaWorld" :avatar-node="(avatarNode) || null"
                                                     :model-file-name="modelFileName" :mesh-pivot-point="meshPivotPoint"
                                                     :capsule-height="capsuleHeight"
-                                                    :on-set-avatar-model="onSetAvatarModel as any"
-                                                    :animations="animations"
-                                                    :on-animation-state="onAnimationState as any"
-                                                    @state="onAvatarModelState" v-slot="{ targetSkeleton }">
+                                                    :on-set-avatar-model="onSetAvatarModel" :animations="animations"
+                                                    :on-animation-state="onAnimationState" @state="onAvatarModelState"
+                                                    v-slot="{ targetSkeleton }">
                                                     <!-- Renderless desktop third-person camera -->
                                                     <BabylonMyAvatarDesktopThirdPersonCamera :scene="sceneNonNull"
-                                                        :avatar-node="(avatarNode as any) || null"
+                                                        :avatar-node="(avatarNode) || null"
                                                         :capsule-height="capsuleHeight" :min-z="0.1"
                                                         :lower-radius-limit="1.2" :upper-radius-limit="25"
                                                         :lower-beta-limit="0.15" :upper-beta-limit="Math.PI * 0.9"
@@ -223,23 +224,21 @@
                                                     <BabylonMyAvatarAnimation v-for="anim in animations"
                                                         v-if="targetSkeleton" :key="anim.fileName" :scene="sceneNonNull"
                                                         :vircadia-world="vircadiaWorld" :animation="anim"
-                                                        :target-skeleton="(targetSkeleton as any) || null"
+                                                        :target-skeleton="(targetSkeleton) || null"
                                                         @state="onAnimationState" />
 
                                                 </BabylonMyAvatarModel>
 
                                                 <!-- Debug overlays moved outside of model to render regardless of model availability -->
                                                 <BabylonMyAvatarDebugOverlay :scene="sceneNonNull"
-                                                    :vircadia-world="vircadiaWorld"
-                                                    :avatar-node="(avatarNode as any) || null"
-                                                    :avatar-skeleton="(avatarSkeleton as any) || null"
+                                                    :vircadia-world="vircadiaWorld" :avatar-node="(avatarNode) || null"
+                                                    :avatar-skeleton="(avatarSkeleton) || null"
                                                     :model-file-name="modelFileNameRef || modelFileName"
                                                     :model-step="avatarModelStep"
                                                     :model-error="avatarModelError || undefined" :is-talking="isTalking"
                                                     :talk-level="talkLevel" :talk-threshold="talkThreshold"
                                                     :audio-input-devices="audioDevices" :airborne="airborne"
-                                                    :vertical-velocity="verticalVelocity"
-                                                    :support-state="supportState as any"
+                                                    :vertical-velocity="verticalVelocity" :support-state="supportState"
                                                     :physics-enabled="physicsEnabled"
                                                     :physics-plugin-name="envPhysicsPluginNameRef || undefined"
                                                     :physics-error="envPhysicsErrorRef || undefined"
@@ -248,11 +247,11 @@
                                                     :ground-probe-distance="groundProbeDistance ?? undefined"
                                                     :ground-probe-mesh-name="groundProbeMeshName ?? undefined"
                                                     :sync-metrics="avatarSyncMetrics || undefined"
-                                                    :animation-debug="(avatarRef as any)?.animationDebug || undefined"
+                                                    :animation-debug="(avatarRef)?.animationDebug || undefined"
                                                     v-model="avatarDebugOpen" hotkey="Shift+M" />
                                                 <!-- Camera debug overlay -->
                                                 <BabylonCameraDebugOverlay v-model="cameraDebugOpen"
-                                                    :scene="sceneNonNull" :avatar-node="(avatarNode as any) || null"
+                                                    :scene="sceneNonNull" :avatar-node="(avatarNode) || null"
                                                     hotkey="Shift+N" />
                                             </template>
                                         </BabylonMyAvatar>
@@ -260,14 +259,14 @@
                                 </BabylonMyAvatarMKBController>
 
                                 <!-- Other avatars wrapper -->
-                                <BabylonOtherAvatars :scene="sceneNonNull" :vircadia-world="vircadiaWorld as any"
-                                    :current-full-session-id="fullSessionId ?? undefined"
+                                <BabylonOtherAvatars :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
+                                    :current-full-session-id="connectionInfo.fullSessionId ?? undefined"
                                     :discovery-polling-interval="500" :reflect-sync-group="'public.NORMAL'"
                                     :reflect-channel="'avatar_joints'"
                                     v-slot="{ otherAvatarSessionIds, avatarDataMap, positionDataMap, rotationDataMap, jointDataMap }">
                                     <BabylonOtherAvatar v-for="otherFullSessionId in otherAvatarSessionIds || []"
-                                        :key="otherFullSessionId" :scene="sceneNonNull"
-                                        :vircadia-world="vircadiaWorld as any" :session-id="otherFullSessionId"
+                                        :key="otherFullSessionId" :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
+                                        :session-id="otherFullSessionId"
                                         :avatar-data="avatarDataMap?.[otherFullSessionId]"
                                         :position-data="positionDataMap?.[otherFullSessionId]"
                                         :rotation-data="rotationDataMap?.[otherFullSessionId]"
@@ -288,9 +287,9 @@
                                 </BabylonOtherAvatars>
 
                                 <!-- BabylonModel components provided by DB-scanned list -->
-                                <BabylonModels :vircadia-world="vircadiaWorld as any" v-slot="{ models }">
+                                <BabylonModels :vircadia-world="vircadiaWorld" v-slot="{ models }">
                                     <BabylonModel v-for="def in models" :key="def.fileName" :def="def"
-                                        :scene="sceneNonNull" :vircadia-world="vircadiaWorld as any" ref="modelRefs"
+                                        :scene="sceneNonNull" :vircadia-world="vircadiaWorld" ref="modelRefs"
                                         v-slot="{ meshes, def: slotDef }">
                                         <BabylonModelPhysics :scene="sceneNonNull" :meshes="meshes" :def="slotDef"
                                             ref="modelPhysicsRefs" />
@@ -299,7 +298,7 @@
                                     <BabylonModelsDebugOverlay v-model="modelsDebugOpen" :models="models"
                                         :model-runtime="modelRuntime" :physics-summaries="physicsSummaries" />
                                     <div style="display: none">
-                                        {{setModelRuntimeFromRefs(models, (modelRefs as any).map((r: any) =>
+                                        {{setModelRuntimeFromRefs(models, (modelRefs).map((r: any) =>
                                             r?.meshes))}}
                                         {{ refreshPhysicsSummaries(models) }}
                                     </div>
@@ -307,7 +306,7 @@
 
 
                                 <!-- BabylonDoor component for interactive door -->
-                                <BabylonDoor :scene="sceneNonNull" :vircadia-world="vircadiaWorld as any"
+                                <BabylonDoor :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
                                     entity-name="babylon.door.main" model-file-name="babylon.model.wooden_door.glb"
                                     :initial-position="{ x: 0, y: 0, z: 0 }"
                                     :initial-rotation="{ x: 0, y: 0, z: 0, w: 1 }" :initial-open="false"

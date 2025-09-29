@@ -30,8 +30,8 @@
             </template>
 
             <!-- Dev Debug App Bar -->
-            <v-app-bar density="comfortable" color="primary" flat>
-                <v-app-bar-title>Debug</v-app-bar-title>
+            <v-app-bar density="compact" color="primary" flat>
+                <v-spacer />
 
                 <!-- Connection State -->
                 <v-tooltip location="bottom">
@@ -49,11 +49,20 @@
                 </v-tooltip>
 
                 <!-- Auth State -->
-                <v-chip :color="getAuthStatusColor(isAuthenticated, isAuthenticating)" size="small" variant="flat"
-                    class="ml-2">
-                    <v-icon start size="small">{{ getAuthStatusIcon(isAuthenticated, isAuthenticating) }}</v-icon>
-                    {{ getAuthStatusText(isAuthenticated, isAuthenticating) }}
-                </v-chip>
+                <v-tooltip location="bottom">
+                    <template #activator="{ props }">
+                        <v-chip v-bind="props" :color="getAuthStatusColor(isAuthenticated, isAuthenticating)"
+                            size="small" variant="flat" class="ml-2">
+                            <v-icon start size="small">{{ getAuthStatusIcon(isAuthenticated, isAuthenticating)
+                            }}</v-icon>
+                            {{ getAuthStatusText(isAuthenticated, isAuthenticating) }}
+                        </v-chip>
+                    </template>
+                    <div class="text-caption">
+                        <div><strong>Status:</strong> {{ getAuthStatusText(isAuthenticated, isAuthenticating) }}</div>
+                        <div><strong>User:</strong> {{ accountDisplayName || '-' }}</div>
+                    </div>
+                </v-tooltip>
 
                 <!-- Mic Permission State -->
                 <v-tooltip location="bottom">
@@ -70,17 +79,31 @@
                 </v-tooltip>
 
                 <!-- Audio Context State -->
-                <v-chip :color="audioChipColor" size="small" variant="flat" class="ml-2">
-                    <v-icon start size="small">{{ audioChipIcon }}</v-icon>
-                    Audio: {{ audioContextState.toUpperCase() }}
-                </v-chip>
+                <v-tooltip location="bottom">
+                    <template #activator="{ props }">
+                        <v-chip v-bind="props" :color="audioChipColor" size="small" variant="flat" class="ml-2">
+                            <v-icon start size="small">{{ audioChipIcon }}</v-icon>
+                            Audio: {{ audioContextState.toUpperCase() }}
+                        </v-chip>
+                    </template>
+                    <div class="text-caption">
+                        <div><strong>AudioContext:</strong> {{ audioContextState }}</div>
+                        <div><strong>Local stream:</strong> {{ String(localStreamActive) }}</div>
+                    </div>
+                </v-tooltip>
 
                 <!-- Connected URL -->
-                <v-chip color="info" size="small" variant="outlined" class="ml-2"
-                    v-if="connectionStatus !== 'disconnected'">
-                    <v-icon start size="small">mdi-web</v-icon>
-                    {{ getConnectedUrl() }}
-                </v-chip>
+                <v-tooltip location="bottom" v-if="connectionStatus !== 'disconnected'">
+                    <template #activator="{ props }">
+                        <v-chip v-bind="props" color="info" size="small" variant="outlined" class="ml-2">
+                            <v-icon start size="small">mdi-web</v-icon>
+                            {{ getConnectedUrl() }}
+                        </v-chip>
+                    </template>
+                    <div class="text-caption">
+                        <div><strong>WebSocket URL:</strong> {{ getConnectedUrl() }}</div>
+                    </div>
+                </v-tooltip>
 
                 <!-- Physics State -->
                 <v-tooltip location="bottom">
@@ -100,32 +123,6 @@
                 </v-tooltip>
 
                 <v-spacer />
-                <v-btn variant="tonal" :color="cameraDebugOpen ? 'error' : 'default'" prepend-icon="mdi-video"
-                    @click="cameraDebugOpen = !cameraDebugOpen" class="ml-2">
-                    Camera
-                </v-btn>
-                <v-btn variant="tonal" :color="avatarDebugOpen ? 'error' : 'default'" prepend-icon="mdi-account-eye"
-                    @click="avatarDebugOpen = !avatarDebugOpen" class="ml-2">
-                    Avatar
-                </v-btn>
-
-                <v-btn variant="tonal" :color="modelsDebugOpen ? 'error' : 'default'" prepend-icon="mdi-cube-outline"
-                    @click="modelsDebugOpen = !modelsDebugOpen" class="ml-2">
-                    Models
-                </v-btn>
-                <v-btn variant="tonal" :color="otherAvatarsDebugOpen ? 'error' : 'default'"
-                    prepend-icon="mdi-account-group-outline" @click="otherAvatarsDebugOpen = !otherAvatarsDebugOpen"
-                    class="ml-2">
-                    Others
-                </v-btn>
-                <v-btn variant="tonal" :color="performanceMode === 'low' ? 'warning' : 'default'"
-                    prepend-icon="mdi-speedometer" @click="togglePerformanceMode" class="ml-2">
-                    Perf ({{ performanceMode }})
-                </v-btn>
-                <v-btn variant="tonal" :color="drawerOpen ? 'error' : 'default'" prepend-icon="mdi-dock-right"
-                    @click="drawerOpen = !drawerOpen" class="ml-2">
-                    Sidebar
-                </v-btn>
             </v-app-bar>
 
             <main>
@@ -362,63 +359,63 @@
 </template>
 
 <script setup lang="ts">
+// BabylonJS types
+import type { Scene, WebGPUEngine } from "@babylonjs/core";
+import { clientBrowserConfiguration } from "@vircadia/world-sdk/browser/vue";
+import { useStorage } from "@vueuse/core";
 import {
     computed,
-    ref,
-    onMounted,
-    getCurrentInstance,
     type defineComponent,
+    getCurrentInstance,
+    onMounted,
+    ref,
 } from "vue";
-import BabylonMyAvatar, {
-    type AvatarDefinition,
-} from "../components/BabylonMyAvatar.vue";
-import BabylonMyAvatarTalking from "../components/BabylonMyAvatarTalking.vue";
-import BabylonMyAvatarMKBController from "../components/BabylonMyAvatarMKBController.vue";
-import BabylonMyAvatarModel from "../components/BabylonMyAvatarModel.vue";
-import BabylonMyAvatarAnimation from "../components/BabylonMyAvatarAnimation.vue";
-import BabylonMyAvatarEntity, {
-    type AvatarSyncMetrics,
-} from "../components/BabylonMyAvatarEntity.vue";
-import BabylonMyAvatarDesktopThirdPersonCamera from "../components/BabylonMyAvatarDesktopThirdPersonCamera.vue";
-import BabylonOtherAvatars from "../components/BabylonOtherAvatars.vue";
-import BabylonOtherAvatar from "../components/BabylonOtherAvatar.vue";
+import type {
+    AvatarBaseData,
+    AvatarJointMetadata,
+    AvatarPositionData,
+    AvatarRotationData,
+} from "@/schemas";
+import BabylonCameraDebugOverlay from "../components/BabylonCameraDebugOverlay.vue";
+import BabylonCanvas from "../components/BabylonCanvas.vue";
+import BabylonDoor from "../components/BabylonDoor.vue";
+import BabylonEnvironment from "../components/BabylonEnvironment.vue";
+import BabylonInspector from "../components/BabylonInspector.vue";
 import BabylonModel from "../components/BabylonModel.vue";
 import BabylonModelPhysics, {
     type PhysicsSummary,
 } from "../components/BabylonModelPhysics.vue";
 import BabylonModels from "../components/BabylonModels.vue";
-import BabylonMyAvatarDebugOverlay from "../components/BabylonMyAvatarDebugOverlay.vue";
-import BabylonWebRTC from "./BabylonWebRTC.vue";
-import BabylonCameraDebugOverlay from "../components/BabylonCameraDebugOverlay.vue";
-import BabylonInspector from "../components/BabylonInspector.vue";
 import BabylonModelsDebugOverlay from "../components/BabylonModelsDebugOverlay.vue";
+import BabylonMyAvatar, {
+    type AvatarDefinition,
+} from "../components/BabylonMyAvatar.vue";
+import BabylonMyAvatarAnimation from "../components/BabylonMyAvatarAnimation.vue";
+import BabylonMyAvatarDebugOverlay from "../components/BabylonMyAvatarDebugOverlay.vue";
+import BabylonMyAvatarDesktopThirdPersonCamera from "../components/BabylonMyAvatarDesktopThirdPersonCamera.vue";
+import BabylonMyAvatarEntity, {
+    type AvatarSyncMetrics,
+} from "../components/BabylonMyAvatarEntity.vue";
+import BabylonMyAvatarMKBController from "../components/BabylonMyAvatarMKBController.vue";
+import BabylonMyAvatarModel from "../components/BabylonMyAvatarModel.vue";
+import BabylonMyAvatarTalking from "../components/BabylonMyAvatarTalking.vue";
+import BabylonOtherAvatar from "../components/BabylonOtherAvatar.vue";
+import BabylonOtherAvatars from "../components/BabylonOtherAvatars.vue";
 import BabylonOtherAvatarsDebugOverlay from "../components/BabylonOtherAvatarsDebugOverlay.vue";
-import VircadiaWorldAuthProvider from "./VircadiaWorldAuthProvider.vue";
-import BabylonCanvas from "../components/BabylonCanvas.vue";
+import BabylonPhysics from "../components/BabylonPhysics.vue";
 import BabylonSnackbar from "../components/BabylonSnackbar.vue";
 import LogoutButton from "../components/LogoutButton.vue";
-import VircadiaWorldProvider from "./VircadiaWorldProvider.vue";
+import BabylonWebRTC from "./BabylonWebRTC.vue";
 import SceneDrawer from "./SceneDrawer.vue";
-import BabylonEnvironment from "../components/BabylonEnvironment.vue";
-import BabylonPhysics from "../components/BabylonPhysics.vue";
-import BabylonDoor from "../components/BabylonDoor.vue";
-import { clientBrowserConfiguration } from "@vircadia/world-sdk/browser/vue";
-import { useStorage } from "@vueuse/core";
-import type {
-    AvatarJointMetadata,
-    AvatarBaseData,
-    AvatarPositionData,
-    AvatarRotationData,
-} from "@/schemas";
-
-// BabylonJS types
-import type { Scene, WebGPUEngine } from "@babylonjs/core";
+import VircadiaWorldAuthProvider from "./VircadiaWorldAuthProvider.vue";
+import VircadiaWorldProvider from "./VircadiaWorldProvider.vue";
 
 // Auth change handling moved to provider
 
 // Connection count is now managed by BabylonWebRTC component
 // WebRTC controls dialog visibility
 const showWebRTCControls = ref(false);
+// removed collapsible debug app bar state
 
 // Session/agent and world instance are provided reactively via slot props; no local refs needed
 
@@ -573,7 +570,7 @@ const envPhysicsEnabledRef = ref<boolean>(false);
 const envPhysicsPluginNameRef = ref<string | null>(null);
 const envPhysicsErrorRef = ref<string | null>(null);
 const envGravityRef = ref<[number, number, number]>([0, -9.81, 0]);
-const envPhysicsEngineTypeRef = ref<string>('');
+const envPhysicsEngineTypeRef = ref<string>("");
 const envPhysicsInitializedRef = ref<boolean>(false);
 const envHavokInstanceLoadedRef = ref<boolean>(false);
 const envPhysicsPluginCreatedRef = ref<boolean>(false);
@@ -837,8 +834,16 @@ const otherAvatarsLoading = computed(() => false); // Placeholder - loading stat
 void otherAvatarsLoading;
 const modelsLoading = computed(() =>
     modelRefs.value.some((m) => {
-        const mm = m as unknown as { isEntityCreating?: boolean; isEntityRetrieving?: boolean; isAssetLoading?: boolean } | null;
-        return Boolean(mm?.isEntityCreating || mm?.isEntityRetrieving || mm?.isAssetLoading);
+        const mm = m as unknown as {
+            isEntityCreating?: boolean;
+            isEntityRetrieving?: boolean;
+            isAssetLoading?: boolean;
+        } | null;
+        return Boolean(
+            mm?.isEntityCreating ||
+            mm?.isEntityRetrieving ||
+            mm?.isAssetLoading,
+        );
     }),
 );
 void modelsLoading;
@@ -983,11 +988,17 @@ void clearPeerAudioStates;
 void toggleSpatialAudio;
 
 // Mic/audio permission indicator state (from BabylonWebRTC)
-const microphonePermission = ref<'granted' | 'denied' | 'prompt' | 'unknown'>('unknown');
-const audioContextState = ref<'resumed' | 'suspended' | 'unknown'>('unknown');
+const microphonePermission = ref<"granted" | "denied" | "prompt" | "unknown">(
+    "unknown",
+);
+const audioContextState = ref<"resumed" | "suspended" | "unknown">("unknown");
 const localStreamActive = ref<boolean>(false);
 
-function onWebRTCPermissions(payload: { microphone: 'granted' | 'denied' | 'prompt' | 'unknown'; audioContext: 'resumed' | 'suspended' | 'unknown'; localStreamActive: boolean; }) {
+function onWebRTCPermissions(payload: {
+    microphone: "granted" | "denied" | "prompt" | "unknown";
+    audioContext: "resumed" | "suspended" | "unknown";
+    localStreamActive: boolean;
+}) {
     microphonePermission.value = payload.microphone;
     audioContextState.value = payload.audioContext;
     localStreamActive.value = payload.localStreamActive;
@@ -995,23 +1006,43 @@ function onWebRTCPermissions(payload: { microphone: 'granted' | 'denied' | 'prom
 
 const micChipColor = computed(() => {
     switch (microphonePermission.value) {
-        case 'granted': return 'success';
-        case 'prompt': return 'warning';
-        case 'denied': return 'error';
-        default: return 'grey';
+        case "granted":
+            return "success";
+        case "prompt":
+            return "warning";
+        case "denied":
+            return "error";
+        default:
+            return "grey";
     }
 });
 const micChipIcon = computed(() => {
     switch (microphonePermission.value) {
-        case 'granted': return 'mdi-microphone';
-        case 'prompt': return 'mdi-microphone-question';
-        case 'denied': return 'mdi-microphone-off';
-        default: return 'mdi-microphone-settings';
+        case "granted":
+            return "mdi-microphone";
+        case "prompt":
+            return "mdi-microphone-question";
+        case "denied":
+            return "mdi-microphone-off";
+        default:
+            return "mdi-microphone-settings";
     }
 });
 
-const audioChipColor = computed(() => audioContextState.value === 'resumed' ? 'success' : audioContextState.value === 'suspended' ? 'warning' : 'grey');
-const audioChipIcon = computed(() => audioContextState.value === 'resumed' ? 'mdi-volume-high' : audioContextState.value === 'suspended' ? 'mdi-volume-medium' : 'mdi-volume-off');
+const audioChipColor = computed(() =>
+    audioContextState.value === "resumed"
+        ? "success"
+        : audioContextState.value === "suspended"
+            ? "warning"
+            : "grey",
+);
+const audioChipIcon = computed(() =>
+    audioContextState.value === "resumed"
+        ? "mdi-volume-high"
+        : audioContextState.value === "suspended"
+            ? "mdi-volume-medium"
+            : "mdi-volume-off",
+);
 
 // No local forwarding needed; using slot's onAnimationState
 

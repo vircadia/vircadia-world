@@ -1,20 +1,16 @@
-import { serverConfiguration } from "../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
-import { cliConfiguration } from "./vircadia.cli.config";
-import { clientBrowserConfiguration } from "../sdk/vircadia-world-sdk-ts/browser/src/config/vircadia.browser.config";
-import { BunLogModule } from "../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
-import path from "node:path";
-import { $ } from "bun";
-import { fileURLToPath } from "node:url";
-import { dirname } from "node:path";
-import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync, mkdirSync, statSync } from "node:fs";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import path, { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { input, Separator, select } from "@inquirer/prompts";
+import { $ } from "bun";
 import { sign } from "jsonwebtoken";
+import { clientBrowserConfiguration } from "../sdk/vircadia-world-sdk-ts/browser/src/config/vircadia.browser.config";
+import { serverConfiguration } from "../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
+import { BunLogModule } from "../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
 import { BunPostgresClientModule } from "../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
-import { input, select, Separator } from "@inquirer/prompts";
-import {
-    type Entity,
-    type Auth,
-} from "../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
+import type { Entity } from "../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
+import { cliConfiguration } from "./vircadia.cli.config";
 
 // Hardcoded system directories
 const SYSTEM_SQL_DIR = path.join(
@@ -259,7 +255,9 @@ export namespace Server_CLI {
             VRCA_SERVER_SERVICE_POSTGRES_DATABASE:
                 serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_DATABASE,
             VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS:
-                serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS.join(","),
+                serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_EXTENSIONS.join(
+                    ",",
+                ),
 
             VRCA_SERVER_SERVICE_PGWEB_CONTAINER_NAME:
                 serverConfiguration.VRCA_SERVER_SERVICE_PGWEB_CONTAINER_NAME,
@@ -314,7 +312,7 @@ export namespace Server_CLI {
             VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_HOST_PUBLIC_AVAILABLE_AT:
                 serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_HOST_PUBLIC_AVAILABLE_AT,
             VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_PUBLIC_AVAILABLE_AT:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_PUBLIC_AVAILABLE_AT.toString(),    
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_PUBLIC_AVAILABLE_AT.toString(),
             VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_DEBUG:
                 serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_DEBUG.toString(),
             VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_SUPPRESS:
@@ -336,7 +334,7 @@ export namespace Server_CLI {
             VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_ASSET_CACHE_DIR:
                 serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_ASSET_CACHE_DIR,
             VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_ASSET_CACHE_MAINTENANCE_INTERVAL_MS:
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_ASSET_CACHE_MAINTENANCE_INTERVAL_MS.toString(),    
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_ASSET_CACHE_MAINTENANCE_INTERVAL_MS.toString(),
             VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_DEBUG:
                 serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_DEBUG.toString(),
             VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_SUPPRESS:
@@ -520,7 +518,7 @@ export namespace Server_CLI {
             process.env
                 .VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_PORT_CONTAINER_BIND_EXTERNAL ||
             serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString();
-            
+
         const appHostExternal =
             (await EnvManager.getVariable(
                 "VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL",
@@ -529,7 +527,6 @@ export namespace Server_CLI {
             process.env
                 .VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL ||
             serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL;
-
 
         const appPortExternal =
             (await EnvManager.getVariable(
@@ -598,7 +595,9 @@ export namespace Server_CLI {
                     };
                 }
                 const info = JSON.parse(stdout);
-                const state = Array.isArray(info) ? info[0]?.State : info?.State;
+                const state = Array.isArray(info)
+                    ? info[0]?.State
+                    : info?.State;
                 const status: string | undefined = state?.Health?.Status;
                 if (status === "healthy") {
                     return { isHealthy: true };
@@ -849,7 +848,7 @@ export namespace Server_CLI {
         };
     }
 
-    export async function isWorldApiRestAuthManagerHealthy( 
+    export async function isWorldApiRestAuthManagerHealthy(
         wait?:
             | {
                   interval: number;
@@ -864,7 +863,6 @@ export namespace Server_CLI {
             timeout: number;
         };
     }> {
-
         const defaultWait = { interval: 100, timeout: 10000 };
 
         const waitConfig =
@@ -923,7 +921,6 @@ export namespace Server_CLI {
             timeout: number;
         };
     }> {
-
         const defaultWait = { interval: 100, timeout: 10000 };
 
         const waitConfig =
@@ -965,7 +962,7 @@ export namespace Server_CLI {
             error: lastError,
             waitConfig: waitConfig,
         };
-    }   
+    }
 
     export async function isWorldStateManagerHealthy(
         wait?:
@@ -1336,12 +1333,9 @@ export namespace Server_CLI {
     `);
 
         // Get list of migration files
-        const migrations = await readdir(
-            MIGRATION_DIR,
-            {
-                recursive: true,
-            },
-        );
+        const migrations = await readdir(MIGRATION_DIR, {
+            recursive: true,
+        });
         const migrationSqlFiles = migrations
             .filter((f) => f.endsWith(".sql"))
             .sort((a, b) => {
@@ -1377,10 +1371,7 @@ export namespace Server_CLI {
             if (!executedMigrations.includes(file)) {
                 migrationsRan = true;
                 try {
-                    const filePath = path.join(
-                        MIGRATION_DIR,
-                        file,
-                    );
+                    const filePath = path.join(MIGRATION_DIR, file);
                     const sqlContent = await readFile(filePath, "utf-8");
 
                     BunLogModule({
@@ -1448,7 +1439,9 @@ export namespace Server_CLI {
             // Get already executed seeds - querying by hash
             const result =
                 await sql`SELECT general__hash, general__name FROM config.seeds`;
-            const executedHashes = new Set(result.map((r: any) => r.general__hash));
+            const executedHashes = new Set(
+                result.map((r: any) => r.general__hash),
+            );
             const executedNames = new Map(
                 result.map((r: any) => [r.general__name, r.general__hash]),
             );
@@ -1985,6 +1978,7 @@ export namespace Server_CLI {
         }
     }
 
+    // TODO: This should be able to work with remote DBs too, we should create a service token and let the API create these and issue them on behalf of system token granted users.
     export async function generateDbSystemToken(): Promise<{
         token: string;
         sessionId: string;
@@ -2250,7 +2244,14 @@ export namespace Server_CLI {
             });
 
             // Function to process a single asset
-            const processAsset = async (asset: Pick<Entity.Asset.I_Asset, "general__asset_file_name" | "asset__data__bytea" | "asset__mime_type">) => {
+            const processAsset = async (
+                asset: Pick<
+                    Entity.Asset.I_Asset,
+                    | "general__asset_file_name"
+                    | "asset__data__bytea"
+                    | "asset__mime_type"
+                >,
+            ) => {
                 try {
                     const fileName = asset.general__asset_file_name;
 
@@ -2270,7 +2271,9 @@ export namespace Server_CLI {
                         if (asset.asset__data__bytea instanceof ArrayBuffer) {
                             buffer = Buffer.from(asset.asset__data__bytea);
                         } else {
-                            buffer = Buffer.from(asset.asset__data__bytea as Buffer);
+                            buffer = Buffer.from(
+                                asset.asset__data__bytea as Buffer,
+                            );
                         }
                         await writeFile(filePath, buffer);
 
@@ -2556,7 +2559,6 @@ export namespace Server_CLI {
         }
     }
 }
-
 
 // No dedicated rebuild helper: we run `bun run server:rebuild-all` in current working directory
 
@@ -3292,38 +3294,38 @@ if (import.meta.main) {
                             ],
                         });
 
-                    if (action === "set") {
-                        const newUri = await input({
-                            message: "Enter World API REST Asset URI:",
-                            default: currentRestAssetUri,
-                            transformer: (value: string) => value.trim(),
-                        });
+                        if (action === "set") {
+                            const newUri = await input({
+                                message: "Enter World API REST Asset URI:",
+                                default: currentRestAssetUri,
+                                transformer: (value: string) => value.trim(),
+                            });
 
-                        await EnvManager.setVariable(
-                            "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI",
-                            newUri,
-                            "client",
-                        );
+                            await EnvManager.setVariable(
+                                "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI",
+                                newUri,
+                                "client",
+                            );
 
-                        BunLogModule({
-                            message: `World API REST Asset URI set to: ${newUri} (persisted to client .env file)`,
-                            type: "success",
-                            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                            debug: cliConfiguration.VRCA_CLI_DEBUG,
-                        });
-                    } else if (action === "unset") {
-                        await EnvManager.unsetVariable(
-                            "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI",
-                            "client",
-                        );
+                            BunLogModule({
+                                message: `World API REST Asset URI set to: ${newUri} (persisted to client .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI",
+                                "client",
+                            );
 
-                        BunLogModule({
-                            message: `World API REST Asset URI variable unset (removed from client .env file)`,
-                            type: "success",
-                            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                            debug: cliConfiguration.VRCA_CLI_DEBUG,
-                        });
-                    }
+                            BunLogModule({
+                                message: `World API REST Asset URI variable unset (removed from client .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
                     } else if (configOption === "user-sql-dir") {
                         const action = await select({
                             message:
@@ -3457,7 +3459,9 @@ if (import.meta.main) {
                                     { name: "Yes", value: "true" },
                                     { name: "No", value: "false" },
                                 ],
-                                default: currentRestAuthUriUsingSsl ? "true" : "false",
+                                default: currentRestAuthUriUsingSsl
+                                    ? "true"
+                                    : "false",
                             });
 
                             await EnvManager.setVariable(
@@ -3511,7 +3515,9 @@ if (import.meta.main) {
                                     { name: "Yes", value: "true" },
                                     { name: "No", value: "false" },
                                 ],
-                                default: currentRestAssetUriUsingSsl ? "true" : "false",
+                                default: currentRestAssetUriUsingSsl
+                                    ? "true"
+                                    : "false",
                             });
 
                             await EnvManager.setVariable(
@@ -4045,8 +4051,12 @@ if (import.meta.main) {
                         console.log(
                             `  HTTPS Port Bind: ${currentCaddyPortBindHttps}`,
                         );
-                        console.log(`  TLS Mode (API): ${currentCaddyTlsApi || "Default (SSL enabled)"}`);
-                        console.log(`  TLS Mode (APP): ${currentCaddyTlsApp || "Default (SSL enabled)"}`);
+                        console.log(
+                            `  TLS Mode (API): ${currentCaddyTlsApi || "Default (SSL enabled)"}`,
+                        );
+                        console.log(
+                            `  TLS Mode (APP): ${currentCaddyTlsApp || "Default (SSL enabled)"}`,
+                        );
 
                         console.log(`\nCLI Configuration:`);
                         console.log(
@@ -4079,7 +4089,7 @@ if (import.meta.main) {
                 const currentBranch = result.stdout.toString().trim();
 
                 BunLogModule({
-                    message: `Starting one-time auto-upgrade on current branch for ${isCore ? "core services only" : "all services" }`,
+                    message: `Starting one-time auto-upgrade on current branch for ${isCore ? "core services only" : "all services"}`,
                     data: { currentBranch },
                     type: "info",
                     suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
@@ -4090,7 +4100,7 @@ if (import.meta.main) {
 
                 try {
                     BunLogModule({
-                        message: `Updating current branch '${currentBranch}' for ${isCore ? "core services only" : "all services" }...`,
+                        message: `Updating current branch '${currentBranch}' for ${isCore ? "core services only" : "all services"}...`,
                         type: "info",
                         suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                         debug: cliConfiguration.VRCA_CLI_DEBUG,
@@ -4100,29 +4110,38 @@ if (import.meta.main) {
                     await $`git submodule update --init --recursive`.nothrow();
 
                     // Fetch and pull current branch with recursive submodules
-                    const pull = await $`git pull --rebase --recurse-submodules origin ${currentBranch}`.nothrow().quiet();
-                    if (pull.exitCode !== 0) throw new Error(`pull failed: ${pull.stderr.toString()}`);
+                    const pull =
+                        await $`git pull --rebase --recurse-submodules origin ${currentBranch}`
+                            .nothrow()
+                            .quiet();
+                    if (pull.exitCode !== 0)
+                        throw new Error(
+                            `pull failed: ${pull.stderr.toString()}`,
+                        );
 
                     BunLogModule({
-                        message: `Rebuilding ${isCore ? "core services only" : "all services" }...`,
+                        message: `Rebuilding ${isCore ? "core services only" : "all services"}...`,
                         type: "info",
                         suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                         debug: cliConfiguration.VRCA_CLI_DEBUG,
                     });
-                    const result = await $`bun run server:rebuild-${isCore ? "core" : "all"}`.nothrow();
+                    const result =
+                        await $`bun run server:rebuild-${isCore ? "core" : "all"}`.nothrow();
                     if (result.exitCode !== 0) {
-                        throw new Error(`rebuild failed: ${result.stderr.toString()}`);
+                        throw new Error(
+                            `rebuild failed: ${result.stderr.toString()}`,
+                        );
                     }
 
                     BunLogModule({
-                        message: `Auto-upgrade completed successfully for ${isCore ? "core services only" : "all services" }`,
+                        message: `Auto-upgrade completed successfully for ${isCore ? "core services only" : "all services"}`,
                         type: "success",
                         suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                         debug: cliConfiguration.VRCA_CLI_DEBUG,
                     });
                 } catch (error) {
                     BunLogModule({
-                        message: `Auto-upgrade failed for ${isCore ? "core services only" : "all services" }: ${error instanceof Error ? error.message : String(error)}`,
+                        message: `Auto-upgrade failed for ${isCore ? "core services only" : "all services"}: ${error instanceof Error ? error.message : String(error)}`,
                         type: "error",
                         suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                         debug: cliConfiguration.VRCA_CLI_DEBUG,

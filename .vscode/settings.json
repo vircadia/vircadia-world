@@ -4,5 +4,9 @@
     "kiroAgent.configureMCP": "Enabled",
     "[vue]": {
         "editor.defaultFormatter": "Vue.volar"
+    },
+    "editor.codeActionsOnSave": {
+        "source.organizeImports.biome": "explicit",
+        "source.fixAll.biome": "explicit"
     }
 }

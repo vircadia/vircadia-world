@@ -1,38 +1,32 @@
 <template>
-    <slot 
-        :vircadiaWorld="vircadiaWorldNonNull"
-        :connectionInfo="connectionInfoComputed"
-        :connectionStatus="connectionStatus"
-        :isConnecting="isConnecting"
-        :isAuthenticated="isAuthenticatedComputed"
-        :isAuthenticating="isAuthenticatingComputed"
-        :authError="authErrorComputed"
-        :account="accountComputed"
-        :accountDisplayName="accountDisplayName"
-        :sessionToken="sessionTokenComputed"
-        :sessionId="sessionIdComputed"
-        :fullSessionId="fullSessionIdComputed"
-        :agentId="agentIdComputed"
-        :authProvider="authProviderComputed"
-        :instanceId="instanceId"
-        :lastCloseCode="lastCloseCode"
-        :lastCloseReason="lastCloseReason"
-        :connect="connect"
-        :disconnect="disconnect"
-        :logout="logout"
-    />
-    
+    <slot :vircadiaWorld="vircadiaWorldNonNull" :connectionInfo="connectionInfoComputed"
+        :connectionStatus="connectionStatus" :isConnecting="isConnecting" :isAuthenticated="isAuthenticatedComputed"
+        :isAuthenticating="isAuthenticatingComputed" :authError="authErrorComputed" :account="accountComputed"
+        :accountDisplayName="accountDisplayName" :sessionToken="sessionTokenComputed" :sessionId="sessionIdComputed"
+        :fullSessionId="fullSessionIdComputed" :agentId="agentIdComputed" :authProvider="authProviderComputed"
+        :instanceId="instanceId" :lastCloseCode="lastCloseCode" :lastCloseReason="lastCloseReason" :connect="connect"
+        :disconnect="disconnect" :logout="logout" />
+
 </template>
 
 <script setup lang="ts">
-import { computed, watch, ref, onUnmounted, readonly, type Ref, type ComputedRef, type DeepReadonly } from "vue";
-import { useStorage, StorageSerializers } from "@vueuse/core";
 import {
     Communication,
+    clientBrowserConfiguration,
     VircadiaBrowserClient,
     type WsConnectionCoreInfo,
-    clientBrowserConfiguration,
 } from "@vircadia/world-sdk/browser/vue";
+import { StorageSerializers, useStorage } from "@vueuse/core";
+import {
+    type ComputedRef,
+    computed,
+    type DeepReadonly,
+    onUnmounted,
+    type Ref,
+    readonly,
+    ref,
+    watch,
+} from "vue";
 
 // Strongly type the slot props so consumers don't get `any`
 export type VircadiaWorldInstance = {
@@ -76,10 +70,10 @@ const emit = defineEmits<{
     "auth-denied": [
         payload: {
             reason:
-                | "expired"
-                | "invalid"
-                | "unauthorized"
-                | "authentication_failed";
+            | "expired"
+            | "invalid"
+            | "unauthorized"
+            | "authentication_failed";
             message: string;
         },
     ];
@@ -97,12 +91,18 @@ const reconnectDelayMs = computed(() => props.reconnectDelayMs ?? 2000);
 console.log(
     "[VircadiaWorldProvider] Initializing Vircadia client with config",
     {
-        apiWsUriUsingSsl: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI_USING_SSL,
-        apiWsUri: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI,
-        apiRestAuthUriUsingSsl: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI_USING_SSL,
-        apiRestAuthUri: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI,
-        apiRestAssetUriUsingSsl: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI_USING_SSL,
-        apiRestAssetUri: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI,
+        apiWsUriUsingSsl:
+            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI_USING_SSL,
+        apiWsUri:
+            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI,
+        apiRestAuthUriUsingSsl:
+            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI_USING_SSL,
+        apiRestAuthUri:
+            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_AUTH_URI,
+        apiRestAssetUriUsingSsl:
+            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI_USING_SSL,
+        apiRestAssetUri:
+            clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI,
         wsPath: Communication.REST_BASE_WS_PATH,
         hasDebugToken:
             !!clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
@@ -213,15 +213,11 @@ const sessionTokenComputed = computed(() => sessionToken.value);
 const sessionIdComputed = computed(
     () => connectionInfoComputed.value.sessionId,
 );
-const agentIdComputed = computed(
-    () => connectionInfoComputed.value.agentId,
-);
+const agentIdComputed = computed(() => connectionInfoComputed.value.agentId);
 const authProviderComputed = computed(() => storedAuthProvider.value ?? "anon");
 
 // Pull instanceId and fullSessionId directly from core connection info
-const instanceId = computed(
-    () => connectionInfoComputed.value.instanceId,
-);
+const instanceId = computed(() => connectionInfoComputed.value.instanceId);
 const fullSessionIdComputed = computed(
     () => connectionInfoComputed.value.fullSessionId,
 );
@@ -232,24 +228,22 @@ type ConnectionInfoMaybeLastClose = WsConnectionCoreInfo & {
 
 const lastCloseCode = computed(
     () =>
-        (
-            connectionInfoComputed.value as ConnectionInfoMaybeLastClose
-        ).lastClose?.code ?? null,
+        (connectionInfoComputed.value as ConnectionInfoMaybeLastClose).lastClose
+            ?.code ?? null,
 );
 const lastCloseReason = computed(
     () =>
-        (
-            connectionInfoComputed.value as ConnectionInfoMaybeLastClose
-        ).lastClose?.reason ?? null,
+        (connectionInfoComputed.value as ConnectionInfoMaybeLastClose).lastClose
+            ?.reason ?? null,
 );
 
 type MinimalAccount =
     | {
-          username?: string;
-          name?: string;
-          localAccountId?: string;
-          idTokenClaims?: { preferred_username?: string; name?: string };
-      }
+        username?: string;
+        name?: string;
+        localAccountId?: string;
+        idTokenClaims?: { preferred_username?: string; name?: string };
+    }
     | null
     | undefined;
 
@@ -337,7 +331,9 @@ async function connect() {
         console.log("[VircadiaWorldProvider] Attempting WebSocket connection");
 
         // Attempt connection with timeout
-        console.log("[VircadiaWorldProvider] About to call browserClient.connection.connect()");
+        console.log(
+            "[VircadiaWorldProvider] About to call browserClient.connection.connect()",
+        );
         await browserClient.connection.connect({
             timeoutMs: 15000,
         });
@@ -346,13 +342,19 @@ async function connect() {
         lastConnectedToken.value = currentToken;
         lastConnectedAgentId.value = currentAgentId;
     } catch (error) {
-        console.log("[VircadiaWorldProvider] Connection failed with error:", error);
+        console.log(
+            "[VircadiaWorldProvider] Connection failed with error:",
+            error,
+        );
         // Reset last connected state on failure
         lastConnectedToken.value = null;
         lastConnectedAgentId.value = null;
 
         if (error instanceof Error) {
-            console.log("[VircadiaWorldProvider] Error is instance of Error, message:", error.message);
+            console.log(
+                "[VircadiaWorldProvider] Error is instance of Error, message:",
+                error.message,
+            );
             if (
                 error.message.includes("Authentication") ||
                 error.message.includes("401") ||
@@ -390,7 +392,7 @@ function disconnect() {
 async function logout() {
     try {
         await browserClient.logout();
-    } catch {}
+    } catch { }
     // Clear mirrored local auth state so UI switches to auth screen
     account.value = null;
     sessionToken.value = null;
@@ -399,12 +401,18 @@ async function logout() {
         localStorage.removeItem("vircadia-session-id");
         localStorage.removeItem("vircadia-agent-id");
         localStorage.setItem("vircadia-auth-provider", "anon");
-    } catch {}
+    } catch { }
     ensureDisconnected();
 }
 
-async function handleAuthDenied(reason: "expired" | "invalid" | "unauthorized" | "authentication_failed", message: string) {
-    console.warn("[VircadiaWorldProvider] Auth denied, clearing local auth state", { reason, message });
+async function handleAuthDenied(
+    reason: "expired" | "invalid" | "unauthorized" | "authentication_failed",
+    message: string,
+) {
+    console.warn(
+        "[VircadiaWorldProvider] Auth denied, clearing local auth state",
+        { reason, message },
+    );
 
     // Clear local auth state - this will automatically trigger UI to show auth provider
     account.value = null;
@@ -417,7 +425,10 @@ async function handleAuthDenied(reason: "expired" | "invalid" | "unauthorized" |
         localStorage.removeItem("vircadia-agent-id");
         localStorage.setItem("vircadia-auth-provider", "anon");
     } catch (error) {
-        console.warn("[VircadiaWorldProvider] Failed to clear localStorage:", error);
+        console.warn(
+            "[VircadiaWorldProvider] Failed to clear localStorage:",
+            error,
+        );
     }
 
     // Disconnect if connected
@@ -472,10 +483,7 @@ watch(
         // Skip if auto-connect disabled
         if (!autoConnect.value) return;
         // If token didn't change and we're already connected, do nothing
-        if (
-            newToken === oldToken &&
-            connectionInfoComputed.value.isConnected
-        ) {
+        if (newToken === oldToken && connectionInfoComputed.value.isConnected) {
             return;
         }
         handleAuthChange();

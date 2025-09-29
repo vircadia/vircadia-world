@@ -1,11 +1,6 @@
 <template>
-    <v-navigation-drawer
-        v-model="openModel"
-        location="right"
-        :width="width"
-        :temporary="$vuetify.display.smAndDown"
-        elevation="8"
-    >
+    <v-navigation-drawer v-model="openModel" location="right" :width="width" :temporary="$vuetify.display.smAndDown"
+        elevation="8">
         <v-tabs v-model="tabModel" density="compact" grow>
             <v-tab value="connection" prepend-icon="mdi-wifi">Connection</v-tab>
             <v-tab value="environment" prepend-icon="mdi-earth">Environment</v-tab>
@@ -64,7 +59,8 @@
                     </v-list-item>
                     <v-list-item>
                         <v-list-item-title>Full Session ID</v-list-item-title>
-                        <v-list-item-subtitle style="word-break: break-all;">{{ fullSessionId || '-' }}</v-list-item-subtitle>
+                        <v-list-item-subtitle style="word-break: break-all;">{{ fullSessionId || '-'
+                            }}</v-list-item-subtitle>
                     </v-list-item>
                     <v-list-item>
                         <v-list-item-title>Agent ID</v-list-item-title>
@@ -78,7 +74,8 @@
                     <v-list-subheader>Connection Details</v-list-subheader>
                     <v-list-item>
                         <v-list-item-title>Connected URL</v-list-item-title>
-                        <v-list-item-subtitle style="word-break: break-all;">{{ connectedUrl || '-' }}</v-list-item-subtitle>
+                        <v-list-item-subtitle style="word-break: break-all;">{{ connectedUrl || '-'
+                            }}</v-list-item-subtitle>
                     </v-list-item>
                     <v-list-item>
                         <v-list-item-title>Last Close Code</v-list-item-title>
@@ -156,13 +153,8 @@
                         </v-list-item-subtitle>
                     </v-list-item>
                     <v-list-item v-if="physicsError">
-                        <v-alert
-                            type="error"
-                            density="compact"
-                            variant="tonal"
-                            title="Physics Error"
-                            :text="physicsError || ''"
-                        />
+                        <v-alert type="error" density="compact" variant="tonal" title="Physics Error"
+                            :text="physicsError || ''" />
                     </v-list-item>
                 </v-list>
             </v-window-item>
@@ -225,10 +217,6 @@ const tabModel = computed({
     set: (v: string) => emit("update:tab", v),
 });
 
-// Mark as used in template
-void openModel;
-void tabModel;
-
 const connectionStatusColor = computed(() => {
     switch (props.connectionStatus) {
         case "connected":
@@ -241,7 +229,4 @@ const connectionStatusColor = computed(() => {
             return "info";
     }
 });
-void connectionStatusColor;
 </script>
-
-

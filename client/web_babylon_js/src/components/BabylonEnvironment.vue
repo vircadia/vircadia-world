@@ -242,5 +242,5 @@ watch(
 );
 
 // Physics functionality moved to BabylonPhysics.vue
-defineExpose({});
+defineExpose({ environmentInitialized });
 </script>

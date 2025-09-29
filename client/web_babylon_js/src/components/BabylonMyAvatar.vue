@@ -1,59 +1,41 @@
 <template>
-    <slot
-        :avatar-skeleton="avatarSkeleton"
-        :animations="animations"
-        :vircadia-world="vircadiaWorld"
-        :on-animation-state="onAnimationState"
-        :avatar-node="avatarNode"
-        :model-file-name="modelFileName"
-        :mesh-pivot-point="meshPivotPoint"
-        :capsule-height="capsuleHeight"
-        :on-set-avatar-model="onSetAvatarModel"
-        :onAvatarDefinitionLoaded="onAvatarDefinitionLoaded"
-        :onEntityDataLoaded="onEntityDataLoaded"
-        :key-state="keyState"
-        :airborne="lastAirborne"
-        :verticalVelocity="lastVerticalVelocity"
-        :supportState="lastSupportState"
-        :physicsEnabled="props.physicsEnabled"
-        :hasTouchedGround="hasTouchedGround"
-        :spawnSettling="spawnSettleActive"
-        :groundProbeHit="groundProbeHit"
-        :groundProbeDistance="groundProbeDistance"
-        :groundProbeMeshName="groundProbeMeshName"
-        :animationDebug="animationDebug"
-    />
+    <slot :avatar-skeleton="avatarSkeleton" :animations="animations" :vircadia-world="vircadiaWorld"
+        :on-animation-state="onAnimationState" :avatar-node="avatarNode" :model-file-name="modelFileName"
+        :mesh-pivot-point="meshPivotPoint" :capsule-height="capsuleHeight" :on-set-avatar-model="onSetAvatarModel"
+        :onAvatarDefinitionLoaded="onAvatarDefinitionLoaded" :onEntityDataLoaded="onEntityDataLoaded"
+        :key-state="keyState" :airborne="lastAirborne" :verticalVelocity="lastVerticalVelocity"
+        :supportState="lastSupportState" :physicsEnabled="props.physicsEnabled" :hasTouchedGround="hasTouchedGround"
+        :spawnSettling="spawnSettleActive" :groundProbeHit="groundProbeHit" :groundProbeDistance="groundProbeDistance"
+        :groundProbeMeshName="groundProbeMeshName" :animationDebug="animationDebug" />
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, type Ref, computed } from "vue";
-
 import {
-    Vector3,
-    Quaternion,
-    Matrix,
-    CharacterSupportedState,
-    TransformNode,
-    type Node as BabylonNode,
-    MeshBuilder,
-    PhysicsCharacterController,
-    StandardMaterial,
-    Color3,
-    PhysicsShapeCapsule,
-    Ray,
-    type AnimationGroup,
-    type Scene,
-    type Observer,
-    type Skeleton,
     type AbstractMesh,
+    type AnimationGroup,
+    type Node as BabylonNode,
     type Camera,
+    CharacterSupportedState,
+    Color3,
+    Matrix,
+    MeshBuilder,
+    type Observer,
+    PhysicsCharacterController,
+    PhysicsShapeCapsule,
+    Quaternion,
+    Ray,
+    type Scene,
+    type Skeleton,
+    StandardMaterial,
+    TransformNode,
+    Vector3,
 } from "@babylonjs/core";
+import { computed, onMounted, onUnmounted, type Ref, ref } from "vue";
 import "@babylonjs/loaders/glTF";
 
-import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
-
 // Debug viewers import
-import { SkeletonViewer, AxesViewer } from "@babylonjs/core/Debug";
+import { AxesViewer, SkeletonViewer } from "@babylonjs/core/Debug";
+import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 
 type PositionObj = { x: number; y: number; z: number };
 type RotationObj = { x: number; y: number; z: number; w: number };
@@ -173,8 +155,7 @@ const turnSpeed = computed(() => effectiveAvatarDef.value.turnSpeed);
 const blendDuration = computed(() => effectiveAvatarDef.value.blendDuration);
 const meshPivotPoint = computed(() => effectiveAvatarDef.value.meshPivotPoint);
 const modelFileName = computed(() => effectiveAvatarDef.value.modelFileName);
-void meshPivotPoint;
-void modelFileName;
+
 const animations = computed(
     () => effectiveAvatarDef.value.animations as AnimationDef[],
 );
@@ -185,13 +166,11 @@ const sessionId = computed(
 const fullSessionId = computed(
     () => props.vircadiaWorld.connectionInfo.value.fullSessionId ?? null,
 );
-void sessionId;
 
 function onAvatarDefinitionLoaded(def: AvatarDefinition) {
     dbAvatarDef.value = def;
     isFlying.value = !!def.startFlying;
 }
-void onAvatarDefinitionLoaded;
 
 type EntityData = {
     general__entity_name: string;
@@ -222,7 +201,6 @@ function onEntityDataLoaded(data: EntityData) {
         );
     }
 }
-void onEntityDataLoaded;
 
 const avatarNode = ref<TransformNode | null>(null);
 const characterController = ref<PhysicsCharacterController | null>(null);
@@ -369,7 +347,6 @@ const defaultKeyState = ref<KeyState>({
 const keyState = computed(() => props.keyState ?? defaultKeyState.value);
 
 const vircadiaWorld = props.vircadiaWorld;
-void vircadiaWorld;
 
 const avatarMeshes: Ref<AbstractMesh[]> = ref([]);
 const isModelLoaded = ref(false);
@@ -393,11 +370,8 @@ let prevFlyTogglePressed = false;
 type CharacterState = "IN_AIR" | "ON_GROUND" | "START_JUMP";
 const characterState = ref<CharacterState>("IN_AIR");
 // Physics state now comes from props
-const lastSupportState = ref<CharacterSupportedState | null>(null);
+const lastSupportState = ref<CharacterSupportedState>(CharacterSupportedState.UNSUPPORTED);
 const hasTouchedGround = ref(false);
-// mark used in template slot
-void lastSupportState;
-void hasTouchedGround;
 
 // Ground probe debug info
 const groundProbeHit = ref(false);
@@ -644,8 +618,8 @@ function getDesiredMoveDefFromKeys(): AnimationDef | undefined {
     const speedMode: "walk" | "jog" | "sprint" = ks.sprint
         ? "sprint"
         : ks.slowRun
-          ? "jog"
-          : "walk";
+            ? "jog"
+            : "walk";
     const primaryMotion = speedMode === "walk" ? "walk" : "run";
     const preferredVariant = speedMode === "jog" ? "jog" : undefined;
     const mapped =
@@ -684,9 +658,9 @@ function getDesiredMoveDefFromKeys(): AnimationDef | undefined {
             return (
                 (preferredVariant === "jog"
                     ? list.find((a) => name(a.fileName).includes("jog.glb")) ||
-                      list.find((a) => name(a.fileName).includes("jog."))
+                    list.find((a) => name(a.fileName).includes("jog."))
                     : list.find((a) => name(a.fileName).includes("run.glb")) ||
-                      list.find((a) => name(a.fileName).includes("run."))) ||
+                    list.find((a) => name(a.fileName).includes("run."))) ||
                 list.find((a) => name(a.fileName).includes("run.glb")) ||
                 list.find((a) => name(a.fileName).includes("jog.glb")) ||
                 list.find((a) => name(a.fileName).includes("run.")) ||
@@ -739,7 +713,7 @@ function ensureTalkingGroupReady(): void {
     talkOverlayAnimation = group;
     try {
         talkOverlayAnimation.stop();
-    } catch {}
+    } catch { }
     talkOverlayAnimation.loopAnimation = true;
     talkOverlayAnimation.setWeightForAllAnimatables(0);
 }
@@ -755,7 +729,7 @@ function setMoveAnimationFromDef(def: AnimationDef | undefined): void {
         previousMoveAnimation = walkAnimation;
         try {
             previousMoveAnimation.play(true);
-        } catch {}
+        } catch { }
         moveCrossfadeT = 0;
     }
 
@@ -844,7 +818,6 @@ function onSetAvatarModel(payload: {
 
     emit("ready");
 }
-void onSetAvatarModel;
 
 type AnimationState = "idle" | "loading" | "ready" | "error";
 type AnimationInfo = {
@@ -872,10 +845,9 @@ function onAnimationState(payload: {
         animationEvents.value.push(line);
         if (animationEvents.value.length > 200)
             animationEvents.value.splice(0, animationEvents.value.length - 200);
-    } catch {}
+    } catch { }
     refreshDesiredAnimations();
 }
-void onAnimationState;
 
 function trySetupBlendedAnimations(): void {
     ensureIdleGroupReady();
@@ -905,7 +877,7 @@ function updateAnimationBlending(
         if (moveCrossfadeT >= 1) {
             try {
                 previousMoveAnimation.stop();
-            } catch {}
+            } catch { }
             previousMoveAnimation = null;
         }
     }
@@ -947,7 +919,7 @@ function updateAnimationBlending(
         } else {
             try {
                 talkOverlayAnimation.pause();
-            } catch {}
+            } catch { }
         }
     }
 
@@ -1076,7 +1048,7 @@ onMounted(async () => {
                     .scale(currentSpeed)
                     .applyRotationQuaternion(
                         avatarNode.value.rotationQuaternion ??
-                            Quaternion.Identity(),
+                        Quaternion.Identity(),
                     );
                 // Use controller.calculateMovement to compute horizontal control
                 const outputVelocity =
@@ -1086,7 +1058,7 @@ onMounted(async () => {
                         (support?.averageSurfaceNormal as Vector3) ?? upWorld,
                         currentVelocity,
                         (support?.averageSurfaceVelocity as Vector3) ??
-                            Vector3.Zero(),
+                        Vector3.Zero(),
                         desiredVelocity,
                         upWorld,
                     );
@@ -1096,17 +1068,17 @@ onMounted(async () => {
                     outputVelocity.addInPlace(
                         upWorld.scale(
                             currentVelocity.dot(upWorld) -
-                                outputVelocity.dot(upWorld),
+                            outputVelocity.dot(upWorld),
                         ),
                     );
                     // Add gravity over dt
                     const gravityVec = isFlying.value
                         ? Vector3.Zero()
                         : new Vector3(
-                              props.gravity[0],
-                              props.gravity[1],
-                              props.gravity[2],
-                          );
+                            props.gravity[0],
+                            props.gravity[1],
+                            props.gravity[2],
+                        );
                     outputVelocity.addInPlace(gravityVec.scale(deltaTime));
                     setVelocity(outputVelocity);
                 }
@@ -1118,7 +1090,7 @@ onMounted(async () => {
                     .scale(currentSpeed)
                     .applyRotationQuaternion(
                         avatarNode.value.rotationQuaternion ??
-                            Quaternion.Identity(),
+                        Quaternion.Identity(),
                     );
                 const outputVelocity =
                     characterController.value?.calculateMovement(
@@ -1287,5 +1259,4 @@ const animationDebug = computed<AnimationDebugData>(() => {
         animations: rows,
     };
 });
-void animationDebug;
 </script>

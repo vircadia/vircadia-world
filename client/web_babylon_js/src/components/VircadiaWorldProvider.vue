@@ -162,12 +162,7 @@ const sessionToken = useStorage<string | null>(
 );
 // Deprecated: local provider storage is no longer the source of truth.
 
-const isAuthenticatedComputed = computed(
-    () =>
-        !!sessionToken.value ||
-        connectionInfo.value.hasAuthToken ||
-        !!connectionInfo.value.sessionId,
-);
+const isAuthenticatedComputed = computed(() => !!sessionToken.value);
 const isAuthenticatingComputed = computed(
     () =>
         connectionInfo.value.sessionValidation?.status ===
@@ -341,6 +336,9 @@ async function logout() {
     // Clear mirrored local auth state so UI switches to auth screen
     account.value = null;
     sessionToken.value = null;
+    // Also clear in-memory SDK auth so connectionInfo.hasAuthToken reflects reality
+    browserClient.setAuthToken("");
+    browserClient.setAuthProvider("anon");
     try {
         localStorage.setItem("vircadia-auth-suppressed", "1");
         localStorage.removeItem("vircadia-session-id");
@@ -362,6 +360,9 @@ async function handleAuthDenied(
     // Clear local auth state - this will automatically trigger UI to show auth provider
     account.value = null;
     sessionToken.value = null;
+    // Clear in-memory SDK auth so connectionInfo no longer reports hasAuthToken
+    browserClient.setAuthToken("");
+    browserClient.setAuthProvider("anon");
 
     // Clear localStorage to ensure clean state
     try {

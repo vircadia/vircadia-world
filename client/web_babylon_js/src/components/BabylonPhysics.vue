@@ -4,11 +4,11 @@
         :havokInstanceLoaded="!!havokInstance" :physicsPluginCreated="!!physicsPlugin"></slot>
 </template>
 <script setup lang="ts">
-import { ref, toRef, computed, watch } from "vue";
 import type { Scene } from "@babylonjs/core";
 import { Vector3 } from "@babylonjs/core";
 import { HavokPlugin } from "@babylonjs/core/Physics/v2/Plugins/havokPlugin";
 import HavokPhysics from "@babylonjs/havok";
+import { computed, ref, toRef, watch } from "vue";
 import "@babylonjs/core/Physics/v2/physicsEngineComponent";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 
@@ -59,7 +59,10 @@ async function initializePhysicsIfNeeded(targetScene: Scene) {
             physicsPlugin = new HavokPlugin(true, havokInstance);
         }
 
-        const gravityVector = toVec3(gravityRef.value, new Vector3(0, -9.81, 0));
+        const gravityVector = toVec3(
+            gravityRef.value,
+            new Vector3(0, -9.81, 0),
+        );
         targetScene.enablePhysics(gravityVector, physicsPlugin);
 
         // Wait briefly for the engine to attach before flagging initialized
@@ -78,7 +81,8 @@ async function initializePhysicsIfNeeded(targetScene: Scene) {
     } catch (error: unknown) {
         try {
             const err = error as { message?: string } | string;
-            physicsError.value = (typeof err === "string" ? err : err?.message) || "";
+            physicsError.value =
+                (typeof err === "string" ? err : err?.message) || "";
         } catch {
             physicsError.value = "Unknown physics init error";
         }
@@ -101,7 +105,9 @@ const physicsEnabled = computed<boolean>(() => {
 
 const physicsPluginName = computed<string>(() => {
     const initialized = physicsInitialized.value;
-    const s = sceneRef.value as unknown as { getPhysicsEngine?: () => unknown } | null;
+    const s = sceneRef.value as unknown as {
+        getPhysicsEngine?: () => unknown;
+    } | null;
     const engineAny = (s?.getPhysicsEngine?.() ?? null) as unknown as {
         getPhysicsPluginName?: () => string | undefined;
     } | null;
@@ -110,9 +116,12 @@ const physicsPluginName = computed<string>(() => {
 
 const physicsEngineType = computed<string>(() => {
     const initialized = physicsInitialized.value;
-    const s = sceneRef.value as unknown as { getPhysicsEngine?: () => unknown } | null;
+    const s = sceneRef.value as unknown as {
+        getPhysicsEngine?: () => unknown;
+    } | null;
     const engine = s?.getPhysicsEngine?.();
-    return engine && (engine as { constructor?: { name?: string } }).constructor?.name
+    return engine &&
+        (engine as { constructor?: { name?: string } }).constructor?.name
         ? (engine as { constructor: { name: string } }).constructor.name
         : "";
 });
@@ -127,10 +136,17 @@ watch(
     { immediate: true },
 );
 
+const havokInstanceLoaded = computed<boolean>(() => !!havokInstance);
+const physicsPluginCreated = computed<boolean>(() => !!physicsPlugin);
+
 defineExpose({
     physicsError,
     physicsEnabled,
     physicsPluginName,
     physicsEngineType,
+    physicsInitialized,
+    havokInstanceLoaded,
+    physicsPluginCreated,
+    gravity: gravityRef,
 });
 </script>

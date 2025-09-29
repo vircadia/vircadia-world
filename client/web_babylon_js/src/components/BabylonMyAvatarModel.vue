@@ -1,24 +1,30 @@
 <template>
-	<!-- Provide target skeleton and passthrough props to children (e.g. animation loaders) -->
-	<slot
-		:target-skeleton="targetSkeleton"
-		:vircadia-world="vircadiaWorld"
-		:animations="animations"
-		:on-animation-state="onAnimationState"
-	/>
+    <!-- Provide target skeleton and passthrough props to children (e.g. animation loaders) -->
+    <slot :target-skeleton="targetSkeleton" :vircadia-world="vircadiaWorld" :animations="animations"
+        :on-animation-state="onAnimationState" />
 </template>
 
 <script setup lang="ts">
 // FIXME: Needs a teardown. Other similar components probably do need as well.
-import { ref, watch, onMounted, type Ref, computed } from "vue";
-import type { Scene, AbstractMesh, Skeleton } from "@babylonjs/core";
+
+import type {
+    AbstractMesh,
+    AnimationGroup,
+    Scene,
+    Skeleton,
+} from "@babylonjs/core";
 import { ImportMeshAsync, type TransformNode } from "@babylonjs/core";
+import { onMounted, type Ref, ref, watch } from "vue";
 import "@babylonjs/loaders/glTF";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
+import type { AnimationState } from "@/schemas";
 
 const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
-    vircadiaWorld: { type: Object as () => VircadiaWorldInstance, required: true },
+    vircadiaWorld: {
+        type: Object as () => VircadiaWorldInstance,
+        required: true,
+    },
     avatarNode: {
         type: Object as () => TransformNode | null,
         required: false,
@@ -42,9 +48,9 @@ const props = defineProps({
     onAnimationState: {
         type: Function as unknown as () => (payload: {
             fileName: string;
-            state: string;
+            state: AnimationState;
             error?: string;
-            group?: unknown;
+            group?: AnimationGroup | null;
         }) => void,
         required: true,
     },
@@ -65,9 +71,9 @@ const vircadiaWorld = props.vircadiaWorld;
 const animations = props.animations;
 const onAnimationState = props.onAnimationState as (payload: {
     fileName: string;
-    state: string;
+    state: AnimationState;
     error?: string;
-    group?: unknown;
+    group?: AnimationGroup | null;
 }) => void;
 void animations;
 void onAnimationState;
@@ -115,7 +121,9 @@ async function loadAndAttach(): Promise<void> {
         details: { fileName: props.modelFileName },
     });
 
-    const response = await vircadiaWorld.client.restAsset.assetGetByKey({ key: props.modelFileName });
+    const response = await vircadiaWorld.client.restAsset.assetGetByKey({
+        key: props.modelFileName,
+    });
     if (!response.ok) {
         let serverError: string | undefined;
         try {
@@ -124,17 +132,33 @@ async function loadAndAttach(): Promise<void> {
                 const j = await response.clone().json();
                 serverError = (j as any)?.error || JSON.stringify(j);
             }
-        } catch {}
-        emit("state", { state: "error", step: "assetLoad", message: `HTTP ${response.status}${serverError ? ` - ${serverError}` : ""}` });
+        } catch { }
+        emit("state", {
+            state: "error",
+            step: "assetLoad",
+            message: `HTTP ${response.status}${serverError ? ` - ${serverError}` : ""}`,
+        });
         return;
     }
-    const mimeType = response.headers.get("Content-Type") || "application/octet-stream";
+    const mimeType =
+        response.headers.get("Content-Type") || "application/octet-stream";
     const arrayBuffer = await response.arrayBuffer();
     const blob = new Blob([arrayBuffer], { type: mimeType });
     const blobUrl = mimeType.startsWith("model/")
-        ? await (async () => new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onloadend = () => resolve(reader.result as string); reader.onerror = () => reject(new Error("Failed to convert blob to data URL")); reader.readAsDataURL(blob);} ))()
+        ? await (async () =>
+            new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.onerror = () =>
+                    reject(new Error("Failed to convert blob to data URL"));
+                reader.readAsDataURL(blob);
+            }))()
         : URL.createObjectURL(blob);
-    emit("state", { state: "loading", step: "importingMesh", details: { fileName: props.modelFileName } });
+    emit("state", {
+        state: "loading",
+        step: "importingMesh",
+        details: { fileName: props.modelFileName },
+    });
     const result = await ImportMeshAsync(blobUrl, props.scene, {
         pluginExtension: extensionFromMime(mimeType),
     });
@@ -271,5 +295,3 @@ watch(
 
 defineExpose({ targetSkeleton });
 </script>
-
-

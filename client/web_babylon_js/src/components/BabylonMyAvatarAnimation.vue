@@ -1,28 +1,31 @@
 <template>
-	<!-- Non-visual animation loader -->
+    <!-- Non-visual animation loader -->
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted, type Ref } from "vue";
-import type { Scene, AnimationGroup, Skeleton } from "@babylonjs/core";
+import type { AnimationGroup, Scene, Skeleton } from "@babylonjs/core";
 import { ImportMeshAsync } from "@babylonjs/core";
-import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 import type {
-    BabylonAnimationDefinition,
-    AnimationState,
     AnimationInfo,
+    AnimationState,
+    BabylonAnimationDefinition,
 } from "@schemas";
+import { onMounted, onUnmounted, type Ref, ref, watch } from "vue";
+import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 
 const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
-    vircadiaWorld: { type: Object as () => VircadiaWorldInstance, required: true },
+    vircadiaWorld: {
+        type: Object as () => VircadiaWorldInstance,
+        required: true,
+    },
     animation: {
         type: Object as () => BabylonAnimationDefinition,
         required: true,
     },
     // Allow null initially; parent should guard render, but be tolerant here too
     targetSkeleton: {
-        type: Object as () => unknown,
+        type: Object as () => Skeleton,
         required: false,
         default: null,
     },
@@ -96,7 +99,9 @@ async function load(): Promise<void> {
         let attempts = 0;
         const maxAttempts = 3;
         const fetchOnce = async () => {
-            const response = await (props.vircadiaWorld as any).client.restAsset.assetGetByKey({ key: props.animation.fileName });
+            const response = await (
+                props.vircadiaWorld as any
+            ).client.restAsset.assetGetByKey({ key: props.animation.fileName });
             if (!response.ok) {
                 let serverError: string | undefined;
                 try {
@@ -105,14 +110,30 @@ async function load(): Promise<void> {
                         const j = await response.clone().json();
                         serverError = (j as any)?.error || JSON.stringify(j);
                     }
-                } catch {}
-                throw new Error(`HTTP ${response.status}${serverError ? ` - ${serverError}` : ""}`);
+                } catch { }
+                throw new Error(
+                    `HTTP ${response.status}${serverError ? ` - ${serverError}` : ""}`,
+                );
             }
-            const mimeType = response.headers.get("Content-Type") || "application/octet-stream";
+            const mimeType =
+                response.headers.get("Content-Type") ||
+                "application/octet-stream";
             const arrayBuffer = await response.arrayBuffer();
             const blob = new Blob([arrayBuffer], { type: mimeType });
             const url = mimeType.startsWith("model/")
-                ? await (async () => new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onloadend = () => resolve(reader.result as string); reader.onerror = () => reject(new Error("Failed to convert blob to data URL")); reader.readAsDataURL(blob);} ))()
+                ? await (async () =>
+                    new Promise<string>((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () =>
+                            resolve(reader.result as string);
+                        reader.onerror = () =>
+                            reject(
+                                new Error(
+                                    "Failed to convert blob to data URL",
+                                ),
+                            );
+                        reader.readAsDataURL(blob);
+                    }))()
                 : URL.createObjectURL(blob);
             return { url, mimeType } as const;
         };
@@ -123,7 +144,8 @@ async function load(): Promise<void> {
             } catch (e) {
                 attempts++;
                 const msg = e instanceof Error ? e.message : String(e);
-                if (!msg.includes("timeout") || attempts >= maxAttempts) throw e;
+                if (!msg.includes("timeout") || attempts >= maxAttempts)
+                    throw e;
                 await new Promise((r) => setTimeout(r, 200 + attempts * 200));
             }
         }
@@ -131,10 +153,14 @@ async function load(): Promise<void> {
         const result = await ImportMeshAsync(fetched.url, props.scene, {
             pluginExtension: (() => {
                 switch (fetched!.mimeType) {
-                    case "model/gltf-binary": return ".glb";
-                    case "model/gltf+json": return ".gltf";
-                    case "model/fbx": return ".fbx";
-                    default: return "";
+                    case "model/gltf-binary":
+                        return ".glb";
+                    case "model/gltf+json":
+                        return ".gltf";
+                    case "model/fbx":
+                        return ".fbx";
+                    default:
+                        return "";
                 }
             })(),
         });
@@ -272,7 +298,7 @@ async function load(): Promise<void> {
                                     }
                                 }
                             }
-                        } catch {}
+                        } catch { }
                     }
                 }
                 // Debug each group mapping result
@@ -367,5 +393,3 @@ onUnmounted(() => {
     }
 });
 </script>
-
-

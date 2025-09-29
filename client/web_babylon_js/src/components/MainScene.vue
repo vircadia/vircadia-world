@@ -10,11 +10,11 @@
         <template v-else>
 
             <!-- Sidebar / Drawer -->
-            <SceneDrawer v-model:open="drawerOpen" v-model:tab="drawerTab" :environment-is-loading="!envInitializedRef"
-                :physics-enabled="envPhysicsEnabledRef" :physics-plugin-name="envPhysicsPluginNameRef"
-                :physics-error="envPhysicsErrorRef" :gravity="envGravityRef"
-                :physics-engine-type="envPhysicsEngineTypeRef || ''" :physics-initialized="envPhysicsInitializedRef"
-                :havok-instance-loaded="envHavokInstanceLoadedRef" :physics-plugin-created="envPhysicsPluginCreatedRef"
+            <SceneDrawer v-if="false" v-model:open="drawerOpen" v-model:tab="drawerTab"
+                :environment-is-loading="!envRef?.environmentInitialized" :physics-enabled="physicsEnabled"
+                :physics-plugin-name="physicsPluginName" :physics-error="physicsError" :gravity="physicsGravity"
+                :physics-engine-type="physicsEngineType || ''" :physics-initialized="physicsInitialized"
+                :havok-instance-loaded="havokInstanceLoaded" :physics-plugin-created="physicsPluginCreated"
                 :connection-status="connectionStatus" :is-connecting="isConnecting" :is-authenticated="isAuthenticated"
                 :is-authenticating="isAuthenticating" :account-display-name="accountDisplayName"
                 :session-id="connectionInfo.sessionId" :full-session-id="connectionInfo.fullSessionId"
@@ -111,17 +111,17 @@
                 <!-- Physics State -->
                 <v-tooltip location="bottom">
                     <template #activator="{ props }">
-                        <v-chip v-bind="props" :color="envPhysicsEnabledRef ? 'success' : 'error'" size="small"
-                            variant="flat" class="ml-2">
-                            <v-icon start size="small">{{ envPhysicsEnabledRef ? 'mdi-atom-variant' : 'mdi-atom'
+                        <v-chip v-bind="props" :color="physicsEnabled ? 'success' : 'error'" size="small" variant="flat"
+                            class="ml-2">
+                            <v-icon start size="small">{{ physicsEnabled ? 'mdi-atom-variant' : 'mdi-atom'
                             }}</v-icon>
-                            Physics: {{ envPhysicsPluginNameRef || (envPhysicsEnabledRef ? 'on' : 'off') }}
+                            Physics: {{ physicsPluginName || (physicsEnabled ? 'on' : 'off') }}
                         </v-chip>
                     </template>
                     <div class="text-caption">
-                        <div><strong>Enabled:</strong> {{ String(envPhysicsEnabledRef) }}</div>
-                        <div><strong>Plugin:</strong> {{ envPhysicsPluginNameRef || '-' }}</div>
-                        <div><strong>Error:</strong> {{ envPhysicsErrorRef || '-' }}</div>
+                        <div><strong>Enabled:</strong> {{ String(physicsEnabled) }}</div>
+                        <div><strong>Plugin:</strong> {{ physicsPluginName || '-' }}</div>
+                        <div><strong>Error:</strong> {{ physicsError || '-' }}</div>
                     </div>
                 </v-tooltip>
 
@@ -132,33 +132,22 @@
                 <BabylonCanvas ref="canvasComponentRef" v-model:performanceMode="performanceMode" v-model:fps="fps" />
 
                 <BabylonSnackbar :scene-initialized="sceneInitialized" :connection-status="connectionStatus"
-                    :is-connecting="isConnecting" :environment-loading="!envInitializedRef"
+                    :is-connecting="isConnecting" :environment-loading="!envRef?.environmentInitialized"
                     :avatar-loading="avatarLoading" :other-avatars-loading="otherAvatarsLoading"
                     :models-loading="modelsLoading" :is-authenticating="isAuthenticating"
                     :is-authenticated="isAuthenticated" :avatar-model-step="avatarModelStep"
                     :avatar-model-error="avatarModelError" :model-file-name="modelFileNameRef" />
 
                 <BabylonPhysics v-if="sceneInitialized && connectionStatus === 'connected'" :scene="sceneNonNull"
-                    :vircadia-world="vircadiaWorld" :gravity="[0, -9.81, 0]">
+                    :vircadia-world="vircadiaWorld" :gravity="[0, -9.81, 0]" ref="physicsRef">
                     <template
                         #default="{ physicsEnabled: envPhysicsEnabled, physicsPluginName: envPhysicsPluginName, physicsError: envPhysicsError, physicsEngineType: envPhysicsEngineType, physicsInitialized: envPhysicsInitialized, havokInstanceLoaded: envHavokInstanceLoaded, physicsPluginCreated: envPhysicsPluginCreated, gravity: sceneGravity }">
                         <BabylonEnvironment :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
-                            :hdr-file="'babylon.level.hdr.1k.hdr'" ref="envRef"
-                            v-slot="{ environmentInitialized: envInitialized }">
-                            <!-- Sync physics slot values and environment state to top-level refs -->
-                            <div style="display: none">
-                                {{ envPhysicsEnabledRef = envPhysicsEnabled }}
-                                {{ envPhysicsPluginNameRef = envPhysicsPluginName }}
-                                {{ envPhysicsErrorRef = envPhysicsError }}
-                                {{ envGravityRef = sceneGravity }}
-                                {{ envPhysicsEngineTypeRef = envPhysicsEngineType || '' }}
-                                {{ envPhysicsInitializedRef = !!envPhysicsInitialized }}
-                                {{ envHavokInstanceLoadedRef = !!envHavokInstanceLoaded }}
-                                {{ envPhysicsPluginCreatedRef = !!envPhysicsPluginCreated }}
-                                {{ envInitializedRef = !!envInitialized }}
-                            </div>
+                            :hdr-file="'babylon.level.hdr.1k.hdr'" ref="envRef" v-slot="{ environmentInitialized }">
+                            <!-- (removed) previously mirrored via SyncEnvState; now derived from physicsRef -->
 
-                            <template v-if="envInitialized && sceneInitialized && connectionStatus === 'connected'">
+                            <template
+                                v-if="environmentInitialized && sceneInitialized && connectionStatus === 'connected'">
                                 <!-- BabylonMyAvatar component wrapped with MKB controller -->
                                 <BabylonMyAvatarMKBController :scene="sceneNonNull" :forward-codes="['KeyW', 'ArrowUp']"
                                     :backward-codes="['KeyS', 'ArrowDown']" :strafe-left-codes="['KeyA', 'ArrowLeft']"
@@ -180,7 +169,7 @@
                                                 <BabylonMyAvatarEntity
                                                     v-if="vircadiaWorld.connectionInfo.value.status === 'connected'"
                                                     :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
-                                                    :avatar-node="(avatarNode) || null"
+                                                    :avatar-node="avatarNode as TransformNode | null"
                                                     :target-skeleton="(avatarSkeleton) || null" :camera="null"
                                                     :model-file-name="modelFileName || ''"
                                                     :avatar-definition="avatarDefinition"
@@ -200,7 +189,8 @@
                                                     @entity-data-loaded="onEntityDataLoaded"
                                                     @sync-stats="onAvatarSyncStats" />
                                                 <BabylonMyAvatarModel v-if="modelFileName" :scene="sceneNonNull"
-                                                    :vircadia-world="vircadiaWorld" :avatar-node="(avatarNode) || null"
+                                                    :vircadia-world="vircadiaWorld"
+                                                    :avatar-node="(avatarNode as TransformNode | null) || null"
                                                     :model-file-name="modelFileName" :mesh-pivot-point="meshPivotPoint"
                                                     :capsule-height="capsuleHeight"
                                                     :on-set-avatar-model="onSetAvatarModel" :animations="animations"
@@ -208,7 +198,7 @@
                                                     v-slot="{ targetSkeleton }">
                                                     <!-- Renderless desktop third-person camera -->
                                                     <BabylonMyAvatarDesktopThirdPersonCamera :scene="sceneNonNull"
-                                                        :avatar-node="(avatarNode) || null"
+                                                        :avatar-node="(avatarNode as TransformNode | null)"
                                                         :capsule-height="capsuleHeight" :min-z="0.1"
                                                         :lower-radius-limit="1.2" :upper-radius-limit="25"
                                                         :lower-beta-limit="0.15" :upper-beta-limit="Math.PI * 0.9"
@@ -224,14 +214,14 @@
                                                     <BabylonMyAvatarAnimation v-for="anim in animations"
                                                         v-if="targetSkeleton" :key="anim.fileName" :scene="sceneNonNull"
                                                         :vircadia-world="vircadiaWorld" :animation="anim"
-                                                        :target-skeleton="(targetSkeleton) || null"
-                                                        @state="onAnimationState" />
+                                                        :target-skeleton="targetSkeleton" @state="onAnimationState" />
 
                                                 </BabylonMyAvatarModel>
 
                                                 <!-- Debug overlays moved outside of model to render regardless of model availability -->
                                                 <BabylonMyAvatarDebugOverlay :scene="sceneNonNull"
-                                                    :vircadia-world="vircadiaWorld" :avatar-node="(avatarNode) || null"
+                                                    :vircadia-world="vircadiaWorld"
+                                                    :avatar-node="(avatarNode as TransformNode | null)"
                                                     :avatar-skeleton="(avatarSkeleton) || null"
                                                     :model-file-name="modelFileNameRef || modelFileName"
                                                     :model-step="avatarModelStep"
@@ -239,19 +229,19 @@
                                                     :talk-level="talkLevel" :talk-threshold="talkThreshold"
                                                     :audio-input-devices="audioDevices" :airborne="airborne"
                                                     :vertical-velocity="verticalVelocity" :support-state="supportState"
-                                                    :physics-enabled="physicsEnabled"
-                                                    :physics-plugin-name="envPhysicsPluginNameRef || undefined"
-                                                    :physics-error="envPhysicsErrorRef || undefined"
+                                                    :physics-enabled="envPhysicsEnabled"
+                                                    :physics-plugin-name="envPhysicsPluginName || undefined"
+                                                    :physics-error="envPhysicsError || undefined"
                                                     :has-touched-ground="hasTouchedGround"
                                                     :spawn-settling="spawnSettling" :ground-probe-hit="groundProbeHit"
                                                     :ground-probe-distance="groundProbeDistance ?? undefined"
                                                     :ground-probe-mesh-name="groundProbeMeshName ?? undefined"
                                                     :sync-metrics="avatarSyncMetrics || undefined"
-                                                    :animation-debug="(avatarRef)?.animationDebug || undefined"
                                                     v-model="avatarDebugOpen" hotkey="Shift+M" />
                                                 <!-- Camera debug overlay -->
                                                 <BabylonCameraDebugOverlay v-model="cameraDebugOpen"
-                                                    :scene="sceneNonNull" :avatar-node="(avatarNode) || null"
+                                                    :scene="sceneNonNull"
+                                                    :avatar-node="(avatarNode as TransformNode | null)"
                                                     hotkey="Shift+N" />
                                             </template>
                                         </BabylonMyAvatar>
@@ -359,12 +349,12 @@
 
 <script setup lang="ts">
 // BabylonJS types
-import type { Scene, WebGPUEngine } from "@babylonjs/core";
+import type { Scene, TransformNode, WebGPUEngine } from "@babylonjs/core";
 import { clientBrowserConfiguration } from "@vircadia/world-sdk/browser/vue";
 import { useStorage } from "@vueuse/core";
 import {
     computed,
-    type defineComponent,
+    defineComponent,
     getCurrentInstance,
     onMounted,
     ref,
@@ -421,7 +411,6 @@ const showWebRTCControls = ref(false);
 // Scene readiness derived from BabylonCanvas exposed API
 // Track if avatar is ready
 const avatarRef = ref<InstanceType<typeof BabylonMyAvatar> | null>(null);
-void avatarRef;
 // targetSkeleton now provided via slot; no local ref needed
 // Other avatar types for v-slot destructuring
 type OtherAvatarSlotProps = {
@@ -436,8 +425,6 @@ const modelRefs = ref<(InstanceType<typeof BabylonModel> | null)[]>([]);
 const modelPhysicsRefs = ref<
     (InstanceType<typeof BabylonModelPhysics> | null)[]
 >([]);
-void modelRefs;
-void modelPhysicsRefs;
 
 // Other avatar discovery handled by BabylonOtherAvatars wrapper
 
@@ -446,18 +433,14 @@ void modelPhysicsRefs;
 // State for debug overlays with persistence across reloads
 const cameraDebugOpen = useStorage<boolean>("vrca.debug.camera", false);
 const avatarDebugOpen = useStorage<boolean>("vrca.debug.avatar", false);
-void cameraDebugOpen;
-void avatarDebugOpen;
 // Models debug overlay
 const modelsDebugOpen = useStorage<boolean>("vrca.debug.models", false);
-void modelsDebugOpen;
 
 // Other avatars overlay
 const otherAvatarsDebugOpen = useStorage<boolean>(
     "vrca.debug.otherAvatars",
     false,
 );
-void otherAvatarsDebugOpen;
 
 // Babylon managed by BabylonCanvas
 // Use the exposed API from BabylonCanvas via a component ref instead of local refs
@@ -496,14 +479,9 @@ const sceneNonNull = computed(() => scene.value as unknown as Scene);
 const sceneInitialized = computed(
     () => canvasComponentRef.value?.getIsReady() ?? false,
 );
-void renderCanvas;
-void engine;
-void sceneNonNull;
-void sceneInitialized;
+
 const performanceMode = useStorage<"normal" | "low">("vrca.perf.mode", "low");
 const fps = ref<number>(0);
-void performanceMode;
-void fps;
 
 // Physics state now comes directly from BabylonEnvironment slot props
 // See v-slot destructuring in template: envPhysicsEnabled, envPhysicsPluginName, etc.
@@ -542,47 +520,61 @@ function togglePerformanceMode() {
 // Local debug drawer state
 const drawerOpen = useStorage<boolean>("vrca.debug.sidebar.open", false);
 const drawerTab = useStorage<string>("vrca.debug.sidebar.tab", "environment");
-void drawerOpen;
-void drawerTab;
+
 
 // Connection watchers migrated to provider
 
 // Active audio connections - now handled internally by BabylonWebRTCRefactored
 const activeAudioCount = computed(() => 0);
 // removed legacy showDebugOverlay marker
-void performanceMode;
-void togglePerformanceMode;
-void fps;
+
 // removed inline avatarDefinition; using DB-backed avatar definition by name
 
 // Keyboard toggle handled inside BabylonCanvas
 
 const envRef = ref<InstanceType<typeof BabylonEnvironment> | null>(null);
 
+// Top-level physics component ref and safe computed wrappers
+const physicsRef = ref<InstanceType<typeof BabylonPhysics> | null>(null);
+const physicsEnabled = computed(() => {
+    const s = scene.value as unknown as { getPhysicsEngine?: () => unknown | null; isPhysicsEnabled?: () => boolean } | null;
+    const enginePresent = !!s?.getPhysicsEngine?.();
+    if (enginePresent) return true;
+    return (physicsRef.value as unknown as { physicsEnabled?: { value?: boolean } } | null)?.physicsEnabled?.value ?? false;
+});
+const physicsPluginName = computed(() => {
+    const s = scene.value as unknown as { getPhysicsEngine?: () => { getPhysicsPluginName?: () => string | undefined } | null } | null;
+    const engine = s?.getPhysicsEngine?.() as unknown as { getPhysicsPluginName?: () => string | undefined } | null;
+    if (engine) return engine.getPhysicsPluginName?.() || "Havok";
+    return (physicsRef.value as unknown as { physicsPluginName?: { value?: string } } | null)?.physicsPluginName?.value ?? "";
+});
+const physicsError = computed(() => (physicsRef.value as unknown as { physicsError?: { value?: string | null } } | null)?.physicsError?.value ?? null);
+const physicsEngineType = computed(() => {
+    const s = scene.value as unknown as { getPhysicsEngine?: () => unknown | null } | null;
+    const engine = s?.getPhysicsEngine?.() as unknown as { constructor?: { name?: string } } | null;
+    if (engine?.constructor?.name) return engine.constructor.name;
+    return (physicsRef.value as unknown as { physicsEngineType?: { value?: string } } | null)?.physicsEngineType?.value ?? "";
+});
+const physicsInitialized = computed(() => {
+    const s = scene.value as unknown as { getPhysicsEngine?: () => unknown | null } | null;
+    if (s?.getPhysicsEngine?.()) return true;
+    return (physicsRef.value as unknown as { physicsInitialized?: { value?: boolean } } | null)?.physicsInitialized?.value ?? false;
+});
+const havokInstanceLoaded = computed(() => (physicsRef.value as unknown as { havokInstanceLoaded?: { value?: boolean } } | null)?.havokInstanceLoaded?.value ?? false);
+const physicsPluginCreated = computed(() => (physicsRef.value as unknown as { physicsPluginCreated?: { value?: boolean } } | null)?.physicsPluginCreated?.value ?? false);
+const physicsGravity = computed<[number, number, number]>(() => {
+    const s = scene.value as unknown as { getPhysicsEngine?: () => unknown | null } | null;
+    if (s?.getPhysicsEngine?.()) return [0, -9.81, 0];
+    const g = (physicsRef.value as unknown as { gravity?: { value?: [number, number, number] } } | null)?.gravity?.value;
+    return (g ?? [0, -9.81, 0]) as [number, number, number];
+});
+
 // Mark environment physics slot props as used in template
 // These are now received directly from BabylonEnvironment slot props
 // avoiding the convoluted ref-based access
-void envRef; // envPhysicsEnabled, envPhysicsPluginName, envPhysicsError, gravity are used directly from v-slot
 
 // Top-level refs to mirror BabylonEnvironment physics slot values for use outside the slot
-const envPhysicsEnabledRef = ref<boolean>(false);
-const envPhysicsPluginNameRef = ref<string | null>(null);
-const envPhysicsErrorRef = ref<string | null>(null);
-const envGravityRef = ref<[number, number, number]>([0, -9.81, 0]);
-const envPhysicsEngineTypeRef = ref<string>("");
-const envPhysicsInitializedRef = ref<boolean>(false);
-const envHavokInstanceLoadedRef = ref<boolean>(false);
-const envPhysicsPluginCreatedRef = ref<boolean>(false);
-const envInitializedRef = ref<boolean>(false);
-void envPhysicsEnabledRef;
-void envPhysicsPluginNameRef;
-void envPhysicsErrorRef;
-void envGravityRef;
-void envPhysicsEngineTypeRef;
-void envPhysicsInitializedRef;
-void envHavokInstanceLoadedRef;
-void envPhysicsPluginCreatedRef;
-void envInitializedRef;
+
 
 // Avatar definition is now provided locally instead of DB
 const avatarDefinition: AvatarDefinition = {
@@ -792,7 +784,6 @@ const avatarDefinition: AvatarDefinition = {
         },
     ],
 };
-void avatarDefinition;
 
 // Debug function to check physics status
 function debugPhysicsStatus() {
@@ -817,8 +808,7 @@ const environmentLoading = computed(() => {
     } | null;
     return exposed?.isLoading?.value ?? false;
 });
-void envRef;
-void environmentLoading;
+
 // Physics error now comes from BabylonEnvironment slot props (envPhysicsError)
 
 // Child component loading states
@@ -827,10 +817,8 @@ const avatarLoading = computed(
         // Fallback to model loading only now that entity sync is internal
         avatarModelLoading.value,
 );
-void avatarLoading;
 // Other avatars loading state is handled internally by BabylonOtherAvatars component
 const otherAvatarsLoading = computed(() => false); // Placeholder - loading state managed by component
-void otherAvatarsLoading;
 const modelsLoading = computed(() =>
     modelRefs.value.some((m) => {
         const mm = m as unknown as {
@@ -845,12 +833,10 @@ const modelsLoading = computed(() =>
         );
     }),
 );
-void modelsLoading;
 
 // Runtime info for models to augment overlay (e.g., mesh counts)
 type ModelRuntimeInfo = { meshCount: number };
 const modelRuntime = ref<Record<string, ModelRuntimeInfo>>({});
-void modelRuntime;
 function setModelRuntimeFromRefs(
     models: { entityName: string; fileName: string }[],
     meshesByIndex: unknown[],
@@ -865,7 +851,6 @@ function setModelRuntimeFromRefs(
         modelRuntime.value[id].meshCount = meshArray.length;
     }
 }
-void setModelRuntimeFromRefs;
 function getPhysicsShape(type: unknown): string {
     switch (type) {
         case "convexHull":
@@ -878,8 +863,7 @@ function getPhysicsShape(type: unknown): string {
             return type ? String(type) : "Mesh";
     }
 }
-void modelRuntime;
-void getPhysicsShape;
+
 
 // Physics summaries reported by BabylonModelPhysics instances
 const physicsSummaries = ref<Record<string, PhysicsSummary>>({});
@@ -895,8 +879,7 @@ function refreshPhysicsSummaries(
         if (id && summary) physicsSummaries.value[id] = summary;
     }
 }
-void physicsSummaries;
-void refreshPhysicsSummaries;
+
 
 // Avatar model loader debug state
 const avatarModelStep = ref<string>("");
@@ -921,12 +904,7 @@ function onAvatarModelState(payload: {
     const fileName = payload.details?.fileName;
     if (typeof fileName === "string") modelFileNameRef.value = fileName;
 }
-void avatarModelStep;
-void avatarModelError;
-void avatarModelLoading;
-void modelFileNameRef;
-void onAvatarModelState;
-void onAvatarSyncStats;
+
 
 // Snackbar logic moved into BabylonSnackbar component
 
@@ -979,12 +957,6 @@ function toggleSpatialAudio(enabled: boolean) {
     spatialAudioEnabled.value = enabled;
 }
 
-// Mark audio helpers used in template
-void setPeerAudioState;
-void removePeerAudioState;
-void setPeerVolume;
-void clearPeerAudioStates;
-void toggleSpatialAudio;
 
 // Mic/audio permission indicator state (from BabylonWebRTC)
 const microphonePermission = ref<"granted" | "denied" | "prompt" | "unknown">(
@@ -1056,10 +1028,6 @@ onMounted(() => {
         availableComponents.value = Object.keys(app.appContext.components);
     }
 });
-// mark components/config used in template
-void BabylonEnvironment;
-void BabylonDoor;
-void clientBrowserConfiguration;
 
 // Handle auth denial from provider by showing user feedback
 type AuthDeniedPayload = {
@@ -1078,7 +1046,6 @@ function onAuthDenied(payload: AuthDeniedPayload) {
     // TODO: Replace with actual notification system call
     // Example: notificationService.error(`Authentication failed: ${payload.message}`);
 }
-void onAuthDenied;
 
 // Other avatar event handlers
 function markLoaded(sessionId: string) {
@@ -1110,10 +1077,6 @@ function onDoorOpen(payload: { open: boolean }) {
     console.debug("[MainScene] Door opened/closed", payload);
 }
 
-void onDoorState;
-void onDoorOpen;
-void markLoaded;
-void markDisposed;
 
 // Debug bar helper functions
 function getConnectionStatusColor(status: string): string {
@@ -1181,13 +1144,6 @@ function getConnectedUrl(): string {
     return `${useSSL ? "wss" : "ws"}://${baseUri}`;
 }
 
-// Mark debug helper functions as used (they're called from template)
-void getConnectionStatusColor;
-void getConnectionStatusIcon;
-void getAuthStatusColor;
-void getAuthStatusIcon;
-void getAuthStatusText;
-void getConnectedUrl;
 </script>
 
 <style>

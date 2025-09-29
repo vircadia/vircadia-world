@@ -3,28 +3,28 @@
 </template>
 
 <script setup lang="ts">
+import type {
+    ArcRotateCamera,
+    Camera,
+    Quaternion,
+    Scene,
+    Skeleton,
+    TransformNode,
+    Vector3,
+} from "@babylonjs/core";
+import { Quaternion as Q4, Vector3 as V3 } from "@babylonjs/core";
+import { useThrottleFn } from "@vueuse/core";
 import {
     computed,
     onMounted,
     onUnmounted,
+    type PropType,
+    type Ref,
     ref,
     watch,
-    type Ref,
-    type PropType,
 } from "vue";
-import type {
-    Scene,
-    TransformNode,
-    Skeleton,
-    Vector3,
-    Quaternion,
-    Camera,
-    ArcRotateCamera,
-} from "@babylonjs/core";
-import { Vector3 as V3, Quaternion as Q4 } from "@babylonjs/core";
-import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 import type { AvatarDefinition } from "@/components/BabylonMyAvatar.vue";
-import { useThrottleFn } from "@vueuse/core";
+import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 
 type PositionObj = { x: number; y: number; z: number };
 type RotationObj = { x: number; y: number; z: number; w: number };
@@ -150,7 +150,7 @@ function quatToObj(q: Quaternion): RotationObj {
 
 // Quantization helpers
 function roundToDecimals(value: number, decimals: number): number {
-    const factor = Math.pow(10, decimals);
+    const factor = 10 ** decimals;
     return Math.round(value * factor) / factor;
 }
 function quantizePosition(pos: PositionObj, decimals: number): PositionObj {
@@ -210,14 +210,8 @@ async function upsertMetadata(
 ): Promise<void> {
     try {
         await props.vircadiaWorld.client.connection.query({
-            query:
-                "INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync) VALUES ($1, $2, $3, $4) ON CONFLICT (general__entity_name, metadata__key) DO UPDATE SET metadata__value = EXCLUDED.metadata__value",
-            parameters: [
-                entityNameArg,
-                key,
-                value,
-                "public.NORMAL",
-            ],
+            query: "INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync) VALUES ($1, $2, $3, $4) ON CONFLICT (general__entity_name, metadata__key) DO UPDATE SET metadata__value = EXCLUDED.metadata__value",
+            parameters: [entityNameArg, key, value, "public.NORMAL"],
             timeoutMs: 5000,
         });
     } catch (e) {
@@ -248,14 +242,20 @@ async function persistPoseSnapshot(): Promise<void> {
     let positionValue: PositionObj | null = null;
     if (props.avatarNode) {
         const pos = props.avatarNode.position ?? new V3(0, 0, 0);
-        positionValue = quantizePosition(vectorToObj(pos), props.positionDecimals);
+        positionValue = quantizePosition(
+            vectorToObj(pos),
+            props.positionDecimals,
+        );
     }
 
     // Rotation
     let rotationValue: RotationObj | null = null;
     if (props.avatarNode) {
         const rot = props.avatarNode.rotationQuaternion ?? new Q4(0, 0, 0, 1);
-        rotationValue = quantizeRotation(quatToObj(rot), props.rotationDecimals);
+        rotationValue = quantizeRotation(
+            quatToObj(rot),
+            props.rotationDecimals,
+        );
     }
 
     // Scale
@@ -266,11 +266,17 @@ async function persistPoseSnapshot(): Promise<void> {
     }
 
     // Camera orientation
-    let cameraOrientationValue:
-        | { alpha: number; beta: number; radius: number }
-        | null = null;
+    let cameraOrientationValue: {
+        alpha: number;
+        beta: number;
+        radius: number;
+    } | null = null;
     if (props.camera) {
-        const cam = props.camera as unknown as { alpha?: number; beta?: number; radius?: number };
+        const cam = props.camera as unknown as {
+            alpha?: number;
+            beta?: number;
+            radius?: number;
+        };
         if (
             cam.alpha !== undefined &&
             cam.beta !== undefined &&
@@ -319,17 +325,24 @@ async function persistPoseSnapshot(): Promise<void> {
     if (positionValue) snapshot.position = positionValue;
     if (rotationValue) snapshot.rotation = rotationValue;
     if (scaleValue) snapshot.scale = scaleValue;
-    if (cameraOrientationValue) snapshot.cameraOrientation = cameraOrientationValue;
+    if (cameraOrientationValue)
+        snapshot.cameraOrientation = cameraOrientationValue;
     if (jointsValue && Object.keys(jointsValue).length > 0)
         snapshot.joints = jointsValue;
 
     try {
         // Write individual keys so readers can pick selectively
-        if (positionValue) await upsertMetadata(name, "position", positionValue);
-        if (rotationValue) await upsertMetadata(name, "rotation", rotationValue);
+        if (positionValue)
+            await upsertMetadata(name, "position", positionValue);
+        if (rotationValue)
+            await upsertMetadata(name, "rotation", rotationValue);
         if (scaleValue) await upsertMetadata(name, "scale", scaleValue);
         if (cameraOrientationValue)
-            await upsertMetadata(name, "cameraOrientation", cameraOrientationValue);
+            await upsertMetadata(
+                name,
+                "cameraOrientation",
+                cameraOrientationValue,
+            );
         if (jointsValue) await upsertMetadata(name, "joints", jointsValue);
         // Also write aggregated snapshot
         await upsertMetadata(name, "avatar_snapshot", snapshot);
@@ -384,15 +397,15 @@ function emitStats(interval: number | null) {
     const avgBatchSizeKb =
         syncStats.batchCount > 0
             ? Math.round(
-                  (syncStats.totalBatchSizeKb / syncStats.batchCount) * 100,
-              ) / 100
+                (syncStats.totalBatchSizeKb / syncStats.batchCount) * 100,
+            ) / 100
             : 0;
     const avgBatchProcessTimeMs =
         syncStats.recentBatchProcessTimes.length > 0
             ? Math.round(
-                  syncStats.recentBatchProcessTimes.reduce((a, b) => a + b, 0) /
-                      syncStats.recentBatchProcessTimes.length,
-              )
+                syncStats.recentBatchProcessTimes.reduce((a, b) => a + b, 0) /
+                syncStats.recentBatchProcessTimes.length,
+            )
             : 0;
 
     emit("sync-stats", {
@@ -459,7 +472,7 @@ const pushBatchedUpdates = useThrottleFn(async () => {
         try {
             const sid = name.replace(/^avatar:/, "");
             (avatarFrame as { sessionId?: string }).sessionId = sid;
-        } catch {}
+        } catch { }
         if (props.modelFileName && props.modelFileName.length > 0) {
             (avatarFrame as { modelFileName?: string }).modelFileName =
                 props.modelFileName;

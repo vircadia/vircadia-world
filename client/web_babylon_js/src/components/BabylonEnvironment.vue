@@ -3,26 +3,25 @@
 
 </template>
 <script setup lang="ts">
-import { ref, watch, toRef, computed, type Ref } from "vue";
 import {
-    HDRCubeTexture,
-    type Scene,
-    Vector3,
-    HemisphericLight,
-    DirectionalLight,
-    MeshBuilder,
-    StandardMaterial,
     Color3,
+    DirectionalLight,
+    HDRCubeTexture,
+    HemisphericLight,
+    MeshBuilder,
     PhysicsAggregate,
     PhysicsShapeType,
-    type PhysicsEngine,
+    type Scene,
+    StandardMaterial,
+    Vector3,
 } from "@babylonjs/core";
-import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 import type {
-    HemisphericLightOptions,
     DirectionalLightOptions,
     GroundOptions,
+    HemisphericLightOptions,
 } from "@schemas";
+import { computed, type Ref, ref, toRef, watch } from "vue";
+import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 
 type LightVector = [number, number, number];
 
@@ -84,7 +83,6 @@ function toVec3(v: LightVector | undefined, fallback: Vector3): Vector3 {
     if (!v || v.length !== 3) return fallback;
     return new Vector3(v[0], v[1], v[2]);
 }
-
 
 function addDefaultLightsIfNeeded(targetScene: Scene) {
     if (props.enableDefaults === false) return;
@@ -173,18 +171,13 @@ async function loadHdrFile(scene: Scene) {
         console.error("[BabylonEnvironment] hdrFile not provided");
         return;
     }
-    const { url, revoke } = await vircadiaRef.value.client.fetchAssetAsBabylonUrl(fileName);
-    const hdr = new HDRCubeTexture(
-        url,
-        scene,
-        512,
-        false,
-        true,
-        false,
-        true,
+    const { url } = await vircadiaRef.value.client.restAsset.assetGetByKey({
+        key: fileName,
+    });
+    const hdr = new HDRCubeTexture(url, scene, 512, false, true, false, true);
+    await new Promise<void>((resolve) =>
+        hdr.onLoadObservable.addOnce(() => resolve()),
     );
-    await new Promise<void>((resolve) => hdr.onLoadObservable.addOnce(() => resolve()));
-    try { revoke?.(); } catch { }
     scene.environmentTexture = hdr;
     scene.environmentIntensity = 1.2;
     scene.createDefaultSkybox(hdr, true, 1000);

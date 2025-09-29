@@ -18,12 +18,9 @@ import {
 } from "@vircadia/world-sdk/browser/vue";
 import { StorageSerializers, useStorage } from "@vueuse/core";
 import {
-    type ComputedRef,
     computed,
-    type DeepReadonly,
     onUnmounted,
     type Ref,
-    readonly,
     ref,
     watch,
 } from "vue";
@@ -175,8 +172,8 @@ const vircadiaWorldNonNull = {
     dispose,
 } as unknown as VircadiaWorldInstance;
 
-// Connection state
-const isConnecting = ref(false);
+// Connection state derives from core connection info
+const isConnecting = computed(() => connectionInfoComputed.value.isConnecting);
 const lastConnectedToken = ref<string | null>(null);
 const lastConnectedAgentId = ref<string | null>(null);
 
@@ -198,15 +195,19 @@ const sessionToken = useStorage<string | null>(
     null,
     localStorage,
 );
-const storedAuthProvider = useStorage<string>(
-    "vircadia-auth-provider",
-    "anon",
-    localStorage,
-);
+// Deprecated: local provider storage is no longer the source of truth.
 
-const isAuthenticatedComputed = computed(() => !!sessionToken.value);
-const isAuthenticatingComputed = computed(() => false);
-const authErrorComputed = computed(() => null as string | null);
+const isAuthenticatedComputed = computed(() =>
+    !!sessionToken.value ||
+    connectionInfoComputed.value.hasAuthToken ||
+    !!connectionInfoComputed.value.sessionId,
+);
+const isAuthenticatingComputed = computed(
+    () => connectionInfoComputed.value.sessionValidation?.status === "validating" || false,
+);
+const authErrorComputed = computed(() =>
+    connectionInfoComputed.value.sessionValidation?.error ?? lastCloseReason.value,
+);
 const accountComputed = computed(() => account.value);
 const sessionTokenComputed = computed(() => sessionToken.value);
 // session and agent IDs from connection info
@@ -214,7 +215,7 @@ const sessionIdComputed = computed(
     () => connectionInfoComputed.value.sessionId,
 );
 const agentIdComputed = computed(() => connectionInfoComputed.value.agentId);
-const authProviderComputed = computed(() => storedAuthProvider.value ?? "anon");
+const authProviderComputed = computed(() => connectionInfoComputed.value.authProvider ?? "anon");
 
 // Pull instanceId and fullSessionId directly from core connection info
 const instanceId = computed(() => connectionInfoComputed.value.instanceId);
@@ -305,7 +306,6 @@ async function connect() {
     }
 
     console.log("[VircadiaWorldProvider] Starting connection attempt");
-    isConnecting.value = true;
     try {
         // Disconnect only if connected with a different token
         if (connectionInfoComputed.value.isConnected) {
@@ -381,7 +381,7 @@ async function connect() {
             }
         }
     } finally {
-        isConnecting.value = false;
+        // no-op; isConnecting derives from core
     }
 }
 
@@ -500,7 +500,7 @@ watch(
             newStatus === "disconnected" &&
             oldStatus === "connected" &&
             isAuthenticatedComputed.value &&
-            !isConnecting.value
+            !connectionInfoComputed.value.isConnecting
         ) {
             setTimeout(() => {
                 connect();

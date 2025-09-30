@@ -1,5 +1,5 @@
-import { z } from "zod";
 import type { AnimationGroup } from "@babylonjs/core";
+import { z } from "zod";
 
 // Babylon.js environment interfaces
 export interface HemisphericLightOptions {
@@ -352,3 +352,36 @@ export const parseAvatarJoint = (v: unknown) =>
 export const parseModelMetadata = (v: unknown) =>
     safeParseWith(ModelMetadataSchema, v);
 export const parseCamera = (v: unknown) => safeParseWith(CameraSchema, v);
+
+// Avatar reflect frame schema (hot path WS message)
+export const AvatarJointsSchema = z.record(
+    z.string(),
+    z
+        .object({
+            position: Vector3Schema,
+            rotation: QuaternionSchema,
+            // Some senders may omit scale; default to unit scale
+            scale: Vector3Schema.optional().default({ x: 1, y: 1, z: 1 }),
+        })
+        .loose(),
+);
+
+export const AvatarFrameMessageSchema = z
+    .object({
+        type: z.literal("avatar_frame"),
+        entityName: z.string(),
+        ts: z.number(),
+        sessionId: z.string().optional(),
+        modelFileName: z.string().optional(),
+        position: Vector3Schema.optional(),
+        rotation: QuaternionSchema.optional(),
+        scale: Vector3Schema.optional(),
+        cameraOrientation: CameraSchema.optional(),
+        joints: AvatarJointsSchema.optional().default({}),
+    })
+    .loose();
+
+export type AvatarFrameMessage = z.infer<typeof AvatarFrameMessageSchema>;
+
+export const parseAvatarFrameMessage = (v: unknown) =>
+    safeParseWith(AvatarFrameMessageSchema, v);

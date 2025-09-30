@@ -17,11 +17,13 @@ import "@babylonjs/loaders/glTF";
 import { ImportMeshAsync } from "@babylonjs/core";
 import type {
     AvatarBaseData,
+    AvatarFrameMessage,
     AvatarJointMetadata,
     AvatarPositionData,
     AvatarRotationData,
     DebugData,
     DebugWindow,
+import { AvatarFrameMessageSchema } from "@schemas";
 } from "@schemas";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 
@@ -384,6 +386,42 @@ function applyAvatarTransforms(
     }
 }
 
+// Ingest a raw avatar_frame message, validate, and update targets
+function ingestAvatarFrame(raw: unknown) {
+    const parsed = AvatarFrameMessageSchema.safeParse(raw);
+    if (!parsed.success) return;
+    const frame: AvatarFrameMessage = parsed.data;
+
+    if (frame.position) {
+        currentPositionData.value = frame.position;
+    }
+    if (frame.rotation) {
+        currentRotationData.value = frame.rotation;
+    }
+    // Convert joints record to Map<string, AvatarJointMetadata>-like entries
+    if (frame.joints && Object.keys(frame.joints).length > 0) {
+        const m = new Map<string, AvatarJointMetadata>();
+        for (const key of Object.keys(frame.joints)) {
+            const j = frame.joints[key];
+            m.set(key, {
+                type: "avatarJoint",
+                sessionId: props.sessionId,
+                jointName: key,
+                position: j.position,
+                rotation: j.rotation,
+                scale: j.scale || { x: 1, y: 1, z: 1 },
+            });
+        }
+        currentJointData.value = m;
+    }
+
+    updateTargetTransforms(
+        currentPositionData.value,
+        currentRotationData.value,
+        currentJointData.value,
+    );
+}
+
 // Debug interval
 let debugInterval: number | null = null;
 
@@ -575,5 +613,6 @@ defineExpose({
     sessionId: props.sessionId,
     isModelLoaded,
     avatarNode,
+    ingestAvatarFrame,
 });
 </script>

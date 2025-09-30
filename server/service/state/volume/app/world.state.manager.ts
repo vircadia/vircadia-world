@@ -200,7 +200,7 @@ export class WorldStateManager {
 
             // Start tick loops for each sync group, respecting enabled flag (default enabled if undefined)
             for (const [syncGroup, config] of this.syncGroups.entries()) {
-                if (config.server__tick__enabled === false) {
+                if (config.server__tick__state__enabled === false) {
                     BunLogModule({
                         message: `Ticking disabled for sync group: ${syncGroup}`,
                         debug: serverConfiguration.VRCA_SERVER_DEBUG,
@@ -220,10 +220,10 @@ export class WorldStateManager {
             }
 
             const enabledGroups = Array.from(this.syncGroups.entries())
-                .filter(([_, cfg]) => cfg.server__tick__enabled !== false)
+                .filter(([_, cfg]) => cfg.server__tick__state__enabled !== false)
                 .map(([name]) => name);
             const disabledGroups = Array.from(this.syncGroups.entries())
-                .filter(([_, cfg]) => cfg.server__tick__enabled === false)
+                .filter(([_, cfg]) => cfg.server__tick__state__enabled === false)
                 .map(([name]) => name);
 
             BunLogModule({
@@ -307,7 +307,7 @@ export class WorldStateManager {
         }
 
         // Respect disabled flag (default enabled if undefined)
-        if (config.server__tick__enabled === false) {
+        if (config.server__tick__state__enabled === false) {
             BunLogModule({
                 message: `Skipping tick scheduling; disabled for sync group: ${syncGroup}`,
                 debug: serverConfiguration.VRCA_SERVER_DEBUG,

@@ -170,13 +170,7 @@ CREATE TABLE auth.sync_groups (
     
     server__tick__rate_ms INTEGER NOT NULL,
     server__tick__max_tick_count_buffer INTEGER NOT NULL,
-    server__tick__enabled BOOLEAN NOT NULL DEFAULT TRUE,
-    
-    client__render_delay_ms INTEGER NOT NULL,
-    client__max_prediction_time_ms INTEGER NOT NULL,
-    client__poll__rate_ms INTEGER NOT NULL,
-    
-    network__packet_timing_variance_ms INTEGER NOT NULL
+    server__tick__state__enabled BOOLEAN NOT NULL DEFAULT TRUE
 ) INHERITS (auth._template);
 ALTER TABLE auth.sync_groups ENABLE ROW LEVEL SECURITY;
 
@@ -659,19 +653,15 @@ ON CONFLICT (general__agent_profile_id) DO NOTHING;
 INSERT INTO auth.sync_groups (
     general__sync_group,
     general__description,
-    server__tick__enabled,
+    server__tick__state__enabled,
     server__tick__rate_ms,
-    server__tick__max_tick_count_buffer,
-    client__render_delay_ms,
-    client__max_prediction_time_ms,
-    client__poll__rate_ms,
-    network__packet_timing_variance_ms
+    server__tick__max_tick_count_buffer
 ) VALUES
     -- Public zone
-    ('public.REALTIME', 'Public realtime entities', false, 100, 50, 50, 100, 100, 25),
-    ('public.NORMAL', 'Public normal-priority entities', false, 200, 20, 500, 150, 200, 50),
-    ('public.BACKGROUND', 'Public background entities', false, 1000, 10, 5000, 300, 1000, 100),
-    ('public.STATIC', 'Public static entities', false, 5000, 5, 10000, 1000, 5000, 250);
+    ('public.REALTIME', 'Public realtime entities', false, 20, 50),
+    ('public.NORMAL', 'Public normal-priority entities', false, 50, 20),
+    ('public.BACKGROUND', 'Public background entities', false, 200, 10),
+    ('public.STATIC', 'Public static entities', false, 500, 5);
 
 -- Add system provider to auth_providers table if not exists
 INSERT INTO auth.auth_providers (

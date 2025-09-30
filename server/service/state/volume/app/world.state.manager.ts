@@ -193,8 +193,14 @@ export class WorldStateManager {
                 });
             }
 
-            await this.legacySuperSql`LISTEN tick_captured`;
-            this.legacySuperSql.listen("tick_captured", (payload) => {
+            await this.legacySuperSql`LISTEN reflect_tick`;
+            this.legacySuperSql.listen("reflect_tick", (payload) => {
+                this.handleReflectTickNotification(payload);
+            });
+
+            // Also listen for database tick state captured notifications
+            await this.legacySuperSql`LISTEN tick_state_captured`;
+            this.legacySuperSql.listen("tick_state_captured", (payload) => {
                 this.handleTickCapturedNotification(payload);
             });
 
@@ -285,6 +291,29 @@ export class WorldStateManager {
         } catch (error) {
             BunLogModule({
                 message: `Error processing tick notification: ${error}`,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                type: "error",
+                prefix: LOG_PREFIX,
+            });
+        }
+    }
+
+    private async handleReflectTickNotification(notification: string): Promise<void> {
+        try {
+            const data = JSON.parse(notification);
+            const syncGroup = data.syncGroup;
+            BunLogModule({
+                message: `Received reflect tick for sync group: ${syncGroup}`,
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                type: "debug",
+                prefix: LOG_PREFIX,
+                data,
+            });
+        } catch (error) {
+            BunLogModule({
+                message: `Error processing reflect tick notification: ${error}`,
                 debug: serverConfiguration.VRCA_SERVER_DEBUG,
                 suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "error",
@@ -489,6 +518,27 @@ export class WorldStateManager {
                     prefix: LOG_PREFIX,
                 });
             });
+
+            // Notify that the tick has been processed by the service layer
+            try {
+                await this.superUserSql`
+                    SELECT tick.notify_tick_processed(
+                        ${syncGroup},
+                        ${result.tick_data.general__tick_id},
+                        ${result.tick_data.tick__number},
+                        ${managerDurationMs},
+                        ${managerIsDelayed}
+                    )
+                `;
+            } catch (error) {
+                BunLogModule({
+                    message: `Failed to notify tick_processed: ${error}`,
+                    debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                    suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                    type: "error",
+                    prefix: LOG_PREFIX,
+                });
+            }
         }
     }
 
@@ -871,10 +921,21 @@ export class WorldStateManager {
         // Unlisten from notifications if possible
         if (this.legacySuperSql) {
             try {
-                this.legacySuperSql`UNLISTEN tick_captured`.catch(
+                this.legacySuperSql`UNLISTEN reflect_tick`.catch(
                     (error: unknown) => {
                         BunLogModule({
                             message: `Error unlistening from tick notifications: ${error}`,
+                            debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                            type: "error",
+                            prefix: LOG_PREFIX,
+                        });
+                    },
+                );
+                this.legacySuperSql`UNLISTEN tick_state_captured`.catch(
+                    (error: unknown) => {
+                        BunLogModule({
+                            message: `Error unlistening from tick state notifications: ${error}`,
                             debug: serverConfiguration.VRCA_SERVER_DEBUG,
                             suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                             type: "error",

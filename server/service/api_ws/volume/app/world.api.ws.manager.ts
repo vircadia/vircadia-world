@@ -56,6 +56,133 @@ export class WorldApiWsManager {
     >();
     private metricsCollector = new MetricsCollector();
 
+    // Reflect tick-gated delivery queue: syncGroup -> channel -> fromSessionId -> payload JSON string
+    private reflectQueues: Map<string, Map<string, Map<string, string>>> = new Map();
+    private reflectIntervals: Map<string, Timer> = new Map();
+    private reflectTickRateMs: Map<string, number> = new Map();
+
+    private enqueueReflect(syncGroup: string, channel: string, fromSessionId: string, payloadJson: string) {
+        let groupMap = this.reflectQueues.get(syncGroup);
+        if (!groupMap) {
+            groupMap = new Map();
+            this.reflectQueues.set(syncGroup, groupMap);
+        }
+        let channelMap = groupMap.get(channel);
+        if (!channelMap) {
+            channelMap = new Map();
+            groupMap.set(channel, channelMap);
+        }
+        // Only one message per session per channel; replace any existing
+        channelMap.set(fromSessionId, payloadJson);
+    }
+
+    private async flushReflectQueue(syncGroup: string) {
+        const groupMap = this.reflectQueues.get(syncGroup);
+        if (!groupMap) {
+            return;
+        }
+
+        const startTime = performance.now();
+        let deliveredCount = 0;
+        let totalMessages = 0;
+        let totalRequestBytes = 0;
+
+        for (const [channel, channelMap] of groupMap) {
+            for (const [_fromSession, payloadJson] of channelMap) {
+                totalMessages++;
+                totalRequestBytes += new TextEncoder().encode(payloadJson).length;
+                const perMessageStart = performance.now();
+                let deliveredForMessage = 0;
+                // Deliver to all sessions that can read the sync group
+                for (const [, s] of this.activeSessions) {
+                    if (this.canRead(s.agentId, syncGroup)) {
+                        try {
+                            (s.ws as ServerWebSocket<WebSocketData>).send(
+                                payloadJson,
+                            );
+                            deliveredCount++;
+                            deliveredForMessage++;
+                        } catch {
+                            // ignore send errors per recipient
+                        }
+                    }
+                }
+                // Record reflect metrics per message
+                this.metricsCollector.recordReflect(
+                    performance.now() - perMessageStart,
+                    new TextEncoder().encode(payloadJson).length,
+                    deliveredForMessage,
+                    false,
+                );
+            }
+        }
+
+        // Clear the group queue after flush
+        this.reflectQueues.delete(syncGroup);
+
+        // Notify that a reflect tick has been flushed (WS sends tick notification)
+        if (superUserSql) {
+            try {
+                const payload = JSON.stringify({
+                    syncGroup,
+                    totalMessages,
+                    deliveredCount,
+                    durationMs: performance.now() - startTime,
+                    timestamp: Date.now(),
+                });
+                await superUserSql`
+                    SELECT pg_notify('reflect_tick', ${payload})
+                `;
+            } catch {}
+        }
+
+        // Record endpoint metrics for the flush and detect missed ticks
+        const flushDuration = performance.now() - startTime;
+        const rate = this.reflectTickRateMs.get(syncGroup) || 0;
+        const success = rate === 0 ? true : flushDuration <= rate;
+        this.recordEndpointMetrics(
+            "WS_REFLECT_FLUSH",
+            startTime,
+            totalRequestBytes,
+            0,
+            success,
+        );
+    }
+
+    private async startReflectTickLoops() {
+        if (!superUserSql) {
+            return;
+        }
+        // Load sync groups with tick configuration
+        try {
+            const rows = await superUserSql`
+                SELECT general__sync_group, server__tick__rate_ms, server__tick__state__enabled
+                FROM auth.sync_groups
+            `;
+            for (const row of rows as Array<{ general__sync_group: string; server__tick__rate_ms: number; server__tick__state__enabled: boolean }>) {
+                const syncGroup = row.general__sync_group;
+                const rate = row.server__tick__rate_ms;
+                const enabled = row.server__tick__state__enabled !== false;
+                if (!enabled) continue;
+                if (this.reflectIntervals.has(syncGroup)) continue;
+                this.reflectTickRateMs.set(syncGroup, rate);
+                const ticker = setInterval(() => {
+                    this.flushReflectQueue(syncGroup).catch(() => {});
+                }, rate);
+                this.reflectIntervals.set(syncGroup, ticker);
+            }
+        } catch (e) {
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Failed to start reflect tick loops",
+                error: e,
+                debug: this.DEBUG,
+                suppress: this.SUPPRESS,
+                type: "error",
+            });
+        }
+    }
+
     // Helper method to record endpoint metrics
     private recordEndpointMetrics(
         endpoint: string,
@@ -131,6 +258,14 @@ export class WorldApiWsManager {
     }
     private canRead(agentId: string, syncGroup: string): boolean {
         return !!this.aclService?.canRead(agentId, syncGroup);
+    }
+    private canUpdate(agentId: string, syncGroup: string): boolean {
+        // Treat "update" as write permission required to publish into a sync group
+        return !!this.aclService?.canUpdate?.(agentId, syncGroup);
+    }
+
+    private canInsert(agentId: string, syncGroup: string): boolean {
+        return !!this.aclService?.canInsert?.(agentId, syncGroup);
     }
 
     async initialize() {
@@ -212,6 +347,8 @@ export class WorldApiWsManager {
                 });
                 await this.aclService.startRoleChangeListener();
             }
+            // Start reflect tick loops to flush queued reflect messages per sync group
+            await this.startReflectTickLoops();
         } catch (error) {
             BunLogModule({
                 prefix: LOG_PREFIX,
@@ -1117,8 +1254,8 @@ export class WorldApiWsManager {
                                     );
                                 }
 
-                                // authorize: sender must be able to read the target group
-                                if (!this.canRead(session.agentId, syncGroup)) {
+                                // authorize: sender must be able to write (update or insert) the target group
+                                if (!this.canUpdate(session.agentId, syncGroup) && !this.canInsert(session.agentId, syncGroup)) {
                                     const endTime = performance.now();
                                     const duration = endTime - startTime;
                                     this.metricsCollector.recordReflect(
@@ -1131,7 +1268,7 @@ export class WorldApiWsManager {
                                         type: Communication.WebSocket.MessageType.REFLECT_ACK_RESPONSE,
                                         timestamp: Date.now(),
                                         requestId: req.requestId,
-                                        errorMessage: "Not authorized",
+                                        errorMessage: "Not authorized (update or insert required)",
                                         syncGroup,
                                         channel,
                                         delivered: 0,
@@ -1142,7 +1279,7 @@ export class WorldApiWsManager {
                                     }
                                     BunLogModule({
                                         prefix: LOG_PREFIX,
-                                        message: "WS REFLECT_PUBLISH_REQUEST unauthorized",
+                                        message: "WS REFLECT_PUBLISH_REQUEST unauthorized - update or insert required",
                                         debug: this.DEBUG,
                                         suppress: this.SUPPRESS,
                                         type: "info",
@@ -1155,7 +1292,7 @@ export class WorldApiWsManager {
                                     break;
                                 }
 
-                                // fanout to all sessions that can read this group
+                                // enqueue for tick-gated fanout
                                 let delivered = 0;
                                 const deliveryData = {
                                     type: Communication.WebSocket.MessageType.REFLECT_MESSAGE_DELIVERY,
@@ -1175,18 +1312,7 @@ export class WorldApiWsManager {
                                 const delivery = deliveryParsed.data;
                                 const payloadStr = JSON.stringify(delivery);
 
-                                for (const [, s] of this.activeSessions) {
-                                    if (this.canRead(s.agentId, syncGroup)) {
-                                        try {
-                                            (
-                                                s.ws as ServerWebSocket<WebSocketData>
-                                            ).send(payloadStr);
-                                            delivered++;
-                                        } catch {
-                                            // ignore send errors per recipient
-                                        }
-                                    }
-                                }
+                                this.enqueueReflect(syncGroup, channel, session.sessionId, payloadStr);
 
                                 const successAckData = {
                                     type: Communication.WebSocket.MessageType.REFLECT_ACK_RESPONSE,
@@ -1195,7 +1321,7 @@ export class WorldApiWsManager {
                                     errorMessage: null,
                                     syncGroup,
                                     channel,
-                                    delivered,
+                                    delivered: 0,
                                 };
 
                                 const successAckParsed = Communication.WebSocket.Z.ReflectAckResponse.safeParse(successAckData);
@@ -1208,20 +1334,20 @@ export class WorldApiWsManager {
                                     startTime,
                                     messageSize,
                                     new TextEncoder().encode(JSON.stringify(successAckParsed.data)).length,
-                                    delivered > 0, // success
+                                    true,
                                 );
 
                                 ws.send(JSON.stringify(successAckParsed.data));
                                 BunLogModule({
                                     prefix: LOG_PREFIX,
-                                    message: "WS REFLECT_PUBLISH_REQUEST fanout complete",
+                                    message: "WS REFLECT_PUBLISH_REQUEST enqueued for tick",
                                     debug: this.DEBUG,
                                     suppress: this.SUPPRESS,
                                     type: "info",
                                     data: {
                                         syncGroup,
                                         channel,
-                                        delivered,
+                                        delivered: 0,
                                         durationMs: performance.now() - receivedAt,
                                     },
                                 });
@@ -1435,6 +1561,11 @@ export class WorldApiWsManager {
             if (this.assetMaintenanceInterval) {
                 clearInterval(this.assetMaintenanceInterval);
             }
+            // Clear reflect tick intervals
+            for (const timer of this.reflectIntervals.values()) {
+                clearInterval(timer);
+            }
+            this.reflectIntervals.clear();
 
             for (const session of this.activeSessions.values()) {
                 session.ws.close(1000, "Server shutting down");

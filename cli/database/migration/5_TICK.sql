@@ -348,9 +348,9 @@ BEGIN
         tick__db__is_delayed = v_db_is_delayed
     WHERE wt.general__tick_id = v_tick_id;
 
-    -- Send notification that a tick has been captured
+    -- Send notification that a tick state has been captured
     PERFORM pg_notify(
-        'tick_captured',
+        'tick_state_captured',
         json_build_object(
             'syncGroup', p_sync_group,
             'tickId', v_tick_id,
@@ -375,6 +375,28 @@ BEGIN
         v_db_end_time,
         v_db_duration_ms,
         v_db_is_delayed;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 4.2 NOTIFY TICK PROCESSED
+CREATE OR REPLACE FUNCTION tick.notify_tick_processed(
+    p_sync_group text,
+    p_tick_id uuid,
+    p_tick_number bigint,
+    p_manager_duration_ms double precision,
+    p_manager_is_delayed boolean
+) RETURNS void AS $$
+BEGIN
+    PERFORM pg_notify(
+        'tick_processed',
+        json_build_object(
+            'syncGroup', p_sync_group,
+            'tickId', p_tick_id,
+            'tickNumber', p_tick_number,
+            'serviceDurationMs', p_manager_duration_ms,
+            'serviceIsDelayed', p_manager_is_delayed
+        )::text
+    );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 

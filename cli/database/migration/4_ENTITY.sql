@@ -127,6 +127,47 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = entity, public, pg_temp;
 
+-- 5.3 AGENT LAST-SEEN TOUCH HELPERS
+-- =========================================================================
+
+-- Helper to bump the current agent's last seen timestamp once per statement/transaction
+CREATE OR REPLACE FUNCTION entity.touch_current_agent_last_seen()
+RETURNS void AS $$
+BEGIN
+    UPDATE auth.agent_profiles
+    SET profile__last_seen_at = now()
+    WHERE general__agent_profile_id = auth.current_agent_id()
+      AND (profile__last_seen_at IS NULL OR profile__last_seen_at < now());
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = entity, auth, public, pg_temp;
+
+-- Guard function for invocation inside RLS USING expressions (evaluates to true)
+CREATE OR REPLACE FUNCTION entity.touch_current_agent_last_seen_guard()
+RETURNS boolean AS $$
+DECLARE
+    v_flag TEXT;
+BEGIN
+    v_flag := current_setting('app.did_touch_agent_last_seen', true);
+    IF v_flag IS NULL OR v_flag = '' OR v_flag = 'false' THEN
+        PERFORM entity.touch_current_agent_last_seen();
+        PERFORM set_config('app.did_touch_agent_last_seen', 'true', true);
+    END IF;
+    RETURN true;
+EXCEPTION WHEN OTHERS THEN
+    -- Never block access due to heartbeat update failures
+    RETURN true;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = entity, auth, public, pg_temp;
+
+-- Trigger wrapper to touch last seen for DML (statement-level)
+CREATE OR REPLACE FUNCTION entity.touch_current_agent_last_seen_trg()
+RETURNS TRIGGER AS $$
+BEGIN
+    PERFORM entity.touch_current_agent_last_seen();
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = entity, auth, public, pg_temp;
+
 -- Touch parent entities for DELETE using transition OLD TABLE
 CREATE OR REPLACE FUNCTION entity.touch_entity_on_metadata_change_from_old()
 RETURNS TRIGGER AS $$
@@ -156,6 +197,22 @@ CREATE TRIGGER update_audit_columns
     FOR EACH ROW
     EXECUTE FUNCTION entity.update_audit_columns();
 
+-- Touch current agent last-seen for any asset DML
+DROP TRIGGER IF EXISTS touch_agent_last_seen_on_assets_ins ON entity.entity_assets;
+DROP TRIGGER IF EXISTS touch_agent_last_seen_on_assets_upd ON entity.entity_assets;
+DROP TRIGGER IF EXISTS touch_agent_last_seen_on_assets_del ON entity.entity_assets;
+CREATE TRIGGER touch_agent_last_seen_on_assets_ins
+    AFTER INSERT ON entity.entity_assets
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION entity.touch_current_agent_last_seen_trg();
+CREATE TRIGGER touch_agent_last_seen_on_assets_upd
+    AFTER UPDATE ON entity.entity_assets
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION entity.touch_current_agent_last_seen_trg();
+CREATE TRIGGER touch_agent_last_seen_on_assets_del
+    AFTER DELETE ON entity.entity_assets
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION entity.touch_current_agent_last_seen_trg();
 
 -- 6.3 ENTITY TRIGGERS
 -- ============================================================================
@@ -166,6 +223,22 @@ CREATE TRIGGER update_audit_columns
     FOR EACH ROW
     EXECUTE FUNCTION entity.update_audit_columns();
 
+-- Touch current agent last-seen for any entity DML
+DROP TRIGGER IF EXISTS touch_agent_last_seen_on_entities_ins ON entity.entities;
+DROP TRIGGER IF EXISTS touch_agent_last_seen_on_entities_upd ON entity.entities;
+DROP TRIGGER IF EXISTS touch_agent_last_seen_on_entities_del ON entity.entities;
+CREATE TRIGGER touch_agent_last_seen_on_entities_ins
+    AFTER INSERT ON entity.entities
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION entity.touch_current_agent_last_seen_trg();
+CREATE TRIGGER touch_agent_last_seen_on_entities_upd
+    AFTER UPDATE ON entity.entities
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION entity.touch_current_agent_last_seen_trg();
+CREATE TRIGGER touch_agent_last_seen_on_entities_del
+    AFTER DELETE ON entity.entities
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION entity.touch_current_agent_last_seen_trg();
 
 -- 6.4 ENTITY METADATA TRIGGERS
 -- ============================================================================
@@ -176,6 +249,22 @@ CREATE TRIGGER update_audit_columns
     FOR EACH ROW
     EXECUTE FUNCTION entity.update_audit_columns();
 
+-- Touch current agent last-seen for any metadata DML
+DROP TRIGGER IF EXISTS touch_agent_last_seen_on_meta_ins ON entity.entity_metadata;
+DROP TRIGGER IF EXISTS touch_agent_last_seen_on_meta_upd ON entity.entity_metadata;
+DROP TRIGGER IF EXISTS touch_agent_last_seen_on_meta_del ON entity.entity_metadata;
+CREATE TRIGGER touch_agent_last_seen_on_meta_ins
+    AFTER INSERT ON entity.entity_metadata
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION entity.touch_current_agent_last_seen_trg();
+CREATE TRIGGER touch_agent_last_seen_on_meta_upd
+    AFTER UPDATE ON entity.entity_metadata
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION entity.touch_current_agent_last_seen_trg();
+CREATE TRIGGER touch_agent_last_seen_on_meta_del
+    AFTER DELETE ON entity.entity_metadata
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION entity.touch_current_agent_last_seen_trg();
 
 -- 6.5 TOUCH PARENT ENTITY ON METADATA CHANGE (STATEMENT-LEVEL)
 -- ==========================================================================
@@ -215,6 +304,11 @@ REVOKE ALL ON ALL FUNCTIONS IN SCHEMA entity FROM PUBLIC, vircadia_agent_proxy;
 REVOKE ALL ON ALL PROCEDURES IN SCHEMA entity FROM PUBLIC, vircadia_agent_proxy;
 REVOKE ALL ON ALL ROUTINES IN SCHEMA entity FROM PUBLIC, vircadia_agent_proxy;
 
+-- Allow proxy to call last-seen functions
+GRANT EXECUTE ON FUNCTION entity.touch_current_agent_last_seen() TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION entity.touch_current_agent_last_seen_guard() TO vircadia_agent_proxy;
+GRANT EXECUTE ON FUNCTION entity.touch_current_agent_last_seen_trg() TO vircadia_agent_proxy;
+
 
 -- 7.3 ENTITY ASSET POLICIES
 -- ============================================================================
@@ -242,6 +336,7 @@ CREATE POLICY "Group can view entity assets" ON entity.entity_assets
     FOR SELECT
     TO PUBLIC
     USING (
+        entity.touch_current_agent_last_seen_guard() AND
         auth.is_admin_agent()
         OR auth.is_system_agent()
         OR EXISTS (
@@ -295,6 +390,7 @@ CREATE POLICY "entities_read_policy" ON entity.entities
     FOR SELECT
     TO PUBLIC
     USING (
+        entity.touch_current_agent_last_seen_guard() AND
         auth.is_admin_agent()
         OR auth.is_system_agent()
         OR EXISTS (
@@ -361,6 +457,7 @@ CREATE POLICY "entity_metadata_read_policy" ON entity.entity_metadata
     FOR SELECT
     TO PUBLIC
     USING (
+        entity.touch_current_agent_last_seen_guard() AND
         auth.is_admin_agent()
         OR auth.is_system_agent()
         OR EXISTS (

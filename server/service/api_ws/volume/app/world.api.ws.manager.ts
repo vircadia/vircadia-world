@@ -1052,22 +1052,6 @@ export class WorldApiWsManager {
                             return;
                         }
 
-                        // Update session heartbeat in database (awaiting increases delay, but we need to fix this later as for now we need to await to prevent deadlocks.)
-                        await superUserSql`SELECT auth.update_session_heartbeat_from_session_id(${sessionId}::UUID)`.catch(
-                            (error) => {
-                                BunLogModule({
-                                    message:
-                                        "Failed to update session heartbeat",
-                                    debug: this.DEBUG,
-                                    suppress:
-                                        this.SUPPRESS,
-                                    type: "error",
-                                    prefix: LOG_PREFIX,
-                                    data: { error, sessionId },
-                                });
-                            },
-                        );
-
                         // Handle different message types
                         switch (data.type) {
                             case Communication.WebSocket.MessageType

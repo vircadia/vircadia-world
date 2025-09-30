@@ -3,29 +3,27 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, type Ref } from "vue";
-
 import {
-    Vector3,
+    type AbstractMesh,
     Quaternion,
-    TransformNode,
-    Space,
     type Scene,
     type Skeleton,
-    type AbstractMesh,
-    type Bone,
+    Space,
+    TransformNode,
+    Vector3,
 } from "@babylonjs/core";
+import { onMounted, onUnmounted, type Ref, ref, watch } from "vue";
 import "@babylonjs/loaders/glTF";
-import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 import { ImportMeshAsync } from "@babylonjs/core";
 import type {
-    AvatarJointMetadata,
     AvatarBaseData,
+    AvatarJointMetadata,
     AvatarPositionData,
     AvatarRotationData,
     DebugData,
     DebugWindow,
 } from "@schemas";
+import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 
 // Local helper types (previously from physics controller composable)
 type PositionObj = { x: number; y: number; z: number };
@@ -35,7 +33,10 @@ type RotationObj = { x: number; y: number; z: number; w: number };
 const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
     sessionId: { type: String, required: true }, // Full sessionId in format "sessionId-instanceId"
-    vircadiaWorld: { type: Object as () => VircadiaWorldInstance, required: true },
+    vircadiaWorld: {
+        type: Object as () => VircadiaWorldInstance,
+        required: true,
+    },
     avatarData: { type: Object as () => AvatarBaseData, required: false },
     positionData: { type: Object as () => AvatarPositionData, required: false },
     rotationData: { type: Object as () => AvatarRotationData, required: false },
@@ -180,10 +181,14 @@ async function loadAvatarModel() {
             pluginExtension: (() => {
                 const ext = modelFileName.value.split(".").pop()?.toLowerCase();
                 switch (ext) {
-                    case "glb": return ".glb";
-                    case "gltf": return ".gltf";
-                    case "fbx": return ".fbx";
-                    default: return "";
+                    case "glb":
+                        return ".glb";
+                    case "gltf":
+                        return ".gltf";
+                    case "fbx":
+                        return ".fbx";
+                    default:
+                        return "";
                 }
             })(),
         });
@@ -571,4 +576,4 @@ defineExpose({
     isModelLoaded,
     avatarNode,
 });
-</script> 
+</script>

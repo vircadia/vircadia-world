@@ -1,19 +1,25 @@
 import { fileURLToPath, URL } from "node:url";
-
-import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import vueJsx from "@vitejs/plugin-vue-jsx";
+import { defineConfig } from "vite";
 import vueDevTools from "vite-plugin-vue-devtools";
 import vuetify from "vite-plugin-vuetify";
 
 import { clientBrowserConfiguration } from "../../sdk/vircadia-world-sdk-ts/browser/src/config/vircadia.browser.config";
-import packageJson from "./package.json"
+import packageJson from "./package.json";
 
 // https://vite.dev/config/
 export default defineConfig(({ command }) => {
     const isProd = command === "build";
 
     return {
+        css: {
+            preprocessorOptions: {
+                scss: {
+                    additionalData: '@use "src/styles.scss" as *;',
+                },
+            },
+        },
         plugins: [
             vue(),
             vuetify({ autoImport: true }),

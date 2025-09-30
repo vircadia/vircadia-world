@@ -1,4 +1,12 @@
 <template>
+    <!-- Right Debug Drawer -->
+    <RightDrawer v-model:open="rightDrawerOpen" v-model:tab="rightDrawerTab"
+        :environment-is-loading="!envRef?.environmentInitialized" :physics-enabled="physicsRef?.physicsEnabled"
+        :physics-plugin-name="physicsRef?.physicsPluginName || undefined"
+        :physics-error="physicsRef?.physicsError || undefined" :gravity="physicsRef?.gravity"
+        :physics-engine-type="physicsRef?.physicsEngineType || ''" :physics-initialized="physicsRef?.physicsInitialized"
+        :havok-instance-loaded="physicsRef?.havokInstanceLoaded"
+        :physics-plugin-created="physicsRef?.physicsPluginCreated" />
     <VircadiaWorldProvider :autoConnect="clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT"
         @auth-denied="onAuthDenied($event)"
         v-slot="{ vircadiaWorld, connectionInfo, connectionStatus, isConnecting, isAuthenticated, isAuthenticating, accountDisplayName, sessionToken, connect, logout }">
@@ -9,20 +17,26 @@
         <!-- Main world when authenticated -->
         <template v-else>
 
-            <!-- Sidebar / Drawer -->
-            <SceneDrawer v-if="false" v-model:open="drawerOpen" v-model:tab="drawerTab"
-                :environment-is-loading="!envRef?.environmentInitialized" :physics-enabled="physicsEnabled"
-                :physics-plugin-name="physicsPluginName" :physics-error="physicsError" :gravity="physicsGravity"
-                :physics-engine-type="physicsEngineType || ''" :physics-initialized="physicsInitialized"
-                :havok-instance-loaded="havokInstanceLoaded" :physics-plugin-created="physicsPluginCreated"
-                :connection-status="connectionStatus" :is-connecting="isConnecting" :is-authenticated="isAuthenticated"
-                :is-authenticating="isAuthenticating" :account-display-name="accountDisplayName"
-                :session-id="connectionInfo.sessionId" :full-session-id="connectionInfo.fullSessionId"
-                :agent-id="connectionInfo.agentId" :instance-id="connectionInfo.instanceId"
-                :auth-provider="connectionInfo.authProvider ?? 'anon'"
-                :last-close-code="(connectionInfo).lastClose?.code ?? null"
-                :last-close-reason="(connectionInfo).lastClose?.reason ?? null"
-                :connected-url="connectionStatus !== 'disconnected' ? getConnectedUrl() : null" />
+            <!-- Left Navigation Drawer (auth context available here) -->
+            <v-navigation-drawer v-model="leftDrawerOpen" location="left" elevation="8"
+                :temporary="$vuetify.display.smAndDown" :width="320">
+                <v-list density="compact">
+                    <!-- Placeholder for future nav items -->
+                    <v-list-item prepend-icon="mdi-home" title="Home" />
+                </v-list>
+                <template #append>
+                    <v-divider />
+                    <v-list density="compact" class="px-2 py-2">
+                        <v-list-item v-if="isAuthenticated" :title="accountDisplayName || '-'"
+                            prepend-icon="mdi-account-circle">
+                            <v-list-item-subtitle>Signed in</v-list-item-subtitle>
+                        </v-list-item>
+                        <div class="px-2 pb-2">
+                            <LogoutButton :isAuthenticated="isAuthenticated" :onLogout="logout" />
+                        </div>
+                    </v-list>
+                </template>
+            </v-navigation-drawer>
 
             <!-- Component Loader -->
             <template v-for="comp in availableComponents" :key="comp">
@@ -32,100 +46,45 @@
                     :scene-initialized="sceneInitialized" :fps="fps" :performance-mode="performanceMode" />
             </template>
 
-            <!-- Dev Debug App Bar -->
+            <!-- App Bar with Actions -->
             <v-app-bar density="compact" color="primary" flat>
+                <v-app-bar-nav-icon @click="leftDrawerOpen = !leftDrawerOpen" />
                 <v-spacer />
 
-                <!-- Connection State -->
+                <!-- Audio Controls -->
                 <v-tooltip location="bottom">
                     <template #activator="{ props }">
-                        <v-chip v-bind="props" :color="getConnectionStatusColor(connectionStatus)" size="small"
-                            variant="flat" class="ml-4">
-                            <v-icon start size="small">{{ getConnectionStatusIcon(connectionStatus) }}</v-icon>
-                            {{ connectionStatus }}
-                        </v-chip>
+                        <v-btn v-bind="props" icon variant="text" :color="activeAudioCount > 0 ? 'success' : undefined"
+                            class="ml-2" @click="showWebRTCControls = true">
+                            <v-icon>mdi-headphones</v-icon>
+                        </v-btn>
                     </template>
-                    <div class="text-caption">
-                        <div><strong>Last close code:</strong> {{ (connectionInfo).lastClose?.code ?? '-' }}</div>
-                        <div><strong>Last close reason:</strong> {{ (connectionInfo).lastClose?.reason || '-' }}</div>
-                    </div>
+                    <span>Audio Controls ({{ activeAudioCount }} active)</span>
                 </v-tooltip>
 
-                <!-- Auth State -->
+                <!-- Toggle Right Debug Drawer -->
                 <v-tooltip location="bottom">
                     <template #activator="{ props }">
-                        <v-chip v-bind="props" :color="getAuthStatusColor(isAuthenticated, isAuthenticating)"
-                            size="small" variant="flat" class="ml-2">
-                            <v-icon start size="small">{{ getAuthStatusIcon(isAuthenticated, isAuthenticating)
-                            }}</v-icon>
-                            {{ getAuthStatusText(isAuthenticated, isAuthenticating) }}
-                        </v-chip>
+                        <v-btn v-bind="props" icon variant="text" class="ml-2"
+                            @click="rightDrawerOpen = !rightDrawerOpen">
+                            <v-icon>mdi-dock-right</v-icon>
+                        </v-btn>
                     </template>
-                    <div class="text-caption">
-                        <div><strong>Status:</strong> {{ getAuthStatusText(isAuthenticated, isAuthenticating) }}</div>
-                        <div><strong>User:</strong> {{ accountDisplayName || '-' }}</div>
-                    </div>
+                    <span>Debug Drawer</span>
                 </v-tooltip>
 
-                <!-- Mic Permission State -->
-                <v-tooltip location="bottom">
-                    <template #activator="{ props }">
-                        <v-chip v-bind="props" :color="micChipColor" size="small" variant="flat" class="ml-2">
-                            <v-icon start size="small">{{ micChipIcon }}</v-icon>
-                            Mic: {{ microphonePermission.toUpperCase() }}
-                        </v-chip>
-                    </template>
-                    <div class="text-caption">
-                        <div><strong>Permission:</strong> {{ microphonePermission }}</div>
-                        <div><strong>Local stream:</strong> {{ String(localStreamActive) }}</div>
-                    </div>
-                </v-tooltip>
-
-                <!-- Audio Context State -->
-                <v-tooltip location="bottom">
-                    <template #activator="{ props }">
-                        <v-chip v-bind="props" :color="audioChipColor" size="small" variant="flat" class="ml-2">
-                            <v-icon start size="small">{{ audioChipIcon }}</v-icon>
-                            Audio: {{ audioContextState.toUpperCase() }}
-                        </v-chip>
-                    </template>
-                    <div class="text-caption">
-                        <div><strong>AudioContext:</strong> {{ audioContextState }}</div>
-                        <div><strong>Local stream:</strong> {{ String(localStreamActive) }}</div>
-                    </div>
-                </v-tooltip>
-
-                <!-- Connected URL -->
-                <v-tooltip location="bottom" v-if="connectionStatus !== 'disconnected'">
-                    <template #activator="{ props }">
-                        <v-chip v-bind="props" color="info" size="small" variant="outlined" class="ml-2">
-                            <v-icon start size="small">mdi-web</v-icon>
-                            {{ getConnectedUrl() }}
-                        </v-chip>
-                    </template>
-                    <div class="text-caption">
-                        <div><strong>WebSocket URL:</strong> {{ getConnectedUrl() }}</div>
-                    </div>
-                </v-tooltip>
-
-                <!-- Physics State -->
-                <v-tooltip location="bottom">
-                    <template #activator="{ props }">
-                        <v-chip v-bind="props" :color="physicsEnabled ? 'success' : 'error'" size="small" variant="flat"
-                            class="ml-2">
-                            <v-icon start size="small">{{ physicsEnabled ? 'mdi-atom-variant' : 'mdi-atom'
-                            }}</v-icon>
-                            Physics: {{ physicsPluginName || (physicsEnabled ? 'on' : 'off') }}
-                        </v-chip>
-                    </template>
-                    <div class="text-caption">
-                        <div><strong>Enabled:</strong> {{ String(physicsEnabled) }}</div>
-                        <div><strong>Plugin:</strong> {{ physicsPluginName || '-' }}</div>
-                        <div><strong>Error:</strong> {{ physicsError || '-' }}</div>
-                    </div>
-                </v-tooltip>
-
-                <v-spacer />
+                <!-- Babylon Inspector (Dev only) -->
+                <template v-if="isDev">
+                    <v-tooltip location="bottom">
+                        <template #activator="{ props }">
+                            <v-btn v-bind="props" icon variant="text" class="ml-2" :disabled="!sceneInitialized"
+                                @click="inspectorRef?.toggleInspector()">
+                                <v-icon>{{ inspectorVisible ? 'mdi-file-tree' : 'mdi-file-tree-outline' }}</v-icon>
+                            </v-btn>
+                        </template>
+                        <span>Babylon Inspector (T)</span>
+                    </v-tooltip>
+                </template>
             </v-app-bar>
 
             <main>
@@ -310,36 +269,11 @@
 
             <!-- WebRTC moved inside BabylonOtherAvatars -->
 
-            <!-- Floating Control Toolbar -->
-            <div class="floating-toolbar">
-                <!-- User Info and Logout -->
-                <div v-if="isAuthenticated" class="d-flex align-center flex-column ga-2">
-                    <v-chip>
-                        <v-icon start>mdi-account-circle</v-icon>
-                        {{ accountDisplayName }}
-                    </v-chip>
-                    <LogoutButton :isAuthenticated="isAuthenticated" :onLogout="logout" />
-                </div>
-
-                <!-- Debug Controls removed: joint overlay toggle -->
-
-                <!-- Audio Controls -->
-                <v-tooltip bottom>
-                    <template v-slot:activator="{ props }">
-                        <v-btn fab small color="primary" @click="showWebRTCControls = true" v-bind="props"
-                            class="toolbar-btn">
-                            <v-badge v-if="activeAudioCount > 0" :content="activeAudioCount" color="success" overlap>
-                                <v-icon>mdi-headphones</v-icon>
-                            </v-badge>
-                            <v-icon v-else>mdi-headphones</v-icon>
-                        </v-btn>
-                    </template>
-                    <span>Audio Controls ({{ activeAudioCount }} active)</span>
-                </v-tooltip>
-
-                <!-- Babylon Inspector Toggle (dev only) -->
-                <BabylonInspector :scene="sceneNonNull" />
-            </div>
+            <!-- Headless Babylon Inspector instance for programmatic control (Dev only) -->
+            <template v-if="isDev">
+                <BabylonInspector ref="inspectorRef" :scene="sceneNonNull" :headless="true"
+                    @visible-change="onInspectorVisibleChange" />
+            </template>
 
             <!-- Audio controls dialog now lives inside BabylonWebRTC -->
 
@@ -395,7 +329,7 @@ import BabylonPhysics from "../components/BabylonPhysics.vue";
 import BabylonSnackbar from "../components/BabylonSnackbar.vue";
 import LogoutButton from "../components/LogoutButton.vue";
 import BabylonWebRTC from "./BabylonWebRTC.vue";
-import SceneDrawer from "./SceneDrawer.vue";
+import RightDrawer from "./RightDrawer.vue";
 import VircadiaWorldAuthProvider from "./VircadiaWorldAuthProvider.vue";
 import VircadiaWorldProvider from "./VircadiaWorldProvider.vue";
 
@@ -458,6 +392,13 @@ type BabylonCanvasExposed = {
 };
 
 const canvasComponentRef = ref<BabylonCanvasExposed | null>(null);
+const inspectorRef = ref<InstanceType<typeof BabylonInspector> | null>(null);
+const inspectorVisible = ref<boolean>(false);
+const isDev = import.meta.env.DEV;
+
+function onInspectorVisibleChange(v: boolean) {
+    inspectorVisible.value = v;
+}
 
 const renderCanvas = computed(
     () => canvasComponentRef.value?.getCanvas() ?? null,
@@ -518,63 +459,15 @@ function togglePerformanceMode() {
 }
 
 // Local debug drawer state
-const drawerOpen = useStorage<boolean>("vrca.debug.sidebar.open", false);
-const drawerTab = useStorage<string>("vrca.debug.sidebar.tab", "environment");
+const rightDrawerOpen = useStorage<boolean>("vrca.right.drawer.open", false);
+const rightDrawerTab = useStorage<string>("vrca.right.drawer.tab", "environment");
+const leftDrawerOpen = useStorage<boolean>("vrca.nav.left.open", false);
 
-
-// Connection watchers migrated to provider
-
-// Active audio connections - now handled internally by BabylonWebRTCRefactored
 const activeAudioCount = computed(() => 0);
-// removed legacy showDebugOverlay marker
-
-// removed inline avatarDefinition; using DB-backed avatar definition by name
-
-// Keyboard toggle handled inside BabylonCanvas
 
 const envRef = ref<InstanceType<typeof BabylonEnvironment> | null>(null);
 
-// Top-level physics component ref and safe computed wrappers
 const physicsRef = ref<InstanceType<typeof BabylonPhysics> | null>(null);
-const physicsEnabled = computed(() => {
-    const s = scene.value as unknown as { getPhysicsEngine?: () => unknown | null; isPhysicsEnabled?: () => boolean } | null;
-    const enginePresent = !!s?.getPhysicsEngine?.();
-    if (enginePresent) return true;
-    return (physicsRef.value as unknown as { physicsEnabled?: { value?: boolean } } | null)?.physicsEnabled?.value ?? false;
-});
-const physicsPluginName = computed(() => {
-    const s = scene.value as unknown as { getPhysicsEngine?: () => { getPhysicsPluginName?: () => string | undefined } | null } | null;
-    const engine = s?.getPhysicsEngine?.() as unknown as { getPhysicsPluginName?: () => string | undefined } | null;
-    if (engine) return engine.getPhysicsPluginName?.() || "Havok";
-    return (physicsRef.value as unknown as { physicsPluginName?: { value?: string } } | null)?.physicsPluginName?.value ?? "";
-});
-const physicsError = computed(() => (physicsRef.value as unknown as { physicsError?: { value?: string | null } } | null)?.physicsError?.value ?? null);
-const physicsEngineType = computed(() => {
-    const s = scene.value as unknown as { getPhysicsEngine?: () => unknown | null } | null;
-    const engine = s?.getPhysicsEngine?.() as unknown as { constructor?: { name?: string } } | null;
-    if (engine?.constructor?.name) return engine.constructor.name;
-    return (physicsRef.value as unknown as { physicsEngineType?: { value?: string } } | null)?.physicsEngineType?.value ?? "";
-});
-const physicsInitialized = computed(() => {
-    const s = scene.value as unknown as { getPhysicsEngine?: () => unknown | null } | null;
-    if (s?.getPhysicsEngine?.()) return true;
-    return (physicsRef.value as unknown as { physicsInitialized?: { value?: boolean } } | null)?.physicsInitialized?.value ?? false;
-});
-const havokInstanceLoaded = computed(() => (physicsRef.value as unknown as { havokInstanceLoaded?: { value?: boolean } } | null)?.havokInstanceLoaded?.value ?? false);
-const physicsPluginCreated = computed(() => (physicsRef.value as unknown as { physicsPluginCreated?: { value?: boolean } } | null)?.physicsPluginCreated?.value ?? false);
-const physicsGravity = computed<[number, number, number]>(() => {
-    const s = scene.value as unknown as { getPhysicsEngine?: () => unknown | null } | null;
-    if (s?.getPhysicsEngine?.()) return [0, -9.81, 0];
-    const g = (physicsRef.value as unknown as { gravity?: { value?: [number, number, number] } } | null)?.gravity?.value;
-    return (g ?? [0, -9.81, 0]) as [number, number, number];
-});
-
-// Mark environment physics slot props as used in template
-// These are now received directly from BabylonEnvironment slot props
-// avoiding the convoluted ref-based access
-
-// Top-level refs to mirror BabylonEnvironment physics slot values for use outside the slot
-
 
 // Avatar definition is now provided locally instead of DB
 const avatarDefinition: AvatarDefinition = {
@@ -1175,33 +1068,6 @@ main {
     outline: none;
 }
 
-/* Floating Toolbar Styles */
-.floating-toolbar {
-    position: fixed;
-    top: 16px;
-    right: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    z-index: 1000;
-    padding: 8px;
-    background: rgba(0, 0, 0, 0.1);
-    border-radius: 28px;
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.toolbar-btn {
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
-    transition: all 0.2s ease !important;
-}
-
-.toolbar-btn:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
-}
-
 .component-loader {
     position: fixed;
     bottom: 16px;
@@ -1221,23 +1087,4 @@ main {
 }
 
 /* Responsive design for smaller screens */
-@media (max-width: 768px) {
-    .floating-toolbar {
-        top: 12px;
-        right: 12px;
-        gap: 6px;
-        padding: 6px;
-    }
-}
-
-@media (max-width: 480px) {
-    .floating-toolbar {
-        flex-direction: row;
-        top: 8px;
-        right: 8px;
-        left: 8px;
-        justify-content: center;
-        border-radius: 24px;
-    }
-}
 </style>

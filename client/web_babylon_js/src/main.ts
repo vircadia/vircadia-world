@@ -4,10 +4,11 @@ import App from "./App.vue";
 import "@mdi/font/css/materialdesignicons.css";
 import "vuetify/styles";
 import "./assets/main.css";
-import { createPinia } from "pinia";
 
 // Buffer polyfill for browser compatibility
 import { Buffer } from "buffer";
+import { createPinia } from "pinia";
+
 if (typeof window !== "undefined") {
     (window as any).Buffer = Buffer;
 }

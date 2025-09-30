@@ -7,17 +7,13 @@
             <span class="build-overlay__text">v{{ appVersion }} • {{ buildDate }}</span>
         </div>
     </v-app>
- </template>
+</template>
 
 <script setup lang="ts">
 import MainScene from "./components/MainScene.vue";
-// mark as used at runtime for template
-void MainScene;
 
 const appVersion = __APP_VERSION__;
 const buildDate = new Date(__BUILD_DATE__).toLocaleString();
-
-// no global provides; drawer lives in MainScene
 </script>
 
 <style>
@@ -43,6 +39,7 @@ const buildDate = new Date(__BUILD_DATE__).toLocaleString();
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);
 }
+
 .build-overlay__dot {
     width: 6px;
     height: 6px;
@@ -50,6 +47,7 @@ const buildDate = new Date(__BUILD_DATE__).toLocaleString();
     background: #4caf50;
     box-shadow: 0 0 6px rgba(76, 175, 80, 0.9);
 }
+
 .build-overlay__text {
     opacity: 0.9;
 }

@@ -23,49 +23,21 @@ import type {
 import { computed, type Ref, ref, toRef, watch } from "vue";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 
-type LightVector = [number, number, number];
+type GravityVector = [number, number, number];
 
 // Environment interfaces now imported from @schemas
 
-const props = withDefaults(
-    defineProps<{
-        scene: Scene;
-        vircadiaWorld: VircadiaWorldInstance;
-        hdrFile: string;
-        // defaults configuration
-        enableDefaults?: boolean;
-        gravity?: LightVector;
-        hemisphericLight?: HemisphericLightOptions;
-        directionalLight?: DirectionalLightOptions;
-        ground?: GroundOptions;
-    }>(),
-    {
-        enableDefaults: true,
-        gravity: () => [0, -9.81, 0],
-        hemisphericLight: () => ({
-            enabled: true,
-            direction: [1, 1, 0],
-            intensity: 1.0,
-        }),
-        directionalLight: () => ({
-            enabled: true,
-            direction: [-1, -2, -1],
-            position: [10, 10, 10],
-            intensity: 1.0,
-        }),
-        ground: () => ({
-            enabled: true,
-            width: 1000,
-            height: 1000,
-            position: [0, -1, 0],
-            diffuseColor: [0.2, 0.2, 0.2],
-            specularColor: [0.1, 0.1, 0.1],
-            mass: 0,
-            friction: 0.5,
-            restitution: 0.3,
-        }),
-    },
-);
+const props = defineProps<{
+    scene: Scene;
+    vircadiaWorld: VircadiaWorldInstance;
+    hdrFile: string;
+    // configuration (required; pass from MainScene)
+    enableDefaults: boolean;
+    gravity: GravityVector;
+    hemisphericLight: HemisphericLightOptions;
+    directionalLight: DirectionalLightOptions;
+    ground: GroundOptions;
+}>();
 
 const sceneRef = toRef(props, "scene");
 const vircadiaRef = toRef(props, "vircadiaWorld");
@@ -79,66 +51,105 @@ const environmentInitialized = computed<boolean>(() => {
     return defaultsReady.value || props.enableDefaults === false;
 });
 
-function toVec3(v: LightVector | undefined, fallback: Vector3): Vector3 {
-    if (!v || v.length !== 3) return fallback;
+function toVec3OrWarn(v: GravityVector | undefined, label: string): Vector3 {
+    if (!v || v.length !== 3) {
+        console.warn(
+            `[BabylonEnvironment] Missing or invalid vector for ${label}; using Vector3.Zero()`,
+        );
+        return Vector3.Zero();
+    }
     return new Vector3(v[0], v[1], v[2]);
 }
 
 function addDefaultLightsIfNeeded(targetScene: Scene) {
     if (props.enableDefaults === false) return;
-    const hemiOpts = props.hemisphericLight ?? {};
-    const dirOpts = props.directionalLight ?? {};
+    const hemiOpts = props.hemisphericLight;
+    const dirOpts = props.directionalLight;
 
     if (hemiOpts.enabled !== false) {
         const hemi = new HemisphericLight(
             "env-hemispheric",
-            toVec3(hemiOpts.direction, new Vector3(1, 1, 0)),
+            toVec3OrWarn(
+                hemiOpts.direction,
+                "hemisphericLight.direction",
+            ),
             targetScene,
         );
-        hemi.intensity = hemiOpts.intensity ?? 1.0;
+        if (typeof hemiOpts.intensity === "number") {
+            hemi.intensity = hemiOpts.intensity;
+        }
     }
 
     if (dirOpts.enabled !== false) {
         const dir = new DirectionalLight(
             "env-directional",
-            toVec3(dirOpts.direction, new Vector3(-1, -2, -1)),
+            toVec3OrWarn(dirOpts.direction, "directionalLight.direction"),
             targetScene,
         );
-        dir.position = toVec3(dirOpts.position, new Vector3(10, 10, 10));
-        dir.intensity = dirOpts.intensity ?? 1.0;
+        dir.position = toVec3OrWarn(
+            dirOpts.position,
+            "directionalLight.position",
+        );
+        if (typeof dirOpts.intensity === "number") {
+            dir.intensity = dirOpts.intensity;
+        }
     }
 }
 
 function addGroundIfNeeded(targetScene: Scene) {
     if (props.enableDefaults === false) return;
-    const g = props.ground ?? {};
+    const g = props.ground;
     if (g.enabled === false) return;
+
+    if (typeof g.width !== "number" || typeof g.height !== "number") {
+        console.error(
+            "[BabylonEnvironment] ground.width and ground.height are required",
+        );
+        return;
+    }
 
     const ground = MeshBuilder.CreateGround(
         "env-ground",
-        { width: g.width ?? 1000, height: g.height ?? 1000 },
+        { width: g.width, height: g.height },
         targetScene,
     );
-    ground.position = toVec3(g.position, new Vector3(0, -1, 0));
+    if (g.position) {
+        ground.position = toVec3OrWarn(g.position, "ground.position");
+    }
 
     const mat = new StandardMaterial("env-ground-material", targetScene);
-    const diff = g.diffuseColor ?? [0.2, 0.2, 0.2];
-    const spec = g.specularColor ?? [0.1, 0.1, 0.1];
-    mat.diffuseColor = new Color3(diff[0], diff[1], diff[2]);
-    mat.specularColor = new Color3(spec[0], spec[1], spec[2]);
+    if (g.diffuseColor) {
+        mat.diffuseColor = new Color3(
+            g.diffuseColor[0],
+            g.diffuseColor[1],
+            g.diffuseColor[2],
+        );
+    }
+    if (g.specularColor) {
+        mat.specularColor = new Color3(
+            g.specularColor[0],
+            g.specularColor[1],
+            g.specularColor[2],
+        );
+    }
     ground.material = mat;
 
     // Attach physics aggregate based on the scene engine directly to avoid races
     const engine = targetScene.getPhysicsEngine?.();
     if (engine) {
         try {
+            const physOptions: Record<string, number> = {};
+            if (typeof g.mass === "number") physOptions.mass = g.mass;
+            if (typeof g.friction === "number") physOptions.friction = g.friction;
+            if (typeof g.restitution === "number")
+                physOptions.restitution = g.restitution;
             const aggregate = new PhysicsAggregate(
                 ground,
                 PhysicsShapeType.BOX,
-                {
-                    mass: g.mass ?? 0,
-                    friction: g.friction ?? 0.5,
-                    restitution: g.restitution ?? 0.3,
+                physOptions as unknown as {
+                    mass: number;
+                    friction: number;
+                    restitution: number;
                 },
                 targetScene,
             );
@@ -146,9 +157,9 @@ function addGroundIfNeeded(targetScene: Scene) {
             console.log(
                 "[BabylonEnvironment] Default ground physics attached",
                 {
-                    mass: g.mass ?? 0,
-                    friction: g.friction ?? 0.5,
-                    restitution: g.restitution ?? 0.3,
+                    mass: g.mass,
+                    friction: g.friction,
+                    restitution: g.restitution,
                     plugin: engine.getPhysicsPluginName?.(),
                 },
             );

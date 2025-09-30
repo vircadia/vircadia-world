@@ -102,7 +102,11 @@
                     <template
                         #default="{ physicsEnabled: envPhysicsEnabled, physicsPluginName: envPhysicsPluginName, physicsError: envPhysicsError, physicsEngineType: envPhysicsEngineType, physicsInitialized: envPhysicsInitialized, havokInstanceLoaded: envHavokInstanceLoaded, physicsPluginCreated: envPhysicsPluginCreated, gravity: sceneGravity }">
                         <BabylonEnvironment :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
-                            :hdr-file="'babylon.level.hdr.1k.hdr'" ref="envRef" v-slot="{ environmentInitialized }">
+                            :hdr-file="'babylon.level.hdr.1k.hdr'" :enable-defaults="true" :gravity="[0, -9.81, 0]"
+                            :hemispheric-light="{ enabled: true, direction: [1, 1, 0], intensity: 1.0 }"
+                            :directional-light="{ enabled: true, direction: [-1, -2, -1], position: [10, 10, 10], intensity: 1.0 }"
+                            :ground="{ enabled: true, width: 1000, height: 1000, position: [0, -1, 0], diffuseColor: [0.2, 0.2, 0.2], specularColor: [0.1, 0.1, 0.1], mass: 0, friction: 0.5, restitution: 0.3 }"
+                            ref="envRef" v-slot="{ environmentInitialized }">
                             <!-- (removed) previously mirrored via SyncEnvState; now derived from physicsRef -->
 
                             <template

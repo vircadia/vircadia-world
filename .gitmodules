@@ -4,3 +4,7 @@
 [submodule "sdk/vircadia-world-sdk-py"]
     path = sdk/vircadia-world-sdk-py
     url = https://github.com/vircadia/vircadia-world-sdk-py.git
+
+[submodule "client/web_babylon_js/src/user/vircadia-world-seeds"]
+	path = client/web_babylon_js/src/user/vircadia-world-seeds
+	url = https://github.com/ED3N-Foundries/vircadia-world-seeds.git

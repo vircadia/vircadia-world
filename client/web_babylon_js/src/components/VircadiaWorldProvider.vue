@@ -160,7 +160,12 @@ const sessionToken = useStorage<string | null>(
     null,
     localStorage,
 );
-// Deprecated: local provider storage is no longer the source of truth.
+// Use stored provider as source of truth for REST/WS until server confirms
+const storedAuthProvider = useStorage<string>(
+    "vircadia-auth-provider",
+    "anon",
+    localStorage,
+);
 
 const isAuthenticatedComputed = computed(() => !!sessionToken.value);
 const isAuthenticatingComputed = computed(
@@ -259,7 +264,7 @@ async function connect() {
         }
 
         // Update client configuration using current auth
-        const authProvider = connectionInfo.value.authProvider ?? "anon";
+        const authProvider = storedAuthProvider.value || connectionInfo.value.authProvider || "anon";
         console.log("[VircadiaWorldProvider] Setting auth configuration", {
             token: currentToken,
             authProvider: authProvider,

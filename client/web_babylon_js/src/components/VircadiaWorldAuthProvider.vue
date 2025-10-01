@@ -265,6 +265,93 @@ function logoutLocal(reason?: string) {
     authError.value = reason ?? null;
 }
 
+async function handleOAuthRedirectIfPresent(): Promise<boolean> {
+    try {
+        const url = new URL(window.location.href);
+        const code = url.searchParams.get("code");
+        const state = url.searchParams.get("state");
+        if (!code) return false;
+
+        isAuthenticating.value = true;
+        authError.value = null;
+
+        const resp = await props.vircadiaWorld.client.restAuth.handleOAuthCallback({
+            provider: "azure",
+            code,
+            state: state || undefined,
+        });
+
+        if (!(resp as { success?: boolean })?.success) {
+            const message = (resp as { message?: string })?.message || "OAuth callback failed";
+            authError.value = message;
+            return true;
+        }
+
+        const {
+            token,
+            sessionId: newSessionId,
+            agentId: newAgentId,
+            provider,
+            email,
+            displayName,
+            username,
+        } = resp as unknown as {
+            token: string;
+            sessionId: string;
+            agentId: string;
+            provider: string;
+            email?: string;
+            displayName?: string;
+            username?: string;
+        };
+
+        // Persist provider FIRST so any token-triggered connect uses correct provider
+        authProvider.value = provider || "azure";
+        props.vircadiaWorld.client.setAuthProvider(authProvider.value);
+
+        // Then persist token/session/agent and sync SDK
+        sessionToken.value = token;
+        sessionId.value = newSessionId;
+        agentId.value = newAgentId;
+        props.vircadiaWorld.client.setAuthToken(token);
+        props.vircadiaWorld.client.setSessionId(newSessionId);
+
+        // Minimal account profile for UI
+        const nameGuess = displayName || username || email || newAgentId;
+        account.value = {
+            homeAccountId: newAgentId,
+            environment: "azure",
+            tenantId: "",
+            username: email || username || nameGuess,
+            localAccountId: newAgentId,
+            name: nameGuess,
+        } as AccountInfo;
+
+        // Clean query params to avoid re-processing on refresh
+        try {
+            const cleanUrl = `${url.origin}${url.pathname}${url.hash}`;
+            window.history.replaceState({}, document.title, cleanUrl);
+        } catch { }
+
+        // Navigate back to the stored return URL if present and same-origin
+        try {
+            const returnUrl = sessionStorage.getItem("vircadia-auth-return-url");
+            sessionStorage.removeItem("vircadia-auth-return-url");
+            if (returnUrl) {
+                const ret = new URL(returnUrl, window.location.href);
+                if (ret.origin === window.location.origin) {
+                    window.location.replace(ret.toString());
+                }
+            }
+        } catch { }
+
+        emit("authenticated");
+        return true;
+    } finally {
+        isAuthenticating.value = false;
+    }
+}
+
 // Auto-login with debug token if available and not already authenticated
 onMounted(async () => {
     console.log(
@@ -277,6 +364,14 @@ onMounted(async () => {
                 clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER,
         },
     );
+
+    // Handle OAuth redirect (code/state) before any auto-login logic
+    try {
+        const handled = await handleOAuthRedirectIfPresent();
+        if (handled) return;
+    } catch (e) {
+        console.warn("[VircadiaWorldAuthProvider] OAuth redirect handling error", e);
+    }
 
     const suppressed = localStorage.getItem("vircadia-auth-suppressed") === "1";
     if (

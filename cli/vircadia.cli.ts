@@ -2969,6 +2969,13 @@ if (import.meta.main) {
                         )) ??
                         clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI_USING_SSL;
 
+                    const currentUserComponentsDir =
+                        (await EnvManager.getVariable(
+                            "VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_DIR",
+                            "client",
+                        )) ??
+                        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_DIR;
+
                     const currentCaddyDomainApi =
                         (await EnvManager.getVariable(
                             "VRCA_SERVER_SERVICE_CADDY_DOMAIN_API",
@@ -3057,7 +3064,9 @@ if (import.meta.main) {
                         message: "What would you like to configure?\n",
                         pageSize: 15,
                         choices: [
+                            new Separator("========================="),
                             new Separator("=== 🌐 Browser Client ==="),
+                            new Separator("========================="),
                             {
                                 name: `User Browser Client -> Public World API WS URI\n    Current: ${currentWsUri}`,
                                 value: "world-api-ws-uri",
@@ -3094,7 +3103,15 @@ if (import.meta.main) {
                                 description:
                                     "Whether the world API REST Asset uses SSL (HTTPS).",
                             },
+                            {
+                                name: `User Browser Client -> User Components Directory\n    Current: ${currentUserComponentsDir}`,
+                                value: "user-components-dir",
+                                description:
+                                    "Relative path under 'src/user' used by the client to load user components.",
+                            },
+                            new Separator("================================"),
                             new Separator("=== 🔄 Caddy (Reverse Proxy) ==="),
+                            new Separator("================================"),
                             {
                                 name: `Caddy Public World API Domain\n    Current: ${currentCaddyDomainApi}`,
                                 value: "caddy-domain-api",
@@ -3137,7 +3154,9 @@ if (import.meta.main) {
                                 description:
                                     "Configure TLS for the APP domain. Use 'tls internal' for internal CA or leave empty for ACME.",
                             },
+                            new Separator("==================="),
                             new Separator("=== 🗄️ Database ==="),
+                            new Separator("==================="),
                             {
                                 name: `User SQL Seed Directory\n    Current: ${currentUserSqlDir}`,
                                 value: "user-sql-dir",
@@ -3150,7 +3169,9 @@ if (import.meta.main) {
                                 description:
                                     "The directory with the user asset seed files. (Optional)",
                             },
+                            new Separator("========================"),
                             new Separator(">>>>>> ⚙️ Actions <<<<<<"),
+                            new Separator("========================"),
                             {
                                 name: "Show egress points",
                                 value: "show-egress",
@@ -3321,6 +3342,58 @@ if (import.meta.main) {
 
                             BunLogModule({
                                 message: `World API REST Asset URI variable unset (removed from client .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "user-components-dir") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with User Components Directory?\n",
+
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in client .env\n    Current: ${currentUserComponentsDir}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from client .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newDir = await input({
+                                message:
+                                    "Enter User Components Directory path (relative to src/user):",
+                                default: currentUserComponentsDir,
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_DIR",
+                                newDir,
+                                "client",
+                            );
+
+                            BunLogModule({
+                                message: `User Components Directory set to: ${newDir} (persisted to client .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_DIR",
+                                "client",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "User Components Directory variable unset (removed from client .env file)",
                                 type: "success",
                                 suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                                 debug: cliConfiguration.VRCA_CLI_DEBUG,
@@ -4040,8 +4113,11 @@ if (import.meta.main) {
                         console.log(
                             `  World API REST Asset SSL Enabled: ${currentRestAssetUriUsingSsl}`,
                         );
+                        console.log(
+                            `  User Components Directory: ${currentUserComponentsDir}`,
+                        );
 
-                        console.log(`\nCaddy (Reverse Proxy):`);
+                        console.log(`\n\nCaddy (Reverse Proxy):`);
                         console.log(`  API Domain: ${currentCaddyDomainApi}`);
                         console.log(`  App Domain: ${currentCaddyDomainApp}`);
                         console.log(`  Host Bind: ${currentCaddyHostBind}`);
@@ -4058,7 +4134,7 @@ if (import.meta.main) {
                             `  TLS Mode (APP): ${currentCaddyTlsApp || "Default (SSL enabled)"}`,
                         );
 
-                        console.log(`\nCLI Configuration:`);
+                        console.log(`\n\nCLI Configuration:`);
                         console.log(
                             `  User SQL Seed Directory: ${currentUserSqlDir}`,
                         );

@@ -11,7 +11,7 @@ import {
     AclService,
     validateJWT,
 } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.server.auth.module";
-import { Communication } from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
+import { Communication, Auth } from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 import { MetricsCollector } from "./service/metrics";
 
 let legacySuperUserSql: Sql | null = null;
@@ -150,7 +150,7 @@ export class WorldApiWsManager {
             } catch {}
         }
 
-        // Record endpoint metrics for the flush and detect missed ticks
+        // Record endpoint metrics for the flush and tick metrics
         const flushDuration = performance.now() - startTime;
         const rate = this.reflectTickRateMs.get(syncGroup) || 0;
         const success = rate === 0 ? true : flushDuration <= rate;
@@ -161,6 +161,14 @@ export class WorldApiWsManager {
             0,
             success,
         );
+        this.metricsCollector.recordTick(
+            syncGroup,
+            flushDuration,
+            totalMessages,
+            totalRequestBytes,
+            deliveredCount,
+            rate,
+        );
     }
 
     private async startReflectTickLoops() {
@@ -170,17 +178,13 @@ export class WorldApiWsManager {
         // Load sync groups with tick configuration
         try {
             const rows = await superUserSql`
-                SELECT general__sync_group, server__tick__rate_ms, server__tick__state__enabled
+                SELECT general__sync_group, server__tick__rate_ms, server__tick__reflect__enabled
                 FROM auth.sync_groups
             `;
-            for (const row of rows as Array<{
-                general__sync_group: string;
-                server__tick__rate_ms: number;
-                server__tick__state__enabled: boolean;
-            }>) {
+            for (const row of rows as Array<Pick<Auth.SyncGroup.I_SyncGroup, 'general__sync_group' | 'server__tick__rate_ms' | 'server__tick__reflect__enabled'>>) {
                 const syncGroup = row.general__sync_group;
                 const rate = row.server__tick__rate_ms;
-                const enabled = row.server__tick__state__enabled !== false;
+                const enabled = row.server__tick__reflect__enabled !== false;
                 if (!enabled) continue;
                 if (this.reflectIntervals.has(syncGroup)) continue;
                 this.reflectTickRateMs.set(syncGroup, rate);
@@ -189,6 +193,32 @@ export class WorldApiWsManager {
                 }, rate);
                 this.reflectIntervals.set(syncGroup, ticker);
             }
+
+            // Log all sync groups and their reflect tick status
+            const allSyncGroups = rows.map((row: {
+                general__sync_group: string;
+                server__tick__rate_ms: number;
+                server__tick__reflect__enabled: boolean;
+            }) => ({
+                syncGroup: row.general__sync_group,
+                reflectEnabled: row.server__tick__reflect__enabled !== false,
+                tickRateMs: row.server__tick__rate_ms
+            }));
+
+            const activeSyncGroups = Array.from(this.reflectTickRateMs.entries());
+
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Reflect tick loop initialization completed",
+                debug: this.DEBUG,
+                suppress: this.SUPPRESS,
+                type: "info",
+                data: {
+                    allSyncGroups,
+                    activeReflectTicks: activeSyncGroups.length,
+                    totalSyncGroups: allSyncGroups.length
+                },
+            });
         } catch (e) {
             BunLogModule({
                 prefix: LOG_PREFIX,
@@ -723,6 +753,7 @@ export class WorldApiWsManager {
                                     this.metricsCollector.getReflectMetrics(),
                                 endpoints:
                                     this.metricsCollector.getEndpointMetrics(),
+                                ticks: this.metricsCollector.getTickMetrics(),
                                 activity: activityMetrics,
                             }),
                         );
@@ -1012,7 +1043,7 @@ export class WorldApiWsManager {
                         message: "WS message received",
                         suppress: this.SUPPRESS,
                         debug: this.DEBUG,
-                        type: "info",
+                        type: "debug",
                         data: {
                             bytes: new TextEncoder().encode(message).length,
                             sessionId: ws.data.sessionId,
@@ -1049,7 +1080,7 @@ export class WorldApiWsManager {
                             message: "WS message parsed",
                             suppress: this.SUPPRESS,
                             debug: this.DEBUG,
-                            type: "info",
+                            type: "debug",
                             data: {
                                 type: data.type,
                                 requestId: (data as any)?.requestId,
@@ -1181,7 +1212,7 @@ export class WorldApiWsManager {
                                             message: "WS QUERY_REQUEST handled",
                                             debug: this.DEBUG,
                                             suppress: this.SUPPRESS,
-                                            type: "info",
+                                            type: "debug",
                                             data: {
                                                 requestId:
                                                     typedRequest.requestId,
@@ -1446,10 +1477,10 @@ export class WorldApiWsManager {
                                 BunLogModule({
                                     prefix: LOG_PREFIX,
                                     message:
-                                        "WS REFLECT_PUBLISH_REQUEST enqueued for tick (no success ACK)",
+                                        "WS REFLECT_PUBLISH_REQUEST enqueued for tick ",
                                     debug: this.DEBUG,
                                     suppress: this.SUPPRESS,
-                                    type: "info",
+                                    type: "debug",
                                     data: {
                                         syncGroup,
                                         channel,

@@ -167,10 +167,11 @@ ALTER TABLE auth.agent_sessions ADD CONSTRAINT agent_sessions_auth__provider_nam
 CREATE TABLE auth.sync_groups (
     general__sync_group TEXT PRIMARY KEY,
     general__description TEXT,
-    
+
     server__tick__rate_ms INTEGER NOT NULL,
     server__tick__max_tick_count_buffer INTEGER NOT NULL,
-    server__tick__state__enabled BOOLEAN NOT NULL DEFAULT TRUE
+    server__tick__state__enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    server__tick__reflect__enabled BOOLEAN NOT NULL DEFAULT TRUE
 ) INHERITS (auth._template);
 ALTER TABLE auth.sync_groups ENABLE ROW LEVEL SECURITY;
 
@@ -654,14 +655,15 @@ INSERT INTO auth.sync_groups (
     general__sync_group,
     general__description,
     server__tick__state__enabled,
+    server__tick__reflect__enabled,
     server__tick__rate_ms,
     server__tick__max_tick_count_buffer
 ) VALUES
     -- Public zone
-    ('public.REALTIME', 'Public realtime entities', false, 20, 50),
-    ('public.NORMAL', 'Public normal-priority entities', false, 50, 20),
-    ('public.BACKGROUND', 'Public background entities', false, 200, 10),
-    ('public.STATIC', 'Public static entities', false, 500, 5);
+    ('public.REALTIME', 'Public realtime entities', false, true, 20, 50),
+    ('public.NORMAL', 'Public normal-priority entities', false, true, 50, 20),
+    ('public.BACKGROUND', 'Public background entities', false, true, 200, 10),
+    ('public.STATIC', 'Public static entities', false, true, 500, 5);
 
 -- Add system provider to auth_providers table if not exists
 INSERT INTO auth.auth_providers (

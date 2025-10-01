@@ -34,6 +34,22 @@ type EndpointMetrics = {
 };
 type EndpointStats = { [endpoint: string]: EndpointMetrics };
 
+// Tick metrics exposed per sync group
+type TickMetrics = {
+    [syncGroup: string]: {
+        ticksPerSecond: { current: number; average: number; peak: number };
+        durationMs: { averageMs: number; p99Ms: number; p999Ms: number };
+        messagesPerTick: { average: number; p99: number; p999: number };
+        bytesPerTickKB: { averageKB: number; p99KB: number; p999KB: number };
+        deliveredPerTick: { average: number; p99: number; p999: number };
+        totalTicks: number;
+        overruns: number;
+        overrunRate: number;
+        lastDurationMs: number;
+        recentDurationsMs: number[];
+    };
+};
+
 // =================================================================================
 // ================ METRICS COLLECTOR: Efficient Query Performance Tracking ==================
 // =================================================================================
@@ -91,6 +107,19 @@ export class MetricsCollector {
     private endpointTotalTimes: Map<string, number> = new Map();
     private endpointTotalRequestSizes: Map<string, number> = new Map();
     private endpointTotalResponseSizes: Map<string, number> = new Map();
+
+    // Tick (reflect flush) metrics per sync group
+    private tickDurations: Map<string, number[]> = new Map();
+    private tickMessageCounts: Map<string, number[]> = new Map();
+    private tickDeliveredCounts: Map<string, number[]> = new Map();
+    private tickBytes: Map<string, number[]> = new Map();
+    private tickCounts: Map<string, number> = new Map();
+    private tickOverruns: Map<string, number> = new Map();
+    private tickLastDuration: Map<string, number> = new Map();
+    private tickSecondStart: number = Math.floor(Date.now() / 1000);
+    private tickCountsThisSecond: Map<string, number> = new Map();
+    private tickLastSecond: Map<string, number> = new Map();
+    private tickPeakPerSecond: Map<string, number> = new Map();
 
     // Activity tracking (pushers/subscribers) over a sliding time window
     private readonly MAX_ACTIVITY_WINDOW_SEC = 300; // cap at last 5 minutes
@@ -395,6 +424,122 @@ export class MetricsCollector {
         responseSizes.push(responseSizeBytes);
     }
 
+    // ========================= Tick (Reflect Flush) =========================
+    recordTick(
+        syncGroup: string,
+        durationMs: number,
+        totalMessages: number,
+        totalBytes: number,
+        deliveredCount: number,
+        configuredRateMs: number,
+    ) {
+        const nowSecond = Math.floor(Date.now() / 1000);
+        if (nowSecond !== this.tickSecondStart) {
+            for (const [group, count] of this.tickCountsThisSecond.entries()) {
+                this.tickLastSecond.set(group, count);
+                const prevPeak = this.tickPeakPerSecond.get(group) || 0;
+                if (count > prevPeak) this.tickPeakPerSecond.set(group, count);
+                this.tickCountsThisSecond.set(group, 0);
+            }
+            this.tickSecondStart = nowSecond;
+        }
+        this.tickCountsThisSecond.set(
+            syncGroup,
+            (this.tickCountsThisSecond.get(syncGroup) || 0) + 1,
+        );
+
+        const initArray = (map: Map<string, number[]>, key: string): number[] => {
+            if (!map.has(key)) map.set(key, []);
+            return map.get(key)!;
+        };
+
+        const durations = initArray(this.tickDurations, syncGroup);
+        const msgs = initArray(this.tickMessageCounts, syncGroup);
+        const bytes = initArray(this.tickBytes, syncGroup);
+        const delivered = initArray(this.tickDeliveredCounts, syncGroup);
+
+        if (durations.length >= this.MAX_SAMPLES) durations.shift();
+        if (msgs.length >= this.MAX_SAMPLES) msgs.shift();
+        if (bytes.length >= this.MAX_SAMPLES) bytes.shift();
+        if (delivered.length >= this.MAX_SAMPLES) delivered.shift();
+
+        durations.push(durationMs);
+        msgs.push(totalMessages);
+        bytes.push(totalBytes);
+        delivered.push(deliveredCount);
+
+        this.tickCounts.set(syncGroup, (this.tickCounts.get(syncGroup) || 0) + 1);
+        if (configuredRateMs > 0 && durationMs > configuredRateMs) {
+            this.tickOverruns.set(
+                syncGroup,
+                (this.tickOverruns.get(syncGroup) || 0) + 1,
+            );
+        }
+        this.tickLastDuration.set(syncGroup, durationMs);
+    }
+
+    getTickMetrics(): TickMetrics {
+        const result: TickMetrics = {};
+        const uptimeSeconds = (performance.now() - this.startTime) / 1000;
+        const groups = new Set<string>([
+            ...this.tickDurations.keys(),
+            ...this.tickCounts.keys(),
+        ]);
+
+        const percentile = (values: number[], p: number): number =>
+            this.calculatePercentile(values, p);
+
+        for (const group of groups) {
+            const durations = this.tickDurations.get(group) || [];
+            const msgs = this.tickMessageCounts.get(group) || [];
+            const bytes = this.tickBytes.get(group) || [];
+            const delivered = this.tickDeliveredCounts.get(group) || [];
+            const totalTicks = this.tickCounts.get(group) || 0;
+            const overruns = this.tickOverruns.get(group) || 0;
+            const last = this.tickLastDuration.get(group) || 0;
+            const currentPerSecond = this.tickLastSecond.get(group) || 0;
+            const peakPerSecond = this.tickPeakPerSecond.get(group) || 0;
+            const averagePerSecond = totalTicks > 0 && uptimeSeconds > 0 ? totalTicks / uptimeSeconds : 0;
+
+            const avg = (arr: number[]) => (arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
+
+            result[group] = {
+                ticksPerSecond: {
+                    current: currentPerSecond,
+                    average: averagePerSecond,
+                    peak: peakPerSecond,
+                },
+                durationMs: {
+                    averageMs: avg(durations),
+                    p99Ms: percentile(durations, 99),
+                    p999Ms: percentile(durations, 99.9),
+                },
+                messagesPerTick: {
+                    average: avg(msgs),
+                    p99: percentile(msgs, 99),
+                    p999: percentile(msgs, 99.9),
+                },
+                bytesPerTickKB: {
+                    averageKB: avg(bytes) / 1024,
+                    p99KB: percentile(bytes, 99) / 1024,
+                    p999KB: percentile(bytes, 99.9) / 1024,
+                },
+                deliveredPerTick: {
+                    average: avg(delivered),
+                    p99: percentile(delivered, 99),
+                    p999: percentile(delivered, 99.9),
+                },
+                totalTicks,
+                overruns,
+                overrunRate: totalTicks > 0 ? (overruns / totalTicks) * 100 : 0,
+                lastDurationMs: last,
+                recentDurationsMs: durations.slice(-20),
+            };
+        }
+
+        return result;
+    }
+
     private calculatePercentile(values: number[], percentile: number): number {
         if (values.length === 0) return 0;
         const sorted = [...values].sort((a, b) => a - b);
@@ -652,5 +797,18 @@ export class MetricsCollector {
         this.endpointTotalTimes.clear();
         this.endpointTotalRequestSizes.clear();
         this.endpointTotalResponseSizes.clear();
+
+        // Reset tick metrics
+        this.tickDurations.clear();
+        this.tickMessageCounts.clear();
+        this.tickDeliveredCounts.clear();
+        this.tickBytes.clear();
+        this.tickCounts.clear();
+        this.tickOverruns.clear();
+        this.tickLastDuration.clear();
+        this.tickSecondStart = Math.floor(Date.now() / 1000);
+        this.tickCountsThisSecond.clear();
+        this.tickLastSecond.clear();
+        this.tickPeakPerSecond.clear();
     }
 }

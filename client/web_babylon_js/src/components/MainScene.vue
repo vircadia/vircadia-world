@@ -6,14 +6,18 @@
         :physics-error="physicsRef?.physicsError || undefined" :gravity="physicsRef?.gravity"
         :physics-engine-type="physicsRef?.physicsEngineType || ''" :physics-initialized="physicsRef?.physicsInitialized"
         :havok-instance-loaded="physicsRef?.havokInstanceLoaded"
-        :physics-plugin-created="physicsRef?.physicsPluginCreated" :scene="sceneNonNull" :avatar-node="avatarNodeRef"
-        :avatar-skeleton="avatarSkeletonRef" :model-file-name="modelFileNameRef || null" :model-step="avatarModelStep"
-        :model-error="avatarModelError || undefined" :is-talking="isTalkingRef" :talk-level="talkLevelRef"
-        :talk-threshold="talkThresholdRef" :audio-input-devices="audioDevicesRef" :airborne="airborneRef"
-        :vertical-velocity="verticalVelocityRef" :support-state="supportStateRef"
-        :has-touched-ground="hasTouchedGroundRef" :spawn-settling="spawnSettlingRef"
-        :ground-probe-hit="groundProbeHitRef" :ground-probe-distance="groundProbeDistanceRef ?? undefined"
-        :ground-probe-mesh-name="groundProbeMeshNameRef ?? undefined" :sync-metrics="avatarSyncMetrics || undefined"
+        :physics-plugin-created="physicsRef?.physicsPluginCreated" :scene="sceneNonNull"
+        :avatar-node="avatarRef?.avatarNode || null" :avatar-skeleton="avatarRef?.avatarSkeleton || null"
+        :model-file-name="(avatarRef?.modelFileName) || (modelFileNameRef) || null" :model-step="avatarModelStep"
+        :model-error="avatarModelError || undefined" :is-talking="!!(avatarRef?.isTalking)"
+        :talk-level="Number(avatarRef?.talkLevel || 0)" :talk-threshold="Number(avatarRef?.talkThreshold || 0)"
+        :audio-input-devices="(avatarRef?.audioInputDevices) || []" :airborne="!!(avatarRef?.lastAirborne)"
+        :vertical-velocity="Number(avatarRef?.lastVerticalVelocity || 0)"
+        :support-state="avatarRef?.lastSupportState ?? null" :has-touched-ground="!!(avatarRef?.hasTouchedGround)"
+        :spawn-settling="!!(avatarRef?.spawnSettleActive)" :ground-probe-hit="!!(avatarRef?.groundProbeHit)"
+        :ground-probe-distance="avatarRef?.groundProbeDistance ?? undefined"
+        :ground-probe-mesh-name="avatarRef?.groundProbeMeshName ?? undefined"
+        :animation-debug="avatarRef?.animationDebug || null" :sync-metrics="avatarSyncMetrics || undefined"
         :other-avatar-session-ids="otherAvatarsRef?.otherAvatarSessionIds"
         :avatar-data-map="otherAvatarsRef?.avatarDataMap" :position-data-map="otherAvatarsRef?.positionDataMap || {}"
         :rotation-data-map="otherAvatarsRef?.rotationDataMap || {}"
@@ -139,7 +143,8 @@
                                         v-slot="{ isTalking, level: talkLevel, devices: audioDevices, threshold: talkThreshold }">
                                         <BabylonMyAvatar :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
                                             :key-state="controls.keyState" :is-talking="isTalking"
-                                            :talk-level="talkLevel" :physics-enabled="envPhysicsEnabled"
+                                            :talk-level="talkLevel" :talk-threshold="talkThreshold"
+                                            :audio-devices="audioDevices" :physics-enabled="envPhysicsEnabled"
                                             :physics-plugin-name="envPhysicsPluginName" :gravity="sceneGravity"
                                             ref="avatarRef">
                                             <template
@@ -197,23 +202,7 @@
 
                                                 </BabylonMyAvatarModel>
 
-                                                <!-- Sync avatar debug state to RightDrawer -->
-                                                <div style="display: none">
-                                                    {{ syncAvatarTalkingState(isTalking, talkLevel, audioDevices,
-                                                        talkThreshold) }}
-                                                    {{ syncAvatarCoreState(
-                                                        (avatarNode as TransformNode | null) || null,
-                                                        (targetSkeleton) || (avatarSkeleton) || null,
-                                                        airborne,
-                                                        verticalVelocity,
-                                                        supportState,
-                                                        hasTouchedGround,
-                                                        spawnSettling,
-                                                        groundProbeHit,
-                                                        groundProbeDistance ?? undefined,
-                                                        groundProbeMeshName ?? undefined,
-                                                    ) }}
-                                                </div>
+                                                <!-- (removed) syncing via hidden div; RightDrawer now reads via avatarRef -->
                                                 <!-- Camera debug overlay -->
                                                 <BabylonCameraDebugOverlay v-model="cameraDebugOpen"
                                                     :scene="sceneNonNull"
@@ -821,58 +810,7 @@ function onAvatarModelState(payload: {
 }
 
 // Avatar debug state surfaced to RightDrawer
-const avatarNodeRef = ref<TransformNode | null>(null);
-const avatarSkeletonRef = ref<Skeleton | null>(null);
-const isTalkingRef = ref<boolean>(false);
-const talkLevelRef = ref<number>(0);
-const talkThresholdRef = ref<number>(0);
-const audioDevicesRef = ref<{ deviceId: string; label: string }[]>([]);
-const airborneRef = ref<boolean>(false);
-const verticalVelocityRef = ref<number>(0);
-const supportStateRef = ref<number | null>(null);
-const hasTouchedGroundRef = ref<boolean>(false);
-const spawnSettlingRef = ref<boolean>(false);
-const groundProbeHitRef = ref<boolean>(false);
-const groundProbeDistanceRef = ref<number | null>(null);
-const groundProbeMeshNameRef = ref<string | null>(null);
-
-function syncAvatarTalkingState(
-    isTalking: boolean,
-    level: number,
-    devices: { deviceId: string; label: string }[],
-    threshold: number,
-) {
-    isTalkingRef.value = !!isTalking;
-    talkLevelRef.value = Number(level) || 0;
-    talkThresholdRef.value = Number(threshold) || 0;
-    audioDevicesRef.value = Array.isArray(devices) ? devices : [];
-    return "";
-}
-
-function syncAvatarCoreState(
-    avatarNode: TransformNode | null,
-    avatarSkeleton: Skeleton | null,
-    airborne: boolean,
-    verticalVelocity: number,
-    supportState: number | null,
-    hasTouchedGround: boolean,
-    spawnSettling: boolean,
-    groundProbeHit: boolean,
-    groundProbeDistance: number | null | undefined,
-    groundProbeMeshName: string | null | undefined,
-) {
-    avatarNodeRef.value = avatarNode;
-    avatarSkeletonRef.value = avatarSkeleton;
-    airborneRef.value = !!airborne;
-    verticalVelocityRef.value = Number(verticalVelocity) || 0;
-    supportStateRef.value = supportState ?? null;
-    hasTouchedGroundRef.value = !!hasTouchedGround;
-    spawnSettlingRef.value = !!spawnSettling;
-    groundProbeHitRef.value = !!groundProbeHit;
-    groundProbeDistanceRef.value = groundProbeDistance ?? null;
-    groundProbeMeshNameRef.value = groundProbeMeshName ?? null;
-    return "";
-}
+// (removed) mirror refs and sync helpers; RightDrawer now uses avatarRef's exposed state
 
 // Snackbar logic moved into BabylonSnackbar component
 

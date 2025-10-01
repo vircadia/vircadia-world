@@ -67,6 +67,13 @@ const props = defineProps({
     isTalking: { type: Boolean, required: false, default: false },
     // Optional talk amplitude (0..1) from BabylonMyAvatarTalking
     talkLevel: { type: Number, required: false, default: 0 },
+    // Forwarded from MainScene via BabylonMyAvatarTalking slot
+    talkThreshold: { type: Number, required: false, default: 0 },
+    audioDevices: {
+        type: Array as unknown as () => { deviceId: string; label: string }[],
+        required: false,
+        default: () => [],
+    },
     camera: {
         type: Object as () => Camera | null,
         required: false,
@@ -737,7 +744,7 @@ function setMoveAnimationFromDef(def: AnimationDef | undefined): void {
     currentMoveFileName = def.fileName;
     walkAnimation.stop();
     // Jump should be a one-shot; others loop
-    walkAnimation.loopAnimation = def.slMotion === "jump" ? false : true;
+    walkAnimation.loopAnimation = def.slMotion !== "jump";
     walkAnimation.setWeightForAllAnimatables(0);
     walkAnimation.play();
 }
@@ -1258,5 +1265,28 @@ const animationDebug = computed<AnimationDebugData>(() => {
         events: animationEvents.value,
         animations: rows,
     };
+});
+
+// Expose key runtime state for parent access via template refs
+defineExpose({
+    avatarNode,
+    avatarSkeleton,
+    modelFileName,
+    animationDebug,
+    isTalking: computed(() => !!props.isTalking),
+    talkLevel: computed(() => Number(props.talkLevel || 0)),
+    talkThreshold: computed(() => Number(props.talkThreshold || 0)),
+    audioInputDevices: computed(
+        () => (props.audioDevices as { deviceId: string; label: string }[]) || [],
+    ),
+    // physics/state
+    lastAirborne,
+    lastVerticalVelocity,
+    lastSupportState,
+    hasTouchedGround,
+    spawnSettleActive,
+    groundProbeHit,
+    groundProbeDistance,
+    groundProbeMeshName,
 });
 </script>

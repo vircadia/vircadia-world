@@ -1285,6 +1285,11 @@ defineExpose({
     groundProbeHit,
     groundProbeDistance,
     groundProbeMeshName,
+    // flight state and controls
+    isFlying,
+    toggleFlying: () => {
+        isFlying.value = !isFlying.value;
+    },
     // sync configuration
     reflectSyncGroup: computed(() => props.reflectSyncGroup),
     entitySyncGroup: computed(() => props.entitySyncGroup),

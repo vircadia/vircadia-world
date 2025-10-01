@@ -5,6 +5,7 @@
 <script setup lang="ts">
 import type { AnimationGroup, Scene, Skeleton } from "@babylonjs/core";
 import { ImportMeshAsync } from "@babylonjs/core";
+import "@babylonjs/loaders/glTF";
 import type {
     AnimationInfo,
     AnimationState,
@@ -95,74 +96,25 @@ async function load(): Promise<void> {
 
     await waitForSlot();
     try {
-        // Retry a few times on timeout
-        let attempts = 0;
-        const maxAttempts = 3;
-        const fetchOnce = async () => {
-            const response = await (
-                props.vircadiaWorld as any
-            ).client.restAsset.assetGetByKey({ key: props.animation.fileName });
-            if (!response.ok) {
-                let serverError: string | undefined;
-                try {
-                    const ct = response.headers.get("Content-Type") || "";
-                    if (ct.includes("application/json")) {
-                        const j = await response.clone().json();
-                        serverError = (j as any)?.error || JSON.stringify(j);
-                    }
-                } catch { }
-                throw new Error(
-                    `HTTP ${response.status}${serverError ? ` - ${serverError}` : ""}`,
-                );
+        const directUrl = props.vircadiaWorld.client.buildAssetRequestUrl(
+            props.animation.fileName,
+        );
+        const ext = (() => {
+            const e = props.animation.fileName.split(".").pop()?.toLowerCase();
+            switch (e) {
+                case "glb":
+                    return ".glb";
+                case "gltf":
+                    return ".gltf";
+                case "fbx":
+                    return ".fbx";
+                default:
+                    return "";
             }
-            const mimeType =
-                response.headers.get("Content-Type") ||
-                "application/octet-stream";
-            const arrayBuffer = await response.arrayBuffer();
-            const blob = new Blob([arrayBuffer], { type: mimeType });
-            const url = mimeType.startsWith("model/")
-                ? await (async () =>
-                    new Promise<string>((resolve, reject) => {
-                        const reader = new FileReader();
-                        reader.onloadend = () =>
-                            resolve(reader.result as string);
-                        reader.onerror = () =>
-                            reject(
-                                new Error(
-                                    "Failed to convert blob to data URL",
-                                ),
-                            );
-                        reader.readAsDataURL(blob);
-                    }))()
-                : URL.createObjectURL(blob);
-            return { url, mimeType } as const;
-        };
-        let fetched: { url: string; mimeType: string } | null = null;
-        while (!fetched) {
-            try {
-                fetched = await fetchOnce();
-            } catch (e) {
-                attempts++;
-                const msg = e instanceof Error ? e.message : String(e);
-                if (!msg.includes("timeout") || attempts >= maxAttempts)
-                    throw e;
-                await new Promise((r) => setTimeout(r, 200 + attempts * 200));
-            }
-        }
+        })();
 
-        const result = await ImportMeshAsync(fetched.url, props.scene, {
-            pluginExtension: (() => {
-                switch (fetched!.mimeType) {
-                    case "model/gltf-binary":
-                        return ".glb";
-                    case "model/gltf+json":
-                        return ".gltf";
-                    case "model/fbx":
-                        return ".fbx";
-                    default:
-                        return "";
-                }
-            })(),
+        const result = await ImportMeshAsync(directUrl, props.scene, {
+            pluginExtension: ext,
         });
 
         // Debug: report what we loaded

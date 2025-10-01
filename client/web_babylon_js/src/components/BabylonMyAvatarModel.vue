@@ -82,13 +82,14 @@ const targetSkeleton: Ref<Skeleton | null> = ref(null);
 const loadedMeshes: Ref<AbstractMesh[]> = ref([]);
 const hasAttachedToAvatarNode = ref(false);
 
-function extensionFromMime(mimeType: string): string {
-    switch (mimeType) {
-        case "model/gltf-binary":
+function extensionFromFileName(fileName: string): string {
+    const ext = fileName.split(".").pop()?.toLowerCase();
+    switch (ext) {
+        case "glb":
             return ".glb";
-        case "model/gltf+json":
+        case "gltf":
             return ".gltf";
-        case "model/fbx":
+        case "fbx":
             return ".fbx";
         default:
             return "";
@@ -121,46 +122,16 @@ async function loadAndAttach(): Promise<void> {
         details: { fileName: props.modelFileName },
     });
 
-    const response = await vircadiaWorld.client.restAsset.assetGetByKey({
-        key: props.modelFileName,
-    });
-    if (!response.ok) {
-        let serverError: string | undefined;
-        try {
-            const ct = response.headers.get("Content-Type") || "";
-            if (ct.includes("application/json")) {
-                const j = await response.clone().json();
-                serverError = (j as any)?.error || JSON.stringify(j);
-            }
-        } catch { }
-        emit("state", {
-            state: "error",
-            step: "assetLoad",
-            message: `HTTP ${response.status}${serverError ? ` - ${serverError}` : ""}`,
-        });
-        return;
-    }
-    const mimeType =
-        response.headers.get("Content-Type") || "application/octet-stream";
-    const arrayBuffer = await response.arrayBuffer();
-    const blob = new Blob([arrayBuffer], { type: mimeType });
-    const blobUrl = mimeType.startsWith("model/")
-        ? await (async () =>
-            new Promise<string>((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result as string);
-                reader.onerror = () =>
-                    reject(new Error("Failed to convert blob to data URL"));
-                reader.readAsDataURL(blob);
-            }))()
-        : URL.createObjectURL(blob);
+    const directUrl = vircadiaWorld.client.buildAssetRequestUrl(
+        props.modelFileName,
+    );
     emit("state", {
         state: "loading",
         step: "importingMesh",
         details: { fileName: props.modelFileName },
     });
-    const result = await ImportMeshAsync(blobUrl, props.scene, {
-        pluginExtension: extensionFromMime(mimeType),
+    const result = await ImportMeshAsync(directUrl, props.scene, {
+        pluginExtension: extensionFromFileName(props.modelFileName),
     });
     emit("state", {
         state: "loading",

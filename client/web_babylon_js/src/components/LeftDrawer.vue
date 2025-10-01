@@ -1,9 +1,6 @@
 <template>
     <v-navigation-drawer v-model="openModel" location="left" elevation="8" :temporary="$vuetify.display.smAndDown"
         :width="drawerWidth">
-        <v-list density="compact">
-            <v-list-item prepend-icon="mdi-home" title="Home" />
-        </v-list>
         <template #append>
             <v-divider />
             <v-list density="compact" class="px-2 py-2">

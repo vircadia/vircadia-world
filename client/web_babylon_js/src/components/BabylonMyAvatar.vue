@@ -1007,11 +1007,11 @@ onMounted(async () => {
         }
 
         const currentSpeed = walkSpeed.value * (ks.sprint ? 2 : 1);
-        moveDirection.scaleInPlace(currentSpeed);
 
         const m = new Matrix();
         avatarNode.value.rotationQuaternion?.toRotationMatrix(m);
-        const worldMove = Vector3.TransformCoordinates(moveDirection, m);
+        const worldDir = Vector3.TransformCoordinates(moveDirection, m);
+        const worldMove = worldDir.scale(currentSpeed);
 
         const currentVelocity = getVelocity() ?? Vector3.Zero();
         let newVelocity = new Vector3(
@@ -1032,6 +1032,10 @@ onMounted(async () => {
                 avatarNode.value.rotationQuaternion ?? Quaternion.Identity(),
             );
             const support = checkSupport(deltaTime);
+            const justStartedJump =
+                ks.jump &&
+                !prevJumpPressed &&
+                support?.supportedState === CharacterSupportedState.SUPPORTED;
             // State transitions
             if (characterState.value === "IN_AIR") {
                 if (
@@ -1046,7 +1050,7 @@ onMounted(async () => {
                     CharacterSupportedState.SUPPORTED
                 ) {
                     characterState.value = "IN_AIR";
-                } else if (ks.jump && !prevJumpPressed) {
+                } else if (justStartedJump) {
                     characterState.value = "START_JUMP";
                 }
             } else if (characterState.value === "START_JUMP") {
@@ -1055,20 +1059,14 @@ onMounted(async () => {
 
             // Desired velocity by state
             if (characterState.value === "IN_AIR") {
-                const desiredVelocity = moveDirection
-                    .scale(currentSpeed)
-                    .applyRotationQuaternion(
-                        avatarNode.value.rotationQuaternion ??
-                        Quaternion.Identity(),
-                    );
+                const desiredVelocity = worldDir.scale(currentSpeed);
                 // Use controller.calculateMovement to compute horizontal control
                 const outputVelocity =
                     characterController.value?.calculateMovement(
                         deltaTime,
                         forwardWorld,
-                        (support?.averageSurfaceNormal as Vector3) ?? upWorld,
+                        upWorld,
                         currentVelocity,
-                        (support?.averageSurfaceVelocity as Vector3) ??
                         Vector3.Zero(),
                         desiredVelocity,
                         upWorld,
@@ -1097,38 +1095,33 @@ onMounted(async () => {
                 characterState.value === "ON_GROUND" ||
                 characterState.value === "START_JUMP"
             ) {
-                const desiredVelocity = moveDirection
-                    .scale(currentSpeed)
-                    .applyRotationQuaternion(
-                        avatarNode.value.rotationQuaternion ??
-                        Quaternion.Identity(),
-                    );
-                const outputVelocity =
+                const desiredVelocity = worldDir.scale(currentSpeed);
+                let outputVelocity =
                     characterController.value?.calculateMovement(
                         deltaTime,
                         forwardWorld,
-                        upWorld,
+                        (support?.averageSurfaceNormal as Vector3) ?? upWorld,
                         currentVelocity,
+                        (support?.averageSurfaceVelocity as Vector3) ?? Vector3.Zero(),
                         desiredVelocity,
-                        Vector3.Zero(),
                         upWorld,
                     );
                 if (outputVelocity) setVelocity(outputVelocity);
+            }
 
-                if (characterState.value === "START_JUMP") {
-                    const gravityLen = new Vector3(
-                        props.gravity[0],
-                        props.gravity[1],
-                        props.gravity[2],
-                    ).length();
-                    const jumpHeight = Math.max(0.5, jumpSpeed.value * 0.2);
-                    const u = Math.sqrt(2 * gravityLen * jumpHeight);
-                    const curRelVel = currentVelocity.dot(upWorld);
-                    newVelocity = currentVelocity.add(
-                        upWorld.scale(u - curRelVel),
-                    );
-                    setVelocity(newVelocity);
-                }
+            // Apply jump impulse exactly once on jump edge, as a physics impulse
+            if (justStartedJump) {
+                const gravityLen = new Vector3(
+                    props.gravity[0],
+                    props.gravity[1],
+                    props.gravity[2],
+                ).length();
+                const jumpHeight = Math.max(0.5, jumpSpeed.value * 0.2);
+                const u = Math.sqrt(2 * gravityLen * jumpHeight);
+                const baseVel = getVelocity() ?? currentVelocity;
+                const curRelVel = baseVel.dot(new Vector3(0, 1, 0));
+                newVelocity = baseVel.add(new Vector3(0, 1, 0).scale(u - curRelVel));
+                setVelocity(newVelocity);
             }
         }
 

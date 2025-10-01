@@ -26,7 +26,7 @@ export interface I_AzureADConfig {
     clientId: string;
     clientSecret: string;
     tenantId: string;
-    redirectUri: string;
+    redirectUris: string[];
     scopes: string[];
     jwtSecret: string;
     endSessionUrl?: string;
@@ -64,7 +64,7 @@ export interface I_UserInfo {
 // ================ AZURE AD AUTH SERVICE ==================
 // =================================================================================
 
-const LOG_PREFIX = "Azure AD Auth Service";
+const LOG_PREFIX = "Azure Entra ID Auth Service";
 
 export class AzureADAuthService {
     private msalClient: ConfidentialClientApplication;
@@ -117,7 +117,7 @@ export class AzureADAuthService {
         if (!base) return null;
         const url = new URL(base);
         const postRedirect =
-            args?.postLogoutRedirectUri ?? this.config.redirectUri;
+            args?.postLogoutRedirectUri ?? this.config.redirectUris[0];
         if (postRedirect)
             url.searchParams.set("post_logout_redirect_uri", postRedirect);
         if (args?.idTokenHint)
@@ -263,6 +263,44 @@ export class AzureADAuthService {
                 },
             });
 
+            // Resolve redirect URI for this request
+            const dynamicRedirectUri = (() => {
+                try {
+                    if (state.redirectUrl) {
+                        const u = new URL(state.redirectUrl);
+                        return `${u.protocol}//${u.host}`;
+                    }
+                } catch {}
+                return this.config.redirectUris[0];
+            })();
+
+            // // Try ensure the redirect URI is registered in Azure if it's new
+            // try {
+            //     if (
+            //         dynamicRedirectUri &&
+            //         (!this.config.redirectUris ||
+            //             !this.config.redirectUris.includes(dynamicRedirectUri))
+            //     ) {
+            //         await this.ensureRedirectUriRegistered(dynamicRedirectUri);
+            //         this.config.redirectUris = Array.from(
+            //             new Set([
+            //                 ...(this.config.redirectUris || []),
+            //                 dynamicRedirectUri,
+            //             ]),
+            //         );
+            //     }
+            // } catch (e) {
+            //     BunLogModule({
+            //         prefix: LOG_PREFIX,
+            //         message:
+            //             "Failed to ensure redirect URI is registered (continuing)",
+            //         error: e,
+            //         debug: true,
+            //         suppress: false,
+            //         type: "warning",
+            //     });
+            // }
+
             // Store the verifier in cache for later use during token exchange
             const cacheKey = `pkce_verifier_${stateParam}`;
 
@@ -288,7 +326,7 @@ export class AzureADAuthService {
                         expires_at
                     ) VALUES (
                         ${cacheKey},
-                        ${verifier},
+                        ${JSON.stringify({ verifier, redirectUri: dynamicRedirectUri })},
                         NOW() + INTERVAL '10 minutes'
                     )
                     ON CONFLICT (cache_key) DO UPDATE
@@ -351,7 +389,7 @@ export class AzureADAuthService {
 
             const authCodeUrlParameters: AuthorizationUrlRequest = {
                 scopes: this.config.scopes,
-                redirectUri: this.config.redirectUri,
+                redirectUri: dynamicRedirectUri || this.config.redirectUris[0],
                 state: stateParam,
                 codeChallenge: challenge,
                 codeChallengeMethod: "S256",
@@ -550,7 +588,23 @@ export class AzureADAuthService {
                 throw new Error("PKCE verifier not found or expired");
             }
 
-            const verifier = cacheResult.cache_value;
+            let verifier: string = cacheResult.cache_value;
+            let redirectUriForToken: string | undefined;
+            try {
+                const maybe = JSON.parse(cacheResult.cache_value) as {
+                    verifier?: string;
+                    redirectUri?: string;
+                };
+                if (maybe && typeof maybe === "object" && maybe.verifier) {
+                    verifier = String(maybe.verifier);
+                    if (
+                        maybe.redirectUri &&
+                        typeof maybe.redirectUri === "string"
+                    ) {
+                        redirectUriForToken = maybe.redirectUri;
+                    }
+                }
+            } catch {}
 
             BunLogModule({
                 prefix: LOG_PREFIX,
@@ -600,7 +654,7 @@ export class AzureADAuthService {
             const tokenRequest: AuthorizationCodeRequest = {
                 code,
                 scopes: this.config.scopes,
-                redirectUri: this.config.redirectUri,
+                redirectUri: redirectUriForToken || this.config.redirectUris[0],
                 codeVerifier: verifier,
             };
 
@@ -702,6 +756,94 @@ export class AzureADAuthService {
             });
             throw error;
         }
+    }
+
+    /**
+     * Ensure the given redirect URI is registered in the Azure app registration
+     * Uses client credentials with Microsoft Graph
+     */
+    private async ensureRedirectUriRegistered(
+        redirectUri: string,
+    ): Promise<void> {
+        // Quick sanity check
+        try {
+            new URL(redirectUri);
+        } catch {
+            throw new Error("Invalid redirect URI");
+        }
+
+        const token = await this.getGraphAccessToken();
+        const appObjectId = await this.getApplicationObjectIdByAppId(token);
+        if (!appObjectId)
+            throw new Error("Azure application not found for clientId");
+
+        // Fetch current app to read redirectUris
+        const appResp = await fetch(
+            `https://graph.microsoft.com/v1.0/applications/${appObjectId}`,
+            {
+                headers: { Authorization: `Bearer ${token}` },
+            },
+        );
+        if (!appResp.ok)
+            throw new Error(`Failed to fetch application: ${appResp.status}`);
+        const appJson = await appResp.json();
+        const existing: string[] =
+            (appJson?.web?.redirectUris as string[]) || [];
+        if (existing.includes(redirectUri)) return;
+        const next = Array.from(new Set([...existing, redirectUri]));
+
+        const patchResp = await fetch(
+            `https://graph.microsoft.com/v1.0/applications/${appObjectId}`,
+            {
+                method: "PATCH",
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ web: { redirectUris: next } }),
+            },
+        );
+        if (!patchResp.ok)
+            throw new Error(
+                `Failed to update redirect URIs: ${patchResp.status}`,
+            );
+    }
+
+    private async getGraphAccessToken(): Promise<string> {
+        const params = new URLSearchParams({
+            grant_type: "client_credentials",
+            client_id: this.config.clientId,
+            client_secret: this.config.clientSecret,
+            scope: "https://graph.microsoft.com/.default",
+        });
+        const resp = await fetch(
+            `https://login.microsoftonline.com/${this.config.tenantId}/oauth2/v2.0/token`,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                body: params.toString(),
+            },
+        );
+        if (!resp.ok)
+            throw new Error(`Failed to get Graph token: ${resp.status}`);
+        const json = await resp.json();
+        return json.access_token as string;
+    }
+
+    private async getApplicationObjectIdByAppId(
+        accessToken: string,
+    ): Promise<string | null> {
+        const url = `https://graph.microsoft.com/v1.0/applications?$filter=appId eq '${this.config.clientId}'`;
+        const resp = await fetch(url, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!resp.ok)
+            throw new Error(`Failed to query applications: ${resp.status}`);
+        const json = await resp.json();
+        const app = json?.value?.[0];
+        return app?.id || null;
     }
 
     /**
@@ -1045,7 +1187,7 @@ export class AzureADAuthService {
     // async signOut(sessionId: string): Promise<void> { ... }
 
     /**
-     * Link Azure AD account to existing agent
+     * Link Azure Entra ID account to existing agent
      */
     async linkProvider(
         agentId: string,
@@ -1054,7 +1196,7 @@ export class AzureADAuthService {
     ): Promise<void> {
         try {
             await this.db.begin(async (tx) => {
-                // Check if this Azure AD account is already linked to another agent
+                // Check if this Azure Entra ID account is already linked to another agent
                 const [existingLink] = await tx<[{ auth__agent_id: string }]>`
                     SELECT auth__agent_id
                     FROM auth.agent_auth_providers
@@ -1065,7 +1207,7 @@ export class AzureADAuthService {
 
                 if (existingLink) {
                     throw new Error(
-                        "This Azure AD account is already linked to another user",
+                        "This Azure Entra ID account is already linked to another user",
                     );
                 }
 
@@ -1079,7 +1221,7 @@ export class AzureADAuthService {
 
                 if (hasAzure?.count > 0) {
                     throw new Error(
-                        "This account already has an Azure AD provider linked",
+                        "This account already has an Azure Entra ID provider linked",
                     );
                 }
 
@@ -1109,7 +1251,7 @@ export class AzureADAuthService {
 
             BunLogModule({
                 prefix: LOG_PREFIX,
-                message: "Successfully linked Azure AD provider",
+                message: "Successfully linked Azure Entra ID provider",
                 debug: serverConfiguration.VRCA_SERVER_DEBUG,
                 suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
                 type: "debug",
@@ -1118,7 +1260,7 @@ export class AzureADAuthService {
         } catch (error) {
             BunLogModule({
                 prefix: LOG_PREFIX,
-                message: "Failed to link Azure AD provider",
+                message: "Failed to link Azure Entra ID provider",
                 error,
                 debug: serverConfiguration.VRCA_SERVER_DEBUG,
                 suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
@@ -1150,7 +1292,7 @@ export class AzureADAuthService {
             `;
 
             if (!provider) {
-                throw new Error("No Azure AD provider found for user");
+                throw new Error("No Azure Entra ID provider found for user");
             }
 
             // Try to get token from cache using acquireTokenSilent
@@ -1179,7 +1321,7 @@ export class AzureADAuthService {
                 BunLogModule({
                     prefix: LOG_PREFIX,
                     message:
-                        "Silent token acquisition failed, user needs to re-authenticate",
+                        "Silent token acquisition failed, user needs to re-authenticate via Azure Entra ID",
                     error: silentError,
                     debug: serverConfiguration.VRCA_SERVER_DEBUG,
                     suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
@@ -1264,29 +1406,30 @@ export async function createAzureADConfig(db: SQL): Promise<I_AzureADConfig> {
         if (!config) {
             BunLogModule({
                 prefix: LOG_PREFIX,
-                message: "No Azure AD configuration found in database",
+                message: "No Azure Entra ID configuration found in database",
                 debug: true,
                 suppress: false,
                 type: "error",
             });
             throw new Error(
-                "Azure AD provider configuration not found or disabled",
+                "Azure Entra ID provider configuration not found or disabled",
             );
         }
 
         // Extract tenant ID from metadata or use a default
         const tenantId = config.provider__metadata?.tenant_id || "common";
-        const redirectUri = config.provider__redirect_uris?.[0];
 
-        if (!redirectUri) {
-            throw new Error("No redirect URI configured for Azure AD provider");
+        if (!config.provider__redirect_uris.length) {
+            throw new Error(
+                "No redirect URI configured for Azure Entra ID provider",
+            );
         }
 
         return {
             clientId: config.provider__client_id,
             clientSecret: config.provider__client_secret,
             tenantId: tenantId,
-            redirectUri: redirectUri,
+            redirectUris: config.provider__redirect_uris,
             scopes: config.provider__scope || [
                 "openid",
                 "profile",
@@ -1303,7 +1446,7 @@ export async function createAzureADConfig(db: SQL): Promise<I_AzureADConfig> {
     } catch (error) {
         BunLogModule({
             prefix: LOG_PREFIX,
-            message: "Failed to load Azure AD configuration",
+            message: "Failed to load Azure Entra ID configuration",
             error,
             debug: serverConfiguration.VRCA_SERVER_DEBUG,
             suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,

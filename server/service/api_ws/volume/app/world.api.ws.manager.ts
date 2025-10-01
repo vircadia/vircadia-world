@@ -2,17 +2,17 @@
 // ============================== IMPORTS, TYPES, AND INTERFACES ==============================
 // =============================================================================
 
-import type { Server, ServerWebSocket } from "bun";
-import type { SQL } from "bun";
+import type { Server, ServerWebSocket, SQL } from "bun";
+import type { Sql } from "postgres";
 import { serverConfiguration } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
 import { BunLogModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
 import { BunPostgresClientModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
 import {
-    Communication,
-} from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
-import { AclService, validateJWT } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.server.auth.module";
+    AclService,
+    validateJWT,
+} from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.server.auth.module";
+import { Communication } from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 import { MetricsCollector } from "./service/metrics";
-import type { Sql } from "postgres";
 
 let legacySuperUserSql: Sql | null = null;
 // Note: legacyProxyUserSql kept for parity, currently unused
@@ -57,11 +57,17 @@ export class WorldApiWsManager {
     private metricsCollector = new MetricsCollector();
 
     // Reflect tick-gated delivery queue: syncGroup -> channel -> fromSessionId -> payload JSON string
-    private reflectQueues: Map<string, Map<string, Map<string, string>>> = new Map();
+    private reflectQueues: Map<string, Map<string, Map<string, string>>> =
+        new Map();
     private reflectIntervals: Map<string, Timer> = new Map();
     private reflectTickRateMs: Map<string, number> = new Map();
 
-    private enqueueReflect(syncGroup: string, channel: string, fromSessionId: string, payloadJson: string) {
+    private enqueueReflect(
+        syncGroup: string,
+        channel: string,
+        fromSessionId: string,
+        payloadJson: string,
+    ) {
         let groupMap = this.reflectQueues.get(syncGroup);
         if (!groupMap) {
             groupMap = new Map();
@@ -87,10 +93,12 @@ export class WorldApiWsManager {
         let totalMessages = 0;
         let totalRequestBytes = 0;
 
-        for (const [channel, channelMap] of groupMap) {
+        for (const [, channelMap] of groupMap) {
             for (const [_fromSession, payloadJson] of channelMap) {
                 totalMessages++;
-                totalRequestBytes += new TextEncoder().encode(payloadJson).length;
+                totalRequestBytes += new TextEncoder().encode(
+                    payloadJson,
+                ).length;
                 const perMessageStart = performance.now();
                 let deliveredForMessage = 0;
                 // Deliver to all sessions that can read the sync group
@@ -159,7 +167,11 @@ export class WorldApiWsManager {
                 SELECT general__sync_group, server__tick__rate_ms, server__tick__state__enabled
                 FROM auth.sync_groups
             `;
-            for (const row of rows as Array<{ general__sync_group: string; server__tick__rate_ms: number; server__tick__state__enabled: boolean }>) {
+            for (const row of rows as Array<{
+                general__sync_group: string;
+                server__tick__rate_ms: number;
+                server__tick__state__enabled: boolean;
+            }>) {
                 const syncGroup = row.general__sync_group;
                 const rate = row.server__tick__rate_ms;
                 const enabled = row.server__tick__state__enabled !== false;
@@ -205,20 +217,22 @@ export class WorldApiWsManager {
     private aclService: AclService | null = null;
 
     private CONNECTION_HEARTBEAT_INTERVAL = 500;
-    private DEBUG =  serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_DEBUG;
-    private SUPPRESS = serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_SUPPRESS;
+    private DEBUG =
+        serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_DEBUG;
+    private SUPPRESS =
+        serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_SUPPRESS;
 
     // Add CORS helper function
     private addCorsHeaders(response: Response, req: Request): Response {
         const origin = req.headers.get("origin");
 
         // Auto-allow localhost and 127.0.0.1 on any port for development
-        const isLocalhost = origin && (
-            origin.startsWith("http://localhost:") ||
-            origin.startsWith("https://localhost:") ||
-            origin.startsWith("http://127.0.0.1:") ||
-            origin.startsWith("https://127.0.0.1:")
-        );
+        const isLocalhost =
+            origin &&
+            (origin.startsWith("http://localhost:") ||
+                origin.startsWith("https://localhost:") ||
+                origin.startsWith("http://127.0.0.1:") ||
+                origin.startsWith("https://127.0.0.1:"));
 
         // Build allowed origins for production
         const allowedOrigins = [
@@ -394,17 +408,23 @@ export class WorldApiWsManager {
                     // Validate-upgrade diagnostic endpoint: must run BEFORE DB guard to return JSON even if DB is down
                     if (
                         url.pathname.startsWith(
-                            Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.path,
+                            Communication.REST.Endpoint.WS_UPGRADE_VALIDATE
+                                .path,
                         ) &&
-                        req.method === Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.method
+                        req.method ===
+                            Communication.REST.Endpoint.WS_UPGRADE_VALIDATE
+                                .method
                     ) {
-                        const token = url.searchParams.get("token") || undefined;
-                        const provider = url.searchParams.get("provider") || undefined;
+                        const token =
+                            url.searchParams.get("token") || undefined;
+                        const provider =
+                            url.searchParams.get("provider") || undefined;
 
                         if (!superUserSql || !proxyUserSql) {
                             const response = Response.json(
                                 Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createError(
-                                    Communication.REST.E_ErrorCode.WS_UPGRADE_DB_UNAVAILABLE,
+                                    Communication.REST.E_ErrorCode
+                                        .WS_UPGRADE_DB_UNAVAILABLE,
                                     "Database unavailable",
                                 ),
                             );
@@ -414,7 +434,8 @@ export class WorldApiWsManager {
                         if (!token) {
                             const response = Response.json(
                                 Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createError(
-                                    Communication.REST.E_ErrorCode.WS_UPGRADE_MISSING_TOKEN,
+                                    Communication.REST.E_ErrorCode
+                                        .WS_UPGRADE_MISSING_TOKEN,
                                     "Missing authentication token",
                                 ),
                             );
@@ -424,7 +445,8 @@ export class WorldApiWsManager {
                         if (!provider) {
                             const response = Response.json(
                                 Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createError(
-                                    Communication.REST.E_ErrorCode.WS_UPGRADE_MISSING_PROVIDER,
+                                    Communication.REST.E_ErrorCode
+                                        .WS_UPGRADE_MISSING_PROVIDER,
                                     "Missing authentication provider",
                                 ),
                             );
@@ -446,7 +468,8 @@ export class WorldApiWsManager {
                         } catch (e) {
                             const response = Response.json(
                                 Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createError(
-                                    Communication.REST.E_ErrorCode.WS_UPGRADE_JWT_INVALID,
+                                    Communication.REST.E_ErrorCode
+                                        .WS_UPGRADE_JWT_INVALID,
                                     `JWT validation failed: ${e instanceof Error ? e.message : String(e)}`,
                                 ),
                             );
@@ -456,24 +479,27 @@ export class WorldApiWsManager {
                         if (!jwtValidationResult.isValid) {
                             const response = Response.json(
                                 Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createError(
-                                    Communication.REST.E_ErrorCode.WS_UPGRADE_JWT_INVALID,
-                                    jwtValidationResult.errorReason || "JWT validation failed",
+                                    Communication.REST.E_ErrorCode
+                                        .WS_UPGRADE_JWT_INVALID,
+                                    jwtValidationResult.errorReason ||
+                                        "JWT validation failed",
                                 ),
                             );
                             return this.addCorsHeaders(response, req);
                         }
 
                         try {
-                            const sessionValidationResult = await superUserSql<[
-                                { agent_id: string }
-                            ]>`
+                            const sessionValidationResult = await superUserSql<
+                                [{ agent_id: string }]
+                            >`
                                 SELECT * FROM auth.validate_session_id(${jwtValidationResult.sessionId}::UUID) as agent_id
                             `;
 
                             if (!sessionValidationResult[0].agent_id) {
                                 const response = Response.json(
                                     Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createError(
-                                        Communication.REST.E_ErrorCode.WS_UPGRADE_SESSION_INVALID,
+                                        Communication.REST.E_ErrorCode
+                                            .WS_UPGRADE_SESSION_INVALID,
                                         `Invalid session ID: ${jwtValidationResult.sessionId}`,
                                     ),
                                 );
@@ -482,7 +508,8 @@ export class WorldApiWsManager {
                         } catch (error) {
                             const response = Response.json(
                                 Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createError(
-                                    Communication.REST.E_ErrorCode.WS_UPGRADE_SESSION_INVALID,
+                                    Communication.REST.E_ErrorCode
+                                        .WS_UPGRADE_SESSION_INVALID,
                                     `Session validation failed for session ${jwtValidationResult.sessionId}: ${error instanceof Error ? error.message : String(error)}`,
                                 ),
                             );
@@ -495,7 +522,8 @@ export class WorldApiWsManager {
                         if (existingSession) {
                             const response = Response.json(
                                 Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createError(
-                                    Communication.REST.E_ErrorCode.WS_UPGRADE_SESSION_ALREADY_CONNECTED,
+                                    Communication.REST.E_ErrorCode
+                                        .WS_UPGRADE_SESSION_ALREADY_CONNECTED,
                                     `Session ${jwtValidationResult.sessionId} is already connected`,
                                 ),
                             );
@@ -503,22 +531,28 @@ export class WorldApiWsManager {
                         }
 
                         const okResponse = Response.json(
-                            Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createSuccess({
-                                ok: true,
-                                reason: "OK",
-                                details: {
-                                    agentId: jwtValidationResult.agentId,
-                                    sessionId: jwtValidationResult.sessionId,
+                            Communication.REST.Endpoint.WS_UPGRADE_VALIDATE.createSuccess(
+                                {
+                                    ok: true,
+                                    reason: "OK",
+                                    details: {
+                                        agentId: jwtValidationResult.agentId,
+                                        sessionId:
+                                            jwtValidationResult.sessionId,
+                                    },
                                 },
-                            }),
+                            ),
                         );
                         return this.addCorsHeaders(okResponse, req);
                     }
 
                     // Handle stats (moved to official REST endpoint)
                     if (
-                        url.pathname.startsWith(Communication.REST.Endpoint.WS_STATS.path) &&
-                        req.method === Communication.REST.Endpoint.WS_STATS.method
+                        url.pathname.startsWith(
+                            Communication.REST.Endpoint.WS_STATS.path,
+                        ) &&
+                        req.method ===
+                            Communication.REST.Endpoint.WS_STATS.method
                     ) {
                         BunLogModule({
                             prefix: LOG_PREFIX,
@@ -529,8 +563,10 @@ export class WorldApiWsManager {
                             data: {
                                 pathname: url.pathname,
                                 method: req.method,
-                                expectedPath: Communication.REST.Endpoint.WS_STATS.path,
-                                expectedMethod: Communication.REST.Endpoint.WS_STATS.method,
+                                expectedPath:
+                                    Communication.REST.Endpoint.WS_STATS.path,
+                                expectedMethod:
+                                    Communication.REST.Endpoint.WS_STATS.method,
                             },
                         });
 
@@ -610,28 +646,34 @@ export class WorldApiWsManager {
 
                         BunLogModule({
                             prefix: LOG_PREFIX,
-                            message: "Stats endpoint gathering database pool stats",
+                            message:
+                                "Stats endpoint gathering database pool stats",
                             debug: this.DEBUG,
                             suppress: this.SUPPRESS,
                             type: "debug",
                         });
 
-                        let poolStats;
+                        let poolStats: Record<string, unknown>;
                         try {
-                            const poolPromise = BunPostgresClientModule.getInstance({
-                                debug: this.DEBUG,
-                                suppress: this.SUPPRESS,
-                            }).getDatabasePoolStats();
+                            const poolPromise =
+                                BunPostgresClientModule.getInstance({
+                                    debug: this.DEBUG,
+                                    suppress: this.SUPPRESS,
+                                }).getDatabasePoolStats();
 
                             // Prevent stats endpoint from hanging if DB is slow/unavailable
-                            poolStats = await Promise.race([
+                            poolStats = (await Promise.race([
                                 poolPromise,
-                                new Promise((resolve) => setTimeout(() => resolve({}), 750)),
-                            ]);
+                                new Promise<Record<string, unknown>>(
+                                    (resolve) =>
+                                        setTimeout(() => resolve({}), 750),
+                                ),
+                            ])) as Record<string, unknown>;
 
                             BunLogModule({
                                 prefix: LOG_PREFIX,
-                                message: "Stats endpoint database pool stats gathered",
+                                message:
+                                    "Stats endpoint database pool stats gathered",
                                 debug: this.DEBUG,
                                 suppress: this.SUPPRESS,
                                 type: "debug",
@@ -639,7 +681,8 @@ export class WorldApiWsManager {
                         } catch (error) {
                             BunLogModule({
                                 prefix: LOG_PREFIX,
-                                message: "Stats endpoint error gathering pool stats",
+                                message:
+                                    "Stats endpoint error gathering pool stats",
                                 debug: this.DEBUG,
                                 suppress: this.SUPPRESS,
                                 type: "error",
@@ -667,8 +710,10 @@ export class WorldApiWsManager {
                                 memory: systemMetrics.memory,
                                 cpu: systemMetrics.cpu,
                                 queries: this.metricsCollector.getMetrics(),
-                                reflect: this.metricsCollector.getReflectMetrics(),
-                                endpoints: this.metricsCollector.getEndpointMetrics(),
+                                reflect:
+                                    this.metricsCollector.getReflectMetrics(),
+                                endpoints:
+                                    this.metricsCollector.getEndpointMetrics(),
                             }),
                         );
 
@@ -695,7 +740,8 @@ export class WorldApiWsManager {
                             type: "debug",
                             data: {
                                 corsResponseStatus: corsResponse.status,
-                                corsResponseHeaders: corsResponse.headers.toJSON(),
+                                corsResponseHeaders:
+                                    corsResponse.headers.toJSON(),
                             },
                         });
 
@@ -704,8 +750,12 @@ export class WorldApiWsManager {
 
                     // Handle WebSocket upgrade
                     if (
-                        url.pathname.startsWith(Communication.REST.Endpoint.WS_UPGRADE_REQUEST.path) && 
-                        req.method === Communication.REST.Endpoint.WS_UPGRADE_REQUEST.method
+                        url.pathname.startsWith(
+                            Communication.REST.Endpoint.WS_UPGRADE_REQUEST.path,
+                        ) &&
+                        req.method ===
+                            Communication.REST.Endpoint.WS_UPGRADE_REQUEST
+                                .method
                     ) {
                         const upgradeStart = performance.now();
                         const url = new URL(req.url);
@@ -731,8 +781,7 @@ export class WorldApiWsManager {
                                 prefix: LOG_PREFIX,
                                 message: "No token found in query parameters",
                                 debug: this.DEBUG,
-                                suppress:
-                                    this.SUPPRESS,
+                                suppress: this.SUPPRESS,
                                 type: "info",
                             });
                             return new Response(
@@ -750,8 +799,7 @@ export class WorldApiWsManager {
                                 message:
                                     "No provider found in query parameters",
                                 debug: this.DEBUG,
-                                suppress:
-                                    this.SUPPRESS,
+                                suppress: this.SUPPRESS,
                                 type: "info",
                             });
                             return new Response("Provider required", {
@@ -772,8 +820,7 @@ export class WorldApiWsManager {
                                 prefix: LOG_PREFIX,
                                 message: `Token JWT validation failed: ${jwtValidationResult.errorReason}`,
                                 debug: this.DEBUG,
-                                suppress:
-                                    this.SUPPRESS,
+                                suppress: this.SUPPRESS,
                                 type: "info",
                                 data: {
                                     jwtMs,
@@ -813,8 +860,7 @@ export class WorldApiWsManager {
                                 prefix: LOG_PREFIX,
                                 message: "WS Upgrade Session validation failed",
                                 debug: this.DEBUG,
-                                suppress:
-                                    this.SUPPRESS,
+                                suppress: this.SUPPRESS,
                                 type: "info",
                                 data: {
                                     sessionMs,
@@ -826,11 +872,14 @@ export class WorldApiWsManager {
                         }
 
                         // Enforce hard limit: only one active WebSocket per session
-                        const existingSession = this.activeSessions.get(jwtValidationResult.sessionId);
+                        const existingSession = this.activeSessions.get(
+                            jwtValidationResult.sessionId,
+                        );
                         if (existingSession) {
                             BunLogModule({
                                 prefix: LOG_PREFIX,
-                                message: "Rejecting WebSocket upgrade: session already connected",
+                                message:
+                                    "Rejecting WebSocket upgrade: session already connected",
                                 debug: this.DEBUG,
                                 suppress: this.SUPPRESS,
                                 type: "info",
@@ -853,7 +902,8 @@ export class WorldApiWsManager {
                                 sessionId: jwtValidationResult.sessionId,
                             },
                         });
-                        const upgradeAttemptMs = performance.now() - upgradeAttemptStart;
+                        const upgradeAttemptMs =
+                            performance.now() - upgradeAttemptStart;
 
                         if (!upgraded) {
                             BunLogModule({
@@ -869,8 +919,7 @@ export class WorldApiWsManager {
                                     upgradeAttemptMs,
                                     totalMs: performance.now() - upgradeStart,
                                 },
-                                suppress:
-                                    this.SUPPRESS,
+                                suppress: this.SUPPRESS,
                                 type: "error",
                             });
                             return new Response("WebSocket upgrade failed", {
@@ -999,16 +1048,23 @@ export class WorldApiWsManager {
                         });
 
                         // Zod-validate incoming WS message
-                        const parsed = Communication.WebSocket.Z.AnyMessage.safeParse(data);
+                        const parsed =
+                            Communication.WebSocket.Z.AnyMessage.safeParse(
+                                data,
+                            );
                         if (!parsed.success) {
                             const requestId = (data as any)?.requestId ?? "";
                             const errorMessageData = {
-                                type: Communication.WebSocket.MessageType.GENERAL_ERROR_RESPONSE,
+                                type: Communication.WebSocket.MessageType
+                                    .GENERAL_ERROR_RESPONSE,
                                 timestamp: Date.now(),
                                 requestId,
                                 errorMessage: "Invalid message format",
                             };
-                            const errorParsed = Communication.WebSocket.Z.GeneralErrorResponse.safeParse(errorMessageData);
+                            const errorParsed =
+                                Communication.WebSocket.Z.GeneralErrorResponse.safeParse(
+                                    errorMessageData,
+                                );
                             if (errorParsed.success) {
                                 ws.send(JSON.stringify(errorParsed.data));
                             }
@@ -1028,12 +1084,16 @@ export class WorldApiWsManager {
 
                         if (!sessionToken || !sessionId || !session) {
                             const errorMessageData = {
-                                type: Communication.WebSocket.MessageType.GENERAL_ERROR_RESPONSE,
+                                type: Communication.WebSocket.MessageType
+                                    .GENERAL_ERROR_RESPONSE,
                                 timestamp: Date.now(),
                                 requestId: parsed.data.requestId,
                                 errorMessage: "Invalid session",
                             };
-                            const errorParsed = Communication.WebSocket.Z.GeneralErrorResponse.safeParse(errorMessageData);
+                            const errorParsed =
+                                Communication.WebSocket.Z.GeneralErrorResponse.safeParse(
+                                    errorMessageData,
+                                );
                             if (errorParsed.success) {
                                 ws.send(JSON.stringify(errorParsed.data));
                             }
@@ -1078,20 +1138,28 @@ export class WorldApiWsManager {
                                         );
 
                                         const responseData = {
-                                            type: Communication.WebSocket.MessageType.QUERY_RESPONSE,
+                                            type: Communication.WebSocket
+                                                .MessageType.QUERY_RESPONSE,
                                             timestamp: Date.now(),
                                             requestId: typedRequest.requestId,
-                                            errorMessage: typedRequest.errorMessage,
+                                            errorMessage:
+                                                typedRequest.errorMessage,
                                             result: results,
                                         };
 
-                                        const responseParsed = Communication.WebSocket.Z.QueryResponse.safeParse(responseData);
+                                        const responseParsed =
+                                            Communication.WebSocket.Z.QueryResponse.safeParse(
+                                                responseData,
+                                            );
                                         if (!responseParsed.success) {
-                                            throw new Error(`Invalid query response format: ${responseParsed.error.message}`);
+                                            throw new Error(
+                                                `Invalid query response format: ${responseParsed.error.message}`,
+                                            );
                                         }
 
-                                        const responseString =
-                                            JSON.stringify(responseParsed.data);
+                                        const responseString = JSON.stringify(
+                                            responseParsed.data,
+                                        );
                                         responseSize = new TextEncoder().encode(
                                             responseString,
                                         ).length;
@@ -1105,8 +1173,11 @@ export class WorldApiWsManager {
                                             suppress: this.SUPPRESS,
                                             type: "info",
                                             data: {
-                                                requestId: typedRequest.requestId,
-                                                durationMs: performance.now() - receivedAt,
+                                                requestId:
+                                                    typedRequest.requestId,
+                                                durationMs:
+                                                    performance.now() -
+                                                    receivedAt,
                                                 requestSize,
                                                 responseSize,
                                             },
@@ -1122,8 +1193,7 @@ export class WorldApiWsManager {
                                     BunLogModule({
                                         message: `Query failed: ${errorMessage}`,
                                         debug: this.DEBUG,
-                                        suppress:
-                                            this.SUPPRESS,
+                                        suppress: this.SUPPRESS,
                                         type: "error",
                                         prefix: LOG_PREFIX,
                                         data: {
@@ -1132,21 +1202,29 @@ export class WorldApiWsManager {
                                         },
                                     });
 
-                                    const errorResponseData = {
-                                        type: Communication.WebSocket.MessageType.QUERY_RESPONSE,
-                                        timestamp: Date.now(),
-                                        requestId: typedRequest.requestId,
-                                        errorMessage,
-                                        result: [],
-                                    };
+                                    const errorResponseData: Communication.WebSocket.QueryResponseMessage =
+                                        {
+                                            type: Communication.WebSocket
+                                                .MessageType.QUERY_RESPONSE,
+                                            timestamp: Date.now(),
+                                            requestId: typedRequest.requestId,
+                                            errorMessage,
+                                            result: [],
+                                        };
 
-                                    const errorResponseParsed = Communication.WebSocket.Z.QueryResponse.safeParse(errorResponseData);
+                                    const errorResponseParsed =
+                                        Communication.WebSocket.Z.QueryResponse.safeParse(
+                                            errorResponseData,
+                                        );
                                     if (!errorResponseParsed.success) {
-                                        throw new Error(`Invalid error response format: ${errorResponseParsed.error.message}`);
+                                        throw new Error(
+                                            `Invalid error response format: ${errorResponseParsed.error.message}`,
+                                        );
                                     }
 
-                                    const errorResponseString =
-                                        JSON.stringify(errorResponseParsed.data);
+                                    const errorResponseString = JSON.stringify(
+                                        errorResponseParsed.data,
+                                    );
                                     responseSize = new TextEncoder().encode(
                                         errorResponseString,
                                     ).length;
@@ -1161,7 +1239,8 @@ export class WorldApiWsManager {
                                         type: "info",
                                         data: {
                                             requestId: typedRequest.requestId,
-                                            durationMs: performance.now() - receivedAt,
+                                            durationMs:
+                                                performance.now() - receivedAt,
                                             requestSize,
                                             responseSize,
                                             errorMessage,
@@ -1195,8 +1274,8 @@ export class WorldApiWsManager {
                                 const syncGroup = (req.syncGroup || "").trim();
                                 const channel = (req.channel || "").trim();
                                 if (!syncGroup || !channel) {
-                                const endTime = performance.now();
-                                const duration = endTime - startTime;
+                                    const endTime = performance.now();
+                                    const duration = endTime - startTime;
                                     this.metricsCollector.recordReflect(
                                         duration,
                                         messageSize,
@@ -1204,42 +1283,59 @@ export class WorldApiWsManager {
                                         false, // acknowledged
                                     );
                                     const errorAckData = {
-                                        type: Communication.WebSocket.MessageType.REFLECT_ACK_RESPONSE,
+                                        type: Communication.WebSocket
+                                            .MessageType.REFLECT_ACK_RESPONSE,
                                         timestamp: Date.now(),
                                         requestId: req.requestId,
-                                        errorMessage: "Missing syncGroup or channel",
+                                        errorMessage:
+                                            "Missing syncGroup or channel",
                                         syncGroup,
                                         channel,
                                         delivered: 0,
                                     };
-                                    const errorAckParsed = Communication.WebSocket.Z.ReflectAckResponse.safeParse(errorAckData);
+                                    const errorAckParsed =
+                                        Communication.WebSocket.Z.ReflectAckResponse.safeParse(
+                                            errorAckData,
+                                        );
                                     if (errorAckParsed.success) {
-                                        ws.send(JSON.stringify(errorAckParsed.data));
+                                        ws.send(
+                                            JSON.stringify(errorAckParsed.data),
+                                        );
                                     }
                                     BunLogModule({
                                         prefix: LOG_PREFIX,
-                                        message: "WS REFLECT_PUBLISH_REQUEST validation failed",
+                                        message:
+                                            "WS REFLECT_PUBLISH_REQUEST validation failed",
                                         debug: this.DEBUG,
                                         suppress: this.SUPPRESS,
                                         type: "info",
                                         data: {
                                             syncGroup,
                                             channel,
-                                            durationMs: performance.now() - receivedAt,
+                                            durationMs:
+                                                performance.now() - receivedAt,
                                         },
                                     });
                                     break;
                                 }
 
                                 // ensure ACL warm for sender
-                                if (!this.aclService?.isWarmed(session.agentId)) {
-                                    await this.warmAgentAcl(session.agentId).catch(
-                                        () => {},
-                                    );
+                                if (
+                                    !this.aclService?.isWarmed(session.agentId)
+                                ) {
+                                    await this.warmAgentAcl(
+                                        session.agentId,
+                                    ).catch(() => {});
                                 }
 
                                 // authorize: sender must be able to write (update or insert) the target group
-                                if (!this.canUpdate(session.agentId, syncGroup) && !this.canInsert(session.agentId, syncGroup)) {
+                                if (
+                                    !this.canUpdate(
+                                        session.agentId,
+                                        syncGroup,
+                                    ) &&
+                                    !this.canInsert(session.agentId, syncGroup)
+                                ) {
                                     const endTime = performance.now();
                                     const duration = endTime - startTime;
                                     this.metricsCollector.recordReflect(
@@ -1249,37 +1345,49 @@ export class WorldApiWsManager {
                                         false, // acknowledged
                                     );
                                     const unauthorizedAckData = {
-                                        type: Communication.WebSocket.MessageType.REFLECT_ACK_RESPONSE,
+                                        type: Communication.WebSocket
+                                            .MessageType.REFLECT_ACK_RESPONSE,
                                         timestamp: Date.now(),
                                         requestId: req.requestId,
-                                        errorMessage: "Not authorized (update or insert required)",
+                                        errorMessage:
+                                            "Not authorized (update or insert required)",
                                         syncGroup,
                                         channel,
                                         delivered: 0,
                                     };
-                                    const unauthorizedAckParsed = Communication.WebSocket.Z.ReflectAckResponse.safeParse(unauthorizedAckData);
+                                    const unauthorizedAckParsed =
+                                        Communication.WebSocket.Z.ReflectAckResponse.safeParse(
+                                            unauthorizedAckData,
+                                        );
                                     if (unauthorizedAckParsed.success) {
-                                        ws.send(JSON.stringify(unauthorizedAckParsed.data));
+                                        ws.send(
+                                            JSON.stringify(
+                                                unauthorizedAckParsed.data,
+                                            ),
+                                        );
                                     }
                                     BunLogModule({
                                         prefix: LOG_PREFIX,
-                                        message: "WS REFLECT_PUBLISH_REQUEST unauthorized - update or insert required",
+                                        message:
+                                            "WS REFLECT_PUBLISH_REQUEST unauthorized - update or insert required",
                                         debug: this.DEBUG,
                                         suppress: this.SUPPRESS,
                                         type: "info",
                                         data: {
                                             syncGroup,
                                             channel,
-                                            durationMs: performance.now() - receivedAt,
+                                            durationMs:
+                                                performance.now() - receivedAt,
                                         },
                                     });
                                     break;
                                 }
 
                                 // enqueue for tick-gated fanout
-                                let delivered = 0;
+                                // let delivered = 0; // not used in fire-and-forget path
                                 const deliveryData = {
-                                    type: Communication.WebSocket.MessageType.REFLECT_MESSAGE_DELIVERY,
+                                    type: Communication.WebSocket.MessageType
+                                        .REFLECT_MESSAGE_DELIVERY,
                                     timestamp: Date.now(),
                                     requestId: "",
                                     errorMessage: null,
@@ -1289,42 +1397,39 @@ export class WorldApiWsManager {
                                     fromSessionId: session.sessionId,
                                 };
 
-                                const deliveryParsed = Communication.WebSocket.Z.ReflectDelivery.safeParse(deliveryData);
+                                const deliveryParsed =
+                                    Communication.WebSocket.Z.ReflectDelivery.safeParse(
+                                        deliveryData,
+                                    );
                                 if (!deliveryParsed.success) {
-                                    throw new Error(`Invalid delivery message format: ${deliveryParsed.error.message}`);
+                                    throw new Error(
+                                        `Invalid delivery message format: ${deliveryParsed.error.message}`,
+                                    );
                                 }
                                 const delivery = deliveryParsed.data;
                                 const payloadStr = JSON.stringify(delivery);
 
-                                this.enqueueReflect(syncGroup, channel, session.sessionId, payloadStr);
-
-                                const successAckData = {
-                                    type: Communication.WebSocket.MessageType.REFLECT_ACK_RESPONSE,
-                                    timestamp: Date.now(),
-                                    requestId: req.requestId,
-                                    errorMessage: null,
+                                this.enqueueReflect(
                                     syncGroup,
                                     channel,
-                                    delivered: 0,
-                                };
+                                    session.sessionId,
+                                    payloadStr,
+                                );
 
-                                const successAckParsed = Communication.WebSocket.Z.ReflectAckResponse.safeParse(successAckData);
-                                if (!successAckParsed.success) {
-                                    throw new Error(`Invalid success ack format: ${successAckParsed.error.message}`);
-                                }
-
+                                // In fire-and-forget mode, do NOT send success ACKs.
+                                // Only record endpoint metrics using request size; response size is zero.
                                 this.recordEndpointMetrics(
                                     "WS_REFLECT_PUBLISH_REQUEST",
                                     startTime,
                                     messageSize,
-                                    new TextEncoder().encode(JSON.stringify(successAckParsed.data)).length,
+                                    0,
                                     true,
                                 );
 
-                                ws.send(JSON.stringify(successAckParsed.data));
                                 BunLogModule({
                                     prefix: LOG_PREFIX,
-                                    message: "WS REFLECT_PUBLISH_REQUEST enqueued for tick",
+                                    message:
+                                        "WS REFLECT_PUBLISH_REQUEST enqueued for tick (no success ACK)",
                                     debug: this.DEBUG,
                                     suppress: this.SUPPRESS,
                                     type: "info",
@@ -1332,23 +1437,32 @@ export class WorldApiWsManager {
                                         syncGroup,
                                         channel,
                                         delivered: 0,
-                                        durationMs: performance.now() - receivedAt,
+                                        durationMs:
+                                            performance.now() - receivedAt,
                                     },
                                 });
                                 break;
                             }
 
-
                             default: {
-                                const unsupportedErrorData = {
-                                    type: Communication.WebSocket.MessageType.GENERAL_ERROR_RESPONSE,
-                                    timestamp: Date.now(),
-                                    requestId: parsed.data.requestId,
-                                    errorMessage: `Unsupported message type: ${parsed.data.type}`,
-                                };
-                                const unsupportedErrorParsed = Communication.WebSocket.Z.GeneralErrorResponse.safeParse(unsupportedErrorData);
+                                const unsupportedErrorData: Communication.WebSocket.GeneralErrorResponseMessage =
+                                    {
+                                        type: Communication.WebSocket
+                                            .MessageType.GENERAL_ERROR_RESPONSE,
+                                        timestamp: Date.now(),
+                                        requestId: parsed.data.requestId,
+                                        errorMessage: `Unsupported message type: ${parsed.data.type}`,
+                                    };
+                                const unsupportedErrorParsed =
+                                    Communication.WebSocket.Z.GeneralErrorResponse.safeParse(
+                                        unsupportedErrorData,
+                                    );
                                 if (unsupportedErrorParsed.success) {
-                                    session.ws.send(JSON.stringify(unsupportedErrorParsed.data));
+                                    session.ws.send(
+                                        JSON.stringify(
+                                            unsupportedErrorParsed.data,
+                                        ),
+                                    );
                                 }
                                 BunLogModule({
                                     prefix: LOG_PREFIX,
@@ -1359,7 +1473,8 @@ export class WorldApiWsManager {
                                     data: {
                                         type: parsed.data.type,
                                         requestId: parsed.data.requestId,
-                                        durationMs: performance.now() - receivedAt,
+                                        durationMs:
+                                            performance.now() - receivedAt,
                                     },
                                 });
                             }
@@ -1372,7 +1487,10 @@ export class WorldApiWsManager {
                             suppress: this.SUPPRESS,
                             type: "info",
                             data: {
-                                error: error instanceof Error ? error.message : String(error),
+                                error:
+                                    error instanceof Error
+                                        ? error.message
+                                        : String(error),
                                 elapsedMs: performance.now() - receivedAt,
                             },
                         });
@@ -1420,7 +1538,8 @@ export class WorldApiWsManager {
 
                     // Send session info to client via WebSocket using typed message
                     const sessionInfoData = {
-                        type: Communication.WebSocket.MessageType.SESSION_INFO_RESPONSE,
+                        type: Communication.WebSocket.MessageType
+                            .SESSION_INFO_RESPONSE,
                         timestamp: Date.now(),
                         requestId: "",
                         errorMessage: null,
@@ -1428,7 +1547,10 @@ export class WorldApiWsManager {
                         sessionId: sessionData.sessionId,
                     };
 
-                    const sessionInfoParsed = Communication.WebSocket.Z.SessionInfo.safeParse(sessionInfoData);
+                    const sessionInfoParsed =
+                        Communication.WebSocket.Z.SessionInfo.safeParse(
+                            sessionInfoData,
+                        );
                     if (sessionInfoParsed.success) {
                         ws.send(JSON.stringify(sessionInfoParsed.data));
                     }
@@ -1438,7 +1560,6 @@ export class WorldApiWsManager {
                     code: number,
                     reason: string,
                 ) => {
-                    
                     const session = this.activeSessions.get(ws.data.sessionId);
                     if (session) {
                         // Clean up both maps

@@ -847,6 +847,81 @@ export class AzureADAuthService {
                             })}
                         )
                     `;
+
+                    // Apply default sync-group roles for Azure provider (mirror anon flow)
+                    try {
+                        const [providerConfig] = await tx<[
+                            {
+                                provider__default_permissions__can_read: string[];
+                                provider__default_permissions__can_insert: string[];
+                                provider__default_permissions__can_update: string[];
+                                provider__default_permissions__can_delete: string[];
+                            },
+                        ]>`
+                            SELECT 
+                                provider__default_permissions__can_read,
+                                provider__default_permissions__can_insert,
+                                provider__default_permissions__can_update,
+                                provider__default_permissions__can_delete
+                            FROM auth.auth_providers
+                            WHERE provider__name = 'azure'
+                              AND provider__enabled = true
+                        `;
+
+                        if (providerConfig) {
+                            const allGroups = new Set([
+                                ...providerConfig.provider__default_permissions__can_read,
+                                ...providerConfig.provider__default_permissions__can_insert,
+                                ...providerConfig.provider__default_permissions__can_update,
+                                ...providerConfig.provider__default_permissions__can_delete,
+                            ]);
+
+                            for (const group of allGroups) {
+                                await tx`
+                                    INSERT INTO auth.agent_sync_group_roles (
+                                        auth__agent_id,
+                                        group__sync,
+                                        permissions__can_read,
+                                        permissions__can_insert,
+                                        permissions__can_update,
+                                        permissions__can_delete
+                                    ) VALUES (
+                                        ${agentId}::UUID,
+                                        ${group},
+                                        ${providerConfig.provider__default_permissions__can_read.includes(group)},
+                                        ${providerConfig.provider__default_permissions__can_insert.includes(group)},
+                                        ${providerConfig.provider__default_permissions__can_update.includes(group)},
+                                        ${providerConfig.provider__default_permissions__can_delete.includes(group)}
+                                    )
+                                    ON CONFLICT (auth__agent_id, group__sync)
+                                    DO UPDATE SET
+                                        permissions__can_read = ${providerConfig.provider__default_permissions__can_read.includes(group)},
+                                        permissions__can_insert = ${providerConfig.provider__default_permissions__can_insert.includes(group)},
+                                        permissions__can_update = ${providerConfig.provider__default_permissions__can_update.includes(group)},
+                                        permissions__can_delete = ${providerConfig.provider__default_permissions__can_delete.includes(group)}
+                                `;
+                            }
+
+                            BunLogModule({
+                                prefix: LOG_PREFIX,
+                                message: "Applied default Azure sync-group roles to new user",
+                                debug: true,
+                                suppress: false,
+                                type: "debug",
+                                data: { agentId, groupsCount: allGroups.size },
+                            });
+                        }
+                    } catch (roleError) {
+                        BunLogModule({
+                            prefix: LOG_PREFIX,
+                            message: "Failed to apply default Azure sync-group roles",
+                            error: roleError,
+                            debug: true,
+                            suppress: false,
+                            type: "warning",
+                            data: { agentId },
+                        });
+                    }
                 }
 
                 // Fetch the actual profile data from database and provider metadata

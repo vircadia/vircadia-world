@@ -864,6 +864,7 @@ export class WorldApiWsManager {
                                 suppress: this.SUPPRESS,
                                 type: "info",
                                 data: {
+                                    provider,
                                     jwtMs,
                                 },
                             });

@@ -93,7 +93,7 @@ export class WorldApiWsManager {
         let totalMessages = 0;
         let totalRequestBytes = 0;
 
-        for (const [, channelMap] of groupMap) {
+        for (const [channel, channelMap] of groupMap) {
             for (const [_fromSession, payloadJson] of channelMap) {
                 totalMessages++;
                 totalRequestBytes += new TextEncoder().encode(
@@ -110,6 +110,12 @@ export class WorldApiWsManager {
                             );
                             deliveredCount++;
                             deliveredForMessage++;
+                            // Record subscriber activity for this delivery
+                            this.metricsCollector.recordSubscriberDelivery(
+                                s.sessionId,
+                                syncGroup,
+                                channel,
+                            );
                         } catch {
                             // ignore send errors per recipient
                         }
@@ -639,6 +645,9 @@ export class WorldApiWsManager {
                         );
 
                         // Gather stats information
+                        const windowSecParam = url.searchParams.get("windowSec");
+                        const windowSec = windowSecParam ? Math.max(1, Math.min(300, Number(windowSecParam))) : 60;
+                        const activityMetrics = this.metricsCollector.getActivityMetrics(windowSec);
                         const systemMetrics =
                             this.metricsCollector.getSystemMetrics(
                                 !!superUserSql && !!proxyUserSql,
@@ -714,6 +723,7 @@ export class WorldApiWsManager {
                                     this.metricsCollector.getReflectMetrics(),
                                 endpoints:
                                     this.metricsCollector.getEndpointMetrics(),
+                                activity: activityMetrics,
                             }),
                         );
 
@@ -1408,6 +1418,13 @@ export class WorldApiWsManager {
                                 }
                                 const delivery = deliveryParsed.data;
                                 const payloadStr = JSON.stringify(delivery);
+
+                                // Record pusher activity for this publish
+                                this.metricsCollector.recordPusher(
+                                    session.sessionId,
+                                    syncGroup,
+                                    channel,
+                                );
 
                                 this.enqueueReflect(
                                     syncGroup,

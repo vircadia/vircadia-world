@@ -2,7 +2,37 @@
 // ============================== IMPORTS, TYPES, AND INTERFACES ==============================
 // =============================================================================
 
-import type { Service } from "../../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
+// Local metric interfaces to avoid coupling to schema package types
+type SystemMetrics = { current: number; average: number; p99: number; p999: number };
+type QueryMetrics = {
+    queriesPerSecond: { current: number; average: number; peak: number };
+    queryCompletionTime: { averageMs: number; p99Ms: number; p999Ms: number };
+    requestSize: { averageKB: number; p99KB: number; p999KB: number };
+    responseSize: { averageKB: number; p99KB: number; p999KB: number };
+    totalQueries: number;
+    failedQueries: number;
+    successRate: number;
+};
+type ReflectMetrics = {
+    messagesPerSecond: { current: number; average: number; peak: number };
+    messageDeliveryTime: { averageMs: number; p99Ms: number; p999Ms: number };
+    messageSize: { averageKB: number; p99KB: number; p999KB: number };
+    totalPublished: number;
+    totalDelivered: number;
+    totalAcknowledged: number;
+    failedDeliveries: number;
+    successRate: number;
+};
+type EndpointMetrics = {
+    requestsPerSecond: { current: number; average: number; peak: number };
+    requestCompletionTime: { averageMs: number; p99Ms: number; p999Ms: number };
+    requestSize: { averageKB: number; p99KB: number; p999KB: number };
+    responseSize: { averageKB: number; p99KB: number; p999KB: number };
+    totalRequests: number;
+    failedRequests: number;
+    successRate: number;
+};
+type EndpointStats = { [endpoint: string]: EndpointMetrics };
 
 // =================================================================================
 // ================ METRICS COLLECTOR: Efficient Query Performance Tracking ==================
@@ -61,6 +91,21 @@ export class MetricsCollector {
     private endpointTotalTimes: Map<string, number> = new Map();
     private endpointTotalRequestSizes: Map<string, number> = new Map();
     private endpointTotalResponseSizes: Map<string, number> = new Map();
+
+    // Activity tracking (pushers/subscribers) over a sliding time window
+    private readonly MAX_ACTIVITY_WINDOW_SEC = 300; // cap at last 5 minutes
+    private pusherActivityEvents: Array<{
+        t: number;
+        sessionId: string;
+        syncGroup: string;
+        channel: string;
+    }> = [];
+    private subscriberActivityEvents: Array<{
+        t: number;
+        sessionId: string;
+        syncGroup: string;
+        channel: string;
+    }> = [];
 
     // Circular buffers for percentile calculations (keep last 1000 samples)
     private readonly MAX_SAMPLES = 1000;
@@ -145,6 +190,92 @@ export class MetricsCollector {
         this.memoryRss.push(memoryUsage.rss);
         this.connectionCounts.push(connectionCount);
         this.dbConnectionCounts.push(dbConnectionCount);
+    }
+
+    // ========================= Activity (Pushers/Subscribers) =========================
+    private pruneActivity(nowMs: number) {
+        const threshold = nowMs - this.MAX_ACTIVITY_WINDOW_SEC * 1000;
+
+        // Pusher events
+        let idx = 0;
+        while (idx < this.pusherActivityEvents.length && this.pusherActivityEvents[idx].t < threshold) {
+            idx++;
+        }
+        if (idx > 0) {
+            this.pusherActivityEvents.splice(0, idx);
+        }
+
+        // Subscriber events
+        idx = 0;
+        while (idx < this.subscriberActivityEvents.length && this.subscriberActivityEvents[idx].t < threshold) {
+            idx++;
+        }
+        if (idx > 0) {
+            this.subscriberActivityEvents.splice(0, idx);
+        }
+    }
+
+    recordPusher(sessionId: string, syncGroup: string, channel: string) {
+        const now = Date.now();
+        this.pruneActivity(now);
+        this.pusherActivityEvents.push({ t: now, sessionId, syncGroup, channel });
+    }
+
+    recordSubscriberDelivery(sessionId: string, syncGroup: string, channel: string) {
+        const now = Date.now();
+        this.pruneActivity(now);
+        this.subscriberActivityEvents.push({ t: now, sessionId, syncGroup, channel });
+    }
+
+    getActivityMetrics(windowSec: number = 60): {
+        windowSec: number;
+        pushers: {
+            totalActiveSessions: number;
+            totalActiveChannels: number;
+            perSessionChannelCounts: Record<string, number>;
+        };
+        subscribers: {
+            totalActiveSessions: number;
+            totalActiveChannels: number;
+            perSessionChannelCounts: Record<string, number>;
+        };
+    } {
+        const clampedWindowSec = Math.max(1, Math.min(windowSec, this.MAX_ACTIVITY_WINDOW_SEC));
+        const now = Date.now();
+        const threshold = now - clampedWindowSec * 1000;
+
+        // Helper to aggregate
+        const aggregate = (events: Array<{ t: number; sessionId: string; syncGroup: string; channel: string }>) => {
+            const sessionToChannelKeys: Map<string, Set<string>> = new Map();
+            const allChannelKeys: Set<string> = new Set();
+
+            for (let i = events.length - 1; i >= 0; i--) {
+                const ev = events[i];
+                if (ev.t < threshold) break;
+                const channelKey = `${ev.syncGroup}:${ev.channel}`;
+                allChannelKeys.add(channelKey);
+                if (!sessionToChannelKeys.has(ev.sessionId)) {
+                    sessionToChannelKeys.set(ev.sessionId, new Set());
+                }
+                sessionToChannelKeys.get(ev.sessionId)!.add(channelKey);
+            }
+
+            const perSessionChannelCounts: Record<string, number> = {};
+            for (const [sessionId, set] of sessionToChannelKeys.entries()) {
+                perSessionChannelCounts[sessionId] = set.size;
+            }
+
+            return {
+                totalActiveSessions: sessionToChannelKeys.size,
+                totalActiveChannels: allChannelKeys.size,
+                perSessionChannelCounts,
+            };
+        };
+
+        const pushers = aggregate(this.pusherActivityEvents);
+        const subscribers = aggregate(this.subscriberActivityEvents);
+
+        return { windowSec: clampedWindowSec, pushers, subscribers };
     }
 
     recordReflect(
@@ -271,7 +402,7 @@ export class MetricsCollector {
         return sorted[Math.max(0, index)];
     }
 
-    private createSystemMetrics(values: number[]): Service.API.Common.I_SystemMetrics {
+    private createSystemMetrics(values: number[]): SystemMetrics {
         const current = values.length > 0 ? values[values.length - 1] : 0;
         const average =
             values.length > 0
@@ -320,7 +451,7 @@ export class MetricsCollector {
         };
     }
 
-    getMetrics(): Service.API.Common.I_QueryMetrics {
+    getMetrics(): QueryMetrics {
         const averageQueryTime =
             this.queryCount > 0 ? this.totalQueryTime / this.queryCount : 0;
         const averageRequestSize =
@@ -368,7 +499,7 @@ export class MetricsCollector {
         };
     }
 
-    getReflectMetrics(): Service.API.Common.I_ReflectMetrics {
+    getReflectMetrics(): ReflectMetrics {
         const averageReflectTime =
             this.reflectCount > 0
                 ? this.totalReflectTime / this.reflectCount
@@ -417,8 +548,8 @@ export class MetricsCollector {
         };
     }
 
-    getEndpointMetrics(): Service.API.Common.I_EndpointStats {
-        const result: Service.API.Common.I_EndpointStats = {};
+    getEndpointMetrics(): EndpointStats {
+        const result: EndpointStats = {};
         const uptimeSeconds = (performance.now() - this.startTime) / 1000;
 
         for (const [endpoint, count] of this.endpointRequestCounts.entries()) {

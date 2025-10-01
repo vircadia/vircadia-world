@@ -5,6 +5,7 @@
             <v-tab value="environment" prepend-icon="mdi-earth">Environment</v-tab>
             <v-tab value="physics" prepend-icon="mdi-atom-variant">Physics</v-tab>
             <v-tab value="avatar" prepend-icon="mdi-account">Avatar</v-tab>
+            <v-tab value="otherAvatars" prepend-icon="mdi-account-group">Other Avatars</v-tab>
         </v-tabs>
         <v-divider />
         <v-window v-model="tabModel">
@@ -291,7 +292,7 @@
                                         <v-expansion-panel-text>
                                             <div v-for="v in supportedVisemeNames" :key="v" class="text-caption mb-1">
                                                 <span class="font-mono" :class="{ 'text-success': hasMorph(v) }">{{ v
-                                                    }}</span>
+                                                }}</span>
                                                 <v-progress-linear v-if="influenceOf(v) !== null" :height="6"
                                                     :rounded="true" :striped="true" color="primary"
                                                     :model-value="Math.round(100 * (influenceOf(v) || 0))"
@@ -309,7 +310,7 @@
                                                     <span class="font-mono">{{ t.name }}</span>
                                                     <span class="text-caption">avg {{ t.avg.toFixed(3) }} — min {{
                                                         t.min.toFixed(3)
-                                                        }} — max {{ t.max.toFixed(3) }} (n={{ t.count }})</span>
+                                                    }} — max {{ t.max.toFixed(3) }} (n={{ t.count }})</span>
                                                 </div>
                                                 <v-progress-linear :model-value="Math.round(100 * t.avg)" :height="6"
                                                     color="secondary" rounded class="mt-1" />
@@ -342,6 +343,138 @@
                                 <div class="font-mono text-caption">
                                     <div v-for="(line, idx) in animDebug.events.slice(-30)" :key="idx">{{ line }}</div>
                                 </div>
+                            </v-list>
+                        </v-window-item>
+                    </v-window>
+                </div>
+            </v-window-item>
+            <v-window-item value="otherAvatars">
+                <div class="px-2 py-2">
+                    <v-tabs v-model="otherAvatarsTab" density="compact">
+                        <v-tab value="overview">Overview</v-tab>
+                        <v-tab value="reflect">Reflect</v-tab>
+                        <v-tab value="sessions">Sessions</v-tab>
+                        <v-tab value="errors">Errors</v-tab>
+                    </v-tabs>
+                    <v-window v-model="otherAvatarsTab" class="mt-3">
+                        <v-window-item value="overview">
+                            <v-row dense>
+                                <v-col cols="12" md="6">
+                                    <v-list density="compact" class="bg-transparent">
+                                        <v-list-subheader>Overview</v-list-subheader>
+                                        <v-list-item title="# other avatars"
+                                            :subtitle="String((props.otherAvatarSessionIds || []).length)" />
+                                        <v-list-item title="Any loading"
+                                            :subtitle="String(!!props.otherAvatarsIsLoading)" />
+                                        <v-list-item title="Discovery rows"
+                                            :subtitle="String(props.otherAvatarsPollStats?.discovery?.rows || 0)" />
+                                        <v-list-item title="Discovery last ms"
+                                            :subtitle="String(props.otherAvatarsPollStats?.discovery?.lastDurationMs || 0)" />
+                                        <v-list-item title="Discovery timeouts/errors"
+                                            :subtitle="`${props.otherAvatarsPollStats?.discovery?.timeouts || 0} / ${props.otherAvatarsPollStats?.discovery?.errors || 0}`" />
+                                    </v-list>
+                                </v-col>
+                                <v-col cols="12" md="6">
+                                    <v-list density="compact" class="bg-transparent">
+                                        <v-list-subheader>Latest Discovery (UTC)</v-list-subheader>
+                                        <div v-if="(props.otherAvatarSessionIds || []).length === 0"
+                                            class="text-caption">-</div>
+                                        <div v-else class="text-caption">
+                                            <div v-for="sid in (props.otherAvatarSessionIds || []).slice(0, 20)"
+                                                :key="sid" class="mb-1">
+                                                <span class="font-mono">{{ shortId(sid) }}</span>
+                                                <template v-if="props.lastPollTimestamps">
+                                                    — last joints: <span class="font-mono">{{
+                                                        tsLabel(props.lastPollTimestamps?.[sid]) }}</span>
+                                                </template>
+                                            </div>
+                                        </div>
+                                    </v-list>
+                                </v-col>
+                            </v-row>
+                        </v-window-item>
+                        <v-window-item value="reflect">
+                            <v-list density="compact" class="bg-transparent">
+                                <v-list-subheader>Reflect (Deliveries)</v-list-subheader>
+                                <div v-if="(props.otherAvatarSessionIds || []).length === 0" class="text-caption">-
+                                </div>
+                                <div v-else class="text-caption">
+                                    <div v-for="sid in (props.otherAvatarSessionIds || []).slice(0, 20)" :key="sid"
+                                        class="mb-1">
+                                        <span class="font-mono">{{ shortId(sid) }}</span>
+                                        <template
+                                            v-if="props.lastBasePollTimestamps || props.lastCameraPollTimestamps || props.lastPollTimestamps">
+                                            — base: <span class="font-mono">{{
+                                                tsLabel(props.lastBasePollTimestamps?.[sid]) }}</span>
+                                            — camera: <span class="font-mono">{{
+                                                tsLabel(props.lastCameraPollTimestamps?.[sid]) }}</span>
+                                            — joints: <span class="font-mono">{{
+                                                tsLabel(props.lastPollTimestamps?.[sid]) }}</span>
+                                        </template>
+                                    </div>
+                                </div>
+                            </v-list>
+                        </v-window-item>
+                        <v-window-item value="sessions">
+                            <v-expansion-panels variant="accordion" density="compact">
+                                <v-expansion-panel v-for="sid in (props.otherAvatarSessionIds || [])" :key="sid">
+                                    <v-expansion-panel-title>
+                                        <div class="d-flex align-center justify-space-between w-100">
+                                            <span class="font-mono">{{ sid }}</span>
+                                            <span class="text-caption">
+                                                model: <span class="font-mono">{{
+                                                    (props.avatarDataMap?.[sid]?.modelFileName) || '-'
+                                                    }}</span>
+                                                — joints: {{ jointCount(sid) }}
+                                            </span>
+                                        </div>
+                                    </v-expansion-panel-title>
+                                    <v-expansion-panel-text>
+                                        <v-row dense>
+                                            <v-col cols="12" md="6">
+                                                <v-list density="compact" class="bg-transparent">
+                                                    <v-list-subheader>Base</v-list-subheader>
+                                                    <v-list-item title="sessionId"
+                                                        :subtitle="(props.avatarDataMap?.[sid]?.sessionId) || '-'" />
+                                                    <v-list-item title="modelFileName"
+                                                        :subtitle="(props.avatarDataMap?.[sid]?.modelFileName) || '-'" />
+                                                    <v-list-item title="camera (alpha, beta, radius)"
+                                                        :subtitle="otherCameraLabel(props.avatarDataMap?.[sid]?.cameraOrientation)" />
+                                                    <v-list-item title="position"
+                                                        :subtitle="positionLabel(props.positionDataMap?.[sid])" />
+                                                    <v-list-item title="rotation (quat)"
+                                                        :subtitle="rotationLabel(props.rotationDataMap?.[sid])" />
+                                                </v-list>
+                                            </v-col>
+                                            <v-col cols="12" md="6">
+                                                <v-list density="compact" class="bg-transparent">
+                                                    <v-list-subheader>Joints</v-list-subheader>
+                                                    <div v-if="jointCount(sid) === 0" class="text-caption">-</div>
+                                                    <div v-else class="text-caption">
+                                                        <div v-for="jn in jointNames(sid).slice(0, 20)" :key="jn"
+                                                            class="mb-1">
+                                                            <span class="font-mono">{{ jn }}</span>
+                                                            <span class="ml-2">{{ jointPosRotLabel(sid, jn) }}</span>
+                                                        </div>
+                                                    </div>
+                                                </v-list>
+                                            </v-col>
+                                        </v-row>
+                                    </v-expansion-panel-text>
+                                </v-expansion-panel>
+                            </v-expansion-panels>
+                        </v-window-item>
+                        <v-window-item value="errors">
+                            <v-list density="compact" class="bg-transparent">
+                                <v-list-subheader>Discovery Errors</v-list-subheader>
+                                <v-list-item title="Timeouts"
+                                    :subtitle="String(props.otherAvatarsPollStats?.discovery?.timeouts || 0)" />
+                                <v-list-item title="Errors"
+                                    :subtitle="String(props.otherAvatarsPollStats?.discovery?.errors || 0)" />
+                                <v-list-item title="Last error at"
+                                    :subtitle="tsLabel(props.otherAvatarsPollStats?.discovery?.lastErrorAt || null)" />
+                                <v-list-item title="Last error"
+                                    :subtitle="props.otherAvatarsPollStats?.discovery?.lastError || '-'" />
                             </v-list>
                         </v-window-item>
                     </v-window>
@@ -389,6 +522,17 @@ const props = defineProps({
     groundProbeMeshName: { type: String, default: null },
     syncMetrics: { type: Object, default: null },
     animationDebug: { type: Object, default: null },
+    // Other Avatars debug props
+    otherAvatarSessionIds: { type: Array, default: () => [] },
+    avatarDataMap: { type: Object, default: () => ({}) },
+    positionDataMap: { type: Object, default: () => ({}) },
+    rotationDataMap: { type: Object, default: () => ({}) },
+    jointDataMap: { type: Object, default: () => ({}) },
+    lastPollTimestamps: { type: Object, default: undefined },
+    lastBasePollTimestamps: { type: Object, default: undefined },
+    lastCameraPollTimestamps: { type: Object, default: undefined },
+    otherAvatarsIsLoading: { type: Boolean, default: false },
+    otherAvatarsPollStats: { type: Object, default: undefined },
 });
 
 const emit = defineEmits(["update:open", "update:tab"]);
@@ -404,6 +548,8 @@ const tabModel = computed({
 
 // Avatar tab internal state and computed helpers (ported from BabylonMyAvatarDebugOverlay)
 const avatarTab = ref("overview");
+// Other Avatars internal tab state
+const otherAvatarsTab = ref("overview");
 
 const modelReady = computed(
     () => !props.modelError && !!props.modelFileName && !!props.scene,
@@ -646,6 +792,52 @@ const animDebug = computed(
 
 function boolLabel(v) {
     return v ? "yes" : "no";
+}
+
+// Other Avatars helpers (ported from BabylonOtherAvatarsDebugOverlay)
+function shortId(id) {
+    if (!id) return "-";
+    return id.length > 10 ? `${id.slice(0, 6)}…${id.slice(-4)}` : id;
+}
+function tsLabel(d) {
+    if (!d) return "-";
+    try {
+        return new Date(d).toISOString().split("T")[1].split(".")[0];
+    } catch {
+        return String(d);
+    }
+}
+function positionLabel(p) {
+    if (!p) return "-";
+    return `x:${Number(p.x).toFixed(2)} y:${Number(p.y).toFixed(2)} z:${Number(p.z).toFixed(2)}`;
+}
+function rotationLabel(r) {
+    if (!r) return "-";
+    return `x:${Number(r.x).toFixed(2)} y:${Number(r.y).toFixed(2)} z:${Number(r.z).toFixed(2)} w:${Number(r.w).toFixed(2)}`;
+}
+function otherCameraLabel(c) {
+    if (!c) return "-";
+    return `a:${Number(c.alpha).toFixed(2)} b:${Number(c.beta).toFixed(2)} r:${Number(c.radius).toFixed(2)}`;
+}
+function jointCount(sessionId) {
+    const m = props.jointDataMap?.[sessionId];
+    return m && typeof m.size === "number" ? m.size : 0;
+}
+function jointNames(sessionId) {
+    const m = props.jointDataMap?.[sessionId];
+    if (!m) return [];
+    const out = [];
+    for (const [k] of m) out.push(k);
+    return out.sort();
+}
+function jointPosRotLabel(sessionId, jointName) {
+    const m = props.jointDataMap?.[sessionId];
+    const j = m?.get ? m.get(jointName) : null;
+    if (!j || !j.position) return "";
+    const px = Number(j.position.x).toFixed(2);
+    const py = Number(j.position.y).toFixed(2);
+    const pz = Number(j.position.z).toFixed(2);
+    return `pos(${px},${py},${pz})`;
 }
 </script>
 

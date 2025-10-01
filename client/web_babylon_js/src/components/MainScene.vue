@@ -13,7 +13,16 @@
         :vertical-velocity="verticalVelocityRef" :support-state="supportStateRef"
         :has-touched-ground="hasTouchedGroundRef" :spawn-settling="spawnSettlingRef"
         :ground-probe-hit="groundProbeHitRef" :ground-probe-distance="groundProbeDistanceRef ?? undefined"
-        :ground-probe-mesh-name="groundProbeMeshNameRef ?? undefined" :sync-metrics="avatarSyncMetrics || undefined" />
+        :ground-probe-mesh-name="groundProbeMeshNameRef ?? undefined" :sync-metrics="avatarSyncMetrics || undefined"
+        :other-avatar-session-ids="otherAvatarsRef?.otherAvatarSessionIds"
+        :avatar-data-map="otherAvatarsRef?.avatarDataMap" :position-data-map="otherAvatarsRef?.positionDataMap || {}"
+        :rotation-data-map="otherAvatarsRef?.rotationDataMap || {}"
+        :joint-data-map="otherAvatarsRef?.jointDataMap || {}"
+        :last-poll-timestamps="otherAvatarsRef?.lastPollTimestamps || {}"
+        :last-base-poll-timestamps="otherAvatarsRef?.lastBasePollTimestamps || {}"
+        :last-camera-poll-timestamps="otherAvatarsRef?.lastCameraPollTimestamps || {}"
+        :other-avatars-is-loading="otherAvatarsRef?.areOtherAvatarsLoading"
+        :other-avatars-poll-stats="otherAvatarsRef?.discoveryStats" />
     <VircadiaWorldProvider :autoConnect="clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT"
         @auth-denied="onAuthDenied($event)"
         v-slot="{ vircadiaWorld, connectionInfo, connectionStatus, isConnecting, isAuthenticated, isAuthenticating, accountDisplayName, sessionToken, connect, logout }">
@@ -219,7 +228,7 @@
                                 <BabylonOtherAvatars :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
                                     :current-full-session-id="connectionInfo.fullSessionId ?? undefined"
                                     :discovery-polling-interval="500" :reflect-sync-group="'public.NORMAL'"
-                                    :reflect-channel="'avatar_data'"
+                                    :reflect-channel="'avatar_data'" ref="otherAvatarsRef"
                                     v-slot="{ otherAvatarSessionIds, avatarDataMap, positionDataMap, rotationDataMap, jointDataMap }">
                                     <BabylonOtherAvatar v-for="otherFullSessionId in otherAvatarSessionIds || []"
                                         :key="otherFullSessionId" :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
@@ -336,7 +345,6 @@ import BabylonMyAvatarModel from "../components/BabylonMyAvatarModel.vue";
 import BabylonMyAvatarTalking from "../components/BabylonMyAvatarTalking.vue";
 import BabylonOtherAvatar from "../components/BabylonOtherAvatar.vue";
 import BabylonOtherAvatars from "../components/BabylonOtherAvatars.vue";
-import BabylonOtherAvatarsDebugOverlay from "../components/BabylonOtherAvatarsDebugOverlay.vue";
 import BabylonPhysics from "../components/BabylonPhysics.vue";
 import BabylonSnackbar from "../components/BabylonSnackbar.vue";
 import LogoutButton from "../components/LogoutButton.vue";
@@ -357,6 +365,8 @@ const showWebRTCControls = ref(false);
 // Scene readiness derived from BabylonCanvas exposed API
 // Track if avatar is ready
 const avatarRef = ref<InstanceType<typeof BabylonMyAvatar> | null>(null);
+
+const otherAvatarsRef = ref<InstanceType<typeof BabylonOtherAvatars> | null>(null);
 // targetSkeleton now provided via slot; no local ref needed
 // Other avatar types for v-slot destructuring
 type OtherAvatarSlotProps = {

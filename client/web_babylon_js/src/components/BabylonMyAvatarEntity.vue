@@ -13,6 +13,7 @@ import type {
     Vector3,
 } from "@babylonjs/core";
 import { Quaternion as Q4, Vector3 as V3 } from "@babylonjs/core";
+import { AvatarFrameMessageSchema } from "@schemas";
 import { useThrottleFn } from "@vueuse/core";
 import {
     computed,
@@ -468,11 +469,11 @@ const pushBatchedUpdates = useThrottleFn(async () => {
             ts: Date.now(),
         };
 
-        // Include sessionId and modelFileName for consumers expecting them
-        try {
-            const sid = name.replace(/^avatar:/, "");
-            (avatarFrame as { sessionId?: string }).sessionId = sid;
-        } catch { }
+        // Include sessionId from VW connection (do not infer from entityName)
+        if (fullSessionId.value) {
+            (avatarFrame as { sessionId?: string }).sessionId =
+                fullSessionId.value;
+        }
         if (props.modelFileName && props.modelFileName.length > 0) {
             (avatarFrame as { modelFileName?: string }).modelFileName =
                 props.modelFileName;
@@ -502,22 +503,30 @@ const pushBatchedUpdates = useThrottleFn(async () => {
             avatarFrame.joints = joints;
         }
 
-        // Publish if we have any data to send
+        // Validate against schema and publish if we have any data to send (fire-and-forget)
         if (Object.keys(avatarFrame).length > 3) {
-            // More than just type, entityName, ts
+            let validatedPayload: unknown = avatarFrame;
             try {
-                await props.vircadiaWorld.client.connection.publishReflect({
+                validatedPayload = AvatarFrameMessageSchema.parse(avatarFrame);
+            } catch (validationError) {
+                console.warn(
+                    "[BabylonMyAvatarEntity] avatar_frame validation failed",
+                    validationError,
+                );
+                // Still attempt to publish raw frame to avoid total data loss
+            }
+            props.vircadiaWorld.client.connection
+                .publishReflect({
                     syncGroup: props.reflectSyncGroup,
                     channel: props.reflectChannel,
-                    payload: avatarFrame,
-                    timeoutMs: 3000,
+                    payload: validatedPayload,
+                })
+                .catch((error) => {
+                    console.warn(
+                        "[BabylonMyAvatarEntity] reflect publish failed",
+                        error,
+                    );
                 });
-            } catch (e) {
-                console.warn(
-                    "[BabylonMyAvatarEntity] reflect publish failed",
-                    e,
-                );
-            }
         }
 
         // No DB persistence - data kept only in reflection

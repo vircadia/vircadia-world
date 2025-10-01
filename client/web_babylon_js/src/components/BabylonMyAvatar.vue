@@ -10,6 +10,11 @@
 </template>
 
 <script setup lang="ts">
+// TODO: Improve side + forward animations.
+// TODO: Improve acceleration times.
+// TODO: Add camera locking to mouse movement toggles.
+// TODO: Add mobile controls (with other actions clickable at the same time)
+// TODO: To performance mode, add different babylon.js optimizations.
 import {
     type AbstractMesh,
     type AnimationGroup,

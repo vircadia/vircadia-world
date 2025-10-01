@@ -44,8 +44,7 @@
 
 <script setup lang="ts">
 import type { AccountInfo } from "@azure/msal-browser";
-import { StorageSerializers, useStorage } from "@vueuse/core";
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 import { clientBrowserConfiguration } from "../../../../sdk/vircadia-world-sdk-ts/browser/src/config/vircadia.browser.config";
 
@@ -60,34 +59,13 @@ const emit = defineEmits<{
 const isAuthenticating = ref(false);
 const authError = ref<string | null>(null);
 
-const account = useStorage<AccountInfo | null>(
-    "vircadia-account",
-    null,
-    localStorage,
-    { serializer: StorageSerializers.object },
-);
-const sessionToken = useStorage<string | null>(
-    "vircadia-session-token",
-    null,
-    localStorage,
-);
-const sessionId = useStorage<string | null>(
-    "vircadia-session-id",
-    null,
-    localStorage,
-);
-const agentId = useStorage<string | null>(
-    "vircadia-agent-id",
-    null,
-    localStorage,
-);
-const authProvider = useStorage<string>(
-    "vircadia-auth-provider",
-    "anon",
-    localStorage,
-);
+const account = ref<AccountInfo | null>(props.vircadiaWorld.client.getStoredAccount<AccountInfo>());
+const sessionToken = ref<string | null>(props.vircadiaWorld.client.getStoredToken());
+const sessionId = ref<string | null>(props.vircadiaWorld.client.getStoredSessionId());
+const agentId = ref<string | null>(props.vircadiaWorld.client.getStoredAgentId());
+const authProvider = ref<string>(props.vircadiaWorld.client.getStoredProvider());
 
-const isAuthenticated = computed(() => !!sessionToken.value && !!account.value);
+const isAuthenticated = computed(() => props.vircadiaWorld.client.getAuthState().hasToken && !!account.value);
 
 const showDebugLogin = computed(() => {
     return !!clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN;
@@ -129,10 +107,10 @@ const loginAnonymously = async () => {
                 agentId: newAgentId,
                 sessionId: newSessionId,
             } = data.data;
-            sessionToken.value = token;
-            sessionId.value = newSessionId;
-            agentId.value = newAgentId;
-            authProvider.value = "anon";
+            sessionToken.value = token; props.vircadiaWorld.client.setAuthToken(token);
+            sessionId.value = newSessionId; props.vircadiaWorld.client.setSessionId(newSessionId);
+            agentId.value = newAgentId; props.vircadiaWorld.client.setStoredAgentId(newAgentId);
+            authProvider.value = "anon"; props.vircadiaWorld.client.setAuthProvider("anon");
             account.value = {
                 homeAccountId: newAgentId,
                 environment: "anonymous",
@@ -141,6 +119,7 @@ const loginAnonymously = async () => {
                 localAccountId: newAgentId,
                 name: `Anonymous ${newAgentId.substring(0, 8)}`,
             } as AccountInfo;
+            props.vircadiaWorld.client.setStoredAccount(account.value);
             emit("authenticated");
         } else {
             throw new Error("Invalid response from server");
@@ -196,8 +175,8 @@ const loginWithDebugToken = async () => {
             );
         }
 
-        sessionToken.value = token;
-        authProvider.value = configuredProvider;
+        sessionToken.value = token; props.vircadiaWorld.client.setAuthToken(token);
+        authProvider.value = configuredProvider; props.vircadiaWorld.client.setAuthProvider(configuredProvider);
         // Update client config to use this token/provider
         props.vircadiaWorld.client.setAuthToken(token);
         props.vircadiaWorld.client.setAuthProvider(configuredProvider);
@@ -209,6 +188,7 @@ const loginWithDebugToken = async () => {
             localAccountId: agentId.value || "debug-user",
             name: "Debug User",
         } as AccountInfo;
+        props.vircadiaWorld.client.setStoredAccount(account.value);
 
         console.log("[VircadiaWorldAuthProvider] Debug token login complete", {
             sessionToken: !!sessionToken.value,
@@ -230,11 +210,11 @@ const loginWithDebugToken = async () => {
 async function logout() {
     if (!sessionId.value) {
         // Still clear local state
-        account.value = null;
-        sessionToken.value = null;
-        sessionId.value = null;
-        agentId.value = null;
-        authProvider.value = "anon";
+        account.value = null; props.vircadiaWorld.client.setStoredAccount(null);
+        sessionToken.value = null; props.vircadiaWorld.client.setAuthToken("");
+        sessionId.value = null; props.vircadiaWorld.client.setSessionId(undefined);
+        agentId.value = null; props.vircadiaWorld.client.setStoredAgentId(null);
+        authProvider.value = "anon"; props.vircadiaWorld.client.setAuthProvider("anon");
         authError.value = null;
         return;
     }
@@ -243,11 +223,11 @@ async function logout() {
     } catch (e) {
         console.warn("Logout request failed:", e);
     } finally {
-        account.value = null;
-        sessionToken.value = null;
-        sessionId.value = null;
-        agentId.value = null;
-        authProvider.value = "anon";
+        account.value = null; props.vircadiaWorld.client.setStoredAccount(null);
+        sessionToken.value = null; props.vircadiaWorld.client.setAuthToken("");
+        sessionId.value = null; props.vircadiaWorld.client.setSessionId(undefined);
+        agentId.value = null; props.vircadiaWorld.client.setStoredAgentId(null);
+        authProvider.value = "anon"; props.vircadiaWorld.client.setAuthProvider("anon");
         authError.value = null;
     }
 }
@@ -257,11 +237,11 @@ async function logout() {
  * Use this when the server has already denied/expired the session (e.g., 401).
  */
 function logoutLocal(reason?: string) {
-    account.value = null;
-    sessionToken.value = null;
-    sessionId.value = null;
-    agentId.value = null;
-    authProvider.value = "anon";
+    account.value = null; props.vircadiaWorld.client.setStoredAccount(null);
+    sessionToken.value = null; props.vircadiaWorld.client.setAuthToken("");
+    sessionId.value = null; props.vircadiaWorld.client.setSessionId(undefined);
+    agentId.value = null; props.vircadiaWorld.client.setStoredAgentId(null);
+    authProvider.value = "anon"; props.vircadiaWorld.client.setAuthProvider("anon");
     authError.value = reason ?? null;
 }
 
@@ -306,15 +286,12 @@ async function handleOAuthRedirectIfPresent(): Promise<boolean> {
         };
 
         // Persist provider FIRST so any token-triggered connect uses correct provider
-        authProvider.value = provider || "azure";
-        props.vircadiaWorld.client.setAuthProvider(authProvider.value);
+        authProvider.value = provider || "azure"; props.vircadiaWorld.client.setAuthProvider(authProvider.value);
 
         // Then persist token/session/agent and sync SDK
-        sessionToken.value = token;
-        sessionId.value = newSessionId;
-        agentId.value = newAgentId;
-        props.vircadiaWorld.client.setAuthToken(token);
-        props.vircadiaWorld.client.setSessionId(newSessionId);
+        sessionToken.value = token; props.vircadiaWorld.client.setAuthToken(token);
+        sessionId.value = newSessionId; props.vircadiaWorld.client.setSessionId(newSessionId);
+        agentId.value = newAgentId; props.vircadiaWorld.client.setStoredAgentId(newAgentId);
 
         // Minimal account profile for UI
         const nameGuess = displayName || username || email || newAgentId;
@@ -326,6 +303,19 @@ async function handleOAuthRedirectIfPresent(): Promise<boolean> {
             localAccountId: newAgentId,
             name: nameGuess,
         } as AccountInfo;
+        props.vircadiaWorld.client.setStoredAccount(account.value);
+
+        // Keep local refs in sync with core across tabs/flows
+        const removeAuthListener = props.vircadiaWorld.client.addAuthChangeListener(() => {
+            sessionToken.value = props.vircadiaWorld.client.getStoredToken();
+            sessionId.value = props.vircadiaWorld.client.getStoredSessionId();
+            agentId.value = props.vircadiaWorld.client.getStoredAgentId();
+            authProvider.value = props.vircadiaWorld.client.getStoredProvider();
+        });
+
+        onUnmounted(() => {
+            removeAuthListener();
+        });
 
         // Clean query params to avoid re-processing on refresh
         try {

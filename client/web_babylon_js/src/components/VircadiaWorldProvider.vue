@@ -15,7 +15,6 @@ import {
     type VircadiaBrowserClientConfig,
     type WsConnectionCoreInfo,
 } from "@vircadia/world-sdk/browser/vue";
-import { StorageSerializers, useStorage } from "@vueuse/core";
 import { computed, onUnmounted, type Ref, ref, shallowRef, watch } from "vue";
 
 // Strongly type the slot props so consumers don't get `any`
@@ -65,6 +64,7 @@ const emit = defineEmits<{
 const props = defineProps<{
     autoConnect?: boolean;
     reconnectDelayMs?: number;
+    storageKey?: string;
 }>();
 
 const autoConnect = computed(() => props.autoConnect !== false);
@@ -89,6 +89,7 @@ const vircadiaClientConfig: VircadiaBrowserClientConfig = {
         clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER,
     debug: false,
     suppress: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS,
+    storageKey: props.storageKey ?? "client-web-babylon",
 };
 
 // Initialize Vircadia client directly in the provider (replaces useVircadia)
@@ -103,6 +104,19 @@ const browserClient = new VircadiaBrowserClient(vircadiaClientConfig);
 const connectionInfo = shallowRef<WsConnectionCoreInfo>(
     browserClient.connection.getConnectionInfo(),
 );
+
+const authState = shallowRef(browserClient.getAuthState());
+const sessionToken = ref<string | null>(browserClient.getStoredToken());
+const account = ref<Record<string, unknown> | null>(
+    browserClient.getStoredAccount<Record<string, unknown>>()
+);
+
+const handleAuthStateChange = () => {
+    authState.value = browserClient.getAuthState();
+    sessionToken.value = browserClient.getStoredToken();
+    account.value = browserClient.getStoredAccount<Record<string, unknown>>();
+};
+const removeAuthListener = browserClient.addAuthChangeListener(handleAuthStateChange);
 
 const updateConnectionStatus = () => {
     // Create a new object to ensure Vue detects the change with shallowRef
@@ -128,6 +142,7 @@ const dispose = () => {
         "statusChange",
         updateConnectionStatus,
     );
+    removeAuthListener();
 
     if (connectionInfo.value.isConnected) {
         browserClient.connection.disconnect();
@@ -148,26 +163,7 @@ const connectionStatus = computed(() => connectionInfo.value.status);
 const lastConnectedToken = ref<string | null>(null);
 const lastConnectedAgentId = ref<string | null>(null);
 
-// Auth state is mirrored from shared storage so AuthProvider and World share state
-const account = useStorage<Record<string, unknown> | null>(
-    "vircadia-account",
-    null,
-    localStorage,
-    { serializer: StorageSerializers.object },
-);
-const sessionToken = useStorage<string | null>(
-    "vircadia-session-token",
-    null,
-    localStorage,
-);
-// Use stored provider as source of truth for REST/WS until server confirms
-const storedAuthProvider = useStorage<string>(
-    "vircadia-auth-provider",
-    "anon",
-    localStorage,
-);
-
-const isAuthenticatedComputed = computed(() => !!sessionToken.value);
+const isAuthenticatedComputed = computed(() => !!authState.value.hasToken);
 const isAuthenticatingComputed = computed(
     () =>
         connectionInfo.value.sessionValidation?.status ===
@@ -195,7 +191,16 @@ type MinimalAccount =
 
 const accountDisplayName = computed(() => {
     const value = account.value as MinimalAccount;
-    if (!value) return "Not signed in";
+    if (!value) {
+        const agentIdFromConnection = connectionInfo.value.agentId || authState.value.agentId || null;
+        if (isAuthenticatedComputed.value && agentIdFromConnection) {
+            return agentIdFromConnection;
+        }
+        if (isAuthenticatedComputed.value) {
+            return "Authenticated";
+        }
+        return "Not signed in";
+    }
     return (
         value.username ||
         value.name ||
@@ -264,7 +269,7 @@ async function connect() {
         }
 
         // Update client configuration using current auth
-        const authProvider = storedAuthProvider.value || connectionInfo.value.authProvider || "anon";
+        const authProvider = authState.value.provider || connectionInfo.value.authProvider || "anon";
         console.log("[VircadiaWorldProvider] Setting auth configuration", {
             token: currentToken,
             authProvider: authProvider,
@@ -338,18 +343,6 @@ async function logout() {
     try {
         await browserClient.logout();
     } catch { }
-    // Clear mirrored local auth state so UI switches to auth screen
-    account.value = null;
-    sessionToken.value = null;
-    // Also clear in-memory SDK auth so connectionInfo.hasAuthToken reflects reality
-    browserClient.setAuthToken("");
-    browserClient.setAuthProvider("anon");
-    try {
-        localStorage.setItem("vircadia-auth-suppressed", "1");
-        localStorage.removeItem("vircadia-session-id");
-        localStorage.removeItem("vircadia-agent-id");
-        localStorage.setItem("vircadia-auth-provider", "anon");
-    } catch { }
     ensureDisconnected();
 }
 
@@ -362,25 +355,7 @@ async function handleAuthDenied(
         { reason, message },
     );
 
-    // Clear local auth state - this will automatically trigger UI to show auth provider
-    account.value = null;
-    sessionToken.value = null;
-    // Clear in-memory SDK auth so connectionInfo no longer reports hasAuthToken
-    browserClient.setAuthToken("");
-    browserClient.setAuthProvider("anon");
-
-    // Clear localStorage to ensure clean state
-    try {
-        localStorage.setItem("vircadia-auth-suppressed", "1");
-        localStorage.removeItem("vircadia-session-id");
-        localStorage.removeItem("vircadia-agent-id");
-        localStorage.setItem("vircadia-auth-provider", "anon");
-    } catch (error) {
-        console.warn(
-            "[VircadiaWorldProvider] Failed to clear localStorage:",
-            error,
-        );
-    }
+    browserClient.clearLocalAuth();
 
     // Disconnect if connected
     ensureDisconnected();

@@ -39,26 +39,11 @@
         <!-- Main world when authenticated -->
         <template v-else>
 
-            <!-- Left Navigation Drawer (auth context available here) -->
-            <v-navigation-drawer v-model="leftDrawerOpen" location="left" elevation="8"
-                :temporary="$vuetify.display.smAndDown" :width="320">
-                <v-list density="compact">
-                    <!-- Placeholder for future nav items -->
-                    <v-list-item prepend-icon="mdi-home" title="Home" />
-                </v-list>
-                <template #append>
-                    <v-divider />
-                    <v-list density="compact" class="px-2 py-2">
-                        <v-list-item v-if="isAuthenticated" :title="accountDisplayName || '-'"
-                            prepend-icon="mdi-account-circle">
-                            <v-list-item-subtitle>Signed in</v-list-item-subtitle>
-                        </v-list-item>
-                        <div class="px-2 pb-2">
-                            <LogoutButton :isAuthenticated="isAuthenticated" :onLogout="logout" />
-                        </div>
-                    </v-list>
-                </template>
-            </v-navigation-drawer>
+            <!-- Left Navigation Drawer extracted to component -->
+            <LeftDrawer v-model:open="leftDrawerOpen" :width="320" :isAuthenticated="isAuthenticated"
+                :displayName="accountDisplayName || undefined" :provider="connectionInfo.authProvider || 'anon'"
+                :onLogout="logout" :vircadia-world="vircadiaWorld" :connection-info="connectionInfo" />
+
 
             <!-- Component Loader -->
             <template v-for="comp in availableComponents" :key="comp">
@@ -82,17 +67,6 @@
                         </v-btn>
                     </template>
                     <span>Audio Controls ({{ activeAudioCount }} active)</span>
-                </v-tooltip>
-
-                <!-- Toggle Right Debug Drawer -->
-                <v-tooltip location="bottom">
-                    <template #activator="{ props }">
-                        <v-btn v-bind="props" icon variant="text" class="ml-2"
-                            @click="rightDrawerOpen = !rightDrawerOpen">
-                            <v-icon>mdi-dock-right</v-icon>
-                        </v-btn>
-                    </template>
-                    <span>Debug Drawer</span>
                 </v-tooltip>
 
                 <!-- Performance Speed Dial -->
@@ -164,6 +138,17 @@
                         <span>Babylon Inspector (T)</span>
                     </v-tooltip>
                 </template>
+
+                <!-- Toggle Right Debug Drawer -->
+                <v-tooltip location="bottom">
+                    <template #activator="{ props }">
+                        <v-btn v-bind="props" icon variant="text" class="ml-2"
+                            @click="rightDrawerOpen = !rightDrawerOpen">
+                            <v-icon>mdi-dock-right</v-icon>
+                        </v-btn>
+                    </template>
+                    <span>Debug Drawer</span>
+                </v-tooltip>
             </v-app-bar>
 
             <main>
@@ -402,8 +387,8 @@ import BabylonOtherAvatars from "../components/BabylonOtherAvatars.vue";
 import BabylonPhysics from "../components/BabylonPhysics.vue";
 import BabylonPhysicsLevel from "../components/BabylonPhysicsLevel.vue";
 import BabylonSnackbar from "../components/BabylonSnackbar.vue";
-import LogoutButton from "../components/LogoutButton.vue";
 import BabylonWebRTC from "./BabylonWebRTC.vue";
+import LeftDrawer from "./LeftDrawer.vue";
 import RightDrawer from "./RightDrawer.vue";
 import VircadiaWorldAuthProvider from "./VircadiaWorldAuthProvider.vue";
 import VircadiaWorldProvider from "./VircadiaWorldProvider.vue";

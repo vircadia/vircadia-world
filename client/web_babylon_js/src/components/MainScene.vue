@@ -95,6 +95,63 @@
                     <span>Debug Drawer</span>
                 </v-tooltip>
 
+                <!-- Performance Speed Dial -->
+                <v-speed-dial v-model="perfDialOpen" location="bottom end" transition="fade-transition">
+                    <template #activator="{ props }">
+                        <v-btn v-bind="props" icon class="ml-2"
+                            :color="performanceMode === 'normal' ? 'success' : 'warning'">
+                            <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' : 'mdi-speedometer-slow'
+                                }}</v-icon>
+                        </v-btn>
+                    </template>
+                    <v-tooltip location="bottom">
+                        <template #activator="{ props: aprops }">
+                            <v-btn v-bind="aprops" icon :color="performanceMode === 'normal' ? 'success' : undefined"
+                                @click="canvasComponentRef?.setPerformanceMode('normal'); perfDialOpen = false">
+                                <v-icon>mdi-speedometer</v-icon>
+                            </v-btn>
+                        </template>
+                        <span>Normal performance</span>
+                    </v-tooltip>
+                    <v-tooltip location="bottom">
+                        <template #activator="{ props: aprops }">
+                            <v-btn v-bind="aprops" icon :color="performanceMode === 'low' ? 'warning' : undefined"
+                                @click="canvasComponentRef?.setPerformanceMode('low'); perfDialOpen = false">
+                                <v-icon>mdi-speedometer-slow</v-icon>
+                            </v-btn>
+                        </template>
+                        <span>Low performance</span>
+                    </v-tooltip>
+                </v-speed-dial>
+
+                <!-- Movement Speed Dial -->
+                <v-speed-dial v-model="moveDialOpen" location="bottom end" transition="fade-transition">
+                    <template #activator="{ props }">
+                        <v-btn v-bind="props" icon class="ml-2" :color="(avatarRef?.isFlying) ? 'success' : undefined">
+                            <v-icon>{{ (avatarRef?.isFlying) ? 'mdi-airplane' : 'mdi-walk' }}</v-icon>
+                        </v-btn>
+                    </template>
+                    <v-tooltip location="bottom">
+                        <template #activator="{ props: aprops }">
+                            <v-btn v-bind="aprops" icon color="success" :disabled="!!(avatarRef?.isFlying)"
+                                @click="!(avatarRef?.isFlying) && avatarRef?.toggleFlying && avatarRef.toggleFlying(); moveDialOpen = false">
+                                <v-icon>mdi-airplane-takeoff</v-icon>
+                            </v-btn>
+                        </template>
+                        <span>Fly on</span>
+                    </v-tooltip>
+                    <v-tooltip location="bottom">
+                        <template #activator="{ props: aprops }">
+                            <v-btn v-bind="aprops" icon :color="!(avatarRef?.isFlying) ? 'grey' : 'error'"
+                                :disabled="!(avatarRef?.isFlying)"
+                                @click="(avatarRef?.isFlying) && avatarRef?.toggleFlying && avatarRef.toggleFlying(); moveDialOpen = false">
+                                <v-icon>mdi-walk</v-icon>
+                            </v-btn>
+                        </template>
+                        <span>Fly off</span>
+                    </v-tooltip>
+                </v-speed-dial>
+
                 <!-- Babylon Inspector (Dev only) -->
                 <template v-if="isDev">
                     <v-tooltip location="bottom">
@@ -245,6 +302,12 @@
                                         @permissions="onWebRTCPermissions($event)" />
                                 </BabylonOtherAvatars>
 
+                                <!-- Static Level with physics (from DB-defined asset) -->
+                                <BabylonPhysicsLevel :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
+                                    entity-name="babylon.level.glb" model-file-name="babylon.level.glb"
+                                    :enable-physics="true" physics-type="mesh"
+                                    :physics-options="{ mass: 0, friction: 0.5, restitution: 0.3 }" />
+
                                 <!-- BabylonModel components provided by DB-scanned list -->
                                 <BabylonModels :vircadia-world="vircadiaWorld" v-slot="{ models }">
                                     <BabylonModel v-for="def in models" :key="def.fileName" :def="def"
@@ -339,6 +402,7 @@ import BabylonMyAvatarTalking from "../components/BabylonMyAvatarTalking.vue";
 import BabylonOtherAvatar from "../components/BabylonOtherAvatar.vue";
 import BabylonOtherAvatars from "../components/BabylonOtherAvatars.vue";
 import BabylonPhysics from "../components/BabylonPhysics.vue";
+import BabylonPhysicsLevel from "../components/BabylonPhysicsLevel.vue";
 import BabylonSnackbar from "../components/BabylonSnackbar.vue";
 import LogoutButton from "../components/LogoutButton.vue";
 import BabylonWebRTC from "./BabylonWebRTC.vue";
@@ -359,7 +423,9 @@ const showWebRTCControls = ref(false);
 // Track if avatar is ready
 const avatarRef = ref<InstanceType<typeof BabylonMyAvatar> | null>(null);
 
-const otherAvatarsRef = ref<InstanceType<typeof BabylonOtherAvatars> | null>(null);
+const otherAvatarsRef = ref<InstanceType<typeof BabylonOtherAvatars> | null>(
+    null,
+);
 // targetSkeleton now provided via slot; no local ref needed
 // Other avatar types for v-slot destructuring
 type OtherAvatarSlotProps = {
@@ -471,6 +537,12 @@ function togglePerformanceMode() {
         // Vue's v-model will automatically sync the performanceMode ref
     }
 }
+
+// Speed-dial UI state
+const perfDialOpen = ref(false);
+const moveDialOpen = ref(false);
+
+// (inlined in template) performance/flying helpers removed
 
 // Local debug drawer state
 const rightDrawerOpen = useStorage<boolean>("vrca.right.drawer.open", false);

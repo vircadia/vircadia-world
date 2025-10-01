@@ -13,6 +13,7 @@ if (typeof window !== "undefined") {
     (window as any).Buffer = Buffer;
 }
 
+import { clientBrowserConfiguration } from "@vircadia/world-sdk/browser/vue";
 // Vuetify setup
 import { createVuetify } from "vuetify";
 
@@ -78,10 +79,25 @@ app.config.warnHandler = (msg, _instance, trace) => {
 const pinia = createPinia();
 app.use(pinia);
 
-// Auto-import and register all components from the @/user folder
-const components = import.meta.glob("./user/*.vue", { eager: true });
+// Auto-import and register Vue components from a configured directory under ./user
+const configuredUserComponentsDir =
+    clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_DIR?.trim() ||
+    "";
 
-Object.entries(components).forEach(([path, definition]) => {
+// Glob all .vue files under ./user and filter by the configured directory
+const allUserComponents = import.meta.glob("./user/**/*.vue", { eager: true });
+
+for (const [path, definition] of Object.entries(allUserComponents)) {
+    const normalizedPath = path.replace(/^\.\/user\//, "");
+    const isInConfiguredDir =
+        configuredUserComponentsDir === "" ||
+        normalizedPath.startsWith(`${configuredUserComponentsDir}/`) ||
+        normalizedPath.startsWith(`${configuredUserComponentsDir}\\`);
+
+    if (!isInConfiguredDir) {
+        continue;
+    }
+
     const componentName = path
         .split("/")
         .pop()
@@ -94,7 +110,7 @@ Object.entries(components).forEach(([path, definition]) => {
     ) {
         app.component(componentName, (definition as { default: any }).default);
     }
-});
+}
 
 // create and register Vuetify instance
 const vuetify = createVuetify({

@@ -1,9 +1,14 @@
-import { ref, computed, type Ref } from 'vue';
-import type { VircadiaWorldInstance } from '@/components/VircadiaWorldProvider.vue';
-import type { Communication } from '@vircadia/world-sdk/browser/vue';
+import type { Communication } from "@vircadia/world-sdk/browser/vue";
+import { computed, type Ref, ref } from "vue";
+import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 
 export interface WebRTCReflectMessage {
-    type: 'offer' | 'answer' | 'ice-candidate' | 'session-end' | 'peer-announce';
+    type:
+        | "offer"
+        | "answer"
+        | "ice-candidate"
+        | "session-end"
+        | "peer-announce";
     fromSession: string;
     toSession?: string; // For targeted messages
     payload: Record<string, unknown>;
@@ -13,7 +18,7 @@ export interface WebRTCReflectMessage {
 export interface PeerAnnouncement {
     sessionId: string;
     timestamp: number;
-    status: 'online' | 'offline';
+    status: "online" | "offline";
 }
 
 export interface UseWebRTCReflectOptions {
@@ -30,14 +35,14 @@ export function useWebRTCReflect(
     client: VircadiaWorldInstance,
     fullSessionId: Ref<string | null>,
     options: UseWebRTCReflectOptions = {
-        syncGroup: 'public.NORMAL',
+        syncGroup: "public.NORMAL",
         announceIntervalMs: 2000,
         presenceTimeoutMs: 10000,
         autoReconnect: true,
         reconnectDelayMs: 1000,
         maxReconnectAttempts: 5,
         enableMessageQueuing: true,
-    }
+    },
 ) {
     // Configuration
     const syncGroup = options.syncGroup;
@@ -49,12 +54,14 @@ export function useWebRTCReflect(
     const enableMessageQueuing = options.enableMessageQueuing ?? true;
 
     // Channels
-    const ANNOUNCE_CHANNEL = 'webrtc.announce';
-    const SIGNALING_CHANNEL = 'webrtc.signal';
+    const ANNOUNCE_CHANNEL = "webrtc.announce";
+    const SIGNALING_CHANNEL = "webrtc.signal";
 
     // State
     const activePeers = ref<Map<string, PeerAnnouncement>>(new Map());
-    const messageHandlers = ref<Map<string, (msg: WebRTCReflectMessage) => void>>(new Map());
+    const messageHandlers = ref<
+        Map<string, (msg: WebRTCReflectMessage) => void>
+    >(new Map());
     const isInitialized = ref(false);
 
     // Reconnection state
@@ -64,42 +71,44 @@ export function useWebRTCReflect(
 
     // Message queuing
     const messageQueue = ref<Map<string, WebRTCReflectMessage[]>>(new Map());
-    
+
     // Intervals
     let announceInterval: ReturnType<typeof setInterval> | null = null;
     let cleanupInterval: ReturnType<typeof setInterval> | null = null;
-    
+
     // Subscriptions
     let unsubscribeAnnounce: (() => void) | null = null;
     let unsubscribeSignaling: (() => void) | null = null;
-    
+
     // Initialize the reflect-based WebRTC system
     async function initialize() {
         if (isInitialized.value || !client || !fullSessionId.value) {
-            console.warn('[WebRTC Reflect] Cannot initialize: missing client or session');
+            console.warn(
+                "[WebRTC Reflect] Cannot initialize: missing client or session",
+            );
             return;
         }
-        
+
         isInitialized.value = true;
-        
+
         // Subscribe to peer announcements
         unsubscribeAnnounce = client.client.connection.subscribeReflect(
             syncGroup,
             ANNOUNCE_CHANNEL,
-            handleAnnouncement
+            handleAnnouncement,
         );
-        
+
         // Subscribe to signaling messages
         unsubscribeSignaling = client.client.connection.subscribeReflect(
             syncGroup,
             SIGNALING_CHANNEL,
-            handleSignalingMessage
+            handleSignalingMessage,
         );
-        
+
         // Start announcing our presence
         announcePresence();
         announceInterval = setInterval(announcePresence, announceIntervalMs);
-        
+
         // Start cleanup interval for stale peers
         cleanupInterval = setInterval(cleanupStalePeers, presenceTimeoutMs / 2);
 
@@ -108,16 +117,16 @@ export function useWebRTCReflect(
             flushMessageQueue();
         }
 
-        console.log('[WebRTC Reflect] Initialized', {
+        console.log("[WebRTC Reflect] Initialized", {
             syncGroup,
             session: fullSessionId.value,
             channels: [ANNOUNCE_CHANNEL, SIGNALING_CHANNEL],
             autoReconnect,
             maxReconnectAttempts,
-            enableMessageQueuing
+            enableMessageQueuing,
         });
     }
-    
+
     // Cleanup and stop
     function cleanup() {
         if (!isInitialized.value) return;
@@ -135,17 +144,21 @@ export function useWebRTCReflect(
             const announcement: PeerAnnouncement = {
                 sessionId: fullSessionId.value,
                 timestamp: Date.now(),
-                status: 'offline'
+                status: "offline",
             };
 
-            client.client.connection.publishReflect({
-                syncGroup,
-                channel: ANNOUNCE_CHANNEL,
-                payload: announcement,
-                timeoutMs: 1000 // Quick timeout for cleanup
-            }).catch(err => {
-                console.error('[WebRTC Reflect] Failed to send offline announcement:', err);
-            });
+            client.client.connection
+                .publishReflect({
+                    syncGroup,
+                    channel: ANNOUNCE_CHANNEL,
+                    payload: announcement,
+                })
+                .catch((err) => {
+                    console.error(
+                        "[WebRTC Reflect] Failed to send offline announcement:",
+                        err,
+                    );
+                });
         }
 
         // Clear intervals
@@ -170,101 +183,129 @@ export function useWebRTCReflect(
         messageQueue.value.clear();
         isInitialized.value = false;
 
-        console.log('[WebRTC Reflect] Cleaned up');
+        console.log("[WebRTC Reflect] Cleaned up");
     }
-    
+
     // Announce our presence
     async function announcePresence() {
         if (!client || !fullSessionId.value) return;
-        
+
         const announcement: PeerAnnouncement = {
             sessionId: fullSessionId.value,
             timestamp: Date.now(),
-            status: 'online'
+            status: "online",
         };
-        
-        try {
-            await client.client.connection.publishReflect({
+
+        client.client.connection
+            .publishReflect({
                 syncGroup,
                 channel: ANNOUNCE_CHANNEL,
-                payload: announcement
+                payload: announcement,
+            })
+            .catch((error) => {
+                console.error(
+                    "[WebRTC Reflect] Failed to announce presence:",
+                    error,
+                );
             });
-            
-            console.log('[WebRTC Reflect] Announced presence');
-        } catch (err) {
-            console.error('[WebRTC Reflect] Failed to announce presence:', err);
-        }
+
+        console.log("[WebRTC Reflect] Announced presence");
     }
-    
+
     // Handle peer announcements
-    function handleAnnouncement(msg: Communication.WebSocket.ReflectDeliveryMessage) {
+    function handleAnnouncement(
+        msg: Communication.WebSocket.ReflectDeliveryMessage,
+    ) {
         try {
             const announcement = msg.payload as PeerAnnouncement;
-            
-            if (!announcement.sessionId || announcement.sessionId === fullSessionId.value) {
+
+            if (
+                !announcement.sessionId ||
+                announcement.sessionId === fullSessionId.value
+            ) {
                 return; // Ignore our own announcements
             }
-            
-            if (announcement.status === 'offline') {
+
+            if (announcement.status === "offline") {
                 activePeers.value.delete(announcement.sessionId);
-                console.log('[WebRTC Reflect] Peer went offline:', announcement.sessionId);
+                console.log(
+                    "[WebRTC Reflect] Peer went offline:",
+                    announcement.sessionId,
+                );
             } else {
                 activePeers.value.set(announcement.sessionId, announcement);
-                console.log('[WebRTC Reflect] Peer announced:', announcement.sessionId);
+                console.log(
+                    "[WebRTC Reflect] Peer announced:",
+                    announcement.sessionId,
+                );
             }
         } catch (err) {
-            console.error('[WebRTC Reflect] Failed to handle announcement:', err);
+            console.error(
+                "[WebRTC Reflect] Failed to handle announcement:",
+                err,
+            );
         }
     }
-    
+
     // Handle signaling messages
-    function handleSignalingMessage(msg: Communication.WebSocket.ReflectDeliveryMessage) {
+    function handleSignalingMessage(
+        msg: Communication.WebSocket.ReflectDeliveryMessage,
+    ) {
         try {
             const message = msg.payload as WebRTCReflectMessage;
-            
+
             // Ignore our own messages
             if (message.fromSession === fullSessionId.value) {
                 return;
             }
-            
+
             // Check if message is for us (broadcast or targeted)
-            if (message.toSession && message.toSession !== fullSessionId.value) {
+            if (
+                message.toSession &&
+                message.toSession !== fullSessionId.value
+            ) {
                 return; // Message is for someone else
             }
-            
+
             // Find handler for this peer
             const handler = messageHandlers.value.get(message.fromSession);
             if (handler) {
                 handler(message);
             } else {
-                console.warn('[WebRTC Reflect] No handler for peer:', message.fromSession);
+                console.warn(
+                    "[WebRTC Reflect] No handler for peer:",
+                    message.fromSession,
+                );
             }
         } catch (err) {
-            console.error('[WebRTC Reflect] Failed to handle signaling message:', err);
+            console.error(
+                "[WebRTC Reflect] Failed to handle signaling message:",
+                err,
+            );
         }
     }
-    
+
     // Clean up stale peers
     function cleanupStalePeers() {
         const now = Date.now();
         const staleThreshold = now - presenceTimeoutMs;
-        
+
         for (const [sessionId, announcement] of activePeers.value.entries()) {
             if (announcement.timestamp < staleThreshold) {
                 activePeers.value.delete(sessionId);
-                console.log('[WebRTC Reflect] Removed stale peer:', sessionId);
+                console.log("[WebRTC Reflect] Removed stale peer:", sessionId);
             }
         }
     }
-    
+
     // Send a signaling message to a specific peer with queuing support
     async function sendSignalingMessage(
         toSession: string,
-        type: WebRTCReflectMessage['type'],
-        payload: Record<string, unknown>
+        type: WebRTCReflectMessage["type"],
+        payload: Record<string, unknown>,
     ) {
         if (!client || !fullSessionId.value) {
-            throw new Error('WebRTC Reflect not initialized');
+            throw new Error("WebRTC Reflect not initialized");
         }
 
         const message: WebRTCReflectMessage = {
@@ -272,7 +313,7 @@ export function useWebRTCReflect(
             fromSession: fullSessionId.value,
             toSession,
             payload,
-            timestamp: Date.now()
+            timestamp: Date.now(),
         };
 
         // If message queuing is enabled and we're not initialized, queue the message
@@ -281,11 +322,14 @@ export function useWebRTCReflect(
             queue.push(message);
             messageQueue.value.set(toSession, queue);
 
-            console.log('[WebRTC Reflect] Queued signaling message (not initialized):', {
-                type,
-                to: toSession.substring(0, 8) + '...',
-                queueLength: queue.length
-            });
+            console.log(
+                "[WebRTC Reflect] Queued signaling message (not initialized):",
+                {
+                    type,
+                    to: toSession.substring(0, 8) + "...",
+                    queueLength: queue.length,
+                },
+            );
 
             // Attempt reconnection if auto-reconnect is enabled
             if (autoReconnect && !isReconnecting.value) {
@@ -296,18 +340,21 @@ export function useWebRTCReflect(
         }
 
         try {
-            await client.client.connection.publishReflect({
+            client.client.connection.publishReflect({
                 syncGroup,
                 channel: SIGNALING_CHANNEL,
-                payload: message
+                payload: message,
             });
 
-            console.log('[WebRTC Reflect] Sent signaling message:', {
+            console.log("[WebRTC Reflect] Sent signaling message:", {
                 type,
-                to: toSession.substring(0, 8) + '...'
+                to: `${toSession.substring(0, 8)}...`,
             });
         } catch (err) {
-            console.error('[WebRTC Reflect] Failed to send signaling message:', err);
+            console.error(
+                "[WebRTC Reflect] Failed to send signaling message:",
+                err,
+            );
 
             // If queuing is enabled, add to queue and attempt reconnection
             if (enableMessageQueuing) {
@@ -315,10 +362,10 @@ export function useWebRTCReflect(
                 queue.push(message);
                 messageQueue.value.set(toSession, queue);
 
-                console.log('[WebRTC Reflect] Queued failed message:', {
+                console.log("[WebRTC Reflect] Queued failed message:", {
                     type,
-                    to: toSession.substring(0, 8) + '...',
-                    queueLength: queue.length
+                    to: `${toSession.substring(0, 8)}...`,
+                    queueLength: queue.length,
                 });
 
                 if (autoReconnect && !isReconnecting.value) {
@@ -332,14 +379,20 @@ export function useWebRTCReflect(
 
     // Attempt to reconnect and flush message queue
     async function attemptReconnection() {
-        if (!autoReconnect || isReconnecting.value || reconnectAttempts.value >= maxReconnectAttempts) {
+        if (
+            !autoReconnect ||
+            isReconnecting.value ||
+            reconnectAttempts.value >= maxReconnectAttempts
+        ) {
             return;
         }
 
         isReconnecting.value = true;
         reconnectAttempts.value++;
 
-        console.log(`[WebRTC Reflect] Attempting reconnection ${reconnectAttempts.value}/${maxReconnectAttempts}`);
+        console.log(
+            `[WebRTC Reflect] Attempting reconnection ${reconnectAttempts.value}/${maxReconnectAttempts}`,
+        );
 
         // Wait before attempting reconnection
         reconnectTimeout.value = setTimeout(async () => {
@@ -347,14 +400,16 @@ export function useWebRTCReflect(
                 // Try to re-initialize
                 await initialize();
             } catch (err) {
-                console.error('[WebRTC Reflect] Reconnection failed:', err);
+                console.error("[WebRTC Reflect] Reconnection failed:", err);
                 isReconnecting.value = false;
 
                 // Schedule another attempt if we haven't exceeded max attempts
                 if (reconnectAttempts.value < maxReconnectAttempts) {
                     attemptReconnection();
                 } else {
-                    console.error('[WebRTC Reflect] Max reconnection attempts reached');
+                    console.error(
+                        "[WebRTC Reflect] Max reconnection attempts reached",
+                    );
                     // Flush any remaining queued messages as failed
                     flushMessageQueue();
                 }
@@ -364,73 +419,76 @@ export function useWebRTCReflect(
 
     // Flush queued messages
     function flushMessageQueue() {
-        console.log('[WebRTC Reflect] Flushing message queue...');
+        console.log("[WebRTC Reflect] Flushing message queue...");
 
         for (const [toSession, messages] of messageQueue.value) {
-            console.log(`[WebRTC Reflect] Flushing ${messages.length} messages to ${toSession.substring(0, 8)}...`);
+            console.log(
+                `[WebRTC Reflect] Flushing ${messages.length} messages to ${toSession.substring(0, 8)}...`,
+            );
 
             // Try to send each message
             for (const message of messages) {
-                try {
-                    client.client.connection.publishReflect({
+                client.client.connection
+                    .publishReflect({
                         syncGroup,
                         channel: SIGNALING_CHANNEL,
-                        payload: message
-                    }).catch(err => {
-                        console.error('[WebRTC Reflect] Failed to flush queued message:', err);
+                        payload: message,
+                    })
+                    .catch((error) => {
+                        console.error(
+                            "[WebRTC Reflect] Error flushing queued message:",
+                            error,
+                        );
                     });
-                } catch (err) {
-                    console.error('[WebRTC Reflect] Error flushing queued message:', err);
-                }
             }
         }
 
         messageQueue.value.clear();
-        console.log('[WebRTC Reflect] Message queue flushed');
+        console.log("[WebRTC Reflect] Message queue flushed");
     }
-    
+
     // Register a message handler for a specific peer
     function registerMessageHandler(
         peerId: string,
-        handler: (msg: WebRTCReflectMessage) => void
+        handler: (msg: WebRTCReflectMessage) => void,
     ) {
         messageHandlers.value.set(peerId, handler);
     }
-    
+
     // Unregister a message handler
     function unregisterMessageHandler(peerId: string) {
         messageHandlers.value.delete(peerId);
     }
-    
+
     // Get list of discovered peers
     const discoveredPeers = computed(() => {
         return Array.from(activePeers.value.keys());
     });
-    
+
     // Helper methods for specific message types
     async function sendOffer(toSession: string, sdp: string) {
-        await sendSignalingMessage(toSession, 'offer', { sdp });
+        await sendSignalingMessage(toSession, "offer", { sdp });
     }
-    
+
     async function sendAnswer(toSession: string, sdp: string) {
-        await sendSignalingMessage(toSession, 'answer', { sdp });
+        await sendSignalingMessage(toSession, "answer", { sdp });
     }
-    
+
     async function sendIceCandidate(
         toSession: string,
-        candidate: RTCIceCandidate | null
+        candidate: RTCIceCandidate | null,
     ) {
-        await sendSignalingMessage(toSession, 'ice-candidate', {
+        await sendSignalingMessage(toSession, "ice-candidate", {
             candidate: candidate ? JSON.stringify(candidate) : null,
             sdpMLineIndex: candidate?.sdpMLineIndex || null,
-            sdpMid: candidate?.sdpMid || null
+            sdpMid: candidate?.sdpMid || null,
         });
     }
-    
+
     async function sendSessionEnd(toSession: string) {
-        await sendSignalingMessage(toSession, 'session-end', {});
+        await sendSignalingMessage(toSession, "session-end", {});
     }
-    
+
     return {
         // State
         isInitialized,
@@ -466,6 +524,6 @@ export function useWebRTCReflect(
 
         // Reconnection and queuing
         attemptReconnection,
-        flushMessageQueue
+        flushMessageQueue,
     };
 }

@@ -184,7 +184,7 @@
                             :hdr-file="'babylon.level.hdr.1k.hdr'" :enable-defaults="true" :gravity="[0, -9.81, 0]"
                             :hemispheric-light="{ enabled: true, direction: [1, 1, 0], intensity: 1.0 }"
                             :directional-light="{ enabled: true, direction: [-1, -2, -1], position: [10, 10, 10], intensity: 1.0 }"
-                            :ground="{ enabled: true, width: 1000, height: 1000, position: [0, -1, 0], diffuseColor: [0.2, 0.2, 0.2], specularColor: [0.1, 0.1, 0.1], mass: 0, friction: 0.5, restitution: 0.3 }"
+                            :ground="{ enabled: true, width: 1000, height: 1000, position: [0, -1, 0], diffuseColor: [0.2, 0.2, 0.2], specularColor: [0.1, 0.1, 0.1], mass: 0, friction: 0.85, restitution: 0.1 }"
                             ref="envRef" v-slot="{ environmentInitialized }">
                             <!-- (removed) previously mirrored via SyncEnvState; now derived from physicsRef -->
 
@@ -205,9 +205,9 @@
                                             :talk-level="talkLevel" :talk-threshold="talkThreshold"
                                             :audio-devices="audioDevices" :physics-enabled="envPhysicsEnabled"
                                             :physics-plugin-name="envPhysicsPluginName" :gravity="sceneGravity"
-                                            ref="avatarRef">
+                                            :avatar-definition="avatarDefinition" ref="avatarRef">
                                             <template
-                                                #default="{ avatarSkeleton, animations, vircadiaWorld, onAnimationState, avatarNode, modelFileName, meshPivotPoint, capsuleHeight, onSetAvatarModel, airborne, verticalVelocity, supportState, physicsEnabled, hasTouchedGround, spawnSettling, groundProbeHit, groundProbeDistance, groundProbeMeshName, onAvatarDefinitionLoaded, onEntityDataLoaded }">
+                                                #default="{ avatarSkeleton, animations, vircadiaWorld, onAnimationState, avatarNode, modelFileName, meshPivotPoint, capsuleHeight, onSetAvatarModel, airborne, verticalVelocity, supportState, physicsEnabled, hasTouchedGround, spawnSettling, groundProbeHit, groundProbeDistance, groundProbeMeshName, onEntityDataLoaded }">
                                                 <!-- Renderless entity sync component runs outside of model v-if so it can load DB definition -->
                                                 <BabylonMyAvatarEntity
                                                     v-if="vircadiaWorld.connectionInfo.value.status === 'connected'"
@@ -228,9 +228,7 @@
                                                     :reflect-channel="'avatar_data'" :position-decimals="4"
                                                     :rotation-decimals="4" :scale-decimals="4"
                                                     :position-update-decimals="4" :rotation-update-decimals="4"
-                                                    :scale-update-decimals="3"
-                                                    @avatar-definition-loaded="onAvatarDefinitionLoaded"
-                                                    @entity-data-loaded="onEntityDataLoaded"
+                                                    :scale-update-decimals="3" @entity-data-loaded="onEntityDataLoaded"
                                                     @sync-stats="onAvatarSyncStats" />
                                                 <BabylonMyAvatarModel v-if="modelFileName" :scene="sceneNonNull"
                                                     :vircadia-world="vircadiaWorld"
@@ -306,7 +304,7 @@
                                 <BabylonPhysicsLevel :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
                                     entity-name="babylon.level.glb" model-file-name="babylon.level.glb"
                                     :enable-physics="true" physics-type="mesh"
-                                    :physics-options="{ mass: 0, friction: 0.5, restitution: 0.3 }" />
+                                    :physics-options="{ mass: 0, friction: 0.85, restitution: 0.1 }" />
 
                                 <!-- BabylonModel components provided by DB-scanned list -->
                                 <BabylonModels :vircadia-world="vircadiaWorld" v-slot="{ models }">
@@ -572,11 +570,13 @@ const avatarDefinition: AvatarDefinition = {
     debugBoundingBox: false,
     debugSkeleton: true,
     debugAxes: false,
-    walkSpeed: 1.47,
+    walkSpeed: 1.7,
     turnSpeed: Math.PI,
     blendDuration: 0.15,
     disableRootMotion: true,
     startFlying: true,
+    runSpeedMultiplier: 2.2,
+    backWalkMultiplier: 0.6,
     animations: [
         {
             fileName: "babylon.avatar.animation.f.idle.1.glb",

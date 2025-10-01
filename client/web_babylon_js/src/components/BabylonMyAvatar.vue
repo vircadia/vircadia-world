@@ -2,11 +2,11 @@
     <slot :avatar-skeleton="avatarSkeleton" :animations="animations" :vircadia-world="vircadiaWorld"
         :on-animation-state="onAnimationState" :avatar-node="avatarNode" :model-file-name="modelFileName"
         :mesh-pivot-point="meshPivotPoint" :capsule-height="capsuleHeight" :on-set-avatar-model="onSetAvatarModel"
-        :onAvatarDefinitionLoaded="onAvatarDefinitionLoaded" :onEntityDataLoaded="onEntityDataLoaded"
-        :key-state="keyState" :airborne="lastAirborne" :verticalVelocity="lastVerticalVelocity"
-        :supportState="lastSupportState" :physicsEnabled="props.physicsEnabled" :hasTouchedGround="hasTouchedGround"
-        :spawnSettling="spawnSettleActive" :groundProbeHit="groundProbeHit" :groundProbeDistance="groundProbeDistance"
-        :groundProbeMeshName="groundProbeMeshName" :animationDebug="animationDebug" />
+        :onEntityDataLoaded="onEntityDataLoaded" :key-state="keyState" :airborne="lastAirborne"
+        :verticalVelocity="lastVerticalVelocity" :supportState="lastSupportState" :physicsEnabled="props.physicsEnabled"
+        :hasTouchedGround="hasTouchedGround" :spawnSettling="spawnSettleActive" :groundProbeHit="groundProbeHit"
+        :groundProbeDistance="groundProbeDistance" :groundProbeMeshName="groundProbeMeshName"
+        :animationDebug="animationDebug" />
 </template>
 
 <script setup lang="ts">
@@ -87,6 +87,7 @@ const props = defineProps({
         required: false,
         default: () => [0, -9.81, 0],
     },
+    avatarDefinition: { type: Object as () => AvatarDefinition, required: true },
     // Sync group configuration
     reflectSyncGroup: { type: String, required: false, default: "public.REALTIME" },
     entitySyncGroup: { type: String, required: false, default: "public.NORMAL" },
@@ -121,35 +122,14 @@ export type AvatarDefinition = {
     turnSpeed: number;
     blendDuration: number;
     animations: AnimationDef[];
-    disableRootMotion?: boolean; // Optional: Allow enabling root motion for specific avatars
-    startFlying?: boolean;
+    disableRootMotion: boolean; // Optional: Allow enabling root motion for specific avatars
+    startFlying: boolean;
+    runSpeedMultiplier: number;
+    backWalkMultiplier: number;
 };
-
-// TODO: This should not be here with defaults, all defaults should be defined in MainScene.
-const defaultAvatarDef: AvatarDefinition = {
-    initialAvatarPosition: { x: 0, y: 0, z: -5 },
-    initialAvatarRotation: { x: 0, y: 0, z: 0, w: 1 },
-    modelFileName: "",
-    meshPivotPoint: "bottom",
-    throttleInterval: 500,
-    capsuleHeight: 1.8,
-    capsuleRadius: 0.3,
-    slopeLimit: 45,
-    jumpSpeed: 5,
-    debugBoundingBox: false,
-    debugSkeleton: false,
-    debugAxes: false,
-    walkSpeed: 1.5,
-    turnSpeed: 1.5,
-    blendDuration: 0.15,
-    startFlying: false,
-    animations: [],
-};
-
-const dbAvatarDef = ref<AvatarDefinition | null>(null);
 
 const effectiveAvatarDef = computed<AvatarDefinition>(() => {
-    return dbAvatarDef.value ?? defaultAvatarDef;
+    return props.avatarDefinition as AvatarDefinition;
 });
 
 const capsuleHeight = computed(() => effectiveAvatarDef.value.capsuleHeight);
@@ -177,11 +157,6 @@ const sessionId = computed(
 const fullSessionId = computed(
     () => props.vircadiaWorld.connectionInfo.value.fullSessionId ?? null,
 );
-
-function onAvatarDefinitionLoaded(def: AvatarDefinition) {
-    dbAvatarDef.value = def;
-    isFlying.value = !!def.startFlying;
-}
 
 type EntityData = {
     general__entity_name: string;
@@ -611,7 +586,7 @@ function getTalkingDefs(): AnimationDef[] {
 }
 
 function getJumpDef(): AnimationDef | undefined {
-    return findAnimationDef("jump");
+    return findAnimationDef("falling");
 }
 
 function getFallingDef(): AnimationDef | undefined {
@@ -966,6 +941,11 @@ onMounted(async () => {
         return;
     }
     beforePhysicsObserver = props.scene.onBeforeRenderObservable.add(() => {
+        if (!effectiveAvatarDef.value) {
+            console.warn("[BabylonMyAvatar] Avatar definition is not available yet; skipping frame hooks this mount");
+            return;
+        }
+
         const now = performance.now();
         const deltaTime = (now - lastTime) / 1000.0;
         lastTime = now;
@@ -1006,7 +986,13 @@ onMounted(async () => {
             moveDirection.normalize();
         }
 
-        const currentSpeed = walkSpeed.value * (ks.sprint ? 2 : 1);
+        // Base forward walk speed, scaled for sprint/run and reduced for backward movement
+        let speedMultiplier = ks.sprint ? effectiveAvatarDef.value.runSpeedMultiplier : 1;
+        // Apply backward walking reduction if primarily moving backward
+        if (!ks.sprint && moveDirection.z < 0 && Math.abs(moveDirection.z) >= Math.abs(moveDirection.x)) {
+            speedMultiplier *= effectiveAvatarDef.value.backWalkMultiplier;
+        }
+        const currentSpeed = walkSpeed.value * speedMultiplier;
 
         const m = new Matrix();
         avatarNode.value.rotationQuaternion?.toRotationMatrix(m);

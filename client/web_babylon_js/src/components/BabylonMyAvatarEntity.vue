@@ -114,7 +114,6 @@ const props = defineProps({
 });
 
 const emit = defineEmits<{
-    "avatar-definition-loaded": [def: AvatarDefinition];
     "entity-data-loaded": [data: EntityData];
     "sync-stats": [data: AvatarSyncMetrics];
 }>();
@@ -736,9 +735,6 @@ async function initializeEntity() {
         console.error("[AVATAR ENTITY] Missing required IDs, cannot proceed");
         return;
     }
-
-    // Provide avatar definition from props
-    emit("avatar-definition-loaded", props.avatarDefinition);
 
     // Ensure a minimal entity row exists in DB so others can discover us
     if (entityName.value) {

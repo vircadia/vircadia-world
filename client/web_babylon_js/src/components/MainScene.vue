@@ -6,7 +6,14 @@
         :physics-error="physicsRef?.physicsError || undefined" :gravity="physicsRef?.gravity"
         :physics-engine-type="physicsRef?.physicsEngineType || ''" :physics-initialized="physicsRef?.physicsInitialized"
         :havok-instance-loaded="physicsRef?.havokInstanceLoaded"
-        :physics-plugin-created="physicsRef?.physicsPluginCreated" />
+        :physics-plugin-created="physicsRef?.physicsPluginCreated" :scene="sceneNonNull" :avatar-node="avatarNodeRef"
+        :avatar-skeleton="avatarSkeletonRef" :model-file-name="modelFileNameRef || null" :model-step="avatarModelStep"
+        :model-error="avatarModelError || undefined" :is-talking="isTalkingRef" :talk-level="talkLevelRef"
+        :talk-threshold="talkThresholdRef" :audio-input-devices="audioDevicesRef" :airborne="airborneRef"
+        :vertical-velocity="verticalVelocityRef" :support-state="supportStateRef"
+        :has-touched-ground="hasTouchedGroundRef" :spawn-settling="spawnSettlingRef"
+        :ground-probe-hit="groundProbeHitRef" :ground-probe-distance="groundProbeDistanceRef ?? undefined"
+        :ground-probe-mesh-name="groundProbeMeshNameRef ?? undefined" :sync-metrics="avatarSyncMetrics || undefined" />
     <VircadiaWorldProvider :autoConnect="clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT"
         @auth-denied="onAuthDenied($event)"
         v-slot="{ vircadiaWorld, connectionInfo, connectionStatus, isConnecting, isAuthenticated, isAuthenticating, accountDisplayName, sessionToken, connect, logout }">
@@ -137,14 +144,14 @@
                                                     :model-file-name="modelFileName || ''"
                                                     :avatar-definition="avatarDefinition"
                                                     :persist-pose-snapshot-interval="5000"
-                                                    :position-throttle-interval="50" :rotation-throttle-interval="50"
-                                                    :camera-orientation-throttle-interval="100"
-                                                    :joint-throttle-interval="50" :joint-position-decimals="3"
+                                                    :position-throttle-interval="100" :rotation-throttle-interval="100"
+                                                    :camera-orientation-throttle-interval="500"
+                                                    :joint-throttle-interval="500" :joint-position-decimals="3"
                                                     :joint-rotation-decimals="4" :joint-scale-decimals="5"
                                                     :joint-position-update-decimals="2"
                                                     :joint-rotation-update-decimals="3" :joint-scale-update-decimals="4"
-                                                    :reflect-sync-group="'public.NORMAL'"
-                                                    :reflect-channel="'avatar_joints'" :position-decimals="4"
+                                                    :reflect-sync-group="'public.REALTIME'"
+                                                    :reflect-channel="'avatar_data'" :position-decimals="4"
                                                     :rotation-decimals="4" :scale-decimals="4"
                                                     :position-update-decimals="4" :rotation-update-decimals="4"
                                                     :scale-update-decimals="3"
@@ -181,26 +188,23 @@
 
                                                 </BabylonMyAvatarModel>
 
-                                                <!-- Debug overlays moved outside of model to render regardless of model availability -->
-                                                <BabylonMyAvatarDebugOverlay :scene="sceneNonNull"
-                                                    :vircadia-world="vircadiaWorld"
-                                                    :avatar-node="(avatarNode as TransformNode | null)"
-                                                    :avatar-skeleton="(avatarSkeleton) || null"
-                                                    :model-file-name="modelFileNameRef || modelFileName"
-                                                    :model-step="avatarModelStep"
-                                                    :model-error="avatarModelError || undefined" :is-talking="isTalking"
-                                                    :talk-level="talkLevel" :talk-threshold="talkThreshold"
-                                                    :audio-input-devices="audioDevices" :airborne="airborne"
-                                                    :vertical-velocity="verticalVelocity" :support-state="supportState"
-                                                    :physics-enabled="envPhysicsEnabled"
-                                                    :physics-plugin-name="envPhysicsPluginName || undefined"
-                                                    :physics-error="envPhysicsError || undefined"
-                                                    :has-touched-ground="hasTouchedGround"
-                                                    :spawn-settling="spawnSettling" :ground-probe-hit="groundProbeHit"
-                                                    :ground-probe-distance="groundProbeDistance ?? undefined"
-                                                    :ground-probe-mesh-name="groundProbeMeshName ?? undefined"
-                                                    :sync-metrics="avatarSyncMetrics || undefined"
-                                                    v-model="avatarDebugOpen" hotkey="Shift+M" />
+                                                <!-- Sync avatar debug state to RightDrawer -->
+                                                <div style="display: none">
+                                                    {{ syncAvatarTalkingState(isTalking, talkLevel, audioDevices,
+                                                        talkThreshold) }}
+                                                    {{ syncAvatarCoreState(
+                                                        (avatarNode as TransformNode | null) || null,
+                                                        (targetSkeleton) || (avatarSkeleton) || null,
+                                                        airborne,
+                                                        verticalVelocity,
+                                                        supportState,
+                                                        hasTouchedGround,
+                                                        spawnSettling,
+                                                        groundProbeHit,
+                                                        groundProbeDistance ?? undefined,
+                                                        groundProbeMeshName ?? undefined,
+                                                    ) }}
+                                                </div>
                                                 <!-- Camera debug overlay -->
                                                 <BabylonCameraDebugOverlay v-model="cameraDebugOpen"
                                                     :scene="sceneNonNull"
@@ -215,7 +219,7 @@
                                 <BabylonOtherAvatars :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
                                     :current-full-session-id="connectionInfo.fullSessionId ?? undefined"
                                     :discovery-polling-interval="500" :reflect-sync-group="'public.NORMAL'"
-                                    :reflect-channel="'avatar_joints'"
+                                    :reflect-channel="'avatar_data'"
                                     v-slot="{ otherAvatarSessionIds, avatarDataMap, positionDataMap, rotationDataMap, jointDataMap }">
                                     <BabylonOtherAvatar v-for="otherFullSessionId in otherAvatarSessionIds || []"
                                         :key="otherFullSessionId" :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
@@ -287,7 +291,12 @@
 
 <script setup lang="ts">
 // BabylonJS types
-import type { Scene, TransformNode, WebGPUEngine } from "@babylonjs/core";
+import type {
+    Scene,
+    Skeleton,
+    TransformNode,
+    WebGPUEngine,
+} from "@babylonjs/core";
 import { clientBrowserConfiguration } from "@vircadia/world-sdk/browser/vue";
 import { useStorage } from "@vueuse/core";
 import {
@@ -318,7 +327,6 @@ import BabylonMyAvatar, {
     type AvatarDefinition,
 } from "../components/BabylonMyAvatar.vue";
 import BabylonMyAvatarAnimation from "../components/BabylonMyAvatarAnimation.vue";
-import BabylonMyAvatarDebugOverlay from "../components/BabylonMyAvatarDebugOverlay.vue";
 import BabylonMyAvatarDesktopThirdPersonCamera from "../components/BabylonMyAvatarDesktopThirdPersonCamera.vue";
 import BabylonMyAvatarEntity, {
     type AvatarSyncMetrics,
@@ -370,7 +378,6 @@ const modelPhysicsRefs = ref<
 
 // State for debug overlays with persistence across reloads
 const cameraDebugOpen = useStorage<boolean>("vrca.debug.camera", false);
-const avatarDebugOpen = useStorage<boolean>("vrca.debug.avatar", false);
 // Models debug overlay
 const modelsDebugOpen = useStorage<boolean>("vrca.debug.models", false);
 
@@ -464,7 +471,10 @@ function togglePerformanceMode() {
 
 // Local debug drawer state
 const rightDrawerOpen = useStorage<boolean>("vrca.right.drawer.open", false);
-const rightDrawerTab = useStorage<string>("vrca.right.drawer.tab", "environment");
+const rightDrawerTab = useStorage<string>(
+    "vrca.right.drawer.tab",
+    "environment",
+);
 const leftDrawerOpen = useStorage<boolean>("vrca.nav.left.open", false);
 
 const activeAudioCount = computed(() => 0);
@@ -761,7 +771,6 @@ function getPhysicsShape(type: unknown): string {
     }
 }
 
-
 // Physics summaries reported by BabylonModelPhysics instances
 const physicsSummaries = ref<Record<string, PhysicsSummary>>({});
 function refreshPhysicsSummaries(
@@ -776,7 +785,6 @@ function refreshPhysicsSummaries(
         if (id && summary) physicsSummaries.value[id] = summary;
     }
 }
-
 
 // Avatar model loader debug state
 const avatarModelStep = ref<string>("");
@@ -802,6 +810,59 @@ function onAvatarModelState(payload: {
     if (typeof fileName === "string") modelFileNameRef.value = fileName;
 }
 
+// Avatar debug state surfaced to RightDrawer
+const avatarNodeRef = ref<TransformNode | null>(null);
+const avatarSkeletonRef = ref<Skeleton | null>(null);
+const isTalkingRef = ref<boolean>(false);
+const talkLevelRef = ref<number>(0);
+const talkThresholdRef = ref<number>(0);
+const audioDevicesRef = ref<{ deviceId: string; label: string }[]>([]);
+const airborneRef = ref<boolean>(false);
+const verticalVelocityRef = ref<number>(0);
+const supportStateRef = ref<number | null>(null);
+const hasTouchedGroundRef = ref<boolean>(false);
+const spawnSettlingRef = ref<boolean>(false);
+const groundProbeHitRef = ref<boolean>(false);
+const groundProbeDistanceRef = ref<number | null>(null);
+const groundProbeMeshNameRef = ref<string | null>(null);
+
+function syncAvatarTalkingState(
+    isTalking: boolean,
+    level: number,
+    devices: { deviceId: string; label: string }[],
+    threshold: number,
+) {
+    isTalkingRef.value = !!isTalking;
+    talkLevelRef.value = Number(level) || 0;
+    talkThresholdRef.value = Number(threshold) || 0;
+    audioDevicesRef.value = Array.isArray(devices) ? devices : [];
+    return "";
+}
+
+function syncAvatarCoreState(
+    avatarNode: TransformNode | null,
+    avatarSkeleton: Skeleton | null,
+    airborne: boolean,
+    verticalVelocity: number,
+    supportState: number | null,
+    hasTouchedGround: boolean,
+    spawnSettling: boolean,
+    groundProbeHit: boolean,
+    groundProbeDistance: number | null | undefined,
+    groundProbeMeshName: string | null | undefined,
+) {
+    avatarNodeRef.value = avatarNode;
+    avatarSkeletonRef.value = avatarSkeleton;
+    airborneRef.value = !!airborne;
+    verticalVelocityRef.value = Number(verticalVelocity) || 0;
+    supportStateRef.value = supportState ?? null;
+    hasTouchedGroundRef.value = !!hasTouchedGround;
+    spawnSettlingRef.value = !!spawnSettling;
+    groundProbeHitRef.value = !!groundProbeHit;
+    groundProbeDistanceRef.value = groundProbeDistance ?? null;
+    groundProbeMeshNameRef.value = groundProbeMeshName ?? null;
+    return "";
+}
 
 // Snackbar logic moved into BabylonSnackbar component
 
@@ -853,7 +914,6 @@ function clearPeerAudioStates() {
 function toggleSpatialAudio(enabled: boolean) {
     spatialAudioEnabled.value = enabled;
 }
-
 
 // Mic/audio permission indicator state (from BabylonWebRTC)
 const microphonePermission = ref<"granted" | "denied" | "prompt" | "unknown">(
@@ -974,7 +1034,6 @@ function onDoorOpen(payload: { open: boolean }) {
     console.debug("[MainScene] Door opened/closed", payload);
 }
 
-
 // Debug bar helper functions
 function getConnectionStatusColor(status: string): string {
     switch (status) {
@@ -1040,7 +1099,6 @@ function getConnectedUrl(): string {
         clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_WS_URI_USING_SSL;
     return `${useSSL ? "wss" : "ws"}://${baseUri}`;
 }
-
 </script>
 
 <style>

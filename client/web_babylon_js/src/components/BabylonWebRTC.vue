@@ -100,7 +100,7 @@
                                 <div v-if="reflectApi.activePeers.value.size > 0" class="text-caption text-grey mt-1">
                                     <div v-for="[peerId, announcement] in reflectApi.activePeers.value" :key="peerId">
                                         {{ peerId.substring(0, 8) }}... ({{ Math.floor((Date.now() -
-                                        announcement.timestamp) / 1000) }}s ago)
+                                            announcement.timestamp) / 1000) }}s ago)
                                     </div>
                                 </div>
                             </v-col>
@@ -148,7 +148,7 @@
                                 </v-list-item-title>
                                 <div class="text-caption text-grey">
                                     {{ debugTestResults ? `${Math.floor((Date.now() - debugTestTimestamp) / 1000)}s ago`
-                                    : 'Never' }}
+                                        : 'Never' }}
                                 </div>
                             </v-col>
                             <v-col cols="6">
@@ -696,9 +696,6 @@ async function ensureAudioContextResumed() {
 // Set up user interaction handlers for audio context resume
 function setupUserInteractionHandlers() {
     const handleUserInteraction = async () => {
-        console.log(
-            "[WebRTC] User interaction detected, attempting to resume audio context...",
-        );
         await ensureAudioContextResumed();
     };
 
@@ -1941,7 +1938,7 @@ async function testReflectConnectivity() {
             test: true,
         };
 
-        await vircadiaWorld.client.connection.publishReflect({
+        vircadiaWorld.client.connection.publishReflect({
             syncGroup: reflectApiSyncGroup.value,
             channel: "webrtc.announce",
             payload: testAnnouncement,
@@ -1962,7 +1959,7 @@ async function testReflectConnectivity() {
             );
 
         // Test 3: Send a test signaling message to ourselves
-        await vircadiaWorld.client.connection.publishReflect({
+        vircadiaWorld.client.connection.publishReflect({
             syncGroup: reflectApiSyncGroup.value,
             channel: "webrtc.signal",
             payload: {

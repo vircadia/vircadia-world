@@ -23,8 +23,8 @@ import type {
     AvatarRotationData,
     DebugData,
     DebugWindow,
-import { AvatarFrameMessageSchema } from "@schemas";
 } from "@schemas";
+import { AvatarFrameMessageSchema } from "@schemas";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 
 // Local helper types (previously from physics controller composable)
@@ -77,10 +77,29 @@ const currentPositionData: Ref<AvatarPositionData | null> = ref(null);
 const currentRotationData: Ref<AvatarRotationData | null> = ref(null);
 const currentJointData: Ref<Map<string, AvatarJointMetadata>> = ref(new Map());
 
+// LERP Smoothing Configuration
+const AVATAR_SMOOTH_FACTOR = 0.2; // Main avatar position/rotation (0.1-0.3 recommended)
+const BONE_SMOOTH_FACTOR = 0.25; // Bone transforms (slightly faster for responsiveness)
+
+// Target transforms for smooth interpolation
+const targetPosition = ref<Vector3>(new Vector3());
+const targetRotation = ref<Quaternion>(new Quaternion());
+const targetBoneTransforms = ref<
+    Map<
+        string,
+        {
+            position: Vector3;
+            rotation: Quaternion;
+            scale: Vector3;
+        }
+    >
+>(new Map());
+
+// Render loop observer for smooth interpolation
+let renderObserver: (() => void) | null = null;
+
 // Use Vircadia instance from props
 const vircadiaWorld = props.vircadiaWorld;
-
-// Audio playback is now handled by BabylonWebRTC component
 
 // Build direct asset URL helper
 function buildDirectUrl(fileName: string): string {
@@ -96,7 +115,19 @@ function objToQuat(obj: RotationObj): Quaternion {
     return new Quaternion(obj.x, obj.y, obj.z, obj.w);
 }
 
-// Debug interfaces now imported from @schemas
+// Adaptive smooth factor based on distance (optional enhancement)
+function adaptiveSmoothFactor(
+    current: Vector3,
+    target: Vector3,
+    baseFactor: number,
+): number {
+    const distance = Vector3.Distance(current, target);
+
+    // If far away, catch up faster
+    if (distance > 2.0) return Math.min(0.5, baseFactor * 3);
+    if (distance > 0.5) return Math.min(0.3, baseFactor * 2);
+    return baseFactor;
+}
 
 // Watch for changes in avatar base data
 watch(
@@ -105,7 +136,7 @@ watch(
         if (newData && isModelLoaded.value) {
             // Base avatar data changed; if we already have pos/rot, re-apply transforms
             if (currentPositionData.value && currentRotationData.value) {
-                applyAvatarTransforms(
+                updateTargetTransforms(
                     currentPositionData.value,
                     currentRotationData.value,
                     currentJointData.value,
@@ -123,7 +154,7 @@ watch(
         if (newPosition && isModelLoaded.value) {
             currentPositionData.value = newPosition;
             if (currentRotationData.value) {
-                applyAvatarTransforms(
+                updateTargetTransforms(
                     newPosition,
                     currentRotationData.value,
                     currentJointData.value,
@@ -141,7 +172,7 @@ watch(
         if (newRotation && isModelLoaded.value) {
             currentRotationData.value = newRotation;
             if (currentPositionData.value) {
-                applyAvatarTransforms(
+                updateTargetTransforms(
                     currentPositionData.value,
                     newRotation,
                     currentJointData.value,
@@ -159,7 +190,7 @@ watch(
         if (newJointData && isModelLoaded.value) {
             currentJointData.value = newJointData;
             if (currentPositionData.value && currentRotationData.value) {
-                applyAvatarTransforms(
+                updateTargetTransforms(
                     currentPositionData.value,
                     currentRotationData.value,
                     newJointData,
@@ -209,6 +240,12 @@ async function loadAvatarModel() {
             props.scene,
         );
 
+        // Initialize position and rotation
+        targetPosition.value = new Vector3(0, 0, 0);
+        targetRotation.value = Quaternion.Identity();
+        avatarNode.value.position = targetPosition.value.clone();
+        avatarNode.value.rotationQuaternion = targetRotation.value.clone();
+
         // Store meshes and setup skeleton
         meshes.value = result.meshes;
 
@@ -221,14 +258,13 @@ async function loadAvatarModel() {
             mesh.parent = avatarNode.value;
         }
 
-        // Find and store skeleton - Use the first skeleton from import
+        // Find and store skeleton
         if (result.skeletons.length > 0) {
             avatarSkeleton.value = result.skeletons[0];
 
             // Ensure the skeleton is properly bound to its meshes
             for (const mesh of result.meshes) {
                 if (mesh.skeleton === avatarSkeleton.value) {
-                    // Force refresh of skeleton binding
                     mesh.skeleton = avatarSkeleton.value;
                 }
             }
@@ -250,18 +286,18 @@ async function loadAvatarModel() {
 
             // Initialize skeleton for proper bone manipulation
             avatarSkeleton.value.prepare();
-            // Force initial computation to ensure proper setup
             avatarSkeleton.value.computeAbsoluteMatrices(true);
 
             for (const bone of avatarSkeleton.value.bones) {
                 bone.linkTransformNode(null);
             }
-
-            // Note: GLTF skeletons don't expose bones as TransformNodes
-            // The bones are managed internally by the skeleton system
         }
 
         isModelLoaded.value = true;
+
+        // Setup smooth interpolation render loop
+        setupRenderLoop();
+
         emit("ready");
     } catch (error) {
         console.error(
@@ -271,8 +307,93 @@ async function loadAvatarModel() {
     }
 }
 
-// Apply avatar transforms to the model
-function applyAvatarTransforms(
+// Setup the smooth interpolation render loop
+function setupRenderLoop() {
+    if (renderObserver) {
+        props.scene.unregisterBeforeRender(renderObserver);
+    }
+
+    renderObserver = () => {
+        if (!avatarNode.value || !isModelLoaded.value) return;
+
+        // Smooth avatar position with adaptive factor
+        const posFactor = adaptiveSmoothFactor(
+            avatarNode.value.position,
+            targetPosition.value,
+            AVATAR_SMOOTH_FACTOR,
+        );
+        avatarNode.value.position = Vector3.Lerp(
+            avatarNode.value.position,
+            targetPosition.value,
+            posFactor,
+        );
+
+        // Smooth avatar rotation
+        if (avatarNode.value.rotationQuaternion && targetRotation.value) {
+            avatarNode.value.rotationQuaternion = Quaternion.Slerp(
+                avatarNode.value.rotationQuaternion,
+                targetRotation.value,
+                AVATAR_SMOOTH_FACTOR,
+            );
+        }
+
+        // Smooth bone transforms
+        if (avatarSkeleton.value && targetBoneTransforms.value.size > 0) {
+            for (const bone of avatarSkeleton.value.bones) {
+                const targetTransform = targetBoneTransforms.value.get(
+                    bone.name,
+                );
+
+                if (targetTransform) {
+                    // Get current bone transforms
+                    const currentPos = bone.getPosition(Space.LOCAL);
+                    const currentRot =
+                        bone.getRotationQuaternion(Space.LOCAL) ||
+                        Quaternion.Identity();
+                    const currentScale = bone.getScale();
+
+                    // Lerp to target
+                    const smoothedPos = Vector3.Lerp(
+                        currentPos,
+                        targetTransform.position,
+                        BONE_SMOOTH_FACTOR,
+                    );
+                    const smoothedRot = Quaternion.Slerp(
+                        currentRot,
+                        targetTransform.rotation,
+                        BONE_SMOOTH_FACTOR,
+                    );
+                    const smoothedScale = Vector3.Lerp(
+                        currentScale,
+                        targetTransform.scale,
+                        BONE_SMOOTH_FACTOR,
+                    );
+
+                    // Apply smoothed transforms
+                    bone.setPosition(smoothedPos, Space.LOCAL);
+                    bone.setRotationQuaternion(smoothedRot, Space.LOCAL);
+                    bone.setScale(smoothedScale);
+                    bone.markAsDirty();
+                }
+            }
+
+            // Update skeleton
+            avatarSkeleton.value.computeAbsoluteMatrices(true);
+
+            // Force mesh updates
+            for (const mesh of meshes.value) {
+                if (mesh.skeleton === avatarSkeleton.value) {
+                    mesh.computeWorldMatrix(true);
+                }
+            }
+        }
+    };
+
+    props.scene.registerBeforeRender(renderObserver);
+}
+
+// Update target transforms (called when new data arrives)
+function updateTargetTransforms(
     position: AvatarPositionData | null,
     rotation: AvatarRotationData | null,
     joints: Map<string, AvatarJointMetadata>,
@@ -281,37 +402,24 @@ function applyAvatarTransforms(
         return;
     }
 
-    // Apply position and rotation
+    // Update target position and rotation
     if (position) {
-        const pos = objToVector(position);
-        avatarNode.value.position = pos;
+        targetPosition.value = objToVector(position);
     }
 
     if (rotation) {
-        const rot = objToQuat(rotation);
-        avatarNode.value.rotationQuaternion = rot;
+        targetRotation.value = objToQuat(rotation);
     }
 
-    // Apply joint transforms if available (now from individual metadata entries)
+    // Update target bone transforms
     if (joints.size > 0 && avatarSkeleton.value) {
         const bones = avatarSkeleton.value.bones;
 
-        // Debug: Check if skeleton is properly bound to meshes
-        const skinnedMeshCount = meshes.value.filter(
-            (m) => m.skeleton === avatarSkeleton.value,
-        ).length;
-        if (skinnedMeshCount === 0) {
-            console.warn(
-                `No meshes are bound to the skeleton for session ${props.sessionId}!`,
-            );
-        }
-
-        // Update bones with data
         for (const bone of bones) {
             // Try exact match first
             let jointMetadata = joints.get(bone.name);
 
-            // If no exact match, try to find a matching joint by checking if bone name contains joint name
+            // If no exact match, try to find a matching joint
             if (!jointMetadata) {
                 for (const [jointName, metadata] of joints) {
                     if (
@@ -325,20 +433,16 @@ function applyAvatarTransforms(
             }
 
             if (jointMetadata) {
-                // Bone has new data - apply it
-                const bonePos = objToVector(jointMetadata.position);
-                const boneRot = objToQuat(jointMetadata.rotation);
-                const boneScale = jointMetadata.scale
-                    ? objToVector(jointMetadata.scale)
-                    : Vector3.One();
-
-                // Set transforms in LOCAL space
-                bone.setPosition(bonePos, Space.LOCAL);
-                bone.setRotationQuaternion(boneRot, Space.LOCAL);
-                bone.setScale(boneScale);
+                // Store target transforms for this bone
+                targetBoneTransforms.value.set(bone.name, {
+                    position: objToVector(jointMetadata.position),
+                    rotation: objToQuat(jointMetadata.rotation),
+                    scale: jointMetadata.scale
+                        ? objToVector(jointMetadata.scale)
+                        : Vector3.One(),
+                });
             } else {
-                // Bone has no data - reset to bind pose to prevent T-pose artifacts
-                // This is crucial to prevent bones from staying in previous positions
+                // Reset to bind pose
                 if (bone.getBindMatrix) {
                     const bindMatrix = bone.getBindMatrix();
                     const bindPos = new Vector3();
@@ -346,40 +450,18 @@ function applyAvatarTransforms(
                     const bindScale = new Vector3();
                     bindMatrix.decompose(bindScale, bindRot, bindPos);
 
-                    bone.setPosition(bindPos, Space.LOCAL);
-                    bone.setRotationQuaternion(bindRot, Space.LOCAL);
-                    bone.setScale(bindScale);
+                    targetBoneTransforms.value.set(bone.name, {
+                        position: bindPos,
+                        rotation: bindRot,
+                        scale: bindScale,
+                    });
                 } else {
-                    // Fallback: reset to identity transforms
-                    bone.setPosition(Vector3.Zero(), Space.LOCAL);
-                    bone.setRotationQuaternion(
-                        Quaternion.Identity(),
-                        Space.LOCAL,
-                    );
-                    bone.setScale(Vector3.One());
-                }
-            }
-
-            // Mark the bone as updated
-            bone.markAsDirty();
-        }
-
-        // Force skeleton update to ensure proper hierarchy computation
-        // Use 'true' to force computation even if bones haven't changed
-        avatarSkeleton.value.computeAbsoluteMatrices(true);
-
-        // Force mesh updates for all skinned meshes
-        for (const mesh of meshes.value) {
-            if (mesh.skeleton === avatarSkeleton.value) {
-                // Force the mesh to update its world matrix
-                mesh.computeWorldMatrix(true);
-
-                // If the mesh has a method to update from skeleton, use it
-                if (
-                    "applySkeleton" in mesh &&
-                    typeof mesh.applySkeleton === "function"
-                ) {
-                    // mesh.applySkeleton(avatarSkeleton.value);
+                    // Fallback: reset to identity
+                    targetBoneTransforms.value.set(bone.name, {
+                        position: Vector3.Zero(),
+                        rotation: Quaternion.Identity(),
+                        scale: Vector3.One(),
+                    });
                 }
             }
         }
@@ -425,8 +507,6 @@ function ingestAvatarFrame(raw: unknown) {
 // Debug interval
 let debugInterval: number | null = null;
 
-// Audio playback is now handled by the BabylonWebRTC component
-
 // Start debug logging
 onMounted(async () => {
     // Load the avatar model when component is mounted
@@ -441,14 +521,12 @@ onMounted(async () => {
     ) {
         currentPositionData.value = props.positionData;
         currentRotationData.value = props.rotationData;
-        applyAvatarTransforms(
+        updateTargetTransforms(
             currentPositionData.value,
             currentRotationData.value,
             props.jointData || new Map(),
         );
     }
-
-    // Audio playback is now handled by the BabylonWebRTC component
 
     // Expose debug data function for overlay
     (
@@ -474,7 +552,7 @@ onMounted(async () => {
             }
         > = {};
 
-        // Only collect key joints: Hips, Spine bones, and leg bones
+        // Only collect key joints
         const keyJoints = ["Hips", "Spine", "LeftUpLeg", "RightUpLeg"];
 
         for (const jointName of keyJoints) {
@@ -498,10 +576,8 @@ onMounted(async () => {
 
                 // Last received values from server
                 if (currentJointData.value.size > 0) {
-                    // Try exact match first
                     let jointMetadata = currentJointData.value.get(bone.name);
 
-                    // If no exact match, try to find a matching joint by checking if bone name contains joint name
                     if (!jointMetadata) {
                         for (const [
                             jointName,
@@ -531,6 +607,8 @@ onMounted(async () => {
         return {
             sessionId: props.sessionId,
             boneCount: avatarSkeleton.value.bones.length,
+            smoothingFactor: AVATAR_SMOOTH_FACTOR,
+            boneSmoothing: BONE_SMOOTH_FACTOR,
             currentEngineState,
             lastReceivedValues,
             lastReceivedTimestamp:
@@ -596,6 +674,12 @@ onUnmounted(() => {
         clearInterval(debugInterval);
     }
 
+    // Unregister render loop
+    if (renderObserver) {
+        props.scene.unregisterBeforeRender(renderObserver);
+        renderObserver = null;
+    }
+
     emit("avatar-removed", { sessionId: props.sessionId });
 
     // Clean up avatar node and meshes
@@ -603,8 +687,6 @@ onUnmounted(() => {
         avatarNode.value.dispose();
         avatarNode.value = null;
     }
-
-    // No object URL to revoke (using data URL or revoked immediately for objects)
 
     isModelLoaded.value = false;
 });

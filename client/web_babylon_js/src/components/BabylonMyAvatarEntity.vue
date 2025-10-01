@@ -662,18 +662,26 @@ const updateJoints = useThrottleFn(() => {
         const scale = new V3();
         localMat.decompose(scale, rot, pos);
         // Gating: compare quantized values using update-threshold decimals; skip if all unchanged since last send
-        const gatePos = quantizePosition(
-            vectorToObj(pos),
-            props.jointPositionUpdateDecimals,
-        );
-        const gateRot = quantizeRotation(
-            quatToObj(rot),
-            props.jointRotationUpdateDecimals,
-        );
-        const gateScale = quantizeScale(
-            vectorToObj(scale),
-            props.jointScaleUpdateDecimals,
-        );
+        // For hips joint, use full precision for gating to ensure updates are sent appropriately
+        const isHipsJoint = bone.name.toLowerCase() === "hips";
+        const gatePos = isHipsJoint
+            ? vectorToObj(pos)
+            : quantizePosition(
+                vectorToObj(pos),
+                props.jointPositionUpdateDecimals,
+            );
+        const gateRot = isHipsJoint
+            ? quatToObj(rot)
+            : quantizeRotation(
+                quatToObj(rot),
+                props.jointRotationUpdateDecimals,
+            );
+        const gateScale = isHipsJoint
+            ? vectorToObj(scale)
+            : quantizeScale(
+                vectorToObj(scale),
+                props.jointScaleUpdateDecimals,
+            );
         const jointNameKey = bone.name;
         const gatePosStr = JSON.stringify(gatePos);
         const gateRotStr = JSON.stringify(gateRot);
@@ -691,19 +699,26 @@ const updateJoints = useThrottleFn(() => {
         previousJointPositionGate.set(jointNameKey, gatePosStr);
         previousJointRotationGate.set(jointNameKey, gateRotStr);
         previousJointScaleGate.set(jointNameKey, gateScaleStr);
+        // Use full precision for hips joint to avoid rotation issues
         const jointMetadata = {
             type: "avatarJoint",
             sessionId: name.replace(/^avatar:/, ""),
             jointName: bone.name,
-            position: quantizePosition(
-                vectorToObj(pos),
-                props.jointPositionDecimals,
-            ),
-            rotation: quantizeRotation(
-                quatToObj(rot),
-                props.jointRotationDecimals,
-            ),
-            scale: quantizeScale(vectorToObj(scale), props.jointScaleDecimals),
+            position: isHipsJoint
+                ? vectorToObj(pos)
+                : quantizePosition(
+                    vectorToObj(pos),
+                    props.jointPositionDecimals,
+                ),
+            rotation: isHipsJoint
+                ? quatToObj(rot)
+                : quantizeRotation(
+                    quatToObj(rot),
+                    props.jointRotationDecimals,
+                ),
+            scale: isHipsJoint
+                ? vectorToObj(scale)
+                : quantizeScale(vectorToObj(scale), props.jointScaleDecimals),
         };
         const jointKey = `joint:${bone.name}`;
         const state = JSON.stringify(jointMetadata);

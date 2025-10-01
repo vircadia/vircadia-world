@@ -27,7 +27,8 @@
         :last-base-poll-timestamps="otherAvatarsRef?.lastBasePollTimestamps || {}"
         :last-camera-poll-timestamps="otherAvatarsRef?.lastCameraPollTimestamps || {}"
         :other-avatars-is-loading="otherAvatarsRef?.areOtherAvatarsLoading"
-        :other-avatars-poll-stats="otherAvatarsRef?.discoveryStats" />
+        :other-avatars-poll-stats="otherAvatarsRef?.discoveryStats"
+        :other-avatar-reflect-stats="otherAvatarsRef?.reflectStats" />
     <VircadiaWorldProvider :autoConnect="clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT"
         @auth-denied="onAuthDenied($event)"
         v-slot="{ vircadiaWorld, connectionInfo, connectionStatus, isConnecting, isAuthenticated, isAuthenticating, accountDisplayName, sessionToken, connect, logout }">
@@ -159,9 +160,9 @@
                                                     :model-file-name="modelFileName || ''"
                                                     :avatar-definition="avatarDefinition"
                                                     :persist-pose-snapshot-interval="5000"
-                                                    :position-throttle-interval="100" :rotation-throttle-interval="100"
-                                                    :camera-orientation-throttle-interval="500"
-                                                    :joint-throttle-interval="500" :joint-position-decimals="3"
+                                                    :position-throttle-interval="50" :rotation-throttle-interval="50"
+                                                    :camera-orientation-throttle-interval="100"
+                                                    :joint-throttle-interval="100" :joint-position-decimals="3"
                                                     :joint-rotation-decimals="4" :joint-scale-decimals="5"
                                                     :joint-position-update-decimals="2"
                                                     :joint-rotation-update-decimals="3" :joint-scale-update-decimals="4"

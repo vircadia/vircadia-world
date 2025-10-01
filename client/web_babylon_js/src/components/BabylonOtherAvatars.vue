@@ -37,6 +37,7 @@ const props = defineProps({
     },
     reflectSyncGroup: { type: String, required: true },
     reflectChannel: { type: String, required: true },
+    entitySyncGroup: { type: String, required: true },
 });
 const { scene } = toRefs(props);
 void scene;
@@ -80,6 +81,17 @@ const discoveryStats = ref({
     lastErrorAt: null as Date | null,
 });
 
+// Reflect stats for tracking frame reception
+const reflectStats = ref({
+    totalFrames: 0,
+    badFrames: 0,
+    lastFrameAt: null as Date | null,
+    lastBadFrameAt: null as Date | null,
+    lastBadFrameError: null as string | null,
+    recentFrameTimes: [] as number[],
+    avgFrameIntervalMs: 0,
+});
+
 let reflectUnsubscribe: (() => void) | null = null;
 
 const loadingBySession = ref<Record<string, boolean>>({});
@@ -100,8 +112,7 @@ function markDisposed(sessionId: string): void {
     delete loadingBySession.value[sessionId];
 }
 
-void markLoaded;
-void markDisposed;
+// removed unused void references; methods are exposed via defineExpose
 
 async function pollForOtherAvatars(): Promise<void> {
     try {
@@ -109,7 +120,7 @@ async function pollForOtherAvatars(): Promise<void> {
 
         const result = await vircadiaWorld.client.connection.query({
             query: "SELECT general__entity_name FROM entity.entities WHERE group__sync = $1 AND general__entity_name LIKE 'avatar:%'",
-            parameters: ["public.NORMAL"],
+            parameters: [props.entitySyncGroup],
             timeoutMs: 5000,
         });
 
@@ -158,17 +169,54 @@ function subscribeReflect(): void {
         props.reflectSyncGroup,
         props.reflectChannel,
         (message) => {
+            const frameStartTime = Date.now();
             try {
                 const payload = message.payload as unknown;
                 const frame = parseAvatarFrameMessage(payload);
-                if (!frame) return; // Only support avatar_frame
+                if (!frame) {
+                    // Log bad frames for debugging
+                    reflectStats.value.badFrames += 1;
+                    reflectStats.value.lastBadFrameAt = new Date();
+                    reflectStats.value.lastBadFrameError = "Failed to parse avatar frame message";
+                    console.warn("[Reflect] Bad frame received - could not parse:", payload);
+                    return;
+                }
 
                 let target: string | null = frame.sessionId ?? null;
                 if (!target && frame.entityName?.startsWith("avatar:")) {
                     target = frame.entityName.replace(/^avatar:/, "");
                 }
-                if (!target) return;
-                if (target === currentFullSessionIdComputed.value) return;
+                if (!target) {
+                    reflectStats.value.badFrames += 1;
+                    reflectStats.value.lastBadFrameAt = new Date();
+                    reflectStats.value.lastBadFrameError = "No valid target session ID";
+                    console.warn("[Reflect] Bad frame received - no valid target:", frame);
+                    return;
+                }
+                if (target === currentFullSessionIdComputed.value) {
+                    // Skip our own frames
+                    return;
+                }
+
+                // Track frame timing
+                reflectStats.value.totalFrames += 1;
+                reflectStats.value.lastFrameAt = new Date();
+
+                // Track recent frame intervals for average calculation
+                const now = Date.now();
+                reflectStats.value.recentFrameTimes.push(now);
+                if (reflectStats.value.recentFrameTimes.length > 100) {
+                    reflectStats.value.recentFrameTimes.shift(); // Keep only last 100 frames
+                }
+
+                // Calculate average frame interval if we have enough data
+                if (reflectStats.value.recentFrameTimes.length >= 2) {
+                    const intervals = [];
+                    for (let i = 1; i < reflectStats.value.recentFrameTimes.length; i++) {
+                        intervals.push(reflectStats.value.recentFrameTimes[i] - reflectStats.value.recentFrameTimes[i - 1]);
+                    }
+                    reflectStats.value.avgFrameIntervalMs = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+                }
 
                 // Ensure data structures exist
                 initializeSessionDefaults(target);
@@ -176,8 +224,7 @@ function subscribeReflect(): void {
                 const existingBase = avatarDataMap.value[target];
                 const modelFileName =
                     frame.modelFileName ||
-                    existingBase?.modelFileName ||
-                    "babylon.avatar.glb";
+                    existingBase?.modelFileName;
                 const cameraOrientation = frame.cameraOrientation ||
                     existingBase?.cameraOrientation || {
                     alpha: 0,
@@ -218,8 +265,12 @@ function subscribeReflect(): void {
                 if (frame.cameraOrientation)
                     lastCameraPollTimestamps.value[target] = new Date();
                 lastPollTimestamps.value[target] = new Date();
-            } catch {
-                // ignore parse errors
+            } catch (error) {
+                // Log parse errors for debugging
+                reflectStats.value.badFrames += 1;
+                reflectStats.value.lastBadFrameAt = new Date();
+                reflectStats.value.lastBadFrameError = error instanceof Error ? error.message : String(error);
+                console.error("[Reflect] Frame processing error:", error, "for payload:", message.payload);
             }
         },
     );
@@ -267,7 +318,7 @@ async function backfillSessionFromMetadata(sessionId: string): Promise<void> {
         const entityName = `avatar:${sessionId}`;
         const result = await vircadiaWorld.client.connection.query({
             query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1 AND group__sync = $2 AND metadata__key IN ('type','sessionId','modelFileName','position','rotation','scale','cameraOrientation','joints','avatar_snapshot')",
-            parameters: [entityName, "public.NORMAL"],
+            parameters: [entityName, props.entitySyncGroup],
             timeoutMs: 5000,
         });
         if (!result || !Array.isArray(result.result)) return;
@@ -430,10 +481,17 @@ defineExpose({
     rotationDataMap,
     jointDataMap,
     discoveryStats,
+    reflectStats,
     lastPollTimestamps,
     lastBasePollTimestamps,
     lastCameraPollTimestamps,
     loadingBySession,
-    areOtherAvatarsLoading
+    areOtherAvatarsLoading,
+    markLoaded,
+    markDisposed,
+    // Sync configuration
+    reflectSyncGroup: computed(() => props.reflectSyncGroup),
+    entitySyncGroup: computed(() => props.entitySyncGroup),
+    reflectChannel: computed(() => props.reflectChannel),
 });
 </script>

@@ -18,7 +18,8 @@
         :ground-probe-distance="avatarRef?.groundProbeDistance ?? undefined"
         :ground-probe-mesh-name="avatarRef?.groundProbeMeshName ?? undefined"
         :animation-debug="avatarRef?.animationDebug || null" :sync-metrics="avatarSyncMetrics || undefined"
-        :other-avatar-session-ids="otherAvatarsRef?.otherAvatarSessionIds"
+        :avatar-reflect-sync-group="'public.REALTIME'" :avatar-entity-sync-group="'public.NORMAL'"
+        :avatar-reflect-channel="'avatar_data'" :other-avatar-session-ids="otherAvatarsRef?.otherAvatarSessionIds"
         :avatar-data-map="otherAvatarsRef?.avatarDataMap" :position-data-map="otherAvatarsRef?.positionDataMap || {}"
         :rotation-data-map="otherAvatarsRef?.rotationDataMap || {}"
         :joint-data-map="otherAvatarsRef?.jointDataMap || {}"
@@ -165,6 +166,7 @@
                                                     :joint-position-update-decimals="2"
                                                     :joint-rotation-update-decimals="3" :joint-scale-update-decimals="4"
                                                     :reflect-sync-group="'public.REALTIME'"
+                                                    :entity-sync-group="'public.NORMAL'"
                                                     :reflect-channel="'avatar_data'" :position-decimals="4"
                                                     :rotation-decimals="4" :scale-decimals="4"
                                                     :position-update-decimals="4" :rotation-update-decimals="4"
@@ -216,8 +218,9 @@
                                 <!-- Other avatars wrapper -->
                                 <BabylonOtherAvatars :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
                                     :current-full-session-id="connectionInfo.fullSessionId ?? undefined"
-                                    :discovery-polling-interval="500" :reflect-sync-group="'public.NORMAL'"
-                                    :reflect-channel="'avatar_data'" ref="otherAvatarsRef"
+                                    :discovery-polling-interval="500" :reflect-sync-group="'public.REALTIME'"
+                                    :entity-sync-group="'public.NORMAL'" :reflect-channel="'avatar_data'"
+                                    ref="otherAvatarsRef"
                                     v-slot="{ otherAvatarSessionIds, avatarDataMap, positionDataMap, rotationDataMap, jointDataMap }">
                                     <BabylonOtherAvatar v-for="otherFullSessionId in otherAvatarSessionIds || []"
                                         :key="otherFullSessionId" :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
@@ -226,8 +229,8 @@
                                         :position-data="positionDataMap?.[otherFullSessionId]"
                                         :rotation-data="rotationDataMap?.[otherFullSessionId]"
                                         :joint-data="jointDataMap?.[otherFullSessionId]"
-                                        :on-ready="() => markLoaded(otherFullSessionId)"
-                                        :on-dispose="() => markDisposed(otherFullSessionId)" />
+                                        @ready="otherAvatarsRef?.markLoaded && otherAvatarsRef.markLoaded(otherFullSessionId)"
+                                        @dispose="otherAvatarsRef?.markDisposed && otherAvatarsRef.markDisposed(otherFullSessionId)" />
 
                                     <!-- WebRTC component (now under OtherAvatars slot) -->
                                     <BabylonWebRTC v-model="showWebRTCControls" :vircadia-world="vircadiaWorld"
@@ -952,14 +955,7 @@ function onAuthDenied(payload: AuthDeniedPayload) {
     // Example: notificationService.error(`Authentication failed: ${payload.message}`);
 }
 
-// Other avatar event handlers
-function markLoaded(sessionId: string) {
-    console.debug("[MainScene] Other avatar loaded", sessionId);
-}
-
-function markDisposed(sessionId: string) {
-    console.debug("[MainScene] Other avatar disposed", sessionId);
-}
+// Removed local other avatar handlers; events are forwarded to BabylonOtherAvatars via ref
 
 // Door event handlers
 function onDoorState(payload: {

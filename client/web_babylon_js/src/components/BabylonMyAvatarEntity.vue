@@ -86,6 +86,7 @@ const props = defineProps({
         type: Object as PropType<AvatarDefinition>,
         required: true,
     },
+    entitySyncGroup: { type: String, required: true },
     persistPoseSnapshotInterval: { type: Number, required: true },
     positionThrottleInterval: { type: Number, required: true },
     rotationThrottleInterval: { type: Number, required: true },
@@ -194,7 +195,7 @@ async function ensureEntityRowExists(name: string): Promise<void> {
     try {
         await props.vircadiaWorld.client.connection.query({
             query: "INSERT INTO entity.entities (general__entity_name, group__sync, general__expiry__delete_since_updated_at_ms, general__expiry__delete_since_created_at_ms) VALUES ($1, $2, $3, NULL) ON CONFLICT (general__entity_name) DO NOTHING",
-            parameters: [name, "public.NORMAL", 120000],
+            parameters: [name, props.entitySyncGroup, 120000],
             timeoutMs: 5000,
         });
     } catch (e) {
@@ -212,7 +213,7 @@ async function upsertMetadata(
     try {
         await props.vircadiaWorld.client.connection.query({
             query: "INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync) VALUES ($1, $2, $3, $4) ON CONFLICT (general__entity_name, metadata__key) DO UPDATE SET metadata__value = EXCLUDED.metadata__value",
-            parameters: [entityNameArg, key, value, "public.NORMAL"],
+            parameters: [entityNameArg, key, value, props.entitySyncGroup],
             timeoutMs: 5000,
         });
     } catch (e) {

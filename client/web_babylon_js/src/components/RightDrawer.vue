@@ -177,8 +177,53 @@
                             </v-row>
                         </v-window-item>
 
+                        <v-window-item value="sync">
+                            <v-list density="compact" class="bg-transparent">
+                                <v-list-subheader>Reflect Receive Stats</v-list-subheader>
+                                <v-list-item>
+                                    <v-list-item-title>Total Frames</v-list-item-title>
+                                    <v-list-item-subtitle>{{ otherAvatarReflectStats?.totalFrames || 0
+                                        }}</v-list-item-subtitle>
+                                </v-list-item>
+                                <v-list-item>
+                                    <v-list-item-title>Bad Frames</v-list-item-title>
+                                    <v-list-item-subtitle>{{ otherAvatarReflectStats?.badFrames || 0
+                                        }}</v-list-item-subtitle>
+                                </v-list-item>
+                                <v-list-item>
+                                    <v-list-item-title>Error Rate</v-list-item-title>
+                                    <v-list-item-subtitle>{{ otherAvatarReflectErrorRate }}%</v-list-item-subtitle>
+                                </v-list-item>
+                                <v-list-item>
+                                    <v-list-item-title>Last Frame</v-list-item-title>
+                                    <v-list-item-subtitle>{{ otherAvatarReflectLastFrameLabel }}</v-list-item-subtitle>
+                                </v-list-item>
+                                <v-list-item>
+                                    <v-list-item-title>Avg Frame Interval</v-list-item-title>
+                                    <v-list-item-subtitle>{{ otherAvatarReflectAvgIntervalLabel
+                                        }}</v-list-item-subtitle>
+                                </v-list-item>
+                            </v-list>
+                        </v-window-item>
+
                         <v-window-item value="reflect">
                             <v-list density="compact" class="bg-transparent">
+                                <v-list-subheader>My Avatar Sync Groups</v-list-subheader>
+                                <v-list-item>
+                                    <v-list-item-title>Reflect Sync Group</v-list-item-title>
+                                    <v-list-item-subtitle>{{ avatarReflectSyncGroup || '-' }}</v-list-item-subtitle>
+                                </v-list-item>
+                                <v-list-item>
+                                    <v-list-item-title>Entity Sync Group</v-list-item-title>
+                                    <v-list-item-subtitle>{{ avatarEntitySyncGroup || '-' }}</v-list-item-subtitle>
+                                </v-list-item>
+                                <v-list-item>
+                                    <v-list-item-title>Reflect Channel</v-list-item-title>
+                                    <v-list-item-subtitle>{{ avatarReflectChannel || '-' }}</v-list-item-subtitle>
+                                </v-list-item>
+
+                                <v-divider class="my-2" />
+
                                 <v-list-subheader>Reflect Sync (Publish)</v-list-subheader>
                                 <v-list-item title="Entity name" :subtitle="syncEntityName" />
                                 <v-list-item title="Queued keys" :subtitle="String(syncQueuedKeys)" />
@@ -292,7 +337,7 @@
                                         <v-expansion-panel-text>
                                             <div v-for="v in supportedVisemeNames" :key="v" class="text-caption mb-1">
                                                 <span class="font-mono" :class="{ 'text-success': hasMorph(v) }">{{ v
-                                                }}</span>
+                                                    }}</span>
                                                 <v-progress-linear v-if="influenceOf(v) !== null" :height="6"
                                                     :rounded="true" :striped="true" color="primary"
                                                     :model-value="Math.round(100 * (influenceOf(v) || 0))"
@@ -310,7 +355,7 @@
                                                     <span class="font-mono">{{ t.name }}</span>
                                                     <span class="text-caption">avg {{ t.avg.toFixed(3) }} — min {{
                                                         t.min.toFixed(3)
-                                                    }} — max {{ t.max.toFixed(3) }} (n={{ t.count }})</span>
+                                                        }} — max {{ t.max.toFixed(3) }} (n={{ t.count }})</span>
                                                 </div>
                                                 <v-progress-linear :model-value="Math.round(100 * t.avg)" :height="6"
                                                     color="secondary" rounded class="mt-1" />
@@ -345,6 +390,7 @@
                                 </div>
                             </v-list>
                         </v-window-item>
+
                     </v-window>
                 </div>
             </v-window-item>
@@ -352,7 +398,7 @@
                 <div class="px-2 py-2">
                     <v-tabs v-model="otherAvatarsTab" density="compact">
                         <v-tab value="overview">Overview</v-tab>
-                        <v-tab value="reflect">Reflect</v-tab>
+                        <v-tab value="reflect">Reflect Sync</v-tab>
                         <v-tab value="sessions">Sessions</v-tab>
                         <v-tab value="errors">Errors</v-tab>
                     </v-tabs>
@@ -395,6 +441,49 @@
                         </v-window-item>
                         <v-window-item value="reflect">
                             <v-list density="compact" class="bg-transparent">
+                                <v-list-subheader>Other Avatars Sync Groups</v-list-subheader>
+                                <v-list-item>
+                                    <v-list-item-title>Reflect Sync Group</v-list-item-title>
+                                    <v-list-item-subtitle>{{ avatarReflectSyncGroup || '-' }}</v-list-item-subtitle>
+                                </v-list-item>
+                                <v-list-item>
+                                    <v-list-item-title>Entity Sync Group</v-list-item-title>
+                                    <v-list-item-subtitle>{{ avatarEntitySyncGroup || '-' }}</v-list-item-subtitle>
+                                </v-list-item>
+                                <v-list-item>
+                                    <v-list-item-title>Reflect Channel</v-list-item-title>
+                                    <v-list-item-subtitle>{{ avatarReflectChannel || '-' }}</v-list-item-subtitle>
+                                </v-list-item>
+
+                                <v-divider class="my-2" />
+
+                                <v-list-subheader>Reflect Statistics</v-list-subheader>
+                                <v-list-item>
+                                    <v-list-item-title>Total Frames</v-list-item-title>
+                                    <v-list-item-subtitle>{{ otherAvatarReflectStats?.totalFrames || 0
+                                        }}</v-list-item-subtitle>
+                                </v-list-item>
+                                <v-list-item>
+                                    <v-list-item-title>Bad Frames</v-list-item-title>
+                                    <v-list-item-subtitle>{{ otherAvatarReflectStats?.badFrames || 0
+                                        }}</v-list-item-subtitle>
+                                </v-list-item>
+                                <v-list-item>
+                                    <v-list-item-title>Error Rate</v-list-item-title>
+                                    <v-list-item-subtitle>{{ otherAvatarReflectErrorRate }}%</v-list-item-subtitle>
+                                </v-list-item>
+                                <v-list-item>
+                                    <v-list-item-title>Last Frame</v-list-item-title>
+                                    <v-list-item-subtitle>{{ otherAvatarReflectLastFrameLabel }}</v-list-item-subtitle>
+                                </v-list-item>
+                                <v-list-item>
+                                    <v-list-item-title>Avg Frame Interval</v-list-item-title>
+                                    <v-list-item-subtitle>{{ otherAvatarReflectAvgIntervalLabel
+                                        }}</v-list-item-subtitle>
+                                </v-list-item>
+
+                                <v-divider class="my-2" />
+
                                 <v-list-subheader>Reflect (Deliveries)</v-list-subheader>
                                 <div v-if="(props.otherAvatarSessionIds || []).length === 0" class="text-caption">-
                                 </div>
@@ -424,7 +513,7 @@
                                             <span class="text-caption">
                                                 model: <span class="font-mono">{{
                                                     (props.avatarDataMap?.[sid]?.modelFileName) || '-'
-                                                    }}</span>
+                                                }}</span>
                                                 — joints: {{ jointCount(sid) }}
                                             </span>
                                         </div>
@@ -522,6 +611,10 @@ const props = defineProps({
     groundProbeMeshName: { type: String, default: null },
     syncMetrics: { type: Object, default: null },
     animationDebug: { type: Object, default: null },
+    // Avatar sync group props
+    avatarReflectSyncGroup: { type: String, default: null },
+    avatarEntitySyncGroup: { type: String, default: null },
+    avatarReflectChannel: { type: String, default: null },
     // Other Avatars debug props
     otherAvatarSessionIds: { type: Array, default: () => [] },
     avatarDataMap: { type: Object, default: () => ({}) },
@@ -533,6 +626,7 @@ const props = defineProps({
     lastCameraPollTimestamps: { type: Object, default: undefined },
     otherAvatarsIsLoading: { type: Boolean, default: false },
     otherAvatarsPollStats: { type: Object, default: undefined },
+    otherAvatarReflectStats: { type: Object, default: undefined },
 });
 
 const emit = defineEmits(["update:open", "update:tab"]);
@@ -839,6 +933,29 @@ function jointPosRotLabel(sessionId, jointName) {
     const pz = Number(j.position.z).toFixed(2);
     return `pos(${px},${py},${pz})`;
 }
+
+// Sync and reflect stats computed properties
+const otherAvatarReflectErrorRate = computed(() => {
+    const stats = props.otherAvatarReflectStats;
+    if (!stats || stats.totalFrames === 0) return "0.00";
+    return ((stats.badFrames / stats.totalFrames) * 100).toFixed(2);
+});
+
+const otherAvatarReflectLastFrameLabel = computed(() => {
+    const stats = props.otherAvatarReflectStats;
+    if (!stats?.lastFrameAt) return "-";
+    try {
+        return new Date(stats.lastFrameAt).toLocaleTimeString();
+    } catch {
+        return String(stats.lastFrameAt);
+    }
+});
+
+const otherAvatarReflectAvgIntervalLabel = computed(() => {
+    const stats = props.otherAvatarReflectStats;
+    if (!stats?.avgFrameIntervalMs) return "-";
+    return `${stats.avgFrameIntervalMs.toFixed(1)}ms`;
+});
 </script>
 
 <style scoped>

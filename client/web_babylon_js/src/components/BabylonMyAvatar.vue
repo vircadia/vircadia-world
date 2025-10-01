@@ -87,6 +87,10 @@ const props = defineProps({
         required: false,
         default: () => [0, -9.81, 0],
     },
+    // Sync group configuration
+    reflectSyncGroup: { type: String, required: false, default: "public.REALTIME" },
+    entitySyncGroup: { type: String, required: false, default: "public.NORMAL" },
+    reflectChannel: { type: String, required: false, default: "avatar_data" },
 });
 
 const emit = defineEmits<{ ready: []; dispose: [] }>();
@@ -1288,5 +1292,9 @@ defineExpose({
     groundProbeHit,
     groundProbeDistance,
     groundProbeMeshName,
+    // sync configuration
+    reflectSyncGroup: computed(() => props.reflectSyncGroup),
+    entitySyncGroup: computed(() => props.entitySyncGroup),
+    reflectChannel: computed(() => props.reflectChannel),
 });
 </script>

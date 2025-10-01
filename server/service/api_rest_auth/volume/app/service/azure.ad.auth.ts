@@ -2,22 +2,21 @@
 // ============================== IMPORTS, TYPES, AND INTERFACES ==============================
 // =============================================================================
 
+import { randomUUID } from "node:crypto";
 import {
-    ConfidentialClientApplication,
-    type Configuration,
-    type AuthorizationUrlRequest,
-    type AuthorizationCodeRequest,
     type AccountInfo,
     type AuthenticationResult,
+    type AuthorizationCodeRequest,
+    type AuthorizationUrlRequest,
+    ConfidentialClientApplication,
+    type Configuration,
     CryptoProvider,
 } from "@azure/msal-node";
-import { BunLogModule } from "../../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
-import { serverConfiguration } from "../../../../../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
-// Use legacy postgres.js SQL tag type
-import { sign } from "jsonwebtoken";
-import { randomUUID } from "node:crypto";
-import { Auth } from "../../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 import type { SQL } from "bun";
+import { sign } from "jsonwebtoken";
+import { serverConfiguration } from "../../../../../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
+import { BunLogModule } from "../../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
+import { Auth } from "../../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 
 // =================================================================================
 // ================ INTERFACES & TYPES ==================
@@ -117,9 +116,12 @@ export class AzureADAuthService {
         const base = this.config.endSessionUrl;
         if (!base) return null;
         const url = new URL(base);
-        const postRedirect = args?.postLogoutRedirectUri ?? this.config.redirectUri;
-        if (postRedirect) url.searchParams.set("post_logout_redirect_uri", postRedirect);
-        if (args?.idTokenHint) url.searchParams.set("id_token_hint", args.idTokenHint);
+        const postRedirect =
+            args?.postLogoutRedirectUri ?? this.config.redirectUri;
+        if (postRedirect)
+            url.searchParams.set("post_logout_redirect_uri", postRedirect);
+        if (args?.idTokenHint)
+            url.searchParams.set("id_token_hint", args.idTokenHint);
         return url.toString();
     }
 
@@ -148,17 +150,25 @@ export class AzureADAuthService {
         } else {
             stateObj = args.state;
             // Reconstruct the original base64url state string for PKCE cache lookup
-            stateParam = Buffer.from(JSON.stringify(stateObj)).toString("base64url");
+            stateParam = Buffer.from(JSON.stringify(stateObj)).toString(
+                "base64url",
+            );
         }
 
         // Exchange code for tokens using PKCE verifier tied to the raw state string
-        const tokenResponse = await this.exchangeCodeForTokens(code, stateParam);
+        const tokenResponse = await this.exchangeCodeForTokens(
+            code,
+            stateParam,
+        );
 
         // Fetch user info from Graph
         const userInfo = await this.getUserInfo(tokenResponse.accessToken);
 
         if (stateObj.action === "login") {
-            const result = await this.createOrUpdateUser(userInfo, tokenResponse);
+            const result = await this.createOrUpdateUser(
+                userInfo,
+                tokenResponse,
+            );
             return {
                 token: result.jwt,
                 agentId: result.agentId,
@@ -173,13 +183,15 @@ export class AzureADAuthService {
             await this.linkProvider(stateObj.agentId, userInfo, tokenResponse);
 
             // Retrieve profile details to populate response
-            const [profile] = await this.db<[
-                {
-                    profile__username: string;
-                    auth__email: string;
-                    azure_display_name: string | null;
-                },
-            ]>`
+            const [profile] = await this.db<
+                [
+                    {
+                        profile__username: string;
+                        auth__email: string;
+                        azure_display_name: string | null;
+                    },
+                ]
+            >`
                 SELECT 
                     p.profile__username, 
                     p.auth__email,
@@ -192,8 +204,14 @@ export class AzureADAuthService {
             `;
 
             const email = profile?.auth__email || userInfo.email;
-            const displayName = profile?.azure_display_name || userInfo.displayName || profile?.profile__username || "";
-            const username = profile?.profile__username || (email ? email.split("@")[0] : "");
+            const displayName =
+                profile?.azure_display_name ||
+                userInfo.displayName ||
+                profile?.profile__username ||
+                "";
+            const username =
+                profile?.profile__username ||
+                (email ? email.split("@")[0] : "");
 
             return {
                 token: "",
@@ -850,14 +868,16 @@ export class AzureADAuthService {
 
                     // Apply default sync-group roles for Azure provider (mirror anon flow)
                     try {
-                        const [providerConfig] = await tx<[
-                            {
-                                provider__default_permissions__can_read: string[];
-                                provider__default_permissions__can_insert: string[];
-                                provider__default_permissions__can_update: string[];
-                                provider__default_permissions__can_delete: string[];
-                            },
-                        ]>`
+                        const [providerConfig] = await tx<
+                            [
+                                {
+                                    provider__default_permissions__can_read: string[];
+                                    provider__default_permissions__can_insert: string[];
+                                    provider__default_permissions__can_update: string[];
+                                    provider__default_permissions__can_delete: string[];
+                                },
+                            ]
+                        >`
                             SELECT 
                                 provider__default_permissions__can_read,
                                 provider__default_permissions__can_insert,
@@ -904,7 +924,8 @@ export class AzureADAuthService {
 
                             BunLogModule({
                                 prefix: LOG_PREFIX,
-                                message: "Applied default Azure sync-group roles to new user",
+                                message:
+                                    "Applied default Azure sync-group roles to new user",
                                 debug: true,
                                 suppress: false,
                                 type: "debug",
@@ -914,7 +935,8 @@ export class AzureADAuthService {
                     } catch (roleError) {
                         BunLogModule({
                             prefix: LOG_PREFIX,
-                            message: "Failed to apply default Azure sync-group roles",
+                            message:
+                                "Failed to apply default Azure sync-group roles",
                             error: roleError,
                             debug: true,
                             suppress: false,

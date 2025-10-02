@@ -283,12 +283,6 @@
                                         @permissions="onWebRTCPermissions($event)" />
                                 </BabylonOtherAvatars>
 
-                                <!-- Static Level with physics (from DB-defined asset) -->
-                                <BabylonPhysicsLevel :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
-                                    entity-name="babylon.level.glb" model-file-name="babylon.level.glb"
-                                    :enable-physics="true" physics-type="mesh"
-                                    :physics-options="{ mass: 0, friction: 0.85, restitution: 0.1 }" />
-
                                 <!-- BabylonModel components provided by DB-scanned list -->
                                 <BabylonModels :vircadia-world="vircadiaWorld" v-slot="{ models }">
                                     <BabylonModel v-for="def in models" :key="def.fileName" :def="def"
@@ -378,7 +372,6 @@ import BabylonMyAvatarTalking from "@/components/BabylonMyAvatarTalking.vue";
 import BabylonOtherAvatar from "@/components/BabylonOtherAvatar.vue";
 import BabylonOtherAvatars from "@/components/BabylonOtherAvatars.vue";
 import BabylonPhysics from "@/components/BabylonPhysics.vue";
-import BabylonPhysicsLevel from "@/components/BabylonPhysicsLevel.vue";
 import BabylonSnackbar from "@/components/BabylonSnackbar.vue";
 import BabylonWebRTC from "@/components/BabylonWebRTC.vue";
 import LeftDrawer from "@/components/LeftDrawer.vue";

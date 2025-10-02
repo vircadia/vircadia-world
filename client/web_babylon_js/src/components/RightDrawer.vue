@@ -108,6 +108,10 @@
                                             class="text-error" />
                                         <v-list-item title="Talking" :subtitle="String(isTalking)" />
                                         <v-list-item title="Talk level" :subtitle="talkLevelLabel" />
+                                        <v-list-subheader>Transform</v-list-subheader>
+                                        <v-list-item title="Position" :subtitle="myAvatarPositionLabel" />
+                                        <v-list-item title="Rotation (quat)" :subtitle="myAvatarRotationLabel" />
+                                        <v-list-item title="Scale" :subtitle="myAvatarScaleLabel" />
                                     </v-list>
                                 </v-col>
                                 <v-col cols="12" md="6">
@@ -778,6 +782,29 @@ const cameraTargetLabel = computed(() => {
     return `x:${t.x.toFixed(2)} y:${t.y.toFixed(2)} z:${t.z.toFixed(2)}`;
 });
 
+// My Avatar transform (sampled periodically for reactivity)
+const myAvatarPos = ref({ x: 0, y: 0, z: 0 });
+const myAvatarRot = ref({ x: 0, y: 0, z: 0, w: 1 });
+const myAvatarScale = ref({ x: 1, y: 1, z: 1 });
+const myAvatarPositionLabel = computed(() => positionLabel(myAvatarPos.value));
+const myAvatarRotationLabel = computed(() => rotationLabel(myAvatarRot.value));
+const myAvatarScaleLabel = computed(() => positionLabel(myAvatarScale.value));
+
+const { pause: pauseAvatarTransform, resume: resumeAvatarTransform } = useIntervalFn(
+    () => {
+        const n = props.avatarNode;
+        if (!n) return;
+        const p = n.position;
+        if (p) myAvatarPos.value = { x: p.x, y: p.y, z: p.z };
+        const q = n.rotationQuaternion;
+        if (q) myAvatarRot.value = { x: q.x, y: q.y, z: q.z, w: q.w };
+        const s = n.scaling;
+        if (s) myAvatarScale.value = { x: s.x, y: s.y, z: s.z };
+    },
+    100,
+    { immediate: true },
+);
+
 // Blendshape (morph target) diagnostics
 const supportedVisemeNames = [
     "viseme_sil",
@@ -847,9 +874,11 @@ const { pause: pauseSnapshot, resume: resumeSnapshot } = useIntervalFn(
 
 onMounted(() => {
     resumeSnapshot();
+    resumeAvatarTransform();
 });
 onUnmounted(() => {
     pauseSnapshot();
+    pauseAvatarTransform();
 });
 
 const morphTargetsSorted = computed(() =>

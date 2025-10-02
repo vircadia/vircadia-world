@@ -1,9 +1,11 @@
 [submodule "sdk/vircadia-world-sdk-ts"]
     path = sdk/vircadia-world-sdk-ts
     url = https://github.com/vircadia/vircadia-world-sdk-ts.git
+    branch = next
 [submodule "sdk/vircadia-world-sdk-py"]
     path = sdk/vircadia-world-sdk-py
     url = https://github.com/vircadia/vircadia-world-sdk-py.git
+    branch = next
 
 [submodule "client/web_babylon_js/src/user/vircadia-world-seeds"]
 	path = client/web_babylon_js/src/user/vircadia-world-seeds

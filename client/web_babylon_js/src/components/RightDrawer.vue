@@ -578,7 +578,7 @@
 </template>
 
 <script setup>
-import { useIntervalFn } from "@vueuse/core";
+import { useIntervalFn, useStorage } from "@vueuse/core";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 
 const props = defineProps({
@@ -645,9 +645,9 @@ const tabModel = computed({
 });
 
 // Avatar tab internal state and computed helpers (ported from BabylonMyAvatarDebugOverlay)
-const avatarTab = ref("overview");
+const avatarTab = useStorage("vrca.right.drawer.avatar.tab", "overview")
 // Other Avatars internal tab state
-const otherAvatarsTab = ref("overview");
+const otherAvatarsTab = useStorage("vrca.right.drawer.other-avatars.tab", "overview")
 
 const modelReady = computed(
     () => !props.modelError && !!props.modelFileName && !!props.scene,

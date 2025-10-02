@@ -2,7 +2,7 @@
     <canvas ref="canvasRef" id="renderCanvas"></canvas>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ArcRotateCamera, Scene, Vector3, WebGPUEngine } from "@babylonjs/core";
 import { nextTick, onMounted, onUnmounted, ref, toRef, watch } from "vue";
 
@@ -17,17 +17,17 @@ const emit = defineEmits(["update:performanceMode", "update:fps", "ready"]);
 
 // Internal refs
 const canvasRef = ref(null);
-let engine = null;
-let scene = null;
+let engine: WebGPUEngine | null = null;
+let scene: Scene | null = null;
 const isReady = ref(false);
 let resizeRaf = 0;
 
 // Physics is initialized and managed by BabylonEnvironment.vue
 
 function handleResize() {
-    if (!engine) return;
     if (resizeRaf) cancelAnimationFrame(resizeRaf);
     resizeRaf = requestAnimationFrame(() => {
+        if (!engine) throw new Error("Engine not found");
         resizeRaf = 0;
         // Avoid resizing while commands for the previous frame may still reference old swapchain
         engine.resize();
@@ -48,7 +48,7 @@ function getCurrentTargetFps() {
 }
 
 function startRenderLoop() {
-    if (!engine || !scene) return;
+    if (!engine || !scene) throw new Error("Engine or scene not found");
     if (isRenderLoopRunning) {
         // restart to apply any changes
         engine.stopRenderLoop();
@@ -59,6 +59,7 @@ function startRenderLoop() {
     const mode = getCurrentPerformanceMode();
     if (mode === "normal") {
         engine.runRenderLoop(() => {
+            if (!engine) throw new Error("Engine not found");
             scene?.render();
             // throttle FPS emit to ~2Hz
             const now = performance.now();
@@ -75,6 +76,7 @@ function startRenderLoop() {
         const frameInterval = 1000 / Math.max(1, getCurrentTargetFps());
         lastFrameTime = 0;
         engine.runRenderLoop(() => {
+            if (!engine) throw new Error("Engine not found");
             const currentTime = performance.now();
             const deltaTime = currentTime - lastFrameTime;
             if (deltaTime >= frameInterval) {
@@ -102,7 +104,7 @@ function stopRenderLoop() {
     isRenderLoopRunning = false;
 }
 
-function setPerformanceMode(mode) {
+function setPerformanceMode(mode: "normal" | "low") {
     emit("update:performanceMode", mode);
     if (isRenderLoopRunning) {
         // restart loop with new settings

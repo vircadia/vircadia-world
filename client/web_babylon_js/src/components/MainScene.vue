@@ -48,9 +48,7 @@
             <!-- Component Loader -->
             <template v-for="comp in availableComponents" :key="comp">
                 <component :is="comp" :scene="scene" :engine="engine" :canvas="renderCanvas"
-                    :vircadia-world="vircadiaWorld" :connection-status="connectionStatus"
-                    :session-id="connectionInfo.sessionId ?? undefined" :agent-id="connectionInfo.agentId ?? undefined"
-                    :scene-initialized="sceneInitialized" :fps="fps" :performance-mode="performanceMode" />
+                    :vircadia-world="vircadiaWorld" />
             </template>
 
             <!-- App Bar with Actions -->
@@ -345,6 +343,7 @@ import type {
     TransformNode,
     WebGPUEngine,
 } from "@babylonjs/core";
+
 import { clientBrowserConfiguration } from "@vircadia/world-sdk/browser/vue";
 import { useStorage } from "@vueuse/core";
 import {
@@ -354,44 +353,44 @@ import {
     onMounted,
     ref,
 } from "vue";
+import BabylonCameraDebugOverlay from "@/components/BabylonCameraDebugOverlay.vue";
+import BabylonCanvas from "@/components/BabylonCanvas.vue";
+import BabylonDoor from "@/components/BabylonDoor.vue";
+import BabylonEnvironment from "@/components/BabylonEnvironment.vue";
+import BabylonInspector from "@/components/BabylonInspector.vue";
+import BabylonModel from "@/components/BabylonModel.vue";
+import BabylonModelPhysics, {
+    type PhysicsSummary,
+} from "@/components/BabylonModelPhysics.vue";
+import BabylonModels from "@/components/BabylonModels.vue";
+import BabylonModelsDebugOverlay from "@/components/BabylonModelsDebugOverlay.vue";
+import BabylonMyAvatar, {
+    type AvatarDefinition,
+} from "@/components/BabylonMyAvatar.vue";
+import BabylonMyAvatarAnimation from "@/components/BabylonMyAvatarAnimation.vue";
+import BabylonMyAvatarDesktopThirdPersonCamera from "@/components/BabylonMyAvatarDesktopThirdPersonCamera.vue";
+import BabylonMyAvatarEntity, {
+    type AvatarSyncMetrics,
+} from "@/components/BabylonMyAvatarEntity.vue";
+import BabylonMyAvatarMKBController from "@/components/BabylonMyAvatarMKBController.vue";
+import BabylonMyAvatarModel from "@/components/BabylonMyAvatarModel.vue";
+import BabylonMyAvatarTalking from "@/components/BabylonMyAvatarTalking.vue";
+import BabylonOtherAvatar from "@/components/BabylonOtherAvatar.vue";
+import BabylonOtherAvatars from "@/components/BabylonOtherAvatars.vue";
+import BabylonPhysics from "@/components/BabylonPhysics.vue";
+import BabylonPhysicsLevel from "@/components/BabylonPhysicsLevel.vue";
+import BabylonSnackbar from "@/components/BabylonSnackbar.vue";
+import BabylonWebRTC from "@/components/BabylonWebRTC.vue";
+import LeftDrawer from "@/components/LeftDrawer.vue";
+import RightDrawer from "@/components/RightDrawer.vue";
+import VircadiaWorldAuthProvider from "@/components/VircadiaWorldAuthProvider.vue";
+import VircadiaWorldProvider from "@/components/VircadiaWorldProvider.vue";
 import type {
     AvatarBaseData,
     AvatarJointMetadata,
     AvatarPositionData,
     AvatarRotationData,
 } from "@/schemas";
-import BabylonCameraDebugOverlay from "../components/BabylonCameraDebugOverlay.vue";
-import BabylonCanvas from "../components/BabylonCanvas.vue";
-import BabylonDoor from "../components/BabylonDoor.vue";
-import BabylonEnvironment from "../components/BabylonEnvironment.vue";
-import BabylonInspector from "../components/BabylonInspector.vue";
-import BabylonModel from "../components/BabylonModel.vue";
-import BabylonModelPhysics, {
-    type PhysicsSummary,
-} from "../components/BabylonModelPhysics.vue";
-import BabylonModels from "../components/BabylonModels.vue";
-import BabylonModelsDebugOverlay from "../components/BabylonModelsDebugOverlay.vue";
-import BabylonMyAvatar, {
-    type AvatarDefinition,
-} from "../components/BabylonMyAvatar.vue";
-import BabylonMyAvatarAnimation from "../components/BabylonMyAvatarAnimation.vue";
-import BabylonMyAvatarDesktopThirdPersonCamera from "../components/BabylonMyAvatarDesktopThirdPersonCamera.vue";
-import BabylonMyAvatarEntity, {
-    type AvatarSyncMetrics,
-} from "../components/BabylonMyAvatarEntity.vue";
-import BabylonMyAvatarMKBController from "../components/BabylonMyAvatarMKBController.vue";
-import BabylonMyAvatarModel from "../components/BabylonMyAvatarModel.vue";
-import BabylonMyAvatarTalking from "../components/BabylonMyAvatarTalking.vue";
-import BabylonOtherAvatar from "../components/BabylonOtherAvatar.vue";
-import BabylonOtherAvatars from "../components/BabylonOtherAvatars.vue";
-import BabylonPhysics from "../components/BabylonPhysics.vue";
-import BabylonPhysicsLevel from "../components/BabylonPhysicsLevel.vue";
-import BabylonSnackbar from "../components/BabylonSnackbar.vue";
-import BabylonWebRTC from "./BabylonWebRTC.vue";
-import LeftDrawer from "./LeftDrawer.vue";
-import RightDrawer from "./RightDrawer.vue";
-import VircadiaWorldAuthProvider from "./VircadiaWorldAuthProvider.vue";
-import VircadiaWorldProvider from "./VircadiaWorldProvider.vue";
 
 // Auth change handling moved to provider
 
@@ -439,22 +438,7 @@ const otherAvatarsDebugOpen = useStorage<boolean>(
     false,
 );
 
-// Babylon managed by BabylonCanvas
-// Use the exposed API from BabylonCanvas via a component ref instead of local refs
-type BabylonCanvasExposed = {
-    getScene: () => Scene | null;
-    getEngine: () => WebGPUEngine | null;
-    getCanvas: () => HTMLCanvasElement | null;
-    getFps: () => number;
-    getPerformanceMode: () => "normal" | "low";
-    getIsReady: () => boolean;
-    startRenderLoop: () => void;
-    stopRenderLoop: () => void;
-    togglePerformanceMode: () => void;
-    setPerformanceMode: (mode: "normal" | "low") => void;
-};
-
-const canvasComponentRef = ref<BabylonCanvasExposed | null>(null);
+const canvasComponentRef = ref<InstanceType<typeof BabylonCanvas> | null>(null);
 const inspectorRef = ref<InstanceType<typeof BabylonInspector> | null>(null);
 const inspectorVisible = ref<boolean>(false);
 const isDev = import.meta.env.DEV;
@@ -486,13 +470,6 @@ const sceneInitialized = computed(
 
 const performanceMode = useStorage<"normal" | "low">("vrca.perf.mode", "low");
 const fps = ref<number>(0);
-
-// Physics state now comes directly from BabylonEnvironment slot props
-// See v-slot destructuring in template: envPhysicsEnabled, envPhysicsPluginName, etc.
-
-// FPS sampling removed; now handled by BabylonCanvas via v-model:fps
-
-// Ready callback no longer needed; scene readiness comes from the canvas API
 
 onMounted(async () => {
     console.debug("[MainScene] Initialized");
@@ -1113,6 +1090,8 @@ body {
     overflow: hidden;
     background-color: #202020;
 }
+
+/* AvatarSDKExample loads the sample GLB; removed from MainScene */
 
 main {
     padding: 0;

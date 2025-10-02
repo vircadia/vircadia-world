@@ -84,31 +84,35 @@ const configuredUserComponentsDir =
     clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_DIR?.trim() ||
     "";
 
-// Glob all .vue files under ./user and filter by the configured directory
-const allUserComponents = import.meta.glob("./user/**/*.vue", { eager: true });
+// Lazily glob all .vue files under ./user; we'll selectively import only those in the configured directory
+const allUserComponents = import.meta.glob("./user/**/*.vue");
 
-for (const [path, definition] of Object.entries(allUserComponents)) {
-    const normalizedPath = path.replace(/^\.\/user\//, "");
-    const isInConfiguredDir =
-        configuredUserComponentsDir === "" ||
-        normalizedPath.startsWith(`${configuredUserComponentsDir}/`) ||
-        normalizedPath.startsWith(`${configuredUserComponentsDir}\\`);
+async function registerConfiguredUserComponents() {
+    for (const [path, loader] of Object.entries(allUserComponents)) {
+        const normalizedPath = path.replace(/^\.\/user\//, "");
+        const isInConfiguredDir =
+            configuredUserComponentsDir === "" ||
+            normalizedPath.startsWith(`${configuredUserComponentsDir}/`) ||
+            normalizedPath.startsWith(`${configuredUserComponentsDir}\\`);
 
-    if (!isInConfiguredDir) {
-        continue;
-    }
+        if (!isInConfiguredDir) {
+            continue;
+        }
 
-    const componentName = path
-        .split("/")
-        .pop()
-        ?.replace(/\.\w+$/, "");
-    if (
-        componentName &&
-        definition &&
-        typeof definition === "object" &&
-        "default" in definition
-    ) {
-        app.component(componentName, (definition as { default: any }).default);
+        const componentName = path
+            .split("/")
+            .pop()
+            ?.replace(/\.\w+$/, "");
+
+        if (!componentName) {
+            continue;
+        }
+
+        const mod = await (loader as () => Promise<{ default?: unknown }>)();
+        const component = (mod as { default?: unknown }).default as any;
+        if (component) {
+            app.component(componentName, component);
+        }
     }
 }
 
@@ -120,5 +124,8 @@ const vuetify = createVuetify({
 });
 app.use(vuetify);
 
-// Mount the app
-app.mount("#app");
+// Register configured user components and then mount the app
+(async () => {
+    await registerConfiguredUserComponents();
+    app.mount("#app");
+})();

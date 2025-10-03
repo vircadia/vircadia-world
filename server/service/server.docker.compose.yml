@@ -86,7 +86,7 @@ services:
 
   # API service
   vircadia_world_api_ws_manager:
-    image: oven/bun:1.2.22-alpine
+    image: oven/bun:1.2.23-alpine
     container_name: ${VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_CONTAINER_NAME}
     user: "1000:1000"  # Run as non-root user
     restart: always
@@ -127,7 +127,7 @@ services:
 
   # Auth REST service
   vircadia_world_api_rest_auth_manager:
-    image: oven/bun:1.2.22-alpine
+    image: oven/bun:1.2.23-alpine
     container_name: ${VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_CONTAINER_NAME}
     user: "1000:1000"
     restart: always
@@ -152,6 +152,18 @@ services:
 
       VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_HOST_PUBLIC_AVAILABLE_AT: ${VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_HOST_PUBLIC_AVAILABLE_AT}
       VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_PUBLIC_AVAILABLE_AT: ${VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_PUBLIC_AVAILABLE_AT}
+      # Azure Entra ID Auth (env-first configuration)
+      VRCA_SERVER_AUTH_AZURE_CLIENT_ID: ${VRCA_SERVER_AUTH_AZURE_CLIENT_ID}
+      VRCA_SERVER_AUTH_AZURE_CLIENT_SECRET: ${VRCA_SERVER_AUTH_AZURE_CLIENT_SECRET}
+      VRCA_SERVER_AUTH_AZURE_TENANT_ID: ${VRCA_SERVER_AUTH_AZURE_TENANT_ID}
+      VRCA_SERVER_AUTH_AZURE_JWT_SECRET: ${VRCA_SERVER_AUTH_AZURE_JWT_SECRET}
+      VRCA_SERVER_AUTH_AZURE_SCOPES: ${VRCA_SERVER_AUTH_AZURE_SCOPES}
+      VRCA_SERVER_AUTH_AZURE_ENABLED: ${VRCA_SERVER_AUTH_AZURE_ENABLED}
+      VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_READ: ${VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_READ}
+      VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_INSERT: ${VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_INSERT}
+      VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_UPDATE: ${VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_UPDATE}
+      VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_DELETE: ${VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_DELETE}
+      VRCA_SERVER_AUTH_AZURE_REDIRECT_URIS: ${VRCA_SERVER_AUTH_AZURE_REDIRECT_URIS}
     depends_on:
       vircadia_world_postgres:
         condition: service_healthy
@@ -168,7 +180,7 @@ services:
 
   # Asset REST service
   vircadia_world_api_rest_asset_manager:
-    image: oven/bun:1.2.22-alpine
+    image: oven/bun:1.2.23-alpine
     container_name: ${VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_CONTAINER_NAME}
     user: "1000:1000"
     restart: always
@@ -217,7 +229,7 @@ services:
 
   # State service
   vircadia_world_state_manager:
-    image: oven/bun:1.2.22-alpine
+    image: oven/bun:1.2.23-alpine
     container_name: ${VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_CONTAINER_NAME}
     user: "1000:1000"  # Run as non-root user
     restart: always

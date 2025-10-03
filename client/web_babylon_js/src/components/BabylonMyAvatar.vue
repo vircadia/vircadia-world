@@ -16,8 +16,7 @@
 // TODO: High-ish: Add mobile controls (with other actions clickable at the same time)
 // TODO: Low:To performance mode, add different babylon.js optimizations.
 // TODO: Low: Improve UX for login screen.
-// TODO: HIGH: Update auth to no longer have providers in DB, instead seed from CLI -> Auth API. Auth API and Asset API and anyone else should use auth functions from shared libs as needed to validate, otherwise the Auth API should simply manage sessions directly in its own loop.
-// TODO: HIGH: Ensure CLI does not NEED to know what mimetypes are to seed assets, just seed them.
+// TODO: High-ish: Create interaction based physics demo, either client, server, or both.
 import {
     type AbstractMesh,
     type AnimationGroup,

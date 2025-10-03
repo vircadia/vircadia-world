@@ -12,7 +12,7 @@ import {
     type Configuration,
     CryptoProvider,
 } from "@azure/msal-node";
-import type { SQL } from "bun";
+import { sql, type SQL } from "bun";
 import { sign } from "jsonwebtoken";
 import { serverConfiguration } from "../../../../../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
 import { BunLogModule } from "../../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
@@ -65,6 +65,14 @@ export interface I_UserInfo {
 // =================================================================================
 
 const LOG_PREFIX = "Azure Entra ID Auth Service";
+
+const PROVIDER_NAME = "azure";
+const PROVIDER_DISPLAY_NAME = "Azure Entra ID";
+const SESSION_MAX_PER_AGENT = 3;
+const SESSION_DURATION_JWT_STRING = "7d";
+const SESSION_DURATION_MS = 604800000;
+const SESSION_MAX_AGE_MS = 604800000;
+const SESSION_INACTIVE_EXPIRY_MS = 7200000;
 
 export class AzureADAuthService {
     private msalClient: ConfidentialClientApplication;
@@ -1370,79 +1378,47 @@ export function parseOAuthState(stateParam: string): I_OAuthState {
  */
 export async function createAzureADConfig(db: SQL): Promise<I_AzureADConfig> {
     try {
-        // Fetch Azure AD configuration from database
-        const [config] = await db<
-            [
-                {
-                    provider__client_id: string;
-                    provider__client_secret: string;
-                    provider__redirect_uris: string[];
-                    provider__scope: string[];
-                    provider__jwt_secret: string;
-                    provider__metadata: { tenant_id?: string } | null;
-                    provider__end_session_url?: string | null;
-                    provider__discovery_url?: string | null;
-                    provider__revocation_url?: string | null;
-                    provider__device_authorization_url?: string | null;
-                },
-            ]
-        >`
-            SELECT 
-                provider__client_id,
-                provider__client_secret,
-                provider__redirect_uris,
-                provider__scope,
-                provider__jwt_secret,
-                provider__metadata,
-                provider__end_session_url,
-                provider__discovery_url,
-                provider__revocation_url,
-                provider__device_authorization_url
-            FROM auth.auth_providers
-            WHERE provider__name = 'azure'
-              AND provider__enabled = true
-        `;
+        // Env-only configuration (no DB fallback)
+        const envClientId = serverConfiguration.VRCA_SERVER_AUTH_AZURE_CLIENT_ID;
+        const envClientSecret = serverConfiguration.VRCA_SERVER_AUTH_AZURE_CLIENT_SECRET;
+        const envTenantId = serverConfiguration.VRCA_SERVER_AUTH_AZURE_TENANT_ID;
+        const envJwtSecret = serverConfiguration.VRCA_SERVER_AUTH_AZURE_JWT_SECRET;
+        const envScopes = serverConfiguration.VRCA_SERVER_AUTH_AZURE_SCOPES;
+        const envRedirectUris = serverConfiguration.VRCA_SERVER_AUTH_AZURE_REDIRECT_URIS;
 
-        if (!config) {
-            BunLogModule({
-                prefix: LOG_PREFIX,
-                message: "No Azure Entra ID configuration found in database",
-                debug: true,
-                suppress: false,
-                type: "error",
-            });
-            throw new Error(
-                "Azure Entra ID provider configuration not found or disabled",
-            );
+        // If env is set for required fields, use that and compute sensible defaults
+        if (envClientId && envClientSecret && envJwtSecret) {
+            if (!envRedirectUris || envRedirectUris.length === 0) {
+                throw new Error("Azure Entra ID redirect URIs not configured. Set VRCA_SERVER_AUTH_AZURE_REDIRECT_URIS.");
+            }
+            // Compute default redirect origin from public REST Auth base
+            const publicHost = serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_HOST_PUBLIC_AVAILABLE_AT;
+            const publicPort = serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_PORT_PUBLIC_AVAILABLE_AT;
+            const ssl = true; // Public is fronted by reverse proxy; default to https
+            const defaultOrigin = `${ssl ? "https" : "http"}://${publicHost}${publicPort && publicPort !== 443 ? ":" + publicPort : ""}`;
+
+            const endSessionUrl = `https://login.microsoftonline.com/${envTenantId}/oauth2/v2.0/logout`;
+
+            return {
+                clientId: envClientId,
+                clientSecret: envClientSecret,
+                tenantId: envTenantId || "common",
+                redirectUris: envRedirectUris,
+                scopes: Array.isArray(envScopes) ? envScopes : [
+                    "openid",
+                    "profile",
+                    "email",
+                    "User.Read",
+                ],
+                jwtSecret: envJwtSecret,
+                endSessionUrl,
+            };
         }
 
-        // Extract tenant ID from metadata or use a default
-        const tenantId = config.provider__metadata?.tenant_id || "common";
-
-        if (!config.provider__redirect_uris.length) {
-            throw new Error(
-                "No redirect URI configured for Azure Entra ID provider",
-            );
-        }
-
-        return {
-            clientId: config.provider__client_id,
-            clientSecret: config.provider__client_secret,
-            tenantId: tenantId,
-            redirectUris: config.provider__redirect_uris,
-            scopes: config.provider__scope || [
-                "openid",
-                "profile",
-                "email",
-                "User.Read",
-            ],
-            jwtSecret: config.provider__jwt_secret,
-            endSessionUrl: config.provider__end_session_url ?? undefined,
-            discoveryUrl: config.provider__discovery_url ?? undefined,
-            revocationUrl: config.provider__revocation_url ?? undefined,
-            deviceAuthorizationUrl:
-                config.provider__device_authorization_url ?? undefined,
-        };
+        // If env is missing, hard fail with clear message
+        throw new Error(
+            "Azure Entra ID environment variables are not fully configured (require CLIENT_ID, CLIENT_SECRET, JWT_SECRET).",
+        );
     } catch (error) {
         BunLogModule({
             prefix: LOG_PREFIX,
@@ -1454,4 +1430,73 @@ export async function createAzureADConfig(db: SQL): Promise<I_AzureADConfig> {
         });
         throw error;
     }
+}
+
+/**
+ * Ensure the `auth.auth_providers` row for Azure exists and matches env-based config.
+ * - Creates the row if not present
+ * - Updates enabled flag and default permission arrays to match local config
+ */
+export async function ensureAzureProviderSeed(db: SQL): Promise<void> {
+    const enabled = serverConfiguration.VRCA_SERVER_AUTH_AZURE_ENABLED;
+    const canRead = serverConfiguration.VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_READ;
+    const canInsert = serverConfiguration.VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_INSERT;
+    const canUpdate = serverConfiguration.VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_UPDATE;
+    const canDelete = serverConfiguration.VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_DELETE;
+    const jwtSecret = serverConfiguration.VRCA_SERVER_AUTH_AZURE_JWT_SECRET;
+
+    await db.begin(async (tx) => {
+        const [existing] = await tx<[{ provider__name: string }]>`
+            SELECT provider__name
+            FROM auth.auth_providers
+            WHERE provider__name = ${PROVIDER_NAME}
+        `;
+
+        if (!existing) {
+            await tx`
+                INSERT INTO auth.auth_providers (
+                    provider__name,
+                    provider__display_name,
+                    provider__enabled,
+                    provider__jwt_secret,
+                    provider__session_max_per_agent,
+                    provider__session_duration_jwt_string,
+                    provider__session_duration_ms,
+                    provider__session_max_age_ms,
+                    provider__session_inactive_expiry_ms,
+                    provider__default_permissions__can_read,
+                    provider__default_permissions__can_insert,
+                    provider__default_permissions__can_update,
+                    provider__default_permissions__can_delete
+                ) VALUES (
+                    ${PROVIDER_NAME},
+                    ${PROVIDER_DISPLAY_NAME},
+                    ${enabled},
+                    ${jwtSecret},
+                    ${SESSION_MAX_PER_AGENT},
+                    ${SESSION_DURATION_JWT_STRING},
+                    ${SESSION_DURATION_MS},
+                    ${SESSION_MAX_AGE_MS},
+                    ${SESSION_INACTIVE_EXPIRY_MS},
+                    ${sql.array(canRead, "TEXT")},
+                    ${sql.array(canInsert, "TEXT")},
+                    ${sql.array(canUpdate, "TEXT")},
+                    ${sql.array(canDelete, "TEXT")}
+                )
+            `;
+            return;
+        }
+
+        await tx`
+            UPDATE auth.auth_providers
+            SET
+                provider__enabled = ${enabled},
+                provider__default_permissions__can_read = ${sql.array(canRead, "TEXT")},
+                provider__default_permissions__can_insert = ${sql.array(canInsert, "TEXT")},
+                provider__default_permissions__can_update = ${sql.array(canUpdate, "TEXT")},
+                provider__default_permissions__can_delete = ${sql.array(canDelete, "TEXT")},
+                general__updated_at = NOW()
+            WHERE provider__name = ${PROVIDER_NAME}
+        `;
+    });
 }

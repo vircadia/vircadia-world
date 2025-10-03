@@ -395,6 +395,32 @@ export namespace Server_CLI {
                 clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST,
             VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT:
                 clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT.toString(),
+
+            // Azure Entra ID Auth (env-first)
+            VRCA_SERVER_AUTH_AZURE_CLIENT_ID:
+                serverConfiguration.VRCA_SERVER_AUTH_AZURE_CLIENT_ID,
+            VRCA_SERVER_AUTH_AZURE_CLIENT_SECRET:
+                serverConfiguration.VRCA_SERVER_AUTH_AZURE_CLIENT_SECRET,
+            VRCA_SERVER_AUTH_AZURE_TENANT_ID:
+                serverConfiguration.VRCA_SERVER_AUTH_AZURE_TENANT_ID,
+            VRCA_SERVER_AUTH_AZURE_JWT_SECRET:
+                serverConfiguration.VRCA_SERVER_AUTH_AZURE_JWT_SECRET,
+            VRCA_SERVER_AUTH_AZURE_SCOPES:
+                Array.isArray(serverConfiguration.VRCA_SERVER_AUTH_AZURE_SCOPES)
+                    ? serverConfiguration.VRCA_SERVER_AUTH_AZURE_SCOPES.join(",")
+                    : String(serverConfiguration.VRCA_SERVER_AUTH_AZURE_SCOPES),
+            VRCA_SERVER_AUTH_AZURE_ENABLED:
+                serverConfiguration.VRCA_SERVER_AUTH_AZURE_ENABLED.toString(),
+            VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_READ:
+                serverConfiguration.VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_READ.join(","),
+            VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_INSERT:
+                serverConfiguration.VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_INSERT.join(","),
+            VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_UPDATE:
+                serverConfiguration.VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_UPDATE.join(","),
+            VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_DELETE:
+                serverConfiguration.VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_DELETE.join(","),
+            VRCA_SERVER_AUTH_AZURE_REDIRECT_URIS:
+                serverConfiguration.VRCA_SERVER_AUTH_AZURE_REDIRECT_URIS.join(","),
         };
 
         // Construct the command

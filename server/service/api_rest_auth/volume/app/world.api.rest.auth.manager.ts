@@ -27,6 +27,7 @@ import {
 import {
     AzureADAuthService,
     createAzureADConfig,
+    ensureAzureProviderSeed,
 } from "./service/azure.ad.auth";
 import { MetricsCollector } from "./service/metrics";
 
@@ -159,12 +160,25 @@ class WorldApiAuthManager {
 
         // Azure AD service
         try {
+            // Ensure provider row exists and is aligned with local env-configured defaults
+            if (superUserSql) {
+                await ensureAzureProviderSeed(superUserSql);
+            }
             const azureConfig = await createAzureADConfig(superUserSql);
             this.azureADService = new AzureADAuthService(
                 azureConfig,
                 superUserSql,
             );
-        } catch {}
+        } catch (error) {
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Azure provider initialization failed",
+                error,
+                debug: true,
+                suppress: false,
+                type: "error",
+            });
+        }
 
         // HTTP Server
         this._server = Bun.serve({
@@ -395,7 +409,15 @@ class WorldApiAuthManager {
                                         req,
                                         400,
                                     );
-                                if (!this.azureADService)
+                                if (!this.azureADService) {
+                                    BunLogModule({
+                                        prefix: LOG_PREFIX,
+                                        message:
+                                            "Authorize requested but Azure provider not configured",
+                                        debug: true,
+                                        suppress: false,
+                                        type: "error",
+                                    });
                                     return this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_OAUTH_AUTHORIZE.createError(
                                             "Azure AD provider not configured",
@@ -403,6 +425,7 @@ class WorldApiAuthManager {
                                         req,
                                         500,
                                     );
+                                }
                                 try {
                                     const requestedRedirectUri =
                                         parsed.data.redirectUri;

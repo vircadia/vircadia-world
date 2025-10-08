@@ -1,2 +1,5 @@
 # Track all files in the asset directory with Git LFS
 cli/database/seed/asset/** filter=lfs diff=lfs merge=lfs -text
+# Track all .gltf and .glb files with Git LFS
+**/*.gltf filter=lfs diff=lfs merge=lfs -text
+**/*.glb filter=lfs diff=lfs merge=lfs -text

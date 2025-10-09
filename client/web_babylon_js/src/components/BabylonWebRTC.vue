@@ -37,6 +37,61 @@
                                 </v-col>
                                 <v-spacer />
                                 <v-col cols="auto" class="d-flex align-center">
+                                    <!-- Message History Badges -->
+                                    <div class="d-flex align-center mr-2">
+                                        <!-- Sent Messages Badge -->
+                                        <v-tooltip :text="`Sent: ${getMessageHistorySummary(peerId).sent} messages`">
+                                            <template v-slot:activator="{ props: tooltipProps }">
+                                                <v-chip v-bind="tooltipProps" size="x-small" color="primary"
+                                                    variant="flat" class="mr-1">
+                                                    <v-icon size="12" class="mr-1">mdi-arrow-up</v-icon>
+                                                    {{ getMessageHistorySummary(peerId).sent }}
+                                                </v-chip>
+                                            </template>
+                                        </v-tooltip>
+
+                                        <!-- Received Messages Badge -->
+                                        <v-tooltip
+                                            :text="`Received: ${getMessageHistorySummary(peerId).received} messages`">
+                                            <template v-slot:activator="{ props: tooltipProps }">
+                                                <v-chip v-bind="tooltipProps" size="x-small" color="success"
+                                                    variant="flat" class="mr-1">
+                                                    <v-icon size="12" class="mr-1">mdi-arrow-down</v-icon>
+                                                    {{ getMessageHistorySummary(peerId).received }}
+                                                </v-chip>
+                                            </template>
+                                        </v-tooltip>
+
+                                        <!-- Error Count Badge -->
+                                        <v-tooltip v-if="getMessageHistorySummary(peerId).errors > 0"
+                                            :text="`${getMessageHistorySummary(peerId).errors} errors occurred`">
+                                            <template v-slot:activator="{ props: tooltipProps }">
+                                                <v-chip v-bind="tooltipProps" size="x-small" color="error"
+                                                    variant="flat" class="mr-1">
+                                                    <v-icon size="12" class="mr-1">mdi-alert-circle</v-icon>
+                                                    {{ getMessageHistorySummary(peerId).errors }}
+                                                </v-chip>
+                                            </template>
+                                        </v-tooltip>
+
+                                        <!-- Last Message Badge -->
+                                        <v-tooltip v-if="getMessageHistorySummary(peerId).lastMessage"
+                                            :text="`Last: ${getMessageHistorySummary(peerId).lastMessage?.type} (${getMessageHistorySummary(peerId).lastMessage?.direction})`">
+                                            <template v-slot:activator="{ props: tooltipProps }">
+                                                <v-chip v-bind="tooltipProps" size="x-small"
+                                                    :color="getMessageStatusColor(getMessageHistorySummary(peerId).lastMessage?.status || 'success')"
+                                                    variant="flat" class="mr-1">
+                                                    <v-icon size="12" class="mr-1">
+                                                        {{
+                                                            getMessageTypeIcon(getMessageHistorySummary(peerId).lastMessage?.type
+                                                                || 'candidate') }}
+                                                    </v-icon>
+                                                    {{ getMessageHistorySummary(peerId).lastMessage?.type }}
+                                                </v-chip>
+                                            </template>
+                                        </v-tooltip>
+                                    </div>
+
                                     <!-- Connection Status -->
                                     <v-chip size="small" :color="getConnectionStateColor(peer)" variant="flat"
                                         class="mr-1">
@@ -67,8 +122,8 @@
                                     <v-tooltip text="Audio level indicator">
                                         <template v-slot:activator="{ props: tooltipProps }">
                                             <v-progress-circular v-bind="tooltipProps" size="20" width="3"
-                                                :value="getPeerAudioLevel(peerId)" :color="getAudioLevelColor(peerId)"
-                                                class="ml-1">
+                                                :model-value="getPeerAudioLevel(peerId)"
+                                                :color="getAudioLevelColor(peerId)" class="ml-1">
                                                 <v-icon size="10" :color="getAudioLevelColor(peerId)">
                                                     {{ getPeerAudioLevel(peerId) > 50 ? 'mdi-volume-high' :
                                                         getPeerAudioLevel(peerId) > 25 ? 'mdi-volume-medium' :
@@ -190,11 +245,11 @@
                                         <strong>Audio Levels:</strong>
                                         <div class="d-flex align-center ml-2 mt-1">
                                             <span class="text-caption mr-2">Receiving:</span>
-                                            <v-progress-linear :value="getPeerAudioLevel(peerId)"
+                                            <v-progress-linear :model-value="getPeerAudioLevel(peerId)"
                                                 :color="getAudioLevelColor(peerId)" height="8" rounded
                                                 style="min-width: 100px" class="mr-2" />
                                             <span class="text-caption">{{ getPeerAudioLevel(peerId).toFixed(1)
-                                                }}%</span>
+                                            }}%</span>
                                         </div>
                                     </v-list-item-title>
                                 </v-list-item>
@@ -253,6 +308,42 @@
                                     </v-list-item-title>
                                 </v-list-item>
 
+                                <!-- Message History Details -->
+                                <v-list-item v-if="peer.messageHistory.length > 0">
+                                    <v-list-item-title class="text-caption">
+                                        <strong>Message History ({{ peer.messageHistory.length }}):</strong>
+                                    </v-list-item-title>
+                                </v-list-item>
+
+                                <v-list-item v-if="peer.messageHistory.length > 0">
+                                    <v-list-item-title class="text-caption">
+                                        <div class="d-flex flex-wrap gap-1">
+                                            <v-chip v-for="(msg, index) in peer.messageHistory.slice(-10)" :key="msg.id"
+                                                size="x-small" :color="getMessageStatusColor(msg.status)" variant="flat"
+                                                class="mb-1">
+                                                <v-icon size="10" class="mr-1">
+                                                    {{ msg.direction === 'sent' ? 'mdi-arrow-up' : 'mdi-arrow-down' }}
+                                                </v-icon>
+                                                <v-icon size="10" class="mr-1">
+                                                    {{ getMessageTypeIcon(msg.type) }}
+                                                </v-icon>
+                                                {{ msg.type }}
+                                                <v-icon v-if="msg.status === 'error'" size="10" class="ml-1"
+                                                    color="white">
+                                                    mdi-alert-circle
+                                                </v-icon>
+                                                <v-icon v-else-if="msg.status === 'warning'" size="10" class="ml-1"
+                                                    color="white">
+                                                    mdi-alert
+                                                </v-icon>
+                                            </v-chip>
+                                        </div>
+                                        <div v-if="peer.messageHistory.length > 10" class="text-caption text-grey mt-1">
+                                            Showing last 10 of {{ peer.messageHistory.length }} messages
+                                        </div>
+                                    </v-list-item-title>
+                                </v-list-item>
+
                                 <!-- Debug Actions -->
                                 <v-list-item>
                                     <v-btn size="small" variant="outlined" @click="disconnectPeer(peerId)">
@@ -289,6 +380,7 @@ import {
     toRef,
     watch,
 } from "vue";
+import { z } from "zod";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 
 // Props
@@ -327,6 +419,17 @@ interface PeerInfo {
     remoteStream?: MediaStream;
     iceCandidateBuffer: RTCIceCandidateInit[];
     createdAt: number; // Track connection creation time
+    messageHistory: MessageHistoryEntry[]; // Track all messages for debugging
+}
+
+interface MessageHistoryEntry {
+    id: string;
+    timestamp: number;
+    direction: 'sent' | 'received';
+    type: 'offer' | 'answer' | 'candidate' | 'session-end' | 'announcement';
+    status: 'success' | 'error' | 'warning' | 'pending';
+    details?: string;
+    error?: string;
 }
 
 interface SignalingMessage {
@@ -353,6 +456,32 @@ interface AudioAnalysisData {
     source: MediaStreamAudioSourceNode;
     level: number;
 }
+
+// Zod Schema for SignalingMessage (description or candidate)
+const SignalingMessageSchema = z.object({
+    description: z
+        .object({
+            type: z.enum(["offer", "answer"]),
+            sdp: z.string(),
+        })
+        .optional(),
+    candidate: z
+        .object({
+            candidate: z.string(),
+            sdpMLineIndex: z.number().nullable(),
+            sdpMid: z.string().nullable(),
+        })
+        .optional(),
+});
+
+// Zod Schema for WebRTCReflectMessage
+const WebRTCReflectMessageSchema = z.object({
+    type: z.enum(["signaling", "session-end"]),
+    fromSession: z.string(),
+    toSession: z.string().optional(),
+    payload: SignalingMessageSchema,
+    timestamp: z.number(),
+});
 
 // Configuration
 const SYNC_GROUP = props.webrtcSyncGroup || "public.NORMAL";
@@ -892,6 +1021,72 @@ const spatialAudio = useWebRTCSpatialAudio(
 const discoveredPeers = computed(() => Array.from(activePeers.value.keys()));
 
 // ============================================================================
+// Message History Management
+// ============================================================================
+
+function addMessageToHistory(
+    peerId: string,
+    direction: 'sent' | 'received',
+    type: 'offer' | 'answer' | 'candidate' | 'session-end' | 'announcement',
+    status: 'success' | 'error' | 'warning' | 'pending' = 'success',
+    details?: string,
+    error?: string
+) {
+    const peer = peers.value.get(peerId);
+    if (!peer) return;
+
+    const entry: MessageHistoryEntry = {
+        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        timestamp: Date.now(),
+        direction,
+        type,
+        status,
+        details,
+        error
+    };
+
+    peer.messageHistory.push(entry);
+
+    // Keep only last 50 messages to prevent memory issues
+    if (peer.messageHistory.length > 50) {
+        peer.messageHistory = peer.messageHistory.slice(-50);
+    }
+}
+
+function getMessageHistorySummary(peerId: string) {
+    const peer = peers.value.get(peerId);
+    if (!peer) return { sent: 0, received: 0, lastMessage: null, errors: 0 };
+
+    const sent = peer.messageHistory.filter(m => m.direction === 'sent').length;
+    const received = peer.messageHistory.filter(m => m.direction === 'received').length;
+    const errors = peer.messageHistory.filter(m => m.status === 'error').length;
+    const lastMessage = peer.messageHistory[peer.messageHistory.length - 1] || null;
+
+    return { sent, received, lastMessage, errors };
+}
+
+function getMessageTypeIcon(type: string): string {
+    const icons: Record<string, string> = {
+        'offer': 'mdi-handshake',
+        'answer': 'mdi-handshake',
+        'candidate': 'mdi-connection',
+        'session-end': 'mdi-close-circle',
+        'announcement': 'mdi-broadcast'
+    };
+    return icons[type] || 'mdi-message';
+}
+
+function getMessageStatusColor(status: string): string {
+    const colors: Record<string, string> = {
+        'success': 'success',
+        'error': 'error',
+        'warning': 'warning',
+        'pending': 'info'
+    };
+    return colors[status] || 'grey';
+}
+
+// ============================================================================
 // Peer Display Helper Functions
 // ============================================================================
 
@@ -1175,12 +1370,14 @@ function handleAnnouncement(
 
         if (announcement.status === "offline") {
             activePeers.value.delete(announcement.sessionId);
+            addMessageToHistory(announcement.sessionId, 'received', 'announcement', 'success', 'Peer went offline');
             console.log(
                 "[WebRTC Reflect] Peer went offline:",
                 announcement.sessionId,
             );
         } else {
             activePeers.value.set(announcement.sessionId, announcement);
+            addMessageToHistory(announcement.sessionId, 'received', 'announcement', 'success', 'Peer announced');
             console.log(
                 "[WebRTC Reflect] Peer announced:",
                 announcement.sessionId,
@@ -1194,26 +1391,36 @@ function handleAnnouncement(
 function handleSignalingMessage(
     msg: Communication.WebSocket.ReflectDeliveryMessage,
 ) {
-    try {
-        const message = msg.payload as WebRTCReflectMessage;
-
-        if (message.fromSession === props.fullSessionId) return;
-        if (message.toSession && message.toSession !== props.fullSessionId)
-            return;
-
-        if (message.type === "session-end") {
-            disconnectPeer(message.fromSession);
-            return;
-        }
-
-        if (message.type === "signaling") {
-            handlePeerMessage(message.fromSession, message.payload);
-        }
-    } catch (err) {
+    const parsed = WebRTCReflectMessageSchema.safeParse(msg.payload);
+    if (!parsed.success) {
         console.error(
-            "[WebRTC Reflect] Failed to handle signaling message:",
-            err,
+            "[WebRTC Reflect] Invalid signaling message:",
+            parsed.error,
         );
+        return;
+    }
+    const message = parsed.data;
+
+    if (message.fromSession === props.fullSessionId) return;
+    if (message.toSession && message.toSession !== props.fullSessionId) return;
+
+    if (message.type === "session-end") {
+        addMessageToHistory(message.fromSession, 'received', 'session-end', 'success', 'Session end notification');
+        disconnectPeer(message.fromSession);
+        return;
+    }
+
+    if (message.type === "signaling") {
+        // Determine message type for tracking
+        let messageType: 'offer' | 'answer' | 'candidate' = 'candidate';
+        if (message.payload.description) {
+            messageType = message.payload.description.type as 'offer' | 'answer';
+        }
+
+        addMessageToHistory(message.fromSession, 'received', messageType, 'success',
+            message.payload.description ? `${message.payload.description.type} SDP` : 'ICE candidate');
+
+        handlePeerMessage(message.fromSession, message.payload);
     }
 }
 
@@ -1246,17 +1453,46 @@ async function sendSignalingMessage(
         timestamp: Date.now(),
     };
 
+    // Determine message type for tracking
+    let messageType: 'offer' | 'answer' | 'candidate' | 'session-end' = 'candidate';
+    if (payload.description) {
+        messageType = payload.description.type as 'offer' | 'answer';
+    }
+
+    // Add to message history before sending
+    addMessageToHistory(toSession, 'sent', messageType, 'pending',
+        payload.description ? `${payload.description.type} SDP` : 'ICE candidate');
+
     try {
         await props.client.client.connection.publishReflect({
             syncGroup: SYNC_GROUP,
             channel: SIGNALING_CHANNEL,
             payload: message,
         });
+
+        // Update status to success
+        const peer = peers.value.get(toSession);
+        if (peer && peer.messageHistory.length > 0) {
+            const lastMessage = peer.messageHistory[peer.messageHistory.length - 1];
+            if (lastMessage.direction === 'sent' && lastMessage.status === 'pending') {
+                lastMessage.status = 'success';
+            }
+        }
     } catch (err) {
         console.error(
             "[WebRTC Reflect] Failed to send signaling message:",
             err,
         );
+
+        // Update status to error
+        const peer = peers.value.get(toSession);
+        if (peer && peer.messageHistory.length > 0) {
+            const lastMessage = peer.messageHistory[peer.messageHistory.length - 1];
+            if (lastMessage.direction === 'sent' && lastMessage.status === 'pending') {
+                lastMessage.status = 'error';
+                lastMessage.error = err instanceof Error ? err.message : 'Unknown error';
+            }
+        }
     }
 }
 
@@ -1271,14 +1507,36 @@ async function sendSessionEnd(toSession: string) {
         timestamp: Date.now(),
     };
 
+    // Add to message history
+    addMessageToHistory(toSession, 'sent', 'session-end', 'pending', 'Session end notification');
+
     try {
         await props.client.client.connection.publishReflect({
             syncGroup: SYNC_GROUP,
             channel: SIGNALING_CHANNEL,
             payload: message,
         });
+
+        // Update status to success
+        const peer = peers.value.get(toSession);
+        if (peer && peer.messageHistory.length > 0) {
+            const lastMessage = peer.messageHistory[peer.messageHistory.length - 1];
+            if (lastMessage.direction === 'sent' && lastMessage.status === 'pending') {
+                lastMessage.status = 'success';
+            }
+        }
     } catch (err) {
         console.error("[WebRTC Reflect] Failed to send session end:", err);
+
+        // Update status to error
+        const peer = peers.value.get(toSession);
+        if (peer && peer.messageHistory.length > 0) {
+            const lastMessage = peer.messageHistory[peer.messageHistory.length - 1];
+            if (lastMessage.direction === 'sent' && lastMessage.status === 'pending') {
+                lastMessage.status = 'error';
+                lastMessage.error = err instanceof Error ? err.message : 'Unknown error';
+            }
+        }
     }
 }
 
@@ -1330,13 +1588,11 @@ function setupPerfectNegotiation(peerId: string, peerInfo: PeerInfo) {
         try {
             peerInfo.makingOffer = true;
             await pc.setLocalDescription();
-
             if (pc.localDescription) {
                 await sendSignalingMessage(peerId, {
                     description: pc.localDescription,
                 });
             }
-
             console.log(
                 `[WebRTC] Sent ${pc.localDescription?.type ?? "unknown"} to ${peerId}`,
             );
@@ -1437,42 +1693,59 @@ async function handlePeerMessage(
     peerId: string,
     signalingMessage: SignalingMessage,
 ) {
+    const parsed = SignalingMessageSchema.safeParse(signalingMessage);
+    if (!parsed.success) {
+        console.error("[WebRTC] Invalid peer message:", parsed.error);
+        addMessageToHistory(peerId, 'received', 'candidate', 'error', 'Invalid message format', parsed.error.message);
+        return;
+    }
+    const validatedMessage = parsed.data;
+
     let peerInfo = peers.value.get(peerId);
 
-    if (signalingMessage.candidate) {
+    if (validatedMessage.candidate) {
         if (!peerInfo) {
             console.warn(`[WebRTC] ICE candidate for unknown peer: ${peerId}`);
+            addMessageToHistory(peerId, 'received', 'candidate', 'warning', 'ICE candidate for unknown peer');
             return;
         }
 
         try {
             if (peerInfo.pc.remoteDescription) {
-                await peerInfo.pc.addIceCandidate(signalingMessage.candidate);
+                await peerInfo.pc.addIceCandidate(validatedMessage.candidate);
+                addMessageToHistory(peerId, 'received', 'candidate', 'success', 'ICE candidate processed');
             } else {
-                peerInfo.iceCandidateBuffer.push(signalingMessage.candidate);
+                peerInfo.iceCandidateBuffer.push(validatedMessage.candidate);
+                addMessageToHistory(peerId, 'received', 'candidate', 'warning',
+                    `ICE candidate buffered (${peerInfo.iceCandidateBuffer.length} total)`);
                 console.log(
                     `[WebRTC] Buffered ICE candidate from ${peerId} (${peerInfo.iceCandidateBuffer.length} total)`,
                 );
             }
         } catch (err) {
             console.error("[WebRTC] Failed to handle ICE candidate:", err);
+            addMessageToHistory(peerId, 'received', 'candidate', 'error', 'Failed to process ICE candidate',
+                err instanceof Error ? err.message : 'Unknown error');
         }
         return;
     }
 
-    if (signalingMessage.description) {
+    if (validatedMessage.description) {
         if (!peerInfo) {
             const mySession = props.fullSessionId ?? "";
             const polite = peerId > mySession;
             peerInfo = await createPeerConnection(peerId, polite);
         }
 
-        const { description } = signalingMessage;
         const { pc } = peerInfo;
+        const description = validatedMessage.description;
 
-        const offerCollision =
-            description.type === "offer" &&
-            (peerInfo.makingOffer || pc.signalingState !== "stable");
+        const readyForOffer =
+            !peerInfo.makingOffer &&
+            (pc.signalingState === "stable" ||
+                peerInfo.isSettingRemoteAnswerPending);
+
+        const offerCollision = description.type === "offer" && !readyForOffer;
 
         peerInfo.ignoreOffer = !peerInfo.polite && offerCollision;
 
@@ -1480,6 +1753,8 @@ async function handlePeerMessage(
             console.log(
                 `[WebRTC] Ignored offer collision from ${peerId} (impolite)`,
             );
+            addMessageToHistory(peerId, 'received', description.type as 'offer' | 'answer', 'warning',
+                'Offer collision ignored (impolite)');
             return;
         }
 
@@ -1490,14 +1765,19 @@ async function handlePeerMessage(
             console.log(
                 `[WebRTC] Set remote ${description.type} from ${peerId}`,
             );
+            addMessageToHistory(peerId, 'received', description.type as 'offer' | 'answer', 'success',
+                `Remote ${description.type} processed`);
 
             await processBufferedCandidates(peerInfo, peerId);
         } catch (err) {
             console.error("[WebRTC] Failed to set remote description:", err);
-            return;
-        } finally {
+            addMessageToHistory(peerId, 'received', description.type as 'offer' | 'answer', 'error',
+                'Failed to set remote description', err instanceof Error ? err.message : 'Unknown error');
             peerInfo.isSettingRemoteAnswerPending = false;
+            return;
         }
+
+        peerInfo.isSettingRemoteAnswerPending = false;
 
         if (description.type === "offer") {
             try {
@@ -1512,6 +1792,8 @@ async function handlePeerMessage(
                 console.log(`[WebRTC] Sent answer to ${peerId}`);
             } catch (err) {
                 console.error("[WebRTC] Failed to create answer:", err);
+                addMessageToHistory(peerId, 'sent', 'answer', 'error', 'Failed to create answer',
+                    err instanceof Error ? err.message : 'Unknown error');
             }
         }
     }
@@ -1535,6 +1817,7 @@ async function createPeerConnection(
         isSettingRemoteAnswerPending: false,
         iceCandidateBuffer: [],
         createdAt: Date.now(),
+        messageHistory: [],
     };
 
     peers.value.set(peerId, peerInfo);

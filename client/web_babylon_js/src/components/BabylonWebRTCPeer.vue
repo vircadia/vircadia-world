@@ -42,7 +42,7 @@
                 :color="audioLevelColor" class="ml-1">
                 <v-icon size="10" :color="audioLevelColor">
                   {{ receivingAudioLevel > 50 ? 'mdi-volume-high' : receivingAudioLevel > 25 ? 'mdi-volume-medium' :
-                  'mdi-volume-low' }}
+                    'mdi-volume-low' }}
                 </v-icon>
               </v-progress-circular>
             </template>
@@ -202,7 +202,7 @@
               </v-chip>
               <span class="text-caption ml-1">
                 {{ transceiver.sender?.track?.kind || 'no-sender' }} ↔ {{ transceiver.receiver?.track?.kind ||
-                'no-receiver'
+                  'no-receiver'
                 }}
               </span>
             </div>
@@ -240,7 +240,6 @@ interface Props {
   positionData?: AvatarPositionData;
   myPosition?: AvatarPositionData | null;
   volume?: number;
-  // Spatial audio node management
   spatialAudioNode?: HTMLAudioElement;
 }
 
@@ -271,8 +270,6 @@ const audioAnalysisInterval = ref<ReturnType<typeof setInterval> | null>(null);
 
 // Computed properties
 const displayName = computed(() => {
-  // AvatarBaseData doesn't have displayName in the schema
-  // Use session ID as fallback
   return props.peerId.split("@")[0] || "Unknown User";
 });
 
@@ -288,22 +285,22 @@ const avatarInitials = computed(() => {
 
 const avatarColor = computed(() => {
   if (props.peer.pc.connectionState !== "connected") {
-    return "grey"; // Disconnected peers are grey
+    return "grey";
   }
 
   const iceState = props.peer.pc.iceConnectionState;
   if (iceState === "connected" || iceState === "completed") {
     if (isReceivingAudio.value && isSendingAudio.value) {
-      return "success"; // Bidirectional audio = green
+      return "success";
     } else if (isReceivingAudio.value || isSendingAudio.value) {
-      return "warning"; // One-way audio = orange/yellow
+      return "warning";
     } else {
-      return "error"; // Connected but no audio = red
+      return "error";
     }
   } else if (iceState === "checking") {
-    return "info"; // ICE checking = blue
+    return "info";
   } else {
-    return "error"; // Failed/closed = red
+    return "error";
   }
 });
 
@@ -390,7 +387,6 @@ const connectionAge = computed(() => {
   return Math.floor((currentTime.value - connectionCreatedTime.value) / 1000);
 });
 
-// Audio state computed properties
 const isSendingAudio = computed(() => {
   const senders = props.peer.pc.getSenders();
   return senders.some(
@@ -470,24 +466,16 @@ function updateVolume(value: number) {
   emit("volumeChange", value);
 }
 
-// Setup audio analysis for received audio
 function setupAudioAnalysis(stream: MediaStream) {
   try {
-    // Create audio context if not available
     const audioContext = new AudioContext();
-
-    // Create analyser node
     const analyser = audioContext.createAnalyser();
     analyser.fftSize = 256;
     analyser.smoothingTimeConstant = 0.8;
 
-    // Create source from stream
     const source = audioContext.createMediaStreamSource(stream);
-
-    // Connect source to analyser
     source.connect(analyser);
 
-    // Store analyser data
     audioAnalyserData.value = {
       analyser,
       source,
@@ -495,21 +483,12 @@ function setupAudioAnalysis(stream: MediaStream) {
       peakLevel: 0,
     };
 
-    // Start analysis loop
     startAudioAnalysis();
-
-    console.log(
-      `[WebRTC Audio Debug] Started audio analysis for peer ${props.peerId}`,
-    );
   } catch (err) {
-    console.error(
-      `[WebRTC Audio Debug] Failed to setup audio analysis:`,
-      err,
-    );
+    console.error(`[WebRTC Audio] Failed to setup audio analysis:`, err);
   }
 }
 
-// Start audio level analysis loop
 function startAudioAnalysis() {
   if (audioAnalysisInterval.value) {
     clearInterval(audioAnalysisInterval.value);
@@ -524,33 +503,21 @@ function startAudioAnalysis() {
 
     analyser.getByteFrequencyData(dataArray);
 
-    // Calculate RMS (Root Mean Square) for overall volume
     let sum = 0;
     for (let i = 0; i < bufferLength; i++) {
       sum += (dataArray[i] / 255) ** 2;
     }
     const rms = Math.sqrt(sum / bufferLength);
-    const rmsLevel = Math.min(rms * 100 * 2, 100); // Scale and clamp to 0-100
+    const rmsLevel = Math.min(rms * 100 * 2, 100);
 
-    // Calculate peak level
     const peakLevel = Math.min((Math.max(...dataArray) / 255) * 100, 100);
 
-    // Update reactive values
     receivingAudioLevel.value = rmsLevel;
     audioAnalyserData.value.rmsLevel = rmsLevel;
     audioAnalyserData.value.peakLevel = peakLevel;
-
-    // Update audio state if we detect audio
-    if (rmsLevel > 5 && !isReceivingAudio.value) {
-      // Audio detected, might need to trigger re-render
-      console.log(
-        `[WebRTC Audio Debug] Audio detected: ${rmsLevel.toFixed(1)}% RMS`,
-      );
-    }
-  }, 100); // Update every 100ms
+  }, 100);
 }
 
-// Stop audio analysis
 function stopAudioAnalysis() {
   if (audioAnalysisInterval.value) {
     clearInterval(audioAnalysisInterval.value);
@@ -564,51 +531,36 @@ function stopAudioAnalysis() {
   }
 
   receivingAudioLevel.value = 0;
-  console.log(
-    `[WebRTC Audio Debug] Stopped audio analysis for peer ${props.peerId}`,
-  );
 }
 
+// FIXED: Use addEventListener instead of overwriting handlers
 function setupDebugTracking() {
-  // Track ICE candidates being sent
-  const originalOnIceCandidate = props.peer.pc.onicecandidate;
-  props.peer.pc.onicecandidate = (event) => {
+  // Track ICE candidates using addEventListener (doesn't interfere with existing handlers)
+  props.peer.pc.addEventListener("icecandidate", (event) => {
     if (event.candidate) {
       sentIceCandidates.value++;
+      console.log(`[WebRTC] Peer ${props.peerId} sent ICE candidate #${sentIceCandidates.value}`);
     }
-    // Call original handler if it exists
-    if (originalOnIceCandidate) {
-      originalOnIceCandidate.call(props.peer.pc, event);
-    }
-  };
+  });
 
-  // Track connection state changes with timestamps
-  const originalOnConnectionStateChange =
-    props.peer.pc.onconnectionstatechange;
-  props.peer.pc.onconnectionstatechange = (event) => {
+  // Track state changes using addEventListener
+  props.peer.pc.addEventListener("connectionstatechange", () => {
     console.log(
-      `[WebRTC Debug] Peer ${props.peerId} state changed to: ${props.peer.pc.connectionState} (age: ${connectionAge.value}s)`,
+      `[WebRTC] Peer ${props.peerId} connection state: ${props.peer.pc.connectionState} (age: ${connectionAge.value}s)`,
     );
+  });
 
-    // Call original handler if it exists
-    if (originalOnConnectionStateChange) {
-      originalOnConnectionStateChange.call(props.peer.pc, event);
-    }
-  };
-
-  // Track ICE connection state changes
-  const originalOnIceConnectionStateChange =
-    props.peer.pc.oniceconnectionstatechange;
-  props.peer.pc.oniceconnectionstatechange = (event) => {
+  props.peer.pc.addEventListener("iceconnectionstatechange", () => {
     console.log(
-      `[WebRTC Debug] Peer ${props.peerId} ICE state changed to: ${props.peer.pc.iceConnectionState} (age: ${connectionAge.value}s)`,
+      `[WebRTC] Peer ${props.peerId} ICE state: ${props.peer.pc.iceConnectionState} (age: ${connectionAge.value}s)`,
     );
+  });
 
-    // Call original handler if it exists
-    if (originalOnIceConnectionStateChange) {
-      originalOnIceConnectionStateChange.call(props.peer.pc, event);
-    }
-  };
+  props.peer.pc.addEventListener("icegatheringstatechange", () => {
+    console.log(
+      `[WebRTC] Peer ${props.peerId} ICE gathering: ${props.peer.pc.iceGatheringState}`,
+    );
+  });
 }
 
 // Watch for external volume changes
@@ -625,43 +577,33 @@ watch(
 watch(
   () => props.peer.remoteStream,
   (stream, oldStream) => {
-    // Stop analysis on old stream
     if (oldStream) {
       stopAudioAnalysis();
     }
 
-    // Start analysis on new stream
     if (stream) {
       setupAudioAnalysis(stream);
 
       if (!props.spatialAudioNode) {
-        // Parent component should handle spatial audio node creation
-        // We just notify that we need one
         emit("spatialNodeCreated", new Audio());
       }
     }
   },
 );
 
-// Timer for updating current time
 let timeUpdateInterval: ReturnType<typeof setInterval> | null = null;
 
-// Setup debug tracking
 onMounted(() => {
   setupDebugTracking();
 
-  // Update current time every second for reactive connection age
   timeUpdateInterval = setInterval(() => {
     currentTime.value = Date.now();
   }, 1000);
 });
 
-// Cleanup
 onUnmounted(() => {
-  // Stop audio analysis
   stopAudioAnalysis();
 
-  // Clear time update interval
   if (timeUpdateInterval) {
     clearInterval(timeUpdateInterval);
   }

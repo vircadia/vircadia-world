@@ -30,6 +30,9 @@ export default defineConfig(({ command }) => {
         define: {
             __APP_VERSION__: JSON.stringify(packageJson.version || "0.0.0"),
             __BUILD_DATE__: JSON.stringify(new Date().toISOString()),
+            __APP_TITLE__: JSON.stringify(
+                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_META_TITLE_BASE,
+            ),
             global: "globalThis",
         },
         resolve: {

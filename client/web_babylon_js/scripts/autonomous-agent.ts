@@ -1,88 +1,85 @@
 #!/usr/bin/env bun
 
-import { type Browser, launch } from "puppeteer";
+import { clientBrowserConfiguration } from "@vircadia/world-sdk/browser/vue";
+import { type Browser, launch, type Page } from "puppeteer";
 
-const DEV_PORT = process.env.DEV_PORT || 3066;
-const DEV_HOST = process.env.DEV_HOST || "localhost";
+const DEV_PORT = clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT;
+const DEV_HOST = "localhost";
 const BASE_URL = `http://${DEV_HOST}:${DEV_PORT}`;
 
-async function runBasicTest(): Promise<void> {
-    let browser: Browser | undefined;
+let browser: Browser | undefined;
+let page: Page | undefined;
 
-    try {
-        console.log(`🚀 Launching browser and connecting to ${BASE_URL}`);
+async function startApplication(): Promise<void> {
+    console.log(`🚀 Launching browser and connecting to ${BASE_URL}`);
 
-        // Launch browser
-        browser = await launch({
-            headless: true,
-            args: [
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-accelerated-2d-canvas",
-                "--no-first-run",
-                "--no-zygote",
-                "--enable-webgpu",
-                "--enable-unsafe-webgpu",
-            ],
-        });
+    browser = await launch({
+        headless: false,
+        args: [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-accelerated-2d-canvas",
+            "--no-first-run",
+            "--no-zygote",
+            "--enable-webgpu",
+            "--enable-unsafe-webgpu",
+        ],
+    });
 
-        const page = await browser.newPage();
+    page = await browser.newPage();
+    await page.setViewport({ width: 1280, height: 720 });
 
-        // Set viewport size
-        await page.setViewport({ width: 1280, height: 720 });
+    await page.goto(BASE_URL, { waitUntil: "networkidle0" });
 
-        console.log("📱 Navigating to application...");
-        await page.goto(BASE_URL, { waitUntil: "networkidle0" });
+    // Wait for app and Babylon.js to load
+    await new Promise((resolve) => setTimeout(resolve, 20000));
 
-        // Wait for the app to load
-        await new Promise((resolve) => setTimeout(resolve, 10000));
+    const canvasExists = await page.$("canvas");
+    if (canvasExists) {
+        console.log("✅ Canvas found");
+    } else {
+        console.log("⚠️  No canvas found - 3D scene may not be initialized");
+    }
 
-        console.log("✅ Application loaded successfully!");
+    console.log("🎉 Application is ready! Press Ctrl+C to exit.");
+}
 
-        // Take a screenshot
-        const screenshot = await page.screenshot({
-            path: "test-screenshot.png",
-            fullPage: true,
-        });
-        console.log("📸 Screenshot saved as test-screenshot.png");
-
-        // Get page title
-        const title = await page.title();
-        console.log(`📋 Page title: ${title}`);
-
-        // Check if Babylon.js canvas is present
-        const canvasExists = await page.$("canvas");
-        if (canvasExists) {
-            console.log(
-                "🎨 Babylon.js canvas found - 3D scene should be rendering",
-            );
-        } else {
-            console.log("⚠️  No canvas element found");
-        }
-
-        // Example: Check for specific elements in your app
-        // Uncomment and modify based on your app's structure
-
-        // const loginButton = await page.$('button:has-text("Login")');
-        // if (loginButton) {
-        //     console.log("🔐 Login button found");
-        // }
-
-        console.log("🎉 Basic test completed successfully!");
-    } catch (error) {
-        console.error("❌ Test failed:", error);
-        throw error;
-    } finally {
-        if (browser) {
-            await browser.close();
-            console.log("🔒 Browser closed");
-        }
+async function cleanup(): Promise<void> {
+    if (browser) {
+        await browser.close();
+        console.log("🔒 Browser closed");
     }
 }
 
-// Run the test
-runBasicTest().catch((error) => {
-    console.error("💥 Script failed:", error);
+// Handle graceful shutdown
+process.on("SIGINT", async () => {
+    console.log("\n🛑 Received SIGINT (Ctrl+C), shutting down gracefully...");
+    await cleanup();
+    process.exit(0);
+});
+
+process.on("SIGTERM", async () => {
+    console.log("\n🛑 Received SIGTERM, shutting down gracefully...");
+    await cleanup();
+    process.exit(0);
+});
+
+// Handle uncaught exceptions
+process.on("uncaughtException", async (error) => {
+    console.error("💥 Uncaught exception:", error);
+    await cleanup();
+    process.exit(1);
+});
+
+process.on("unhandledRejection", async (reason, promise) => {
+    console.error("💥 Unhandled rejection at:", promise, "reason:", reason);
+    await cleanup();
+    process.exit(1);
+});
+
+// Start the application
+startApplication().catch((error) => {
+    console.error("💥 Failed to start application:", error);
     process.exit(1);
 });

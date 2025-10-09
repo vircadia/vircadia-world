@@ -363,6 +363,8 @@ export namespace Server_CLI {
                 clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
             VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER:
                 clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER,
+            VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT_ANONYMOUS:
+                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT_ANONYMOUS.toString(),
             VRCA_CLIENT_WEB_BABYLON_JS_META_TITLE_BASE:
                 clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_META_TITLE_BASE,
             VRCA_CLIENT_WEB_BABYLON_JS_META_DESCRIPTION:
@@ -405,22 +407,33 @@ export namespace Server_CLI {
                 serverConfiguration.VRCA_SERVER_AUTH_AZURE_TENANT_ID,
             VRCA_SERVER_AUTH_AZURE_JWT_SECRET:
                 serverConfiguration.VRCA_SERVER_AUTH_AZURE_JWT_SECRET,
-            VRCA_SERVER_AUTH_AZURE_SCOPES:
-                Array.isArray(serverConfiguration.VRCA_SERVER_AUTH_AZURE_SCOPES)
-                    ? serverConfiguration.VRCA_SERVER_AUTH_AZURE_SCOPES.join(",")
-                    : String(serverConfiguration.VRCA_SERVER_AUTH_AZURE_SCOPES),
+            VRCA_SERVER_AUTH_AZURE_SCOPES: Array.isArray(
+                serverConfiguration.VRCA_SERVER_AUTH_AZURE_SCOPES,
+            )
+                ? serverConfiguration.VRCA_SERVER_AUTH_AZURE_SCOPES.join(",")
+                : String(serverConfiguration.VRCA_SERVER_AUTH_AZURE_SCOPES),
             VRCA_SERVER_AUTH_AZURE_ENABLED:
                 serverConfiguration.VRCA_SERVER_AUTH_AZURE_ENABLED.toString(),
             VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_READ:
-                serverConfiguration.VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_READ.join(","),
+                serverConfiguration.VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_READ.join(
+                    ",",
+                ),
             VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_INSERT:
-                serverConfiguration.VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_INSERT.join(","),
+                serverConfiguration.VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_INSERT.join(
+                    ",",
+                ),
             VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_UPDATE:
-                serverConfiguration.VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_UPDATE.join(","),
+                serverConfiguration.VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_UPDATE.join(
+                    ",",
+                ),
             VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_DELETE:
-                serverConfiguration.VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_DELETE.join(","),
+                serverConfiguration.VRCA_SERVER_AUTH_AZURE_DEFAULT_PERMISSIONS_CAN_DELETE.join(
+                    ",",
+                ),
             VRCA_SERVER_AUTH_AZURE_REDIRECT_URIS:
-                serverConfiguration.VRCA_SERVER_AUTH_AZURE_REDIRECT_URIS.join(","),
+                serverConfiguration.VRCA_SERVER_AUTH_AZURE_REDIRECT_URIS.join(
+                    ",",
+                ),
         };
 
         // Construct the command

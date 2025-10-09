@@ -37,6 +37,7 @@
         "@vitejs/plugin-vue-jsx": "^5.0.1",
         "@vue/tsconfig": "^0.7.0",
         "npm-run-all2": "^7.0.2",
+        "puppeteer": "^24.23.0",
         "typescript": "catalog:",
         "vite": "catalog:dev",
         "vite-plugin-vue-devtools": "^8.0.0",

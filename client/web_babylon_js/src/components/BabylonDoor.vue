@@ -1,29 +1,25 @@
 <template>
-	<!-- Renderless component; interacts with Babylon scene and DB -->
-	<slot
-		:isLoading="isLoading"
-		:isOpen="isOpen"
-		:toggle="toggleDoor"
-	/>
+    <!-- Renderless component; interacts with Babylon scene and DB -->
+    <slot :isLoading="isLoading" :isOpen="isOpen" :toggle="toggleDoor" />
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, type Ref } from "vue";
 import type {
-    Scene,
     AbstractMesh,
-    Skeleton,
+    Node as BabylonNode,
     Observer,
     PointerInfo,
-    Node as BabylonNode,
+    Scene,
+    Skeleton,
 } from "@babylonjs/core";
 import {
     ImportMeshAsync,
-    TransformNode,
     PointerEventTypes,
     Quaternion,
+    TransformNode,
     Vector3,
 } from "@babylonjs/core";
+import { onMounted, onUnmounted, ref, watch } from "vue";
 import "@babylonjs/loaders/glTF";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 
@@ -32,7 +28,10 @@ type PositionJson = { x: number; y: number; z: number };
 
 const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
-    vircadiaWorld: { type: Object as () => VircadiaWorldInstance, required: true },
+    vircadiaWorld: {
+        type: Object as () => VircadiaWorldInstance,
+        required: true,
+    },
     entityName: { type: String, required: true },
     modelFileName: {
         type: String,
@@ -224,10 +223,10 @@ async function pushState(open: boolean) {
     const baseRotationQ = node.rotationQuaternion
         ? node.rotationQuaternion
         : Quaternion.FromEulerAngles(
-              node.rotation.x,
-              node.rotation.y,
-              node.rotation.z,
-          );
+            node.rotation.x,
+            node.rotation.y,
+            node.rotation.z,
+        );
     await props.vircadiaWorld.client.connection.query({
         query: `
 			INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync)
@@ -269,7 +268,7 @@ async function loadAndAttach() {
         if (rootNode.value) {
             try {
                 rootNode.value.dispose();
-            } catch {}
+            } catch { }
             rootNode.value = null;
         }
         await ensureEntityAndMetadata();
@@ -277,7 +276,9 @@ async function loadAndAttach() {
         isOpen.value = !!meta.open;
 
         emit("state", { state: "loading", step: "assetLoad:start" });
-        const directUrl = props.vircadiaWorld.client.buildAssetRequestUrl(props.modelFileName);
+        const directUrl = props.vircadiaWorld.client.buildAssetRequestUrl(
+            props.modelFileName,
+        );
         const result = await ImportMeshAsync(directUrl, props.scene, {
             pluginExtension: extensionFromFileName(props.modelFileName),
         });
@@ -525,7 +526,7 @@ onUnmounted(() => {
     if (revokeAssetUrl) {
         try {
             revokeAssetUrl();
-        } catch {}
+        } catch { }
         revokeAssetUrl = null;
     }
     if (rootNode.value) {
@@ -548,5 +549,3 @@ defineExpose({ isLoading, isOpen, toggleDoor, rootNode });
 <style scoped>
 /* renderless */
 </style>
-
-

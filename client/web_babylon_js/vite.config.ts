@@ -44,11 +44,21 @@ export default defineConfig(({ command }) => {
             host: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST,
             port: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT,
             strictPort: true,
+            // headers: {
+            //     // WebGPU requires cross-origin isolation
+            //     "Cross-Origin-Embedder-Policy": "require-corp",
+            //     "Cross-Origin-Opener-Policy": "same-origin",
+            // },
         },
         preview: {
             host: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_PROD_HOST,
             port: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT,
             strictPort: true,
+            // headers: {
+            //     // WebGPU requires cross-origin isolation
+            //     "Cross-Origin-Embedder-Policy": "require-corp",
+            //     "Cross-Origin-Opener-Policy": "same-origin",
+            // },
         },
         envPrefix: "VRCA_CLIENT_",
         assetsInclude: ["**/*.vertex", "**/*.fragment"],

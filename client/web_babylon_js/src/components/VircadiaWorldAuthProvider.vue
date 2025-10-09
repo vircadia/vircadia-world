@@ -363,21 +363,24 @@ onMounted(async () => {
         console.warn("[VircadiaWorldAuthProvider] OAuth redirect handling error", e);
     }
 
-    const suppressed = localStorage.getItem("vircadia-auth-suppressed") === "1";
-    if (
-        !isAuthenticated.value &&
-        !suppressed &&
-        clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN
-    ) {
-        console.log(
-            "[VircadiaWorldAuthProvider] Auto-logging in with debug token",
-        );
-        await loginWithDebugToken();
-        // Give a moment for the reactive system to propagate the changes
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        console.log(
-            "[VircadiaWorldAuthProvider] Debug token auto-login completed",
-        );
+    if (!isAuthenticated.value) {
+        if (clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN) {
+            console.log(
+                "[VircadiaWorldAuthProvider] Auto-logging in with debug token",
+            );
+            await loginWithDebugToken();
+            console.log(
+                "[VircadiaWorldAuthProvider] Debug token auto-login completed",
+            );
+        } else if (clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT_ANONYMOUS) {
+            console.log(
+                "[VircadiaWorldAuthProvider] Auto-logging in anonymously",
+            );
+            await loginAnonymously();
+            console.log(
+                "[VircadiaWorldAuthProvider] Anonymous auto-login completed",
+            );
+        }
     }
 });
 

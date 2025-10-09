@@ -29,8 +29,7 @@
         :other-avatars-is-loading="otherAvatarsRef?.areOtherAvatarsLoading"
         :other-avatars-poll-stats="otherAvatarsRef?.discoveryStats"
         :other-avatar-reflect-stats="otherAvatarsRef?.reflectStats" />
-    <VircadiaWorldProvider :autoConnect="clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT"
-        @auth-denied="onAuthDenied($event)"
+    <VircadiaWorldProvider :autoConnect="true" @auth-denied="onAuthDenied($event)"
         v-slot="{ vircadiaWorld, connectionInfo, connectionStatus, isConnecting, isAuthenticated, isAuthenticating, accountDisplayName, sessionToken, connect, logout }">
 
         <!-- Auth Screen when not authenticated -->
@@ -73,7 +72,7 @@
                         <v-btn v-bind="props" icon class="ml-2"
                             :color="performanceMode === 'normal' ? 'success' : 'warning'">
                             <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' : 'mdi-speedometer-slow'
-                                }}</v-icon>
+                            }}</v-icon>
                         </v-btn>
                     </template>
                     <v-tooltip location="bottom">

@@ -178,9 +178,8 @@
                                     <v-list-item-title class="d-flex align-center">
                                         <span class="text-caption mr-2">Volume:</span>
                                         <v-slider :model-value="peerVolumes.get(peerId) ?? 100"
-                                            @update:model-value="(vol) => setPeerVolume(peerId, vol)"
-                                            class="flex-grow-1" density="compact" hide-details min="0" max="100"
-                                            step="1" thumb-label>
+                                            @update:model-value="onPeerVolumeUpdate(peerId, $event)" class="flex-grow-1"
+                                            density="compact" hide-details min="0" max="100" step="1" thumb-label>
                                             <template v-slot:prepend>
                                                 <v-icon size="small">mdi-volume-low</v-icon>
                                             </template>
@@ -249,7 +248,7 @@
                                                 :color="getAudioLevelColor(peerId)" height="8" rounded
                                                 style="min-width: 100px" class="mr-2" />
                                             <span class="text-caption">{{ getPeerAudioLevel(peerId).toFixed(1)
-                                            }}%</span>
+                                                }}%</span>
                                         </div>
                                     </v-list-item-title>
                                 </v-list-item>
@@ -416,6 +415,11 @@ interface PeerInfo {
     makingOffer: boolean;
     ignoreOffer: boolean;
     isSettingRemoteAnswerPending: boolean;
+    // Tracks current offer made locally awaiting a matching answer
+    pendingOfferId?: string | null;
+    // Watchdog timer to re-send offer if stuck in have-local-offer
+    offerWatchdog?: ReturnType<typeof setTimeout> | null;
+    offerWatchdogId?: string | null;
     remoteStream?: MediaStream;
     iceCandidateBuffer: RTCIceCandidateInit[];
     createdAt: number; // Track connection creation time
@@ -435,6 +439,8 @@ interface MessageHistoryEntry {
 interface SignalingMessage {
     description?: RTCSessionDescriptionInit;
     candidate?: RTCIceCandidateInit;
+    // Correlates an answer with a specific offer; also used to de-duplicate
+    correlationId?: string;
 }
 
 interface PeerAnnouncement {
@@ -472,6 +478,7 @@ const SignalingMessageSchema = z.object({
             sdpMid: z.string().nullable(),
         })
         .optional(),
+    correlationId: z.string().optional(),
 });
 
 // Zod Schema for WebRTCReflectMessage
@@ -1349,6 +1356,7 @@ async function announcePresence() {
             syncGroup: SYNC_GROUP,
             channel: ANNOUNCE_CHANNEL,
             payload: announcement,
+            requestAcknowledgement: true,
         });
     } catch (err) {
         console.error("[WebRTC Reflect] Failed to announce presence:", err);
@@ -1468,6 +1476,7 @@ async function sendSignalingMessage(
             syncGroup: SYNC_GROUP,
             channel: SIGNALING_CHANNEL,
             payload: message,
+            requestAcknowledgement: true,
         });
 
         // Update status to success
@@ -1515,7 +1524,8 @@ async function sendSessionEnd(toSession: string) {
             syncGroup: SYNC_GROUP,
             channel: SIGNALING_CHANNEL,
             payload: message,
-        });
+            requestAcknowledgement: true,
+        })
 
         // Update status to success
         const peer = peers.value.get(toSession);
@@ -1586,11 +1596,45 @@ function setupPerfectNegotiation(peerId: string, peerInfo: PeerInfo) {
 
     pc.addEventListener("negotiationneeded", async () => {
         try {
+            if (pc.signalingState !== "stable") {
+                console.log(
+                    `[WebRTC] negotiationneeded ignored; state=${pc.signalingState}`,
+                );
+                return;
+            }
+
             peerInfo.makingOffer = true;
             await pc.setLocalDescription();
             if (pc.localDescription) {
+                // create correlationId for this offer
+                const correlationId = crypto.randomUUID();
+                peerInfo.pendingOfferId = correlationId;
+                // start watchdog to re-send same offer if stuck
+                if (peerInfo.offerWatchdog) clearTimeout(peerInfo.offerWatchdog);
+                peerInfo.offerWatchdogId = correlationId;
+                peerInfo.offerWatchdog = setTimeout(async () => {
+                    try {
+                        if (
+                            pc.signalingState === 'have-local-offer' &&
+                            peerInfo.pendingOfferId === correlationId
+                        ) {
+                            console.warn('[WebRTC] Offer watchdog triggered; re-sending offer');
+                            // Re-send the same offer description with same correlationId
+                            const offerDesc = pc.localDescription;
+                            if (offerDesc) {
+                                await sendSignalingMessage(peerId, {
+                                    description: offerDesc,
+                                    correlationId,
+                                });
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('[WebRTC] Offer watchdog resend failed:', e);
+                    }
+                }, 5000);
                 await sendSignalingMessage(peerId, {
                     description: pc.localDescription,
+                    correlationId,
                 });
             }
             console.log(
@@ -1669,6 +1713,18 @@ function setupPerfectNegotiation(peerId: string, peerInfo: PeerInfo) {
     pc.addEventListener("iceconnectionstatechange", () => {
         console.log(`[WebRTC] ${peerId} ICE state: ${pc.iceConnectionState}`);
     });
+
+    pc.addEventListener('signalingstatechange', () => {
+        // When stable, clear pending state and any watchdog timer
+        if (pc.signalingState === 'stable') {
+            peerInfo.pendingOfferId = null;
+            if (peerInfo.offerWatchdog) {
+                clearTimeout(peerInfo.offerWatchdog);
+                peerInfo.offerWatchdog = null;
+                peerInfo.offerWatchdogId = null;
+            }
+        }
+    });
 }
 
 async function processBufferedCandidates(peerInfo: PeerInfo, peerId: string) {
@@ -1739,6 +1795,7 @@ async function handlePeerMessage(
 
         const { pc } = peerInfo;
         const description = validatedMessage.description;
+        const incomingCorrelationId = signalingMessage.correlationId;
 
         const readyForOffer =
             !peerInfo.makingOffer &&
@@ -1758,7 +1815,30 @@ async function handlePeerMessage(
             return;
         }
 
+        // If polite and there is an offer collision, perform rollback then apply
+        if (peerInfo.polite && offerCollision) {
+            try {
+                console.log('[WebRTC] Polite peer rolling back due to glare');
+                await pc.setLocalDescription({ type: 'rollback' });
+            } catch (err) {
+                console.warn('[WebRTC] Rollback failed:', err);
+            }
+        }
+
         peerInfo.isSettingRemoteAnswerPending = description.type === "answer";
+
+        // If this is an answer, ensure it matches our pending offer (if any) BEFORE applying
+        if (description.type === 'answer') {
+            if (
+                peerInfo.pendingOfferId &&
+                incomingCorrelationId &&
+                incomingCorrelationId !== peerInfo.pendingOfferId
+            ) {
+                console.warn('[WebRTC] Stale/mismatched answer ignored');
+                peerInfo.isSettingRemoteAnswerPending = false;
+                return;
+            }
+        }
 
         try {
             await pc.setRemoteDescription(description);
@@ -1784,8 +1864,10 @@ async function handlePeerMessage(
                 await pc.setLocalDescription();
 
                 if (pc.localDescription) {
+                    // Answer must reference the incoming offer's correlationId (if present)
                     await sendSignalingMessage(peerId, {
                         description: pc.localDescription,
+                        correlationId: incomingCorrelationId,
                     });
                 }
 
@@ -1795,6 +1877,11 @@ async function handlePeerMessage(
                 addMessageToHistory(peerId, 'sent', 'answer', 'error', 'Failed to create answer',
                     err instanceof Error ? err.message : 'Unknown error');
             }
+        }
+
+        // Clear pending offer on successful matching answer application
+        if (description.type === 'answer') {
+            peerInfo.pendingOfferId = null;
         }
     }
 }
@@ -1850,6 +1937,11 @@ async function disconnectPeer(peerId: string) {
 function setPeerVolume(peerId: string, volume: number) {
     peerVolumes.value.set(peerId, volume);
     spatialAudio.setPeerVolume(peerId, volume / 100);
+}
+
+// Typed handler for slider event to satisfy linter
+function onPeerVolumeUpdate(peerId: string, value: number) {
+    setPeerVolume(peerId, value);
 }
 
 // ============================================================================
@@ -1938,7 +2030,8 @@ onUnmounted(async () => {
                 syncGroup: SYNC_GROUP,
                 channel: ANNOUNCE_CHANNEL,
                 payload: announcement,
-            });
+                requestAcknowledgement: true,
+            })
         } catch (err) {
             console.error(
                 "[WebRTC Reflect] Failed to send offline announcement:",

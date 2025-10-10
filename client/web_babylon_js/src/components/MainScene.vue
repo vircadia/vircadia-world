@@ -29,302 +29,311 @@
         :other-avatars-is-loading="otherAvatarsRef?.areOtherAvatarsLoading"
         :other-avatars-poll-stats="otherAvatarsRef?.discoveryStats"
         :other-avatar-reflect-stats="otherAvatarsRef?.reflectStats" />
-    <VircadiaWorldProvider :autoConnect="true" @auth-denied="onAuthDenied($event)"
+    <VircadiaWorldProvider
         v-slot="{ vircadiaWorld, connectionInfo, connectionStatus, isConnecting, isAuthenticated, isAuthenticating, accountDisplayName, sessionToken, connect, logout }">
 
-        <!-- Auth Screen when not authenticated -->
-        <VircadiaWorldAuthProvider v-if="!isAuthenticated" :vircadia-world="vircadiaWorld" />
+        <VircadiaWorldAuthProvider :vircadia-world="vircadiaWorld" :auto-connect="true"
+            @auth-denied="onAuthDenied($event)" v-slot="{ isAuthenticated, isAuthenticating }">
 
-        <!-- Main world when authenticated -->
-        <template v-else>
+            <!-- Main world when authenticated -->
+            <template v-if="isAuthenticated">
 
-            <!-- Left Navigation Drawer extracted to component -->
-            <LeftDrawer v-model:open="leftDrawerOpen" :width="320" :isAuthenticated="isAuthenticated"
-                :displayName="accountDisplayName || undefined" :provider="connectionInfo.authProvider || 'anon'"
-                :onLogout="logout" :vircadia-world="vircadiaWorld" :connection-info="connectionInfo" />
+                <!-- Left Navigation Drawer extracted to component -->
+                <LeftDrawer v-model:open="leftDrawerOpen" :width="320" :isAuthenticated="isAuthenticated"
+                    :displayName="accountDisplayName || undefined" :provider="connectionInfo.authProvider || 'anon'"
+                    :onLogout="logout" :vircadia-world="vircadiaWorld" :connection-info="connectionInfo" />
 
 
-            <!-- Component Loader -->
-            <template v-for="comp in availableComponents" :key="comp">
-                <component :is="comp" :scene="scene" :engine="engine" :canvas="renderCanvas"
-                    :vircadia-world="vircadiaWorld" />
-            </template>
-
-            <!-- App Bar with Actions -->
-            <v-app-bar density="compact" color="primary" flat>
-                <v-app-bar-nav-icon @click="leftDrawerOpen = !leftDrawerOpen" />
-                <v-spacer />
-
-                <!-- Audio Controls -->
-                <v-tooltip location="bottom">
-                    <template #activator="{ props }">
-                        <v-btn v-bind="props" icon variant="text" :color="activeAudioCount > 0 ? 'success' : undefined"
-                            class="ml-2" @click="showWebRTCControls = true">
-                            <v-icon>mdi-headphones</v-icon>
-                        </v-btn>
-                    </template>
-                    <span>Audio Controls ({{ activeAudioCount }} active)</span>
-                </v-tooltip>
-
-                <!-- Performance Speed Dial -->
-                <v-speed-dial v-model="perfDialOpen" location="bottom end" transition="fade-transition">
-                    <template #activator="{ props }">
-                        <v-btn v-bind="props" icon class="ml-2"
-                            :color="performanceMode === 'normal' ? 'success' : 'warning'">
-                            <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' : 'mdi-speedometer-slow'
-                            }}</v-icon>
-                        </v-btn>
-                    </template>
-                    <v-tooltip location="bottom">
-                        <template #activator="{ props: aprops }">
-                            <v-btn v-bind="aprops" icon :color="performanceMode === 'normal' ? 'success' : undefined"
-                                @click="canvasComponentRef?.setPerformanceMode('normal'); perfDialOpen = false">
-                                <v-icon>mdi-speedometer</v-icon>
-                            </v-btn>
-                        </template>
-                        <span>Normal performance</span>
-                    </v-tooltip>
-                    <v-tooltip location="bottom">
-                        <template #activator="{ props: aprops }">
-                            <v-btn v-bind="aprops" icon :color="performanceMode === 'low' ? 'warning' : undefined"
-                                @click="canvasComponentRef?.setPerformanceMode('low'); perfDialOpen = false">
-                                <v-icon>mdi-speedometer-slow</v-icon>
-                            </v-btn>
-                        </template>
-                        <span>Low performance</span>
-                    </v-tooltip>
-                </v-speed-dial>
-
-                <!-- Movement Speed Dial -->
-                <v-speed-dial v-model="moveDialOpen" location="bottom end" transition="fade-transition">
-                    <template #activator="{ props }">
-                        <v-btn v-bind="props" icon class="ml-2" :color="(avatarRef?.isFlying) ? 'success' : undefined">
-                            <v-icon>{{ (avatarRef?.isFlying) ? 'mdi-airplane' : 'mdi-walk' }}</v-icon>
-                        </v-btn>
-                    </template>
-                    <v-tooltip location="bottom">
-                        <template #activator="{ props: aprops }">
-                            <v-btn v-bind="aprops" icon color="success" :disabled="!!(avatarRef?.isFlying)"
-                                @click="!(avatarRef?.isFlying) && avatarRef?.toggleFlying && avatarRef.toggleFlying(); moveDialOpen = false">
-                                <v-icon>mdi-airplane-takeoff</v-icon>
-                            </v-btn>
-                        </template>
-                        <span>Fly on</span>
-                    </v-tooltip>
-                    <v-tooltip location="bottom">
-                        <template #activator="{ props: aprops }">
-                            <v-btn v-bind="aprops" icon :color="!(avatarRef?.isFlying) ? 'grey' : 'error'"
-                                :disabled="!(avatarRef?.isFlying)"
-                                @click="(avatarRef?.isFlying) && avatarRef?.toggleFlying && avatarRef.toggleFlying(); moveDialOpen = false">
-                                <v-icon>mdi-walk</v-icon>
-                            </v-btn>
-                        </template>
-                        <span>Fly off</span>
-                    </v-tooltip>
-                </v-speed-dial>
-
-                <!-- Babylon Inspector (Dev only) -->
-                <template v-if="isDev">
-                    <v-tooltip location="bottom">
-                        <template #activator="{ props }">
-                            <v-btn v-bind="props" icon variant="text" class="ml-2" :disabled="!sceneInitialized"
-                                @click="inspectorRef?.toggleInspector()">
-                                <v-icon>{{ inspectorVisible ? 'mdi-file-tree' : 'mdi-file-tree-outline' }}</v-icon>
-                            </v-btn>
-                        </template>
-                        <span>Babylon Inspector (T)</span>
-                    </v-tooltip>
+                <!-- Component Loader -->
+                <template v-for="comp in availableComponents" :key="comp">
+                    <component :is="comp" :scene="scene" :engine="engine" :canvas="renderCanvas"
+                        :vircadia-world="vircadiaWorld" />
                 </template>
 
-                <!-- Toggle Right Debug Drawer -->
-                <v-tooltip location="bottom">
-                    <template #activator="{ props }">
-                        <v-btn v-bind="props" icon variant="text" class="ml-2"
-                            @click="rightDrawerOpen = !rightDrawerOpen">
-                            <v-icon>mdi-dock-right</v-icon>
-                        </v-btn>
-                    </template>
-                    <span>Debug Drawer</span>
-                </v-tooltip>
-            </v-app-bar>
+                <!-- App Bar with Actions -->
+                <v-app-bar density="compact" color="primary" flat>
+                    <v-app-bar-nav-icon @click="leftDrawerOpen = !leftDrawerOpen" />
+                    <v-spacer />
 
-            <main>
-                <BabylonCanvas ref="canvasComponentRef" v-model:performanceMode="performanceMode" v-model:fps="fps" />
+                    <!-- Audio Controls -->
+                    <v-tooltip location="bottom">
+                        <template #activator="{ props }">
+                            <v-btn v-bind="props" icon variant="text"
+                                :color="activeAudioCount > 0 ? 'success' : undefined" class="ml-2"
+                                @click="showWebRTCControls = true">
+                                <v-icon>mdi-headphones</v-icon>
+                            </v-btn>
+                        </template>
+                        <span>Audio Controls ({{ activeAudioCount }} active)</span>
+                    </v-tooltip>
 
-                <BabylonSnackbar :scene-initialized="sceneInitialized" :connection-status="connectionStatus"
-                    :is-connecting="isConnecting" :environment-loading="!envRef?.environmentInitialized"
-                    :avatar-loading="avatarLoading" :other-avatars-loading="otherAvatarsLoading"
-                    :models-loading="modelsLoading" :is-authenticating="isAuthenticating"
-                    :is-authenticated="isAuthenticated" :avatar-model-step="avatarModelStep"
-                    :avatar-model-error="avatarModelError" :model-file-name="modelFileNameRef" />
-
-                <BabylonPhysics v-if="sceneInitialized && connectionStatus === 'connected'" :scene="sceneNonNull"
-                    :vircadia-world="vircadiaWorld" :gravity="[0, -9.81, 0]" ref="physicsRef">
-                    <template
-                        #default="{ physicsEnabled: envPhysicsEnabled, physicsPluginName: envPhysicsPluginName, physicsError: envPhysicsError, physicsEngineType: envPhysicsEngineType, physicsInitialized: envPhysicsInitialized, havokInstanceLoaded: envHavokInstanceLoaded, physicsPluginCreated: envPhysicsPluginCreated, gravity: sceneGravity }">
-                        <BabylonEnvironment :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
-                            :hdr-file="'babylon.level.hdr.1k.hdr'" :enable-defaults="true" :gravity="[0, -9.81, 0]"
-                            :hemispheric-light="{ enabled: true, direction: [1, 1, 0], intensity: 1.0 }"
-                            :directional-light="{ enabled: true, direction: [-1, -2, -1], position: [10, 10, 10], intensity: 1.0 }"
-                            :ground="{ enabled: true, width: 1000, height: 1000, position: [0, -1, 0], diffuseColor: [0.2, 0.2, 0.2], specularColor: [0.1, 0.1, 0.1], mass: 0, friction: 0.85, restitution: 0.1 }"
-                            ref="envRef" v-slot="{ environmentInitialized }">
-                            <!-- (removed) previously mirrored via SyncEnvState; now derived from physicsRef -->
-
-                            <template
-                                v-if="environmentInitialized && sceneInitialized && connectionStatus === 'connected'">
-                                <!-- BabylonMyAvatar component wrapped with MKB controller -->
-                                <BabylonMyAvatarMKBController :scene="sceneNonNull" :forward-codes="['KeyW', 'ArrowUp']"
-                                    :backward-codes="['KeyS', 'ArrowDown']" :strafe-left-codes="['KeyA', 'ArrowLeft']"
-                                    :strafe-right-codes="['KeyD', 'ArrowRight']" :jump-codes="['Space']"
-                                    :sprint-codes="['ShiftLeft', 'ShiftRight']" :dash-codes="[]"
-                                    :turn-left-codes="['KeyQ']" :turn-right-codes="['KeyE']"
-                                    :fly-mode-toggle-codes="['KeyF']" :crouch-toggle-codes="['KeyC']"
-                                    :prone-toggle-codes="['KeyZ']" :slow-run-toggle-codes="[]" v-slot="controls">
-                                    <BabylonMyAvatarTalking
-                                        v-slot="{ isTalking, level: talkLevel, devices: audioDevices, threshold: talkThreshold }">
-                                        <BabylonMyAvatar :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
-                                            :key-state="controls.keyState" :is-talking="isTalking"
-                                            :talk-level="talkLevel" :talk-threshold="talkThreshold"
-                                            :audio-devices="audioDevices" :physics-enabled="envPhysicsEnabled"
-                                            :physics-plugin-name="envPhysicsPluginName" :gravity="sceneGravity"
-                                            :avatar-definition="avatarDefinition" ref="avatarRef">
-                                            <template
-                                                #default="{ avatarSkeleton, animations, vircadiaWorld, onAnimationState, avatarNode, modelFileName, meshPivotPoint, capsuleHeight, onSetAvatarModel, airborne, verticalVelocity, supportState, physicsEnabled, hasTouchedGround, spawnSettling, groundProbeHit, groundProbeDistance, groundProbeMeshName, onEntityDataLoaded }">
-                                                <!-- Renderless entity sync component runs outside of model v-if so it can load DB definition -->
-                                                <BabylonMyAvatarEntity
-                                                    v-if="vircadiaWorld.connectionInfo.value.status === 'connected'"
-                                                    :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
-                                                    :avatar-node="avatarNode as TransformNode | null"
-                                                    :target-skeleton="(avatarSkeleton) || null" :camera="null"
-                                                    :model-file-name="modelFileName || ''"
-                                                    :avatar-definition="avatarDefinition"
-                                                    :persist-pose-snapshot-interval="5000"
-                                                    :position-throttle-interval="50" :rotation-throttle-interval="50"
-                                                    :camera-orientation-throttle-interval="100"
-                                                    :joint-throttle-interval="100" :joint-position-decimals="3"
-                                                    :joint-rotation-decimals="4" :joint-scale-decimals="5"
-                                                    :joint-position-update-decimals="2"
-                                                    :joint-rotation-update-decimals="3" :joint-scale-update-decimals="4"
-                                                    :reflect-sync-group="'public.REALTIME'"
-                                                    :entity-sync-group="'public.NORMAL'"
-                                                    :reflect-channel="'avatar_data'" :position-decimals="4"
-                                                    :rotation-decimals="4" :scale-decimals="4"
-                                                    :position-update-decimals="4" :rotation-update-decimals="4"
-                                                    :scale-update-decimals="3" @entity-data-loaded="onEntityDataLoaded"
-                                                    @sync-stats="onAvatarSyncStats" />
-                                                <BabylonMyAvatarModel v-if="modelFileName" :scene="sceneNonNull"
-                                                    :vircadia-world="vircadiaWorld"
-                                                    :avatar-node="(avatarNode as TransformNode | null) || null"
-                                                    :model-file-name="modelFileName" :mesh-pivot-point="meshPivotPoint"
-                                                    :capsule-height="capsuleHeight"
-                                                    :on-set-avatar-model="onSetAvatarModel" :animations="animations"
-                                                    :on-animation-state="onAnimationState" @state="onAvatarModelState"
-                                                    v-slot="{ targetSkeleton }">
-                                                    <!-- Renderless desktop third-person camera -->
-                                                    <BabylonMyAvatarDesktopThirdPersonCamera :scene="sceneNonNull"
-                                                        :avatar-node="(avatarNode as TransformNode | null)"
-                                                        :capsule-height="capsuleHeight" :min-z="0.1"
-                                                        :lower-radius-limit="1.2" :upper-radius-limit="25"
-                                                        :lower-beta-limit="0.15" :upper-beta-limit="Math.PI * 0.9"
-                                                        :inertia="0.6" :panning-sensibility="0" :wheel-precision="40"
-                                                        :fov-delta="((controls.keyState.forward ||
-                                                            controls.keyState.backward ||
-                                                            controls.keyState.strafeLeft ||
-                                                            controls.keyState.strafeRight)
-                                                            ? (controls.keyState.sprint ? 0.08 : 0.04)
-                                                            : 0)
-                                                            " :fov-lerp-speed="8" />
-                                                    <!-- Non-visual animation loaders now slotted under model component -->
-                                                    <BabylonMyAvatarAnimation v-for="anim in animations"
-                                                        v-if="targetSkeleton" :key="anim.fileName" :scene="sceneNonNull"
-                                                        :vircadia-world="vircadiaWorld" :animation="anim"
-                                                        :target-skeleton="targetSkeleton" @state="onAnimationState" />
-
-                                                </BabylonMyAvatarModel>
-
-                                                <!-- (removed) syncing via hidden div; RightDrawer now reads via avatarRef -->
-                                                <!-- Camera debug overlay -->
-                                                <BabylonCameraDebugOverlay v-model="cameraDebugOpen"
-                                                    :scene="sceneNonNull"
-                                                    :avatar-node="(avatarNode as TransformNode | null)"
-                                                    hotkey="Shift+N" />
-                                            </template>
-                                        </BabylonMyAvatar>
-                                    </BabylonMyAvatarTalking>
-                                </BabylonMyAvatarMKBController>
-
-                                <!-- Other avatars wrapper -->
-                                <BabylonOtherAvatars :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
-                                    :current-full-session-id="connectionInfo.fullSessionId ?? undefined"
-                                    :discovery-polling-interval="500" :reflect-sync-group="'public.REALTIME'"
-                                    :entity-sync-group="'public.NORMAL'" :reflect-channel="'avatar_data'"
-                                    ref="otherAvatarsRef"
-                                    v-slot="{ otherAvatarSessionIds, avatarDataMap, positionDataMap, rotationDataMap, jointDataMap }">
-                                    <BabylonOtherAvatar v-for="otherFullSessionId in otherAvatarSessionIds || []"
-                                        :key="otherFullSessionId" :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
-                                        :session-id="otherFullSessionId"
-                                        :avatar-data="avatarDataMap?.[otherFullSessionId]"
-                                        :position-data="positionDataMap?.[otherFullSessionId]"
-                                        :rotation-data="rotationDataMap?.[otherFullSessionId]"
-                                        :joint-data="jointDataMap?.[otherFullSessionId]"
-                                        @ready="otherAvatarsRef?.markLoaded && otherAvatarsRef.markLoaded(otherFullSessionId)"
-                                        @dispose="otherAvatarsRef?.markDisposed && otherAvatarsRef.markDisposed(otherFullSessionId)" />
-
-                                    <!-- WebRTC component (now under OtherAvatars slot) -->
-                                    <BabylonWebRTC v-model="showWebRTCControls" :vircadia-world="vircadiaWorld"
-                                        :avatar-data-map="(avatarDataMap as Record<string, AvatarBaseData>) || {}"
-                                        :position-data-map="(positionDataMap as Record<string, AvatarPositionData>) || {}"
-                                        :rotation-data-map="(rotationDataMap as Record<string, AvatarRotationData>) || {}"
-                                        :my-position-data="null" :my-camera-orientation="null"
-                                        :on-set-peer-audio-state="setPeerAudioState"
-                                        :on-remove-peer-audio-state="removePeerAudioState"
-                                        :webrtc-sync-group="'public.NORMAL'"
-                                        @permissions="onWebRTCPermissions($event)" />
-                                </BabylonOtherAvatars>
-
-                                <!-- BabylonModel components provided by DB-scanned list -->
-                                <BabylonModels :vircadia-world="vircadiaWorld" v-slot="{ models }">
-                                    <BabylonModel v-for="def in models" :key="def.fileName" :def="def"
-                                        :scene="sceneNonNull" :vircadia-world="vircadiaWorld" ref="modelRefs"
-                                        v-slot="{ meshes, def: slotDef }">
-                                        <BabylonModelPhysics :scene="sceneNonNull" :meshes="meshes" :def="slotDef"
-                                            ref="modelPhysicsRefs" />
-                                    </BabylonModel>
-
-                                    <BabylonModelsDebugOverlay v-model="modelsDebugOpen" :models="models"
-                                        :model-runtime="modelRuntime" :physics-summaries="physicsSummaries" />
-                                    <div style="display: none">
-                                        {{setModelRuntimeFromRefs(models, (modelRefs).map((r: any) =>
-                                            r?.meshes))}}
-                                        {{ refreshPhysicsSummaries(models) }}
-                                    </div>
-                                </BabylonModels>
-
-
-                                <!-- BabylonDoor component for interactive door -->
-                                <BabylonDoor :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
-                                    entity-name="babylon.door.main" model-file-name="babylon.model.wooden_door.glb"
-                                    :initial-position="{ x: 0, y: 0, z: 0 }"
-                                    :initial-rotation="{ x: 0, y: 0, z: 0, w: 1 }" :initial-open="false"
-                                    :rotation-open-radians="1.57" :rotation-axis="'y'" :sync-interval-ms="750"
-                                    :update-throttle-ms="300" @state="onDoorState" @open="onDoorOpen" />
+                    <!-- Performance Speed Dial -->
+                    <v-speed-dial v-model="perfDialOpen" location="bottom end" transition="fade-transition">
+                        <template #activator="{ props }">
+                            <v-btn v-bind="props" icon class="ml-2"
+                                :color="performanceMode === 'normal' ? 'success' : 'warning'">
+                                <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' : 'mdi-speedometer-slow'
+                                }}</v-icon>
+                            </v-btn>
+                        </template>
+                        <v-tooltip location="bottom">
+                            <template #activator="{ props: aprops }">
+                                <v-btn v-bind="aprops" icon
+                                    :color="performanceMode === 'normal' ? 'success' : undefined"
+                                    @click="canvasComponentRef?.setPerformanceMode('normal'); perfDialOpen = false">
+                                    <v-icon>mdi-speedometer</v-icon>
+                                </v-btn>
                             </template>
-                        </BabylonEnvironment>
+                            <span>Normal performance</span>
+                        </v-tooltip>
+                        <v-tooltip location="bottom">
+                            <template #activator="{ props: aprops }">
+                                <v-btn v-bind="aprops" icon :color="performanceMode === 'low' ? 'warning' : undefined"
+                                    @click="canvasComponentRef?.setPerformanceMode('low'); perfDialOpen = false">
+                                    <v-icon>mdi-speedometer-slow</v-icon>
+                                </v-btn>
+                            </template>
+                            <span>Low performance</span>
+                        </v-tooltip>
+                    </v-speed-dial>
+
+                    <!-- Movement Speed Dial -->
+                    <v-speed-dial v-model="moveDialOpen" location="bottom end" transition="fade-transition">
+                        <template #activator="{ props }">
+                            <v-btn v-bind="props" icon class="ml-2"
+                                :color="(avatarRef?.isFlying) ? 'success' : undefined">
+                                <v-icon>{{ (avatarRef?.isFlying) ? 'mdi-airplane' : 'mdi-walk' }}</v-icon>
+                            </v-btn>
+                        </template>
+                        <v-tooltip location="bottom">
+                            <template #activator="{ props: aprops }">
+                                <v-btn v-bind="aprops" icon color="success" :disabled="!!(avatarRef?.isFlying)"
+                                    @click="!(avatarRef?.isFlying) && avatarRef?.toggleFlying && avatarRef.toggleFlying(); moveDialOpen = false">
+                                    <v-icon>mdi-airplane-takeoff</v-icon>
+                                </v-btn>
+                            </template>
+                            <span>Fly on</span>
+                        </v-tooltip>
+                        <v-tooltip location="bottom">
+                            <template #activator="{ props: aprops }">
+                                <v-btn v-bind="aprops" icon :color="!(avatarRef?.isFlying) ? 'grey' : 'error'"
+                                    :disabled="!(avatarRef?.isFlying)"
+                                    @click="(avatarRef?.isFlying) && avatarRef?.toggleFlying && avatarRef.toggleFlying(); moveDialOpen = false">
+                                    <v-icon>mdi-walk</v-icon>
+                                </v-btn>
+                            </template>
+                            <span>Fly off</span>
+                        </v-tooltip>
+                    </v-speed-dial>
+
+                    <!-- Babylon Inspector (Dev only) -->
+                    <template v-if="isDev">
+                        <v-tooltip location="bottom">
+                            <template #activator="{ props }">
+                                <v-btn v-bind="props" icon variant="text" class="ml-2" :disabled="!sceneInitialized"
+                                    @click="inspectorRef?.toggleInspector()">
+                                    <v-icon>{{ inspectorVisible ? 'mdi-file-tree' : 'mdi-file-tree-outline' }}</v-icon>
+                                </v-btn>
+                            </template>
+                            <span>Babylon Inspector (T)</span>
+                        </v-tooltip>
                     </template>
-                </BabylonPhysics>
-            </main>
 
-            <!-- WebRTC moved inside BabylonOtherAvatars -->
+                    <!-- Toggle Right Debug Drawer -->
+                    <v-tooltip location="bottom">
+                        <template #activator="{ props }">
+                            <v-btn v-bind="props" icon variant="text" class="ml-2"
+                                @click="rightDrawerOpen = !rightDrawerOpen">
+                                <v-icon>mdi-dock-right</v-icon>
+                            </v-btn>
+                        </template>
+                        <span>Debug Drawer</span>
+                    </v-tooltip>
+                </v-app-bar>
 
-            <!-- Headless Babylon Inspector instance for programmatic control (Dev only) -->
-            <template v-if="isDev">
-                <BabylonInspector ref="inspectorRef" :scene="sceneNonNull" :headless="true"
-                    @visible-change="onInspectorVisibleChange" />
+                <main>
+                    <BabylonCanvas ref="canvasComponentRef" v-model:performanceMode="performanceMode"
+                        v-model:fps="fps" />
+
+                    <BabylonSnackbar :scene-initialized="sceneInitialized" :connection-status="connectionStatus"
+                        :is-connecting="isConnecting" :environment-loading="!envRef?.environmentInitialized"
+                        :avatar-loading="avatarLoading" :other-avatars-loading="otherAvatarsLoading"
+                        :models-loading="modelsLoading" :is-authenticating="isAuthenticating"
+                        :is-authenticated="isAuthenticated" :avatar-model-step="avatarModelStep"
+                        :avatar-model-error="avatarModelError" :model-file-name="modelFileNameRef" />
+
+                    <BabylonPhysics v-if="sceneInitialized && connectionStatus === 'connected'" :scene="sceneNonNull"
+                        :vircadia-world="vircadiaWorld" :gravity="[0, -9.81, 0]" ref="physicsRef">
+                        <template
+                            #default="{ physicsEnabled: envPhysicsEnabled, physicsPluginName: envPhysicsPluginName, physicsError: envPhysicsError, physicsEngineType: envPhysicsEngineType, physicsInitialized: envPhysicsInitialized, havokInstanceLoaded: envHavokInstanceLoaded, physicsPluginCreated: envPhysicsPluginCreated, gravity: sceneGravity }">
+                            <BabylonEnvironment :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
+                                :hdr-file="'babylon.level.hdr.1k.hdr'" :enable-defaults="true" :gravity="[0, -9.81, 0]"
+                                :hemispheric-light="{ enabled: true, direction: [1, 1, 0], intensity: 1.0 }"
+                                :directional-light="{ enabled: true, direction: [-1, -2, -1], position: [10, 10, 10], intensity: 1.0 }"
+                                :ground="{ enabled: true, width: 1000, height: 1000, position: [0, -1, 0], diffuseColor: [0.2, 0.2, 0.2], specularColor: [0.1, 0.1, 0.1], mass: 0, friction: 0.85, restitution: 0.1 }"
+                                ref="envRef" v-slot="{ environmentInitialized }">
+                                <!-- (removed) previously mirrored via SyncEnvState; now derived from physicsRef -->
+
+                                <template
+                                    v-if="environmentInitialized && sceneInitialized && connectionStatus === 'connected'">
+                                    <!-- BabylonMyAvatar component wrapped with MKB controller -->
+                                    <BabylonMyAvatarMKBController :scene="sceneNonNull"
+                                        :forward-codes="['KeyW', 'ArrowUp']" :backward-codes="['KeyS', 'ArrowDown']"
+                                        :strafe-left-codes="['KeyA', 'ArrowLeft']"
+                                        :strafe-right-codes="['KeyD', 'ArrowRight']" :jump-codes="['Space']"
+                                        :sprint-codes="['ShiftLeft', 'ShiftRight']" :dash-codes="[]"
+                                        :turn-left-codes="['KeyQ']" :turn-right-codes="['KeyE']"
+                                        :fly-mode-toggle-codes="['KeyF']" :crouch-toggle-codes="['KeyC']"
+                                        :prone-toggle-codes="['KeyZ']" :slow-run-toggle-codes="[]" v-slot="controls">
+                                        <BabylonMyAvatarTalking
+                                            v-slot="{ isTalking, level: talkLevel, devices: audioDevices, threshold: talkThreshold }">
+                                            <BabylonMyAvatar :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
+                                                :key-state="controls.keyState" :is-talking="isTalking"
+                                                :talk-level="talkLevel" :talk-threshold="talkThreshold"
+                                                :audio-devices="audioDevices" :physics-enabled="envPhysicsEnabled"
+                                                :physics-plugin-name="envPhysicsPluginName" :gravity="sceneGravity"
+                                                :avatar-definition="avatarDefinition" ref="avatarRef">
+                                                <template
+                                                    #default="{ avatarSkeleton, animations, vircadiaWorld, onAnimationState, avatarNode, modelFileName, meshPivotPoint, capsuleHeight, onSetAvatarModel, airborne, verticalVelocity, supportState, physicsEnabled, hasTouchedGround, spawnSettling, groundProbeHit, groundProbeDistance, groundProbeMeshName, onEntityDataLoaded }">
+                                                    <!-- Renderless entity sync component runs outside of model v-if so it can load DB definition -->
+                                                    <BabylonMyAvatarEntity
+                                                        v-if="vircadiaWorld.connectionInfo.value.status === 'connected'"
+                                                        :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
+                                                        :avatar-node="avatarNode as TransformNode | null"
+                                                        :target-skeleton="(avatarSkeleton) || null" :camera="null"
+                                                        :model-file-name="modelFileName || ''"
+                                                        :avatar-definition="avatarDefinition"
+                                                        :persist-pose-snapshot-interval="5000"
+                                                        :position-throttle-interval="50"
+                                                        :rotation-throttle-interval="50"
+                                                        :camera-orientation-throttle-interval="100"
+                                                        :joint-throttle-interval="100" :joint-position-decimals="3"
+                                                        :joint-rotation-decimals="4" :joint-scale-decimals="5"
+                                                        :joint-position-update-decimals="2"
+                                                        :joint-rotation-update-decimals="3"
+                                                        :joint-scale-update-decimals="4"
+                                                        :reflect-sync-group="'public.REALTIME'"
+                                                        :entity-sync-group="'public.NORMAL'"
+                                                        :reflect-channel="'avatar_data'" :position-decimals="4"
+                                                        :rotation-decimals="4" :scale-decimals="4"
+                                                        :position-update-decimals="4" :rotation-update-decimals="4"
+                                                        :scale-update-decimals="3"
+                                                        @entity-data-loaded="onEntityDataLoaded"
+                                                        @sync-stats="onAvatarSyncStats" />
+                                                    <BabylonMyAvatarModel v-if="modelFileName" :scene="sceneNonNull"
+                                                        :vircadia-world="vircadiaWorld"
+                                                        :avatar-node="(avatarNode as TransformNode | null) || null"
+                                                        :model-file-name="modelFileName"
+                                                        :mesh-pivot-point="meshPivotPoint"
+                                                        :capsule-height="capsuleHeight"
+                                                        :on-set-avatar-model="onSetAvatarModel" :animations="animations"
+                                                        :on-animation-state="onAnimationState"
+                                                        @state="onAvatarModelState" v-slot="{ targetSkeleton }">
+                                                        <!-- Renderless desktop third-person camera -->
+                                                        <BabylonMyAvatarDesktopThirdPersonCamera :scene="sceneNonNull"
+                                                            :avatar-node="(avatarNode as TransformNode | null)"
+                                                            :capsule-height="capsuleHeight" :min-z="0.1"
+                                                            :lower-radius-limit="1.2" :upper-radius-limit="25"
+                                                            :lower-beta-limit="0.15" :upper-beta-limit="Math.PI * 0.9"
+                                                            :inertia="0.6" :panning-sensibility="0"
+                                                            :wheel-precision="40" :fov-delta="((controls.keyState.forward ||
+                                                                controls.keyState.backward ||
+                                                                controls.keyState.strafeLeft ||
+                                                                controls.keyState.strafeRight)
+                                                                ? (controls.keyState.sprint ? 0.08 : 0.04)
+                                                                : 0)
+                                                                " :fov-lerp-speed="8" />
+                                                        <!-- Non-visual animation loaders now slotted under model component -->
+                                                        <BabylonMyAvatarAnimation v-for="anim in animations"
+                                                            v-if="targetSkeleton" :key="anim.fileName"
+                                                            :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
+                                                            :animation="anim" :target-skeleton="targetSkeleton"
+                                                            @state="onAnimationState" />
+
+                                                    </BabylonMyAvatarModel>
+
+                                                    <!-- (removed) syncing via hidden div; RightDrawer now reads via avatarRef -->
+                                                    <!-- Camera debug overlay -->
+                                                    <BabylonCameraDebugOverlay v-model="cameraDebugOpen"
+                                                        :scene="sceneNonNull"
+                                                        :avatar-node="(avatarNode as TransformNode | null)"
+                                                        hotkey="Shift+N" />
+                                                </template>
+                                            </BabylonMyAvatar>
+                                        </BabylonMyAvatarTalking>
+                                    </BabylonMyAvatarMKBController>
+
+                                    <!-- Other avatars wrapper -->
+                                    <BabylonOtherAvatars :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
+                                        :current-full-session-id="connectionInfo.fullSessionId ?? undefined"
+                                        :discovery-polling-interval="500" :reflect-sync-group="'public.REALTIME'"
+                                        :entity-sync-group="'public.NORMAL'" :reflect-channel="'avatar_data'"
+                                        ref="otherAvatarsRef"
+                                        v-slot="{ otherAvatarSessionIds, avatarDataMap, positionDataMap, rotationDataMap, jointDataMap }">
+                                        <BabylonOtherAvatar v-for="otherFullSessionId in otherAvatarSessionIds || []"
+                                            :key="otherFullSessionId" :scene="sceneNonNull"
+                                            :vircadia-world="vircadiaWorld" :session-id="otherFullSessionId"
+                                            :avatar-data="avatarDataMap?.[otherFullSessionId]"
+                                            :position-data="positionDataMap?.[otherFullSessionId]"
+                                            :rotation-data="rotationDataMap?.[otherFullSessionId]"
+                                            :joint-data="jointDataMap?.[otherFullSessionId]"
+                                            @ready="otherAvatarsRef?.markLoaded && otherAvatarsRef.markLoaded(otherFullSessionId)"
+                                            @dispose="otherAvatarsRef?.markDisposed && otherAvatarsRef.markDisposed(otherFullSessionId)" />
+
+                                        <!-- WebRTC component (now under OtherAvatars slot) -->
+                                        <BabylonWebRTC v-model="showWebRTCControls" :client="vircadiaWorld"
+                                            :full-session-id="connectionInfo.fullSessionId ?? null"
+                                            :avatar-data="new Map(Object.entries((avatarDataMap as Record<string, AvatarBaseData>) || {}))"
+                                            :avatar-positions="new Map(Object.entries((positionDataMap as Record<string, AvatarPositionData>) || {}))"
+                                            :my-position="null" :my-camera-orientation="null"
+                                            :webrtc-sync-group="'public.NORMAL'"
+                                            @permissions="onWebRTCPermissions($event)" />
+                                    </BabylonOtherAvatars>
+
+                                    <!-- BabylonModel components provided by DB-scanned list -->
+                                    <BabylonModels :vircadia-world="vircadiaWorld" v-slot="{ models }">
+                                        <BabylonModel v-for="def in models" :key="def.fileName" :def="def"
+                                            :scene="sceneNonNull" :vircadia-world="vircadiaWorld" ref="modelRefs"
+                                            v-slot="{ meshes, def: slotDef }">
+                                            <BabylonModelPhysics :scene="sceneNonNull" :meshes="meshes" :def="slotDef"
+                                                ref="modelPhysicsRefs" />
+                                        </BabylonModel>
+
+                                        <BabylonModelsDebugOverlay v-model="modelsDebugOpen" :models="models"
+                                            :model-runtime="modelRuntime" :physics-summaries="physicsSummaries" />
+                                        <div style="display: none">
+                                            {{setModelRuntimeFromRefs(models, (modelRefs).map((r: any) =>
+                                                r?.meshes))}}
+                                            {{ refreshPhysicsSummaries(models) }}
+                                        </div>
+                                    </BabylonModels>
+
+
+                                    <!-- BabylonDoor component for interactive door -->
+                                    <BabylonDoor :scene="sceneNonNull" :vircadia-world="vircadiaWorld"
+                                        entity-name="babylon.door.main" model-file-name="babylon.model.wooden_door.glb"
+                                        :initial-position="{ x: 0, y: 0, z: 0 }"
+                                        :initial-rotation="{ x: 0, y: 0, z: 0, w: 1 }" :initial-open="false"
+                                        :rotation-open-radians="1.57" :rotation-axis="'y'" :sync-interval-ms="750"
+                                        :update-throttle-ms="300" @state="onDoorState" @open="onDoorOpen" />
+                                </template>
+                            </BabylonEnvironment>
+                        </template>
+                    </BabylonPhysics>
+                </main>
+
+                <!-- WebRTC moved inside BabylonOtherAvatars -->
+
+                <!-- Headless Babylon Inspector instance for programmatic control (Dev only) -->
+                <template v-if="isDev">
+                    <BabylonInspector ref="inspectorRef" :scene="sceneNonNull" :headless="true"
+                        @visible-change="onInspectorVisibleChange" />
+                </template>
+
+                <!-- Audio controls dialog now lives inside BabylonWebRTC -->
+
             </template>
-
-            <!-- Audio controls dialog now lives inside BabylonWebRTC -->
-
-        </template>
+        </VircadiaWorldAuthProvider>
     </VircadiaWorldProvider>
 </template>
 
@@ -332,9 +341,7 @@
 // BabylonJS types
 import type {
     Scene,
-    Skeleton,
     TransformNode,
-    WebGPUEngine,
 } from "@babylonjs/core";
 
 import { clientBrowserConfiguration } from "@vircadia/world-sdk/browser/vue";
@@ -345,6 +352,7 @@ import {
     getCurrentInstance,
     onMounted,
     ref,
+    watch,
 } from "vue";
 import BabylonCameraDebugOverlay from "@/components/BabylonCameraDebugOverlay.vue";
 import BabylonCanvas from "@/components/BabylonCanvas.vue";

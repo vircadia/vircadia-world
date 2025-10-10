@@ -1,8 +1,11 @@
 <template>
+    <!-- FIXME: This needs to be refactored, split into two components, and simplified. Debug tokens don't work rn. -->
     <div>
         <slot v-if="isAuthenticated && !isAuthenticating" :authError="authError" :account="account"
             :sessionToken="sessionToken" :sessionId="sessionId" :agentId="agentId" :authProvider="authProvider"
-            :logout="logout" :logoutLocal="logoutLocal" />
+            :logout="logout" :logoutLocal="logoutLocal" :isAuthenticated="isAuthenticated"
+            :isAuthenticating="isAuthenticating" :accountDisplayName="accountDisplayName" :connect="connect"
+            :disconnect="disconnect" />
         <v-container v-else fluid fill-height class="intro-screen">
             <v-row align="center" justify="center">
                 <v-col cols="12" sm="8" md="6" lg="4">
@@ -476,6 +479,26 @@ const connectionInfo = props.vircadiaWorld.connectionInfo;
 const isConnecting = computed(() => connectionInfo.value.isConnecting);
 const connectionStatus = computed(() => connectionInfo.value.status);
 const lastConnectedToken = ref<string | null>(null);
+
+const accountDisplayName = computed(() => {
+    const value = account.value as AccountInfo | null | undefined;
+    if (!value) {
+        const agentIdFromConnection = connectionInfo.value.agentId || null;
+        if (isAuthenticated.value && agentIdFromConnection) {
+            return agentIdFromConnection;
+        }
+        if (isAuthenticated.value) {
+            return "Authenticated";
+        }
+        return "Not signed in";
+    }
+    return (
+        value.username ||
+        value.name ||
+        value.localAccountId ||
+        "User"
+    );
+});
 
 function ensureDisconnected() {
     const info = connectionInfo.value;

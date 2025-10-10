@@ -32,12 +32,10 @@
     <VircadiaWorldProvider
         v-slot="{ vircadiaWorld, connectionInfo, connectionStatus, isConnecting, isAuthenticated, isAuthenticating, accountDisplayName, sessionToken, connect, logout }">
 
+        <!-- TODO: Split this into two components, auth UI and the internal component, so we can show the v-if else here instead of inside the component. -->
         <VircadiaWorldAuthProvider :vircadia-world="vircadiaWorld" :auto-connect="true"
-            @auth-denied="onAuthDenied($event)" v-slot="{ isAuthenticated, isAuthenticating }">
-
-            <!-- Main world when authenticated -->
-            <template v-if="isAuthenticated">
-
+            @auth-denied="onAuthDenied($event)">
+            <template v-if="connectionStatus === 'connected'">
                 <!-- Left Navigation Drawer extracted to component -->
                 <LeftDrawer v-model:open="leftDrawerOpen" :width="320" :isAuthenticated="isAuthenticated"
                     :displayName="accountDisplayName || undefined" :provider="connectionInfo.authProvider || 'anon'"
@@ -331,7 +329,6 @@
                 </template>
 
                 <!-- Audio controls dialog now lives inside BabylonWebRTC -->
-
             </template>
         </VircadiaWorldAuthProvider>
     </VircadiaWorldProvider>
@@ -487,6 +484,18 @@ onMounted(async () => {
 
     document.addEventListener("keydown", handleKeyPress);
 });
+
+// TODO: This global flag should be well defined somewhere as a const or setting.
+// Set global flag when scene is ready for autonomous agent
+if (clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_AUTONOMOUS_AGENT_ENABLED) {
+    watch(sceneInitialized, (isReady) => {
+        if (isReady) {
+            (window as typeof window & { __VIRCADIA_SCENE_READY__?: boolean }).__VIRCADIA_SCENE_READY__ = true;
+            console.debug("[MainScene] Scene ready flag set for autonomous agent");
+        }
+    });
+}
+
 
 // No onUnmounted reset needed; canvas manages its own ready state
 

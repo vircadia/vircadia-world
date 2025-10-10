@@ -1,8 +1,8 @@
 <template>
     <div>
-        <slot v-if="isAuthenticated" :isAuthenticated="isAuthenticated" :isAuthenticating="isAuthenticating"
-            :authError="authError" :account="account" :sessionToken="sessionToken" :sessionId="sessionId"
-            :agentId="agentId" :authProvider="authProvider" :logout="logout" :logoutLocal="logoutLocal" />
+        <slot v-if="isAuthenticated && !isAuthenticating" :authError="authError" :account="account"
+            :sessionToken="sessionToken" :sessionId="sessionId" :agentId="agentId" :authProvider="authProvider"
+            :logout="logout" :logoutLocal="logoutLocal" />
         <v-container v-else fluid fill-height class="intro-screen">
             <v-row align="center" justify="center">
                 <v-col cols="12" sm="8" md="6" lg="4">

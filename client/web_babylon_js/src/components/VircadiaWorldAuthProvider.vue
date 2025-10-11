@@ -1,53 +1,15 @@
 <template>
-    <!-- FIXME: This needs to be refactored, split into two components, and simplified. Debug tokens don't work rn. -->
-    <div>
-        <slot v-if="isAuthenticated && !isAuthenticating" :authError="authError" :account="account"
-            :sessionToken="sessionToken" :sessionId="sessionId" :agentId="agentId" :authProvider="authProvider"
-            :logout="logout" :logoutLocal="logoutLocal" :isAuthenticated="isAuthenticated"
-            :isAuthenticating="isAuthenticating" :accountDisplayName="accountDisplayName" :connect="connect"
-            :disconnect="disconnect" />
-        <v-container v-else fluid fill-height class="intro-screen">
-            <v-row align="center" justify="center">
-                <v-col cols="12" sm="8" md="6" lg="4">
-                    <v-card class="elevation-12" :loading="isAuthenticating">
-                        <v-toolbar color="primary" dark flat>
-                            <v-toolbar-title>Welcome to Vircadia</v-toolbar-title>
-                        </v-toolbar>
-                        <v-card-text class="pa-6">
-                            <p class="text-center text-h6 font-weight-regular">
-                                Please choose your login method to continue.
-                            </p>
-                            <v-alert v-if="authError" type="error" dense class="mt-4">
-                                {{ authError }}
-                            </v-alert>
-                        </v-card-text>
-                        <v-card-actions class="d-flex flex-column pa-6 pt-0">
-                            <v-btn block x-large color="primary" @click="loginWithAzure" :disabled="isAuthenticating"
-                                class="mb-4">
-                                <v-icon left>mdi-microsoft-azure</v-icon>
-                                Login with Azure AD
-                            </v-btn>
-                            <v-btn block x-large color="secondary" @click="loginAnonymously"
-                                :disabled="isAuthenticating" class="mb-4">
-                                <v-icon left>mdi-account-circle-outline</v-icon>
-                                Continue as Anonymous
-                            </v-btn>
-                            <v-btn v-if="showDebugLogin" block x-large color="accent" @click="loginWithDebugToken"
-                                :disabled="isAuthenticating">
-                                <v-icon left>mdi-bug-check</v-icon>
-                                Continue with Debug Token
-                            </v-btn>
-                        </v-card-actions>
-                    </v-card>
-                </v-col>
-            </v-row>
-        </v-container>
-    </div>
+    <slot :authError="authError" :account="account" :sessionToken="sessionToken" :sessionId="sessionId"
+        :agentId="agentId" :authProvider="authProvider" :logout="logout" :logoutLocal="logoutLocal"
+        :isAuthenticated="isAuthenticated" :isAuthenticating="isAuthenticating" :accountDisplayName="accountDisplayName"
+        :connect="connect" :disconnect="disconnect" :loginWithAzure="loginWithAzure"
+        :loginAnonymously="loginAnonymously" :loginWithDebugToken="loginWithDebugToken" :showDebugLogin="showDebugLogin"
+        :authValidationState="authValidationState" />
 </template>
 
 <script setup lang="ts">
 import type { AccountInfo } from "@azure/msal-browser";
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 import { clientBrowserConfiguration } from "../../../../sdk/vircadia-world-sdk-ts/browser/src/config/vircadia.browser.config";
 
@@ -80,6 +42,8 @@ const authError = ref<string | null>(null);
 // Session storage keys for tracking failed auto-connect attempts
 const AUTO_CONNECT_DEBUG_FAILED_KEY = 'vircadia-auto-connect-debug-failed';
 const AUTO_CONNECT_ANONYMOUS_FAILED_KEY = 'vircadia-auto-connect-anonymous-failed';
+// Local storage key for the last token we invalidated/cleared on this browser
+const LAST_INVALIDATED_TOKEN_KEY = 'vircadia-last-invalidated-token';
 
 const account = ref<AccountInfo | null>(props.vircadiaWorld.client.getStoredAccount<AccountInfo>());
 const sessionToken = ref<string | null>(props.vircadiaWorld.client.getStoredToken());
@@ -91,17 +55,8 @@ const authProvider = ref<string>(props.vircadiaWorld.client.getStoredProvider())
 const authValidationState = ref<'pending' | 'validating' | 'valid' | 'invalid'>('pending');
 
 const isAuthenticated = computed(() => {
-    const hasToken = props.vircadiaWorld.client.getAuthState().hasToken;
-    const hasAccount = !!account.value;
-
-    // If we have no token or account, definitely not authenticated
-    if (!hasToken || !hasAccount) {
-        return false;
-    }
-
-    // If we have token and account, check validation state
-    // Only consider authenticated if validation is complete and valid
-    return authValidationState.value === 'valid';
+    // Reactive: authenticated if a token is present in local state
+    return !!sessionToken.value;
 });
 
 const showDebugLogin = computed(() => {
@@ -128,6 +83,27 @@ const clearAllAutoConnectFailures = (): void => {
     sessionStorage.removeItem(AUTO_CONNECT_DEBUG_FAILED_KEY);
     sessionStorage.removeItem(AUTO_CONNECT_ANONYMOUS_FAILED_KEY);
 };
+
+// Persist the last invalidated token so we can avoid retrying it (e.g., debug token)
+function setLastInvalidatedToken(token: string): void {
+    try {
+        window.localStorage.setItem(LAST_INVALIDATED_TOKEN_KEY, token);
+    } catch { }
+}
+
+function getLastInvalidatedToken(): string | null {
+    try {
+        return window.localStorage.getItem(LAST_INVALIDATED_TOKEN_KEY);
+    } catch {
+        return null;
+    }
+}
+
+function clearLastInvalidatedToken(): void {
+    try {
+        window.localStorage.removeItem(LAST_INVALIDATED_TOKEN_KEY);
+    } catch { }
+}
 
 const loginWithAzure = async () => {
     isAuthenticating.value = true;
@@ -184,12 +160,11 @@ const loginAnonymously = async (isAutoConnect = false) => {
                 clearAutoConnectFailure('anonymous');
             }
 
-            // Validate authentication before marking as valid
-            const isValid = await validateAuthentication();
-            if (isValid) {
-                emit("authenticated");
-            } else {
-                throw new Error("Anonymous authentication validation failed - server may be offline");
+            // Mark auth as valid and auto-connect; rely on server to reject if invalid
+            authValidationState.value = 'valid';
+            emit("authenticated");
+            if (autoConnect.value) {
+                await connect();
             }
         } else {
             throw new Error("Invalid response from server");
@@ -219,6 +194,15 @@ const loginWithDebugToken = async (isAutoConnect = false) => {
 
         if (!token) {
             throw new Error("No debug token found in configuration.");
+        }
+
+        // Skip if this token was the last invalidated one
+        const lastInvalidated = getLastInvalidatedToken();
+        if (lastInvalidated && lastInvalidated === token) {
+            if (isAutoConnect) {
+                markAutoConnectFailed('debug');
+            }
+            throw new Error("Debug token was previously invalidated; skipping auto-login");
         }
 
         console.log("[VircadiaWorldAuthProvider] Setting debug token auth", {
@@ -270,19 +254,19 @@ const loginWithDebugToken = async (isAutoConnect = false) => {
             clearAutoConnectFailure('debug');
         }
 
-        // Validate authentication before marking as valid
-        const isValid = await validateAuthentication();
-        if (isValid) {
-            console.log("[VircadiaWorldAuthProvider] Debug token login complete", {
-                sessionToken: !!sessionToken.value,
-                sessionId: sessionId.value,
-                agentId: agentId.value,
-                authProvider: authProvider.value,
-                isAuthenticated: isAuthenticated.value,
-            });
-            emit("authenticated");
-        } else {
-            throw new Error("Debug token validation failed - server may be offline");
+        // Mark auth as valid and auto-connect; rely on server to reject if invalid
+        authValidationState.value = 'valid';
+        clearLastInvalidatedToken();
+        console.log("[VircadiaWorldAuthProvider] Debug token login complete", {
+            sessionToken: !!sessionToken.value,
+            sessionId: sessionId.value,
+            agentId: agentId.value,
+            authProvider: authProvider.value,
+            isAuthenticated: isAuthenticated.value,
+        });
+        emit("authenticated");
+        if (autoConnect.value) {
+            await connect();
         }
     } catch (err) {
         console.error("Debug token login failed:", err);
@@ -300,6 +284,16 @@ const loginWithDebugToken = async (isAutoConnect = false) => {
 
 async function logout() {
     try {
+        // Pre-unmount dependent components (e.g., WebRTC) while connection is still alive
+        // by marking authentication false in local state and yielding a tick
+        const originalToken = sessionToken.value;
+        if (originalToken) {
+            sessionToken.value = null;
+            await nextTick();
+            // Give onUnmounted hooks a micro window to run async cleanup (offline announces)
+            await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+
         await props.vircadiaWorld.client.logout();
     } catch (e) {
         console.warn("Logout request failed:", e);
@@ -314,7 +308,16 @@ async function logout() {
  * Use this when the server has already denied/expired the session (e.g., 401).
  */
 function logoutLocal(reason?: string) {
+    // Persist the current token as invalidated to avoid auto-retrying it
+    const currentToken = sessionToken.value || props.vircadiaWorld.client.getStoredToken();
+    if (currentToken) setLastInvalidatedToken(currentToken);
     props.vircadiaWorld.client.clearLocalAuth();
+    // Clear reactive auth state to prevent auto-reconnect logic from considering the user authenticated
+    sessionToken.value = null;
+    sessionId.value = null;
+    agentId.value = null;
+    authProvider.value = "";
+    account.value = null;
     authError.value = reason ?? null;
     // Clear auto-connect failure tracking on logout
     clearAllAutoConnectFailures();
@@ -405,14 +408,13 @@ async function handleOAuthRedirectIfPresent(): Promise<boolean> {
             }
         } catch { }
 
-        // Validate authentication before marking as valid
-        const isValid = await validateAuthentication();
-        if (isValid) {
-            emit("authenticated");
-            return true;
-        } else {
-            throw new Error("OAuth authentication validation failed - server may be offline");
+        // Mark auth as valid and auto-connect; rely on server to reject if invalid
+        authValidationState.value = 'valid';
+        emit("authenticated");
+        if (autoConnect.value) {
+            await connect();
         }
+        return true;
     } finally {
         isAuthenticating.value = false;
     }
@@ -431,6 +433,11 @@ onMounted(async () => {
         },
     );
 
+    // Only perform any auto-login when auto-connect is enabled
+    if (!autoConnect.value) {
+        return;
+    }
+
     // Handle OAuth redirect (code/state) before any auto-login logic
     try {
         const handled = await handleOAuthRedirectIfPresent();
@@ -439,13 +446,39 @@ onMounted(async () => {
         console.warn("[VircadiaWorldAuthProvider] OAuth redirect handling error", e);
     }
 
+    // 1) Prefer existing valid OAuth session (Azure) when present
+    try {
+        const currentToken = sessionToken.value;
+        const provider = authProvider.value;
+        const lastInvalidated = getLastInvalidatedToken();
+        if (
+            currentToken &&
+            provider === "azure" &&
+            lastInvalidated !== currentToken
+        ) {
+            console.log("[VircadiaWorldAuthProvider] Using existing OAuth session (Azure)");
+            await connect();
+            return;
+        }
+    } catch (e) {
+        console.warn("[VircadiaWorldAuthProvider] OAuth auto-connect attempt skipped", e);
+    }
+
     if (!isAuthenticated.value) {
-        if (clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN) {
-            // Check if debug auto-connect has failed before in this session
+        const debugToken = clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN;
+        const lastInvalidated = getLastInvalidatedToken();
+        let attemptedDebug = false;
+
+        if (debugToken) {
             if (hasAutoConnectFailed('debug')) {
                 console.log(
                     "[VircadiaWorldAuthProvider] Skipping debug auto-login - previous attempt failed in this session",
                 );
+            } else if (lastInvalidated && lastInvalidated === debugToken) {
+                console.log(
+                    "[VircadiaWorldAuthProvider] Skipping debug auto-login - token was previously invalidated",
+                );
+                markAutoConnectFailed('debug');
             } else {
                 console.log(
                     "[VircadiaWorldAuthProvider] Auto-logging in with debug token",
@@ -454,14 +487,20 @@ onMounted(async () => {
                 console.log(
                     "[VircadiaWorldAuthProvider] Debug token auto-login completed",
                 );
+                attemptedDebug = true;
             }
-        } else if (clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT_ANONYMOUS) {
-            // Check if anonymous auto-connect has failed before in this session
+        }
+
+        // Fallback to anonymous if enabled and still not authenticated after any debug attempt
+        if (
+            !isAuthenticated.value &&
+            autoConnect.value
+        ) {
             if (hasAutoConnectFailed('anonymous')) {
                 console.log(
                     "[VircadiaWorldAuthProvider] Skipping anonymous auto-login - previous attempt failed in this session",
                 );
-            } else {
+            } else if (!isAuthenticated.value) {
                 console.log(
                     "[VircadiaWorldAuthProvider] Auto-logging in anonymously",
                 );
@@ -509,36 +548,10 @@ function ensureDisconnected() {
 }
 
 async function validateAuthentication(): Promise<boolean> {
-    const currentToken = sessionToken.value;
-    const currentProvider = authProvider.value;
-
-    if (!currentToken || !currentProvider) {
-        authValidationState.value = 'invalid';
-        return false;
-    }
-
-    authValidationState.value = 'validating';
-
-    try {
-        const sessionResp = await props.vircadiaWorld.client.restAuth.validateSession({
-            token: currentToken,
-            provider: currentProvider,
-        });
-
-        const isValid = !!(sessionResp as { success?: boolean })?.success;
-
-        if (isValid) {
-            authValidationState.value = 'valid';
-            return true;
-        } else {
-            authValidationState.value = 'invalid';
-            return false;
-        }
-    } catch (error) {
-        console.warn('[VircadiaWorldAuthProvider] Authentication validation failed:', error);
-        authValidationState.value = 'invalid';
-        return false;
-    }
+    // Simplified: consider auth valid if token and provider exist
+    const ok = !!sessionToken.value && !!authProvider.value;
+    authValidationState.value = ok ? 'valid' : 'invalid';
+    return ok;
 }
 
 async function connect() {
@@ -553,18 +566,6 @@ async function connect() {
     }
 
     if (connectionInfo.value.isConnected && lastConnectedToken.value === currentToken) {
-        return;
-    }
-
-    // First validate authentication before attempting to connect
-    const isAuthValid = await validateAuthentication();
-    if (!isAuthValid) {
-        // Authentication validation failed - don't clear tokens, just show login page
-        authValidationState.value = 'invalid';
-        emit("auth-denied", {
-            reason: "authentication_failed",
-            message: "Authentication failed: Failed to fetch"
-        });
         return;
     }
 
@@ -588,40 +589,28 @@ async function connect() {
 
         const message = error instanceof Error ? error.message : String(error);
 
-        // Check if this is a fetch failure or connection error
-        if (message.includes("Failed to fetch") || message.includes("ERR_CONNECTION_REFUSED")) {
-            // Don't clear tokens for fetch failures, just mark as invalid and show login
-            authValidationState.value = 'invalid';
-            emit("auth-denied", {
-                reason: "authentication_failed",
-                message: `Authentication failed: ${message}`
-            });
+        // Unauthorized-like errors -> clear auth and surface to UI
+        if (
+            message.includes("401") ||
+            message.includes("Unauthorized") ||
+            message.includes("Authentication") ||
+            message.includes("Invalid token")
+        ) {
+            logoutLocal(`Authentication failed: ${message}`);
+            emit("auth-denied", { reason: "unauthorized", message });
             return;
         }
 
-        // For other errors, clear local state
-        logoutLocal(`Connection failed: ${message}`);
-
-        if (error instanceof Error) {
-            if (
-                error.message.includes("Authentication") ||
-                error.message.includes("401") ||
-                error.message.includes("Invalid token")
-            ) {
-                let reason:
-                    | "expired"
-                    | "invalid"
-                    | "unauthorized"
-                    | "authentication_failed" = "authentication_failed";
-                const msg = error.message || "Authentication failed";
-                if (msg.includes("expired")) reason = "expired";
-                else if (msg.includes("Invalid session")) reason = "invalid";
-                else if (msg.includes("401") || msg.includes("Unauthorized"))
-                    reason = "unauthorized";
-
-                emit("auth-denied", { reason, message: msg });
-            }
+        // Network/connection failures -> keep auth, notify
+        if (message.includes("Failed to fetch") || message.includes("ERR_CONNECTION_REFUSED")) {
+            authValidationState.value = 'valid';
+            emit("auth-denied", { reason: "authentication_failed", message });
+            return;
         }
+
+        // Other errors -> mark invalid and notify
+        authValidationState.value = 'invalid';
+        emit("auth-denied", { reason: "authentication_failed", message });
     }
 }
 
@@ -643,25 +632,14 @@ async function handleAuthChange() {
     }
 
     const hasToken = props.vircadiaWorld.client.getAuthState().hasToken;
-    const hasAccount = !!account.value;
-
-    if (hasToken && hasAccount) {
-        // We have token and account, validate authentication first
-        if (authValidationState.value === 'pending') {
-            await validateAuthentication();
+    if (hasToken) {
+        authValidationState.value = 'valid';
+        if (connectionInfo.value.isConnected && lastConnectedToken.value === sessionToken.value) {
+            return;
         }
-
-        if (isAuthenticated.value) {
-            if (connectionInfo.value.isConnected && lastConnectedToken.value === sessionToken.value) {
-                return;
-            }
-            connect();
-        } else {
-            // Authentication is invalid, show login page but don't clear tokens
-            ensureDisconnected();
-        }
+        connect();
     } else {
-        // No token or account, disconnect
+        authValidationState.value = 'invalid';
         ensureDisconnected();
     }
 }
@@ -718,15 +696,3 @@ defineExpose({
     validateAuthentication,
 });
 </script>
-
-<style scoped>
-.intro-screen {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    z-index: 2000;
-    background: #202020;
-}
-</style>

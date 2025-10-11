@@ -31,11 +31,12 @@
         :other-avatar-reflect-stats="otherAvatarsRef?.reflectStats" />
     <VircadiaWorldProvider v-slot="{ vircadiaWorld, connectionInfo, connectionStatus, isConnecting }">
 
-        <!-- TODO: Split this into two components, auth UI and the internal component, so we can show the v-if else here instead of inside the component. -->
-        <VircadiaWorldAuthProvider :vircadia-world="vircadiaWorld" :auto-connect="true"
+        <VircadiaWorldAuthProvider :vircadia-world="vircadiaWorld"
+            :auto-connect="clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT"
             @auth-denied="onAuthDenied($event)">
-            <template #default="{ isAuthenticated, isAuthenticating, accountDisplayName, logout, connect, disconnect }">
-                <template v-if="connectionStatus === 'connected'">
+            <template
+                #default="{ isAuthenticated, isAuthenticating, authError, accountDisplayName, logout, connect, disconnect, loginWithAzure, loginAnonymously, loginWithDebugToken, showDebugLogin }">
+                <template v-if="isAuthenticated && connectionStatus === 'connected'">
                     <!-- Left Navigation Drawer extracted to component -->
                     <LeftDrawer v-model:open="leftDrawerOpen" :width="320" :isAuthenticated="isAuthenticated"
                         :displayName="accountDisplayName || undefined" :provider="connectionInfo.authProvider || 'anon'"
@@ -71,7 +72,7 @@
                                 <v-btn v-bind="props" icon class="ml-2"
                                     :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                     <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' : 'mdi-speedometer-slow'
-                                    }}</v-icon>
+                                        }}</v-icon>
                                 </v-btn>
                             </template>
                             <div key="normalPerf">
@@ -140,7 +141,7 @@
                                     <v-btn v-bind="props" icon variant="text" class="ml-2" :disabled="!sceneInitialized"
                                         @click="inspectorRef?.toggleInspector()">
                                         <v-icon>{{ inspectorVisible ? 'mdi-file-tree' : 'mdi-file-tree-outline'
-                                        }}</v-icon>
+                                            }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <span>Babylon Inspector (T)</span>
@@ -348,6 +349,11 @@
 
                     <!-- Audio controls dialog now lives inside BabylonWebRTC -->
                 </template>
+                <template v-else>
+                    <VircadiaWorldAuthLogin :is-authenticating="isAuthenticating" :auth-error="authError"
+                        :show-debug-login="showDebugLogin" @azure="loginWithAzure()" @anonymous="loginAnonymously()"
+                        @debug="loginWithDebugToken()" />
+                </template>
             </template>
         </VircadiaWorldAuthProvider>
     </VircadiaWorldProvider>
@@ -355,10 +361,7 @@
 
 <script setup lang="ts">
 // BabylonJS types
-import type {
-    Scene,
-    TransformNode,
-} from "@babylonjs/core";
+import type { Scene, TransformNode } from "@babylonjs/core";
 
 import { clientBrowserConfiguration } from "@vircadia/world-sdk/browser/vue";
 import { useStorage } from "@vueuse/core";
@@ -399,6 +402,7 @@ import BabylonSnackbar from "@/components/BabylonSnackbar.vue";
 import BabylonWebRTC from "@/components/BabylonWebRTC.vue";
 import LeftDrawer from "@/components/LeftDrawer.vue";
 import RightDrawer from "@/components/RightDrawer.vue";
+import VircadiaWorldAuthLogin from "@/components/VircadiaWorldAuthLogin.vue";
 import VircadiaWorldAuthProvider from "@/components/VircadiaWorldAuthProvider.vue";
 import VircadiaWorldProvider from "@/components/VircadiaWorldProvider.vue";
 import type {
@@ -506,15 +510,18 @@ onMounted(async () => {
 
 // TODO: This global flag should be well defined somewhere as a const or setting.
 // Set global flag when scene is ready for autonomous agent
-if (clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_AUTONOMOUS_AGENT_ENABLED) {
+if (sessionStorage.getItem("is_autonomous_agent") === "true") {
     watch(sceneInitialized, (isReady) => {
         if (isReady) {
-            (window as typeof window & { __VIRCADIA_SCENE_READY__?: boolean }).__VIRCADIA_SCENE_READY__ = true;
-            console.debug("[MainScene] Scene ready flag set for autonomous agent");
+            (
+                window as typeof window & { __VIRCADIA_SCENE_READY__?: boolean }
+            ).__VIRCADIA_SCENE_READY__ = true;
+            console.debug(
+                "[MainScene] Scene ready flag set for autonomous agent",
+            );
         }
     });
 }
-
 
 // No onUnmounted reset needed; canvas manages its own ready state
 

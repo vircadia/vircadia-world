@@ -166,9 +166,26 @@
 
                                 <v-list-item>
                                     <v-list-item-title class="text-caption">
+                                        ICE Gathering:
+                                        <v-chip size="x-small" :color="getIceGatheringStateColor(peer)">
+                                            {{ peer.pc.iceGatheringState }}
+                                        </v-chip>
+                                    </v-list-item-title>
+                                </v-list-item>
+
+                                <v-list-item>
+                                    <v-list-item-title class="text-caption">
                                         Signaling State:
                                         <v-chip size="x-small" :color="getSignalingStateColor(peer)">
                                             {{ peer.pc.signalingState }}
+                                        </v-chip>
+                                    </v-list-item-title>
+                                </v-list-item>
+                                <v-list-item>
+                                    <v-list-item-title class="text-caption">
+                                        Connection State:
+                                        <v-chip size="x-small" :color="getConnectionStateColor(peer)">
+                                            {{ getConnectionStateLabel(peer) }}
                                         </v-chip>
                                     </v-list-item-title>
                                 </v-list-item>
@@ -248,7 +265,7 @@
                                                 :color="getAudioLevelColor(peerId)" height="8" rounded
                                                 style="min-width: 100px" class="mr-2" />
                                             <span class="text-caption">{{ getPeerAudioLevel(peerId).toFixed(1)
-                                                }}%</span>
+                                            }}%</span>
                                         </div>
                                     </v-list-item-title>
                                 </v-list-item>
@@ -1165,6 +1182,16 @@ function getIceStateColor(peer: PeerInfo): string {
         disconnected: "error",
         failed: "error",
     };
+    return colors[state] || "grey";
+}
+
+function getIceGatheringStateColor(peer: PeerInfo): string {
+    const state = peer.pc.iceGatheringState;
+    const colors: Record<string, string> = {
+        new: "info",
+        gathering: "warning",
+        complete: "success",
+    } as Record<RTCIceGatheringState, string>;
     return colors[state] || "grey";
 }
 

@@ -410,8 +410,8 @@ export namespace Server_CLI {
                 clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
             VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER:
                 clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER,
-            VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT_ANONYMOUS:
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT_ANONYMOUS.toString(),
+            VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT:
+                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT.toString(),
             VRCA_CLIENT_WEB_BABYLON_JS_META_TITLE_BASE:
                 clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_META_TITLE_BASE,
             VRCA_CLIENT_WEB_BABYLON_JS_META_DESCRIPTION:
@@ -444,8 +444,6 @@ export namespace Server_CLI {
                 clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST,
             VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT:
                 clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT.toString(),
-            VRCA_CLIENT_WEB_BABYLON_JS_AUTONOMOUS_AGENT_ENABLED:
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_AUTONOMOUS_AGENT_ENABLED.toString(),
 
             // Azure Entra ID Auth (env-first)
             VRCA_SERVER_AUTH_AZURE_CLIENT_ID:

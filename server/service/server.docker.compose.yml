@@ -91,7 +91,7 @@ services:
 
   # API service
   vircadia_world_api_ws_manager:
-    image: oven/bun:1.2.23-alpine
+    image: oven/bun:1.3.0-alpine
     container_name: ${VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_CONTAINER_NAME}
     user: "1000:1000" # Run as non-root user
     restart: always
@@ -133,7 +133,7 @@ services:
 
   # Auth REST service
   vircadia_world_api_rest_auth_manager:
-    image: oven/bun:1.2.23-alpine
+    image: oven/bun:1.3.0-alpine
     container_name: ${VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_CONTAINER_NAME}
     user: "1000:1000"
     restart: always
@@ -190,7 +190,7 @@ services:
 
   # Asset REST service
   vircadia_world_api_rest_asset_manager:
-    image: oven/bun:1.2.23-alpine
+    image: oven/bun:1.3.0-alpine
     container_name: ${VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_CONTAINER_NAME}
     user: "1000:1000"
     restart: always
@@ -243,7 +243,7 @@ services:
 
   # State service
   vircadia_world_state_manager:
-    image: oven/bun:1.2.23-alpine
+    image: oven/bun:1.3.0-alpine
     container_name: ${VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_CONTAINER_NAME}
     user: "1000:1000" # Run as non-root user
     restart: always
@@ -314,7 +314,7 @@ services:
       VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS: ${VRCA_CLIENT_WEB_BABYLON_JS_SUPPRESS}
       VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN: ${VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN}
       VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER: ${VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER}
-      VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT_ANONYMOUS: ${VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT_ANONYMOUS}
+      VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT: ${VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT}
       VRCA_CLIENT_WEB_BABYLON_JS_META_TITLE_BASE: ${VRCA_CLIENT_WEB_BABYLON_JS_META_TITLE_BASE}
       VRCA_CLIENT_WEB_BABYLON_JS_META_DESCRIPTION: ${VRCA_CLIENT_WEB_BABYLON_JS_META_DESCRIPTION}
       VRCA_CLIENT_WEB_BABYLON_JS_META_OG_IMAGE: ${VRCA_CLIENT_WEB_BABYLON_JS_META_OG_IMAGE}
@@ -329,7 +329,6 @@ services:
       VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI_USING_SSL: ${VRCA_CLIENT_WEB_BABYLON_JS_DEFAULT_WORLD_API_REST_ASSET_URI_USING_SSL}
       VRCA_CLIENT_WEB_BABYLON_JS_PROD_HOST: ${VRCA_CLIENT_WEB_BABYLON_JS_PROD_HOST}
       VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT: ${VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT}
-      VRCA_CLIENT_WEB_BABYLON_JS_AUTONOMOUS_AGENT_ENABLED: ${VRCA_CLIENT_WEB_BABYLON_JS_AUTONOMOUS_AGENT_ENABLED}
     depends_on:
       vircadia_world_api_ws_manager:
         condition: service_healthy

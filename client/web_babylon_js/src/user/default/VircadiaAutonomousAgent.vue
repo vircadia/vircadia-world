@@ -1,3 +1,5 @@
+<!-- TODO: Need to put progress callbacks on the loading for each so we can track real progress loading on each model. -->
+
 <template>
     <!-- Renderless component for the autonomous agent -->
     <slot></slot>
@@ -67,7 +69,7 @@
                                 <div class="d-flex flex-column">
                                     <span>• LLM (Granite): {{ llmLoading ? (llmStep || 'Loading') : 'Ready' }}</span>
                                     <span>• TTS (Kokoro): {{ kokoroLoading ? (kokoroStep || 'Loading') : 'Ready'
-                                        }}</span>
+                                    }}</span>
                                     <span>• STT (Whisper): {{ sttLoading ? (sttStep || 'Loading') : 'Ready' }}</span>
                                 </div>
                             </div>
@@ -131,7 +133,7 @@
                                 <div v-if="kokoroLoading" class="ml-6">
                                     <v-progress-linear indeterminate color="primary" height="4" class="mb-1" />
                                     <span class="text-caption text-medium-emphasis">{{ kokoroStep || 'Initializing...'
-                                    }}</span>
+                                        }}</span>
                                 </div>
                                 <div v-else-if="kokoroTTS" class="ml-6">
                                     <span class="text-caption text-success">Model loaded successfully</span>
@@ -155,7 +157,7 @@
                                 <div v-if="llmLoading" class="ml-6">
                                     <v-progress-linear indeterminate color="primary" height="4" class="mb-1" />
                                     <span class="text-caption text-medium-emphasis">{{ llmStep || 'Initializing...'
-                                    }}</span>
+                                        }}</span>
                                 </div>
                                 <div v-else-if="llmPipeline" class="ml-6">
                                     <span class="text-caption text-success">Model loaded successfully</span>
@@ -179,7 +181,7 @@
                                 <div v-if="sttLoading" class="ml-6">
                                     <v-progress-linear indeterminate color="primary" height="4" class="mb-1" />
                                     <span class="text-caption text-medium-emphasis">{{ sttStep || 'Initializing...'
-                                    }}</span>
+                                        }}</span>
                                 </div>
                                 <div v-else-if="sttPipeline" class="ml-6">
                                     <span class="text-caption text-success">Model loaded successfully</span>
@@ -264,9 +266,19 @@ const props = defineProps({
     },
     // Feature flags provided by MainScene
     agentEnableTTS: { type: Boolean, default: true },
-    agentEnableLLM: { type: Boolean, default: false },
+    agentEnableLLM: { type: Boolean, default: true },
     agentEnableSTT: { type: Boolean, default: true },
     agentTtsLocalEcho: { type: Boolean, default: false },
+    // Wake/End word control provided by MainScene (required via template props)
+    agentWakeWord: { type: String, default: "computer" },
+    agentEndWord: { type: String, default: "over" },
+    // Control whether to gate by wake/end or stream small segments to LLM
+    agentUseWakeEndGating: { type: Boolean, default: false },
+    // STT segmentation window (seconds) and max buffer
+    agentSttWindowSec: { type: Number, default: 2.5 },
+    agentSttMaxBufferSec: { type: Number, default: 10.0 },
+    // Preferred conversational language (ISO-639-1), provided via MainScene
+    agentLanguage: { type: String, required: true },
 });
 
 const featureEnabled = sessionStorage.getItem("is_autonomous_agent") === "true";
@@ -318,17 +330,35 @@ function initSttWorkerOnce(): void {
         worker.addEventListener("message", (e: MessageEvent) => {
             const msg = e.data as { type: string; status?: string; peerId?: string; data?: any; error?: string };
             if (msg.type === "status") {
+                if (msg.status === "loading") {
+                    sttLoading.value = true;
+                    try {
+                        const d = msg.data;
+                        if (d && typeof d === "object") {
+                            const p = d?.progress || d?.status || d?.file || d?.message || JSON.stringify(d);
+                            sttStep.value = typeof p === "string" ? p : "Loading Whisper (worker)";
+                        } else {
+                            sttStep.value = "Loading Whisper (worker)";
+                        }
+                    } catch { sttStep.value = "Loading Whisper (worker)"; }
+                }
+                if (msg.status === "ready") {
+                    sttLoading.value = false;
+                    sttStep.value = "";
+                }
                 if (msg.status === "update") {
                     // Optional: surface interim text; keep UI minimal for now
                     // console.debug("[Agent STT] partial", msg.peerId, msg.data?.text);
                 } else if (msg.status === "complete") {
                     const t = (msg.data?.text || "").trim();
-                    if (t) addTranscript(msg.peerId || "peer", t);
+                    if (t) void processAsrText(msg.peerId || "peer", t);
                 }
             } else if (msg.type === "error") {
                 console.warn("[Agent STT] worker error", msg.error);
             }
         });
+        sttLoading.value = true;
+        sttStep.value = "Initializing Whisper (worker)";
         worker.postMessage({ type: "load" });
         sttWorkerRef.value = worker;
     } catch (e) {
@@ -399,7 +429,7 @@ async function attachStreamToSTT(peerId: string, stream: MediaStream): Promise<v
         sink.connect(ctx.destination);
 
         peerProcessors.set(peerId, { ctx, source, node, sink });
-        sttWorkerRef.value.postMessage({ type: "start", peerId, language: undefined, windowSec: 2.0, maxBufferSec: 8.0 });
+        sttWorkerRef.value.postMessage({ type: "start", peerId, language: String(props.agentLanguage || 'en'), windowSec: Number(props.agentSttWindowSec || 2.5), maxBufferSec: Number(props.agentSttMaxBufferSec || 10.0) });
         console.log(`[Agent STT] Streaming (AudioWorklet) attached for ${peerId}`);
     } catch (e) {
         console.error("[Agent STT] Failed to attach stream:", e);
@@ -496,6 +526,7 @@ const initKokoro = async (): Promise<void> => {
         kokoroStep.value = "Downloading TTS model";
         // Use WebGPU for acceleration; fallback handling is internal to kokoro-js
         const { KokoroTTS } = await import("kokoro-js");
+        kokoroStep.value = "Compiling/initializing TTS";
         kokoroTTS.value = await KokoroTTS.from_pretrained(
             "onnx-community/Kokoro-82M-v1.0-ONNX",
             {
@@ -531,7 +562,17 @@ const initLLM = async (): Promise<void> => {
         llmPipeline = await pipeline(
             "text-generation",
             "onnx-community/granite-4.0-micro-ONNX-web",
-            { device: "webgpu" },
+            {
+                device: "webgpu",
+                // Show granular load progress in overlay
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                progress_callback: (x: any) => {
+                    try {
+                        const p = x?.progress || x?.status || x?.file || x?.message || JSON.stringify(x);
+                        llmStep.value = typeof p === "string" ? p : "Downloading Granite model";
+                    } catch { /* ignore */ }
+                },
+            },
         );
         console.log("[VircadiaAutonomousAgent] LLM initialized.");
         llmStep.value = "";
@@ -559,6 +600,15 @@ const initSTT = async (): Promise<void> => {
         sttPipeline = await pipeline(
             "automatic-speech-recognition",
             "Xenova/whisper-base",
+            {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                progress_callback: (x: any) => {
+                    try {
+                        const p = x?.progress || x?.status || x?.file || x?.message || JSON.stringify(x);
+                        sttStep.value = typeof p === "string" ? p : "Downloading Whisper model";
+                    } catch { /* ignore */ }
+                },
+            },
         );
         sttStep.value = "";
         console.log("[VircadiaAutonomousAgent] STT initialized (Whisper base)");
@@ -603,20 +653,21 @@ function ensureRemoteRecording(peerId: string, stream: MediaStream) {
                         objectUrl,
                         16000,
                     );
-                    result = await sttAny(audio);
+                    result = await sttAny(audio, { language: String(props.agentLanguage || 'en') });
                 } finally {
                     if (objectUrl) URL.revokeObjectURL(objectUrl);
                 }
                 const text: string = (result as any)?.text || "";
                 if (text.trim().length > 0) {
                     console.log(`[Agent STT] (${peerId})`, text);
-                    void handleTranscript(peerId, text);
+                    void processAsrText(peerId, text);
                 }
             } catch (e) {
                 console.error("[Agent STT] Whisper transcription failed:", e);
             }
         });
-        recorder.start(3000); // chunk every ~3s
+        const segMs = Math.max(1000, Math.min(5000, Math.round((props.agentSttWindowSec || 2.5) * 1000)));
+        recorder.start(segMs);
         remoteRecorders.set(peerId, recorder);
         console.log(`[Agent STT] Recorder started for ${peerId}`);
     } catch (e) {
@@ -631,11 +682,14 @@ async function handleTranscript(peerId: string, text: string) {
     if (!props.agentEnableLLM) return;
     try {
         const llmAny = llmPipeline as any;
+        if (!llmAny) return; // Not ready yet
         const prompt = `You are an in-world assistant. Keep replies short and conversational. User said: "${text}"\nAssistant:`;
-        const out = await llmAny(prompt, {
-            max_new_tokens: 80,
-            temperature: 0.7,
-        });
+        const out = typeof llmAny === 'function'
+            ? await llmAny(prompt, { max_new_tokens: 80, temperature: 0.7 })
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            : (await (llmAny?.__call__
+                ? llmAny.__call__(prompt, { max_new_tokens: 80, temperature: 0.7 })
+                : llmAny?.generate?.({ inputs: prompt, max_new_tokens: 80, temperature: 0.7 } as any)));
         const reply: string =
             (Array.isArray(out)
                 ? out[0]?.generated_text
@@ -647,6 +701,132 @@ async function handleTranscript(peerId: string, text: string) {
         }
     } catch (e) {
         console.error("[Agent LLM] Generation failed:", e);
+    }
+}
+
+// Wake/End word gated ASR routing
+type STTSession = { awaitingWake: boolean; buffered: string };
+const sttSessions = new Map<string, STTSession>();
+
+function getOrCreateSttSession(peerId: string): STTSession {
+    let s = sttSessions.get(peerId);
+    if (!s) {
+        s = { awaitingWake: true, buffered: "" };
+        sttSessions.set(peerId, s);
+    }
+    return s;
+}
+
+async function processAsrText(peerId: string, rawText: string): Promise<void> {
+    // If streaming mode, forward small segments to LLM aggregator
+    if (!props.agentUseWakeEndGating) {
+        await handleStreamingSegment(peerId, rawText);
+        return;
+    }
+
+    // Gated mode using wake/end words
+    const wake = String(props.agentWakeWord || "").trim().toLowerCase();
+    const end = String(props.agentEndWord || "").trim().toLowerCase();
+    if (!wake || !end) {
+        await handleTranscript(peerId, rawText);
+        return;
+    }
+    const session = getOrCreateSttSession(peerId);
+    let text = rawText;
+    let lower = text.toLowerCase();
+    if (session.awaitingWake) {
+        const wakeIdx = lower.indexOf(wake);
+        if (wakeIdx < 0) return;
+        const start = wakeIdx + wake.length;
+        text = text.slice(start);
+        lower = lower.slice(start);
+        session.awaitingWake = false;
+        session.buffered = "";
+    }
+    const endIdx = lower.indexOf(end);
+    if (endIdx >= 0) {
+        const toAdd = text.slice(0, endIdx).trim();
+        if (toAdd) session.buffered += (session.buffered ? " " : "") + toAdd;
+        const finalUtterance = session.buffered.trim();
+        session.awaitingWake = true;
+        session.buffered = "";
+        if (finalUtterance) await handleTranscript(peerId, finalUtterance);
+        return;
+    }
+    const toAdd = text.trim();
+    if (toAdd) session.buffered += (session.buffered ? " " : "") + toAdd;
+}
+
+// Streaming segmentation state and routing to LLM
+type StreamSession = { buffer: string; lastSentAtMs: number; lastSeenTextHash: string };
+const streamSessions = new Map<string, StreamSession>();
+
+function getOrCreateStreamSession(peerId: string): StreamSession {
+    let s = streamSessions.get(peerId);
+    if (!s) {
+        s = { buffer: "", lastSentAtMs: 0, lastSeenTextHash: "" };
+        streamSessions.set(peerId, s);
+    }
+    return s;
+}
+
+async function handleStreamingSegment(peerId: string, segment: string): Promise<void> {
+    const trimmed = (segment || "").trim();
+    if (!trimmed) return;
+    // Record minimal pieces to overlay
+    addTranscript(peerId, trimmed);
+    const s = getOrCreateStreamSession(peerId);
+    s.buffer = (s.buffer ? s.buffer + " " : "") + trimmed;
+    await maybeSendStreamToLLM(peerId);
+}
+
+async function maybeSendStreamToLLM(peerId: string): Promise<void> {
+    if (!props.agentEnableLLM) return;
+    if (!llmPipeline) return; // Wait until ready
+    const s = getOrCreateStreamSession(peerId);
+    const now = Date.now();
+    const minIntervalMs = 1500;
+    if (now - s.lastSentAtMs < minIntervalMs) return;
+
+    const full = s.buffer.trim();
+    if (!full) return;
+
+    // Use a sliding window to keep prompt bounded
+    const maxChars = 600;
+    const windowText = full.length > maxChars ? full.slice(-maxChars) : full;
+
+    // Avoid redundant calls if text unchanged
+    const hash = String(windowText.length) + ":" + windowText.slice(-64);
+    if (hash === s.lastSeenTextHash) return;
+
+    s.lastSeenTextHash = hash;
+    s.lastSentAtMs = now;
+
+    try {
+        const llmAny = llmPipeline as any;
+        if (!llmAny) return;
+        const wake = String(props.agentWakeWord || "").trim();
+        const end = String(props.agentEndWord || "").trim();
+        const policy = props.agentUseWakeEndGating
+            ? `Only respond when you detect speech between the wake word "${wake}" and the end word "${end}". If not present, do not reply.`
+            : `Decide if the latest stream contains a complete user request. If it's partial, ambiguous, or not addressable yet, respond with <no-reply/>.`;
+        const prompt = `You are an in-world assistant receiving a rolling transcript stream (latest first may be truncated). ${policy}\nTranscript:\n"""\n${windowText}\n"""\nAssistant:`;
+        const out = typeof llmAny === 'function'
+            ? await llmAny(prompt, { max_new_tokens: 80, temperature: 0.7 })
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            : (await (llmAny?.__call__
+                ? llmAny.__call__(prompt, { max_new_tokens: 80, temperature: 0.7 })
+                : llmAny?.generate?.({ inputs: prompt, max_new_tokens: 80, temperature: 0.7 } as any)));
+        const reply: string =
+            (Array.isArray(out)
+                ? out[0]?.generated_text
+                : out?.generated_text) || "";
+        const cleaned = String(reply || "").trim();
+        if (!cleaned || cleaned.includes("<no-reply/>")) return;
+        ttsQueue.push(cleaned);
+        void flushTTSQueue();
+    } catch (e) {
+        console.error("[Agent LLM] Streaming generation failed:", e);
     }
 }
 

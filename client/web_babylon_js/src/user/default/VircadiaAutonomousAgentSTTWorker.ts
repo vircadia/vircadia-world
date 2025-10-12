@@ -220,7 +220,7 @@ async function handleMessage(e: MessageEvent<WorkerMessage>) {
             sessions.set(peerId, {
                 buffer: [],
                 processing: false,
-                language,
+                language: language || "en",
                 windowSec,
                 maxBufferSec,
             });

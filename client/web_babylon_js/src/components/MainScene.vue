@@ -49,7 +49,10 @@
                         <component v-if="comp === 'VircadiaAutonomousAgent'" :is="comp" :scene="scene" :engine="engine"
                             :canvas="renderCanvas" :vircadia-world="vircadiaWorld" :webrtc-bus="webrtcBus"
                             :webrtc-local-stream="webrtcLocalStream" :webrtc-peers="webrtcPeersMap"
-                            :webrtc-remote-streams="webrtcRemoteStreamsMap" :agent-tts-local-echo="false" />
+                            :webrtc-remote-streams="webrtcRemoteStreamsMap" :agent-tts-local-echo="false"
+                            :agent-wake-word="agentWakeWord" :agent-end-word="agentEndWord"
+                            :agent-use-wake-end-gating="agentUseWakeEndGating" :agent-stt-window-sec="agentSttWindowSec"
+                            :agent-stt-max-buffer-sec="agentSttMaxBufferSec" :agent-language="agentLanguage" />
                         <component v-else :is="comp" :scene="scene" :engine="engine" :canvas="renderCanvas"
                             :vircadia-world="vircadiaWorld" :webrtc-bus="webrtcBus" />
                     </template>
@@ -520,6 +523,16 @@ function onWebRTCBus(value: unknown) {
 const webrtcLocalStream = ref<MediaStream | null>(null);
 const webrtcPeersMap = ref(new Map<string, RTCPeerConnection>());
 const webrtcRemoteStreamsMap = ref(new Map<string, MediaStream>());
+
+// Agent wake/end words are provided via template props pattern
+// Prefer passing from here rather than setting defaults inside the agent
+const agentWakeWord = ref<string>("computer");
+const agentEndWord = ref<string>("over");
+const agentUseWakeEndGating = ref<boolean>(false);
+const agentSttWindowSec = ref<number>(2.5);
+const agentSttMaxBufferSec = ref<number>(10.0);
+// Default conversational language for ASR/LLM
+const agentLanguage = ref<string>("en");
 
 onMounted(async () => {
     console.debug("[MainScene] Initialized");

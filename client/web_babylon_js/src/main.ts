@@ -11,6 +11,19 @@ import { createPinia } from "pinia";
 
 if (typeof window !== "undefined") {
     (window as any).Buffer = Buffer;
+
+    // Parse URL parameters for autonomous agent detection
+    const urlParams = new URLSearchParams(window.location.search);
+    const isAutonomousAgent = urlParams.get("is_autonomous_agent") === "true";
+
+    // Set session storage flag for autonomous agent (doesn't persist across page reloads)
+    if (isAutonomousAgent) {
+        sessionStorage.setItem("is_autonomous_agent", "true");
+    } else {
+        sessionStorage.setItem("is_autonomous_agent", "false");
+    }
+
+    console.info("is_autonomous_agent", isAutonomousAgent);
 }
 
 import { clientBrowserConfiguration } from "@vircadia/world-sdk/browser/vue";
@@ -84,6 +97,13 @@ const configuredUserComponentsDir =
     clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_USER_COMPONENTS_DIR?.trim() ||
     "";
 
+// Normalize the configured directory: unify separators and strip leading/trailing segments
+const configuredUserComponentsDirNormalized = configuredUserComponentsDir
+    .replace(/\\/g, "/") // backslashes -> slashes
+    .replace(/^\.\//, "") // drop leading ./
+    .replace(/^user\//, "") // ensure it's relative to ./src/user
+    .replace(/^\/+|\/+$/g, ""); // trim leading/trailing slashes
+
 // Lazily glob all .vue files under ./user; we'll selectively import only those in the configured directory
 const allUserComponents = import.meta.glob("./user/**/*.vue");
 
@@ -91,9 +111,10 @@ async function registerConfiguredUserComponents() {
     for (const [path, loader] of Object.entries(allUserComponents)) {
         const normalizedPath = path.replace(/^\.\/user\//, "");
         const isInConfiguredDir =
-            configuredUserComponentsDir === "" ||
-            normalizedPath.startsWith(`${configuredUserComponentsDir}/`) ||
-            normalizedPath.startsWith(`${configuredUserComponentsDir}\\`);
+            configuredUserComponentsDirNormalized === "" ||
+            normalizedPath.startsWith(
+                `${configuredUserComponentsDirNormalized}/`,
+            );
 
         if (!isInConfiguredDir) {
             continue;

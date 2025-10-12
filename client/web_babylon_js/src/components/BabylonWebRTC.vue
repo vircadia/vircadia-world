@@ -265,7 +265,7 @@
                                                 :color="getAudioLevelColor(peerId)" height="8" rounded
                                                 style="min-width: 100px" class="mr-2" />
                                             <span class="text-caption">{{ getPeerAudioLevel(peerId).toFixed(1)
-                                            }}%</span>
+                                                }}%</span>
                                         </div>
                                     </v-list-item-title>
                                 </v-list-item>
@@ -417,6 +417,7 @@ interface Props {
 
 const emit = defineEmits<{
     "update:modelValue": [value: boolean];
+    bus: [value: unknown];
 }>();
 
 const props = defineProps<Props>();
@@ -538,6 +539,165 @@ const currentTime = ref(Date.now());
 // Per-peer audio analysis
 const peerAudioAnalysis = ref(new Map<string, AudioAnalysisData>());
 const peerAudioLevels = ref(new Map<string, number>());
+
+// SECTION: WebRTC Audio Bus
+// Shared WebRTC Audio Bus (uplink injection + downlink taps)
+type WebRTCAudioBus = {
+    getLocalStream: () => MediaStream | null;
+    getPeers: () => Map<string, RTCPeerConnection>;
+    getRemoteStreams: () => Map<string, MediaStream>;
+    onRemoteAudio: (cb: (peerId: string, stream: MediaStream) => void) => () => void;
+    getUplinkAudioContext: () => AudioContext | null;
+    getUplinkDestination: () => MediaStreamAudioDestinationNode | null;
+    ensureUplinkDestination: () => Promise<MediaStreamTrack | null>;
+    replaceUplinkWithDestination: () => Promise<boolean>;
+    restoreUplinkMic: () => Promise<boolean>;
+    connectMicToUplink: (enabled: boolean) => void;
+    connectNodeToUplink: (node: AudioNode) => void;
+};
+
+const remoteAudioCallbacks = new Set<(peerId: string, stream: MediaStream) => void>();
+
+let uplinkContext: AudioContext | null = null;
+let uplinkDestination: MediaStreamAudioDestinationNode | null = null;
+let uplinkGain: GainNode | null = null;
+let uplinkMicSource: MediaStreamAudioSourceNode | null = null;
+let uplinkUsingDestination = false;
+
+function notifyRemoteAudio(peerId: string, stream: MediaStream) {
+    for (const cb of remoteAudioCallbacks) {
+        try {
+            cb(peerId, stream);
+        } catch (e) {
+            console.error("[WebRTC Bus] Remote audio callback error:", e);
+        }
+    }
+}
+
+function getAudioSenderList(): RTCRtpSender[] {
+    const senders: RTCRtpSender[] = [];
+    for (const [, info] of peers.value) {
+        for (const sender of info.pc.getSenders()) {
+            if (sender.track && sender.track.kind === "audio") senders.push(sender);
+        }
+    }
+    return senders;
+}
+
+async function ensureUplinkContext(): Promise<void> {
+    if (uplinkContext && uplinkDestination && uplinkGain) return;
+    uplinkContext = new AudioContext();
+    uplinkDestination = uplinkContext.createMediaStreamDestination();
+    uplinkGain = uplinkContext.createGain();
+    uplinkGain.gain.value = 1.0;
+    uplinkGain.connect(uplinkDestination);
+
+    // Attach mic by default if available
+    if (localStream.value) {
+        try {
+            uplinkMicSource = uplinkContext.createMediaStreamSource(localStream.value);
+            uplinkMicSource.connect(uplinkGain);
+        } catch (e) {
+            console.warn("[WebRTC Bus] Failed to connect mic to uplink:", e);
+        }
+    }
+}
+
+async function replaceUplinkWithDestination(): Promise<boolean> {
+    try {
+        await ensureUplinkContext();
+        if (!uplinkDestination) return false;
+        const track = uplinkDestination.stream.getAudioTracks()[0] || null;
+        if (!track) return false;
+        const senders = getAudioSenderList();
+        for (const sender of senders) {
+            await sender.replaceTrack(track);
+        }
+        uplinkUsingDestination = true;
+        console.log("[WebRTC Bus] Uplink replaced with injected destination track");
+        return true;
+    } catch (e) {
+        console.error("[WebRTC Bus] Failed replacing uplink:", e);
+        return false;
+    }
+}
+
+async function restoreUplinkMic(): Promise<boolean> {
+    try {
+        if (!localStream.value) return false;
+        const micTrack = localStream.value.getAudioTracks()[0] || null;
+        if (!micTrack) return false;
+        const senders = getAudioSenderList();
+        for (const sender of senders) {
+            await sender.replaceTrack(micTrack);
+        }
+        uplinkUsingDestination = false;
+        console.log("[WebRTC Bus] Restored original mic track to uplink");
+        return true;
+    } catch (e) {
+        console.error("[WebRTC Bus] Failed restoring mic uplink:", e);
+        return false;
+    }
+}
+
+function connectMicToUplink(enabled: boolean) {
+    if (!uplinkContext || !uplinkGain) return;
+    try {
+        if (enabled) {
+            if (!uplinkMicSource && localStream.value) {
+                uplinkMicSource = uplinkContext.createMediaStreamSource(localStream.value);
+                uplinkMicSource.connect(uplinkGain);
+            }
+        } else {
+            if (uplinkMicSource) {
+                uplinkMicSource.disconnect();
+                uplinkMicSource = null;
+            }
+        }
+    } catch (e) {
+        console.error("[WebRTC Bus] connectMicToUplink error:", e);
+    }
+}
+
+function connectNodeToUplink(node: AudioNode) {
+    if (!uplinkGain) return;
+    try {
+        node.connect(uplinkGain);
+    } catch (e) {
+        console.error("[WebRTC Bus] Failed to connect node to uplink:", e);
+    }
+}
+
+const webRTCAudioBus: WebRTCAudioBus = {
+    getLocalStream: () => localStream.value,
+    getPeers: () => {
+        const map = new Map<string, RTCPeerConnection>();
+        for (const [id, info] of peers.value) map.set(id, info.pc);
+        return map;
+    },
+    getRemoteStreams: () => {
+        const map = new Map<string, MediaStream>();
+        for (const [id, info] of peers.value) {
+            if (info.remoteStream) map.set(id, info.remoteStream);
+        }
+        return map;
+    },
+    onRemoteAudio: (cb: (peerId: string, stream: MediaStream) => void) => {
+        remoteAudioCallbacks.add(cb);
+        return () => remoteAudioCallbacks.delete(cb);
+    },
+    getUplinkAudioContext: () => uplinkContext,
+    getUplinkDestination: () => uplinkDestination,
+    ensureUplinkDestination: async () => {
+        await ensureUplinkContext();
+        return uplinkDestination?.stream.getAudioTracks()[0] || null;
+    },
+    replaceUplinkWithDestination: async () => replaceUplinkWithDestination(),
+    restoreUplinkMic: async () => restoreUplinkMic(),
+    connectMicToUplink: (enabled: boolean) => connectMicToUplink(enabled),
+    connectNodeToUplink: (node: AudioNode) => connectNodeToUplink(node),
+};
+// END SECTION: WebRTC Audio Bus
 
 // Intervals and subscriptions
 let announceInterval: ReturnType<typeof setInterval> | null = null;
@@ -1713,6 +1873,9 @@ function setupPerfectNegotiation(peerId: string, peerInfo: PeerInfo) {
 
                 // Setup audio analysis using shared AudioContext
                 setupAudioAnalysisForPeer(peerId);
+
+                // Notify bus subscribers for downlink tapping
+                notifyRemoteAudio(peerId, remoteStream);
             } catch (err) {
                 console.error(
                     `[WebRTC] Failed to create spatial audio for peer ${peerId}:`,
@@ -2037,6 +2200,9 @@ onMounted(async () => {
         syncGroup: SYNC_GROUP,
         session: props.fullSessionId,
     });
+
+    // Emit bus for external consumers (e.g., agents)
+    emit('bus', webRTCAudioBus as unknown);
 });
 
 onUnmounted(async () => {

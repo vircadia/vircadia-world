@@ -5,13 +5,13 @@ import { type Browser, launch, type Page } from "puppeteer";
 
 const DEV_PORT = clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT;
 const DEV_HOST = "localhost";
-const BASE_URL = `http://${DEV_HOST}:${DEV_PORT}`;
+const BASE_URL = `http://${DEV_HOST}:${DEV_PORT}?is_autonomous_agent=true`;
 
 let browser: Browser | undefined;
 let page: Page | undefined;
 
 async function startApplication(): Promise<void> {
-    console.log(`🚀 Launching browser and connecting to ${BASE_URL}`);
+    console.log(`🚀 Launching browser and connecting to ${BASE_URL} as anonymous autonomous agent`);
 
     browser = await launch({
         headless: false,
@@ -32,15 +32,27 @@ async function startApplication(): Promise<void> {
 
     await page.goto(BASE_URL, { waitUntil: "networkidle0" });
 
-    // Wait for app and Babylon.js to load
-    await new Promise((resolve) => setTimeout(resolve, 20000));
+    // Wait for canvas element to exist
+    await page.waitForSelector("canvas", { timeout: 10000 });
+    console.log("✅ Canvas found");
 
-    const canvasExists = await page.$("canvas");
-    if (canvasExists) {
-        console.log("✅ Canvas found");
-    } else {
-        console.log("⚠️  No canvas found - 3D scene may not be initialized");
-    }
+    // Wait for Babylon.js scene to be ready by checking a global flag
+    console.log("⏳ Waiting for Babylon.js scene to be ready...");
+    await page.waitForFunction(
+        () => {
+            // Check if a global flag has been set indicating the scene is ready
+            return (
+                (
+                    window as typeof window & {
+                        __VIRCADIA_SCENE_READY__?: boolean;
+                    }
+                ).__VIRCADIA_SCENE_READY__ === true
+            );
+        },
+        { timeout: 30000, polling: 1000 },
+    );
+
+    console.log("✅ Babylon.js scene is ready!");
 
     console.log("🎉 Application is ready! Press Ctrl+C to exit.");
 }

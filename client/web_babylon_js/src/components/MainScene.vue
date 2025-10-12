@@ -45,12 +45,15 @@
 
                     <!-- Component Loader -->
                     <template v-for="comp in availableComponents" :key="comp">
-                        <component :is="comp" :scene="scene" :engine="engine" :canvas="renderCanvas"
-                            :vircadia-world="vircadiaWorld" />
+                        <!-- Pass agent feature flags only to the autonomous agent component -->
+                        <component v-if="comp === 'VircadiaAutonomousAgent'" :is="comp" :scene="scene" :engine="engine"
+                            :canvas="renderCanvas" :vircadia-world="vircadiaWorld" :webrtc-bus="webrtcBus" />
+                        <component v-else :is="comp" :scene="scene" :engine="engine" :canvas="renderCanvas"
+                            :vircadia-world="vircadiaWorld" :webrtc-bus="webrtcBus" />
                     </template>
 
                     <!-- App Bar with Actions -->
-                    <v-app-bar density="compact" color="primary" flat>
+                    <v-app-bar ref="mainAppBar" density="compact" color="primary" flat>
                         <v-app-bar-nav-icon @click="leftDrawerOpen = !leftDrawerOpen" />
                         <v-spacer />
 
@@ -72,7 +75,7 @@
                                 <v-btn v-bind="props" icon class="ml-2"
                                     :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                     <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' : 'mdi-speedometer-slow'
-                                        }}</v-icon>
+                                    }}</v-icon>
                                 </v-btn>
                             </template>
                             <div key="normalPerf">
@@ -141,12 +144,15 @@
                                     <v-btn v-bind="props" icon variant="text" class="ml-2" :disabled="!sceneInitialized"
                                         @click="inspectorRef?.toggleInspector()">
                                         <v-icon>{{ inspectorVisible ? 'mdi-file-tree' : 'mdi-file-tree-outline'
-                                            }}</v-icon>
+                                        }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <span>Babylon Inspector (T)</span>
                             </v-tooltip>
                         </template>
+
+                        <!-- Teleport target for agent controls -->
+                        <div ref="teleportTarget" class="teleport-container"></div>
 
                         <!-- Toggle Right Debug Drawer -->
                         <v-tooltip location="bottom">
@@ -302,12 +308,13 @@
                                                 :avatar-data="new Map(Object.entries((avatarDataMap as Record<string, AvatarBaseData>) || {}))"
                                                 :avatar-positions="new Map(Object.entries((positionDataMap as Record<string, AvatarPositionData>) || {}))"
                                                 :my-position="null" :my-camera-orientation="null"
-                                                :webrtc-sync-group="'public.NORMAL'"
+                                                :webrtc-sync-group="'public.NORMAL'" @bus="onWebRTCBus"
                                                 @permissions="onWebRTCPermissions($event)" />
+
                                         </BabylonOtherAvatars>
 
                                         <!-- BabylonModel components provided by DB-scanned list -->
-                                        <BabylonModels :vircadia-world="vircadiaWorld" v-slot="{ models }">
+                                        <!-- <BabylonModels :vircadia-world="vircadiaWorld" v-slot="{ models }">
                                             <BabylonModel v-for="def in models" :key="def.fileName" :def="def"
                                                 :scene="sceneNonNull" :vircadia-world="vircadiaWorld" ref="modelRefs"
                                                 v-slot="{ meshes, def: slotDef }">
@@ -322,7 +329,7 @@
                                                     r?.meshes))}}
                                                 {{ refreshPhysicsSummaries(models) }}
                                             </div>
-                                        </BabylonModels>
+                                        </BabylonModels> -->
 
 
                                         <!-- BabylonDoor component for interactive door -->
@@ -370,6 +377,7 @@ import {
     defineComponent,
     getCurrentInstance,
     onMounted,
+    provide,
     ref,
     watch,
 } from "vue";
@@ -463,6 +471,12 @@ const inspectorRef = ref<InstanceType<typeof BabylonInspector> | null>(null);
 const inspectorVisible = ref<boolean>(false);
 const isDev = import.meta.env.DEV;
 
+// Teleport target for agent controls
+const teleportTarget = ref<HTMLElement | null>(null);
+
+// Provide the teleport target for child components
+provide('mainAppBarTeleportTarget', teleportTarget);
+
 function onInspectorVisibleChange(v: boolean) {
     inspectorVisible.value = v;
 }
@@ -490,6 +504,12 @@ const sceneInitialized = computed(
 
 const performanceMode = useStorage<"normal" | "low">("vrca.perf.mode", "low");
 const fps = ref<number>(0);
+
+// WebRTC bus shared to all components loaded via MainScene
+const webrtcBus = ref<unknown | null>(null);
+function onWebRTCBus(value: unknown) {
+    webrtcBus.value = value;
+}
 
 onMounted(async () => {
     console.debug("[MainScene] Initialized");

@@ -75,6 +75,39 @@
                     </v-col>
                 </v-row>
 
+                <!-- Live Transcripts -->
+                <v-row v-if="props.agentEnableSTT">
+                    <v-col cols="12">
+                        <v-card variant="outlined" class="pa-3">
+                            <div class="d-flex align-center mb-2">
+                                <v-card-subtitle class="pr-2">Live Transcripts</v-card-subtitle>
+                                <v-spacer />
+                                <v-chip :color="sttActive ? 'success' : 'warning'" size="small">
+                                    {{ sttActive ? 'Listening' : 'Paused' }}
+                                </v-chip>
+                                <v-btn class="ml-2" size="small" variant="text" @click="sttActive = !sttActive">
+                                    <v-icon>{{ sttActive ? 'mdi-pause' : 'mdi-play' }}</v-icon>
+                                </v-btn>
+                                <v-btn class="ml-1" size="small" variant="text" @click="clearTranscripts">
+                                    <v-icon>mdi-delete</v-icon>
+                                </v-btn>
+                            </div>
+                            <div v-if="transcripts.length === 0" class="text-caption text-medium-emphasis ml-1">
+                                Waiting for remote audio...
+                            </div>
+                            <v-list v-else density="compact" class="max-h-[220px] overflow-y-auto">
+                                <v-list-item v-for="t in transcriptsReversed" :key="t.at + ':' + t.peerId">
+                                    <v-list-item-title>
+                                        <code>{{ new Date(t.at).toLocaleTimeString() }}</code>
+                                        <span class="ml-2 text-medium-emphasis">[{{ t.peerId }}]</span>
+                                    </v-list-item-title>
+                                    <v-list-item-subtitle>{{ t.text }}</v-list-item-subtitle>
+                                </v-list-item>
+                            </v-list>
+                        </v-card>
+                    </v-col>
+                </v-row>
+
                 <!-- Model Loading States -->
                 <v-row>
                     <v-col cols="12">
@@ -199,6 +232,7 @@
 
 <script setup lang="ts">
 import type { Scene, WebGPUEngine } from "@babylonjs/core";
+import { read_audio } from "@huggingface/transformers";
 import { computed, inject, onUnmounted, type Ref, ref, watch } from "vue";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 
@@ -212,11 +246,24 @@ const props = defineProps({
     },
     // WebRTC bus, provided via MainScene template
     webrtcBus: { type: Object as () => unknown, default: null },
+    // Reactive WebRTC models from MainScene
+    webrtcLocalStream: {
+        type: Object as () => MediaStream | null,
+        default: null,
+    },
+    webrtcPeers: {
+        type: Object as () => Map<string, RTCPeerConnection>,
+        default: () => new Map(),
+    },
+    webrtcRemoteStreams: {
+        type: Object as () => Map<string, MediaStream>,
+        default: () => new Map(),
+    },
     // Feature flags provided by MainScene
     agentEnableTTS: { type: Boolean, default: true },
     agentEnableLLM: { type: Boolean, default: false },
-    agentEnableSTT: { type: Boolean, default: false },
-    agentTtsLocalEcho: { type: Boolean, default: true },
+    agentEnableSTT: { type: Boolean, default: true },
+    agentTtsLocalEcho: { type: Boolean, default: false },
 });
 
 const featureEnabled = sessionStorage.getItem("is_autonomous_agent") === "true";
@@ -249,6 +296,114 @@ let sttPipeline: unknown = null;
 const sttLoading = ref<boolean>(false);
 const sttStep = ref<string>("");
 
+// Realtime STT via WebGPU worker
+const useWorkerStreaming = true;
+const sttWorkerRef = ref<Worker | null>(null);
+type PeerAudioProcessor = {
+    ctx: AudioContext;
+    source: MediaStreamAudioSourceNode;
+    processor: ScriptProcessorNode;
+};
+const peerProcessors = new Map<string, PeerAudioProcessor>();
+
+function initSttWorkerOnce(): void {
+    if (!useWorkerStreaming) return;
+    if (sttWorkerRef.value) return;
+    try {
+        const worker = new Worker(new URL("@/workers/whisper-stt.worker.ts", import.meta.url), { type: "module" });
+        worker.addEventListener("message", (e: MessageEvent) => {
+            const msg = e.data as { type: string; status?: string; peerId?: string; data?: any; error?: string };
+            if (msg.type === "status") {
+                if (msg.status === "update") {
+                    // Optional: surface interim text; keep UI minimal for now
+                    // console.debug("[Agent STT] partial", msg.peerId, msg.data?.text);
+                } else if (msg.status === "complete") {
+                    const t = (msg.data?.text || "").trim();
+                    if (t) addTranscript(msg.peerId || "peer", t);
+                }
+            } else if (msg.type === "error") {
+                console.warn("[Agent STT] worker error", msg.error);
+            }
+        });
+        worker.postMessage({ type: "load" });
+        sttWorkerRef.value = worker;
+    } catch (e) {
+        console.error("[Agent STT] Failed to init worker:", e);
+        sttWorkerRef.value = null;
+    }
+}
+
+function downsample48kTo16k(input: Float32Array): Float32Array {
+    const ratio = 48000 / 16000;
+    const outLen = Math.floor(input.length / ratio);
+    const out = new Float32Array(outLen);
+    let pos = 0;
+    for (let i = 0; i < outLen; i++) {
+        out[i] = input[Math.floor(pos)];
+        pos += ratio;
+    }
+    return out;
+}
+
+function attachStreamToSTT(peerId: string, stream: MediaStream): void {
+    if (!useWorkerStreaming) return;
+    if (peerProcessors.has(peerId)) return;
+    initSttWorkerOnce();
+    if (!sttWorkerRef.value) return;
+
+    try {
+        const ctx = new AudioContext({ sampleRate: 48000 });
+        const source = ctx.createMediaStreamSource(stream);
+        const processor = ctx.createScriptProcessor(2048, 1, 1);
+
+        let acc: Float32Array[] = [];
+        let accMs = 0;
+
+        processor.onaudioprocess = (ev) => {
+            if (!sttActive.value) return;
+            const ch0 = ev.inputBuffer.getChannelData(0);
+            if (!ch0 || ch0.length === 0) return;
+            const ds = downsample48kTo16k(ch0);
+            acc.push(ds);
+            accMs += (ds.length / 16000) * 1000;
+            if (accMs >= 200) {
+                let total = 0;
+                for (const a of acc) total += a.length;
+                const merged = new Float32Array(total);
+                let o = 0;
+                for (const a of acc) { merged.set(a, o); o += a.length; }
+                sttWorkerRef.value!.postMessage({ type: "audio", peerId, pcm: merged.buffer }, [merged.buffer]);
+                acc = [];
+                accMs = 0;
+            }
+        };
+
+        source.connect(processor);
+        processor.connect(ctx.destination);
+
+        peerProcessors.set(peerId, { ctx, source, processor });
+        sttWorkerRef.value.postMessage({ type: "start", peerId, language: undefined, windowSec: 2.0, maxBufferSec: 8.0 });
+        console.log(`[Agent STT] Streaming attached for ${peerId}`);
+    } catch (e) {
+        console.error("[Agent STT] Failed to attach stream:", e);
+    }
+}
+
+function detachStreamFromSTT(peerId: string): void {
+    const w = sttWorkerRef.value;
+    if (w) {
+        try { w.postMessage({ type: "stop", peerId }); } catch { }
+    }
+    const proc = peerProcessors.get(peerId);
+    if (!proc) return;
+    try {
+        proc.processor.disconnect();
+        proc.source.disconnect();
+        proc.ctx.close().catch(() => { });
+    } catch { }
+    peerProcessors.delete(peerId);
+}
+
 // WebRTC bus runtime
 type WebRTCAudioBus = {
     getLocalStream: () => MediaStream | null;
@@ -267,12 +422,41 @@ type WebRTCAudioBus = {
 };
 const busRef = computed(() => props.webrtcBus as WebRTCAudioBus | null);
 
+// Reactive mirrors passed from MainScene
+const localStreamRef = computed<MediaStream | null>(
+    () => props.webrtcLocalStream as MediaStream | null,
+);
+const peersMapRef = computed<Map<string, RTCPeerConnection>>(
+    () => props.webrtcPeers as Map<string, RTCPeerConnection>,
+);
+const remoteStreamsRef = computed<Map<string, MediaStream>>(
+    () => props.webrtcRemoteStreams as Map<string, MediaStream>,
+);
+
 // STT session state
 const remoteRecorders = new Map<string, MediaRecorder>();
 const remoteUnsubscribeFns: (() => void)[] = [];
 const sttActive = ref<boolean>(true);
 const ttsQueue: string[] = [];
 const isSpeaking = ref<boolean>(false);
+
+// Transcript capture state
+type TranscriptEntry = { peerId: string; text: string; at: number };
+const transcripts = ref<TranscriptEntry[]>([]);
+const transcriptsReversed = computed<TranscriptEntry[]>(() =>
+    [...transcripts.value].reverse(),
+);
+function addTranscript(peerId: string, text: string) {
+    const trimmed = (text || "").trim();
+    if (!trimmed) return;
+    transcripts.value.push({ peerId, text: trimmed, at: Date.now() });
+    // Keep the list bounded
+    if (transcripts.value.length > 50)
+        transcripts.value.splice(0, transcripts.value.length - 50);
+}
+function clearTranscripts() {
+    transcripts.value = [];
+}
 
 // Deprecated snackbar flags removed; progress now shown inside overlay
 
@@ -382,15 +566,29 @@ function ensureRemoteRecording(peerId: string, stream: MediaStream) {
         const recorder = new MediaRecorder(recStream, { mimeType: mime });
         recorder.addEventListener("dataavailable", async (ev) => {
             if (!sttActive.value) return;
+            if (!sttPipeline) return;
             const blob = ev.data;
             if (!blob || blob.size === 0) return;
             try {
                 const sttAny = sttPipeline as any;
-                const result = await sttAny(blob);
-                const text: string = (result?.text as string) || "";
+                // Convert Blob -> Float32Array PCM for Whisper
+                let objectUrl: string | null = null;
+                let result: unknown;
+                try {
+                    objectUrl = URL.createObjectURL(blob);
+                    // Read and resample to 16 kHz mono as required by Whisper
+                    const audio: Float32Array = await read_audio(
+                        objectUrl,
+                        16000,
+                    );
+                    result = await sttAny(audio);
+                } finally {
+                    if (objectUrl) URL.revokeObjectURL(objectUrl);
+                }
+                const text: string = (result as any)?.text || "";
                 if (text.trim().length > 0) {
                     console.log(`[Agent STT] (${peerId})`, text);
-                    void handleTranscript(text);
+                    void handleTranscript(peerId, text);
                 }
             } catch (e) {
                 console.error("[Agent STT] Whisper transcription failed:", e);
@@ -404,9 +602,12 @@ function ensureRemoteRecording(peerId: string, stream: MediaStream) {
     }
 }
 
-async function handleTranscript(text: string) {
+async function handleTranscript(peerId: string, text: string) {
+    // Always record to overlay
+    addTranscript(peerId, text);
+    // Optionally generate a reply if LLM is enabled
+    if (!props.agentEnableLLM) return;
     try {
-        if (!props.agentEnableLLM) return;
         const llmAny = llmPipeline as any;
         const prompt = `You are an in-world assistant. Keep replies short and conversational. User said: "${text}"\nAssistant:`;
         const out = await llmAny(prompt, {
@@ -490,7 +691,7 @@ async function speakWithKokoro(text: string): Promise<void> {
             }
             const container = anyIn.audio ? anyIn : anyIn.audio ? anyIn : null;
             const payload = container ? container.audio : anyIn.audio;
-            const dataRaw = payload && payload.data ? payload.data : payload;
+            const dataRaw = payload?.data ? payload.data : payload;
             const sr =
                 anyIn.sample_rate ||
                 anyIn.sampleRate ||
@@ -599,57 +800,52 @@ if (featureEnabled) {
         () => props.vircadiaWorld?.connectionInfo.value.status,
         async (status) => {
             if (status === "connected") {
-                if (props.vircadiaWorld) {
-                    const inits: Promise<void>[] = [];
-                    if (props.agentEnableTTS) inits.push(initKokoro());
-                    if (props.agentEnableLLM) inits.push(initLLM());
-                    if (props.agentEnableSTT) inits.push(initSTT());
-                    await Promise.all(inits);
-                    // Subscribe to remote audio streams as they arrive
-                    const bus = busRef.value;
-                    if (bus && props.agentEnableSTT) {
-                        const unsub = bus.onRemoteAudio((peerId, stream) => {
-                            ensureRemoteRecording(peerId, stream);
-                        });
-                        remoteUnsubscribeFns.push(unsub);
-                        // Existing streams at time of subscription
-                        for (const [pid, stream] of bus.getRemoteStreams()) {
-                            ensureRemoteRecording(pid, stream);
-                        }
-                    }
-
-                    // Local echo test phrase (no WebRTC) to validate TTS works
-                    if (props.agentEnableTTS && props.agentTtsLocalEcho) {
-                        try {
-                            await speakWithKokoro(
-                                "Local echo test. You should hear me without WebRTC.",
-                            );
-                        } catch (e) {
-                            console.warn(
-                                "[Agent TTS] Local echo test failed:",
-                                e,
-                            );
-                        }
+                const inits: Promise<void>[] = [];
+                if (props.agentEnableTTS) inits.push(initKokoro());
+                if (props.agentEnableLLM) inits.push(initLLM());
+                if (props.agentEnableSTT) inits.push(initSTT());
+                await Promise.all(inits);
+                // After models are ready, reactively attach STT to existing remote streams
+                if (props.agentEnableSTT) {
+                    if (useWorkerStreaming) initSttWorkerOnce();
+                    for (const [pid, stream] of remoteStreamsRef.value) {
+                        if (useWorkerStreaming) attachStreamToSTT(pid, stream);
+                        else ensureRemoteRecording(pid, stream);
                     }
                 }
             } else {
                 stopKokoro();
-                // Stop recorders
                 for (const [, rec] of remoteRecorders) {
                     try {
                         if (rec.state !== "inactive") rec.stop();
                     } catch { }
                 }
                 remoteRecorders.clear();
-                for (const unsub of remoteUnsubscribeFns) {
-                    try {
-                        unsub();
-                    } catch { }
-                }
-                remoteUnsubscribeFns.length = 0;
+                for (const [pid] of peerProcessors) detachStreamFromSTT(pid);
             }
         },
         { immediate: true },
+    );
+    // Also react if the WebRTC bus becomes available after connection
+    // React whenever remoteStreams map changes: attach recorders to new streams
+    watch(
+        () => remoteStreamsRef.value,
+        (streams, oldStreams) => {
+            if (!props.agentEnableSTT) return;
+            void initSTT();
+            if (useWorkerStreaming) initSttWorkerOnce();
+            for (const [pid, stream] of streams) {
+                if (useWorkerStreaming) attachStreamToSTT(pid, stream);
+                else ensureRemoteRecording(pid, stream);
+            }
+            // Detach for peers removed from map
+            if (useWorkerStreaming && oldStreams instanceof Map) {
+                for (const [oldPid] of oldStreams) {
+                    if (!streams.has(oldPid)) detachStreamFromSTT(oldPid);
+                }
+            }
+        },
+        { deep: true },
     );
 } else {
     console.debug(
@@ -665,6 +861,9 @@ onUnmounted(() => {
         } catch { }
     }
     remoteRecorders.clear();
+    for (const [pid] of peerProcessors) {
+        detachStreamFromSTT(pid);
+    }
     for (const unsub of remoteUnsubscribeFns) {
         try {
             unsub();

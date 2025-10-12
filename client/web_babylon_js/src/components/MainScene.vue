@@ -47,7 +47,9 @@
                     <template v-for="comp in availableComponents" :key="comp">
                         <!-- Pass agent feature flags only to the autonomous agent component -->
                         <component v-if="comp === 'VircadiaAutonomousAgent'" :is="comp" :scene="scene" :engine="engine"
-                            :canvas="renderCanvas" :vircadia-world="vircadiaWorld" :webrtc-bus="webrtcBus" />
+                            :canvas="renderCanvas" :vircadia-world="vircadiaWorld" :webrtc-bus="webrtcBus"
+                            :webrtc-local-stream="webrtcLocalStream" :webrtc-peers="webrtcPeersMap"
+                            :webrtc-remote-streams="webrtcRemoteStreamsMap" :agent-tts-local-echo="false" />
                         <component v-else :is="comp" :scene="scene" :engine="engine" :canvas="renderCanvas"
                             :vircadia-world="vircadiaWorld" :webrtc-bus="webrtcBus" />
                     </template>
@@ -309,7 +311,10 @@
                                                 :avatar-positions="new Map(Object.entries((positionDataMap as Record<string, AvatarPositionData>) || {}))"
                                                 :my-position="null" :my-camera-orientation="null"
                                                 :webrtc-sync-group="'public.NORMAL'" @bus="onWebRTCBus"
-                                                @permissions="onWebRTCPermissions($event)" />
+                                                @permissions="onWebRTCPermissions($event)"
+                                                v-model:local-audio-stream="webrtcLocalStream"
+                                                v-model:peers-map="webrtcPeersMap"
+                                                v-model:remote-streams-map="webrtcRemoteStreamsMap" />
 
                                         </BabylonOtherAvatars>
 
@@ -510,6 +515,11 @@ const webrtcBus = ref<unknown | null>(null);
 function onWebRTCBus(value: unknown) {
     webrtcBus.value = value;
 }
+
+// Reactive mirrors of WebRTC internals
+const webrtcLocalStream = ref<MediaStream | null>(null);
+const webrtcPeersMap = ref(new Map<string, RTCPeerConnection>());
+const webrtcRemoteStreamsMap = ref(new Map<string, MediaStream>());
 
 onMounted(async () => {
     console.debug("[MainScene] Initialized");

@@ -399,6 +399,8 @@ import {
 import { z } from "zod";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 
+// TODO: Make it so that we don't start negotiation unless we have all the tracks, or use fake ones to start (ideal), I think it gets stuck if no audio access initially.
+
 // Props
 interface Props {
     client: VircadiaWorldInstance;
@@ -413,11 +415,19 @@ interface Props {
     } | null;
     webrtcSyncGroup?: string;
     modelValue?: boolean;
+    // Reactive exposes to parent via v-model bindings
+    localAudioStream?: MediaStream | null;
+    peersMap?: Map<string, RTCPeerConnection>;
+    remoteStreamsMap?: Map<string, MediaStream>;
 }
 
 const emit = defineEmits<{
     "update:modelValue": [value: boolean];
     bus: [value: unknown];
+    // Reactive exposes
+    "update:localAudioStream": [value: MediaStream | null];
+    "update:peersMap": [value: Map<string, RTCPeerConnection>];
+    "update:remoteStreamsMap": [value: Map<string, MediaStream>];
 }>();
 
 const props = defineProps<Props>();
@@ -1754,6 +1764,8 @@ async function initLocalMedia() {
 
         localStream.value = stream;
         console.log("[WebRTC] Local media initialized");
+        // Update parent with new local stream
+        emit('update:localAudioStream', localStream.value);
 
         for (const [peerId, peerInfo] of peers.value) {
             for (const track of stream.getTracks()) {
@@ -1776,6 +1788,8 @@ function stopLocalMedia() {
         localStream.value = null;
         console.log("[WebRTC] Local media stopped");
     }
+    // Inform parent
+    emit('update:localAudioStream', localStream.value);
 }
 
 function setupPerfectNegotiation(peerId: string, peerInfo: PeerInfo) {
@@ -1876,6 +1890,10 @@ function setupPerfectNegotiation(peerId: string, peerInfo: PeerInfo) {
 
                 // Notify bus subscribers for downlink tapping
                 notifyRemoteAudio(peerId, remoteStream);
+                // Emit updated remote streams map to parent
+                emit('update:remoteStreamsMap', new Map(Array.from(peers.value.entries())
+                    .filter(([, info]) => !!info.remoteStream)
+                    .map(([id, info]) => [id, info.remoteStream as MediaStream])));
             } catch (err) {
                 console.error(
                     `[WebRTC] Failed to create spatial audio for peer ${peerId}:`,
@@ -2098,6 +2116,8 @@ async function createPeerConnection(
     };
 
     peers.value.set(peerId, peerInfo);
+    // Emit updated peers map to parent
+    emit('update:peersMap', new Map(Array.from(peers.value.entries()).map(([id, info]) => [id, info.pc])));
 
     if (localStream.value) {
         for (const track of localStream.value.getTracks()) {
@@ -2122,6 +2142,11 @@ async function disconnectPeer(peerId: string) {
     stopAudioAnalysisForPeer(peerId);
     peers.value.delete(peerId);
     peerVolumes.value.delete(peerId);
+    // Emit updates for peers and remote streams
+    emit('update:peersMap', new Map(Array.from(peers.value.entries()).map(([id, info]) => [id, info.pc])));
+    emit('update:remoteStreamsMap', new Map(Array.from(peers.value.entries())
+        .filter(([, info]) => !!info.remoteStream)
+        .map(([id, info]) => [id, info.remoteStream as MediaStream])));
 }
 
 function setPeerVolume(peerId: string, volume: number) {

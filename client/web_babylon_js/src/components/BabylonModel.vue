@@ -1,17 +1,17 @@
 <template>
-  <!-- Renderless: expose model context via scoped slot -->
-  <slot :meshes="meshes" :def="props.def" />
+    <!-- Renderless: expose model context via scoped slot -->
+    <slot :meshes="meshes" :def="props.def" />
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onUnmounted, computed, shallowRef, markRaw } from "vue";
-import type { Scene, AbstractMesh } from "@babylonjs/core";
+import type { AbstractMesh, Scene } from "@babylonjs/core";
 import {
+    type BaseTexture,
     ImportMeshAsync,
     PBRMaterial,
     Texture,
-    type BaseTexture,
 } from "@babylonjs/core";
+import { computed, markRaw, onUnmounted, ref, shallowRef, watch } from "vue";
 import "@babylonjs/loaders/glTF";
 import type { BabylonModelDefinition, ModelMetadata } from "@schemas";
 import { ModelMetadataSchema } from "@schemas";
@@ -69,12 +69,10 @@ async function retrieveEntityMetadata(
 
     try {
         // Fetch all metadata for this entity
-        const metadataResult = await vircadia.client.connection.query(
-            {
-                query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1",
-                parameters: [entityName],
-            },
-        );
+        const metadataResult = await vircadia.client.connection.query({
+            query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1",
+            parameters: [entityName],
+        });
 
         if (Array.isArray(metadataResult.result)) {
             // Reconstruct metadata map from rows
@@ -179,12 +177,12 @@ namespace glTF {
 
     export class Metadata implements MetadataInterface {
         [key: string]:
-            | LOD.Mode
-            | Light.LightmapMode
-            | boolean
-            | number
-            | string
-            | null;
+        | LOD.Mode
+        | Light.LightmapMode
+        | boolean
+        | number
+        | string
+        | null;
         public vircadia_lod_mode = null;
         public vircadia_lod_auto = null;
         public vircadia_lod_distance = null;
@@ -323,7 +321,6 @@ async function loadLightmap(
     if (dataMesh) {
         console.log(`Processing lightmap metadata from: ${dataMesh.name}`);
         const extras =
-            // @ts-ignore
             dataMesh?.metadata?.gltf?.extras ||
             dataMesh?.parent?.metadata?.gltf?.extras;
         const metadata = new glTF.Metadata(
@@ -381,7 +378,6 @@ async function loadLightmap(
 
     for (const mesh of nonDataMeshes) {
         const extras =
-            // @ts-ignore
             mesh?.metadata?.gltf?.extras ||
             mesh?.parent?.metadata?.gltf?.extras;
 
@@ -434,7 +430,6 @@ async function loadLightmap(
                     return;
                 }
 
-                // @ts-ignore: albedoTexture may be nullable, but guarded above
                 Texture.WhenAllReady([mat.albedoTexture as BaseTexture], () => {
                     if (
                         mat.albedoTexture &&
@@ -503,11 +498,10 @@ watch(
             isRetrieving.value = true;
             try {
                 // First check if entity exists
-                const entityResult =
-                    await vircadia.client.connection.query({
-                        query: "SELECT general__entity_name FROM entity.entities WHERE general__entity_name = $1",
-                        parameters: [entityNameRef.value],
-                    });
+                const entityResult = await vircadia.client.connection.query({
+                    query: "SELECT general__entity_name FROM entity.entities WHERE general__entity_name = $1",
+                    parameters: [entityNameRef.value],
+                });
 
                 if (
                     Array.isArray(entityResult.result) &&

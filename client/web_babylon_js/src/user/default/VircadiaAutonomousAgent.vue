@@ -95,15 +95,18 @@
                             <div v-if="transcripts.length === 0" class="text-caption text-medium-emphasis ml-1">
                                 Waiting for remote audio...
                             </div>
-                            <v-list v-else density="compact" class="max-h-[220px] overflow-y-auto">
-                                <v-list-item v-for="t in transcriptsReversed" :key="t.at + ':' + t.peerId">
-                                    <v-list-item-title>
-                                        <code>{{ new Date(t.at).toLocaleTimeString() }}</code>
-                                        <span class="ml-2 text-medium-emphasis">[{{ t.peerId }}]</span>
-                                    </v-list-item-title>
-                                    <v-list-item-subtitle>{{ t.text }}</v-list-item-subtitle>
-                                </v-list-item>
-                            </v-list>
+                            <v-virtual-scroll v-else :items="transcriptsLimitedReversed" :height="220"
+                                class="overflow-y-auto" item-height="44">
+                                <template #default="{ item }">
+                                    <v-list-item :key="item.at + ':' + item.peerId" density="compact">
+                                        <v-list-item-title>
+                                            <code>{{ new Date(item.at).toLocaleTimeString() }}</code>
+                                            <span class="ml-2 text-medium-emphasis">[{{ item.peerId }}]</span>
+                                        </v-list-item-title>
+                                        <v-list-item-subtitle>{{ item.text }}</v-list-item-subtitle>
+                                    </v-list-item>
+                                </template>
+                            </v-virtual-scroll>
                         </v-card>
                     </v-col>
                 </v-row>
@@ -302,7 +305,8 @@ const sttWorkerRef = ref<Worker | null>(null);
 type PeerAudioProcessor = {
     ctx: AudioContext;
     source: MediaStreamAudioSourceNode;
-    processor: ScriptProcessorNode;
+    node: AudioWorkletNode;
+    sink: GainNode;
 };
 const peerProcessors = new Map<string, PeerAudioProcessor>();
 
@@ -310,7 +314,7 @@ function initSttWorkerOnce(): void {
     if (!useWorkerStreaming) return;
     if (sttWorkerRef.value) return;
     try {
-        const worker = new Worker(new URL("@/workers/whisper-stt.worker.ts", import.meta.url), { type: "module" });
+        const worker = new Worker(new URL("./VircadiaAutonomousAgentSTTWorker.ts", import.meta.url), { type: "module" });
         worker.addEventListener("message", (e: MessageEvent) => {
             const msg = e.data as { type: string; status?: string; peerId?: string; data?: any; error?: string };
             if (msg.type === "status") {
@@ -345,7 +349,19 @@ function downsample48kTo16k(input: Float32Array): Float32Array {
     return out;
 }
 
-function attachStreamToSTT(peerId: string, stream: MediaStream): void {
+const sttWorkletLoaded = new WeakSet<AudioContext>();
+async function ensureSttWorklet(ctx: AudioContext): Promise<void> {
+    if (sttWorkletLoaded.has(ctx)) return;
+    try {
+        await ctx.audioWorklet.addModule(new URL("./VircadiaAutonomousAgentSTTWorklet.ts", import.meta.url));
+        sttWorkletLoaded.add(ctx);
+    } catch (e) {
+        console.error("[Agent STT] Failed to load AudioWorklet:", e);
+        throw e;
+    }
+}
+
+async function attachStreamToSTT(peerId: string, stream: MediaStream): Promise<void> {
     if (!useWorkerStreaming) return;
     if (peerProcessors.has(peerId)) return;
     initSttWorkerOnce();
@@ -353,37 +369,38 @@ function attachStreamToSTT(peerId: string, stream: MediaStream): void {
 
     try {
         const ctx = new AudioContext({ sampleRate: 48000 });
+        await ensureSttWorklet(ctx);
         const source = ctx.createMediaStreamSource(stream);
-        const processor = ctx.createScriptProcessor(2048, 1, 1);
+        const node = new AudioWorkletNode(ctx, "stt-processor", {
+            processorOptions: { targetSampleRate: 16000, chunkMs: 200 },
+        });
 
-        let acc: Float32Array[] = [];
-        let accMs = 0;
-
-        processor.onaudioprocess = (ev) => {
-            if (!sttActive.value) return;
-            const ch0 = ev.inputBuffer.getChannelData(0);
-            if (!ch0 || ch0.length === 0) return;
-            const ds = downsample48kTo16k(ch0);
-            acc.push(ds);
-            accMs += (ds.length / 16000) * 1000;
-            if (accMs >= 200) {
-                let total = 0;
-                for (const a of acc) total += a.length;
-                const merged = new Float32Array(total);
-                let o = 0;
-                for (const a of acc) { merged.set(a, o); o += a.length; }
-                sttWorkerRef.value!.postMessage({ type: "audio", peerId, pcm: merged.buffer }, [merged.buffer]);
-                acc = [];
-                accMs = 0;
+        node.port.onmessage = (ev: MessageEvent) => {
+            const data = ev.data as { type: string; pcm?: ArrayBuffer };
+            if (data && data.type === "pcm" && data.pcm) {
+                if (!sttActive.value) return;
+                try {
+                    sttWorkerRef.value!.postMessage(
+                        { type: "audio", peerId, pcm: data.pcm },
+                        [data.pcm],
+                    );
+                } catch (err) {
+                    console.warn("[Agent STT] Failed to post PCM to worker:", err);
+                }
             }
         };
 
-        source.connect(processor);
-        processor.connect(ctx.destination);
+        // Ensure graph is pulled without audible output
+        const sink = ctx.createGain();
+        sink.gain.value = 0.0;
 
-        peerProcessors.set(peerId, { ctx, source, processor });
+        source.connect(node);
+        node.connect(sink);
+        sink.connect(ctx.destination);
+
+        peerProcessors.set(peerId, { ctx, source, node, sink });
         sttWorkerRef.value.postMessage({ type: "start", peerId, language: undefined, windowSec: 2.0, maxBufferSec: 8.0 });
-        console.log(`[Agent STT] Streaming attached for ${peerId}`);
+        console.log(`[Agent STT] Streaming (AudioWorklet) attached for ${peerId}`);
     } catch (e) {
         console.error("[Agent STT] Failed to attach stream:", e);
     }
@@ -397,7 +414,8 @@ function detachStreamFromSTT(peerId: string): void {
     const proc = peerProcessors.get(peerId);
     if (!proc) return;
     try {
-        proc.processor.disconnect();
+        proc.node.disconnect();
+        proc.sink.disconnect();
         proc.source.disconnect();
         proc.ctx.close().catch(() => { });
     } catch { }
@@ -443,16 +461,20 @@ const isSpeaking = ref<boolean>(false);
 // Transcript capture state
 type TranscriptEntry = { peerId: string; text: string; at: number };
 const transcripts = ref<TranscriptEntry[]>([]);
-const transcriptsReversed = computed<TranscriptEntry[]>(() =>
-    [...transcripts.value].reverse(),
+const MAX_TRANSCRIPTS = 10;
+const transcriptsLimited = computed<TranscriptEntry[]>(() =>
+    transcripts.value.slice(-MAX_TRANSCRIPTS),
+);
+const transcriptsLimitedReversed = computed<TranscriptEntry[]>(() =>
+    [...transcriptsLimited.value].reverse(),
 );
 function addTranscript(peerId: string, text: string) {
     const trimmed = (text || "").trim();
     if (!trimmed) return;
     transcripts.value.push({ peerId, text: trimmed, at: Date.now() });
     // Keep the list bounded
-    if (transcripts.value.length > 50)
-        transcripts.value.splice(0, transcripts.value.length - 50);
+    if (transcripts.value.length > MAX_TRANSCRIPTS)
+        transcripts.value.splice(0, transcripts.value.length - MAX_TRANSCRIPTS);
 }
 function clearTranscripts() {
     transcripts.value = [];

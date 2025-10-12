@@ -1,9 +1,6 @@
 /*
-  Streaming Whisper STT worker (WebGPU, Transformers.js)
-  - Loads ONNX Whisper once (tokenizer, processor, model)
-  - Accepts small PCM16k Float32Array chunks per peerId
-  - Buffers per peer and decodes sliding windows
-  - Emits token updates (partial) and final outputs per window
+  Relocated Streaming Whisper STT worker (WebGPU, Transformers.js)
+  - Adapted path for co-location with component
 */
 
 import {
@@ -43,7 +40,6 @@ type WorkerEvent =
       }
     | { type: "error"; peerId?: string; error: string };
 
-// Model singleton
 class WhisperRuntime {
     static modelId = "onnx-community/whisper-base";
     static tokenizer: any | null = null;
@@ -118,7 +114,6 @@ async function maybeDecode(peerId: string) {
     session.processing = true;
 
     try {
-        // Keep last windowSec seconds for decoding; keep a small left overlap implicitly by retaining buffer
         let keepSamples = secondsToSamples(session.windowSec);
         const chunks: Float32Array[] = [];
         for (
@@ -136,27 +131,20 @@ async function maybeDecode(peerId: string) {
         const [tokenizer, processor, model] =
             await WhisperRuntime.ensureLoaded();
 
-        // Token streaming callbacks
-        let numTokens = 0;
         const streamer = new TextStreamer(tokenizer, {
             skip_prompt: true,
             skip_special_tokens: true,
             callback_function: (text: string) => {
-                const evt: WorkerEvent = {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                (self as any).postMessage({
                     type: "status",
                     status: "update",
                     peerId,
                     data: { text },
-                };
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (self as any).postMessage(evt);
-            },
-            token_callback_function: () => {
-                numTokens++;
+                } as WorkerEvent);
             },
         });
 
-        // Preprocess to input features
         const inputs = await processor(audio);
 
         const outputs = await model.generate({
@@ -169,19 +157,17 @@ async function maybeDecode(peerId: string) {
         const decoded: string[] = tokenizer.batch_decode(outputs, {
             skip_special_tokens: true,
         });
-
         const finalText = Array.isArray(decoded)
             ? decoded.join(" ")
             : String(decoded);
 
-        // Emit completion for this window
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (self as any).postMessage({
             type: "status",
             status: "complete",
             peerId,
             data: { text: finalText },
-        } satisfies WorkerEvent);
+        } as WorkerEvent);
     } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -191,8 +177,8 @@ async function maybeDecode(peerId: string) {
             error: msg,
         } as WorkerEvent);
     } finally {
-        const session2 = sessions.get(peerId);
-        if (session2) session2.processing = false;
+        const s2 = sessions.get(peerId);
+        if (s2) s2.processing = false;
     }
 }
 
@@ -213,7 +199,6 @@ async function handleMessage(e: MessageEvent<WorkerMessage>) {
                     data: x,
                 } as WorkerEvent);
             });
-            // Warm up shader compilation
             await model.generate({
                 input_features: full([1, 80, 3000], 0.0),
                 max_new_tokens: 1,
@@ -254,7 +239,6 @@ async function handleMessage(e: MessageEvent<WorkerMessage>) {
             const f32 = new Float32Array(pcm);
             if (f32.length === 0) return;
             session.buffer.push(f32);
-            // Trim buffer to maxBufferSec
             let total = session.buffer.reduce((a, b) => a + b.length, 0);
             const limit = secondsToSamples(session.maxBufferSec);
             if (total > limit) {
@@ -266,7 +250,6 @@ async function handleMessage(e: MessageEvent<WorkerMessage>) {
                     total -= session.buffer[i].length;
                     session.buffer[i] = new Float32Array(0);
                 }
-                // Drop emptied leading chunks
                 const compacted: Float32Array[] = [];
                 for (const c of session.buffer)
                     if (c.length > 0) compacted.push(c);

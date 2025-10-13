@@ -281,7 +281,6 @@
 
 <script setup lang="ts">
 import type { Scene, WebGPUEngine } from "@babylonjs/core";
-import { read_audio } from "@huggingface/transformers";
 import { computed, inject, onUnmounted, type Ref, ref, watch } from "vue";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 
@@ -375,7 +374,7 @@ let sttPipeline: unknown = null;
 const sttLoading = ref<boolean>(false);
 const sttStep = ref<string>("");
 
-// Realtime STT via WebGPU worker
+// Realtime STT via WebGPU worker (required)
 const useWorkerStreaming = true;
 const sttWorkerRef = ref<Worker | null>(null);
 type PeerAudioProcessor = {
@@ -392,7 +391,7 @@ function initSttWorkerOnce(): void {
     try {
         const worker = new Worker(new URL("./VircadiaAutonomousAgentSTTWorker.ts", import.meta.url), { type: "module" });
         worker.addEventListener("message", (e: MessageEvent) => {
-            const msg = e.data as { type: string; status?: string; peerId?: string; data?: any; error?: string };
+            const msg = e.data as { type: string; status?: string; peerId?: string; data?: unknown; error?: string };
             if (msg.type === "status") {
                 if (msg.status === "downloading") {
                     sttLoading.value = true;
@@ -417,12 +416,18 @@ function initSttWorkerOnce(): void {
                 if (msg.status === "ready") {
                     sttLoading.value = false;
                     sttStep.value = "";
+                    sttPipeline = {};
                 }
                 if (msg.status === "update") {
                     // Optional: surface interim text; keep UI minimal for now
                     // console.debug("[Agent STT] partial", msg.peerId, msg.data?.text);
                 } else if (msg.status === "complete") {
-                    const t = (msg.data?.text || "").trim();
+                    const dataObj = (msg.data && typeof msg.data === "object")
+                        ? (msg.data as Record<string, unknown>)
+                        : null;
+                    const t = typeof dataObj?.text === "string"
+                        ? (dataObj.text as string).trim()
+                        : "";
                     if (t) void processAsrText(msg.peerId || "peer", t);
                 }
             } else if (msg.type === "error") {
@@ -603,45 +608,17 @@ const stopKokoro = () => {
     kokoroTTS.value = null;
 };
 
-const initKokoro = async (): Promise<void> => {
-    if (kokoroTTS.value) return;
-    try {
-        console.log(
-            "[VircadiaAutonomousAgent] Initializing Kokoro TTS (WebGPU)...",
-        );
-        kokoroLoading.value = true;
-        kokoroStep.value = "Downloading TTS model";
-        // Use WebGPU for acceleration; fallback handling is internal to kokoro-js
-        const { KokoroTTS } = await import("kokoro-js");
-        kokoroStep.value = "Compiling/initializing TTS";
-        kokoroTTS.value = await KokoroTTS.from_pretrained(
-            props.agentTtsModelId,
-            {
-                device: "webgpu",
-                dtype: "fp32",
-            },
-        );
-        console.log("[VircadiaAutonomousAgent] Kokoro TTS initialized.");
-        kokoroStep.value = "";
-    } catch (error) {
-        console.error(
-            "[VircadiaAutonomousAgent] Failed to initialize Kokoro TTS:",
-            error,
-        );
-        kokoroTTS.value = null;
-        kokoroStep.value = "Error";
-    }
-    kokoroLoading.value = false;
-};
+// Main-thread TTS initialization removed; worker-only
 
 // LLM worker initialization and request routing
 function extractProgressPercent(x: unknown): number {
     try {
         const anyX = x as Record<string, unknown> | null;
-        const p = (anyX && (anyX as any).progress) as unknown;
+        const progressField = anyX && (anyX as Record<string, unknown>).progress;
+        const p = typeof progressField === "number" ? progressField : undefined;
         if (typeof p === "number") return p <= 1 ? p * 100 : p;
-        const loaded = Number((anyX as any)?.loaded || 0);
-        const total = Number((anyX as any)?.total || 0);
+        const loaded = Number((anyX as Record<string, unknown>)?.loaded || 0);
+        const total = Number((anyX as Record<string, unknown>)?.total || 0);
         if (loaded > 0 && total > 0) return Math.max(1, Math.min(100, Math.round((loaded / total) * 100)));
     } catch { /* ignore */ }
     return 0;
@@ -658,7 +635,10 @@ function initLlmWorkerOnce(): void {
                 if (msg.status === "downloading" || msg.status === "loading") {
                     llmLoading.value = true;
                     llmProgressPct.value = extractProgressPercent(msg.data);
-                    llmStep.value = msg.status === 'downloading' ? 'Downloading LLM model' : (typeof (msg.data as any)?.status === "string" ? String((msg.data as any).status) : "Loading LLM runtime");
+                    const statusText = (msg.data && typeof (msg.data as Record<string, unknown>)?.status === "string")
+                        ? String((msg.data as Record<string, unknown>).status)
+                        : "Loading LLM runtime";
+                    llmStep.value = msg.status === 'downloading' ? 'Downloading LLM model' : statusText;
                 }
                 if (msg.status === "mounting") {
                     llmLoading.value = true;
@@ -715,104 +695,13 @@ async function generateWithLLM(prompt: string, options?: Record<string, unknown>
             }
         });
     }
-    // Fallback path uses main-thread pipeline
-    const llmAny = llmPipeline as any;
-    if (!llmAny) return "";
-    const out = typeof llmAny === 'function'
-        ? await llmAny(prompt, options || {})
-        : (await (llmAny?.__call__
-            ? llmAny.__call__(prompt, options || {})
-            : llmAny?.generate?.({ inputs: prompt, ...(options || {}) } as any)));
-    return (Array.isArray(out) ? out[0]?.generated_text : out?.generated_text) || "";
+    // Worker is required; if unavailable, return empty
+    return "";
 }
 
-const initSTT = async (): Promise<void> => {
-    if (!props.agentEnableSTT) return;
-    if (sttPipeline) return;
-    try {
-        sttLoading.value = true;
-        sttStep.value = "Loading Transformers runtime";
-        const { pipeline } = await import("@huggingface/transformers");
-        sttStep.value = "Downloading Whisper model";
-        // Browser ONNX Whisper via Xenova repo (Transformers.js)
-        // See model card: Xenova/whisper-base
-        sttPipeline = await pipeline(
-            "automatic-speech-recognition",
-            props.agentSttModelId,
-            {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                progress_callback: (x: any) => {
-                    try {
-                        const p = x?.progress || x?.status || x?.file || x?.message || JSON.stringify(x);
-                        sttStep.value = typeof p === "string" ? p : "Downloading Whisper model";
-                    } catch { /* ignore */ }
-                },
-            },
-        );
-        sttStep.value = "";
-        console.log("[VircadiaAutonomousAgent] STT initialized (Whisper base)");
-    } catch (error) {
-        console.error(
-            "[VircadiaAutonomousAgent] Failed to initialize STT:",
-            error,
-        );
-        sttPipeline = null;
-        sttStep.value = "Error";
-    }
-    sttLoading.value = false;
-};
+// Main-thread STT removed; worker-only
 
-function ensureRemoteRecording(peerId: string, stream: MediaStream) {
-    if (remoteRecorders.has(peerId)) return;
-    try {
-        const track = stream.getAudioTracks()[0];
-        if (!track) return;
-        // Create a composed MediaStream for recorder stability
-        const recStream = new MediaStream([track]);
-        const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-            ? "audio/webm;codecs=opus"
-            : MediaRecorder.isTypeSupported("audio/webm")
-                ? "audio/webm"
-                : "audio/ogg";
-        const recorder = new MediaRecorder(recStream, { mimeType: mime });
-        recorder.addEventListener("dataavailable", async (ev) => {
-            if (!sttActive.value) return;
-            if (!sttPipeline) return;
-            const blob = ev.data;
-            if (!blob || blob.size === 0) return;
-            try {
-                const sttAny = sttPipeline as any;
-                // Convert Blob -> Float32Array PCM for Whisper
-                let objectUrl: string | null = null;
-                let result: unknown;
-                try {
-                    objectUrl = URL.createObjectURL(blob);
-                    // Read and resample to 16 kHz mono as required by Whisper
-                    const audio: Float32Array = await read_audio(
-                        objectUrl,
-                        16000,
-                    );
-                    result = await sttAny(audio, { language: String(props.agentLanguage || 'en') });
-                } finally {
-                    if (objectUrl) URL.revokeObjectURL(objectUrl);
-                }
-                const text: string = (result as any)?.text || "";
-                if (text.trim().length > 0) {
-                    console.log(`[Agent STT] (${peerId})`, text);
-                    void processAsrText(peerId, text);
-                }
-            } catch (e) {
-                console.error("[Agent STT] Whisper transcription failed:", e);
-            }
-        });
-        const segMs = Math.max(1000, Math.min(5000, Math.round((props.agentSttWindowSec || 2.5) * 1000)));
-        recorder.start(segMs);
-        remoteRecorders.set(peerId, recorder);
-        console.log(`[Agent STT] Recorder started for ${peerId}`);
-    } catch (e) {
-        console.error("[Agent STT] Failed to start recorder:", e);
-    }
-}
+// MediaRecorder-based STT removed; worker-only
 
 async function handleTranscript(peerId: string, text: string) {
     // Always record to overlay
@@ -910,7 +799,7 @@ async function handleStreamingSegment(peerId: string, segment: string): Promise<
 
 async function maybeSendStreamToLLM(peerId: string): Promise<void> {
     if (!props.agentEnableLLM) return;
-    if (!llmWorkerRef.value && !llmPipeline) return;
+    if (!llmWorkerRef.value) return;
     const s = getOrCreateStreamSession(peerId);
     const now = Date.now();
     const minIntervalMs = 1500;
@@ -995,7 +884,7 @@ async function speakWithKokoro(text: string): Promise<void> {
             /* ignore */
         }
 
-        // If worker is available, generate PCM off-thread
+        // Generate PCM off-thread via worker (required)
         let pcmData: Float32Array | null = null;
         let sampleRate: number = 24000;
         if (ttsWorkerRef.value) {
@@ -1036,16 +925,7 @@ async function speakWithKokoro(text: string): Promise<void> {
             source = ctx.createBufferSource();
             source.buffer = buffer;
         }
-        if (!source && !kokoroTTS.value) return;
-        if (!source && kokoroTTS.value) {
-            // Fallback to main-thread TTS if worker unavailable
-            const ttsAny = kokoroTTS.value as any;
-            const result = (await (ttsAny.tts ? ttsAny.tts(text) : ttsAny.generate?.(text))) || null;
-            if (result instanceof AudioBuffer) {
-                source = ctx.createBufferSource();
-                source.buffer = result as AudioBuffer;
-            }
-        }
+        if (!source) return;
 
         if (!source) return;
 
@@ -1103,33 +983,23 @@ if (featureEnabled) {
         () => props.vircadiaWorld?.connectionInfo.value.status,
         async (status) => {
             if (status === "connected") {
-                const inits: Promise<void>[] = [];
                 if (props.agentEnableTTS) {
-                    // Initialize TTS worker (and keep main-thread fallback available)
+                    // Initialize TTS worker
                     initTtsWorkerOnce();
                 }
                 if (props.agentEnableLLM) {
                     // Initialize LLM worker
                     initLlmWorkerOnce();
                 }
-                if (props.agentEnableSTT) inits.push(initSTT());
-                await Promise.all(inits);
-                // After models are ready, reactively attach STT to existing remote streams
+                // After models are ready, attach STT to existing remote streams via worker
                 if (props.agentEnableSTT) {
-                    if (useWorkerStreaming) initSttWorkerOnce();
+                    initSttWorkerOnce();
                     for (const [pid, stream] of remoteStreamsRef.value) {
-                        if (useWorkerStreaming) attachStreamToSTT(pid, stream);
-                        else ensureRemoteRecording(pid, stream);
+                        attachStreamToSTT(pid, stream);
                     }
                 }
             } else {
                 stopKokoro();
-                for (const [, rec] of remoteRecorders) {
-                    try {
-                        if (rec.state !== "inactive") rec.stop();
-                    } catch { }
-                }
-                remoteRecorders.clear();
                 for (const [pid] of peerProcessors) detachStreamFromSTT(pid);
             }
         },
@@ -1141,14 +1011,12 @@ if (featureEnabled) {
         () => remoteStreamsRef.value,
         (streams, oldStreams) => {
             if (!props.agentEnableSTT) return;
-            void initSTT();
-            if (useWorkerStreaming) initSttWorkerOnce();
+            initSttWorkerOnce();
             for (const [pid, stream] of streams) {
-                if (useWorkerStreaming) attachStreamToSTT(pid, stream);
-                else ensureRemoteRecording(pid, stream);
+                attachStreamToSTT(pid, stream);
             }
             // Detach for peers removed from map
-            if (useWorkerStreaming && oldStreams instanceof Map) {
+            if (oldStreams instanceof Map) {
                 for (const [oldPid] of oldStreams) {
                     if (!streams.has(oldPid)) detachStreamFromSTT(oldPid);
                 }
@@ -1164,12 +1032,6 @@ if (featureEnabled) {
 
 onUnmounted(() => {
     stopKokoro();
-    for (const [, rec] of remoteRecorders) {
-        try {
-            if (rec.state !== "inactive") rec.stop();
-        } catch { }
-    }
-    remoteRecorders.clear();
     for (const [pid] of peerProcessors) {
         detachStreamFromSTT(pid);
     }

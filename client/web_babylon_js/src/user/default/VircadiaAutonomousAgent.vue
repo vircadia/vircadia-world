@@ -125,15 +125,20 @@
                                     <v-icon class="mr-2">mdi-volume-high</v-icon>
                                     <span class="font-weight-medium">TTS (Kokoro)</span>
                                     <v-spacer />
-                                    <v-chip :color="kokoroLoading ? 'warning' : kokoroTTS ? 'success' : 'error'"
+                                    <v-chip
+                                        :color="kokoroLoading ? 'warning' : (ttsGenerating ? 'warning' : kokoroTTS ? 'success' : 'error')"
                                         size="small">
-                                        {{ kokoroLoading ? 'Loading' : kokoroTTS ? 'Ready' : 'Error' }}
+                                        {{ kokoroLoading ? 'Loading' : ttsGenerating ? 'Generating' : kokoroTTS ?
+                                            'Ready' :
+                                            'Error' }}
                                     </v-chip>
                                 </div>
                                 <div v-if="kokoroLoading" class="ml-6">
-                                    <v-progress-linear indeterminate color="primary" height="4" class="mb-1" />
-                                    <span class="text-caption text-medium-emphasis">{{ kokoroStep || 'Initializing...'
-                                        }}</span>
+                                    <v-progress-linear :model-value="ttsProgressPct" color="primary" height="8"
+                                        class="mb-1" />
+                                    <span class="text-caption text-medium-emphasis">{{ (kokoroStep || 'Initializing...')
+                                        +
+                                        (ttsProgressPct ? ` (${Math.round(ttsProgressPct)}%)` : '') }}</span>
                                 </div>
                                 <div v-else-if="kokoroTTS" class="ml-6">
                                     <span class="text-caption text-success">Model loaded successfully</span>
@@ -149,15 +154,19 @@
                                     <v-icon class="mr-2">mdi-brain</v-icon>
                                     <span class="font-weight-medium">LLM (Granite)</span>
                                     <v-spacer />
-                                    <v-chip :color="llmLoading ? 'warning' : llmPipeline ? 'success' : 'error'"
+                                    <v-chip
+                                        :color="llmLoading ? 'warning' : (llmGenerating ? 'warning' : llmPipeline ? 'success' : 'error')"
                                         size="small">
-                                        {{ llmLoading ? 'Loading' : llmPipeline ? 'Ready' : 'Error' }}
+                                        {{ llmLoading ? 'Loading' : llmGenerating ? 'Generating' : llmPipeline ? 'Ready'
+                                            :
+                                            'Error' }}
                                     </v-chip>
                                 </div>
                                 <div v-if="llmLoading" class="ml-6">
-                                    <v-progress-linear indeterminate color="primary" height="4" class="mb-1" />
-                                    <span class="text-caption text-medium-emphasis">{{ llmStep || 'Initializing...'
-                                        }}</span>
+                                    <v-progress-linear :model-value="llmProgressPct" color="primary" height="8"
+                                        class="mb-1" />
+                                    <span class="text-caption text-medium-emphasis">{{ (llmStep || 'Initializing...') +
+                                        (llmProgressPct ? ` (${Math.round(llmProgressPct)}%)` : '') }}</span>
                                 </div>
                                 <div v-else-if="llmPipeline" class="ml-6">
                                     <span class="text-caption text-success">Model loaded successfully</span>
@@ -208,6 +217,35 @@
                                     </span>
                                 </div>
                             </div>
+                        </v-card>
+                    </v-col>
+                </v-row>
+
+                <!-- LLM Output (Thoughts) -->
+                <v-row v-if="props.agentEnableLLM">
+                    <v-col cols="12">
+                        <v-card variant="outlined" class="pa-3">
+                            <div class="d-flex align-center mb-2">
+                                <v-card-subtitle class="pr-2">LLM Output</v-card-subtitle>
+                                <v-spacer />
+                                <v-chip :color="llmGenerating ? 'warning' : 'success'" size="small">
+                                    {{ llmGenerating ? 'Generating' : 'Idle' }}
+                                </v-chip>
+                            </div>
+                            <div v-if="llmOutputs.length === 0" class="text-caption text-medium-emphasis ml-1">
+                                Waiting for LLM output...
+                            </div>
+                            <v-virtual-scroll v-else :items="llmOutputsReversed" :height="160" class="overflow-y-auto"
+                                item-height="44">
+                                <template #default="{ item }">
+                                    <v-list-item :key="item.at" density="compact">
+                                        <v-list-item-title>
+                                            <code>{{ new Date(item.at).toLocaleTimeString() }}</code>
+                                        </v-list-item-title>
+                                        <v-list-item-subtitle>{{ item.text }}</v-list-item-subtitle>
+                                    </v-list-item>
+                                </template>
+                            </v-virtual-scroll>
                         </v-card>
                     </v-col>
                 </v-row>
@@ -300,11 +338,17 @@ const toggleOverlay = () => {
 const kokoroTTS = ref<unknown | null>(null);
 const kokoroLoading = ref<boolean>(false);
 const kokoroStep = ref<string>("");
+const ttsWorkerRef = ref<Worker | null>(null);
+const ttsProgressPct = ref<number>(0);
+const ttsGenerating = ref<boolean>(false);
 
 // Use a broad unknown type here to avoid coupling to transformers' complex union type
 let llmPipeline: unknown = null;
 const llmLoading = ref<boolean>(false);
 const llmStep = ref<string>("");
+const llmWorkerRef = ref<Worker | null>(null);
+const llmProgressPct = ref<number>(0);
+const llmGenerating = ref<boolean>(false);
 
 // Whisper STT
 let sttPipeline: unknown = null;
@@ -510,6 +554,21 @@ function clearTranscripts() {
     transcripts.value = [];
 }
 
+// LLM output capture
+type LlmEntry = { text: string; at: number };
+const llmOutputs = ref<LlmEntry[]>([]);
+const MAX_LLM_OUTPUTS = 10;
+const llmOutputsReversed = computed<LlmEntry[]>(() =>
+    [...llmOutputs.value].reverse(),
+);
+function addLlmOutput(text: string) {
+    const trimmed = (text || "").trim();
+    if (!trimmed) return;
+    llmOutputs.value.push({ text: trimmed, at: Date.now() });
+    if (llmOutputs.value.length > MAX_LLM_OUTPUTS)
+        llmOutputs.value.splice(0, llmOutputs.value.length - MAX_LLM_OUTPUTS);
+}
+
 // Deprecated snackbar flags removed; progress now shown inside overlay
 
 const stopKokoro = () => {
@@ -547,45 +606,93 @@ const initKokoro = async (): Promise<void> => {
     kokoroLoading.value = false;
 };
 
-const initLLM = async (): Promise<void> => {
-    if (!props.agentEnableLLM) return;
-    if (llmPipeline) return;
+// LLM worker initialization and request routing
+function extractProgressPercent(x: unknown): number {
     try {
-        console.log(
-            "[VircadiaAutonomousAgent] Initializing Transformers.js LLM (WebGPU)...",
-        );
+        const anyX = x as Record<string, unknown> | null;
+        const p = (anyX && (anyX as any).progress) as unknown;
+        if (typeof p === "number") return p <= 1 ? p * 100 : p;
+        const loaded = Number((anyX as any)?.loaded || 0);
+        const total = Number((anyX as any)?.total || 0);
+        if (loaded > 0 && total > 0) return Math.max(1, Math.min(100, Math.round((loaded / total) * 100)));
+    } catch { /* ignore */ }
+    return 0;
+}
+
+let llmPending: { resolve: (text: string) => void; reject: (e: Error) => void } | null = null;
+function initLlmWorkerOnce(): void {
+    if (llmWorkerRef.value) return;
+    try {
+        const worker = new Worker(new URL("./VircadiaAutonomousAgentLLMWorker.ts", import.meta.url), { type: "module" });
+        worker.addEventListener("message", (e: MessageEvent) => {
+            const msg = e.data as { type: string; status?: string; data?: unknown; text?: string; error?: string };
+            if (msg.type === "status") {
+                if (msg.status === "loading") {
+                    llmLoading.value = true;
+                    llmProgressPct.value = extractProgressPercent(msg.data);
+                    llmStep.value = typeof (msg.data as any)?.status === "string" ? String((msg.data as any).status) : "Loading Granite model";
+                }
+                if (msg.status === "ready") {
+                    llmLoading.value = false;
+                    llmStep.value = "";
+                    llmProgressPct.value = 100;
+                    llmPipeline = {};
+                }
+                if (msg.status === "generating") {
+                    llmGenerating.value = true;
+                }
+            } else if (msg.type === "token") {
+                // Optionally stream tokens; keep UI minimal (final output recorded on complete)
+            } else if (msg.type === "complete") {
+                llmGenerating.value = false;
+                const t = String(msg.text || "");
+                addLlmOutput(t);
+                if (llmPending) {
+                    llmPending.resolve(t);
+                    llmPending = null;
+                }
+            } else if (msg.type === "error") {
+                llmGenerating.value = false;
+                const err = new Error(String(msg.error || "LLM error"));
+                if (llmPending) {
+                    llmPending.reject(err);
+                    llmPending = null;
+                }
+            }
+        });
         llmLoading.value = true;
-        llmStep.value = "Loading Transformers runtime";
-        const { pipeline } = await import("@huggingface/transformers");
-        llmStep.value = "Downloading Granite model";
-        // Text-generation chat pipeline using Granite 4.0 Micro on WebGPU
-        llmPipeline = await pipeline(
-            "text-generation",
-            "onnx-community/granite-4.0-micro-ONNX-web",
-            {
-                device: "webgpu",
-                // Show granular load progress in overlay
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                progress_callback: (x: any) => {
-                    try {
-                        const p = x?.progress || x?.status || x?.file || x?.message || JSON.stringify(x);
-                        llmStep.value = typeof p === "string" ? p : "Downloading Granite model";
-                    } catch { /* ignore */ }
-                },
-            },
-        );
-        console.log("[VircadiaAutonomousAgent] LLM initialized.");
-        llmStep.value = "";
-    } catch (error) {
-        console.error(
-            "[VircadiaAutonomousAgent] Failed to initialize LLM:",
-            error,
-        );
-        llmPipeline = null;
-        llmStep.value = "Error";
+        llmStep.value = "Initializing LLM (worker)";
+        worker.postMessage({ type: "load" });
+        llmWorkerRef.value = worker;
+    } catch (e) {
+        console.error("[Agent LLM] Failed to init worker:", e);
+        llmWorkerRef.value = null;
     }
-    llmLoading.value = false;
-};
+}
+
+async function generateWithLLM(prompt: string, options?: Record<string, unknown>): Promise<string> {
+    if (llmWorkerRef.value) {
+        if (llmPending) return "";
+        return await new Promise<string>((resolve, reject) => {
+            llmPending = { resolve, reject };
+            try {
+                llmWorkerRef.value!.postMessage({ type: "generate", prompt, options: options || {} });
+            } catch (e) {
+                llmPending = null;
+                reject(e as Error);
+            }
+        });
+    }
+    // Fallback path uses main-thread pipeline
+    const llmAny = llmPipeline as any;
+    if (!llmAny) return "";
+    const out = typeof llmAny === 'function'
+        ? await llmAny(prompt, options || {})
+        : (await (llmAny?.__call__
+            ? llmAny.__call__(prompt, options || {})
+            : llmAny?.generate?.({ inputs: prompt, ...(options || {}) } as any)));
+    return (Array.isArray(out) ? out[0]?.generated_text : out?.generated_text) || "";
+}
 
 const initSTT = async (): Promise<void> => {
     if (!props.agentEnableSTT) return;
@@ -681,19 +788,8 @@ async function handleTranscript(peerId: string, text: string) {
     // Optionally generate a reply if LLM is enabled
     if (!props.agentEnableLLM) return;
     try {
-        const llmAny = llmPipeline as any;
-        if (!llmAny) return; // Not ready yet
         const prompt = `You are an in-world assistant. Keep replies short and conversational. User said: "${text}"\nAssistant:`;
-        const out = typeof llmAny === 'function'
-            ? await llmAny(prompt, { max_new_tokens: 80, temperature: 0.7 })
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            : (await (llmAny?.__call__
-                ? llmAny.__call__(prompt, { max_new_tokens: 80, temperature: 0.7 })
-                : llmAny?.generate?.({ inputs: prompt, max_new_tokens: 80, temperature: 0.7 } as any)));
-        const reply: string =
-            (Array.isArray(out)
-                ? out[0]?.generated_text
-                : out?.generated_text) || "";
+        const reply: string = await generateWithLLM(prompt, { max_new_tokens: 80, temperature: 0.7 });
         if (reply.trim().length > 0) {
             console.log("[Agent LLM]", reply);
             ttsQueue.push(reply);
@@ -782,7 +878,7 @@ async function handleStreamingSegment(peerId: string, segment: string): Promise<
 
 async function maybeSendStreamToLLM(peerId: string): Promise<void> {
     if (!props.agentEnableLLM) return;
-    if (!llmPipeline) return; // Wait until ready
+    if (!llmWorkerRef.value && !llmPipeline) return;
     const s = getOrCreateStreamSession(peerId);
     const now = Date.now();
     const minIntervalMs = 1500;
@@ -803,24 +899,13 @@ async function maybeSendStreamToLLM(peerId: string): Promise<void> {
     s.lastSentAtMs = now;
 
     try {
-        const llmAny = llmPipeline as any;
-        if (!llmAny) return;
         const wake = String(props.agentWakeWord || "").trim();
         const end = String(props.agentEndWord || "").trim();
         const policy = props.agentUseWakeEndGating
             ? `Only respond when you detect speech between the wake word "${wake}" and the end word "${end}". If not present, do not reply.`
             : `Decide if the latest stream contains a complete user request. If it's partial, ambiguous, or not addressable yet, respond with <no-reply/>.`;
         const prompt = `You are an in-world assistant receiving a rolling transcript stream (latest first may be truncated). ${policy}\nTranscript:\n"""\n${windowText}\n"""\nAssistant:`;
-        const out = typeof llmAny === 'function'
-            ? await llmAny(prompt, { max_new_tokens: 80, temperature: 0.7 })
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            : (await (llmAny?.__call__
-                ? llmAny.__call__(prompt, { max_new_tokens: 80, temperature: 0.7 })
-                : llmAny?.generate?.({ inputs: prompt, max_new_tokens: 80, temperature: 0.7 } as any)));
-        const reply: string =
-            (Array.isArray(out)
-                ? out[0]?.generated_text
-                : out?.generated_text) || "";
+        const reply: string = await generateWithLLM(prompt, { max_new_tokens: 80, temperature: 0.7 });
         const cleaned = String(reply || "").trim();
         if (!cleaned || cleaned.includes("<no-reply/>")) return;
         ttsQueue.push(cleaned);
@@ -845,7 +930,6 @@ async function flushTTSQueue() {
 }
 
 async function speakWithKokoro(text: string): Promise<void> {
-    if (!kokoroTTS.value) return;
     try {
         const bus = busRef.value;
         const wantBus = !props.agentTtsLocalEcho && !!bus;
@@ -870,80 +954,50 @@ async function speakWithKokoro(text: string): Promise<void> {
             /* ignore */
         }
 
-        const ttsAny = kokoroTTS.value as any;
-        const result =
-            (await (ttsAny.tts ? ttsAny.tts(text) : ttsAny.generate?.(text))) ||
-            null;
+        // If worker is available, generate PCM off-thread
+        let pcmData: Float32Array | null = null;
+        let sampleRate: number = 24000;
+        if (ttsWorkerRef.value) {
+            ttsGenerating.value = true;
+            const payload = await new Promise<{ sampleRate: number; pcm: ArrayBuffer }>((resolve, reject) => {
+                let settled = false;
+                const onMsg = (e: MessageEvent) => {
+                    const m = e.data as { type: string; sampleRate?: number; pcm?: ArrayBuffer; status?: string; error?: string };
+                    if (m.type === 'audio' && m.pcm && typeof m.sampleRate === 'number') {
+                        settled = true;
+                        ttsWorkerRef.value?.removeEventListener('message', onMsg);
+                        resolve({ sampleRate: m.sampleRate, pcm: m.pcm });
+                    } else if (m.type === 'error') {
+                        settled = true;
+                        ttsWorkerRef.value?.removeEventListener('message', onMsg);
+                        reject(new Error(String(m.error || 'TTS error')));
+                    }
+                };
+                ttsWorkerRef.value!.addEventListener('message', onMsg);
+                try { ttsWorkerRef.value!.postMessage({ type: 'speak', text }); } catch (e) { if (!settled) { ttsWorkerRef.value?.removeEventListener('message', onMsg); reject(e as Error); } }
+            });
+            ttsGenerating.value = false;
+            sampleRate = payload.sampleRate;
+            pcmData = new Float32Array(payload.pcm);
+        }
 
         let source: AudioBufferSourceNode | null = null;
         let gain: GainNode | null = null;
-
-        function toFloat32Array(
-            input: unknown,
-        ): { data: Float32Array; sampleRate: number } | null {
-            if (!input) return null;
-            // Common shapes: { audio: Float32Array, sample_rate }, { audio: Int16Array, sample_rate },
-            // { audio: number[], sample_rate }, AudioBuffer, or nested { audio: { data, sample_rate } }
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const anyIn = input as any;
-            if (anyIn instanceof AudioBuffer) {
-                const sr = anyIn.sampleRate || 24000;
-                const data = anyIn.getChannelData(0);
-                return { data: new Float32Array(data), sampleRate: sr };
-            }
-            const container = anyIn.audio ? anyIn : anyIn.audio ? anyIn : null;
-            const payload = container ? container.audio : anyIn.audio;
-            const dataRaw = payload?.data ? payload.data : payload;
-            const sr =
-                anyIn.sample_rate ||
-                anyIn.sampleRate ||
-                anyIn.samplerate ||
-                24000;
-            if (!dataRaw) return null;
-            if (dataRaw instanceof Float32Array)
-                return { data: dataRaw, sampleRate: sr };
-            if (dataRaw instanceof Int16Array) {
-                const out = new Float32Array(dataRaw.length);
-                for (let i = 0; i < dataRaw.length; i++)
-                    out[i] = dataRaw[i] / 32768;
-                return { data: out, sampleRate: sr };
-            }
-            if (Array.isArray(dataRaw)) {
-                // Normalize if values look like PCM16
-                let maxAbs = 0;
-                for (let i = 0; i < dataRaw.length; i++) {
-                    const v = Math.abs(Number(dataRaw[i]) || 0);
-                    if (v > maxAbs) maxAbs = v;
-                }
-                const scale = maxAbs > 1.0 ? 32768 : 1.0;
-                const out = new Float32Array(dataRaw.length);
-                for (let i = 0; i < dataRaw.length; i++)
-                    out[i] = Number(dataRaw[i]) / scale;
-                return { data: out, sampleRate: sr };
-            }
-            return null;
-        }
-
-        const converted =
-            toFloat32Array(result) ||
-            toFloat32Array({
-                audio: result?.audio,
-                sample_rate: result?.sample_rate,
-            });
-        if (converted) {
-            const buffer = ctx.createBuffer(
-                1,
-                converted.data.length,
-                converted.sampleRate,
-            );
-            buffer.getChannelData(0).set(converted.data);
+        if (pcmData) {
+            const buffer = ctx.createBuffer(1, pcmData.length, sampleRate);
+            buffer.getChannelData(0).set(pcmData);
             source = ctx.createBufferSource();
             source.buffer = buffer;
         }
-        // Fallback: if result was a direct AudioBuffer
-        if (!source && result instanceof AudioBuffer) {
-            source = ctx.createBufferSource();
-            source.buffer = result as AudioBuffer;
+        if (!source && !kokoroTTS.value) return;
+        if (!source && kokoroTTS.value) {
+            // Fallback to main-thread TTS if worker unavailable
+            const ttsAny = kokoroTTS.value as any;
+            const result = (await (ttsAny.tts ? ttsAny.tts(text) : ttsAny.generate?.(text))) || null;
+            if (result instanceof AudioBuffer) {
+                source = ctx.createBufferSource();
+                source.buffer = result as AudioBuffer;
+            }
         }
 
         if (!source) return;
@@ -1003,8 +1057,14 @@ if (featureEnabled) {
         async (status) => {
             if (status === "connected") {
                 const inits: Promise<void>[] = [];
-                if (props.agentEnableTTS) inits.push(initKokoro());
-                if (props.agentEnableLLM) inits.push(initLLM());
+                if (props.agentEnableTTS) {
+                    // Initialize TTS worker (and keep main-thread fallback available)
+                    initTtsWorkerOnce();
+                }
+                if (props.agentEnableLLM) {
+                    // Initialize LLM worker
+                    initLlmWorkerOnce();
+                }
                 if (props.agentEnableSTT) inits.push(initSTT());
                 await Promise.all(inits);
                 // After models are ready, reactively attach STT to existing remote streams
@@ -1073,6 +1133,40 @@ onUnmounted(() => {
     }
     remoteUnsubscribeFns.length = 0;
 });
+
+// TTS worker init
+function initTtsWorkerOnce(): void {
+    if (ttsWorkerRef.value) return;
+    try {
+        const worker = new Worker(new URL("./VircadiaAutonomousAgentTTSWorker.ts", import.meta.url), { type: "module" });
+        worker.addEventListener("message", (e: MessageEvent) => {
+            const msg = e.data as { type: string; status?: string; data?: unknown };
+            if (msg.type === "status") {
+                if (msg.status === "loading") {
+                    kokoroLoading.value = true;
+                    // kokoro-js does not currently expose progress details; keep step for consistency
+                    kokoroStep.value = "Downloading/initializing TTS";
+                    // When a future version provides progress numbers, wire here into ttsProgressPct
+                }
+                if (msg.status === "ready") {
+                    kokoroLoading.value = false;
+                    kokoroStep.value = "";
+                    kokoroTTS.value = {};
+                }
+                if (msg.status === "generating") {
+                    ttsGenerating.value = true;
+                }
+            }
+        });
+        kokoroLoading.value = true;
+        kokoroStep.value = "Initializing TTS (worker)";
+        worker.postMessage({ type: "load" });
+        ttsWorkerRef.value = worker;
+    } catch (e) {
+        console.error("[Agent TTS] Failed to init worker:", e);
+        ttsWorkerRef.value = null;
+    }
+}
 </script>
 
 <style>

@@ -19,8 +19,8 @@
 
     <!-- Autonomous Agent Overlay -->
     <v-overlay v-model="overlayOpen" location="center" scroll-strategy="block" class="align-center justify-center">
-        <v-card
-            class="d-flex flex-column max-h-[80vh] overflow-hidden min-w-[360px] max-w-[90vw] md:min-w-[720px] lg:min-w-[880px]">
+        <v-card class="d-flex flex-column overflow-hidden min-w-[360px] max-w-[90vw] md:min-w-[720px] lg:min-w-[880px]"
+            style="height: 80vh; max-height: 80vh;">
             <v-card-title class="d-flex align-center">
                 <v-icon class="mr-2">mdi-robot</v-icon>
                 Autonomous Agent Status
@@ -30,7 +30,7 @@
                 </v-btn>
             </v-card-title>
 
-            <v-card-text class="py-2" style="flex: 1 1 auto; overflow-y: auto;">
+            <v-card-text class="py-2" style="flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain;">
                 <!-- Feature Status Overview -->
                 <v-row class="mb-4">
                     <v-col cols="12">
@@ -38,25 +38,25 @@
                             <v-card-subtitle>Feature Status</v-card-subtitle>
                             <div class="d-flex flex-column">
                                 <div class="d-flex align-center mb-2">
-                                    <v-icon :color="props.agentEnableTTS ? 'success' : 'grey'" class="mr-2">
-                                        {{ props.agentEnableTTS ? 'mdi-check-circle' : 'mdi-circle-outline' }}
+                                    <v-icon :color="props.agentEnableTts ? 'success' : 'grey'" class="mr-2">
+                                        {{ props.agentEnableTts ? 'mdi-check-circle' : 'mdi-circle-outline' }}
                                     </v-icon>
-                                    <span>TTS ({{ ttsModelName }}): {{ props.agentEnableTTS ? 'Enabled' : 'Disabled'
-                                    }}</span>
+                                    <span>TTS ({{ ttsModelName }}): {{ props.agentEnableTts ? 'Enabled' : 'Disabled'
+                                        }}</span>
                                 </div>
                                 <div class="d-flex align-center mb-2">
-                                    <v-icon :color="props.agentEnableLLM ? 'success' : 'grey'" class="mr-2">
-                                        {{ props.agentEnableLLM ? 'mdi-check-circle' : 'mdi-circle-outline' }}
+                                    <v-icon :color="props.agentEnableLlm ? 'success' : 'grey'" class="mr-2">
+                                        {{ props.agentEnableLlm ? 'mdi-check-circle' : 'mdi-circle-outline' }}
                                     </v-icon>
-                                    <span>LLM ({{ llmModelName }}): {{ props.agentEnableLLM ? 'Enabled' : 'Disabled'
-                                    }}</span>
+                                    <span>LLM ({{ llmModelName }}): {{ props.agentEnableLlm ? 'Enabled' : 'Disabled'
+                                        }}</span>
                                 </div>
                                 <div class="d-flex align-center">
-                                    <v-icon :color="props.agentEnableSTT ? 'success' : 'grey'" class="mr-2">
-                                        {{ props.agentEnableSTT ? 'mdi-check-circle' : 'mdi-circle-outline' }}
+                                    <v-icon :color="props.agentEnableStt ? 'success' : 'grey'" class="mr-2">
+                                        {{ props.agentEnableStt ? 'mdi-check-circle' : 'mdi-circle-outline' }}
                                     </v-icon>
-                                    <span>STT ({{ sttModelName }}): {{ props.agentEnableSTT ? 'Enabled' : 'Disabled'
-                                    }}</span>
+                                    <span>STT ({{ sttModelName }}): {{ props.agentEnableStt ? 'Enabled' : 'Disabled'
+                                        }}</span>
                                 </div>
                             </div>
                         </v-card>
@@ -71,12 +71,12 @@
                                 <v-progress-circular indeterminate color="primary" size="20" class="mr-2" />
                                 <div class="d-flex flex-column">
                                     <span>• LLM ({{ llmModelName }}): {{ llmLoading ? (llmStep || 'Loading') : 'Ready'
-                                    }}</span>
+                                        }}</span>
                                     <span>• TTS ({{ ttsModelName }}): {{ kokoroLoading ? (kokoroStep || 'Loading') :
                                         'Ready'
-                                    }}</span>
+                                        }}</span>
                                     <span>• STT ({{ sttModelName }}): {{ sttLoading ? (sttStep || 'Loading') : 'Ready'
-                                    }}</span>
+                                        }}</span>
                                 </div>
                             </div>
                         </v-alert>
@@ -84,7 +84,7 @@
                 </v-row>
 
                 <!-- Live Transcripts -->
-                <v-row v-if="props.agentEnableSTT">
+                <v-row v-if="props.agentEnableStt">
                     <v-col cols="12">
                         <v-card variant="outlined" class="pa-3">
                             <div class="d-flex align-center mb-2">
@@ -103,18 +103,22 @@
                             <div v-if="transcripts.length === 0" class="text-caption text-medium-emphasis ml-1">
                                 Waiting for remote audio...
                             </div>
-                            <v-virtual-scroll v-else :items="transcriptsLimitedReversed" :height="220"
-                                class="overflow-y-auto" item-height="44">
-                                <template #default="{ item }">
-                                    <v-list-item :key="item.at + ':' + item.peerId" density="compact">
-                                        <v-list-item-title>
-                                            <code>{{ new Date(item.at).toLocaleTimeString() }}</code>
-                                            <span class="ml-2 text-medium-emphasis">[{{ item.peerId }}]</span>
-                                        </v-list-item-title>
-                                        <v-list-item-subtitle>{{ item.text }}</v-list-item-subtitle>
-                                    </v-list-item>
-                                </template>
-                            </v-virtual-scroll>
+                            <div v-else class="overflow-y-auto pr-1" style="max-height: 220px;">
+                                <v-list density="compact">
+                                    <template v-for="item in transcriptsLimitedReversed"
+                                        :key="item.at + ':' + item.peerId">
+                                        <v-list-item density="compact">
+                                            <v-list-item-title>
+                                                <code>{{ new Date(item.at).toLocaleTimeString() }}</code>
+                                                <span class="ml-2 text-medium-emphasis">[{{ item.peerId }}]</span>
+                                            </v-list-item-title>
+                                            <v-list-item-subtitle class="wrap-anywhere">{{ item.text
+                                                }}</v-list-item-subtitle>
+                                        </v-list-item>
+                                        <v-divider class="my-1" />
+                                    </template>
+                                </v-list>
+                            </div>
                         </v-card>
                     </v-col>
                 </v-row>
@@ -126,7 +130,7 @@
                             <v-card-subtitle>Model Status</v-card-subtitle>
 
                             <!-- TTS Status -->
-                            <div v-if="props.agentEnableTTS" class="mb-3">
+                            <div v-if="props.agentEnableTts" class="mb-3">
                                 <div class="d-flex align-center mb-1">
                                     <v-icon class="mr-2">mdi-volume-high</v-icon>
                                     <span class="font-weight-medium">TTS ({{ ttsModelName }})</span>
@@ -155,7 +159,7 @@
                             </div>
 
                             <!-- LLM Status -->
-                            <div v-if="props.agentEnableLLM" class="mb-3">
+                            <div v-if="props.agentEnableLlm" class="mb-3">
                                 <div class="d-flex align-center mb-1">
                                     <v-icon class="mr-2">mdi-brain</v-icon>
                                     <span class="font-weight-medium">LLM ({{ llmModelName }})</span>
@@ -183,7 +187,7 @@
                             </div>
 
                             <!-- STT Status -->
-                            <div v-if="props.agentEnableSTT" class="mb-3">
+                            <div v-if="props.agentEnableStt" class="mb-3">
                                 <div class="d-flex align-center mb-1">
                                     <v-icon class="mr-2">mdi-microphone</v-icon>
                                     <span class="font-weight-medium">STT ({{ sttModelName }})</span>
@@ -196,7 +200,7 @@
                                 <div v-if="sttLoading" class="ml-6">
                                     <v-progress-linear indeterminate color="primary" height="4" class="mb-1" />
                                     <span class="text-caption text-medium-emphasis">{{ sttStep || 'Initializing...'
-                                    }}</span>
+                                        }}</span>
                                 </div>
                                 <div v-else-if="sttPipeline" class="ml-6">
                                     <span class="text-caption text-success">Model loaded successfully</span>
@@ -223,35 +227,58 @@
                                     </span>
                                 </div>
                             </div>
+                            <!-- TTS Output Destination Indicator -->
+                            <div class="ml-6 d-flex align-center mt-1">
+                                <span class="text-caption text-medium-emphasis mr-2">TTS Output:</span>
+                                <v-chip :color="ttsOutputColor" size="x-small">{{ ttsOutputLabel }}</v-chip>
+                            </div>
                         </v-card>
                     </v-col>
                 </v-row>
 
-                <!-- LLM Output (Thoughts) -->
-                <v-row v-if="props.agentEnableLLM">
+                <!-- Conversation (Prompts vs Replies) -->
+                <v-row v-if="props.agentEnableLlm">
                     <v-col cols="12">
                         <v-card variant="outlined" class="pa-3">
                             <div class="d-flex align-center mb-2">
-                                <v-card-subtitle class="pr-2">LLM Output</v-card-subtitle>
+                                <v-card-subtitle class="pr-2">Conversation</v-card-subtitle>
                                 <v-spacer />
                                 <v-chip :color="llmGenerating ? 'warning' : 'success'" size="small">
                                     {{ llmGenerating ? 'Generating' : 'Idle' }}
                                 </v-chip>
                             </div>
-                            <div v-if="llmOutputs.length === 0" class="text-caption text-medium-emphasis ml-1">
-                                Waiting for LLM output...
+                            <div v-if="conversationItems.length === 0" class="text-caption text-medium-emphasis ml-1">
+                                No conversation yet. Speak into the mic to start.
                             </div>
-                            <v-virtual-scroll v-else :items="llmOutputsReversed" :height="160" class="overflow-y-auto"
-                                item-height="44">
-                                <template #default="{ item }">
-                                    <v-list-item :key="item.at" density="compact">
-                                        <v-list-item-title>
-                                            <code>{{ new Date(item.at).toLocaleTimeString() }}</code>
-                                        </v-list-item-title>
-                                        <v-list-item-subtitle>{{ item.text }}</v-list-item-subtitle>
-                                    </v-list-item>
-                                </template>
-                            </v-virtual-scroll>
+                            <div v-else class="overflow-y-auto pr-1" style="max-height: 260px;">
+                                <v-list density="compact">
+                                    <template v-for="msg in conversationItemsReversed" :key="msg.key">
+                                        <v-list-item :class="msg.role === 'user' ? 'bg-transparent' : 'bg-transparent'">
+                                            <template #prepend>
+                                                <v-avatar color="grey-darken-3" size="24" v-if="msg.role === 'user'">
+                                                    <v-icon size="18">mdi-account</v-icon>
+                                                </v-avatar>
+                                                <v-avatar color="deep-purple-darken-3" size="24" v-else>
+                                                    <v-icon size="18">mdi-robot</v-icon>
+                                                </v-avatar>
+                                            </template>
+                                            <v-list-item-title class="d-flex align-center">
+                                                <span class="text-caption text-medium-emphasis mr-2">
+                                                    <code>{{ new Date(msg.at).toLocaleTimeString() }}</code>
+                                                </span>
+                                                <span class="font-weight-medium">{{ msg.role === 'user' ? 'You' :
+                                                    'Assistant'
+                                                    }}</span>
+                                            </v-list-item-title>
+                                            <v-list-item-subtitle class="mt-1 wrap-anywhere"
+                                                :class="msg.role === 'user' ? 'text-high-emphasis' : ''">
+                                                {{ msg.text }}
+                                            </v-list-item-subtitle>
+                                        </v-list-item>
+                                        <v-divider class="my-1" />
+                                    </template>
+                                </v-list>
+                            </div>
                         </v-card>
                     </v-col>
                 </v-row>
@@ -260,7 +287,7 @@
                 <v-row>
                     <v-col cols="12">
                         <div class="d-flex gap-2">
-                            <v-btn v-if="props.agentEnableTTS && kokoroTTS" color="primary" variant="outlined"
+                            <v-btn v-if="props.agentEnableTts && kokoroTTS" color="primary" variant="outlined"
                                 @click="testTTS" :loading="isSpeaking">
                                 <v-icon class="mr-1">mdi-volume-high</v-icon>
                                 Test TTS
@@ -308,18 +335,18 @@ const props = defineProps({
         default: () => new Map(),
     },
     // Feature flags provided by MainScene
-    agentEnableTTS: { type: Boolean, default: true },
-    agentEnableLLM: { type: Boolean, default: true },
-    agentEnableSTT: { type: Boolean, default: true },
-    agentTtsLocalEcho: { type: Boolean, default: false },
+    agentEnableTts: { type: Boolean, required: true },
+    agentEnableLlm: { type: Boolean, required: true },
+    agentEnableStt: { type: Boolean, required: true },
+    agentTtsLocalEcho: { type: Boolean, required: true },
     // Wake/End word control provided by MainScene (required via template props)
-    agentWakeWord: { type: String, default: "computer" },
-    agentEndWord: { type: String, default: "over" },
+    agentWakeWord: { type: String, required: true },
+    agentEndWord: { type: String, required: true },
     // Control whether to gate by wake/end or stream small segments to LLM
-    agentUseWakeEndGating: { type: Boolean, default: false },
+    agentUseWakeEndGating: { type: Boolean, required: true },
     // STT segmentation window (seconds) and max buffer
-    agentSttWindowSec: { type: Number, default: 2.5 },
-    agentSttMaxBufferSec: { type: Number, default: 10.0 },
+    agentSttWindowSec: { type: Number, required: true },
+    agentSttMaxBufferSec: { type: Number, required: true },
     // Preferred conversational language (ISO-639-1), provided via MainScene
     agentLanguage: { type: String, required: true },
     // Model identifiers provided via MainScene
@@ -444,18 +471,6 @@ function initSttWorkerOnce(): void {
     }
 }
 
-function downsample48kTo16k(input: Float32Array): Float32Array {
-    const ratio = 48000 / 16000;
-    const outLen = Math.floor(input.length / ratio);
-    const out = new Float32Array(outLen);
-    let pos = 0;
-    for (let i = 0; i < outLen; i++) {
-        out[i] = input[Math.floor(pos)];
-        pos += ratio;
-    }
-    return out;
-}
-
 const sttWorkletLoaded = new WeakSet<AudioContext>();
 async function ensureSttWorklet(ctx: AudioContext): Promise<void> {
     if (sttWorkletLoaded.has(ctx)) return;
@@ -506,7 +521,7 @@ async function attachStreamToSTT(peerId: string, stream: MediaStream): Promise<v
         sink.connect(ctx.destination);
 
         peerProcessors.set(peerId, { ctx, source, node, sink });
-        sttWorkerRef.value.postMessage({ type: "start", peerId, language: String(props.agentLanguage || 'en'), windowSec: Number(props.agentSttWindowSec || 2.5), maxBufferSec: Number(props.agentSttMaxBufferSec || 10.0) });
+        sttWorkerRef.value.postMessage({ type: "start", peerId, language: String(props.agentLanguage || 'en'), windowSec: props.agentSttWindowSec, maxBufferSec: props.agentSttMaxBufferSec });
         console.log(`[Agent STT] Streaming (AudioWorklet) attached for ${peerId}`);
     } catch (e) {
         console.error("[Agent STT] Failed to attach stream:", e);
@@ -587,6 +602,33 @@ function clearTranscripts() {
     transcripts.value = [];
 }
 
+// TTS output destination indicator
+function busHasPeers(): boolean {
+    const bus = busRef.value as unknown as { getPeers?: () => Map<string, RTCPeerConnection> } | null;
+    try {
+        return !!bus && typeof bus.getPeers === 'function' && bus.getPeers().size > 0;
+    } catch {
+        return false;
+    }
+}
+const ttsOutputLabel = computed<string>(() => {
+    if (!props.agentEnableTts) return 'Disabled';
+    const hasBusPeers = busHasPeers();
+    const local = !!props.agentTtsLocalEcho;
+    if (local && hasBusPeers) return 'Both';
+    if (hasBusPeers) return 'WebRTC';
+    if (local) return 'Local';
+    return 'None';
+});
+const ttsOutputColor = computed<string>(() => {
+    const label = ttsOutputLabel.value;
+    if (label === 'Both') return 'primary';
+    if (label === 'WebRTC') return 'success';
+    if (label === 'Local') return 'info';
+    if (label === 'Disabled') return 'grey';
+    return 'warning';
+});
+
 // LLM output capture
 type LlmEntry = { text: string; at: number };
 const llmOutputs = ref<LlmEntry[]>([]);
@@ -601,6 +643,26 @@ function addLlmOutput(text: string) {
     if (llmOutputs.value.length > MAX_LLM_OUTPUTS)
         llmOutputs.value.splice(0, llmOutputs.value.length - MAX_LLM_OUTPUTS);
 }
+
+// Merge transcripts (user prompts) and llmOutputs (assistant replies) into a single conversation list
+type ConversationItem = { role: 'user' | 'assistant'; text: string; at: number; key: string };
+const conversationItems = computed<ConversationItem[]>(() => {
+    const items: ConversationItem[] = [];
+    for (const t of transcriptsLimited.value) {
+        items.push({ role: 'user', text: t.text, at: t.at, key: `u:${t.at}:${t.peerId}` });
+    }
+    for (const l of llmOutputs.value) {
+        items.push({ role: 'assistant', text: l.text, at: l.at, key: `a:${l.at}` });
+    }
+    items.sort((a, b) => a.at - b.at);
+    // Keep the conversation bounded
+    return items.slice(-20);
+});
+
+// Newest-first ordering for UI rendering
+const conversationItemsReversed = computed<ConversationItem[]>(() =>
+    [...conversationItems.value].reverse(),
+);
 
 // Deprecated snackbar flags removed; progress now shown inside overlay
 
@@ -658,7 +720,10 @@ function initLlmWorkerOnce(): void {
             } else if (msg.type === "complete") {
                 llmGenerating.value = false;
                 const t = String(msg.text || "");
-                addLlmOutput(t);
+                const cleanedFromWorker = extractAssistantText(t);
+                if (cleanedFromWorker && !cleanedFromWorker.includes("<no-reply/>") && cleanedFromWorker.trim()) {
+                    addLlmOutput(cleanedFromWorker.trim());
+                }
                 if (llmPending) {
                     llmPending.resolve(t);
                     llmPending = null;
@@ -703,17 +768,60 @@ async function generateWithLLM(prompt: string, options?: Record<string, unknown>
 
 // MediaRecorder-based STT removed; worker-only
 
+function maybeRejectAudio(text: string): boolean {
+    const s = (text || "").trim();
+    return s === "[BLANK_AUDIO]";
+}
+
+// Build a trimmed, reverse-ordered chat history snippet for prompts
+function buildPromptHistory(
+    maxItems: number,
+    maxCharsPerItem: number,
+    totalCharLimit: number,
+): string {
+    try {
+        const src = conversationItems.value.slice(-maxItems); // chronological (oldest first)
+        let out = "";
+        let total = 0;
+        for (const item of src) {
+            const role = item.role === 'user' ? 'User' : 'Assistant';
+            let text = String(item.text || '').trim().replace(/\s+/g, ' ');
+            if (maxCharsPerItem > 0 && text.length > maxCharsPerItem) {
+                text = text.slice(0, maxCharsPerItem);
+            }
+            const line = `${role}: ${text}`;
+            const toAdd = out ? `\n${line}` : line;
+            if (totalCharLimit > 0 && total + toAdd.length > totalCharLimit) break;
+            out += toAdd;
+            total += toAdd.length;
+        }
+        return out;
+    } catch {
+        return "";
+    }
+}
+
+// Extract only the assistant portion from LLM output, if present
+function extractAssistantText(raw: string): string {
+    const t = String(raw || '');
+    const cleaned = t.replace(/^[\s\S]*?Assistant:\s*/i, '').trim();
+    return cleaned || t.trim();
+}
+
 async function handleTranscript(peerId: string, text: string) {
     // Always record to overlay
     addTranscript(peerId, text);
     // Optionally generate a reply if LLM is enabled
-    if (!props.agentEnableLLM) return;
+    if (!props.agentEnableLlm) return;
     try {
-        const prompt = `You are an in-world assistant. Keep replies short and conversational. User said: "${text}"\nAssistant:`;
-        const reply: string = await generateWithLLM(prompt, { max_new_tokens: 80, temperature: 0.7 });
-        if (reply.trim().length > 0) {
-            console.log("[Agent LLM]", reply);
-            ttsQueue.push(reply);
+        if (maybeRejectAudio(text)) return;
+        const history = buildPromptHistory(12, 200, 1800);
+        const prompt = `System: You are an in-world assistant. Be concise and conversational.\n${history ? `Chat history:\n${history}\n` : ''}\nUser: ${text}\n\nAssistant:`;
+        const reply: string = await generateWithLLM(prompt, { max_new_tokens: 80, temperature: 0.7, return_full_text: false });
+        const cleaned = extractAssistantText(reply).trim();
+        if (cleaned.length > 0) {
+            console.log("[Agent LLM]", cleaned);
+            ttsQueue.push(cleaned);
             void flushTTSQueue();
         }
     } catch (e) {
@@ -774,14 +882,14 @@ async function processAsrText(peerId: string, rawText: string): Promise<void> {
     if (toAdd) session.buffered += (session.buffered ? " " : "") + toAdd;
 }
 
-// Streaming segmentation state and routing to LLM
-type StreamSession = { buffer: string; lastSentAtMs: number; lastSeenTextHash: string };
+// Streaming segmentation state and local wake/end detection
+type StreamSession = { buffer: string; awaitingWake: boolean };
 const streamSessions = new Map<string, StreamSession>();
 
 function getOrCreateStreamSession(peerId: string): StreamSession {
     let s = streamSessions.get(peerId);
     if (!s) {
-        s = { buffer: "", lastSentAtMs: 0, lastSeenTextHash: "" };
+        s = { buffer: "", awaitingWake: true };
         streamSessions.set(peerId, s);
     }
     return s;
@@ -794,45 +902,42 @@ async function handleStreamingSegment(peerId: string, segment: string): Promise<
     addTranscript(peerId, trimmed);
     const s = getOrCreateStreamSession(peerId);
     s.buffer = (s.buffer ? `${s.buffer} ` : "") + trimmed;
-    await maybeSendStreamToLLM(peerId);
+    await detectAndEmitUtterances(peerId);
 }
 
-async function maybeSendStreamToLLM(peerId: string): Promise<void> {
-    if (!props.agentEnableLLM) return;
-    if (!llmWorkerRef.value) return;
+async function detectAndEmitUtterances(peerId: string): Promise<void> {
+    if (!props.agentEnableLlm) return;
+    const wake = String(props.agentWakeWord || "").trim().toLowerCase();
+    const end = String(props.agentEndWord || "").trim().toLowerCase();
+    if (!wake || !end) return; // require explicit markers
+
     const s = getOrCreateStreamSession(peerId);
-    const now = Date.now();
-    const minIntervalMs = 1500;
-    if (now - s.lastSentAtMs < minIntervalMs) return;
-
-    const full = s.buffer.trim();
-    if (!full) return;
-
-    // Use a sliding window to keep prompt bounded
-    const maxChars = 600;
-    const windowText = full.length > maxChars ? full.slice(-maxChars) : full;
-
-    // Avoid redundant calls if text unchanged
-    const hash = `${String(windowText.length)}:${windowText.slice(-64)}`;
-    if (hash === s.lastSeenTextHash) return;
-
-    s.lastSeenTextHash = hash;
-    s.lastSentAtMs = now;
-
-    try {
-        const wake = props.agentWakeWord.trim();
-        const end = props.agentEndWord.trim();
-        const policy = props.agentUseWakeEndGating
-            ? `Only respond when you detect speech between the wake word "${wake}" and the end word "${end}". If not present, do not reply.`
-            : `Decide if the latest stream contains a complete user request. If it's partial, ambiguous, or not addressable yet, respond with <no-reply/>.`;
-        const prompt = `You are an in-world assistant receiving a rolling transcript stream (latest first may be truncated). ${policy}\nTranscript:\n"""\n${windowText}\n"""\nAssistant:`;
-        const reply: string = await generateWithLLM(prompt, { max_new_tokens: 80, temperature: 0.7 });
-        const cleaned = reply.trim();
-        if (!cleaned || cleaned.includes("<no-reply/>")) return;
-        ttsQueue.push(cleaned);
-        void flushTTSQueue();
-    } catch (e) {
-        console.error("[Agent LLM] Streaming generation failed:", e);
+    // Process as many complete utterances as exist in the buffer
+    let safety = 0;
+    while (s.buffer.length > 0 && safety++ < 32) {
+        let buf = s.buffer;
+        let lower = buf.toLowerCase();
+        if (s.awaitingWake) {
+            const wIdx = lower.indexOf(wake);
+            if (wIdx < 0) return; // still waiting for wake word
+            const start = wIdx + wake.length;
+            buf = buf.slice(start);
+            lower = lower.slice(start);
+            s.awaitingWake = false;
+        }
+        const eIdx = lower.indexOf(end);
+        if (eIdx < 0) {
+            // haven't seen end word yet; keep accumulated buffer
+            s.buffer = buf;
+            return;
+        }
+        const utterance = buf.slice(0, eIdx).trim();
+        // Advance buffer past end word for potential subsequent utterances
+        const after = buf.slice(eIdx + end.length);
+        s.buffer = after;
+        s.awaitingWake = true;
+        if (utterance) await handleTranscript(peerId, utterance);
+        // continue loop to look for another wake/end that may already be present
     }
 }
 
@@ -853,18 +958,18 @@ async function flushTTSQueue() {
 async function speakWithKokoro(text: string): Promise<void> {
     try {
         const bus = busRef.value;
-        const allowLocalEcho = Boolean(props.agentTtsLocalEcho);
-        const wantBus = !allowLocalEcho && !!bus;
+        const allowLocalEcho = props.agentTtsLocalEcho;
+        const hasPeers = !!bus && typeof bus.getPeers === 'function' && bus.getPeers().size > 0;
+        const useBus = !!bus && hasPeers;
 
         // If local echo is disabled and there are no WebRTC peers, skip speaking
-        const hasPeers = !!bus && typeof bus.getPeers === 'function' && bus.getPeers().size > 0;
-        if (!allowLocalEcho && !hasPeers) {
+        if (!allowLocalEcho && !useBus) {
             console.warn("[Agent TTS] No WebRTC peers and local echo disabled; skipping TTS playback.");
             return;
         }
 
         // Ensure bus audio context exists if we intend to use it
-        if (wantBus) {
+        if (useBus) {
             try {
                 await bus.ensureUplinkDestination();
             } catch {
@@ -872,10 +977,8 @@ async function speakWithKokoro(text: string): Promise<void> {
             }
         }
 
-        const busCtx = wantBus ? bus.getUplinkAudioContext() || null : null;
-        // Only fall back to local echo if explicitly allowed
-        const useLocalEcho = allowLocalEcho || !busCtx;
-        const ctx = useLocalEcho ? new AudioContext() : busCtx;
+        const busCtx = useBus ? (bus.getUplinkAudioContext() || null) : null;
+        const ctx = busCtx || new AudioContext();
 
         // Resume context before scheduling audio (autoplay policies)
         try {
@@ -933,15 +1036,16 @@ async function speakWithKokoro(text: string): Promise<void> {
         gain = ctx.createGain();
         gain.gain.value = 1.25; // slight amplification
 
-        if (useLocalEcho) {
-            source.connect(gain);
-            gain.connect(ctx.destination);
-        } else if (bus) {
-            // Build nodes in the bus' AudioContext so connection succeeds
-            source.connect(gain);
-            // Connect into the uplink chain for WebRTC transmission
+        // Always connect source to our gain
+        source.connect(gain);
+        // Route to WebRTC uplink if available
+        if (useBus && bus) {
             bus.connectNodeToUplink(gain);
             await bus.replaceUplinkWithDestination();
+        }
+        // Optionally also play locally
+        if (allowLocalEcho) {
+            try { gain.connect(ctx.destination); } catch { /* ignore */ }
         }
 
         await new Promise<void>((resolve) => {
@@ -983,16 +1087,16 @@ if (featureEnabled) {
         () => props.vircadiaWorld?.connectionInfo.value.status,
         async (status) => {
             if (status === "connected") {
-                if (props.agentEnableTTS) {
+                if (props.agentEnableTts) {
                     // Initialize TTS worker
                     initTtsWorkerOnce();
                 }
-                if (props.agentEnableLLM) {
+                if (props.agentEnableLlm) {
                     // Initialize LLM worker
                     initLlmWorkerOnce();
                 }
                 // After models are ready, attach STT to existing remote streams via worker
-                if (props.agentEnableSTT) {
+                if (props.agentEnableStt) {
                     initSttWorkerOnce();
                     for (const [pid, stream] of remoteStreamsRef.value) {
                         attachStreamToSTT(pid, stream);
@@ -1010,7 +1114,7 @@ if (featureEnabled) {
     watch(
         () => remoteStreamsRef.value,
         (streams, oldStreams) => {
-            if (!props.agentEnableSTT) return;
+            if (!props.agentEnableStt) return;
             initSttWorkerOnce();
             for (const [pid, stream] of streams) {
                 attachStreamToSTT(pid, stream);
@@ -1088,5 +1192,11 @@ function initTtsWorkerOnce(): void {
 .teleport-container {
     display: flex;
     align-items: center;
+}
+
+.wrap-anywhere {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 </style>

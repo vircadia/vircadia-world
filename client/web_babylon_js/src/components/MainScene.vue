@@ -49,14 +49,15 @@
                         <component v-if="comp === 'VircadiaAutonomousAgent'" :is="comp" :scene="scene" :engine="engine"
                             :canvas="renderCanvas" :vircadia-world="vircadiaWorld" :webrtc-bus="webrtcBus"
                             :webrtc-local-stream="webrtcLocalStream" :webrtc-peers="webrtcPeersMap"
-                            :webrtc-remote-streams="webrtcRemoteStreamsMap" :agent-tts-local-echo="false"
+                            :webrtc-remote-streams="webrtcRemoteStreamsMap" :agent-tts-local-echo="agentTtsLocalEcho"
                             :agent-wake-word="agentWakeWord" :agent-end-word="agentEndWord"
                             :agent-use-wake-end-gating="agentUseWakeEndGating" :agent-stt-window-sec="agentSttWindowSec"
                             :agent-stt-max-buffer-sec="agentSttMaxBufferSec" :agent-language="agentLanguage"
                             :agent-tts-model-id="agentTtsModelId" :agent-llm-model-id="agentLlmModelId"
-                            :agent-stt-model-id="agentSttModelId" />
+                            :agent-stt-model-id="agentSttModelId" :agent-enable-tts="agentEnableTTS"
+                            :agent-enable-llm="agentEnableLLM" :agent-enable-stt="agentEnableSTT" />
                         <component v-else :is="comp" :scene="scene" :engine="engine" :canvas="renderCanvas"
-                            :vircadia-world="vircadiaWorld" :webrtc-bus="webrtcBus" />
+                            :vircadia-world="vircadiaWorld" />
                     </template>
 
                     <!-- App Bar with Actions -->
@@ -82,7 +83,7 @@
                                 <v-btn v-bind="props" icon class="ml-2"
                                     :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                     <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' : 'mdi-speedometer-slow'
-                                        }}</v-icon>
+                                    }}</v-icon>
                                 </v-btn>
                             </template>
                             <div key="normalPerf">
@@ -151,7 +152,7 @@
                                     <v-btn v-bind="props" icon variant="text" class="ml-2" :disabled="!sceneInitialized"
                                         @click="inspectorRef?.toggleInspector()">
                                         <v-icon>{{ inspectorVisible ? 'mdi-file-tree' : 'mdi-file-tree-outline'
-                                            }}</v-icon>
+                                        }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <span>Babylon Inspector (T)</span>
@@ -530,6 +531,10 @@ const webrtcRemoteStreamsMap = ref(new Map<string, MediaStream>());
 // Prefer passing from here rather than setting defaults inside the agent
 const agentWakeWord = ref<string>("computer");
 const agentEndWord = ref<string>("over");
+const agentTtsLocalEcho = ref<boolean>(false);
+const agentEnableLLM = ref<boolean>(true);
+const agentEnableSTT = ref<boolean>(true);
+const agentEnableTTS = ref<boolean>(true);
 const agentUseWakeEndGating = ref<boolean>(false);
 const agentSttWindowSec = ref<number>(2.5);
 const agentSttMaxBufferSec = ref<number>(10.0);

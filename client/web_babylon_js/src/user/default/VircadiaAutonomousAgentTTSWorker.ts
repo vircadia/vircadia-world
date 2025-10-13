@@ -21,7 +21,7 @@ let modelIdRef: string = "onnx-community/Kokoro-82M-v1.0-ONNX";
 
 function post(event: WorkerEvent) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (self as any).postMessage(
+    self.postMessage(
         event,
         event.type === "audio" ? [(event as any).pcm] : undefined,
     );
@@ -58,7 +58,7 @@ function toFloat32Array(
     const anyIn: any = input;
     // Guard against referencing AudioBuffer in Worker context where it's undefined
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const AudioBufferCtor: any = (self as any).AudioBuffer;
+    const AudioBufferCtor: any = self.AudioBuffer;
     if (AudioBufferCtor && anyIn instanceof AudioBufferCtor) {
         const sr = anyIn.sampleRate || 24000;
         const data = anyIn.getChannelData(0);
@@ -133,4 +133,4 @@ async function handleMessage(e: MessageEvent<WorkerMessage>) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-(self as any).addEventListener("message", handleMessage);
+self.addEventListener("message", handleMessage);

@@ -33,7 +33,7 @@ let llmModelIdRef: string = "onnx-community/granite-4.0-micro-ONNX-web";
 
 function post(event: WorkerEvent) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (self as any).postMessage(event);
+    self.postMessage(event);
 }
 
 async function ensureLoaded() {
@@ -134,4 +134,4 @@ async function handleMessage(e: MessageEvent<WorkerMessage>) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-(self as any).addEventListener("message", handleMessage);
+self.addEventListener("message", handleMessage);

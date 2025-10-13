@@ -52,7 +52,9 @@
                             :webrtc-remote-streams="webrtcRemoteStreamsMap" :agent-tts-local-echo="false"
                             :agent-wake-word="agentWakeWord" :agent-end-word="agentEndWord"
                             :agent-use-wake-end-gating="agentUseWakeEndGating" :agent-stt-window-sec="agentSttWindowSec"
-                            :agent-stt-max-buffer-sec="agentSttMaxBufferSec" :agent-language="agentLanguage" />
+                            :agent-stt-max-buffer-sec="agentSttMaxBufferSec" :agent-language="agentLanguage"
+                            :agent-tts-model-id="agentTtsModelId" :agent-llm-model-id="agentLlmModelId"
+                            :agent-stt-model-id="agentSttModelId" />
                         <component v-else :is="comp" :scene="scene" :engine="engine" :canvas="renderCanvas"
                             :vircadia-world="vircadiaWorld" :webrtc-bus="webrtcBus" />
                     </template>
@@ -533,6 +535,10 @@ const agentSttWindowSec = ref<number>(2.5);
 const agentSttMaxBufferSec = ref<number>(10.0);
 // Default conversational language for ASR/LLM
 const agentLanguage = ref<string>("en");
+// Model IDs to configure workers; prefer template-provided values from here
+const agentTtsModelId = ref<string>("onnx-community/Kokoro-82M-v1.0-ONNX");
+const agentLlmModelId = ref<string>("onnx-community/granite-4.0-micro-ONNX-web");
+const agentSttModelId = ref<string>("Xenova/whisper-base");
 
 onMounted(async () => {
     console.debug("[MainScene] Initialized");

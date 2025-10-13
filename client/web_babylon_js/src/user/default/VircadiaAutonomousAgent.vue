@@ -41,19 +41,22 @@
                                     <v-icon :color="props.agentEnableTTS ? 'success' : 'grey'" class="mr-2">
                                         {{ props.agentEnableTTS ? 'mdi-check-circle' : 'mdi-circle-outline' }}
                                     </v-icon>
-                                    <span>TTS (Kokoro): {{ props.agentEnableTTS ? 'Enabled' : 'Disabled' }}</span>
+                                    <span>TTS ({{ ttsModelName }}): {{ props.agentEnableTTS ? 'Enabled' : 'Disabled'
+                                    }}</span>
                                 </div>
                                 <div class="d-flex align-center mb-2">
                                     <v-icon :color="props.agentEnableLLM ? 'success' : 'grey'" class="mr-2">
                                         {{ props.agentEnableLLM ? 'mdi-check-circle' : 'mdi-circle-outline' }}
                                     </v-icon>
-                                    <span>LLM (Granite): {{ props.agentEnableLLM ? 'Enabled' : 'Disabled' }}</span>
+                                    <span>LLM ({{ llmModelName }}): {{ props.agentEnableLLM ? 'Enabled' : 'Disabled'
+                                    }}</span>
                                 </div>
                                 <div class="d-flex align-center">
                                     <v-icon :color="props.agentEnableSTT ? 'success' : 'grey'" class="mr-2">
                                         {{ props.agentEnableSTT ? 'mdi-check-circle' : 'mdi-circle-outline' }}
                                     </v-icon>
-                                    <span>STT (Whisper): {{ props.agentEnableSTT ? 'Enabled' : 'Disabled' }}</span>
+                                    <span>STT ({{ sttModelName }}): {{ props.agentEnableSTT ? 'Enabled' : 'Disabled'
+                                    }}</span>
                                 </div>
                             </div>
                         </v-card>
@@ -67,10 +70,13 @@
                             <div class="d-flex align-center">
                                 <v-progress-circular indeterminate color="primary" size="20" class="mr-2" />
                                 <div class="d-flex flex-column">
-                                    <span>• LLM (Granite): {{ llmLoading ? (llmStep || 'Loading') : 'Ready' }}</span>
-                                    <span>• TTS (Kokoro): {{ kokoroLoading ? (kokoroStep || 'Loading') : 'Ready'
-                                        }}</span>
-                                    <span>• STT (Whisper): {{ sttLoading ? (sttStep || 'Loading') : 'Ready' }}</span>
+                                    <span>• LLM ({{ llmModelName }}): {{ llmLoading ? (llmStep || 'Loading') : 'Ready'
+                                    }}</span>
+                                    <span>• TTS ({{ ttsModelName }}): {{ kokoroLoading ? (kokoroStep || 'Loading') :
+                                        'Ready'
+                                    }}</span>
+                                    <span>• STT ({{ sttModelName }}): {{ sttLoading ? (sttStep || 'Loading') : 'Ready'
+                                    }}</span>
                                 </div>
                             </div>
                         </v-alert>
@@ -123,7 +129,7 @@
                             <div v-if="props.agentEnableTTS" class="mb-3">
                                 <div class="d-flex align-center mb-1">
                                     <v-icon class="mr-2">mdi-volume-high</v-icon>
-                                    <span class="font-weight-medium">TTS (Kokoro)</span>
+                                    <span class="font-weight-medium">TTS ({{ ttsModelName }})</span>
                                     <v-spacer />
                                     <v-chip
                                         :color="kokoroLoading ? 'warning' : (ttsGenerating ? 'warning' : kokoroTTS ? 'success' : 'error')"
@@ -152,7 +158,7 @@
                             <div v-if="props.agentEnableLLM" class="mb-3">
                                 <div class="d-flex align-center mb-1">
                                     <v-icon class="mr-2">mdi-brain</v-icon>
-                                    <span class="font-weight-medium">LLM (Granite)</span>
+                                    <span class="font-weight-medium">LLM ({{ llmModelName }})</span>
                                     <v-spacer />
                                     <v-chip
                                         :color="llmLoading ? 'warning' : (llmGenerating ? 'warning' : llmPipeline ? 'success' : 'error')"
@@ -180,7 +186,7 @@
                             <div v-if="props.agentEnableSTT" class="mb-3">
                                 <div class="d-flex align-center mb-1">
                                     <v-icon class="mr-2">mdi-microphone</v-icon>
-                                    <span class="font-weight-medium">STT (Whisper)</span>
+                                    <span class="font-weight-medium">STT ({{ sttModelName }})</span>
                                     <v-spacer />
                                     <v-chip :color="sttLoading ? 'warning' : sttPipeline ? 'success' : 'error'"
                                         size="small">
@@ -317,6 +323,10 @@ const props = defineProps({
     agentSttMaxBufferSec: { type: Number, default: 10.0 },
     // Preferred conversational language (ISO-639-1), provided via MainScene
     agentLanguage: { type: String, required: true },
+    // Model identifiers provided via MainScene
+    agentTtsModelId: { type: String, required: true },
+    agentLlmModelId: { type: String, required: true },
+    agentSttModelId: { type: String, required: true },
 });
 
 const featureEnabled = sessionStorage.getItem("is_autonomous_agent") === "true";
@@ -341,6 +351,16 @@ const kokoroStep = ref<string>("");
 const ttsWorkerRef = ref<Worker | null>(null);
 const ttsProgressPct = ref<number>(0);
 const ttsGenerating = ref<boolean>(false);
+
+function parseModelDisplayName(modelId: string | null | undefined): string {
+    const id = String(modelId || '').trim();
+    if (!id) return 'Unknown';
+    const last = id.split('/').pop() || id;
+    return last.replace(/[-_]+/g, ' ');
+}
+const ttsModelName = computed(() => parseModelDisplayName(props.agentTtsModelId));
+const llmModelName = computed(() => parseModelDisplayName(props.agentLlmModelId));
+const sttModelName = computed(() => parseModelDisplayName(props.agentSttModelId));
 
 // Use a broad unknown type here to avoid coupling to transformers' complex union type
 let llmPipeline: unknown = null;
@@ -374,17 +394,25 @@ function initSttWorkerOnce(): void {
         worker.addEventListener("message", (e: MessageEvent) => {
             const msg = e.data as { type: string; status?: string; peerId?: string; data?: any; error?: string };
             if (msg.type === "status") {
+                if (msg.status === "downloading") {
+                    sttLoading.value = true;
+                    sttStep.value = "Downloading Whisper (worker)";
+                }
                 if (msg.status === "loading") {
                     sttLoading.value = true;
                     try {
                         const d = msg.data;
                         if (d && typeof d === "object") {
-                            const p = d?.progress || d?.status || d?.file || d?.message || JSON.stringify(d);
+                            const p = (d as Record<string, unknown>)?.progress || (d as Record<string, unknown>)?.status || (d as Record<string, unknown>)?.file || (d as Record<string, unknown>)?.message || JSON.stringify(d);
                             sttStep.value = typeof p === "string" ? p : "Loading Whisper (worker)";
                         } else {
                             sttStep.value = "Loading Whisper (worker)";
                         }
                     } catch { sttStep.value = "Loading Whisper (worker)"; }
+                }
+                if (msg.status === "mounting") {
+                    sttLoading.value = true;
+                    sttStep.value = "Mounting Whisper (GPU compile)";
                 }
                 if (msg.status === "ready") {
                     sttLoading.value = false;
@@ -403,7 +431,7 @@ function initSttWorkerOnce(): void {
         });
         sttLoading.value = true;
         sttStep.value = "Initializing Whisper (worker)";
-        worker.postMessage({ type: "load" });
+        worker.postMessage({ type: "load", modelId: String(props.agentSttModelId || '') });
         sttWorkerRef.value = worker;
     } catch (e) {
         console.error("[Agent STT] Failed to init worker:", e);
@@ -454,7 +482,7 @@ async function attachStreamToSTT(peerId: string, stream: MediaStream): Promise<v
             if (data && data.type === "pcm" && data.pcm) {
                 if (!sttActive.value) return;
                 try {
-                    sttWorkerRef.value!.postMessage(
+                    sttWorkerRef.value?.postMessage(
                         { type: "audio", peerId, pcm: data.pcm },
                         [data.pcm],
                     );
@@ -587,7 +615,7 @@ const initKokoro = async (): Promise<void> => {
         const { KokoroTTS } = await import("kokoro-js");
         kokoroStep.value = "Compiling/initializing TTS";
         kokoroTTS.value = await KokoroTTS.from_pretrained(
-            "onnx-community/Kokoro-82M-v1.0-ONNX",
+            props.agentTtsModelId,
             {
                 device: "webgpu",
                 dtype: "fp32",
@@ -627,10 +655,14 @@ function initLlmWorkerOnce(): void {
         worker.addEventListener("message", (e: MessageEvent) => {
             const msg = e.data as { type: string; status?: string; data?: unknown; text?: string; error?: string };
             if (msg.type === "status") {
-                if (msg.status === "loading") {
+                if (msg.status === "downloading" || msg.status === "loading") {
                     llmLoading.value = true;
                     llmProgressPct.value = extractProgressPercent(msg.data);
-                    llmStep.value = typeof (msg.data as any)?.status === "string" ? String((msg.data as any).status) : "Loading Granite model";
+                    llmStep.value = msg.status === 'downloading' ? 'Downloading LLM model' : (typeof (msg.data as any)?.status === "string" ? String((msg.data as any).status) : "Loading LLM runtime");
+                }
+                if (msg.status === "mounting") {
+                    llmLoading.value = true;
+                    llmStep.value = "Mounting LLM (GPU compile)";
                 }
                 if (msg.status === "ready") {
                     llmLoading.value = false;
@@ -662,7 +694,7 @@ function initLlmWorkerOnce(): void {
         });
         llmLoading.value = true;
         llmStep.value = "Initializing LLM (worker)";
-        worker.postMessage({ type: "load" });
+        worker.postMessage({ type: "load", modelId: props.agentLlmModelId });
         llmWorkerRef.value = worker;
     } catch (e) {
         console.error("[Agent LLM] Failed to init worker:", e);
@@ -676,7 +708,7 @@ async function generateWithLLM(prompt: string, options?: Record<string, unknown>
         return await new Promise<string>((resolve, reject) => {
             llmPending = { resolve, reject };
             try {
-                llmWorkerRef.value!.postMessage({ type: "generate", prompt, options: options || {} });
+                llmWorkerRef.value?.postMessage({ type: "generate", prompt, options: options || {} });
             } catch (e) {
                 llmPending = null;
                 reject(e as Error);
@@ -706,7 +738,7 @@ const initSTT = async (): Promise<void> => {
         // See model card: Xenova/whisper-base
         sttPipeline = await pipeline(
             "automatic-speech-recognition",
-            "Xenova/whisper-base",
+            props.agentSttModelId,
             {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 progress_callback: (x: any) => {
@@ -872,7 +904,7 @@ async function handleStreamingSegment(peerId: string, segment: string): Promise<
     // Record minimal pieces to overlay
     addTranscript(peerId, trimmed);
     const s = getOrCreateStreamSession(peerId);
-    s.buffer = (s.buffer ? s.buffer + " " : "") + trimmed;
+    s.buffer = (s.buffer ? `${s.buffer} ` : "") + trimmed;
     await maybeSendStreamToLLM(peerId);
 }
 
@@ -892,21 +924,21 @@ async function maybeSendStreamToLLM(peerId: string): Promise<void> {
     const windowText = full.length > maxChars ? full.slice(-maxChars) : full;
 
     // Avoid redundant calls if text unchanged
-    const hash = String(windowText.length) + ":" + windowText.slice(-64);
+    const hash = `${String(windowText.length)}:${windowText.slice(-64)}`;
     if (hash === s.lastSeenTextHash) return;
 
     s.lastSeenTextHash = hash;
     s.lastSentAtMs = now;
 
     try {
-        const wake = String(props.agentWakeWord || "").trim();
-        const end = String(props.agentEndWord || "").trim();
+        const wake = props.agentWakeWord.trim();
+        const end = props.agentEndWord.trim();
         const policy = props.agentUseWakeEndGating
             ? `Only respond when you detect speech between the wake word "${wake}" and the end word "${end}". If not present, do not reply.`
             : `Decide if the latest stream contains a complete user request. If it's partial, ambiguous, or not addressable yet, respond with <no-reply/>.`;
         const prompt = `You are an in-world assistant receiving a rolling transcript stream (latest first may be truncated). ${policy}\nTranscript:\n"""\n${windowText}\n"""\nAssistant:`;
         const reply: string = await generateWithLLM(prompt, { max_new_tokens: 80, temperature: 0.7 });
-        const cleaned = String(reply || "").trim();
+        const cleaned = reply.trim();
         if (!cleaned || cleaned.includes("<no-reply/>")) return;
         ttsQueue.push(cleaned);
         void flushTTSQueue();
@@ -945,16 +977,16 @@ async function speakWithKokoro(text: string): Promise<void> {
         // Ensure bus audio context exists if we intend to use it
         if (wantBus) {
             try {
-                await bus!.ensureUplinkDestination();
+                await bus.ensureUplinkDestination();
             } catch {
                 /* no-op */
             }
         }
 
-        const busCtx = wantBus ? bus!.getUplinkAudioContext() || null : null;
+        const busCtx = wantBus ? bus.getUplinkAudioContext() || null : null;
         // Only fall back to local echo if explicitly allowed
         const useLocalEcho = allowLocalEcho || !busCtx;
-        const ctx = useLocalEcho ? new AudioContext() : busCtx!;
+        const ctx = useLocalEcho ? new AudioContext() : busCtx;
 
         // Resume context before scheduling audio (autoplay policies)
         try {
@@ -984,8 +1016,8 @@ async function speakWithKokoro(text: string): Promise<void> {
                             reject(new Error(String(m.error || 'TTS error')));
                         }
                     };
-                    ttsWorkerRef.value!.addEventListener('message', onMsg);
-                    try { ttsWorkerRef.value!.postMessage({ type: 'speak', text }); } catch (e) { if (!settled) { ttsWorkerRef.value?.removeEventListener('message', onMsg); reject(e as Error); } }
+                    ttsWorkerRef.value?.addEventListener('message', onMsg);
+                    try { ttsWorkerRef.value?.postMessage({ type: 'speak', text }); } catch (e) { if (!settled) { ttsWorkerRef.value?.removeEventListener('message', onMsg); reject(e as Error); } }
                 });
             } finally {
                 ttsGenerating.value = false;
@@ -1033,16 +1065,16 @@ async function speakWithKokoro(text: string): Promise<void> {
         }
 
         await new Promise<void>((resolve) => {
-            source!.addEventListener("ended", () => resolve());
+            source.addEventListener("ended", () => resolve());
             // Small fade-in to avoid clicks
             try {
                 const t = ctx.currentTime;
-                gain!.gain.setValueAtTime(0.0001, t);
-                gain!.gain.exponentialRampToValueAtTime(1.25, t + 0.02);
+                gain?.gain.setValueAtTime(0.0001, t);
+                gain?.gain.exponentialRampToValueAtTime(1.25, t + 0.02);
             } catch {
                 /* ignore */
             }
-            source!.start();
+            source.start();
         });
     } catch (e) {
         console.error("[Agent TTS] Failed to speak via Kokoro:", e);
@@ -1157,11 +1189,17 @@ function initTtsWorkerOnce(): void {
         worker.addEventListener("message", (e: MessageEvent) => {
             const msg = e.data as { type: string; status?: string; data?: unknown };
             if (msg.type === "status") {
+                if (msg.status === "downloading") {
+                    kokoroLoading.value = true;
+                    kokoroStep.value = "Downloading TTS model";
+                }
                 if (msg.status === "loading") {
                     kokoroLoading.value = true;
-                    // kokoro-js does not currently expose progress details; keep step for consistency
-                    kokoroStep.value = "Downloading/initializing TTS";
-                    // When a future version provides progress numbers, wire here into ttsProgressPct
+                    kokoroStep.value = "Initializing TTS";
+                }
+                if (msg.status === "mounting") {
+                    kokoroLoading.value = true;
+                    kokoroStep.value = "Mounting TTS (GPU compile)";
                 }
                 if (msg.status === "ready") {
                     kokoroLoading.value = false;
@@ -1175,7 +1213,7 @@ function initTtsWorkerOnce(): void {
         });
         kokoroLoading.value = true;
         kokoroStep.value = "Initializing TTS (worker)";
-        worker.postMessage({ type: "load" });
+        worker.postMessage({ type: "load", modelId: props.agentTtsModelId });
         ttsWorkerRef.value = worker;
     } catch (e) {
         console.error("[Agent TTS] Failed to init worker:", e);

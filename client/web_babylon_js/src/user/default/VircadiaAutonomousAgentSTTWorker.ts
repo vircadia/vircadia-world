@@ -19,7 +19,7 @@ type PeerSession = {
     windowSec: number;
 };
 
-type LoadMessage = { type: "load" };
+type LoadMessage = { type: "load"; modelId?: string };
 type StartMessage = {
     type: "start";
     peerId: string;
@@ -34,7 +34,14 @@ type WorkerMessage = LoadMessage | StartMessage | AudioMessage | StopMessage;
 type WorkerEvent =
     | {
           type: "status";
-          status: "loading" | "ready" | "start" | "update" | "complete";
+          status:
+              | "downloading"
+              | "mounting"
+              | "loading"
+              | "ready"
+              | "start"
+              | "update"
+              | "complete";
           peerId?: string;
           data?: unknown;
       }
@@ -186,10 +193,12 @@ async function handleMessage(e: MessageEvent<WorkerMessage>) {
     const msg = e.data;
     try {
         if (msg.type === "load") {
+            if (typeof msg.modelId === "string" && msg.modelId)
+                WhisperRuntime.modelId = msg.modelId;
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (self as any).postMessage({
                 type: "status",
-                status: "loading",
+                status: "downloading",
             } as WorkerEvent);
             const [, , model] = await WhisperRuntime.ensureLoaded((x) => {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -199,6 +208,12 @@ async function handleMessage(e: MessageEvent<WorkerMessage>) {
                     data: x,
                 } as WorkerEvent);
             });
+            // Mount/compile by running a minimal warmup
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (self as any).postMessage({
+                type: "status",
+                status: "mounting",
+            } as WorkerEvent);
             await model.generate({
                 input_features: full([1, 80, 3000], 0.0),
                 max_new_tokens: 1,

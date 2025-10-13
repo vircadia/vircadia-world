@@ -4,7 +4,7 @@
 
 import { pipeline, TextStreamer } from "@huggingface/transformers";
 
-type LoadMessage = { type: "load" };
+type LoadMessage = { type: "load"; modelId?: string };
 type GenerateMessage = {
     type: "generate";
     prompt: string;
@@ -13,8 +13,15 @@ type GenerateMessage = {
 type WorkerMessage = LoadMessage | GenerateMessage;
 
 type WorkerEvent =
-    | ({ type: "status"; status: "loading" | "ready" | "generating" } & {
-          // Optional progress payload from HF callbacks
+    | ({
+          type: "status";
+          status:
+              | "downloading"
+              | "mounting"
+              | "loading"
+              | "ready"
+              | "generating";
+      } & {
           data?: unknown;
       })
     | { type: "token"; text: string }
@@ -22,6 +29,7 @@ type WorkerEvent =
     | { type: "error"; error: string };
 
 let llm: any | null = null;
+let llmModelIdRef: string = "onnx-community/granite-4.0-micro-ONNX-web";
 
 function post(event: WorkerEvent) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -30,10 +38,10 @@ function post(event: WorkerEvent) {
 
 async function ensureLoaded() {
     if (llm) return;
-    post({ type: "status", status: "loading" });
+    post({ type: "status", status: "downloading" });
     llm = await pipeline(
         "text-generation",
-        "onnx-community/granite-4.0-micro-ONNX-web",
+        llmModelIdRef || "onnx-community/granite-4.0-micro-ONNX-web",
         {
             device: "webgpu",
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -41,7 +49,8 @@ async function ensureLoaded() {
                 post({ type: "status", status: "loading", data: x }),
         },
     );
-    // Warm up
+    // Mount kernels by warming up
+    post({ type: "status", status: "mounting" });
     try {
         await llm("Hello", { max_new_tokens: 1 });
     } catch {
@@ -114,6 +123,8 @@ async function handleGenerate(
 async function handleMessage(e: MessageEvent<WorkerMessage>) {
     const msg = e.data;
     if (msg.type === "load") {
+        if (typeof msg.modelId === "string" && msg.modelId)
+            llmModelIdRef = msg.modelId;
         await ensureLoaded();
         return;
     }

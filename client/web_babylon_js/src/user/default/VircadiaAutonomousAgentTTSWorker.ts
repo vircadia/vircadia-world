@@ -2,18 +2,22 @@
   TTS Worker: runs Kokoro TTS off main thread and returns PCM Float32Array
 */
 
-type LoadMessage = { type: "load" };
+type LoadMessage = { type: "load"; modelId?: string };
 type SpeakMessage = { type: "speak"; text: string };
 type WorkerMessage = LoadMessage | SpeakMessage;
 
 type WorkerEvent =
-    | ({ type: "status"; status: "loading" | "ready" | "generating" } & {
+    | ({
+          type: "status";
+          status: "downloading" | "mounting" | "ready" | "generating";
+      } & {
           data?: unknown;
       })
     | { type: "audio"; sampleRate: number; pcm: ArrayBufferLike }
     | { type: "error"; error: string };
 
 let kokoro: unknown | null = null;
+let modelIdRef: string = "onnx-community/Kokoro-82M-v1.0-ONNX";
 
 function post(event: WorkerEvent) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -25,16 +29,24 @@ function post(event: WorkerEvent) {
 
 async function ensureLoaded() {
     if (kokoro) return;
-    post({ type: "status", status: "loading" });
+    post({ type: "status", status: "downloading" });
     const { KokoroTTS } = await import("kokoro-js");
     kokoro = await KokoroTTS.from_pretrained(
-        "onnx-community/Kokoro-82M-v1.0-ONNX",
+        modelIdRef || "onnx-community/Kokoro-82M-v1.0-ONNX",
         {
             device: "webgpu",
             dtype: "fp32",
-            // progress callback not exposed by kokoro-js; keeping placeholder
         },
     );
+    // Mount/compile kernels by running a tiny warmup
+    post({ type: "status", status: "mounting" });
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const k: any = kokoro;
+        await (k?.tts ? k.tts(".") : k?.generate?.("."));
+    } catch {
+        /* ignore */
+    }
     post({ type: "status", status: "ready" });
 }
 
@@ -109,6 +121,8 @@ async function speak(text: string) {
 async function handleMessage(e: MessageEvent<WorkerMessage>) {
     const msg = e.data;
     if (msg.type === "load") {
+        if (typeof msg.modelId === "string" && msg.modelId)
+            modelIdRef = msg.modelId;
         await ensureLoaded();
         return;
     }

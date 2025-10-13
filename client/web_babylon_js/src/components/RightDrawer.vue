@@ -187,12 +187,12 @@
                                 <v-list-item>
                                     <v-list-item-title>Total Frames</v-list-item-title>
                                     <v-list-item-subtitle>{{ otherAvatarReflectStats?.totalFrames || 0
-                                        }}</v-list-item-subtitle>
+                                    }}</v-list-item-subtitle>
                                 </v-list-item>
                                 <v-list-item>
                                     <v-list-item-title>Bad Frames</v-list-item-title>
                                     <v-list-item-subtitle>{{ otherAvatarReflectStats?.badFrames || 0
-                                        }}</v-list-item-subtitle>
+                                    }}</v-list-item-subtitle>
                                 </v-list-item>
                                 <v-list-item>
                                     <v-list-item-title>Error Rate</v-list-item-title>
@@ -205,7 +205,7 @@
                                 <v-list-item>
                                     <v-list-item-title>Avg Frame Interval</v-list-item-title>
                                     <v-list-item-subtitle>{{ otherAvatarReflectAvgIntervalLabel
-                                        }}</v-list-item-subtitle>
+                                    }}</v-list-item-subtitle>
                                 </v-list-item>
                             </v-list>
                         </v-window-item>
@@ -341,7 +341,7 @@
                                         <v-expansion-panel-text>
                                             <div v-for="v in supportedVisemeNames" :key="v" class="text-caption mb-1">
                                                 <span class="font-mono" :class="{ 'text-success': hasMorph(v) }">{{ v
-                                                    }}</span>
+                                                }}</span>
                                                 <v-progress-linear v-if="influenceOf(v) !== null" :height="6"
                                                     :rounded="true" :striped="true" color="primary"
                                                     :model-value="Math.round(100 * (influenceOf(v) || 0))"
@@ -359,7 +359,7 @@
                                                     <span class="font-mono">{{ t.name }}</span>
                                                     <span class="text-caption">avg {{ t.avg.toFixed(3) }} — min {{
                                                         t.min.toFixed(3)
-                                                        }} — max {{ t.max.toFixed(3) }} (n={{ t.count }})</span>
+                                                    }} — max {{ t.max.toFixed(3) }} (n={{ t.count }})</span>
                                                 </div>
                                                 <v-progress-linear :model-value="Math.round(100 * t.avg)" :height="6"
                                                     color="secondary" rounded class="mt-1" />
@@ -465,12 +465,12 @@
                                 <v-list-item>
                                     <v-list-item-title>Total Frames</v-list-item-title>
                                     <v-list-item-subtitle>{{ otherAvatarReflectStats?.totalFrames || 0
-                                        }}</v-list-item-subtitle>
+                                    }}</v-list-item-subtitle>
                                 </v-list-item>
                                 <v-list-item>
                                     <v-list-item-title>Bad Frames</v-list-item-title>
                                     <v-list-item-subtitle>{{ otherAvatarReflectStats?.badFrames || 0
-                                        }}</v-list-item-subtitle>
+                                    }}</v-list-item-subtitle>
                                 </v-list-item>
                                 <v-list-item>
                                     <v-list-item-title>Error Rate</v-list-item-title>
@@ -483,7 +483,7 @@
                                 <v-list-item>
                                     <v-list-item-title>Avg Frame Interval</v-list-item-title>
                                     <v-list-item-subtitle>{{ otherAvatarReflectAvgIntervalLabel
-                                        }}</v-list-item-subtitle>
+                                    }}</v-list-item-subtitle>
                                 </v-list-item>
 
                                 <v-divider class="my-2" />
@@ -517,7 +517,7 @@
                                             <span class="text-caption">
                                                 model: <span class="font-mono">{{
                                                     (props.avatarDataMap?.[sid]?.modelFileName) || '-'
-                                                }}</span>
+                                                    }}</span>
                                                 — joints: {{ jointCount(sid) }}
                                             </span>
                                         </div>
@@ -585,6 +585,7 @@ const props = defineProps({
     open: { type: Boolean, default: false },
     tab: { type: String, default: "environment" },
     width: { type: Number, default: 360 },
+    isAnonymousAgent: { type: Boolean, default: false },
     environmentIsLoading: { type: Boolean, required: true },
     physicsEnabled: { type: Boolean, default: undefined },
     physicsPluginName: { type: String, default: null },

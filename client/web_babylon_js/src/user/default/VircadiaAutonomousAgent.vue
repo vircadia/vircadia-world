@@ -18,9 +18,9 @@
     </Teleport>
 
     <!-- Autonomous Agent Overlay -->
-    <v-overlay v-model="overlayOpen" persistent location="center" scroll-strategy="block"
-        class="align-center justify-center">
-        <v-card class="max-w-[500px] min-w-[400px] max-h-[80vh] overflow-y-auto">
+    <v-overlay v-model="overlayOpen" location="center" scroll-strategy="block" class="align-center justify-center">
+        <v-card
+            class="d-flex flex-column max-h-[80vh] overflow-hidden min-w-[360px] max-w-[90vw] md:min-w-[720px] lg:min-w-[880px]">
             <v-card-title class="d-flex align-center">
                 <v-icon class="mr-2">mdi-robot</v-icon>
                 Autonomous Agent Status
@@ -30,7 +30,7 @@
                 </v-btn>
             </v-card-title>
 
-            <v-card-text>
+            <v-card-text class="py-2" style="flex: 1 1 auto; overflow-y: auto;">
                 <!-- Feature Status Overview -->
                 <v-row class="mb-4">
                     <v-col cols="12">
@@ -69,7 +69,7 @@
                                 <div class="d-flex flex-column">
                                     <span>• LLM (Granite): {{ llmLoading ? (llmStep || 'Loading') : 'Ready' }}</span>
                                     <span>• TTS (Kokoro): {{ kokoroLoading ? (kokoroStep || 'Loading') : 'Ready'
-                                    }}</span>
+                                        }}</span>
                                     <span>• STT (Whisper): {{ sttLoading ? (sttStep || 'Loading') : 'Ready' }}</span>
                                 </div>
                             </div>
@@ -190,7 +190,7 @@
                                 <div v-if="sttLoading" class="ml-6">
                                     <v-progress-linear indeterminate color="primary" height="4" class="mb-1" />
                                     <span class="text-caption text-medium-emphasis">{{ sttStep || 'Initializing...'
-                                        }}</span>
+                                    }}</span>
                                 </div>
                                 <div v-else-if="sttPipeline" class="ml-6">
                                     <span class="text-caption text-success">Model loaded successfully</span>
@@ -932,7 +932,15 @@ async function flushTTSQueue() {
 async function speakWithKokoro(text: string): Promise<void> {
     try {
         const bus = busRef.value;
-        const wantBus = !props.agentTtsLocalEcho && !!bus;
+        const allowLocalEcho = Boolean(props.agentTtsLocalEcho);
+        const wantBus = !allowLocalEcho && !!bus;
+
+        // If local echo is disabled and there are no WebRTC peers, skip speaking
+        const hasPeers = !!bus && typeof bus.getPeers === 'function' && bus.getPeers().size > 0;
+        if (!allowLocalEcho && !hasPeers) {
+            console.warn("[Agent TTS] No WebRTC peers and local echo disabled; skipping TTS playback.");
+            return;
+        }
 
         // Ensure bus audio context exists if we intend to use it
         if (wantBus) {
@@ -944,7 +952,8 @@ async function speakWithKokoro(text: string): Promise<void> {
         }
 
         const busCtx = wantBus ? bus!.getUplinkAudioContext() || null : null;
-        const useLocalEcho = !busCtx;
+        // Only fall back to local echo if explicitly allowed
+        const useLocalEcho = allowLocalEcho || !busCtx;
         const ctx = useLocalEcho ? new AudioContext() : busCtx!;
 
         // Resume context before scheduling audio (autoplay policies)
@@ -958,27 +967,33 @@ async function speakWithKokoro(text: string): Promise<void> {
         let pcmData: Float32Array | null = null;
         let sampleRate: number = 24000;
         if (ttsWorkerRef.value) {
+            let payload: { sampleRate: number; pcm: ArrayBuffer } | null = null;
             ttsGenerating.value = true;
-            const payload = await new Promise<{ sampleRate: number; pcm: ArrayBuffer }>((resolve, reject) => {
-                let settled = false;
-                const onMsg = (e: MessageEvent) => {
-                    const m = e.data as { type: string; sampleRate?: number; pcm?: ArrayBuffer; status?: string; error?: string };
-                    if (m.type === 'audio' && m.pcm && typeof m.sampleRate === 'number') {
-                        settled = true;
-                        ttsWorkerRef.value?.removeEventListener('message', onMsg);
-                        resolve({ sampleRate: m.sampleRate, pcm: m.pcm });
-                    } else if (m.type === 'error') {
-                        settled = true;
-                        ttsWorkerRef.value?.removeEventListener('message', onMsg);
-                        reject(new Error(String(m.error || 'TTS error')));
-                    }
-                };
-                ttsWorkerRef.value!.addEventListener('message', onMsg);
-                try { ttsWorkerRef.value!.postMessage({ type: 'speak', text }); } catch (e) { if (!settled) { ttsWorkerRef.value?.removeEventListener('message', onMsg); reject(e as Error); } }
-            });
-            ttsGenerating.value = false;
-            sampleRate = payload.sampleRate;
-            pcmData = new Float32Array(payload.pcm);
+            try {
+                payload = await new Promise<{ sampleRate: number; pcm: ArrayBuffer }>((resolve, reject) => {
+                    let settled = false;
+                    const onMsg = (e: MessageEvent) => {
+                        const m = e.data as { type: string; sampleRate?: number; pcm?: ArrayBuffer; status?: string; error?: string };
+                        if (m.type === 'audio' && m.pcm && typeof m.sampleRate === 'number') {
+                            settled = true;
+                            ttsWorkerRef.value?.removeEventListener('message', onMsg);
+                            resolve({ sampleRate: m.sampleRate, pcm: m.pcm });
+                        } else if (m.type === 'error') {
+                            settled = true;
+                            ttsWorkerRef.value?.removeEventListener('message', onMsg);
+                            reject(new Error(String(m.error || 'TTS error')));
+                        }
+                    };
+                    ttsWorkerRef.value!.addEventListener('message', onMsg);
+                    try { ttsWorkerRef.value!.postMessage({ type: 'speak', text }); } catch (e) { if (!settled) { ttsWorkerRef.value?.removeEventListener('message', onMsg); reject(e as Error); } }
+                });
+            } finally {
+                ttsGenerating.value = false;
+            }
+            if (payload) {
+                sampleRate = payload.sampleRate;
+                pcmData = new Float32Array(payload.pcm);
+            }
         }
 
         let source: AudioBufferSourceNode | null = null;

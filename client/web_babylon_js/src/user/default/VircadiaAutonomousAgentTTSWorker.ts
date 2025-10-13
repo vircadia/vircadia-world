@@ -10,7 +10,7 @@ type WorkerEvent =
     | ({ type: "status"; status: "loading" | "ready" | "generating" } & {
           data?: unknown;
       })
-    | { type: "audio"; sampleRate: number; pcm: ArrayBuffer }
+    | { type: "audio"; sampleRate: number; pcm: ArrayBufferLike }
     | { type: "error"; error: string };
 
 let kokoro: unknown | null = null;
@@ -44,7 +44,10 @@ function toFloat32Array(
     if (!input) return null;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const anyIn: any = input;
-    if (anyIn instanceof AudioBuffer) {
+    // Guard against referencing AudioBuffer in Worker context where it's undefined
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const AudioBufferCtor: any = (self as any).AudioBuffer;
+    if (AudioBufferCtor && anyIn instanceof AudioBufferCtor) {
         const sr = anyIn.sampleRate || 24000;
         const data = anyIn.getChannelData(0);
         return { data: new Float32Array(data), sampleRate: sr };

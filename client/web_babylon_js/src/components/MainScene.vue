@@ -80,7 +80,7 @@
                                 <v-btn v-bind="props" icon class="ml-2"
                                     :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                     <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' : 'mdi-speedometer-slow'
-                                    }}</v-icon>
+                                        }}</v-icon>
                                 </v-btn>
                             </template>
                             <div key="normalPerf">
@@ -149,7 +149,7 @@
                                     <v-btn v-bind="props" icon variant="text" class="ml-2" :disabled="!sceneInitialized"
                                         @click="inspectorRef?.toggleInspector()">
                                         <v-icon>{{ inspectorVisible ? 'mdi-file-tree' : 'mdi-file-tree-outline'
-                                        }}</v-icon>
+                                            }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <span>Babylon Inspector (T)</span>

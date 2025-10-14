@@ -57,7 +57,7 @@
                             :agent-enable-tts="agentEnableTTS" :agent-enable-llm="agentEnableLLM"
                             :agent-enable-stt="agentEnableSTT" :agent-stt-pre-gain="agentSttPreGain"
                             :agent-stt-input-mode="agentSttInputMode"
-                            :agent-stt-gate-timeout-sec="agentSttGateTimeoutSec" />
+                            :agent-no-reply-timeout-sec="agentNoReplyTimeoutSec" />
                         <component v-else :is="comp" :scene="scene" :engine="engine" :canvas="renderCanvas"
                             :vircadia-world="vircadiaWorld" />
                     </template>
@@ -85,7 +85,7 @@
                                 <v-btn v-bind="props" icon class="ml-2"
                                     :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                     <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' : 'mdi-speedometer-slow'
-                                        }}</v-icon>
+                                    }}</v-icon>
                                 </v-btn>
                             </template>
                             <div key="normalPerf">
@@ -154,7 +154,7 @@
                                     <v-btn v-bind="props" icon variant="text" class="ml-2" :disabled="!sceneInitialized"
                                         @click="inspectorRef?.toggleInspector()">
                                         <v-icon>{{ inspectorVisible ? 'mdi-file-tree' : 'mdi-file-tree-outline'
-                                            }}</v-icon>
+                                        }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <span>Babylon Inspector (T)</span>
@@ -537,8 +537,8 @@ const agentTtsLocalEcho = ref<boolean>(false);
 const agentEnableLLM = ref<boolean>(true);
 const agentEnableSTT = ref<boolean>(true);
 const agentEnableTTS = ref<boolean>(true);
-// Gated STT is mandatory; timeout controls how long we wait for end word
-const agentSttGateTimeoutSec = ref<number>(20.0);
+// Reprompt timeout for partials/no-reply
+const agentNoReplyTimeoutSec = ref<number>(2.5);
 const agentSttWindowSec = ref<number>(2.0);
 const agentSttMaxBufferSec = ref<number>(8.0);
 // Default conversational language for ASR/LLM

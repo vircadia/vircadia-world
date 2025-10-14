@@ -42,21 +42,21 @@
                                         {{ props.agentEnableTts ? 'mdi-check-circle' : 'mdi-circle-outline' }}
                                     </v-icon>
                                     <span>TTS ({{ ttsModelName }}): {{ props.agentEnableTts ? 'Enabled' : 'Disabled'
-                                        }}</span>
+                                    }}</span>
                                 </div>
                                 <div class="d-flex align-center mb-2">
                                     <v-icon :color="props.agentEnableLlm ? 'success' : 'grey'" class="mr-2">
                                         {{ props.agentEnableLlm ? 'mdi-check-circle' : 'mdi-circle-outline' }}
                                     </v-icon>
                                     <span>LLM ({{ llmModelName }}): {{ props.agentEnableLlm ? 'Enabled' : 'Disabled'
-                                        }}</span>
+                                    }}</span>
                                 </div>
                                 <div class="d-flex align-center">
                                     <v-icon :color="props.agentEnableStt ? 'success' : 'grey'" class="mr-2">
                                         {{ props.agentEnableStt ? 'mdi-check-circle' : 'mdi-circle-outline' }}
                                     </v-icon>
                                     <span>STT ({{ sttModelName }}): {{ props.agentEnableStt ? 'Enabled' : 'Disabled'
-                                        }}</span>
+                                    }}</span>
                                 </div>
                             </div>
                         </v-card>
@@ -71,12 +71,12 @@
                                 <v-progress-circular indeterminate color="primary" size="20" class="mr-2" />
                                 <div class="d-flex flex-column">
                                     <span>• LLM ({{ llmModelName }}): {{ llmLoading ? (llmStep || 'Loading') : 'Ready'
-                                        }}</span>
+                                    }}</span>
                                     <span>• TTS ({{ ttsModelName }}): {{ kokoroLoading ? (kokoroStep || 'Loading') :
                                         'Ready'
-                                        }}</span>
+                                    }}</span>
                                     <span>• STT ({{ sttModelName }}): {{ sttLoading ? (sttStep || 'Loading') : 'Ready'
-                                        }}</span>
+                                    }}</span>
                                 </div>
                             </div>
                         </v-alert>
@@ -113,7 +113,7 @@
                                                 <span class="ml-2 text-medium-emphasis">[{{ item.peerId }}]</span>
                                             </v-list-item-title>
                                             <v-list-item-subtitle class="wrap-anywhere">{{ item.text
-                                                }}</v-list-item-subtitle>
+                                            }}</v-list-item-subtitle>
                                         </v-list-item>
                                         <v-divider class="my-1" />
                                     </template>
@@ -123,6 +123,7 @@
                     </v-col>
                 </v-row>
 
+                <!-- TODO: Remove this because now all transcripts are processed. -->
                 <!-- Raw STT (Full rolling) -->
                 <v-row v-if="props.agentEnableStt">
                     <v-col cols="12">
@@ -148,7 +149,7 @@
                                                 <span class="ml-2 text-medium-emphasis">[{{ item.peerId }}]</span>
                                             </v-list-item-title>
                                             <v-list-item-subtitle class="wrap-anywhere">{{ item.text
-                                                }}</v-list-item-subtitle>
+                                            }}</v-list-item-subtitle>
                                         </v-list-item>
                                         <v-divider class="my-1" />
                                     </template>
@@ -238,7 +239,7 @@
                                 <div v-if="sttLoading" class="ml-6">
                                     <v-progress-linear indeterminate color="primary" height="4" class="mb-1" />
                                     <span class="text-caption text-medium-emphasis">{{ sttStep || 'Initializing...'
-                                        }}</span>
+                                    }}</span>
                                 </div>
                                 <div v-else-if="sttPipeline" class="ml-6">
                                     <span class="text-caption text-success">Model loaded successfully</span>
@@ -269,7 +270,7 @@
                                         <v-progress-linear :model-value="rmsPct" color="secondary" height="6" rounded
                                             class="flex-grow-1" />
                                         <span class="text-caption text-medium-emphasis ml-2">{{ rmsLevel.toFixed(2)
-                                        }}</span>
+                                            }}</span>
                                     </div>
                                 </div>
                                 <!-- STT Inputs status -->
@@ -348,7 +349,7 @@
                                                 </span>
                                                 <span class="font-weight-medium">{{ msg.role === 'user' ? 'You' :
                                                     'Assistant'
-                                                    }}</span>
+                                                }}</span>
                                             </v-list-item-title>
                                             <v-list-item-subtitle class="mt-1 wrap-anywhere"
                                                 :class="msg.role === 'user' ? 'text-high-emphasis' : ''">
@@ -422,8 +423,9 @@ const props = defineProps({
     // Wake/End word control provided by MainScene (required via template props)
     agentWakeWord: { type: String, required: true },
     agentEndWord: { type: String, required: true },
-    // Mandatory gating: wake/end words with timeout
-    agentSttGateTimeoutSec: { type: Number, required: true },
+    // No external gating timeout; gating handled by LLM
+    // Reprompt timeout for partials/no-reply decisions
+    agentNoReplyTimeoutSec: { type: Number, required: true },
     // STT segmentation window (seconds) and max buffer
     agentSttWindowSec: { type: Number, required: true },
     agentSttMaxBufferSec: { type: Number, required: true },
@@ -569,6 +571,23 @@ function initSttWorkerOnce(): void {
                         ? (dataObj.text as string).trim()
                         : "";
                     if (t) void onSttResult(msg.peerId || "peer", t);
+                    // Also finalize buffered text at STT complete to avoid missing VAD recording_end
+                    const pid = msg.peerId || "peer";
+                    const wake = String(props.agentWakeWord || "").trim().toLowerCase();
+                    const end = String(props.agentEndWord || "").trim().toLowerCase();
+                    const s = sttSessions.get(pid);
+                    if (s) {
+                        if (!wake && !end) {
+                            const u = s.buffered.trim();
+                            s.buffered = "";
+                            if (u) void submitToLlmWithNoReply(pid, u);
+                        } else if (wake && !end && !s.awaitingWake) {
+                            const u = s.buffered.trim();
+                            s.awaitingWake = true;
+                            s.buffered = "";
+                            if (u) void submitToLlmWithNoReply(pid, u);
+                        }
+                    }
                 }
             } else if (msg.type === "error") {
                 console.warn("[Agent STT] worker error", msg.error);
@@ -603,6 +622,25 @@ function initVadWorkerOnce(): void {
                 vadLastSegmentAt.value = Date.now();
             }
             if (msg.type === "status" && msg.status) {
+                // On recording_end, finalize any buffered text for ungated or wake-only modes
+                if (msg.status === "recording_end" && typeof msg.peerId === 'string') {
+                    const pid = msg.peerId;
+                    const wake = String(props.agentWakeWord || "").trim().toLowerCase();
+                    const end = String(props.agentEndWord || "").trim().toLowerCase();
+                    const s = sttSessions.get(pid);
+                    if (s) {
+                        if (!wake && !end) {
+                            const finalUtt = s.buffered.trim();
+                            s.buffered = "";
+                            if (finalUtt) void submitToLlmWithNoReply(pid, finalUtt);
+                        } else if (wake && !end && !s.awaitingWake) {
+                            const finalUtt = s.buffered.trim();
+                            s.awaitingWake = true;
+                            s.buffered = "";
+                            if (finalUtt) void submitToLlmWithNoReply(pid, finalUtt);
+                        }
+                    }
+                }
                 if (msg.status === "recording_start") vadRecording.value = true;
                 if (msg.status === "recording_end") vadRecording.value = false;
             }
@@ -800,7 +838,8 @@ function onSttResult(peerId: string, text: string): void {
     s.lastCommitted = b;
     // Always surface raw incremental STT output to the live transcripts for debugging
     addTranscript(peerId, delta);
-    void processAsrText(peerId, delta);
+    // Always route incremental ASR to the LLM; VAD handles segment boundaries, LLM returns <no-reply/> when partial
+    void handleTranscript(peerId, delta, { incomplete: true });
 }
 
 function clearTranscripts() {
@@ -866,6 +905,7 @@ function detachMicFromSTT(): void {
 // LLM output capture
 type LlmEntry = { text: string; at: number };
 const llmOutputs = ref<LlmEntry[]>([]);
+// TODO: Remove this, it should be a prop for total history, not just LLM replies.
 const MAX_LLM_OUTPUTS = 10;
 const llmOutputsReversed = computed<LlmEntry[]>(() =>
     [...llmOutputs.value].reverse(),
@@ -955,7 +995,7 @@ function initLlmWorkerOnce(): void {
                 llmGenerating.value = false;
                 const t = String(msg.text || "");
                 const cleanedFromWorker = extractAssistantText(t);
-                if (cleanedFromWorker && !cleanedFromWorker.includes("<no-reply/>") && cleanedFromWorker.trim()) {
+                if (cleanedFromWorker?.trim()) {
                     addLlmOutput(cleanedFromWorker.trim());
                 }
                 if (llmPending) {
@@ -1042,18 +1082,28 @@ function extractAssistantText(raw: string): string {
     return cleaned || t.trim();
 }
 
-async function handleTranscript(_peerId: string, text: string, opts?: { incomplete?: boolean }) {
+async function handleTranscript(peerId: string, text: string, _opts?: { incomplete?: boolean }) {
     // Optionally generate a reply if LLM is enabled
     if (!props.agentEnableLlm) return;
     try {
         if (maybeRejectAudio(text)) return;
         const history = buildPromptHistory(12, 200, 1800);
-        const systemPrefix = opts?.incomplete
-            ? 'System: You are an in-world assistant. The user utterance may be incomplete (no end word detected). If information is missing, answer what you can concisely and await more. Do not hallucinate details.'
-            : 'System: You are an in-world assistant. Be concise and conversational.';
-        const prompt = `${systemPrefix}\n${history ? `Chat history:\n${history}\n` : ''}\nUser: ${text}\n\nAssistant:`;
+        const gatingInstruction = (() => {
+            const wake = String(props.agentWakeWord || '').trim();
+            const end = String(props.agentEndWord || '').trim();
+            if (wake && end) return `Guidance: Wake word may be present ('${wake}'); if the request seems partial or lacks a clear end, output exactly <no-reply/>.`;
+            if (wake && !end) return `Guidance: A wake word may start the request ('${wake}'); rely on natural boundaries. If the request seems partial, output exactly <no-reply/>.`;
+            return `Guidance: If input seems partial, output exactly <no-reply/>.`;
+        })();
+        const systemPrefix = 'System: You are an in-world assistant. Be concise and conversational. If the user input is partial or insufficient, respond with exactly <no-reply/> and nothing else. If sufficient follow up has been provided after you replied <no-reply/> then reply with a response.';
+        const prompt = `${systemPrefix}\n${gatingInstruction}\n${history ? `Chat history:\n${history}\n` : ''}\nUser: ${text}\n\nAssistant:`;
         const reply: string = await generateWithLLM(prompt, { max_new_tokens: 80, temperature: 0.7, return_full_text: false });
         const cleaned = extractAssistantText(reply).trim();
+        if (cleaned?.includes('<no-reply/>')) {
+            // Start a timer to reprompt if nothing else arrives
+            scheduleNoReplyTimer(peerId);
+            return;
+        }
         if (cleaned.length > 0) {
             console.log("[Agent LLM]", cleaned);
             ttsQueue.push(cleaned);
@@ -1064,76 +1114,45 @@ async function handleTranscript(_peerId: string, text: string, opts?: { incomple
     }
 }
 
-// Wake/End word gated ASR routing with session timeout
-type STTSession = { awaitingWake: boolean; buffered: string; timeoutId: number | null };
+async function submitToLlmWithNoReply(peerId: string, text: string, opts?: { incomplete?: boolean }): Promise<void> {
+    const s = getOrCreateSttSession(peerId);
+    s.lastSubmitAt = Date.now();
+    clearNoReplyTimer(peerId);
+    await handleTranscript(peerId, text, opts);
+}
+
+// Wake/End word gated ASR routing with session timeout and no-reply timers
+type STTSession = { awaitingWake: boolean; buffered: string; noReplyTimerId: number | null; lastSubmitAt: number };
 const sttSessions = new Map<string, STTSession>();
 
 function getOrCreateSttSession(peerId: string): STTSession {
     let s = sttSessions.get(peerId);
     if (!s) {
-        s = { awaitingWake: true, buffered: "", timeoutId: null };
+        s = { awaitingWake: true, buffered: "", noReplyTimerId: null, lastSubmitAt: 0 };
         sttSessions.set(peerId, s);
     }
     return s;
 }
 
-function clearGateTimeout(peerId: string): void {
+function clearNoReplyTimer(peerId: string): void {
     const s = getOrCreateSttSession(peerId);
-    if (s.timeoutId !== null) {
-        try { clearTimeout(s.timeoutId); } catch { /* ignore */ }
-        s.timeoutId = null;
+    if (s.noReplyTimerId !== null) {
+        try { clearTimeout(s.noReplyTimerId); } catch { /* ignore */ }
+        s.noReplyTimerId = null;
     }
 }
 
-function scheduleGateTimeout(peerId: string): void {
+// Removed scheduleGateTimeout: gating handled by LLM no-reply behavior
+
+function scheduleNoReplyTimer(peerId: string): void {
     const s = getOrCreateSttSession(peerId);
-    clearGateTimeout(peerId);
-    const ms = Math.max(1000, Math.floor((Number(props.agentSttGateTimeoutSec) || 20) * 1000));
-    s.timeoutId = setTimeout(async () => {
-        // Timeout without hearing end word: finalize what we have
-        const utterance = (s.buffered || "").trim();
-        s.awaitingWake = true;
-        s.buffered = "";
-        s.timeoutId = null;
-        if (utterance) await handleTranscript(peerId, utterance, { incomplete: true });
+    clearNoReplyTimer(peerId);
+    const ms = Math.max(500, Number(props.agentNoReplyTimeoutSec) * 1000);
+    s.noReplyTimerId = setTimeout(async () => {
+        s.noReplyTimerId = null;
+        const text = (s.buffered || "").trim();
+        if (text) await submitToLlmWithNoReply(peerId, text, { incomplete: true });
     }, ms) as unknown as number;
-}
-
-async function processAsrText(peerId: string, rawText: string): Promise<void> {
-    // Mandatory gated mode using wake/end words
-    const wake = String(props.agentWakeWord || "").trim().toLowerCase();
-    const end = String(props.agentEndWord || "").trim().toLowerCase();
-    if (!wake || !end) {
-        await handleTranscript(peerId, rawText);
-        return;
-    }
-    const session = getOrCreateSttSession(peerId);
-    let text = rawText;
-    let lower = text.toLowerCase();
-    if (session.awaitingWake) {
-        const wakeIdx = lower.indexOf(wake);
-        if (wakeIdx < 0) return;
-        const start = wakeIdx + wake.length;
-        text = text.slice(start);
-        lower = lower.slice(start);
-        session.awaitingWake = false;
-        session.buffered = "";
-        // Start session timeout window
-        scheduleGateTimeout(peerId);
-    }
-    const endIdx = lower.indexOf(end);
-    if (endIdx >= 0) {
-        const toAdd = text.slice(0, endIdx).trim();
-        if (toAdd) session.buffered += (session.buffered ? " " : "") + toAdd;
-        const finalUtterance = session.buffered.trim();
-        session.awaitingWake = true;
-        session.buffered = "";
-        clearGateTimeout(peerId);
-        if (finalUtterance) await handleTranscript(peerId, finalUtterance);
-        return;
-    }
-    const toAdd = text.trim();
-    if (toAdd) session.buffered += (session.buffered ? " " : "") + toAdd;
 }
 
 async function flushTTSQueue() {

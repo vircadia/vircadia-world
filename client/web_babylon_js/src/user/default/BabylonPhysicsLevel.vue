@@ -8,8 +8,10 @@ import type { AbstractMesh, Mesh, Scene } from "@babylonjs/core";
 import {
     HingeConstraint,
     ImportMeshAsync,
+    PBRMaterial,
     PhysicsAggregate,
     PhysicsShapeType,
+    Texture,
     Vector3,
     WebGPUEngine,
 } from "@babylonjs/core";
@@ -28,6 +30,15 @@ const ENTITY_NAME = "babylon.level.glb";
 const MODEL_FILE_NAME = "babylon.level.glb";
 const PHYSICS_TYPE = "mesh";
 const PHYSICS_OPTIONS = { mass: 0, friction: 0.85, restitution: 0.1 };
+
+// Mesh names expected to receive the lightmap (from example level)
+const LIGHTMAPPED_MESH_NAMES = [
+    "level_primitive0",
+    "level_primitive1",
+    "level_primitive2",
+];
+
+import lightmapUrl from "./BabylonPhysicsLevel/lightmap.jpg?url";
 
 const loadedMeshes = ref<AbstractMesh[]>([]);
 const physicsAggregates = ref<PhysicsAggregate[]>([]);
@@ -76,6 +87,8 @@ async function loadLevel(): Promise<void> {
     loadedMeshes.value = meshes;
 
     try {
+        // Apply lightmaps similar to the playground example
+        applyLevelLightmaps();
         applyPhysics();
     } catch (e) {
         console.error(
@@ -144,6 +157,41 @@ function addAggregateIfMesh(
     }
 }
 
+function applyLevelLightmaps(): void {
+    const s = props.scene;
+    if (!s) return;
+
+    // Use the example lightmap texture; can be made configurable later
+    const lightmap = new Texture(
+        lightmapUrl,
+        s,
+    );
+
+    for (const name of LIGHTMAPPED_MESH_NAMES) {
+        const mesh = s.getMeshByName(name) as AbstractMesh | null;
+        if (!mesh || !mesh.material) continue;
+
+        const mat = mesh.material as PBRMaterial;
+        // Assign shared lightmap texture and configure parameters
+        mat.lightmapTexture = lightmap;
+        mat.useLightmapAsShadowmap = true;
+        if (mat.lightmapTexture) {
+            // Mirror example settings
+            if (mat.lightmapTexture instanceof Texture) {
+                mat.lightmapTexture.uAng = Math.PI;
+            }
+            mat.lightmapTexture.level = 1.6;
+            mat.lightmapTexture.coordinatesIndex = 1;
+        }
+
+        // Optional performance hints from example
+        try {
+            (mesh as Mesh).freezeWorldMatrix?.();
+        } catch { }
+        (mesh as Mesh).doNotSyncBoundingInfo = true;
+    }
+}
+
 function applyPhysics(): void {
     const s = props.scene;
     if (!s.getPhysicsEngine?.()) {
@@ -157,13 +205,8 @@ function applyPhysics(): void {
     const restitution = PHYSICS_OPTIONS.restitution ?? 0.3;
 
     // 1) Static level meshes with mesh collider
-    const lightmapped = [
-        "level_primitive0",
-        "level_primitive1",
-        "level_primitive2",
-    ];
     let createdAggregates = 0;
-    for (const name of lightmapped) {
+    for (const name of LIGHTMAPPED_MESH_NAMES) {
         const mesh = s.getMeshByName(name) as AbstractMesh | null;
         addAggregateIfMesh(mesh, PhysicsShapeType.MESH, {
             mass: 0,

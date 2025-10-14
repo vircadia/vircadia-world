@@ -14,7 +14,7 @@ const props = defineProps({
     vircadiaWorld: { type: Object as () => VircadiaWorldInstance, default: null },
 });
 
-import sampleAvatarUrl from "./example/sample_avatar.glb?url";
+import sampleAvatarUrl from "./AvatarSDKExample/sample_avatar.glb?url";
 
 const rootNode = ref<TransformNode | null>(null);
 const isLoaded = ref(false);

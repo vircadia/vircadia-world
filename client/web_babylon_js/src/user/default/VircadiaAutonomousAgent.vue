@@ -42,21 +42,21 @@
                                         {{ props.agentEnableTts ? 'mdi-check-circle' : 'mdi-circle-outline' }}
                                     </v-icon>
                                     <span>TTS ({{ ttsModelName }}): {{ props.agentEnableTts ? 'Enabled' : 'Disabled'
-                                    }}</span>
+                                        }}</span>
                                 </div>
                                 <div class="d-flex align-center mb-2">
                                     <v-icon :color="props.agentEnableLlm ? 'success' : 'grey'" class="mr-2">
                                         {{ props.agentEnableLlm ? 'mdi-check-circle' : 'mdi-circle-outline' }}
                                     </v-icon>
                                     <span>LLM ({{ llmModelName }}): {{ props.agentEnableLlm ? 'Enabled' : 'Disabled'
-                                    }}</span>
+                                        }}</span>
                                 </div>
                                 <div class="d-flex align-center">
                                     <v-icon :color="props.agentEnableStt ? 'success' : 'grey'" class="mr-2">
                                         {{ props.agentEnableStt ? 'mdi-check-circle' : 'mdi-circle-outline' }}
                                     </v-icon>
                                     <span>STT ({{ sttModelName }}): {{ props.agentEnableStt ? 'Enabled' : 'Disabled'
-                                    }}</span>
+                                        }}</span>
                                 </div>
                             </div>
                         </v-card>
@@ -71,12 +71,12 @@
                                 <v-progress-circular indeterminate color="primary" size="20" class="mr-2" />
                                 <div class="d-flex flex-column">
                                     <span>• LLM ({{ llmModelName }}): {{ llmLoading ? (llmStep || 'Loading') : 'Ready'
-                                    }}</span>
+                                        }}</span>
                                     <span>• TTS ({{ ttsModelName }}): {{ kokoroLoading ? (kokoroStep || 'Loading') :
                                         'Ready'
-                                    }}</span>
+                                        }}</span>
                                     <span>• STT ({{ sttModelName }}): {{ sttLoading ? (sttStep || 'Loading') : 'Ready'
-                                    }}</span>
+                                        }}</span>
                                 </div>
                             </div>
                         </v-alert>
@@ -110,10 +110,11 @@
                                         <v-list-item density="compact">
                                             <v-list-item-title>
                                                 <code>{{ new Date(item.at).toLocaleTimeString() }}</code>
-                                                <span class="ml-2 text-medium-emphasis">[{{ item.peerId }}]</span>
+                                                <span class="ml-2 text-medium-emphasis">[{{ peerDisplayName(item.peerId)
+                                                    }}]</span>
                                             </v-list-item-title>
                                             <v-list-item-subtitle class="wrap-anywhere">{{ item.text
-                                            }}</v-list-item-subtitle>
+                                                }}</v-list-item-subtitle>
                                         </v-list-item>
                                         <v-divider class="my-1" />
                                     </template>
@@ -123,41 +124,7 @@
                     </v-col>
                 </v-row>
 
-                <!-- TODO: Remove this because now all transcripts are processed. -->
-                <!-- Raw STT (Full rolling) -->
-                <v-row v-if="props.agentEnableStt">
-                    <v-col cols="12">
-                        <v-card variant="outlined" class="pa-3">
-                            <div class="d-flex align-center mb-2">
-                                <v-card-subtitle class="pr-2">Raw STT (Full rolling)</v-card-subtitle>
-                                <v-spacer />
-                                <v-btn class="ml-1" size="small" variant="text" @click="clearTranscripts">
-                                    <v-icon>mdi-delete</v-icon>
-                                </v-btn>
-                            </div>
-                            <div v-if="sttRollingFullLimited.length === 0"
-                                class="text-caption text-medium-emphasis ml-1">
-                                Waiting for STT...
-                            </div>
-                            <div v-else class="overflow-y-auto pr-1" style="max-height: 220px;">
-                                <v-list density="compact">
-                                    <template v-for="item in sttRollingFullLimitedReversed"
-                                        :key="item.at + ':' + item.peerId">
-                                        <v-list-item density="compact">
-                                            <v-list-item-title>
-                                                <code>{{ new Date(item.at).toLocaleTimeString() }}</code>
-                                                <span class="ml-2 text-medium-emphasis">[{{ item.peerId }}]</span>
-                                            </v-list-item-title>
-                                            <v-list-item-subtitle class="wrap-anywhere">{{ item.text
-                                            }}</v-list-item-subtitle>
-                                        </v-list-item>
-                                        <v-divider class="my-1" />
-                                    </template>
-                                </v-list>
-                            </div>
-                        </v-card>
-                    </v-col>
-                </v-row>
+
 
                 <!-- Model Loading States -->
                 <v-row>
@@ -239,7 +206,7 @@
                                 <div v-if="sttLoading" class="ml-6">
                                     <v-progress-linear indeterminate color="primary" height="4" class="mb-1" />
                                     <span class="text-caption text-medium-emphasis">{{ sttStep || 'Initializing...'
-                                    }}</span>
+                                        }}</span>
                                 </div>
                                 <div v-else-if="sttPipeline" class="ml-6">
                                     <span class="text-caption text-success">Model loaded successfully</span>
@@ -270,7 +237,7 @@
                                         <v-progress-linear :model-value="rmsPct" color="secondary" height="6" rounded
                                             class="flex-grow-1" />
                                         <span class="text-caption text-medium-emphasis ml-2">{{ rmsLevel.toFixed(2)
-                                            }}</span>
+                                        }}</span>
                                     </div>
                                 </div>
                                 <!-- STT Inputs status -->
@@ -349,7 +316,7 @@
                                                 </span>
                                                 <span class="font-weight-medium">{{ msg.role === 'user' ? 'You' :
                                                     'Assistant'
-                                                }}</span>
+                                                    }}</span>
                                             </v-list-item-title>
                                             <v-list-item-subtitle class="mt-1 wrap-anywhere"
                                                 :class="msg.role === 'user' ? 'text-high-emphasis' : ''">
@@ -442,6 +409,18 @@ const props = defineProps({
 });
 
 const featureEnabled = sessionStorage.getItem("is_autonomous_agent") === "true";
+// Peer metadata: displayName, position, rotation (filled later; default placeholders)
+type PeerMeta = { displayName: string; position?: { x: number; y: number; z: number }; rotation?: { x: number; y: number; z: number; w?: number } };
+const peerMetadata = ref<Map<string, PeerMeta>>(new Map());
+
+function peerDisplayName(peerId: string): string {
+    try {
+        const meta = peerMetadata.value.get(peerId);
+        return (meta?.displayName || peerId);
+    } catch {
+        return peerId;
+    }
+}
 
 // Inject the teleport target from MainScene
 const teleportTarget = inject<Ref<HTMLElement | null>>(
@@ -555,38 +534,17 @@ function initSttWorkerOnce(): void {
                     sttStep.value = "";
                     sttPipeline = {};
                 }
-                if (msg.status === "update") {
+                if (msg.status === "complete") {
                     const dataObj = (msg.data && typeof msg.data === "object")
                         ? (msg.data as Record<string, unknown>)
                         : null;
                     const t = typeof dataObj?.text === "string"
                         ? (dataObj.text as string).trim()
                         : "";
-                    if (t) void onSttResult(msg.peerId || "peer", t);
-                } else if (msg.status === "complete") {
-                    const dataObj = (msg.data && typeof msg.data === "object")
-                        ? (msg.data as Record<string, unknown>)
-                        : null;
-                    const t = typeof dataObj?.text === "string"
-                        ? (dataObj.text as string).trim()
-                        : "";
-                    if (t) void onSttResult(msg.peerId || "peer", t);
-                    // Also finalize buffered text at STT complete to avoid missing VAD recording_end
-                    const pid = msg.peerId || "peer";
-                    const wake = String(props.agentWakeWord || "").trim().toLowerCase();
-                    const end = String(props.agentEndWord || "").trim().toLowerCase();
-                    const s = sttSessions.get(pid);
-                    if (s) {
-                        if (!wake && !end) {
-                            const u = s.buffered.trim();
-                            s.buffered = "";
-                            if (u) void submitToLlmWithNoReply(pid, u);
-                        } else if (wake && !end && !s.awaitingWake) {
-                            const u = s.buffered.trim();
-                            s.awaitingWake = true;
-                            s.buffered = "";
-                            if (u) void submitToLlmWithNoReply(pid, u);
-                        }
+                    if (t) {
+                        const pid = msg.peerId || "peer";
+                        addTranscript(pid, t);
+                        void submitToLlmWithNoReply(pid, t);
                     }
                 }
             } else if (msg.type === "error") {
@@ -622,25 +580,6 @@ function initVadWorkerOnce(): void {
                 vadLastSegmentAt.value = Date.now();
             }
             if (msg.type === "status" && msg.status) {
-                // On recording_end, finalize any buffered text for ungated or wake-only modes
-                if (msg.status === "recording_end" && typeof msg.peerId === 'string') {
-                    const pid = msg.peerId;
-                    const wake = String(props.agentWakeWord || "").trim().toLowerCase();
-                    const end = String(props.agentEndWord || "").trim().toLowerCase();
-                    const s = sttSessions.get(pid);
-                    if (s) {
-                        if (!wake && !end) {
-                            const finalUtt = s.buffered.trim();
-                            s.buffered = "";
-                            if (finalUtt) void submitToLlmWithNoReply(pid, finalUtt);
-                        } else if (wake && !end && !s.awaitingWake) {
-                            const finalUtt = s.buffered.trim();
-                            s.awaitingWake = true;
-                            s.buffered = "";
-                            if (finalUtt) void submitToLlmWithNoReply(pid, finalUtt);
-                        }
-                    }
-                }
                 if (msg.status === "recording_start") vadRecording.value = true;
                 if (msg.status === "recording_end") vadRecording.value = false;
             }
@@ -720,8 +659,6 @@ async function attachStreamToSTT(peerId: string, stream: MediaStream): Promise<v
             type: "start",
             peerId,
             language: String(props.agentLanguage || 'en'),
-            windowSec: props.agentSttWindowSec,
-            maxBufferSec: props.agentSttMaxBufferSec,
         });
         vadWorkerRef.value?.postMessage({ type: "start", peerId, language: String(props.agentLanguage || 'en') });
         console.log(`[Agent STT] Streaming (AudioWorklet) attached for ${peerId}`);
@@ -809,42 +746,8 @@ function addTranscript(peerId: string, text: string) {
         transcripts.value.splice(0, transcripts.value.length - MAX_TRANSCRIPTS);
 }
 
-// Rolling-context STT aggregator used only to compute deltas from Whisper updates
-const sttRollingState = new Map<string, { lastCommitted: string }>();
-// Full rolling transcript log (debug): captures entire rolling text, regardless of gate
-type RollingFullEntry = { peerId: string; text: string; at: number };
-const sttRollingFull = ref<RollingFullEntry[]>([]);
-const MAX_STT_ROLLING_FULL = 20;
-const sttRollingFullLimited = computed<RollingFullEntry[]>(() => sttRollingFull.value.slice(-MAX_STT_ROLLING_FULL));
-const sttRollingFullLimitedReversed = computed<RollingFullEntry[]>(() => [...sttRollingFullLimited.value].reverse());
-function onSttResult(peerId: string, text: string): void {
-    let s = sttRollingState.get(peerId);
-    if (!s) {
-        s = { lastCommitted: "" };
-        sttRollingState.set(peerId, s);
-    }
-    const a = s.lastCommitted;
-    const b = text.trim();
-    let i = 0;
-    const max = Math.min(a.length, b.length);
-    while (i < max && a[i] === b[i]) i++;
-    const delta = b.slice(i).trim();
-    // Always log the full rolling text for debug visibility
-    if (b) sttRollingFull.value.push({ peerId, text: b, at: Date.now() });
-    // Keep bounded
-    if (sttRollingFull.value.length > MAX_STT_ROLLING_FULL)
-        sttRollingFull.value.splice(0, sttRollingFull.value.length - MAX_STT_ROLLING_FULL);
-    if (delta.length === 0) return;
-    s.lastCommitted = b;
-    // Always surface raw incremental STT output to the live transcripts for debugging
-    addTranscript(peerId, delta);
-    // Always route incremental ASR to the LLM; VAD handles segment boundaries, LLM returns <no-reply/> when partial
-    void handleTranscript(peerId, delta, { incomplete: true });
-}
-
 function clearTranscripts() {
     transcripts.value = [];
-    sttRollingFull.value = [];
 }
 
 // TTS output destination indicator
@@ -1058,7 +961,7 @@ function buildPromptHistory(
         let out = "";
         let total = 0;
         for (const item of src) {
-            const role = item.role === 'user' ? 'User' : 'Assistant';
+            const role = item.role === 'user' ? `User(${peerDisplayName('mic')})` : 'Assistant';
             let text = String(item.text || '').trim().replace(/\s+/g, ' ');
             if (maxCharsPerItem > 0 && text.length > maxCharsPerItem) {
                 text = text.slice(0, maxCharsPerItem);

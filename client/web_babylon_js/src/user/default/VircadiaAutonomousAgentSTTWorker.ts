@@ -1,7 +1,8 @@
 /*
-  Rolling STT worker (no VAD): Whisper ASR (WebGPU) via transformers.js pipeline
-  - Emits rolling transcript updates (status: update) for keyword gating upstream
-  - Preserves protocol (status: ready|start|update|complete; start/audio/stop)
+  Segment-based STT worker: Whisper ASR (WebGPU) via transformers.js pipeline
+  - Expects finalized speech segments from VAD worker
+  - Emits one completion per segment (status: complete)
+  - Protocol: status: ready|processing|complete and messages: load/start/audio/stop
 */
 
 import { pipeline } from "@huggingface/transformers";
@@ -11,9 +12,6 @@ type StartMessage = {
     type: "start";
     peerId: string;
     language?: string;
-    // Rolling window parameters (seconds)
-    windowSec?: number;
-    maxBufferSec?: number;
 };
 type AudioMessage = {
     type: "audio";
@@ -30,7 +28,6 @@ type WorkerEvent =
           status:
               | "ready"
               | "start"
-              | "update"
               | "complete"
               | "downloading"
               | "loading"
@@ -42,11 +39,6 @@ type WorkerEvent =
     | { type: "error"; peerId?: string; error: string };
 
 type PeerSttState = {
-    buffered: Float32Array[];
-    bufferedSamples: number;
-    windowSamples: number;
-    maxBufferSamples: number;
-    lastText: string;
     language?: string;
     isProcessing?: boolean;
 };
@@ -58,21 +50,11 @@ const peers = new Map<string, PeerSttState>();
 function getPeerState(peerId: string): PeerSttState {
     let s = peers.get(peerId);
     if (!s) {
-        s = {
-            buffered: [],
-            bufferedSamples: 0,
-            windowSamples: Math.floor(1.0 * INPUT_SAMPLE_RATE),
-            maxBufferSamples: Math.floor(8.0 * INPUT_SAMPLE_RATE),
-            lastText: "",
-        };
+        s = {};
         peers.set(peerId, s);
     }
     return s;
 }
-// Reserve for future explicit resets via control messages
-// Removed VAD-based segmentation; explicit reset no longer used
-
-// concatBuffers removed; rolling window reads from trailing buffers
 
 let transcriber:
     | null
@@ -129,55 +111,10 @@ async function ensureLoaded(): Promise<void> {
     }
 }
 
-function trimBufferToMax(s: PeerSttState): void {
-    // Keep only the most recent samples within maxBufferSamples
-    if (s.bufferedSamples <= s.maxBufferSamples) return;
-    let need = s.bufferedSamples - s.maxBufferSamples;
-    while (need > 0 && s.buffered.length > 0) {
-        const first = s.buffered[0];
-        if (first.length <= need) {
-            s.buffered.shift();
-            s.bufferedSamples -= first.length;
-            need -= first.length;
-        } else {
-            // Slice the first buffer
-            s.buffered[0] = first.subarray(need);
-            s.bufferedSamples -= need;
-            need = 0;
-        }
-    }
-}
-
-function getLastWindow(s: PeerSttState): Float32Array | null {
-    if (s.bufferedSamples === 0) return null;
-    const need = Math.min(s.windowSamples, s.bufferedSamples);
-    const out = new Float32Array(need);
-    let remaining = need;
-    let o = need;
-    for (let i = s.buffered.length - 1; i >= 0 && remaining > 0; i--) {
-        const buf = s.buffered[i];
-        const copyLen = Math.min(buf.length, remaining);
-        o -= copyLen;
-        out.set(buf.subarray(buf.length - copyLen), o);
-        remaining -= copyLen;
-    }
-    return out;
-}
-
-async function handleChunk(peerId: string, chunk: Float32Array) {
+async function transcribeSegment(peerId: string, segment: Float32Array) {
     const s = getPeerState(peerId);
-    // Append chunk and trim to max buffer
-    s.buffered.push(chunk);
-    s.bufferedSamples += chunk.length;
-    trimBufferToMax(s);
-
-    // If not enough for a window yet, skip
-    if (s.bufferedSamples < s.windowSamples) return;
-
     try {
         await ensureLoaded();
-        const windowBuf = getLastWindow(s);
-        if (!windowBuf || windowBuf.length === 0) return;
         if (!s.isProcessing) {
             s.isProcessing = true;
             (
@@ -190,54 +127,30 @@ async function handleChunk(peerId: string, chunk: Float32Array) {
             });
         }
         const out = await (transcriber as NonNullable<typeof transcriber>)(
-            windowBuf,
+            segment,
             {
-                // Encourage Whisper to transcribe in the specified language if provided
                 task: "transcribe",
                 language: s.language || undefined,
             },
         );
-        let text = out.text;
-        // Normalize empty result to a visible placeholder for GUI previews
-        if (!text) text = "[BLANK_AUDIO]";
-        // Emit updates even for blank audio, but avoid spamming identical repeats
-        if (text === s.lastText) {
-            s.isProcessing = false;
-            (
-                self as unknown as { postMessage: (m: WorkerEvent) => void }
-            ).postMessage({
-                type: "status",
-                status: "processing",
-                peerId,
-                data: { active: false },
-            });
-            return;
-        }
-        s.lastText = text;
+        const text =
+            out.text && out.text.length > 0 ? out.text : "[BLANK_AUDIO]";
         (
             self as unknown as { postMessage: (m: WorkerEvent) => void }
         ).postMessage({
             type: "status",
-            status: "update",
+            status: "complete",
             peerId,
             data: { text },
-        });
-        s.isProcessing = false;
-        (
-            self as unknown as { postMessage: (m: WorkerEvent) => void }
-        ).postMessage({
-            type: "status",
-            status: "processing",
-            peerId,
-            data: { active: false },
         });
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         (
             self as unknown as { postMessage: (m: WorkerEvent) => void }
         ).postMessage({ type: "error", peerId, error: msg });
-        // Clear processing on error
-        s.isProcessing = false;
+    } finally {
+        const st = getPeerState(peerId);
+        st.isProcessing = false;
         (
             self as unknown as { postMessage: (m: WorkerEvent) => void }
         ).postMessage({
@@ -261,29 +174,15 @@ async function onMessage(e: MessageEvent<WorkerMessage>) {
             ).postMessage({
                 type: "status",
                 status: "ready",
-                data: { vadAvailable: false },
+                data: { vadAvailable: true },
             });
             return;
         }
         if (msg.type === "start") {
             const s = getPeerState(msg.peerId);
-            // Reset rolling state for this peer to avoid stale matches
-            s.buffered = [];
-            s.bufferedSamples = 0;
-            s.lastText = "";
             if (typeof msg.language === "string" && msg.language) {
                 s.language = msg.language;
             }
-            const winSec = Math.max(
-                0.5,
-                Math.min(5.0, Number(msg.windowSec ?? 1.0)),
-            );
-            const maxSec = Math.max(
-                winSec,
-                Math.min(30.0, Number(msg.maxBufferSec ?? 8.0)),
-            );
-            s.windowSamples = Math.floor(winSec * INPUT_SAMPLE_RATE);
-            s.maxBufferSamples = Math.floor(maxSec * INPUT_SAMPLE_RATE);
             (
                 self as unknown as { postMessage: (m: WorkerEvent) => void }
             ).postMessage({
@@ -296,16 +195,14 @@ async function onMessage(e: MessageEvent<WorkerMessage>) {
         if (msg.type === "audio") {
             const f32 = new Float32Array(msg.pcm);
             if (f32.length === 0) return;
-            // Update language if provided on audio messages
             if (typeof msg.language === "string" && msg.language) {
                 const s = getPeerState(msg.peerId);
                 s.language = msg.language;
             }
-            await handleChunk(msg.peerId, f32);
+            await transcribeSegment(msg.peerId, f32);
             return;
         }
         if (msg.type === "stop") {
-            // Fully clear peer state on stop
             peers.delete(msg.peerId);
             return;
         }

@@ -1,33 +1,26 @@
 /*
-  Relocated Streaming Whisper STT worker (WebGPU, Transformers.js)
-  - Adapted path for co-location with component
+  Rolling STT worker (no VAD): Whisper ASR (WebGPU) via transformers.js pipeline
+  - Emits rolling transcript updates (status: update) for keyword gating upstream
+  - Preserves protocol (status: ready|start|update|complete; start/audio/stop)
 */
 
-import {
-    AutoProcessor,
-    AutoTokenizer,
-    full,
-    TextStreamer,
-    WhisperForConditionalGeneration,
-} from "@huggingface/transformers";
-
-type PeerSession = {
-    buffer: Float32Array[];
-    processing: boolean;
-    language: string | undefined;
-    maxBufferSec: number;
-    windowSec: number;
-};
+import { pipeline } from "@huggingface/transformers";
 
 type LoadMessage = { type: "load"; modelId?: string };
 type StartMessage = {
     type: "start";
     peerId: string;
     language?: string;
+    // Rolling window parameters (seconds)
     windowSec?: number;
     maxBufferSec?: number;
 };
-type AudioMessage = { type: "audio"; peerId: string; pcm: ArrayBuffer };
+type AudioMessage = {
+    type: "audio";
+    peerId: string;
+    pcm: ArrayBuffer;
+    language?: string;
+};
 type StopMessage = { type: "stop"; peerId: string };
 type WorkerMessage = LoadMessage | StartMessage | AudioMessage | StopMessage;
 
@@ -35,254 +28,295 @@ type WorkerEvent =
     | {
           type: "status";
           status:
-              | "downloading"
-              | "mounting"
-              | "loading"
               | "ready"
               | "start"
               | "update"
-              | "complete";
+              | "complete"
+              | "downloading"
+              | "loading"
+              | "mounting"
+              | "processing";
           peerId?: string;
           data?: unknown;
       }
     | { type: "error"; peerId?: string; error: string };
 
-class WhisperRuntime {
-    static modelId = "onnx-community/whisper-base";
-    static tokenizer: any | null = null;
-    static processor: any | null = null;
-    static model: any | null = null;
+type PeerSttState = {
+    buffered: Float32Array[];
+    bufferedSamples: number;
+    windowSamples: number;
+    maxBufferSamples: number;
+    lastText: string;
+    language?: string;
+    isProcessing?: boolean;
+};
 
-    static async ensureLoaded(progress?: (x: unknown) => void) {
-        if (!WhisperRuntime.tokenizer) {
-            WhisperRuntime.tokenizer = await AutoTokenizer.from_pretrained(
-                WhisperRuntime.modelId,
-                {
-                    progress_callback: progress,
-                },
-            );
-        }
-        if (!WhisperRuntime.processor) {
-            WhisperRuntime.processor = await AutoProcessor.from_pretrained(
-                WhisperRuntime.modelId,
-                {
-                    progress_callback: progress,
-                },
-            );
-        }
-        if (!WhisperRuntime.model) {
-            WhisperRuntime.model =
-                await WhisperForConditionalGeneration.from_pretrained(
-                    WhisperRuntime.modelId,
-                    {
-                        dtype: {
-                            encoder_model: "fp32",
-                            decoder_model_merged: "q4",
-                        },
-                        device: "webgpu",
-                        progress_callback: progress,
-                    },
-                );
-        }
-        return [
-            WhisperRuntime.tokenizer,
-            WhisperRuntime.processor,
-            WhisperRuntime.model,
-        ] as const;
+// Config
+const INPUT_SAMPLE_RATE = 16000;
+
+const peers = new Map<string, PeerSttState>();
+function getPeerState(peerId: string): PeerSttState {
+    let s = peers.get(peerId);
+    if (!s) {
+        s = {
+            buffered: [],
+            bufferedSamples: 0,
+            windowSamples: Math.floor(1.0 * INPUT_SAMPLE_RATE),
+            maxBufferSamples: Math.floor(8.0 * INPUT_SAMPLE_RATE),
+            lastText: "",
+        };
+        peers.set(peerId, s);
+    }
+    return s;
+}
+// Reserve for future explicit resets via control messages
+// Removed VAD-based segmentation; explicit reset no longer used
+
+// concatBuffers removed; rolling window reads from trailing buffers
+
+let transcriber:
+    | null
+    | ((
+          input: Float32Array,
+          options?: Record<string, unknown>,
+      ) => Promise<{ text: string }>) = null;
+let modelId = "onnx-community/whisper-base";
+
+async function ensureLoaded(): Promise<void> {
+    if (!transcriber) {
+        // Emit coarse-grained loading statuses to mirror example UI behavior
+        (
+            self as unknown as { postMessage: (m: WorkerEvent) => void }
+        ).postMessage({
+            type: "status",
+            status: "loading",
+            data: { status: "Initializing Whisper pipeline" },
+        });
+        const pipe = await pipeline("automatic-speech-recognition", modelId, {
+            device: "webgpu",
+            dtype: { encoder_model: "fp32", decoder_model_merged: "fp32" },
+        });
+        // Trigger shader compilation/mount step
+        (
+            self as unknown as { postMessage: (m: WorkerEvent) => void }
+        ).postMessage({
+            type: "status",
+            status: "mounting",
+            data: { status: "Compiling GPU shaders" },
+        });
+        await pipe(new Float32Array(INPUT_SAMPLE_RATE));
+        transcriber = async (
+            input: Float32Array,
+            options?: Record<string, unknown>,
+        ) => {
+            const result = await pipe(input, {
+                // Keep caller-supplied options (language/task) last to allow override
+                ...(options ?? {}),
+            });
+            const single = Array.isArray(result) ? result[0] : result;
+            const text =
+                (single && typeof single === "object"
+                    ? (single as Record<string, unknown>).text
+                    : undefined) ?? "";
+            return { text: String(text).trim() };
+        };
+        (
+            self as unknown as { postMessage: (m: WorkerEvent) => void }
+        ).postMessage({
+            type: "status",
+            status: "ready",
+        });
     }
 }
 
-const sessions = new Map<string, PeerSession>();
+function trimBufferToMax(s: PeerSttState): void {
+    // Keep only the most recent samples within maxBufferSamples
+    if (s.bufferedSamples <= s.maxBufferSamples) return;
+    let need = s.bufferedSamples - s.maxBufferSamples;
+    while (need > 0 && s.buffered.length > 0) {
+        const first = s.buffered[0];
+        if (first.length <= need) {
+            s.buffered.shift();
+            s.bufferedSamples -= first.length;
+            need -= first.length;
+        } else {
+            // Slice the first buffer
+            s.buffered[0] = first.subarray(need);
+            s.bufferedSamples -= need;
+            need = 0;
+        }
+    }
+}
 
-function mergeChunks(chunks: Float32Array[]): Float32Array {
-    let total = 0;
-    for (const c of chunks) total += c.length;
-    const out = new Float32Array(total);
-    let o = 0;
-    for (const c of chunks) {
-        out.set(c, o);
-        o += c.length;
+function getLastWindow(s: PeerSttState): Float32Array | null {
+    if (s.bufferedSamples === 0) return null;
+    const need = Math.min(s.windowSamples, s.bufferedSamples);
+    const out = new Float32Array(need);
+    let remaining = need;
+    let o = need;
+    for (let i = s.buffered.length - 1; i >= 0 && remaining > 0; i--) {
+        const buf = s.buffered[i];
+        const copyLen = Math.min(buf.length, remaining);
+        o -= copyLen;
+        out.set(buf.subarray(buf.length - copyLen), o);
+        remaining -= copyLen;
     }
     return out;
 }
 
-function secondsToSamples(sec: number): number {
-    return Math.floor(sec * 16000);
-}
+async function handleChunk(peerId: string, chunk: Float32Array) {
+    const s = getPeerState(peerId);
+    // Append chunk and trim to max buffer
+    s.buffered.push(chunk);
+    s.bufferedSamples += chunk.length;
+    trimBufferToMax(s);
 
-async function maybeDecode(peerId: string) {
-    const session = sessions.get(peerId);
-    if (!session) return;
-    if (session.processing) return;
-
-    const numSamples = session.buffer.reduce((a, b) => a + b.length, 0);
-    if (numSamples < secondsToSamples(session.windowSec)) return;
-
-    session.processing = true;
+    // If not enough for a window yet, skip
+    if (s.bufferedSamples < s.windowSamples) return;
 
     try {
-        let keepSamples = secondsToSamples(session.windowSec);
-        const chunks: Float32Array[] = [];
-        for (
-            let i = session.buffer.length - 1;
-            i >= 0 && keepSamples > 0;
-            i--
-        ) {
-            const c = session.buffer[i];
-            chunks.push(c);
-            keepSamples -= c.length;
+        await ensureLoaded();
+        const windowBuf = getLastWindow(s);
+        if (!windowBuf || windowBuf.length === 0) return;
+        if (!s.isProcessing) {
+            s.isProcessing = true;
+            (
+                self as unknown as { postMessage: (m: WorkerEvent) => void }
+            ).postMessage({
+                type: "status",
+                status: "processing",
+                peerId,
+                data: { active: true },
+            });
         }
-        chunks.reverse();
-        const audio = mergeChunks(chunks);
-
-        const [tokenizer, processor, model] =
-            await WhisperRuntime.ensureLoaded();
-
-        const streamer = new TextStreamer(tokenizer, {
-            skip_prompt: true,
-            skip_special_tokens: true,
-            callback_function: (text: string) => {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (self as any).postMessage({
-                    type: "status",
-                    status: "update",
-                    peerId,
-                    data: { text },
-                } as WorkerEvent);
+        const out = await (transcriber as NonNullable<typeof transcriber>)(
+            windowBuf,
+            {
+                // Encourage Whisper to transcribe in the specified language if provided
+                task: "transcribe",
+                language: s.language || undefined,
             },
-        });
-
-        const inputs = await processor(audio);
-
-        const outputs = await model.generate({
-            ...inputs,
-            max_new_tokens: 96,
-            language: session.language,
-            streamer,
-        });
-
-        const decoded: string[] = tokenizer.batch_decode(outputs, {
-            skip_special_tokens: true,
-        });
-        const finalText = Array.isArray(decoded)
-            ? decoded.join(" ")
-            : String(decoded);
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (self as any).postMessage({
+        );
+        let text = out.text;
+        // Normalize empty result to a visible placeholder for GUI previews
+        if (!text) text = "[BLANK_AUDIO]";
+        // Emit updates even for blank audio, but avoid spamming identical repeats
+        if (text === s.lastText) {
+            s.isProcessing = false;
+            (
+                self as unknown as { postMessage: (m: WorkerEvent) => void }
+            ).postMessage({
+                type: "status",
+                status: "processing",
+                peerId,
+                data: { active: false },
+            });
+            return;
+        }
+        s.lastText = text;
+        (
+            self as unknown as { postMessage: (m: WorkerEvent) => void }
+        ).postMessage({
             type: "status",
-            status: "complete",
+            status: "update",
             peerId,
-            data: { text: finalText },
-        } as WorkerEvent);
-    } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (self as any).postMessage({
-            type: "error",
+            data: { text },
+        });
+        s.isProcessing = false;
+        (
+            self as unknown as { postMessage: (m: WorkerEvent) => void }
+        ).postMessage({
+            type: "status",
+            status: "processing",
             peerId,
-            error: msg,
-        } as WorkerEvent);
-    } finally {
-        const s2 = sessions.get(peerId);
-        if (s2) s2.processing = false;
+            data: { active: false },
+        });
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        (
+            self as unknown as { postMessage: (m: WorkerEvent) => void }
+        ).postMessage({ type: "error", peerId, error: msg });
+        // Clear processing on error
+        s.isProcessing = false;
+        (
+            self as unknown as { postMessage: (m: WorkerEvent) => void }
+        ).postMessage({
+            type: "status",
+            status: "processing",
+            peerId,
+            data: { active: false },
+        });
     }
 }
 
-async function handleMessage(e: MessageEvent<WorkerMessage>) {
+async function onMessage(e: MessageEvent<WorkerMessage>) {
     const msg = e.data;
     try {
         if (msg.type === "load") {
             if (typeof msg.modelId === "string" && msg.modelId)
-                WhisperRuntime.modelId = msg.modelId;
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (self as any).postMessage({
-                type: "status",
-                status: "downloading",
-            } as WorkerEvent);
-            const [, , model] = await WhisperRuntime.ensureLoaded((x) => {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (self as any).postMessage({
-                    type: "status",
-                    status: "loading",
-                    data: x,
-                } as WorkerEvent);
-            });
-            // Mount/compile by running a minimal warmup
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (self as any).postMessage({
-                type: "status",
-                status: "mounting",
-            } as WorkerEvent);
-            await model.generate({
-                input_features: full([1, 80, 3000], 0.0),
-                max_new_tokens: 1,
-            });
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (self as any).postMessage({
+                modelId = msg.modelId;
+            await ensureLoaded();
+            (
+                self as unknown as { postMessage: (m: WorkerEvent) => void }
+            ).postMessage({
                 type: "status",
                 status: "ready",
-            } as WorkerEvent);
+                data: { vadAvailable: false },
+            });
             return;
         }
         if (msg.type === "start") {
-            const {
-                peerId,
-                language,
-                windowSec = 2.0,
-                maxBufferSec = 8.0,
-            } = msg;
-            sessions.set(peerId, {
-                buffer: [],
-                processing: false,
-                language: language || "en",
-                windowSec,
-                maxBufferSec,
-            });
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (self as any).postMessage({
+            const s = getPeerState(msg.peerId);
+            // Reset rolling state for this peer to avoid stale matches
+            s.buffered = [];
+            s.bufferedSamples = 0;
+            s.lastText = "";
+            if (typeof msg.language === "string" && msg.language) {
+                s.language = msg.language;
+            }
+            const winSec = Math.max(
+                0.5,
+                Math.min(5.0, Number(msg.windowSec ?? 1.0)),
+            );
+            const maxSec = Math.max(
+                winSec,
+                Math.min(30.0, Number(msg.maxBufferSec ?? 8.0)),
+            );
+            s.windowSamples = Math.floor(winSec * INPUT_SAMPLE_RATE);
+            s.maxBufferSamples = Math.floor(maxSec * INPUT_SAMPLE_RATE);
+            (
+                self as unknown as { postMessage: (m: WorkerEvent) => void }
+            ).postMessage({
                 type: "status",
                 status: "start",
-                peerId,
-            } as WorkerEvent);
+                peerId: msg.peerId,
+            });
             return;
         }
         if (msg.type === "audio") {
-            const { peerId, pcm } = msg;
-            const session = sessions.get(peerId);
-            if (!session) return;
-            const f32 = new Float32Array(pcm);
+            const f32 = new Float32Array(msg.pcm);
             if (f32.length === 0) return;
-            session.buffer.push(f32);
-            let total = session.buffer.reduce((a, b) => a + b.length, 0);
-            const limit = secondsToSamples(session.maxBufferSec);
-            if (total > limit) {
-                for (
-                    let i = 0;
-                    i < session.buffer.length && total > limit;
-                    i++
-                ) {
-                    total -= session.buffer[i].length;
-                    session.buffer[i] = new Float32Array(0);
-                }
-                const compacted: Float32Array[] = [];
-                for (const c of session.buffer)
-                    if (c.length > 0) compacted.push(c);
-                session.buffer = compacted;
+            // Update language if provided on audio messages
+            if (typeof msg.language === "string" && msg.language) {
+                const s = getPeerState(msg.peerId);
+                s.language = msg.language;
             }
-            void maybeDecode(peerId);
+            await handleChunk(msg.peerId, f32);
             return;
         }
         if (msg.type === "stop") {
-            sessions.delete(msg.peerId);
+            // Fully clear peer state on stop
+            peers.delete(msg.peerId);
             return;
         }
     } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (self as any).postMessage({ type: "error", error } as WorkerEvent);
+        (
+            self as unknown as { postMessage: (m: WorkerEvent) => void }
+        ).postMessage({ type: "error", error });
     }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-(self as any).addEventListener("message", handleMessage);
+(
+    self as unknown as { addEventListener: typeof addEventListener }
+).addEventListener("message", onMessage as never);

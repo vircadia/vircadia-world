@@ -101,11 +101,46 @@
                                 </v-btn>
                             </div>
                             <div v-if="transcripts.length === 0" class="text-caption text-medium-emphasis ml-1">
-                                Waiting for remote audio...
+                                Waiting for audio...
                             </div>
                             <div v-else class="overflow-y-auto pr-1" style="max-height: 220px;">
                                 <v-list density="compact">
                                     <template v-for="item in transcriptsLimitedReversed"
+                                        :key="item.at + ':' + item.peerId">
+                                        <v-list-item density="compact">
+                                            <v-list-item-title>
+                                                <code>{{ new Date(item.at).toLocaleTimeString() }}</code>
+                                                <span class="ml-2 text-medium-emphasis">[{{ item.peerId }}]</span>
+                                            </v-list-item-title>
+                                            <v-list-item-subtitle class="wrap-anywhere">{{ item.text
+                                                }}</v-list-item-subtitle>
+                                        </v-list-item>
+                                        <v-divider class="my-1" />
+                                    </template>
+                                </v-list>
+                            </div>
+                        </v-card>
+                    </v-col>
+                </v-row>
+
+                <!-- Raw STT (Full rolling) -->
+                <v-row v-if="props.agentEnableStt">
+                    <v-col cols="12">
+                        <v-card variant="outlined" class="pa-3">
+                            <div class="d-flex align-center mb-2">
+                                <v-card-subtitle class="pr-2">Raw STT (Full rolling)</v-card-subtitle>
+                                <v-spacer />
+                                <v-btn class="ml-1" size="small" variant="text" @click="clearTranscripts">
+                                    <v-icon>mdi-delete</v-icon>
+                                </v-btn>
+                            </div>
+                            <div v-if="sttRollingFullLimited.length === 0"
+                                class="text-caption text-medium-emphasis ml-1">
+                                Waiting for STT...
+                            </div>
+                            <div v-else class="overflow-y-auto pr-1" style="max-height: 220px;">
+                                <v-list density="compact">
+                                    <template v-for="item in sttRollingFullLimitedReversed"
                                         :key="item.at + ':' + item.peerId">
                                         <v-list-item density="compact">
                                             <v-list-item-title>
@@ -192,9 +227,12 @@
                                     <v-icon class="mr-2">mdi-microphone</v-icon>
                                     <span class="font-weight-medium">STT ({{ sttModelName }})</span>
                                     <v-spacer />
-                                    <v-chip :color="sttLoading ? 'warning' : sttPipeline ? 'success' : 'error'"
+                                    <v-chip
+                                        :color="sttLoading ? 'warning' : (sttProcessing ? 'warning' : (sttPipeline ? 'success' : 'error'))"
                                         size="small">
-                                        {{ sttLoading ? 'Loading' : sttPipeline ? 'Ready' : 'Error' }}
+                                        {{ sttLoading ? 'Loading' : (sttProcessing ? 'Processing' : (sttPipeline ?
+                                            'Ready' :
+                                            'Error')) }}
                                     </v-chip>
                                 </div>
                                 <div v-if="sttLoading" class="ml-6">
@@ -207,6 +245,48 @@
                                 </div>
                                 <div v-else class="ml-6">
                                     <span class="text-caption text-error">Failed to load model</span>
+                                </div>
+
+                                <!-- VAD Live Status -->
+                                <div class="mt-2 ml-6 d-flex align-center">
+                                    <span class="text-caption text-medium-emphasis mr-2">VAD:</span>
+                                    <v-chip :color="vadRecording ? 'success' : 'grey'" size="x-small">
+                                        {{ vadRecording ? 'Listening' : 'Idle' }}
+                                    </v-chip>
+                                    <v-divider vertical class="mx-2" />
+                                    <span class="text-caption text-medium-emphasis mr-2">Segments:</span>
+                                    <v-chip size="x-small">{{ vadSegmentsCount }}</v-chip>
+                                    <v-spacer />
+                                    <span v-if="vadLastSegmentAt" class="text-caption text-medium-emphasis">
+                                        Last: {{ new Date(vadLastSegmentAt).toLocaleTimeString() }}
+                                    </span>
+                                </div>
+
+                                <!-- Audio level (RMS) -->
+                                <div class="mt-2 ml-6">
+                                    <div class="d-flex align-center mb-1">
+                                        <span class="text-caption text-medium-emphasis mr-2">RMS</span>
+                                        <v-progress-linear :model-value="rmsPct" color="secondary" height="6" rounded
+                                            class="flex-grow-1" />
+                                        <span class="text-caption text-medium-emphasis ml-2">{{ rmsLevel.toFixed(2)
+                                        }}</span>
+                                    </div>
+                                </div>
+                                <!-- STT Inputs status -->
+                                <div class="mt-2 ml-6">
+                                    <div class="d-flex align-center mb-1">
+                                        <span class="text-caption text-medium-emphasis mr-2">Input Mode:</span>
+                                        <v-chip size="x-small">{{ props.agentSttInputMode }}</v-chip>
+                                        <v-spacer />
+                                        <span class="text-caption text-medium-emphasis mr-2">Attached Inputs:</span>
+                                        <template v-if="sttAttachedIds.length === 0">
+                                            <v-chip size="x-small" color="warning">none</v-chip>
+                                        </template>
+                                        <template v-else>
+                                            <v-chip v-for="id in sttAttachedIds" :key="id" size="x-small"
+                                                class="ml-1">{{ id }}</v-chip>
+                                        </template>
+                                    </div>
                                 </div>
                             </div>
 
@@ -342,8 +422,8 @@ const props = defineProps({
     // Wake/End word control provided by MainScene (required via template props)
     agentWakeWord: { type: String, required: true },
     agentEndWord: { type: String, required: true },
-    // Control whether to gate by wake/end or stream small segments to LLM
-    agentUseWakeEndGating: { type: Boolean, required: true },
+    // Mandatory gating: wake/end words with timeout
+    agentSttGateTimeoutSec: { type: Number, required: true },
     // STT segmentation window (seconds) and max buffer
     agentSttWindowSec: { type: Number, required: true },
     agentSttMaxBufferSec: { type: Number, required: true },
@@ -353,6 +433,10 @@ const props = defineProps({
     agentTtsModelId: { type: String, required: true },
     agentLlmModelId: { type: String, required: true },
     agentSttModelId: { type: String, required: true },
+    // Pre-gain before STT processing
+    agentSttPreGain: { type: Number, required: true },
+    // Which inputs feed STT: 'webrtc' | 'mic' | 'both' (provided by MainScene)
+    agentSttInputMode: { type: String as () => 'webrtc' | 'mic' | 'both', required: true },
 });
 
 const featureEnabled = sessionStorage.getItem("is_autonomous_agent") === "true";
@@ -404,6 +488,12 @@ const sttStep = ref<string>("");
 // Realtime STT via WebGPU worker (required)
 const useWorkerStreaming = true;
 const sttWorkerRef = ref<Worker | null>(null);
+const vadWorkerRef = ref<Worker | null>(null);
+const sttProcessing = ref<boolean>(false);
+// VAD UI state
+const vadRecording = ref<boolean>(false);
+const vadSegmentsCount = ref<number>(0);
+const vadLastSegmentAt = ref<number | null>(null);
 type PeerAudioProcessor = {
     ctx: AudioContext;
     source: MediaStreamAudioSourceNode;
@@ -411,15 +501,33 @@ type PeerAudioProcessor = {
     sink: GainNode;
 };
 const peerProcessors = new Map<string, PeerAudioProcessor>();
+const sttAttachedIds = ref<string[]>([]);
+function markAttached(peerId: string, attached: boolean): void {
+    const list = sttAttachedIds.value;
+    const idx = list.indexOf(peerId);
+    if (attached) {
+        if (idx < 0) list.push(peerId);
+    } else if (idx >= 0) {
+        list.splice(idx, 1);
+    }
+}
 
 function initSttWorkerOnce(): void {
     if (!useWorkerStreaming) return;
     if (sttWorkerRef.value) return;
     try {
-        const worker = new Worker(new URL("./VircadiaAutonomousAgentSTTWorker.ts", import.meta.url), { type: "module" });
+        const workerPreURL = `./VircadiaAutonomousAgentSTTWorker.ts?v=${Date.now()}`
+        const workerUrl = new URL(workerPreURL, import.meta.url)
+        const worker = new Worker(workerUrl, { type: "module" });
         worker.addEventListener("message", (e: MessageEvent) => {
             const msg = e.data as { type: string; status?: string; peerId?: string; data?: unknown; error?: string };
             if (msg.type === "status") {
+                if (msg.status === "processing") {
+                    try {
+                        const active = !!(msg.data && typeof (msg.data as Record<string, unknown>).active === 'boolean' ? (msg.data as Record<string, unknown>).active : false);
+                        sttProcessing.value = active;
+                    } catch { sttProcessing.value = false; }
+                }
                 if (msg.status === "downloading") {
                     sttLoading.value = true;
                     sttStep.value = "Downloading Whisper (worker)";
@@ -446,8 +554,13 @@ function initSttWorkerOnce(): void {
                     sttPipeline = {};
                 }
                 if (msg.status === "update") {
-                    // Optional: surface interim text; keep UI minimal for now
-                    // console.debug("[Agent STT] partial", msg.peerId, msg.data?.text);
+                    const dataObj = (msg.data && typeof msg.data === "object")
+                        ? (msg.data as Record<string, unknown>)
+                        : null;
+                    const t = typeof dataObj?.text === "string"
+                        ? (dataObj.text as string).trim()
+                        : "";
+                    if (t) void onSttResult(msg.peerId || "peer", t);
                 } else if (msg.status === "complete") {
                     const dataObj = (msg.data && typeof msg.data === "object")
                         ? (msg.data as Record<string, unknown>)
@@ -455,7 +568,7 @@ function initSttWorkerOnce(): void {
                     const t = typeof dataObj?.text === "string"
                         ? (dataObj.text as string).trim()
                         : "";
-                    if (t) void processAsrText(msg.peerId || "peer", t);
+                    if (t) void onSttResult(msg.peerId || "peer", t);
                 }
             } else if (msg.type === "error") {
                 console.warn("[Agent STT] worker error", msg.error);
@@ -468,6 +581,39 @@ function initSttWorkerOnce(): void {
     } catch (e) {
         console.error("[Agent STT] Failed to init worker:", e);
         sttWorkerRef.value = null;
+    }
+}
+
+function initVadWorkerOnce(): void {
+    if (!useWorkerStreaming) return;
+    if (vadWorkerRef.value) return;
+    try {
+        const worker = new Worker(new URL("./VircadiaAutonomousAgentVADWorker.ts", import.meta.url), { type: "module" });
+        worker.addEventListener("message", (e: MessageEvent) => {
+            const msg = e.data as { type: string; status?: string; peerId?: string; pcm?: ArrayBuffer };
+            if (msg.type === "segment" && msg.pcm && msg.peerId) {
+                // Forward finalized speech segment to STT worker
+                try {
+                    sttWorkerRef.value?.postMessage({ type: "audio", peerId: msg.peerId, pcm: msg.pcm, language: String(props.agentLanguage || 'en') }, [msg.pcm]);
+                } catch (err) {
+                    console.warn("[Agent VAD] Failed to forward segment to STT worker:", err);
+                }
+                // Update UI counters
+                vadSegmentsCount.value = vadSegmentsCount.value + 1;
+                vadLastSegmentAt.value = Date.now();
+            }
+            if (msg.type === "status" && msg.status) {
+                if (msg.status === "recording_start") vadRecording.value = true;
+                if (msg.status === "recording_end") vadRecording.value = false;
+            }
+            // Optionally handle recording_start/recording_end UI here if desired
+        });
+        // Load with defaults; could be tuned from MainScene props later
+        worker.postMessage({ type: "load", config: { sampleRate: 16000 } });
+        vadWorkerRef.value = worker;
+    } catch (e) {
+        console.error("[Agent VAD] Failed to init worker:", e);
+        vadWorkerRef.value = null;
     }
 }
 
@@ -487,27 +633,36 @@ async function attachStreamToSTT(peerId: string, stream: MediaStream): Promise<v
     if (!useWorkerStreaming) return;
     if (peerProcessors.has(peerId)) return;
     initSttWorkerOnce();
+    initVadWorkerOnce();
     if (!sttWorkerRef.value) return;
 
     try {
         const ctx = new AudioContext({ sampleRate: 48000 });
         await ensureSttWorklet(ctx);
         const source = ctx.createMediaStreamSource(stream);
+        // Optional pre-gain before worklet to compensate remote levels
+        const preGain = ctx.createGain();
+        preGain.gain.value = Math.max(0.01, Number(props.agentSttPreGain || 1.0));
         const node = new AudioWorkletNode(ctx, "stt-processor", {
             processorOptions: { targetSampleRate: 16000, chunkMs: 200 },
         });
 
+        // Ensure audio processing starts (autoplay policies may suspend context)
+        try { await ctx.resume(); } catch { /* ignore */ }
+
         node.port.onmessage = (ev: MessageEvent) => {
-            const data = ev.data as { type: string; pcm?: ArrayBuffer };
+            const data = ev.data as { type: string; pcm?: ArrayBuffer; rms?: number };
             if (data && data.type === "pcm" && data.pcm) {
                 if (!sttActive.value) return;
                 try {
-                    sttWorkerRef.value?.postMessage(
-                        { type: "audio", peerId, pcm: data.pcm },
-                        [data.pcm],
-                    );
+                    // Route through VAD worker first; it will emit finalized segments
+                    vadWorkerRef.value?.postMessage({ type: "audio", peerId, pcm: data.pcm, rms: data.rms }, [data.pcm]);
                 } catch (err) {
-                    console.warn("[Agent STT] Failed to post PCM to worker:", err);
+                    console.warn("[Agent VAD] Failed to post PCM to VAD worker:", err);
+                }
+                // Update local RMS meter if provided
+                if (typeof data.rms === 'number' && Number.isFinite(data.rms)) {
+                    rmsLevel.value = Math.max(0, Math.min(1, data.rms));
                 }
             }
         };
@@ -516,12 +671,21 @@ async function attachStreamToSTT(peerId: string, stream: MediaStream): Promise<v
         const sink = ctx.createGain();
         sink.gain.value = 0.0;
 
-        source.connect(node);
+        source.connect(preGain);
+        preGain.connect(node);
         node.connect(sink);
         sink.connect(ctx.destination);
 
         peerProcessors.set(peerId, { ctx, source, node, sink });
-        sttWorkerRef.value.postMessage({ type: "start", peerId, language: String(props.agentLanguage || 'en'), windowSec: props.agentSttWindowSec, maxBufferSec: props.agentSttMaxBufferSec });
+        markAttached(peerId, true);
+        sttWorkerRef.value.postMessage({
+            type: "start",
+            peerId,
+            language: String(props.agentLanguage || 'en'),
+            windowSec: props.agentSttWindowSec,
+            maxBufferSec: props.agentSttMaxBufferSec,
+        });
+        vadWorkerRef.value?.postMessage({ type: "start", peerId, language: String(props.agentLanguage || 'en') });
         console.log(`[Agent STT] Streaming (AudioWorklet) attached for ${peerId}`);
     } catch (e) {
         console.error("[Agent STT] Failed to attach stream:", e);
@@ -533,6 +697,10 @@ function detachStreamFromSTT(peerId: string): void {
     if (w) {
         try { w.postMessage({ type: "stop", peerId }); } catch { }
     }
+    const vw = vadWorkerRef.value;
+    if (vw) {
+        try { vw.postMessage({ type: "stop", peerId }); } catch { }
+    }
     const proc = peerProcessors.get(peerId);
     if (!proc) return;
     try {
@@ -542,6 +710,7 @@ function detachStreamFromSTT(peerId: string): void {
         proc.ctx.close().catch(() => { });
     } catch { }
     peerProcessors.delete(peerId);
+    markAttached(peerId, false);
 }
 
 // WebRTC bus runtime
@@ -577,6 +746,9 @@ const remoteStreamsRef = computed<Map<string, MediaStream>>(
 const remoteRecorders = new Map<string, MediaRecorder>();
 const remoteUnsubscribeFns: (() => void)[] = [];
 const sttActive = ref<boolean>(true);
+// RMS UI state (raw amplitude estimate)
+const rmsLevel = ref<number>(0);
+const rmsPct = computed<number>(() => Math.round(Math.min(1, rmsLevel.value) * 100));
 const ttsQueue: string[] = [];
 const isSpeaking = ref<boolean>(false);
 
@@ -598,8 +770,42 @@ function addTranscript(peerId: string, text: string) {
     if (transcripts.value.length > MAX_TRANSCRIPTS)
         transcripts.value.splice(0, transcripts.value.length - MAX_TRANSCRIPTS);
 }
+
+// Rolling-context STT aggregator used only to compute deltas from Whisper updates
+const sttRollingState = new Map<string, { lastCommitted: string }>();
+// Full rolling transcript log (debug): captures entire rolling text, regardless of gate
+type RollingFullEntry = { peerId: string; text: string; at: number };
+const sttRollingFull = ref<RollingFullEntry[]>([]);
+const MAX_STT_ROLLING_FULL = 20;
+const sttRollingFullLimited = computed<RollingFullEntry[]>(() => sttRollingFull.value.slice(-MAX_STT_ROLLING_FULL));
+const sttRollingFullLimitedReversed = computed<RollingFullEntry[]>(() => [...sttRollingFullLimited.value].reverse());
+function onSttResult(peerId: string, text: string): void {
+    let s = sttRollingState.get(peerId);
+    if (!s) {
+        s = { lastCommitted: "" };
+        sttRollingState.set(peerId, s);
+    }
+    const a = s.lastCommitted;
+    const b = text.trim();
+    let i = 0;
+    const max = Math.min(a.length, b.length);
+    while (i < max && a[i] === b[i]) i++;
+    const delta = b.slice(i).trim();
+    // Always log the full rolling text for debug visibility
+    if (b) sttRollingFull.value.push({ peerId, text: b, at: Date.now() });
+    // Keep bounded
+    if (sttRollingFull.value.length > MAX_STT_ROLLING_FULL)
+        sttRollingFull.value.splice(0, sttRollingFull.value.length - MAX_STT_ROLLING_FULL);
+    if (delta.length === 0) return;
+    s.lastCommitted = b;
+    // Always surface raw incremental STT output to the live transcripts for debugging
+    addTranscript(peerId, delta);
+    void processAsrText(peerId, delta);
+}
+
 function clearTranscripts() {
     transcripts.value = [];
+    sttRollingFull.value = [];
 }
 
 // TTS output destination indicator
@@ -628,6 +834,34 @@ const ttsOutputColor = computed<string>(() => {
     if (label === 'Disabled') return 'grey';
     return 'warning';
 });
+
+// Mic input handling for STT
+let micStandaloneStream: MediaStream | null = null;
+async function attachMicToSTT(): Promise<void> {
+    if (!props.agentEnableStt) return;
+    const local = localStreamRef.value;
+    let stream: MediaStream | null = local || null;
+    if (!stream) {
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({
+                audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+                video: false,
+            });
+            micStandaloneStream = stream;
+        } catch (e) {
+            console.warn('[Agent STT] Failed to obtain mic stream:', e);
+            return;
+        }
+    }
+    await attachStreamToSTT('mic', stream);
+}
+function detachMicFromSTT(): void {
+    detachStreamFromSTT('mic');
+    if (micStandaloneStream) {
+        try { for (const t of micStandaloneStream.getTracks()) t.stop(); } catch { }
+        micStandaloneStream = null;
+    }
+}
 
 // LLM output capture
 type LlmEntry = { text: string; at: number };
@@ -808,15 +1042,16 @@ function extractAssistantText(raw: string): string {
     return cleaned || t.trim();
 }
 
-async function handleTranscript(peerId: string, text: string) {
-    // Always record to overlay
-    addTranscript(peerId, text);
+async function handleTranscript(_peerId: string, text: string, opts?: { incomplete?: boolean }) {
     // Optionally generate a reply if LLM is enabled
     if (!props.agentEnableLlm) return;
     try {
         if (maybeRejectAudio(text)) return;
         const history = buildPromptHistory(12, 200, 1800);
-        const prompt = `System: You are an in-world assistant. Be concise and conversational.\n${history ? `Chat history:\n${history}\n` : ''}\nUser: ${text}\n\nAssistant:`;
+        const systemPrefix = opts?.incomplete
+            ? 'System: You are an in-world assistant. The user utterance may be incomplete (no end word detected). If information is missing, answer what you can concisely and await more. Do not hallucinate details.'
+            : 'System: You are an in-world assistant. Be concise and conversational.';
+        const prompt = `${systemPrefix}\n${history ? `Chat history:\n${history}\n` : ''}\nUser: ${text}\n\nAssistant:`;
         const reply: string = await generateWithLLM(prompt, { max_new_tokens: 80, temperature: 0.7, return_full_text: false });
         const cleaned = extractAssistantText(reply).trim();
         if (cleaned.length > 0) {
@@ -829,27 +1064,43 @@ async function handleTranscript(peerId: string, text: string) {
     }
 }
 
-// Wake/End word gated ASR routing
-type STTSession = { awaitingWake: boolean; buffered: string };
+// Wake/End word gated ASR routing with session timeout
+type STTSession = { awaitingWake: boolean; buffered: string; timeoutId: number | null };
 const sttSessions = new Map<string, STTSession>();
 
 function getOrCreateSttSession(peerId: string): STTSession {
     let s = sttSessions.get(peerId);
     if (!s) {
-        s = { awaitingWake: true, buffered: "" };
+        s = { awaitingWake: true, buffered: "", timeoutId: null };
         sttSessions.set(peerId, s);
     }
     return s;
 }
 
-async function processAsrText(peerId: string, rawText: string): Promise<void> {
-    // If streaming mode, forward small segments to LLM aggregator
-    if (!props.agentUseWakeEndGating) {
-        await handleStreamingSegment(peerId, rawText);
-        return;
+function clearGateTimeout(peerId: string): void {
+    const s = getOrCreateSttSession(peerId);
+    if (s.timeoutId !== null) {
+        try { clearTimeout(s.timeoutId); } catch { /* ignore */ }
+        s.timeoutId = null;
     }
+}
 
-    // Gated mode using wake/end words
+function scheduleGateTimeout(peerId: string): void {
+    const s = getOrCreateSttSession(peerId);
+    clearGateTimeout(peerId);
+    const ms = Math.max(1000, Math.floor((Number(props.agentSttGateTimeoutSec) || 20) * 1000));
+    s.timeoutId = setTimeout(async () => {
+        // Timeout without hearing end word: finalize what we have
+        const utterance = (s.buffered || "").trim();
+        s.awaitingWake = true;
+        s.buffered = "";
+        s.timeoutId = null;
+        if (utterance) await handleTranscript(peerId, utterance, { incomplete: true });
+    }, ms) as unknown as number;
+}
+
+async function processAsrText(peerId: string, rawText: string): Promise<void> {
+    // Mandatory gated mode using wake/end words
     const wake = String(props.agentWakeWord || "").trim().toLowerCase();
     const end = String(props.agentEndWord || "").trim().toLowerCase();
     if (!wake || !end) {
@@ -867,6 +1118,8 @@ async function processAsrText(peerId: string, rawText: string): Promise<void> {
         lower = lower.slice(start);
         session.awaitingWake = false;
         session.buffered = "";
+        // Start session timeout window
+        scheduleGateTimeout(peerId);
     }
     const endIdx = lower.indexOf(end);
     if (endIdx >= 0) {
@@ -875,70 +1128,12 @@ async function processAsrText(peerId: string, rawText: string): Promise<void> {
         const finalUtterance = session.buffered.trim();
         session.awaitingWake = true;
         session.buffered = "";
+        clearGateTimeout(peerId);
         if (finalUtterance) await handleTranscript(peerId, finalUtterance);
         return;
     }
     const toAdd = text.trim();
     if (toAdd) session.buffered += (session.buffered ? " " : "") + toAdd;
-}
-
-// Streaming segmentation state and local wake/end detection
-type StreamSession = { buffer: string; awaitingWake: boolean };
-const streamSessions = new Map<string, StreamSession>();
-
-function getOrCreateStreamSession(peerId: string): StreamSession {
-    let s = streamSessions.get(peerId);
-    if (!s) {
-        s = { buffer: "", awaitingWake: true };
-        streamSessions.set(peerId, s);
-    }
-    return s;
-}
-
-async function handleStreamingSegment(peerId: string, segment: string): Promise<void> {
-    const trimmed = (segment || "").trim();
-    if (!trimmed) return;
-    // Record minimal pieces to overlay
-    addTranscript(peerId, trimmed);
-    const s = getOrCreateStreamSession(peerId);
-    s.buffer = (s.buffer ? `${s.buffer} ` : "") + trimmed;
-    await detectAndEmitUtterances(peerId);
-}
-
-async function detectAndEmitUtterances(peerId: string): Promise<void> {
-    if (!props.agentEnableLlm) return;
-    const wake = String(props.agentWakeWord || "").trim().toLowerCase();
-    const end = String(props.agentEndWord || "").trim().toLowerCase();
-    if (!wake || !end) return; // require explicit markers
-
-    const s = getOrCreateStreamSession(peerId);
-    // Process as many complete utterances as exist in the buffer
-    let safety = 0;
-    while (s.buffer.length > 0 && safety++ < 32) {
-        let buf = s.buffer;
-        let lower = buf.toLowerCase();
-        if (s.awaitingWake) {
-            const wIdx = lower.indexOf(wake);
-            if (wIdx < 0) return; // still waiting for wake word
-            const start = wIdx + wake.length;
-            buf = buf.slice(start);
-            lower = lower.slice(start);
-            s.awaitingWake = false;
-        }
-        const eIdx = lower.indexOf(end);
-        if (eIdx < 0) {
-            // haven't seen end word yet; keep accumulated buffer
-            s.buffer = buf;
-            return;
-        }
-        const utterance = buf.slice(0, eIdx).trim();
-        // Advance buffer past end word for potential subsequent utterances
-        const after = buf.slice(eIdx + end.length);
-        s.buffer = after;
-        s.awaitingWake = true;
-        if (utterance) await handleTranscript(peerId, utterance);
-        // continue loop to look for another wake/end that may already be present
-    }
 }
 
 async function flushTTSQueue() {
@@ -1098,13 +1293,20 @@ if (featureEnabled) {
                 // After models are ready, attach STT to existing remote streams via worker
                 if (props.agentEnableStt) {
                     initSttWorkerOnce();
-                    for (const [pid, stream] of remoteStreamsRef.value) {
-                        attachStreamToSTT(pid, stream);
+                    const mode = props.agentSttInputMode;
+                    if (mode === 'webrtc' || mode === 'both') {
+                        for (const [pid, stream] of remoteStreamsRef.value) {
+                            attachStreamToSTT(pid, stream);
+                        }
+                    }
+                    if (mode === 'mic' || mode === 'both') {
+                        await attachMicToSTT();
                     }
                 }
             } else {
                 stopKokoro();
                 for (const [pid] of peerProcessors) detachStreamFromSTT(pid);
+                detachMicFromSTT();
             }
         },
         { immediate: true },
@@ -1116,8 +1318,11 @@ if (featureEnabled) {
         (streams, oldStreams) => {
             if (!props.agentEnableStt) return;
             initSttWorkerOnce();
-            for (const [pid, stream] of streams) {
-                attachStreamToSTT(pid, stream);
+            const mode = props.agentSttInputMode;
+            if (mode === 'webrtc' || mode === 'both') {
+                for (const [pid, stream] of streams) {
+                    attachStreamToSTT(pid, stream);
+                }
             }
             // Detach for peers removed from map
             if (oldStreams instanceof Map) {
@@ -1128,6 +1333,27 @@ if (featureEnabled) {
         },
         { deep: true },
     );
+    // Watch for input mode changes
+    watch(
+        () => props.agentSttInputMode,
+        async (mode) => {
+            if (!props.agentEnableStt) return;
+            initSttWorkerOnce();
+            if (mode === 'webrtc') {
+                // ensure mic detached, attach all remote
+                detachMicFromSTT();
+                for (const [pid, stream] of remoteStreamsRef.value) attachStreamToSTT(pid, stream);
+            } else if (mode === 'mic') {
+                // detach all remote, attach mic
+                for (const [pid] of peerProcessors) detachStreamFromSTT(pid);
+                await attachMicToSTT();
+            } else if (mode === 'both') {
+                for (const [pid, stream] of remoteStreamsRef.value) attachStreamToSTT(pid, stream);
+                await attachMicToSTT();
+            }
+        },
+        { immediate: false },
+    );
 } else {
     console.debug(
         "[VircadiaAutonomousAgent] Disabled via ?is_autonomous_agent=false (default to false)",
@@ -1136,9 +1362,8 @@ if (featureEnabled) {
 
 onUnmounted(() => {
     stopKokoro();
-    for (const [pid] of peerProcessors) {
-        detachStreamFromSTT(pid);
-    }
+    for (const [pid] of peerProcessors) detachStreamFromSTT(pid);
+    detachMicFromSTT();
     for (const unsub of remoteUnsubscribeFns) {
         try {
             unsub();

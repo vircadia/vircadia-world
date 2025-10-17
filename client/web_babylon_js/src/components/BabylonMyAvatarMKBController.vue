@@ -1,24 +1,19 @@
 <template>
-    <slot
-        :key-state="keyState"
-        :pointer-state="pointerState"
-        :is-pointer-locked="isPointerLocked"
-        :enable-pointer-lock="enablePointerLock"
-        :exit-pointer-lock="exitPointerLock"
-    />
+    <slot :key-state="keyState" :pointer-state="pointerState" :is-pointer-locked="isPointerLocked"
+        :enable-pointer-lock="enablePointerLock" :exit-pointer-lock="exitPointerLock" />
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onUnmounted } from "vue";
 import {
     KeyboardEventTypes,
-    PointerEventTypes,
-    type Scene,
-    type Observer,
     type KeyboardInfo,
+    type Observer,
+    PointerEventTypes,
     type PointerInfo,
+    type Scene,
 } from "@babylonjs/core";
 import { useWindowFocus } from "@vueuse/core";
+import { onUnmounted, ref, watch } from "vue";
 
 const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
@@ -197,5 +192,3 @@ onUnmounted(() => {
 <style scoped>
 /* renderless controller */
 </style>
-
-

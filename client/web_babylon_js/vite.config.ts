@@ -78,6 +78,9 @@ export default defineConfig(({ command }) => {
                 "@babylonjs/core/Shaders/default.fragment",
                 "@babylonjs/core/Shaders/pbr.vertex",
                 "@babylonjs/core/Shaders/pbr.fragment",
+                // Exclude libraries that are incompatible with Vite's dep optimizer
+                "@huggingface/transformers",
+                "kokoro-js",
             ],
             esbuildOptions: {
                 target: "esnext",

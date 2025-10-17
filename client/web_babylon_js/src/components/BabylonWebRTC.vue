@@ -142,6 +142,10 @@
                                             </v-icon>
                                         </template>
                                     </v-tooltip>
+                                    <v-chip size="x-small" class="ml-1" :color="peer.polite ? 'primary' : 'warning'"
+                                        variant="flat">
+                                        {{ peer.polite ? 'polite' : 'impolite' }}
+                                    </v-chip>
                                 </v-col>
                             </v-row>
                         </v-expansion-panel-title>
@@ -178,6 +182,56 @@
                                         Signaling State:
                                         <v-chip size="x-small" :color="getSignalingStateColor(peer)">
                                             {{ peer.pc.signalingState }}
+                                        </v-chip>
+                                    </v-list-item-title>
+                                </v-list-item>
+
+                                <!-- Negotiation / Glare status -->
+                                <v-list-item>
+                                    <v-list-item-title class="text-caption">
+                                        <strong>Negotiation:</strong>
+                                        <v-chip size="x-small" :color="peer.polite ? 'primary' : 'warning'"
+                                            variant="flat" class="ml-1">
+                                            {{ peer.polite ? 'Polite' : 'Impolite' }}
+                                        </v-chip>
+                                        <v-chip v-if="peer.makingOffer" size="x-small" color="info" variant="flat"
+                                            class="ml-1">
+                                            Making offer
+                                        </v-chip>
+                                        <v-chip v-if="peer.ignoreOffer" size="x-small" color="warning" variant="flat"
+                                            class="ml-1">
+                                            Ignored glare
+                                        </v-chip>
+                                        <v-chip v-if="peer.pendingOfferId" size="x-small" color="info" variant="flat"
+                                            class="ml-1">
+                                            Pending offer
+                                        </v-chip>
+                                        <v-chip v-if="peer.iceCandidateBuffer.length > 0" size="x-small"
+                                            color="secondary" variant="flat" class="ml-1">
+                                            Buffered ICE: {{ peer.iceCandidateBuffer.length }}
+                                        </v-chip>
+                                    </v-list-item-title>
+                                </v-list-item>
+
+                                <!-- Condensed connecting status when not connected -->
+                                <v-list-item v-if="peer.pc.connectionState !== 'connected'">
+                                    <v-list-item-title class="text-caption">
+                                        <strong>Connecting:</strong>
+                                        <v-chip size="x-small" :color="getSignalingStateColor(peer)" variant="flat"
+                                            class="ml-1">
+                                            {{ peer.pc.signalingState }}
+                                        </v-chip>
+                                        <v-chip size="x-small" :color="getIceGatheringStateColor(peer)" variant="flat"
+                                            class="ml-1">
+                                            {{ peer.pc.iceGatheringState }}
+                                        </v-chip>
+                                        <v-chip size="x-small" :color="getIceStateColor(peer)" variant="flat"
+                                            class="ml-1">
+                                            {{ peer.pc.iceConnectionState }}
+                                        </v-chip>
+                                        <v-chip size="x-small" :color="getConnectionStateColor(peer)" variant="flat"
+                                            class="ml-1">
+                                            {{ getConnectionStateLabel(peer) }}
                                         </v-chip>
                                     </v-list-item-title>
                                 </v-list-item>
@@ -324,40 +378,39 @@
                                     </v-list-item-title>
                                 </v-list-item>
 
-                                <!-- Message History Details -->
+                                <!-- Message History (virtualized) -->
                                 <v-list-item v-if="peer.messageHistory.length > 0">
                                     <v-list-item-title class="text-caption">
-                                        <strong>Message History ({{ peer.messageHistory.length }}):</strong>
+                                        <strong>Messages ({{ peer.messageHistory.length }}):</strong>
                                     </v-list-item-title>
                                 </v-list-item>
 
                                 <v-list-item v-if="peer.messageHistory.length > 0">
-                                    <v-list-item-title class="text-caption">
-                                        <div class="d-flex flex-wrap gap-1">
-                                            <v-chip v-for="(msg, index) in peer.messageHistory.slice(-10)" :key="msg.id"
-                                                size="x-small" :color="getMessageStatusColor(msg.status)" variant="flat"
-                                                class="mb-1">
-                                                <v-icon size="10" class="mr-1">
-                                                    {{ msg.direction === 'sent' ? 'mdi-arrow-up' : 'mdi-arrow-down' }}
-                                                </v-icon>
-                                                <v-icon size="10" class="mr-1">
-                                                    {{ getMessageTypeIcon(msg.type) }}
-                                                </v-icon>
-                                                {{ msg.type }}
-                                                <v-icon v-if="msg.status === 'error'" size="10" class="ml-1"
-                                                    color="white">
-                                                    mdi-alert-circle
-                                                </v-icon>
-                                                <v-icon v-else-if="msg.status === 'warning'" size="10" class="ml-1"
-                                                    color="white">
-                                                    mdi-alert
-                                                </v-icon>
-                                            </v-chip>
-                                        </div>
-                                        <div v-if="peer.messageHistory.length > 10" class="text-caption text-grey mt-1">
-                                            Showing last 10 of {{ peer.messageHistory.length }} messages
-                                        </div>
-                                    </v-list-item-title>
+                                    <div style="max-height: 220px;">
+                                        <v-virtual-scroll :items="peer.messageHistory" :item-height="28" :height="220">
+                                            <template #default="{ item }">
+                                                <div class="d-flex align-center mb-1">
+                                                    <v-chip size="x-small" :color="getMessageStatusColor(item.status)"
+                                                        variant="flat">
+                                                        <v-icon size="10" class="mr-1">
+                                                            {{ item.direction === 'sent' ? 'mdi-arrow-up' :
+                                                                'mdi-arrow-down' }}
+                                                        </v-icon>
+                                                        <v-icon size="10" class="mr-1">
+                                                            {{ getMessageTypeIcon(item.type) }}
+                                                        </v-icon>
+                                                        {{ item.type }}
+                                                    </v-chip>
+                                                    <span class="text-caption ml-2">{{ new
+                                                        Date(item.timestamp).toLocaleTimeString() }}</span>
+                                                    <span v-if="item.details" class="text-caption ml-2 text-grey">{{
+                                                        item.details }}</span>
+                                                    <span v-if="item.error" class="text-caption ml-2"
+                                                        style="color: var(--v-theme-error)">{{ item.error }}</span>
+                                                </div>
+                                            </template>
+                                        </v-virtual-scroll>
+                                    </div>
                                 </v-list-item>
 
                                 <!-- Debug Actions -->
@@ -1299,7 +1352,7 @@ function getPeerInitials(peerId: string): string {
 }
 
 function getPeerShortId(peerId: string): string {
-    return peerId.substring(0, 8) + "...";
+    return `${peerId.substring(0, 8)}...`;
 }
 
 function getPeerAvatarColor(_peerId: string, peer: PeerInfo): string {

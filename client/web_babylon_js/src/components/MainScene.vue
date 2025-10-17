@@ -57,7 +57,16 @@
                             :agent-enable-tts="agentEnableTTS" :agent-enable-llm="agentEnableLLM"
                             :agent-enable-stt="agentEnableSTT" :agent-stt-pre-gain="agentSttPreGain"
                             :agent-stt-input-mode="agentSttInputMode"
-                            :agent-no-reply-timeout-sec="agentNoReplyTimeoutSec" />
+                            :agent-no-reply-timeout-sec="agentNoReplyTimeoutSec"
+                            :agent-stt-target-sample-rate="agentSttTargetSampleRate"
+                            :agent-stt-worklet-chunk-ms="agentSttWorkletChunkMs" :agent-vad-config="agentVadConfig"
+                            :agent-llm-max-new-tokens="agentLlmMaxNewTokens"
+                            :agent-llm-temperature="agentLlmTemperature" :agent-llm-top-p="agentLlmTopP"
+                            :agent-llm-return-full-text="agentLlmReturnFullText" :agent-stt-device="agentSttDevice"
+                            :agent-stt-d-type="agentSttDType" :agent-tts-device="agentTtsDevice"
+                            :agent-tts-d-type="agentTtsDType" :agent-ui-max-transcripts="agentUiMaxTranscripts"
+                            :agent-ui-max-assistant-replies="agentUiMaxAssistantReplies"
+                            :agent-ui-max-conversation-items="agentUiMaxConversationItems" />
                         <component v-else :is="comp" :scene="scene" :engine="engine" :canvas="renderCanvas"
                             :vircadia-world="vircadiaWorld" />
                     </template>
@@ -533,7 +542,7 @@ const webrtcRemoteStreamsMap = ref(new Map<string, MediaStream>());
 // Prefer passing from here rather than setting defaults inside the agent
 const agentWakeWord = ref<string>("computer");
 const agentEndWord = ref<string>("over");
-const agentTtsLocalEcho = ref<boolean>(false);
+const agentTtsLocalEcho = ref<boolean>(true);
 const agentEnableLLM = ref<boolean>(true);
 const agentEnableSTT = ref<boolean>(true);
 const agentEnableTTS = ref<boolean>(true);
@@ -551,6 +560,37 @@ const agentSttModelId = ref<string>("onnx-community/whisper-base");
 const agentSttPreGain = ref<number>(1.0);
 // STT input selection: 'webrtc' (default), 'mic', or 'both'
 const agentSttInputMode = ref<'webrtc' | 'mic' | 'both'>("mic");
+
+// Worker/device/dtype and model runtime tuning passed via template props
+const agentSttTargetSampleRate = ref<number>(16000);
+const agentSttWorkletChunkMs = ref<number>(200);
+const agentVadConfig = ref({
+    sampleRate: 16000,
+    minSpeechMs: 250,
+    minSilenceMs: 300,
+    prePadMs: 150,
+    postPadMs: 150,
+    speechThreshold: 0.015,
+    exitThreshold: 0.008,
+    maxPrevMs: 800,
+});
+
+// LLM generation defaults
+const agentLlmMaxNewTokens = ref<number>(80);
+const agentLlmTemperature = ref<number>(0.7);
+const agentLlmTopP = ref<number>(1.0);
+const agentLlmReturnFullText = ref<boolean>(false);
+
+// UI history limits; 0 = unlimited (no truncation in UI)
+const agentUiMaxTranscripts = ref<number>(0);
+const agentUiMaxAssistantReplies = ref<number>(0);
+const agentUiMaxConversationItems = ref<number>(0);
+
+// Backend device/dtype knobs
+const agentSttDevice = ref<string>("webgpu");
+const agentSttDType = ref<Record<string, string>>({ encoder_model: "fp32", decoder_model_merged: "fp32" });
+const agentTtsDevice = ref<string>("webgpu");
+const agentTtsDType = ref<string>("fp32");
 
 onMounted(async () => {
     console.debug("[MainScene] Initialized");

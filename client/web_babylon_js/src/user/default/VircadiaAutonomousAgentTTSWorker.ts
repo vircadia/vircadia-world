@@ -2,7 +2,12 @@
   TTS Worker: runs Kokoro TTS off main thread and returns PCM Float32Array
 */
 
-type LoadMessage = { type: "load"; modelId?: string };
+type LoadMessage = {
+    type: "load";
+    modelId?: string;
+    device?: string;
+    dtype?: string;
+};
 type SpeakMessage = { type: "speak"; text: string };
 type WorkerMessage = LoadMessage | SpeakMessage;
 
@@ -18,13 +23,24 @@ type WorkerEvent =
 
 let kokoro: unknown | null = null;
 let modelIdRef: string = "onnx-community/Kokoro-82M-v1.0-ONNX";
+let deviceRef: string = "webgpu";
+let dtypeRef: string = "fp32";
 
 function post(event: WorkerEvent) {
+    const transfer: Transferable[] | undefined =
+        event.type === "audio"
+            ? [
+                  // Narrow cast: WorkerEvent when type==='audio' has pcm: ArrayBufferLike
+                  (event as Extract<WorkerEvent, { type: "audio" }>)
+                      .pcm as unknown as ArrayBuffer,
+              ]
+            : undefined;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    self.postMessage(
-        event,
-        event.type === "audio" ? [(event as any).pcm] : undefined,
-    );
+    (
+        self as unknown as {
+            postMessage: (e: WorkerEvent, t?: Transferable[]) => void;
+        }
+    ).postMessage(event, transfer);
 }
 
 async function ensureLoaded() {
@@ -34,16 +50,22 @@ async function ensureLoaded() {
     kokoro = await KokoroTTS.from_pretrained(
         modelIdRef || "onnx-community/Kokoro-82M-v1.0-ONNX",
         {
-            device: "webgpu",
-            dtype: "fp32",
+            device: deviceRef || "webgpu",
+            dtype: dtypeRef || "fp32",
         },
     );
     // Mount/compile kernels by running a tiny warmup
     post({ type: "status", status: "mounting" });
     try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const k: any = kokoro;
-        await (k?.tts ? k.tts(".") : k?.generate?.("."));
+        const k = kokoro as {
+            tts?: (t: string) => Promise<unknown>;
+            generate?: (t: string) => Promise<unknown>;
+        };
+        if (typeof k?.tts === "function") {
+            await k.tts(".");
+        } else if (typeof k?.generate === "function") {
+            await k.generate(".");
+        }
     } catch {
         /* ignore */
     }
@@ -54,14 +76,31 @@ function toFloat32Array(
     input: unknown,
 ): { data: Float32Array; sampleRate: number } | null {
     if (!input) return null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyIn: any = input;
+    const anyIn = input as
+        | {
+              audio?: unknown;
+              sample_rate?: number;
+              sampleRate?: number;
+              samplerate?: number;
+              getChannelData?: (i: number) => Float32Array;
+          }
+        | { audio?: { data?: unknown } }
+        | unknown;
     // Guard against referencing AudioBuffer in Worker context where it's undefined
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const AudioBufferCtor: any = self.AudioBuffer;
-    if (AudioBufferCtor && anyIn instanceof AudioBufferCtor) {
-        const sr = anyIn.sampleRate || 24000;
-        const data = anyIn.getChannelData(0);
+    const AudioBufferCtor = (
+        self as unknown as { AudioBuffer?: new (...args: unknown[]) => unknown }
+    ).AudioBuffer;
+    if (
+        AudioBufferCtor &&
+        anyIn instanceof
+            (AudioBufferCtor as unknown as {
+                new (...args: unknown[]): unknown;
+            })
+    ) {
+        const sr = (anyIn as { sampleRate?: number }).sampleRate || 24000;
+        const data = (
+            anyIn as { getChannelData: (i: number) => Float32Array }
+        ).getChannelData(0);
         return { data: new Float32Array(data), sampleRate: sr };
     }
     const container = anyIn.audio ? anyIn : anyIn.audio ? anyIn : null;
@@ -96,8 +135,10 @@ async function speak(text: string) {
     await ensureLoaded();
     post({ type: "status", status: "generating" });
     try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const k: any = kokoro;
+        const k = kokoro as {
+            tts?: (t: string) => Promise<unknown>;
+            generate?: (t: string) => Promise<unknown>;
+        };
         const result =
             (await (k.tts ? k.tts(text) : k.generate?.(text))) || null;
         const converted =
@@ -123,6 +164,9 @@ async function handleMessage(e: MessageEvent<WorkerMessage>) {
     if (msg.type === "load") {
         if (typeof msg.modelId === "string" && msg.modelId)
             modelIdRef = msg.modelId;
+        if (typeof msg.device === "string" && msg.device)
+            deviceRef = msg.device;
+        if (typeof msg.dtype === "string" && msg.dtype) dtypeRef = msg.dtype;
         await ensureLoaded();
         return;
     }

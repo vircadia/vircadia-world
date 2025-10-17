@@ -7,7 +7,12 @@
 
 import { pipeline } from "@huggingface/transformers";
 
-type LoadMessage = { type: "load"; modelId?: string };
+type LoadMessage = {
+    type: "load";
+    modelId?: string;
+    device?: string;
+    dtype?: Record<string, string>;
+};
 type StartMessage = {
     type: "start";
     peerId: string;
@@ -63,6 +68,82 @@ let transcriber:
           options?: Record<string, unknown>,
       ) => Promise<{ text: string }>) = null;
 let modelId = "onnx-community/whisper-base";
+type DeviceLeaf =
+    | "webgpu"
+    | "auto"
+    | "gpu"
+    | "cpu"
+    | "wasm"
+    | "cuda"
+    | "dml"
+    | "webnn"
+    | "webnn-npu"
+    | "webnn-gpu"
+    | "webnn-cpu";
+type DeviceOption = DeviceLeaf | Record<string, DeviceLeaf>;
+type DTypeLeaf =
+    | "fp32"
+    | "auto"
+    | "fp16"
+    | "q8"
+    | "int8"
+    | "uint8"
+    | "q4"
+    | "bnb4"
+    | "q4f16";
+type DTypeOption = DTypeLeaf | Record<string, DTypeLeaf>;
+
+let deviceRef: DeviceOption = "webgpu";
+let dtypeRef: DTypeOption | undefined = {
+    encoder_model: "fp32",
+    decoder_model_merged: "fp32",
+};
+
+function parseDeviceOption(v?: string): DeviceOption {
+    const s = String(v || "").toLowerCase();
+    const set: DeviceLeaf[] = [
+        "webgpu",
+        "auto",
+        "gpu",
+        "cpu",
+        "wasm",
+        "cuda",
+        "dml",
+        "webnn",
+        "webnn-npu",
+        "webnn-gpu",
+        "webnn-cpu",
+    ];
+    if ((set as string[]).includes(s)) return s as DeviceLeaf;
+    return "webgpu";
+}
+
+function parseDTypeOption(
+    obj?: Record<string, string> | string,
+): DTypeOption | undefined {
+    if (!obj) return { encoder_model: "fp32", decoder_model_merged: "fp32" };
+    const ok: DTypeLeaf[] = [
+        "fp32",
+        "auto",
+        "fp16",
+        "q8",
+        "int8",
+        "uint8",
+        "q4",
+        "bnb4",
+        "q4f16",
+    ];
+    if (typeof obj === "string") {
+        const s = obj.toLowerCase();
+        return (ok as string[]).includes(s) ? (s as DTypeLeaf) : "fp32";
+    }
+    const out: Record<string, DTypeLeaf> = {};
+    for (const [k, v] of Object.entries(obj)) {
+        const vv = String(v || "").toLowerCase();
+        out[k] = (ok as string[]).includes(vv) ? (vv as DTypeLeaf) : "fp32";
+    }
+    return out;
+}
 
 async function ensureLoaded(): Promise<void> {
     if (!transcriber) {
@@ -75,8 +156,8 @@ async function ensureLoaded(): Promise<void> {
             data: { status: "Initializing Whisper pipeline" },
         });
         const pipe = await pipeline("automatic-speech-recognition", modelId, {
-            device: "webgpu",
-            dtype: { encoder_model: "fp32", decoder_model_merged: "fp32" },
+            device: deviceRef,
+            dtype: dtypeRef,
         });
         // Trigger shader compilation/mount step
         (
@@ -168,6 +249,10 @@ async function onMessage(e: MessageEvent<WorkerMessage>) {
         if (msg.type === "load") {
             if (typeof msg.modelId === "string" && msg.modelId)
                 modelId = msg.modelId;
+            if (typeof msg.device === "string" && msg.device)
+                deviceRef = parseDeviceOption(msg.device);
+            if (msg.dtype && typeof msg.dtype === "object")
+                dtypeRef = parseDTypeOption(msg.dtype) as DTypeOption;
             await ensureLoaded();
             (
                 self as unknown as { postMessage: (m: WorkerEvent) => void }

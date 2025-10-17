@@ -4,7 +4,7 @@
 
 import { pipeline, TextStreamer } from "@huggingface/transformers";
 
-type LoadMessage = { type: "load"; modelId?: string };
+type LoadMessage = { type: "load"; modelId?: string; device?: string };
 type GenerateMessage = {
     type: "generate";
     prompt: string;
@@ -28,8 +28,20 @@ type WorkerEvent =
     | { type: "complete"; text: string }
     | { type: "error"; error: string };
 
-let llm: any | null = null;
+let llm:
+    | ((prompt: string, options?: Record<string, unknown>) => Promise<unknown>)
+    | {
+          __call__?: (
+              p: string,
+              o?: Record<string, unknown>,
+          ) => Promise<unknown>;
+          generate?: (
+              args: { inputs: string } & Record<string, unknown>,
+          ) => Promise<unknown>;
+      }
+    | null = null;
 let llmModelIdRef: string = "onnx-community/granite-4.0-micro-ONNX-web";
+let deviceRef: string = "webgpu";
 
 function post(event: WorkerEvent) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -43,9 +55,8 @@ async function ensureLoaded() {
         "text-generation",
         llmModelIdRef || "onnx-community/granite-4.0-micro-ONNX-web",
         {
-            device: "webgpu",
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            progress_callback: (x: any) =>
+            device: deviceRef || "webgpu",
+            progress_callback: (x: unknown) =>
                 post({ type: "status", status: "loading", data: x }),
         },
     );
@@ -67,11 +78,23 @@ async function handleGenerate(
     post({ type: "status", status: "generating" });
     try {
         // Optional token streaming support via TextStreamer when available
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const maybeCall: any = llm;
+        const maybeCall = llm as
+            | ((
+                  prompt: string,
+                  options?: Record<string, unknown>,
+              ) => Promise<unknown>)
+            | {
+                  __call__?: (
+                      p: string,
+                      o?: Record<string, unknown>,
+                  ) => Promise<unknown>;
+                  generate?: (
+                      args: { inputs: string } & Record<string, unknown>,
+                  ) => Promise<unknown>;
+              };
         let text = "";
         try {
-            const streamer = new TextStreamer(undefined as unknown as any, {
+            const streamer = new TextStreamer(undefined as unknown as never, {
                 // tokenizer is optional for string accumulation; we only forward raw text
                 callback_function: (t: string) => {
                     text += t;
@@ -91,7 +114,7 @@ async function handleGenerate(
                                 inputs: prompt,
                                 streamer,
                                 ...(options || {}),
-                            }));
+                            } as unknown as { inputs: string }));
             if (!text) {
                 text =
                     (Array.isArray(out)
@@ -107,7 +130,7 @@ async function handleGenerate(
                           : maybeCall?.generate?.({
                                 inputs: prompt,
                                 ...(options || {}),
-                            }));
+                            } as unknown as { inputs: string }));
             text =
                 (Array.isArray(out)
                     ? out[0]?.generated_text
@@ -125,6 +148,8 @@ async function handleMessage(e: MessageEvent<WorkerMessage>) {
     if (msg.type === "load") {
         if (typeof msg.modelId === "string" && msg.modelId)
             llmModelIdRef = msg.modelId;
+        if (typeof msg.device === "string" && msg.device)
+            deviceRef = msg.device;
         await ensureLoaded();
         return;
     }

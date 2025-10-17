@@ -42,21 +42,21 @@
                                         {{ props.agentEnableTts ? 'mdi-check-circle' : 'mdi-circle-outline' }}
                                     </v-icon>
                                     <span>TTS ({{ ttsModelName }}): {{ props.agentEnableTts ? 'Enabled' : 'Disabled'
-                                        }}</span>
+                                    }}</span>
                                 </div>
                                 <div class="d-flex align-center mb-2">
                                     <v-icon :color="props.agentEnableLlm ? 'success' : 'grey'" class="mr-2">
                                         {{ props.agentEnableLlm ? 'mdi-check-circle' : 'mdi-circle-outline' }}
                                     </v-icon>
                                     <span>LLM ({{ llmModelName }}): {{ props.agentEnableLlm ? 'Enabled' : 'Disabled'
-                                        }}</span>
+                                    }}</span>
                                 </div>
                                 <div class="d-flex align-center">
                                     <v-icon :color="props.agentEnableStt ? 'success' : 'grey'" class="mr-2">
                                         {{ props.agentEnableStt ? 'mdi-check-circle' : 'mdi-circle-outline' }}
                                     </v-icon>
                                     <span>STT ({{ sttModelName }}): {{ props.agentEnableStt ? 'Enabled' : 'Disabled'
-                                        }}</span>
+                                    }}</span>
                                 </div>
                             </div>
                         </v-card>
@@ -71,12 +71,12 @@
                                 <v-progress-circular indeterminate color="primary" size="20" class="mr-2" />
                                 <div class="d-flex flex-column">
                                     <span>• LLM ({{ llmModelName }}): {{ llmLoading ? (llmStep || 'Loading') : 'Ready'
-                                        }}</span>
+                                    }}</span>
                                     <span>• TTS ({{ ttsModelName }}): {{ kokoroLoading ? (kokoroStep || 'Loading') :
                                         'Ready'
-                                        }}</span>
+                                    }}</span>
                                     <span>• STT ({{ sttModelName }}): {{ sttLoading ? (sttStep || 'Loading') : 'Ready'
-                                        }}</span>
+                                    }}</span>
                                 </div>
                             </div>
                         </v-alert>
@@ -111,10 +111,10 @@
                                             <v-list-item-title>
                                                 <code>{{ new Date(item.at).toLocaleTimeString() }}</code>
                                                 <span class="ml-2 text-medium-emphasis">[{{ peerDisplayName(item.peerId)
-                                                    }}]</span>
+                                                }}]</span>
                                             </v-list-item-title>
                                             <v-list-item-subtitle class="wrap-anywhere">{{ item.text
-                                                }}</v-list-item-subtitle>
+                                            }}</v-list-item-subtitle>
                                         </v-list-item>
                                         <v-divider class="my-1" />
                                     </template>
@@ -206,7 +206,7 @@
                                 <div v-if="sttLoading" class="ml-6">
                                     <v-progress-linear indeterminate color="primary" height="4" class="mb-1" />
                                     <span class="text-caption text-medium-emphasis">{{ sttStep || 'Initializing...'
-                                        }}</span>
+                                    }}</span>
                                 </div>
                                 <div v-else-if="sttPipeline" class="ml-6">
                                     <span class="text-caption text-success">Model loaded successfully</span>
@@ -237,7 +237,7 @@
                                         <v-progress-linear :model-value="rmsPct" color="secondary" height="6" rounded
                                             class="flex-grow-1" />
                                         <span class="text-caption text-medium-emphasis ml-2">{{ rmsLevel.toFixed(2)
-                                        }}</span>
+                                            }}</span>
                                     </div>
                                 </div>
                                 <!-- STT Inputs status -->
@@ -316,7 +316,7 @@
                                                 </span>
                                                 <span class="font-weight-medium">{{ msg.role === 'user' ? 'You' :
                                                     'Assistant'
-                                                    }}</span>
+                                                }}</span>
                                             </v-list-item-title>
                                             <v-list-item-subtitle class="mt-1 wrap-anywhere"
                                                 :class="msg.role === 'user' ? 'text-high-emphasis' : ''">
@@ -406,6 +406,35 @@ const props = defineProps({
     agentSttPreGain: { type: Number, required: true },
     // Which inputs feed STT: 'webrtc' | 'mic' | 'both' (provided by MainScene)
     agentSttInputMode: { type: String as () => 'webrtc' | 'mic' | 'both', required: true },
+    // STT worklet and VAD tuning
+    agentSttTargetSampleRate: { type: Number, required: true },
+    agentSttWorkletChunkMs: { type: Number, required: true },
+    agentVadConfig: {
+        type: Object as () => {
+            sampleRate: number;
+            minSpeechMs: number;
+            minSilenceMs: number;
+            prePadMs: number;
+            postPadMs: number;
+            speechThreshold: number;
+            exitThreshold: number;
+            maxPrevMs: number;
+        }, required: true
+    },
+    // LLM generation options
+    agentLlmMaxNewTokens: { type: Number, required: true },
+    agentLlmTemperature: { type: Number, required: true },
+    agentLlmTopP: { type: Number, required: true },
+    agentLlmReturnFullText: { type: Boolean, required: true },
+    // Device/dtype for STT/TTS workers
+    agentSttDevice: { type: String, required: true },
+    agentSttDType: { type: Object as () => Record<string, string>, required: true },
+    agentTtsDevice: { type: String, required: true },
+    agentTtsDType: { type: String, required: true },
+    // UI history limits (0 or less means unlimited)
+    agentUiMaxTranscripts: { type: Number, required: true },
+    agentUiMaxAssistantReplies: { type: Number, required: true },
+    agentUiMaxConversationItems: { type: Number, required: true },
 });
 
 const featureEnabled = sessionStorage.getItem("is_autonomous_agent") === "true";
@@ -553,7 +582,22 @@ function initSttWorkerOnce(): void {
         });
         sttLoading.value = true;
         sttStep.value = "Initializing Whisper (worker)";
-        worker.postMessage({ type: "load", modelId: String(props.agentSttModelId || '') });
+        // Ensure dtype is a plain, cloneable object (strip Vue proxies)
+        const rawDtype = (props.agentSttDType as unknown) || { encoder_model: 'fp32', decoder_model_merged: 'fp32' };
+        let dtypePayload: Record<string, string> | string = { encoder_model: 'fp32', decoder_model_merged: 'fp32' };
+        try {
+            const json = JSON.stringify(rawDtype);
+            dtypePayload = json ? (JSON.parse(json) as Record<string, string>) : { encoder_model: 'fp32', decoder_model_merged: 'fp32' };
+        } catch {
+            try {
+                const out: Record<string, string> = {};
+                for (const [k, v] of Object.entries(rawDtype as Record<string, unknown>)) out[k] = String(v);
+                dtypePayload = out;
+            } catch {
+                dtypePayload = { encoder_model: 'fp32', decoder_model_merged: 'fp32' };
+            }
+        }
+        worker.postMessage({ type: "load", modelId: String(props.agentSttModelId || ''), device: String(props.agentSttDevice || 'webgpu'), dtype: dtypePayload });
         sttWorkerRef.value = worker;
     } catch (e) {
         console.error("[Agent STT] Failed to init worker:", e);
@@ -585,8 +629,10 @@ function initVadWorkerOnce(): void {
             }
             // Optionally handle recording_start/recording_end UI here if desired
         });
-        // Load with defaults; could be tuned from MainScene props later
-        worker.postMessage({ type: "load", config: { sampleRate: 16000 } });
+        // Load with config from MainScene
+        const vadCfg = props.agentVadConfig || { sampleRate: 16000 };
+        const mergedCfg = { ...vadCfg, sampleRate: Math.max(8000, Math.min(48000, Number(props.agentSttTargetSampleRate || vadCfg.sampleRate || 16000))) };
+        worker.postMessage({ type: "load", config: mergedCfg });
         vadWorkerRef.value = worker;
     } catch (e) {
         console.error("[Agent VAD] Failed to init worker:", e);
@@ -621,7 +667,10 @@ async function attachStreamToSTT(peerId: string, stream: MediaStream): Promise<v
         const preGain = ctx.createGain();
         preGain.gain.value = Math.max(0.01, Number(props.agentSttPreGain || 1.0));
         const node = new AudioWorkletNode(ctx, "stt-processor", {
-            processorOptions: { targetSampleRate: 16000, chunkMs: 200 },
+            processorOptions: {
+                targetSampleRate: Math.max(8000, Math.min(48000, Number(props.agentSttTargetSampleRate || 16000))),
+                chunkMs: Math.max(50, Math.min(2000, Number(props.agentSttWorkletChunkMs || 200))),
+            },
         });
 
         // Ensure audio processing starts (autoplay policies may suspend context)
@@ -730,10 +779,11 @@ const isSpeaking = ref<boolean>(false);
 // Transcript capture state
 type TranscriptEntry = { peerId: string; text: string; at: number };
 const transcripts = ref<TranscriptEntry[]>([]);
-const MAX_TRANSCRIPTS = 10;
-const transcriptsLimited = computed<TranscriptEntry[]>(() =>
-    transcripts.value.slice(-MAX_TRANSCRIPTS),
-);
+const transcriptsLimited = computed<TranscriptEntry[]>(() => {
+    const limit = Number((props as unknown as { agentUiMaxTranscripts?: number }).agentUiMaxTranscripts || 0);
+    const src = transcripts.value;
+    return limit > 0 ? src.slice(-limit) : src;
+});
 const transcriptsLimitedReversed = computed<TranscriptEntry[]>(() =>
     [...transcriptsLimited.value].reverse(),
 );
@@ -741,9 +791,10 @@ function addTranscript(peerId: string, text: string) {
     const trimmed = (text || "").trim();
     if (!trimmed) return;
     transcripts.value.push({ peerId, text: trimmed, at: Date.now() });
-    // Keep the list bounded
-    if (transcripts.value.length > MAX_TRANSCRIPTS)
-        transcripts.value.splice(0, transcripts.value.length - MAX_TRANSCRIPTS);
+    // Keep the list bounded if a limit is provided
+    const limit = Number((props as unknown as { agentUiMaxTranscripts?: number }).agentUiMaxTranscripts || 0);
+    if (limit > 0 && transcripts.value.length > limit)
+        transcripts.value.splice(0, transcripts.value.length - limit);
 }
 
 function clearTranscripts() {
@@ -808,8 +859,6 @@ function detachMicFromSTT(): void {
 // LLM output capture
 type LlmEntry = { text: string; at: number };
 const llmOutputs = ref<LlmEntry[]>([]);
-// TODO: Remove this, it should be a prop for total history, not just LLM replies.
-const MAX_LLM_OUTPUTS = 10;
 const llmOutputsReversed = computed<LlmEntry[]>(() =>
     [...llmOutputs.value].reverse(),
 );
@@ -817,8 +866,9 @@ function addLlmOutput(text: string) {
     const trimmed = (text || "").trim();
     if (!trimmed) return;
     llmOutputs.value.push({ text: trimmed, at: Date.now() });
-    if (llmOutputs.value.length > MAX_LLM_OUTPUTS)
-        llmOutputs.value.splice(0, llmOutputs.value.length - MAX_LLM_OUTPUTS);
+    const limit = Number((props as unknown as { agentUiMaxAssistantReplies?: number }).agentUiMaxAssistantReplies || 0);
+    if (limit > 0 && llmOutputs.value.length > limit)
+        llmOutputs.value.splice(0, llmOutputs.value.length - limit);
 }
 
 // Merge transcripts (user prompts) and llmOutputs (assistant replies) into a single conversation list
@@ -832,8 +882,9 @@ const conversationItems = computed<ConversationItem[]>(() => {
         items.push({ role: 'assistant', text: l.text, at: l.at, key: `a:${l.at}` });
     }
     items.sort((a, b) => a.at - b.at);
-    // Keep the conversation bounded
-    return items.slice(-20);
+    // Keep the conversation bounded if a limit is provided
+    const limit = Number((props as unknown as { agentUiMaxConversationItems?: number }).agentUiMaxConversationItems || 0);
+    return limit > 0 ? items.slice(-limit) : items;
 });
 
 // Newest-first ordering for UI rendering
@@ -1000,7 +1051,7 @@ async function handleTranscript(peerId: string, text: string, _opts?: { incomple
         })();
         const systemPrefix = 'System: You are an in-world assistant. Be concise and conversational. If the user input is partial or insufficient, respond with exactly <no-reply/> and nothing else. If sufficient follow up has been provided after you replied <no-reply/> then reply with a response.';
         const prompt = `${systemPrefix}\n${gatingInstruction}\n${history ? `Chat history:\n${history}\n` : ''}\nUser: ${text}\n\nAssistant:`;
-        const reply: string = await generateWithLLM(prompt, { max_new_tokens: 80, temperature: 0.7, return_full_text: false });
+        const reply: string = await generateWithLLM(prompt, { max_new_tokens: Number(props.agentLlmMaxNewTokens || 80), temperature: Number(props.agentLlmTemperature || 0.7), top_p: Number(props.agentLlmTopP || 1.0), return_full_text: !!props.agentLlmReturnFullText });
         const cleaned = extractAssistantText(reply).trim();
         if (cleaned?.includes('<no-reply/>')) {
             // Start a timer to reprompt if nothing else arrives
@@ -1326,7 +1377,7 @@ function initTtsWorkerOnce(): void {
         });
         kokoroLoading.value = true;
         kokoroStep.value = "Initializing TTS (worker)";
-        worker.postMessage({ type: "load", modelId: props.agentTtsModelId });
+        worker.postMessage({ type: "load", modelId: props.agentTtsModelId, device: String(props.agentTtsDevice || 'webgpu'), dtype: String(props.agentTtsDType || 'fp32') });
         ttsWorkerRef.value = worker;
     } catch (e) {
         console.error("[Agent TTS] Failed to init worker:", e);

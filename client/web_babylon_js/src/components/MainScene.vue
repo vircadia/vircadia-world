@@ -540,9 +540,9 @@ const webrtcRemoteStreamsMap = ref(new Map<string, MediaStream>());
 
 // Agent wake/end words are provided via template props pattern
 // Prefer passing from here rather than setting defaults inside the agent
-const agentWakeWord = ref<string>("computer");
-const agentEndWord = ref<string>("over");
-const agentTtsLocalEcho = ref<boolean>(true);
+const agentWakeWord = ref<string>("");
+const agentEndWord = ref<string>("");
+const agentTtsLocalEcho = ref<boolean>(false);
 const agentEnableLLM = ref<boolean>(true);
 const agentEnableSTT = ref<boolean>(true);
 const agentEnableTTS = ref<boolean>(true);
@@ -559,7 +559,7 @@ const agentSttModelId = ref<string>("onnx-community/whisper-base");
 // STT pre-gain (to compensate remote levels prior to worklet)
 const agentSttPreGain = ref<number>(1.0);
 // STT input selection: 'webrtc' (default), 'mic', or 'both'
-const agentSttInputMode = ref<'webrtc' | 'mic' | 'both'>("mic");
+const agentSttInputMode = ref<'webrtc' | 'mic' | 'both'>("webrtc");
 
 // Worker/device/dtype and model runtime tuning passed via template props
 const agentSttTargetSampleRate = ref<number>(16000);

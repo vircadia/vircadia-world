@@ -1047,9 +1047,9 @@ async function handleTranscript(peerId: string, text: string, _opts?: { incomple
             const end = String(props.agentEndWord || '').trim();
             if (wake && end) return `Guidance: Wake word may be present ('${wake}'); if the request seems partial or lacks a clear end, output exactly <no-reply/>.`;
             if (wake && !end) return `Guidance: A wake word may start the request ('${wake}'); rely on natural boundaries. If the request seems partial, output exactly <no-reply/>.`;
-            return `Guidance: If input seems partial, output exactly <no-reply/>.`;
+            return `Guidance: If input seems partial, output exactly <no-reply/>. If sufficient follow up has been provided after you replied <no-reply/> then reply with a response.`;
         })();
-        const systemPrefix = 'System: You are an in-world assistant. Be concise and conversational. If the user input is partial or insufficient, respond with exactly <no-reply/> and nothing else. If sufficient follow up has been provided after you replied <no-reply/> then reply with a response.';
+        const systemPrefix = 'System: You are an in-world assistant. Be concise and conversational.';
         const prompt = `${systemPrefix}\n${gatingInstruction}\n${history ? `Chat history:\n${history}\n` : ''}\nUser: ${text}\n\nAssistant:`;
         const reply: string = await generateWithLLM(prompt, { max_new_tokens: Number(props.agentLlmMaxNewTokens || 80), temperature: Number(props.agentLlmTemperature || 0.7), top_p: Number(props.agentLlmTopP || 1.0), return_full_text: !!props.agentLlmReturnFullText });
         const cleaned = extractAssistantText(reply).trim();

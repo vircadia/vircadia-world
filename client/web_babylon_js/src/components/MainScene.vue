@@ -42,32 +42,31 @@
                         :displayName="accountDisplayName || undefined" :provider="connectionInfo.authProvider || 'anon'"
                         :onLogout="logout" :vircadia-world="vircadiaWorld" :connection-info="connectionInfo" />
 
+                    <VircadiaAutonomousAgent :scene="scene" :engine="engine" :canvas="renderCanvas"
+                        :vircadia-world="vircadiaWorld" :webrtc-ref="webrtcApi" :webrtc-local-stream="webrtcLocalStream"
+                        :webrtc-peers="webrtcPeersMap" :webrtc-remote-streams="webrtcRemoteStreamsMap"
+                        :agent-tts-local-echo="agentTtsLocalEcho" :agent-wake-word="agentWakeWord"
+                        :agent-end-word="agentEndWord" :agent-stt-window-sec="agentSttWindowSec"
+                        :agent-stt-max-buffer-sec="agentSttMaxBufferSec" :agent-language="agentLanguage"
+                        :agent-tts-model-id="agentTtsModelId" :agent-llm-model-id="agentLlmModelId"
+                        :agent-stt-model-id="agentSttModelId" :agent-enable-tts="agentEnableTTS"
+                        :agent-enable-llm="agentEnableLLM" :agent-enable-stt="agentEnableSTT"
+                        :agent-stt-pre-gain="agentSttPreGain" :agent-stt-input-mode="agentSttInputMode"
+                        :agent-no-reply-timeout-sec="agentNoReplyTimeoutSec"
+                        :agent-stt-target-sample-rate="agentSttTargetSampleRate"
+                        :agent-stt-worklet-chunk-ms="agentSttWorkletChunkMs" :agent-vad-config="agentVadConfig"
+                        :agent-llm-max-new-tokens="agentLlmMaxNewTokens" :agent-llm-temperature="agentLlmTemperature"
+                        :agent-llm-top-p="agentLlmTopP" :agent-llm-return-full-text="agentLlmReturnFullText"
+                        :agent-stt-device="agentSttDevice" :agent-stt-d-type="agentSttDType"
+                        :agent-tts-device="agentTtsDevice" :agent-tts-d-type="agentTtsDType"
+                        :agent-ui-max-transcripts="agentUiMaxTranscripts"
+                        :agent-ui-max-assistant-replies="agentUiMaxAssistantReplies"
+                        :agent-ui-max-conversation-items="agentUiMaxConversationItems" />
+
 
                     <!-- Component Loader -->
                     <template v-for="comp in availableComponents" :key="comp">
-                        <!-- Pass agent feature flags only to the autonomous agent component -->
-                        <component v-if="comp === 'VircadiaAutonomousAgent'" :is="comp" :scene="scene" :engine="engine"
-                            :canvas="renderCanvas" :vircadia-world="vircadiaWorld" :webrtc-bus="webrtcBus"
-                            :webrtc-local-stream="webrtcLocalStream" :webrtc-peers="webrtcPeersMap"
-                            :webrtc-remote-streams="webrtcRemoteStreamsMap" :agent-tts-local-echo="agentTtsLocalEcho"
-                            :agent-wake-word="agentWakeWord" :agent-end-word="agentEndWord"
-                            :agent-stt-window-sec="agentSttWindowSec" :agent-stt-max-buffer-sec="agentSttMaxBufferSec"
-                            :agent-language="agentLanguage" :agent-tts-model-id="agentTtsModelId"
-                            :agent-llm-model-id="agentLlmModelId" :agent-stt-model-id="agentSttModelId"
-                            :agent-enable-tts="agentEnableTTS" :agent-enable-llm="agentEnableLLM"
-                            :agent-enable-stt="agentEnableSTT" :agent-stt-pre-gain="agentSttPreGain"
-                            :agent-stt-input-mode="agentSttInputMode"
-                            :agent-no-reply-timeout-sec="agentNoReplyTimeoutSec"
-                            :agent-stt-target-sample-rate="agentSttTargetSampleRate"
-                            :agent-stt-worklet-chunk-ms="agentSttWorkletChunkMs" :agent-vad-config="agentVadConfig"
-                            :agent-llm-max-new-tokens="agentLlmMaxNewTokens"
-                            :agent-llm-temperature="agentLlmTemperature" :agent-llm-top-p="agentLlmTopP"
-                            :agent-llm-return-full-text="agentLlmReturnFullText" :agent-stt-device="agentSttDevice"
-                            :agent-stt-d-type="agentSttDType" :agent-tts-device="agentTtsDevice"
-                            :agent-tts-d-type="agentTtsDType" :agent-ui-max-transcripts="agentUiMaxTranscripts"
-                            :agent-ui-max-assistant-replies="agentUiMaxAssistantReplies"
-                            :agent-ui-max-conversation-items="agentUiMaxConversationItems" />
-                        <component v-else :is="comp" :scene="scene" :engine="engine" :canvas="renderCanvas"
+                        <component :is="comp" :scene="scene" :engine="engine" :canvas="renderCanvas"
                             :vircadia-world="vircadiaWorld" />
                     </template>
 
@@ -94,7 +93,7 @@
                                 <v-btn v-bind="props" icon class="ml-2"
                                     :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                     <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' : 'mdi-speedometer-slow'
-                                    }}</v-icon>
+                                        }}</v-icon>
                                 </v-btn>
                             </template>
                             <div key="normalPerf">
@@ -163,7 +162,7 @@
                                     <v-btn v-bind="props" icon variant="text" class="ml-2" :disabled="!sceneInitialized"
                                         @click="inspectorRef?.toggleInspector()">
                                         <v-icon>{{ inspectorVisible ? 'mdi-file-tree' : 'mdi-file-tree-outline'
-                                        }}</v-icon>
+                                            }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <span>Babylon Inspector (T)</span>
@@ -322,12 +321,13 @@
                                                 @dispose="otherAvatarsRef?.markDisposed && otherAvatarsRef.markDisposed(otherFullSessionId)" />
 
                                             <!-- WebRTC component (now under OtherAvatars slot) -->
-                                            <BabylonWebRTC v-model="showWebRTCControls" :client="vircadiaWorld"
+                                            <BabylonWebRTC ref="webrtcRef" v-model="showWebRTCControls"
+                                                :client="vircadiaWorld"
                                                 :full-session-id="connectionInfo.fullSessionId ?? null"
                                                 :avatar-data="new Map(Object.entries((avatarDataMap as Record<string, AvatarBaseData>) || {}))"
                                                 :avatar-positions="new Map(Object.entries((positionDataMap as Record<string, AvatarPositionData>) || {}))"
                                                 :my-position="null" :my-camera-orientation="null"
-                                                :webrtc-sync-group="'public.NORMAL'" @bus="onWebRTCBus"
+                                                :webrtc-sync-group="'public.NORMAL'"
                                                 @permissions="onWebRTCPermissions($event)"
                                                 v-model:local-audio-stream="webrtcLocalStream"
                                                 v-model:peers-map="webrtcPeersMap"
@@ -394,6 +394,7 @@ import type { Scene, TransformNode } from "@babylonjs/core";
 
 import { clientBrowserConfiguration } from "@vircadia/world-sdk/browser/vue";
 import { useStorage } from "@vueuse/core";
+import type { ComponentPublicInstance } from "vue";
 import {
     computed,
     defineComponent,
@@ -432,6 +433,7 @@ import BabylonSnackbar from "@/components/BabylonSnackbar.vue";
 import BabylonWebRTC from "@/components/BabylonWebRTC.vue";
 import LeftDrawer from "@/components/LeftDrawer.vue";
 import RightDrawer from "@/components/RightDrawer.vue";
+import VircadiaAutonomousAgent from "@/components/VircadiaAutonomousAgent.vue";
 import VircadiaWorldAuthLogin from "@/components/VircadiaWorldAuthLogin.vue";
 import VircadiaWorldAuthProvider from "@/components/VircadiaWorldAuthProvider.vue";
 import VircadiaWorldProvider from "@/components/VircadiaWorldProvider.vue";
@@ -497,7 +499,7 @@ const isDev = import.meta.env.DEV;
 const teleportTarget = ref<HTMLElement | null>(null);
 
 // Provide the teleport target for child components
-provide('mainAppBarTeleportTarget', teleportTarget);
+provide("mainAppBarTeleportTarget", teleportTarget);
 
 function onInspectorVisibleChange(v: boolean) {
     inspectorVisible.value = v;
@@ -527,11 +529,51 @@ const sceneInitialized = computed(
 const performanceMode = useStorage<"normal" | "low">("vrca.perf.mode", "low");
 const fps = ref<number>(0);
 
-// WebRTC bus shared to all components loaded via MainScene
-const webrtcBus = ref<unknown | null>(null);
-function onWebRTCBus(value: unknown) {
-    webrtcBus.value = value;
-}
+// WebRTC component ref for direct API access (replaces bus)
+type WebRTCRefApi = {
+    getLocalStream: () => MediaStream | null;
+    getPeersMap: () => Map<string, RTCPeerConnection>;
+    getRemoteStreamsMap: () => Map<string, MediaStream>;
+    getUplinkAudioContext: () => AudioContext | null;
+    getUplinkDestination: () => MediaStreamAudioDestinationNode | null;
+    ensureUplinkDestination: () => Promise<MediaStreamTrack | null>;
+    replaceUplinkWithDestination: () => Promise<boolean>;
+    restoreUplinkMic: () => Promise<boolean>;
+    connectMicToUplink: (enabled: boolean) => void;
+    connectNodeToUplink: (node: AudioNode) => void;
+};
+
+const webrtcRef = ref<(ComponentPublicInstance & Partial<WebRTCRefApi>) | null>(
+    null,
+);
+const webrtcApi = computed<WebRTCRefApi | null>(() =>
+    webrtcRef.value
+        ? {
+            getLocalStream: () => webrtcRef.value?.getLocalStream?.() ?? null,
+            getPeersMap: () =>
+                webrtcRef.value?.getPeersMap?.() ??
+                new Map<string, RTCPeerConnection>(),
+            getRemoteStreamsMap: () =>
+                webrtcRef.value?.getRemoteStreamsMap?.() ??
+                new Map<string, MediaStream>(),
+            getUplinkAudioContext: () =>
+                webrtcRef.value?.getUplinkAudioContext?.() ?? null,
+            getUplinkDestination: () =>
+                webrtcRef.value?.getUplinkDestination?.() ?? null,
+            ensureUplinkDestination: async () =>
+                await (webrtcRef.value?.ensureUplinkDestination?.() ?? null),
+            replaceUplinkWithDestination: async () =>
+                await (webrtcRef.value?.replaceUplinkWithDestination?.() ??
+                    false),
+            restoreUplinkMic: async () =>
+                await (webrtcRef.value?.restoreUplinkMic?.() ?? false),
+            connectMicToUplink: (enabled: boolean) =>
+                webrtcRef.value?.connectMicToUplink?.(enabled),
+            connectNodeToUplink: (node: AudioNode) =>
+                webrtcRef.value?.connectNodeToUplink?.(node),
+        }
+        : null,
+);
 
 // Reactive mirrors of WebRTC internals
 const webrtcLocalStream = ref<MediaStream | null>(null);
@@ -554,12 +596,14 @@ const agentSttMaxBufferSec = ref<number>(8.0);
 const agentLanguage = ref<string>("en");
 // Model IDs to configure workers; prefer template-provided values from here
 const agentTtsModelId = ref<string>("onnx-community/Kokoro-82M-v1.0-ONNX");
-const agentLlmModelId = ref<string>("onnx-community/granite-4.0-micro-ONNX-web");
+const agentLlmModelId = ref<string>(
+    "onnx-community/granite-4.0-micro-ONNX-web",
+);
 const agentSttModelId = ref<string>("onnx-community/whisper-base");
 // STT pre-gain (to compensate remote levels prior to worklet)
 const agentSttPreGain = ref<number>(1.0);
 // STT input selection: 'webrtc' (default), 'mic', or 'both'
-const agentSttInputMode = ref<'webrtc' | 'mic' | 'both'>("webrtc");
+const agentSttInputMode = ref<"webrtc" | "mic" | "both">("webrtc");
 
 // Worker/device/dtype and model runtime tuning passed via template props
 const agentSttTargetSampleRate = ref<number>(16000);
@@ -588,7 +632,10 @@ const agentUiMaxConversationItems = ref<number>(0);
 
 // Backend device/dtype knobs
 const agentSttDevice = ref<string>("webgpu");
-const agentSttDType = ref<Record<string, string>>({ encoder_model: "fp32", decoder_model_merged: "fp32" });
+const agentSttDType = ref<Record<string, string>>({
+    encoder_model: "fp32",
+    decoder_model_merged: "fp32",
+});
 const agentTtsDevice = ref<string>("webgpu");
 const agentTtsDType = ref<string>("fp32");
 

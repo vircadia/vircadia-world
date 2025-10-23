@@ -472,6 +472,16 @@ interface Props {
     localAudioStream?: MediaStream | null;
     peersMap?: Map<string, RTCPeerConnection>;
     remoteStreamsMap?: Map<string, MediaStream>;
+    // Optional mirrored v-model bindings
+    isInitialized?: boolean;
+    audioEnabled?: boolean;
+    microphonePermission?: 'granted' | 'denied' | 'prompt' | 'unknown';
+    audioContextState?: 'resumed' | 'suspended' | 'unknown';
+    localStreamActive?: boolean;
+    discoveredPeers?: string[];
+    peerVolumes?: Map<string, number>;
+    peerAudioLevels?: Map<string, number>;
+    uplinkUsingDestination?: boolean;
 }
 
 const emit = defineEmits<{
@@ -481,6 +491,16 @@ const emit = defineEmits<{
     "update:localAudioStream": [value: MediaStream | null];
     "update:peersMap": [value: Map<string, RTCPeerConnection>];
     "update:remoteStreamsMap": [value: Map<string, MediaStream>];
+    // New direct state bindings
+    "update:isInitialized": [value: boolean];
+    "update:audioEnabled": [value: boolean];
+    "update:microphonePermission": [value: 'granted' | 'denied' | 'prompt' | 'unknown'];
+    "update:audioContextState": [value: 'resumed' | 'suspended' | 'unknown'];
+    "update:localStreamActive": [value: boolean];
+    "update:discoveredPeers": [value: string[]];
+    "update:peerVolumes": [value: Map<string, number>];
+    "update:peerAudioLevels": [value: Map<string, number>];
+    "update:uplinkUsingDestination": [value: boolean];
 }>();
 
 const props = defineProps<Props>();
@@ -677,6 +697,7 @@ async function replaceUplinkWithDestination(): Promise<boolean> {
             await sender.replaceTrack(track);
         }
         uplinkUsingDestination = true;
+        emit('update:uplinkUsingDestination', true);
         console.log("[WebRTC Bus] Uplink replaced with injected destination track");
         return true;
     } catch (e) {
@@ -695,6 +716,7 @@ async function restoreUplinkMic(): Promise<boolean> {
             await sender.replaceTrack(micTrack);
         }
         uplinkUsingDestination = false;
+        emit('update:uplinkUsingDestination', false);
         console.log("[WebRTC Bus] Restored original mic track to uplink");
         return true;
     } catch (e) {
@@ -1575,6 +1597,7 @@ function updateAudioLevels() {
         peerAudioLevels.value.set(peerId, rmsLevel);
         analysisData.level = rmsLevel;
     }
+    emit('update:peerAudioLevels', new Map(peerAudioLevels.value));
 }
 
 function stopAudioAnalysisForPeer(peerId: string) {
@@ -1819,6 +1842,7 @@ async function initLocalMedia() {
         console.log("[WebRTC] Local media initialized");
         // Update parent with new local stream
         emit('update:localAudioStream', localStream.value);
+        emit('update:localStreamActive', !!localStream.value);
 
         for (const [peerId, peerInfo] of peers.value) {
             for (const track of stream.getTracks()) {
@@ -1843,6 +1867,7 @@ function stopLocalMedia() {
     }
     // Inform parent
     emit('update:localAudioStream', localStream.value);
+    emit('update:localStreamActive', !!localStream.value);
 }
 
 function setupPerfectNegotiation(peerId: string, peerInfo: PeerInfo) {
@@ -1947,6 +1972,9 @@ function setupPerfectNegotiation(peerId: string, peerInfo: PeerInfo) {
                 emit('update:remoteStreamsMap', new Map(Array.from(peers.value.entries())
                     .filter(([, info]) => !!info.remoteStream)
                     .map(([id, info]) => [id, info.remoteStream as MediaStream])));
+                // Reflect discovered peers and local/active state for v-models
+                emit('update:discoveredPeers', Array.from(activePeers.value.keys()));
+                emit('update:localStreamActive', !!localStream.value);
             } catch (err) {
                 console.error(
                     `[WebRTC] Failed to create spatial audio for peer ${peerId}:`,
@@ -2200,6 +2228,7 @@ async function disconnectPeer(peerId: string) {
     emit('update:remoteStreamsMap', new Map(Array.from(peers.value.entries())
         .filter(([, info]) => !!info.remoteStream)
         .map(([id, info]) => [id, info.remoteStream as MediaStream])));
+    emit('update:discoveredPeers', Array.from(activePeers.value.keys()));
 }
 
 function setPeerVolume(peerId: string, volume: number) {
@@ -2217,6 +2246,7 @@ function onPeerVolumeUpdate(peerId: string, value: number) {
 // ============================================================================
 
 watch(discoveredPeers, (newPeers) => {
+    emit('update:discoveredPeers', newPeers);
     for (const peerId of newPeers) {
         if (peerId === props.fullSessionId) continue;
         if (peers.value.has(peerId)) continue;
@@ -2239,6 +2269,7 @@ watch(audioEnabled, (enabled) => {
             track.enabled = enabled;
         }
     }
+    emit('update:audioEnabled', enabled);
 });
 
 onMounted(async () => {
@@ -2273,14 +2304,19 @@ onMounted(async () => {
     }, 1000);
 
     isInitialized.value = true;
+    emit('update:isInitialized', true);
 
     console.log("[WebRTC Reflect] Initialized", {
         syncGroup: SYNC_GROUP,
         session: props.fullSessionId,
     });
 
-    // Emit bus for external consumers (e.g., agents)
-    emit('bus', webRTCAudioBus as unknown);
+    // Emit v-model mirrors for parent convenience
+    emit('update:isInitialized', true);
+    emit('update:audioEnabled', audioEnabled.value);
+    emit('update:discoveredPeers', Array.from(activePeers.value.keys()));
+    emit('update:peerVolumes', new Map(peerVolumes.value));
+    emit('update:peerAudioLevels', new Map(peerAudioLevels.value));
 });
 
 onUnmounted(async () => {
@@ -2329,6 +2365,27 @@ onUnmounted(async () => {
     isInitialized.value = false;
 
     console.log("[WebRTC] Cleaned up");
+});
+
+// Expose a typed ref API so parents can directly control uplink injection and inspect state
+defineExpose({
+    // Streams and peers
+    getLocalStream: () => localStream.value,
+    getPeersMap: () => new Map(Array.from(peers.value.entries()).map(([id, info]) => [id, info.pc])),
+    getRemoteStreamsMap: () => new Map(Array.from(peers.value.entries())
+        .filter(([, info]) => !!info.remoteStream)
+        .map(([id, info]) => [id, info.remoteStream as MediaStream])),
+    // Uplink audio injection controls
+    getUplinkAudioContext: () => uplinkContext,
+    getUplinkDestination: () => uplinkDestination,
+    ensureUplinkDestination: async () => {
+        await ensureUplinkContext();
+        return uplinkDestination?.stream.getAudioTracks()[0] || null;
+    },
+    replaceUplinkWithDestination: async () => replaceUplinkWithDestination(),
+    restoreUplinkMic: async () => restoreUplinkMic(),
+    connectMicToUplink: (enabled: boolean) => connectMicToUplink(enabled),
+    connectNodeToUplink: (node: AudioNode) => connectNodeToUplink(node),
 });
 </script>
 

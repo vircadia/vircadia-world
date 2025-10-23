@@ -66,9 +66,29 @@ export default defineConfig(({ command }) => {
         envPrefix: "VRCA_CLIENT_",
         assetsInclude: ["**/*.vertex", "**/*.fragment"],
         build: {
-            target: "esnext",
-            chunkSizeWarningLimit: 3000, // Increased warning limit temporarily
-            rollupOptions: {},
+			target: "esnext",
+			chunkSizeWarningLimit: 3000, // Increased warning limit temporarily
+			sourcemap: true,
+			minify: true,
+			reportCompressedSize: true,
+			cssCodeSplit: true,
+			rollupOptions: {
+				output: {
+					manualChunks: {
+						vendor_vue: ["vue", "vue-router", "pinia", "vuetify"],
+						vendor_babylon: [
+							"@babylonjs/core",
+							"@babylonjs/inspector",
+							"@babylonjs/loaders",
+							"@babylonjs/havok",
+						],
+						// vendor_auth: ["@azure/msal-browser"],
+						// vendor_lodash: ["lodash-es"],
+						// vendor_ai: ["@huggingface/transformers", "kokoro-js"],
+						// vendor_sdk: ["@vircadia/world-sdk/browser/vue"],
+					},
+				},
+			},
         },
         worker: {
             // Ensure workers are built as ES modules to support code-splitting

@@ -392,7 +392,7 @@
 // BabylonJS types
 import type { Scene, TransformNode } from "@babylonjs/core";
 
-import { clientBrowserConfiguration } from "@vircadia/world-sdk/browser/vue";
+import { clientBrowserConfiguration, clientBrowserState } from "@vircadia/world-sdk/browser/vue";
 import { useStorage } from "@vueuse/core";
 import type { ComponentPublicInstance } from "vue";
 import {
@@ -656,14 +656,11 @@ onMounted(async () => {
     document.addEventListener("keydown", handleKeyPress);
 });
 
-// TODO: This global flag should be well defined somewhere as a const or setting.
 // Set global flag when scene is ready for autonomous agent
 if (sessionStorage.getItem("is_autonomous_agent") === "true") {
     watch(sceneInitialized, (isReady) => {
         if (isReady) {
-            (
-                window as typeof window & { __VIRCADIA_SCENE_READY__?: boolean }
-            ).__VIRCADIA_SCENE_READY__ = true;
+            clientBrowserState.setSceneReady(true);
             console.debug(
                 "[MainScene] Scene ready flag set for autonomous agent",
             );

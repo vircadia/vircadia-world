@@ -11,7 +11,9 @@ let browser: Browser | undefined;
 let page: Page | undefined;
 
 async function startApplication(): Promise<void> {
-    console.log(`🚀 Launching browser and connecting to ${BASE_URL} as anonymous autonomous agent`);
+    console.log(
+        `🚀 Launching browser and connecting to ${BASE_URL} as anonymous autonomous agent`,
+    );
 
     browser = await launch({
         headless: false,
@@ -36,18 +38,13 @@ async function startApplication(): Promise<void> {
     await page.waitForSelector("canvas", { timeout: 10000 });
     console.log("✅ Canvas found");
 
-    // Wait for Babylon.js scene to be ready by checking a global flag
+    // Wait for Babylon.js scene to be ready by checking the window state
+    // Note: This flag is set by clientBrowserState singleton in MainScene.vue
+    // State is stored on window.__VircadiaClientBrowserState__ for easy access
     console.log("⏳ Waiting for Babylon.js scene to be ready...");
     await page.waitForFunction(
         () => {
-            // Check if a global flag has been set indicating the scene is ready
-            return (
-                (
-                    window as typeof window & {
-                        __VIRCADIA_SCENE_READY__?: boolean;
-                    }
-                ).__VIRCADIA_SCENE_READY__ === true
-            );
+            return window.__VircadiaClientBrowserState__?.sceneReady === true;
         },
         { timeout: 30000, polling: 1000 },
     );

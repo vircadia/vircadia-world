@@ -23,7 +23,7 @@ let superUserSql: SQL | null = null;
 const LOG_PREFIX = "World API Asset Manager";
 
 class WorldApiAssetManager {
-    private server: Server | undefined;
+    private server: Server<unknown> | undefined;
     private metricsCollector = new MetricsCollector();
     private aclService: AclService | null = null;
     private maintenanceInterval: Timer | null = null;
@@ -524,7 +524,7 @@ class WorldApiAssetManager {
             hostname: "0.0.0.0",
             port: 3023,
             development: serverConfiguration.VRCA_SERVER_DEBUG,
-            fetch: async (req: Request, server: Server) => {
+            fetch: async (req: Request, server: Server<unknown>) => {
                 try {
                     const url = new URL(req.url);
 

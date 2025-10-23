@@ -50,7 +50,7 @@ type ReflectQueuedItem = {
 };
 
 export class WorldApiWsManager {
-    private server: Server | undefined;
+    private server: Server<WebSocketData> | undefined;
 
     public activeSessions: Map<string, WorldSession<unknown>> = new Map();
     private heartbeatInterval: Timer | null = null;
@@ -477,7 +477,7 @@ export class WorldApiWsManager {
             development: this.DEBUG,
 
             // #region API -> HTTP Routes
-            fetch: async (req: Request, server: Server) => {
+            fetch: async (req: Request, server: Server<WebSocketData>) => {
                 try {
                     if (!superUserSql || !proxyUserSql) {
                         BunLogModule({

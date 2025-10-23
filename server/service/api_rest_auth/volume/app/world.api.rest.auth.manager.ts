@@ -37,7 +37,7 @@ let superUserSql: SQL | null = null;
 const LOG_PREFIX = "World API Auth Manager";
 
 class WorldApiAuthManager {
-    private _server: Server | undefined;
+    private _server: Server<unknown> | undefined;
     private metricsCollector = new MetricsCollector();
     private aclService: AclService | null = null;
     private azureADService: AzureADAuthService | null = null;
@@ -185,7 +185,7 @@ class WorldApiAuthManager {
             hostname: "0.0.0.0",
             port: 3022,
             development: serverConfiguration.VRCA_SERVER_DEBUG,
-            fetch: async (req: Request, server: Server) => {
+            fetch: async (req: Request, server: Server<unknown>) => {
                 try {
                     const url = new URL(req.url);
 

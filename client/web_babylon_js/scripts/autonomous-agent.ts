@@ -3,9 +3,13 @@
 import { clientBrowserConfiguration } from "@vircadia/world-sdk/browser/vue";
 import { type Browser, chromium, type Page } from "playwright";
 
+// Local declaration to satisfy linting without requiring @types/node in this script context
+declare const process: any;
+
 const DEV_PORT = clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT;
 const DEV_HOST = "localhost";
-const BASE_URL = `http://${DEV_HOST}:${DEV_PORT}?is_autonomous_agent=true`;
+const ORIGIN = `http://${DEV_HOST}:${DEV_PORT}`;
+const BASE_URL = `${ORIGIN}?is_autonomous_agent=true`;
 
 let browser: Browser | undefined;
 let page: Page | undefined;
@@ -16,7 +20,7 @@ async function startApplication(): Promise<void> {
     );
 
     browser = await chromium.launch({
-        headless: false,
+        headless: true,
         args: [
             "--no-sandbox",
             "--disable-setuid-sandbox",
@@ -24,8 +28,10 @@ async function startApplication(): Promise<void> {
             "--disable-accelerated-2d-canvas",
             "--no-first-run",
             "--no-zygote",
+            // Enable WebGPU for Babylon.js
             "--enable-webgpu",
             "--enable-unsafe-webgpu",
+            "--ignore-gpu-blocklist",
             // Fake audio device support
             // "--use-fake-device-for-media-stream",
             "--use-fake-ui-for-media-stream",
@@ -38,9 +44,28 @@ async function startApplication(): Promise<void> {
     });
 
     // Grant microphone permission before creating page
-    await context.grantPermissions(["microphone"], { origin: BASE_URL });
+    await context.grantPermissions(["microphone"], { origin: ORIGIN });
 
     page = await context.newPage();
+
+    // Stop gracefully if the page crashes or closes
+    page.on("crash", async () => {
+        console.error("\n💥 Page crashed. Stopping state monitoring.");
+        await cleanup();
+    });
+    page.on("close", async () => {
+        console.error("\n🔒 Page closed. Stopping state monitoring.");
+        await cleanup();
+    });
+    page.on("pageerror", (err) => {
+        console.error("\n💥 Page error:", err);
+    });
+    page.on("console", (msg) => {
+        const loc = msg.location();
+        console.log(
+            `📜 [browser:${msg.type()}] ${msg.text()} (${loc.url}:${loc.lineNumber}:${loc.columnNumber})`,
+        );
+    });
 
     await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
 
@@ -64,6 +89,20 @@ async function startApplication(): Promise<void> {
 
     console.log("✅ Babylon.js scene is ready!");
 
+    // Ensure autonomous agent state exists before polling
+    await page.waitForFunction(
+        () => {
+            const win = window as unknown as {
+                __VircadiaClientBrowserState__?: { autonomousAgent?: unknown };
+            };
+            return (
+                win.__VircadiaClientBrowserState__?.autonomousAgent !==
+                undefined
+            );
+        },
+        { timeout: 15000 },
+    );
+
     console.log("🎉 Application is ready! Press Ctrl+C to exit.");
 
     // Start polling and logging autonomous agent state
@@ -75,8 +114,15 @@ async function startApplication(): Promise<void> {
 function startStatePolling(page: Page): void {
     console.log("\n📊 Starting autonomous agent state monitoring...");
 
+    let interval: ReturnType<typeof setInterval>;
+    let stopped = false;
+
     const logState = async () => {
         try {
+            if (stopped || page.isClosed()) {
+                return;
+            }
+
             const state = await page.evaluate(() => {
                 const win = window as unknown as {
                     __VircadiaClientBrowserState__?: {
@@ -148,19 +194,31 @@ function startStatePolling(page: Page): void {
             }
         } catch (error) {
             console.error("\n❌ Error polling state:", error);
+            // If the target crashed, stop polling to avoid noisy logs
+            const message = String(error ?? "");
+            if (
+                (message.includes("Target crashed") ||
+                    message.includes("has been closed")) &&
+                interval
+            ) {
+                clearInterval(interval);
+                stopped = true;
+            }
         }
     };
 
     // Log state every second
-    const interval = setInterval(logState, 1000);
+    interval = setInterval(logState, 1000);
 
     // Clean up interval on shutdown
     process.on("SIGINT", () => {
         clearInterval(interval);
+        stopped = true;
     });
 
     process.on("SIGTERM", () => {
         clearInterval(interval);
+        stopped = true;
     });
 }
 

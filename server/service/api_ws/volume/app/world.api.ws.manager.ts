@@ -11,7 +11,10 @@ import {
     AclService,
     validateJWT,
 } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.server.auth.module";
-import { Communication, Auth } from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
+import {
+    type Auth,
+    Communication,
+} from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 import { MetricsCollector } from "./service/metrics";
 
 let legacySuperUserSql: Sql | null = null;
@@ -40,6 +43,12 @@ export interface WebSocketData {
 
 const LOG_PREFIX = "World API WS Manager";
 
+// Reflect tick-gated delivery queue item shape
+type ReflectQueuedItem = {
+    payloadJson: string;
+    ack?: { requestId: string };
+};
+
 export class WorldApiWsManager {
     private server: Server | undefined;
 
@@ -56,9 +65,11 @@ export class WorldApiWsManager {
     >();
     private metricsCollector = new MetricsCollector();
 
-    // Reflect tick-gated delivery queue: syncGroup -> channel -> fromSessionId -> payload JSON string
-    private reflectQueues: Map<string, Map<string, Map<string, string>>> =
-        new Map();
+    // Reflect tick-gated delivery queue: syncGroup -> channel -> fromSessionId -> queued item
+    private reflectQueues: Map<
+        string,
+        Map<string, Map<string, ReflectQueuedItem>>
+    > = new Map();
     private reflectIntervals: Map<string, Timer> = new Map();
     private reflectTickRateMs: Map<string, number> = new Map();
 
@@ -67,6 +78,7 @@ export class WorldApiWsManager {
         channel: string,
         fromSessionId: string,
         payloadJson: string,
+        ackRequestId?: string,
     ) {
         let groupMap = this.reflectQueues.get(syncGroup);
         if (!groupMap) {
@@ -79,7 +91,10 @@ export class WorldApiWsManager {
             groupMap.set(channel, channelMap);
         }
         // Only one message per session per channel; replace any existing
-        channelMap.set(fromSessionId, payloadJson);
+        channelMap.set(fromSessionId, {
+            payloadJson,
+            ack: ackRequestId ? { requestId: ackRequestId } : undefined,
+        });
     }
 
     private async flushReflectQueue(syncGroup: string) {
@@ -94,7 +109,8 @@ export class WorldApiWsManager {
         let totalRequestBytes = 0;
 
         for (const [channel, channelMap] of groupMap) {
-            for (const [_fromSession, payloadJson] of channelMap) {
+            for (const [fromSessionId, queuedItem] of channelMap) {
+                const payloadJson = queuedItem.payloadJson;
                 totalMessages++;
                 totalRequestBytes += new TextEncoder().encode(
                     payloadJson,
@@ -126,8 +142,39 @@ export class WorldApiWsManager {
                     performance.now() - perMessageStart,
                     new TextEncoder().encode(payloadJson).length,
                     deliveredForMessage,
-                    false,
+                    !!queuedItem.ack,
                 );
+
+                // If an acknowledgement was requested for this message, send it now
+                if (queuedItem.ack) {
+                    const senderSession =
+                        this.activeSessions.get(fromSessionId);
+                    if (senderSession) {
+                        const ackData = {
+                            type: Communication.WebSocket.MessageType
+                                .REFLECT_ACK_RESPONSE,
+                            timestamp: Date.now(),
+                            requestId: queuedItem.ack.requestId,
+                            errorMessage: null,
+                            syncGroup,
+                            channel,
+                            delivered: deliveredForMessage,
+                        };
+                        const ackParsed =
+                            Communication.WebSocket.Z.ReflectAckResponse.safeParse(
+                                ackData,
+                            );
+                        if (ackParsed.success) {
+                            try {
+                                senderSession.ws.send(
+                                    JSON.stringify(ackParsed.data),
+                                );
+                            } catch {
+                                // ignore ack send errors
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -181,7 +228,14 @@ export class WorldApiWsManager {
                 SELECT general__sync_group, server__tick__rate_ms, server__tick__reflect__enabled
                 FROM auth.sync_groups
             `;
-            for (const row of rows as Array<Pick<Auth.SyncGroup.I_SyncGroup, 'general__sync_group' | 'server__tick__rate_ms' | 'server__tick__reflect__enabled'>>) {
+            for (const row of rows as Array<
+                Pick<
+                    Auth.SyncGroup.I_SyncGroup,
+                    | "general__sync_group"
+                    | "server__tick__rate_ms"
+                    | "server__tick__reflect__enabled"
+                >
+            >) {
                 const syncGroup = row.general__sync_group;
                 const rate = row.server__tick__rate_ms;
                 const enabled = row.server__tick__reflect__enabled !== false;
@@ -195,17 +249,22 @@ export class WorldApiWsManager {
             }
 
             // Log all sync groups and their reflect tick status
-            const allSyncGroups = rows.map((row: {
-                general__sync_group: string;
-                server__tick__rate_ms: number;
-                server__tick__reflect__enabled: boolean;
-            }) => ({
-                syncGroup: row.general__sync_group,
-                reflectEnabled: row.server__tick__reflect__enabled !== false,
-                tickRateMs: row.server__tick__rate_ms
-            }));
+            const allSyncGroups = rows.map(
+                (row: {
+                    general__sync_group: string;
+                    server__tick__rate_ms: number;
+                    server__tick__reflect__enabled: boolean;
+                }) => ({
+                    syncGroup: row.general__sync_group,
+                    reflectEnabled:
+                        row.server__tick__reflect__enabled !== false,
+                    tickRateMs: row.server__tick__rate_ms,
+                }),
+            );
 
-            const activeSyncGroups = Array.from(this.reflectTickRateMs.entries());
+            const activeSyncGroups = Array.from(
+                this.reflectTickRateMs.entries(),
+            );
 
             BunLogModule({
                 prefix: LOG_PREFIX,
@@ -216,7 +275,7 @@ export class WorldApiWsManager {
                 data: {
                     allSyncGroups,
                     activeReflectTicks: activeSyncGroups.length,
-                    totalSyncGroups: allSyncGroups.length
+                    totalSyncGroups: allSyncGroups.length,
                 },
             });
         } catch (e) {
@@ -675,9 +734,13 @@ export class WorldApiWsManager {
                         );
 
                         // Gather stats information
-                        const windowSecParam = url.searchParams.get("windowSec");
-                        const windowSec = windowSecParam ? Math.max(1, Math.min(300, Number(windowSecParam))) : 60;
-                        const activityMetrics = this.metricsCollector.getActivityMetrics(windowSec);
+                        const windowSecParam =
+                            url.searchParams.get("windowSec");
+                        const windowSec = windowSecParam
+                            ? Math.max(1, Math.min(300, Number(windowSecParam)))
+                            : 60;
+                        const activityMetrics =
+                            this.metricsCollector.getActivityMetrics(windowSec);
                         const systemMetrics =
                             this.metricsCollector.getSystemMetrics(
                                 !!superUserSql && !!proxyUserSql,
@@ -1463,15 +1526,19 @@ export class WorldApiWsManager {
                                     channel,
                                     session.sessionId,
                                     payloadStr,
+                                    req.requestAcknowledgement
+                                        ? req.requestId
+                                        : undefined,
                                 );
 
-                                // In fire-and-forget mode, do NOT send success ACKs.
-                                // Only record endpoint metrics using request size; response size is zero.
+                                // Record endpoint metrics using request size; response size depends on ack
+                                const responseSize = 0; // ack sent after flush
+
                                 this.recordEndpointMetrics(
                                     "WS_REFLECT_PUBLISH_REQUEST",
                                     startTime,
                                     messageSize,
-                                    0,
+                                    responseSize,
                                     true,
                                 );
 
@@ -1486,6 +1553,8 @@ export class WorldApiWsManager {
                                         syncGroup,
                                         channel,
                                         delivered: 0,
+                                        requestAcknowledgement:
+                                            req.requestAcknowledgement,
                                         durationMs:
                                             performance.now() - receivedAt,
                                     },

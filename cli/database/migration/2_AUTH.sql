@@ -404,19 +404,19 @@ BEGIN
     WHERE general__session_id = p_session_id;
     
     IF NOT FOUND THEN
-        RAISE EXCEPTION 'Session not found for id: %', p_session_id;
+        RAISE EXCEPTION '[Validate Session ID] Session not found for id: %', p_session_id;
     END IF;
     
     IF NOT v_session.session__is_active THEN
-        RAISE EXCEPTION 'Session % is inactive', p_session_id;
+        RAISE EXCEPTION '[Validate Session ID] Session % is inactive', p_session_id;
     END IF;
     
     IF v_session.session__expires_at < NOW() THEN
-        RAISE EXCEPTION 'Session % has expired on %', p_session_id, v_session.session__expires_at;
+        RAISE EXCEPTION '[Validate Session ID] Session % has expired on %', p_session_id, v_session.session__expires_at;
     END IF;
     
     IF p_session_token IS NOT NULL AND v_session.session__jwt != p_session_token THEN
-        RAISE EXCEPTION 'Session token mismatch for session id: %', p_session_id;
+        RAISE EXCEPTION '[Validate Session ID] Session token mismatch for session id: %', p_session_id;
     END IF;
     
     RETURN v_session.auth__agent_id;
@@ -468,14 +468,14 @@ BEGIN
       AND session__expires_at > NOW();
     
     IF NOT FOUND THEN
-        RAISE EXCEPTION 'Session not found for id: %', p_session_id;
+        RAISE EXCEPTION '[Update Session Heartbeat] Session not found for id: %', p_session_id;
     END IF;
     
     -- Check permissions (user's own session, admin, or system)
     IF v_agent_id != auth.current_agent_id() 
        AND NOT auth.is_admin_agent() 
        AND NOT auth.is_system_agent() THEN
-        RAISE EXCEPTION 'Insufficient permissions to update session: %', p_session_id;
+        RAISE EXCEPTION '[Update Session Heartbeat] Insufficient permissions to update session: %', p_session_id;
     END IF;
     
     -- Update the last seen timestamp
@@ -501,14 +501,14 @@ BEGIN
       AND session__expires_at > NOW();
     
     IF NOT FOUND THEN
-        RAISE EXCEPTION 'Session not found for id: %', p_session_id;
+        RAISE EXCEPTION '[Invalidate Session] Session not found for id: %', p_session_id;
     END IF;
     
     -- Check permissions (user's own session, admin, or system)
     IF v_agent_id != auth.current_agent_id() 
        AND NOT auth.is_admin_agent() 
        AND NOT auth.is_system_agent() THEN
-        RAISE EXCEPTION 'Insufficient permissions to invalidate session: %', p_session_id;
+        RAISE EXCEPTION '[Invalidate Session] Insufficient permissions to invalidate session: %', p_session_id;
     END IF;
     
     -- Update the session to be inactive

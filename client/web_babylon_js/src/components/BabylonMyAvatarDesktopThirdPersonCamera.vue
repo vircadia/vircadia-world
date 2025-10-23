@@ -1,22 +1,22 @@
 <template></template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from "vue";
-import type { Ref } from "vue";
 import type {
-    Scene,
-    Observer,
-    TransformNode,
     AbstractMesh,
+    Observer,
     PointerInfo,
+    Scene,
+    TransformNode,
 } from "@babylonjs/core";
 import {
     ArcRotateCamera,
-    Vector3,
-    Quaternion,
     MeshBuilder,
     PointerEventTypes,
+    Quaternion,
+    Vector3,
 } from "@babylonjs/core";
+import type { Ref } from "vue";
+import { onMounted, onUnmounted, ref, watch } from "vue";
 
 const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
@@ -138,7 +138,7 @@ function setupCamera(): void {
         ) {
             try {
                 (c as unknown as { detachControl: () => void }).detachControl();
-            } catch {}
+            } catch { }
         }
     }
 
@@ -231,14 +231,14 @@ onUnmounted(() => {
     if (canvas && contextMenuHandler) {
         try {
             canvas.removeEventListener("contextmenu", contextMenuHandler);
-        } catch {}
+        } catch { }
     }
     camera.value?.dispose();
     camera.value = null;
     if (followTargetMesh) {
         try {
             followTargetMesh.dispose();
-        } catch {}
+        } catch { }
         followTargetMesh = null;
     }
 });
@@ -247,5 +247,3 @@ defineExpose({ camera });
 
 // no local DOM listener registry needed; using Babylon observables
 </script>
-
-

@@ -245,6 +245,14 @@ class WorldApiAuthManager {
                     }
 
                     if (!superUserSql) {
+                        BunLogModule({
+                            prefix: LOG_PREFIX,
+                            message:
+                                "Database connection not initialized (superUserSql is null)",
+                            debug: true,
+                            suppress: false,
+                            type: "error",
+                        });
                         return this.createJsonResponse(
                             { error: "Internal server error" },
                             req,
@@ -299,6 +307,7 @@ class WorldApiAuthManager {
                                             401,
                                         );
 
+                                    // FIXME: This flow is not ideal because it raises exception DB side which throws as an internal error when it is in fact not.
                                     const [sessionValidationResult] =
                                         await superUserSql<
                                             [{ agent_id: string }]
@@ -322,7 +331,16 @@ class WorldApiAuthManager {
                                         ),
                                         req,
                                     );
-                                } catch {
+                                } catch (error) {
+                                    BunLogModule({
+                                        prefix: LOG_PREFIX,
+                                        message:
+                                            "AUTH_SESSION_VALIDATE internal error",
+                                        error,
+                                        debug: true,
+                                        suppress: false,
+                                        type: "error",
+                                    });
                                     response = this.createJsonResponse(
                                         Communication.REST.Endpoint.AUTH_SESSION_VALIDATE.createError(
                                             "Internal server error",

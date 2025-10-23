@@ -187,39 +187,86 @@ export namespace Server_CLI {
         "../server/service/server.docker.compose.yml",
     );
 
-    async function isContainerHealthyByDocker(
-        containerName: string,
-    ): Promise<{ isHealthy: boolean; error?: Error }> {
-        try {
-            const proc = Bun.spawn(["docker", "inspect", containerName], {
-                stdout: "pipe",
-                stderr: "pipe",
-            });
-            const stdout = await new Response(proc.stdout).text();
-            const stderr = await new Response(proc.stderr).text();
-            if (proc.exitCode !== 0) {
-                return {
-                    isHealthy: false,
-                    error: new Error(
-                        `docker inspect failed (${proc.exitCode}): ${stderr || "no stderr"}`,
-                    ),
-                };
-            }
-            const info = JSON.parse(stdout);
-            const state = Array.isArray(info) ? info[0]?.State : info?.State;
-            const status: string | undefined = state?.Health?.Status;
-            if (status === "healthy") {
-                return { isHealthy: true };
-            }
-            return {
-                isHealthy: false,
-                error: new Error(
-                    `container health: ${status ?? "unknown"} (state: ${state?.Status ?? "unknown"})`,
-                ),
-            };
-        } catch (error) {
-            return { isHealthy: false, error: error as Error };
+    export async function withWait<T>(
+        fn: () => Promise<T>,
+        wait: { interval: number; timeout: number } | boolean,
+    ): Promise<T> {
+        const defaultWait = { interval: 100, timeout: 10000 };
+        const waitConfig =
+            wait === true
+                ? defaultWait
+                : wait && typeof wait !== "boolean"
+                  ? wait
+                  : null;
+
+        if (!waitConfig) {
+            return fn();
         }
+
+        const startTime = Date.now();
+        let lastError: Error | undefined;
+
+        while (Date.now() - startTime < waitConfig.timeout) {
+            try {
+                const result = await fn();
+                return result;
+            } catch (error) {
+                lastError =
+                    error instanceof Error ? error : new Error(String(error));
+                await Bun.sleep(waitConfig.interval);
+            }
+        }
+
+        const timeoutError = new Error(`Timeout after ${waitConfig.timeout}ms`);
+        if (lastError) {
+            timeoutError.cause = lastError;
+        }
+        throw timeoutError;
+    }
+
+    export async function checkContainer(containerName: string): Promise<void> {
+        const proc = Bun.spawn(
+            [
+                "docker",
+                "inspect",
+                "-f",
+                "{{.State.Health.Status}}",
+                containerName,
+            ],
+            { stdout: "pipe", stderr: "pipe" },
+        );
+        const stdout = await new Response(proc.stdout).text();
+        const stderr = await new Response(proc.stderr).text();
+        const exitCode = await proc.exited;
+        const status = stdout.trim();
+        console.info(`Container ${containerName} status: ${status}`);
+
+        if (exitCode !== 0) {
+            throw new Error(stderr);
+        }
+
+        if (status === "healthy") {
+            return;
+        }
+
+        if (status === "<no value>" || status === "") {
+            const runningProc = Bun.spawnSync([
+                "docker",
+                "inspect",
+                "-f",
+                "{{.State.Status}}",
+                containerName,
+            ]);
+            const runningStatus = new TextDecoder()
+                .decode(runningProc.stdout)
+                .trim();
+            if (runningStatus === "running") {
+                return;
+            }
+            throw new Error(`container status: ${runningStatus}`);
+        }
+
+        throw new Error(`container health: ${status}`);
     }
 
     export async function runServerDockerCommand(data: {
@@ -363,8 +410,8 @@ export namespace Server_CLI {
                 clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN,
             VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER:
                 clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG_SESSION_TOKEN_PROVIDER,
-            VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT_ANONYMOUS:
-                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT_ANONYMOUS.toString(),
+            VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT:
+                clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_AUTO_CONNECT.toString(),
             VRCA_CLIENT_WEB_BABYLON_JS_META_TITLE_BASE:
                 clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_META_TITLE_BASE,
             VRCA_CLIENT_WEB_BABYLON_JS_META_DESCRIPTION:
@@ -609,202 +656,6 @@ export namespace Server_CLI {
         console.log(`  Web Babylon.js Client App:   ${appUpstream}`);
     }
 
-    export async function isPostgresHealthy(
-        wait?: { interval: number; timeout: number } | boolean,
-    ): Promise<{
-        isHealthy: boolean;
-        error?: Error;
-    }> {
-        async function isContainerHealthyByDocker(
-            containerName: string,
-        ): Promise<{ isHealthy: boolean; error?: Error }> {
-            try {
-                const proc = Bun.spawn(["docker", "inspect", containerName], {
-                    stdout: "pipe",
-                    stderr: "pipe",
-                });
-                const stdout = await new Response(proc.stdout).text();
-                const stderr = await new Response(proc.stderr).text();
-                if (proc.exitCode !== 0) {
-                    return {
-                        isHealthy: false,
-                        error: new Error(
-                            `docker inspect failed (${proc.exitCode}): ${stderr || "no stderr"}`,
-                        ),
-                    };
-                }
-                const info = JSON.parse(stdout);
-                const state = Array.isArray(info)
-                    ? info[0]?.State
-                    : info?.State;
-                const status: string | undefined = state?.Health?.Status;
-                if (status === "healthy") {
-                    return { isHealthy: true };
-                }
-                return {
-                    isHealthy: false,
-                    error: new Error(
-                        `container health: ${status ?? "unknown"} (state: ${state?.Status ?? "unknown"})`,
-                    ),
-                };
-            } catch (error) {
-                return { isHealthy: false, error: error as Error };
-            }
-        }
-
-        // Default wait settings for postgres
-        const defaultWait = { interval: 100, timeout: 10000 };
-
-        // If wait is true, use default wait settings
-        const waitConfig =
-            wait === true
-                ? defaultWait
-                : wait && typeof wait !== "boolean"
-                  ? wait
-                  : null;
-
-        const checkPostgres = async (): Promise<{
-            isHealthy: boolean;
-            error?: Error;
-        }> => {
-            const containerName =
-                serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME;
-            return await isContainerHealthyByDocker(containerName);
-        };
-
-        // If waiting is not enabled, just check once
-        if (!waitConfig) {
-            return await checkPostgres();
-        }
-
-        // With waiting enabled, retry until timeout
-        const startTime = Date.now();
-        let lastError: Error | undefined;
-
-        while (Date.now() - startTime < waitConfig.timeout) {
-            const result = await checkPostgres();
-            if (result.isHealthy) {
-                return result;
-            }
-            lastError = result.error;
-            await Bun.sleep(waitConfig.interval);
-        }
-
-        return { isHealthy: false, error: lastError };
-    }
-
-    export async function isPostgresDbReady(
-        wait?: { interval: number; timeout: number } | boolean,
-    ): Promise<{
-        isHealthy: boolean;
-        error?: Error;
-    }> {
-        const defaultWait = { interval: 100, timeout: 10000 };
-
-        const waitConfig =
-            wait === true
-                ? defaultWait
-                : wait && typeof wait !== "boolean"
-                  ? wait
-                  : null;
-
-        const checkDbReady = async (): Promise<{
-            isHealthy: boolean;
-            error?: Error;
-        }> => {
-            try {
-                const db = BunPostgresClientModule.getInstance({
-                    debug: cliConfiguration.VRCA_CLI_DEBUG,
-                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-                });
-                const sql = await db.getSuperClient({
-                    postgres: {
-                        host: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
-                        port: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
-                        database:
-                            cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
-                        username:
-                            cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
-                        password:
-                            cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
-                    },
-                });
-
-                // Minimal check that succeeds pre-migration
-                await sql`SELECT 1`;
-                return { isHealthy: true };
-            } catch (error) {
-                return { isHealthy: false, error: error as Error };
-            }
-        };
-
-        if (!waitConfig) {
-            return await checkDbReady();
-        }
-
-        const startTime = Date.now();
-        let lastError: Error | undefined;
-        while (Date.now() - startTime < waitConfig.timeout) {
-            const result = await checkDbReady();
-            if (result.isHealthy) {
-                return result;
-            }
-            lastError = result.error;
-            await Bun.sleep(waitConfig.interval);
-        }
-        return { isHealthy: false, error: lastError };
-    }
-
-    export async function isPgwebHealthy(
-        wait?:
-            | {
-                  interval: number;
-                  timeout: number;
-              }
-            | boolean,
-    ): Promise<{
-        isHealthy: boolean;
-        error?: Error;
-    }> {
-        const defaultWait = { interval: 100, timeout: 10000 };
-
-        const waitConfig =
-            wait === true
-                ? defaultWait
-                : wait && typeof wait !== "boolean"
-                  ? wait
-                  : null;
-
-        const checkPgweb = async (): Promise<{
-            isHealthy: boolean;
-            error?: Error;
-        }> => {
-            const containerName =
-                serverConfiguration.VRCA_SERVER_SERVICE_PGWEB_CONTAINER_NAME;
-            return await isContainerHealthyByDocker(containerName);
-        };
-
-        // If waiting is not enabled, just check once
-        if (!waitConfig) {
-            return await checkPgweb();
-        }
-
-        // With waiting enabled, retry until timeout
-        const startTime = Date.now();
-        let lastError: Error | undefined;
-
-        while (Date.now() - startTime < waitConfig.timeout) {
-            const result = await checkPgweb();
-            if (result.isHealthy) {
-                return result;
-            }
-            lastError = result.error;
-            await Bun.sleep(waitConfig.interval);
-        }
-
-        return { isHealthy: false, error: lastError };
-    }
-
     export async function markDatabaseAsReady(): Promise<void> {
         const db = BunPostgresClientModule.getInstance({
             debug: cliConfiguration.VRCA_CLI_DEBUG,
@@ -827,350 +678,6 @@ export namespace Server_CLI {
             UPDATE config.database_config
             SET database_config__setup_timestamp = NOW()
         `;
-    }
-
-    export async function isWorldApiWsManagerHealthy(
-        wait?:
-            | {
-                  interval: number;
-                  timeout: number;
-              }
-            | boolean,
-    ): Promise<{
-        isHealthy: boolean;
-        error?: Error;
-        waitConfig?: {
-            interval: number;
-            timeout: number;
-        };
-    }> {
-        const defaultWait = { interval: 100, timeout: 10000 };
-
-        const waitConfig =
-            wait === true
-                ? defaultWait
-                : wait && typeof wait !== "boolean"
-                  ? wait
-                  : null;
-
-        const checkWorldApiWsManager = async (): Promise<{
-            isHealthy: boolean;
-            error?: Error;
-        }> => {
-            const containerName =
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_CONTAINER_NAME;
-            return await isContainerHealthyByDocker(containerName);
-        };
-
-        // If waiting is not enabled, just check once
-        if (!waitConfig) {
-            return await checkWorldApiWsManager();
-        }
-
-        // With waiting enabled, retry until timeout
-        const startTime = Date.now();
-        let lastError: Error | undefined;
-
-        while (Date.now() - startTime < waitConfig.timeout) {
-            const result = await checkWorldApiWsManager();
-            if (result.isHealthy) {
-                return result;
-            }
-            lastError = result.error;
-            await Bun.sleep(waitConfig.interval);
-        }
-
-        return {
-            isHealthy: false,
-            error: lastError,
-            waitConfig: waitConfig,
-        };
-    }
-
-    export async function isWorldApiRestAuthManagerHealthy(
-        wait?:
-            | {
-                  interval: number;
-                  timeout: number;
-              }
-            | boolean,
-    ): Promise<{
-        isHealthy: boolean;
-        error?: Error;
-        waitConfig?: {
-            interval: number;
-            timeout: number;
-        };
-    }> {
-        const defaultWait = { interval: 100, timeout: 10000 };
-
-        const waitConfig =
-            wait === true
-                ? defaultWait
-                : wait && typeof wait !== "boolean"
-                  ? wait
-                  : null;
-
-        const checkWorldApiRestAuthManager = async (): Promise<{
-            isHealthy: boolean;
-            error?: Error;
-        }> => {
-            const containerName =
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_CONTAINER_NAME;
-            return await isContainerHealthyByDocker(containerName);
-        };
-
-        // If waiting is not enabled, just check once
-        if (!waitConfig) {
-            return await checkWorldApiRestAuthManager();
-        }
-
-        // With waiting enabled, retry until timeout
-        const startTime = Date.now();
-        let lastError: Error | undefined;
-
-        while (Date.now() - startTime < waitConfig.timeout) {
-            const result = await checkWorldApiRestAuthManager();
-            if (result.isHealthy) {
-                return result;
-            }
-            lastError = result.error;
-            await Bun.sleep(waitConfig.interval);
-        }
-
-        return {
-            isHealthy: false,
-            error: lastError,
-            waitConfig: waitConfig,
-        };
-    }
-
-    export async function isWorldApiRestAssetManagerHealthy(
-        wait?:
-            | {
-                  interval: number;
-                  timeout: number;
-              }
-            | boolean,
-    ): Promise<{
-        isHealthy: boolean;
-        error?: Error;
-        waitConfig?: {
-            interval: number;
-            timeout: number;
-        };
-    }> {
-        const defaultWait = { interval: 100, timeout: 10000 };
-
-        const waitConfig =
-            wait === true
-                ? defaultWait
-                : wait && typeof wait !== "boolean"
-                  ? wait
-                  : null;
-
-        const checkWorldApiRestAssetManager = async (): Promise<{
-            isHealthy: boolean;
-            error?: Error;
-        }> => {
-            const containerName =
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_CONTAINER_NAME;
-            return await isContainerHealthyByDocker(containerName);
-        };
-
-        // If waiting is not enabled, just check once
-        if (!waitConfig) {
-            return await checkWorldApiRestAssetManager();
-        }
-
-        // With waiting enabled, retry until timeout
-        const startTime = Date.now();
-        let lastError: Error | undefined;
-
-        while (Date.now() - startTime < waitConfig.timeout) {
-            const result = await checkWorldApiRestAssetManager();
-            if (result.isHealthy) {
-                return result;
-            }
-            lastError = result.error;
-            await Bun.sleep(waitConfig.interval);
-        }
-
-        return {
-            isHealthy: false,
-            error: lastError,
-            waitConfig: waitConfig,
-        };
-    }
-
-    export async function isWorldStateManagerHealthy(
-        wait?:
-            | {
-                  interval: number;
-                  timeout: number;
-              }
-            | boolean,
-    ): Promise<{
-        isHealthy: boolean;
-        error?: Error;
-        waitConfig?: {
-            interval: number;
-            timeout: number;
-        };
-    }> {
-        const defaultWait = { interval: 100, timeout: 10000 };
-
-        const waitConfig =
-            wait === true
-                ? defaultWait
-                : wait && typeof wait !== "boolean"
-                  ? wait
-                  : null;
-
-        const checkWorldStateManager = async (): Promise<{
-            isHealthy: boolean;
-            error?: Error;
-        }> => {
-            const containerName =
-                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_CONTAINER_NAME;
-            return await isContainerHealthyByDocker(containerName);
-        };
-
-        // If waiting is not enabled, just check once
-        if (!waitConfig) {
-            return await checkWorldStateManager();
-        }
-
-        // With waiting enabled, retry until timeout
-        const startTime = Date.now();
-        let lastError: Error | undefined;
-
-        while (Date.now() - startTime < waitConfig.timeout) {
-            const result = await checkWorldStateManager();
-            if (result.isHealthy) {
-                return result;
-            }
-            lastError = result.error;
-            await Bun.sleep(waitConfig.interval);
-        }
-
-        return {
-            isHealthy: false,
-            error: lastError,
-            waitConfig: waitConfig,
-        };
-    }
-
-    export async function isClientWebBabylonJsHealthy(
-        wait?:
-            | {
-                  interval: number;
-                  timeout: number;
-              }
-            | boolean,
-    ): Promise<{
-        isHealthy: boolean;
-        error?: Error;
-        waitConfig?: {
-            interval: number;
-            timeout: number;
-        };
-    }> {
-        const defaultWait = { interval: 100, timeout: 10000 };
-
-        const waitConfig =
-            wait === true
-                ? defaultWait
-                : wait && typeof wait !== "boolean"
-                  ? wait
-                  : null;
-
-        const checkClientWebBabylonJs = async (): Promise<{
-            isHealthy: boolean;
-            error?: Error;
-        }> => {
-            const containerName =
-                serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_CONTAINER_NAME;
-            return await isContainerHealthyByDocker(containerName);
-        };
-
-        if (!waitConfig) {
-            return await checkClientWebBabylonJs();
-        }
-
-        const startTime = Date.now();
-        let lastError: Error | undefined;
-
-        while (Date.now() - startTime < waitConfig.timeout) {
-            const result = await checkClientWebBabylonJs();
-            if (result.isHealthy) {
-                return result;
-            }
-            lastError = result.error;
-            await Bun.sleep(waitConfig.interval);
-        }
-
-        return {
-            isHealthy: false,
-            error: lastError,
-            waitConfig: waitConfig,
-        };
-    }
-
-    export async function isCaddyHealthy(
-        wait?:
-            | {
-                  interval: number;
-                  timeout: number;
-              }
-            | boolean,
-    ): Promise<{
-        isHealthy: boolean;
-        error?: Error;
-        waitConfig?: {
-            interval: number;
-            timeout: number;
-        };
-    }> {
-        const defaultWait = { interval: 100, timeout: 10000 };
-
-        const waitConfig =
-            wait === true
-                ? defaultWait
-                : wait && typeof wait !== "boolean"
-                  ? wait
-                  : null;
-
-        const checkCaddy = async (): Promise<{
-            isHealthy: boolean;
-            error?: Error;
-        }> => {
-            const containerName =
-                serverConfiguration.VRCA_SERVER_SERVICE_CADDY_CONTAINER_NAME;
-            return await isContainerHealthyByDocker(containerName);
-        };
-
-        if (!waitConfig) {
-            return await checkCaddy();
-        }
-
-        const startTime = Date.now();
-        let lastError: Error | undefined;
-
-        while (Date.now() - startTime < waitConfig.timeout) {
-            const result = await checkCaddy();
-            if (result.isHealthy) {
-                return result;
-            }
-            lastError = result.error;
-            await Bun.sleep(waitConfig.interval);
-        }
-
-        return {
-            isHealthy: false,
-            error: lastError,
-            waitConfig: waitConfig,
-        };
     }
 
     export async function wipeDatabase() {
@@ -2395,12 +1902,13 @@ export namespace Server_CLI {
             }
 
             // Check if the database is running using isPostgresHealthy
-            const health = await isPostgresHealthy(false);
-            if (!health.isHealthy) {
-                throw new Error(
-                    `PostgreSQL database is not available. Please start the server with 'server:run-command up -d'. Error: ${health.error?.message || "Unknown error"}`,
-                );
-            }
+            await Server_CLI.withWait<void>(
+                () =>
+                    Server_CLI.checkContainer(
+                        serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
+                    ),
+                false,
+            );
 
             // Execute pg_dump directly to stdout and pipe it to a file on the host
             BunLogModule({
@@ -2503,12 +2011,13 @@ export namespace Server_CLI {
             }
 
             // Check if the database is running using isPostgresHealthy
-            const health = await isPostgresHealthy(false);
-            if (!health.isHealthy) {
-                throw new Error(
-                    `PostgreSQL database is not available. Please start the server with 'server:run-command up -d'. Error: ${health.error?.message || "Unknown error"}`,
-                );
-            }
+            await Server_CLI.withWait<void>(
+                () =>
+                    Server_CLI.checkContainer(
+                        serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
+                    ),
+                false,
+            );
 
             // Read the backup file
             const stats = statSync(restoreFilePathHost);
@@ -2601,7 +2110,7 @@ export namespace Server_CLI {
 
 // No dedicated rebuild helper: we run `bun run server:rebuild-all` in current working directory
 
-// Helper: parse --interval, --timeout, --no-wait
+// Helper to parse wait flags from command args
 function parseWaitFlags(
     args: string[],
 ): boolean | { interval: number; timeout: number } {
@@ -2629,32 +2138,6 @@ function parseWaitFlags(
     return true; // default wait with built-in defaults
 }
 
-// Tiny wrapper that does the loop, logs and exits appropriately.
-async function runHealthCommand(
-    label: string,
-    healthFn: (
-        wait?: boolean | { interval: number; timeout: number },
-    ) => Promise<{
-        isHealthy: boolean;
-        error?: Error;
-        waitConfig?: { interval: number; timeout: number };
-    }>,
-    args: string[],
-) {
-    const waitParam = parseWaitFlags(args);
-    const health = await healthFn(waitParam);
-
-    BunLogModule({
-        message: `${label}: ${health.isHealthy ? "healthy" : "unhealthy"}`,
-        data: health,
-        type: health.isHealthy ? "success" : "error",
-        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
-        debug: cliConfiguration.VRCA_CLI_DEBUG,
-    });
-
-    process.exit(health.isHealthy ? 0 : 1);
-}
-
 // If this file is run directly
 if (import.meta.main) {
     const command = Bun.argv[2];
@@ -2673,24 +2156,80 @@ if (import.meta.main) {
     try {
         switch (command) {
             // SERVER CONTAINER HEALTH
-            case "server:postgres:health":
+            case "server:postgres:health": {
                 if (
                     additionalArgs.includes("--db") ||
                     additionalArgs.includes("--mode=db")
                 ) {
-                    await runHealthCommand(
-                        "PostgreSQL (DB Ready)",
-                        Server_CLI.isPostgresDbReady,
-                        additionalArgs,
-                    );
+                    const waitParam = parseWaitFlags(additionalArgs);
+                    await Server_CLI.withWait<void>(async () => {
+                        const db = BunPostgresClientModule.getInstance({
+                            debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        });
+                        const sql = await db.getSuperClient({
+                            postgres: {
+                                host: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_HOST,
+                                port: cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_PORT,
+                                database:
+                                    cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_DATABASE,
+                                username:
+                                    cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_USERNAME,
+                                password:
+                                    cliConfiguration.VRCA_CLI_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                            },
+                        });
+
+                        // Minimal check that succeeds pre-migration
+                        await sql`SELECT 1`;
+                        return;
+                    }, waitParam).catch((error) => {
+                        BunLogModule({
+                            message: `PostgreSQL (DB Ready): unhealthy`,
+                            type: "error",
+                            error,
+                            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                            debug: cliConfiguration.VRCA_CLI_DEBUG,
+                        });
+                        process.exit(1);
+                    });
+
+                    BunLogModule({
+                        message: `PostgreSQL (DB Ready): healthy`,
+                        type: "success",
+                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                    });
+                    process.exit(0);
                 } else {
-                    await runHealthCommand(
-                        "PostgreSQL (DB Healthy)",
-                        Server_CLI.isPostgresHealthy,
-                        additionalArgs,
-                    );
+                    const waitParam = parseWaitFlags(additionalArgs);
+                    await Server_CLI.withWait<void>(
+                        () =>
+                            Server_CLI.checkContainer(
+                                serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME,
+                            ),
+                        waitParam,
+                    ).catch((error) => {
+                        BunLogModule({
+                            message: `PostgreSQL (DB Healthy): unhealthy`,
+                            type: "error",
+                            error,
+                            suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                            debug: cliConfiguration.VRCA_CLI_DEBUG,
+                        });
+                        process.exit(1);
+                    });
+
+                    BunLogModule({
+                        message: `PostgreSQL (DB Healthy): healthy`,
+                        type: "success",
+                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                    });
+                    process.exit(0);
                 }
                 break;
+            }
 
             case "server:postgres:mark-as-ready": {
                 BunLogModule({
@@ -2709,53 +2248,173 @@ if (import.meta.main) {
                 break;
             }
 
-            case "server:pgweb:health":
-                await runHealthCommand(
-                    "PGWEB",
-                    Server_CLI.isPgwebHealthy,
-                    additionalArgs,
-                );
+            case "server:pgweb:health": {
+                const waitParam = parseWaitFlags(additionalArgs);
+                await Server_CLI.withWait<void>(
+                    () =>
+                        Server_CLI.checkContainer(
+                            serverConfiguration.VRCA_SERVER_SERVICE_PGWEB_CONTAINER_NAME,
+                        ),
+                    waitParam,
+                ).catch((error) => {
+                    BunLogModule({
+                        message: `PGWEB: unhealthy`,
+                        type: "error",
+                        error,
+                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                    });
+                    process.exit(1);
+                });
+                BunLogModule({
+                    message: `PGWEB: healthy`,
+                    type: "success",
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                });
+                process.exit(0);
                 break;
+            }
 
-            case "server:api:ws:manager:health":
-                await runHealthCommand(
-                    "World API WS Manager",
-                    Server_CLI.isWorldApiWsManagerHealthy,
-                    additionalArgs,
-                );
+            case "server:api:ws:manager:health": {
+                const waitParam = parseWaitFlags(additionalArgs);
+                await Server_CLI.withWait<void>(
+                    () =>
+                        Server_CLI.checkContainer(
+                            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_WS_MANAGER_CONTAINER_NAME,
+                        ),
+                    waitParam,
+                ).catch((error) => {
+                    BunLogModule({
+                        message: `World API WS Manager: unhealthy`,
+                        type: "error",
+                        error,
+                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                    });
+                    process.exit(1);
+                });
+                BunLogModule({
+                    message: `World API WS Manager: healthy`,
+                    type: "success",
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                });
+                process.exit(0);
                 break;
+            }
 
-            case "server:api:rest:auth:manager:health":
-                await runHealthCommand(
-                    "World API REST Auth Manager",
-                    Server_CLI.isWorldApiRestAuthManagerHealthy,
-                    additionalArgs,
-                );
+            case "server:api:rest:auth:manager:health": {
+                const waitParam = parseWaitFlags(additionalArgs);
+                await Server_CLI.withWait<void>(
+                    () =>
+                        Server_CLI.checkContainer(
+                            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_AUTH_MANAGER_CONTAINER_NAME,
+                        ),
+                    waitParam,
+                ).catch((error) => {
+                    BunLogModule({
+                        message: `World API REST Auth Manager: unhealthy`,
+                        type: "error",
+                        error,
+                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                    });
+                    process.exit(1);
+                });
+                BunLogModule({
+                    message: `World API REST Auth Manager: healthy`,
+                    type: "success",
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                });
+                process.exit(0);
                 break;
+            }
 
-            case "server:api:rest:asset:manager:health":
-                await runHealthCommand(
-                    "World API REST Asset Manager",
-                    Server_CLI.isWorldApiRestAssetManagerHealthy,
-                    additionalArgs,
-                );
+            case "server:api:rest:asset:manager:health": {
+                const waitParam = parseWaitFlags(additionalArgs);
+                await Server_CLI.withWait<void>(
+                    () =>
+                        Server_CLI.checkContainer(
+                            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_CONTAINER_NAME,
+                        ),
+                    waitParam,
+                ).catch((error) => {
+                    BunLogModule({
+                        message: `World API REST Asset Manager: unhealthy`,
+                        type: "error",
+                        error,
+                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                    });
+                    process.exit(1);
+                });
+                BunLogModule({
+                    message: `World API REST Asset Manager: healthy`,
+                    type: "success",
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                });
+                process.exit(0);
                 break;
+            }
 
-            case "server:state:manager:health":
-                await runHealthCommand(
-                    "World State Manager",
-                    Server_CLI.isWorldStateManagerHealthy,
-                    additionalArgs,
-                );
+            case "server:state:manager:health": {
+                const waitParam = parseWaitFlags(additionalArgs);
+                await Server_CLI.withWait<void>(
+                    () =>
+                        Server_CLI.checkContainer(
+                            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_CONTAINER_NAME,
+                        ),
+                    waitParam,
+                ).catch((error) => {
+                    BunLogModule({
+                        message: `World State Manager: unhealthy`,
+                        type: "error",
+                        error,
+                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                    });
+                    process.exit(1);
+                });
+                BunLogModule({
+                    message: `World State Manager: healthy`,
+                    type: "success",
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                });
+                process.exit(0);
                 break;
+            }
 
-            case "server:client:web_babylon_js:health":
-                await runHealthCommand(
-                    "Client Web Babylon JS",
-                    Server_CLI.isClientWebBabylonJsHealthy,
-                    additionalArgs,
-                );
+            case "server:client:web_babylon_js:health": {
+                const waitParam = parseWaitFlags(additionalArgs);
+                await Server_CLI.withWait<void>(
+                    () =>
+                        Server_CLI.checkContainer(
+                            serverConfiguration.VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_CONTAINER_NAME,
+                        ),
+                    waitParam,
+                ).catch((error) => {
+                    BunLogModule({
+                        message: `Client Web Babylon JS: unhealthy`,
+                        type: "error",
+                        error,
+                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                    });
+                    process.exit(1);
+                });
+                BunLogModule({
+                    message: `Client Web Babylon JS: healthy`,
+                    type: "success",
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                });
+                process.exit(0);
                 break;
+            }
 
             // SERVER POSTGRES DATABASE COMMANDS
             case "server:postgres:migrate": {
@@ -4265,7 +3924,6 @@ if (import.meta.main) {
                 }
                 break;
             }
-
             default:
                 BunLogModule({
                     message: `Unknown command: ${command}`,

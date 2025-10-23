@@ -1,370 +1,432 @@
 <template>
     <v-dialog v-model="dialogVisible" max-width="800px">
-        <v-card class="webrtc-status" variant="elevated" color="surface">
-            <v-card-title class="d-flex align-center">
-                <span class="text-subtitle-1">WebRTC Status</span>
-                <v-spacer />
-                <v-btn icon size="small" variant="text" @click="refreshConnections" :loading="isRefreshing">
-                    <v-icon>mdi-refresh</v-icon>
-                </v-btn>
-            </v-card-title>
+        <v-card class="pa-4">
+            <v-card-title>WebRTC Audio</v-card-title>
 
             <v-card-text>
-                <!-- Local Session Info -->
-                <v-list dense>
-                    <v-list-subheader>Local Session</v-list-subheader>
-                    <v-list-item>
-                        <v-list-item-title>
-                            Session: {{ fullSessionId || 'Not connected' }}
-                        </v-list-item-title>
-                    </v-list-item>
-                    <v-list-item>
-                        <v-list-item-title>
-                            Status:
-                            <v-chip :color="isReady ? 'success' : 'warning'" size="small" variant="flat">
-                                {{ isReady ? 'Ready' : 'Not Ready' }}
-                            </v-chip>
-                        </v-list-item-title>
-                    </v-list-item>
-                    <v-list-item>
-                        <v-list-item-title>
-                            Local Stream:
-                            <v-chip :color="localStream ? 'success' : 'error'" size="small" variant="flat">
-                                {{ localStream ? 'Active' : 'Inactive' }}
-                            </v-chip>
-                        </v-list-item-title>
-                    </v-list-item>
+                <div class="d-flex align-center mb-4">
+                    <v-switch v-model="audioEnabled" label="Microphone" color="primary" hide-details
+                        density="compact" />
+                    <v-chip :color="localStream ? 'success' : 'error'" size="small" class="ml-2">
+                        {{ localStream ? 'Active' : 'Inactive' }}
+                    </v-chip>
+                    <v-chip :color="spatialAudio.isInitialized.value ? 'success' : 'warning'" size="small" class="ml-2">
+                        Spatial: {{ spatialAudio.isInitialized.value ? 'Ready' : 'Not Ready' }}
+                    </v-chip>
+                </div>
 
-                    <!-- Audio Context Status -->
-                    <v-list-item v-if="localStream">
-                        <v-list-item-title>
-                            Audio Context:
-                            <v-chip :color="audioContextResumed ? 'success' : 'warning'" size="small" variant="flat">
-                                {{ audioContextResumed ? 'Resumed' : 'Suspended' }}
-                            </v-chip>
-                            <span v-if="!audioContextResumed" class="text-caption text-grey ml-2">
-                                Click anywhere to enable audio
-                            </span>
-                        </v-list-item-title>
-                    </v-list-item>
+                <v-divider class="my-4" />
 
-                    <!-- Debug Info Section -->
-                    <v-list-item>
-                        <v-list-item-title class="d-flex align-center">
-                            <span class="text-caption mr-2">Debug Mode:</span>
-                            <v-btn :icon="debugMode ? 'mdi-bug' : 'mdi-bug-off'" :color="debugMode ? 'warning' : 'grey'"
-                                size="small" variant="flat" @click="toggleDebugMode" />
-                            <v-btn v-if="debugMode" icon="mdi-refresh" size="small" variant="text"
-                                @click="runDebugTests" :loading="isRunningDebugTests" class="ml-2">
-                                <v-icon>mdi-test-tube</v-icon>
-                            </v-btn>
-                        </v-list-item-title>
-                    </v-list-item>
+                <div class="text-subtitle-2 mb-2">
+                    Connected Peers ({{ peers.size }})
+                </div>
 
-                    <!-- Mic Controls -->
-                    <v-list-item v-if="localStream">
-                        <v-list-item-title class="d-flex align-center">
-                            <span class="text-caption mr-2">Microphone:</span>
-                            <v-btn :icon="isMuted ? 'mdi-microphone-off' : 'mdi-microphone'"
-                                :color="isMuted ? 'error' : 'success'" size="small" variant="flat"
-                                @click="toggleMute" />
-                            <v-slider v-model="micVolume" :disabled="isMuted" class="ml-4" density="compact"
-                                hide-details min="0" max="100" step="1" thumb-label style="max-width: 200px"
-                                @update:model-value="updateMicVolume" />
-                            <span class="ml-2 text-caption">{{ micVolume }}%</span>
-                        </v-list-item-title>
-                    </v-list-item>
-                </v-list>
+                <v-expansion-panels v-if="peers.size > 0">
+                    <!-- Inlined Peer Component -->
+                    <v-expansion-panel v-for="[peerId, peer] of peers" :key="peerId" :value="peerId">
+                        <v-expansion-panel-title>
+                            <v-row no-gutters align="center">
+                                <v-col cols="auto">
+                                    <v-avatar size="32" :color="getPeerAvatarColor(peerId, peer)">
+                                        <span class="text-caption">{{ getPeerInitials(peerId) }}</span>
+                                    </v-avatar>
+                                </v-col>
+                                <v-col class="ml-3">
+                                    <div class="text-subtitle-2">{{ getPeerDisplayName(peerId) }}</div>
+                                    <div class="text-caption text-grey">{{ getPeerShortId(peerId) }}</div>
+                                </v-col>
+                                <v-spacer />
+                                <v-col cols="auto" class="d-flex align-center">
+                                    <!-- Message History Badges -->
+                                    <div class="d-flex align-center mr-2">
+                                        <!-- Sent Messages Badge -->
+                                        <v-tooltip :text="`Sent: ${getMessageHistorySummary(peerId).sent} messages`">
+                                            <template v-slot:activator="{ props: tooltipProps }">
+                                                <v-chip v-bind="tooltipProps" size="x-small" color="primary"
+                                                    variant="flat" class="mr-1">
+                                                    <v-icon size="12" class="mr-1">mdi-arrow-up</v-icon>
+                                                    {{ getMessageHistorySummary(peerId).sent }}
+                                                </v-chip>
+                                            </template>
+                                        </v-tooltip>
 
-                <!-- Debug Panel (only show in debug mode) -->
-                <v-card v-if="debugMode" variant="elevated" class="ma-2" color="surface">
-                    <v-card-title class="text-caption pa-2">
-                        <v-icon size="small" class="mr-1">mdi-bug</v-icon>
-                        Debug Information
-                    </v-card-title>
-                    <v-card-text class="pa-2">
-                        <v-row dense>
-                            <v-col cols="6">
-                                <v-list-item-title class="text-caption">
-                                    <strong>Reflect API Status:</strong>
-                                </v-list-item-title>
-                                <v-chip :color="reflectApi.isInitialized.value ? 'success' : 'error'" size="x-small"
-                                    variant="flat" class="mt-1">
-                                    {{ reflectApi.isInitialized.value ? 'Initialized' : 'Not Initialized' }}
-                                </v-chip>
-                            </v-col>
-                            <v-col cols="6">
-                                <v-list-item-title class="text-caption">
-                                    <strong>Active Peers (internal):</strong> {{ reflectApi.activePeers.value.size }}
-                                </v-list-item-title>
-                                <div v-if="reflectApi.activePeers.value.size > 0" class="text-caption text-grey mt-1">
-                                    <div v-for="[peerId, announcement] in reflectApi.activePeers.value" :key="peerId">
-                                        {{ peerId.substring(0, 8) }}... ({{ Math.floor((Date.now() -
-                                            announcement.timestamp) / 1000) }}s ago)
+                                        <!-- Received Messages Badge -->
+                                        <v-tooltip
+                                            :text="`Received: ${getMessageHistorySummary(peerId).received} messages`">
+                                            <template v-slot:activator="{ props: tooltipProps }">
+                                                <v-chip v-bind="tooltipProps" size="x-small" color="success"
+                                                    variant="flat" class="mr-1">
+                                                    <v-icon size="12" class="mr-1">mdi-arrow-down</v-icon>
+                                                    {{ getMessageHistorySummary(peerId).received }}
+                                                </v-chip>
+                                            </template>
+                                        </v-tooltip>
+
+                                        <!-- Error Count Badge -->
+                                        <v-tooltip v-if="getMessageHistorySummary(peerId).errors > 0"
+                                            :text="`${getMessageHistorySummary(peerId).errors} errors occurred`">
+                                            <template v-slot:activator="{ props: tooltipProps }">
+                                                <v-chip v-bind="tooltipProps" size="x-small" color="error"
+                                                    variant="flat" class="mr-1">
+                                                    <v-icon size="12" class="mr-1">mdi-alert-circle</v-icon>
+                                                    {{ getMessageHistorySummary(peerId).errors }}
+                                                </v-chip>
+                                            </template>
+                                        </v-tooltip>
+
+                                        <!-- Last Message Badge -->
+                                        <v-tooltip v-if="getMessageHistorySummary(peerId).lastMessage"
+                                            :text="`Last: ${getMessageHistorySummary(peerId).lastMessage?.type} (${getMessageHistorySummary(peerId).lastMessage?.direction})`">
+                                            <template v-slot:activator="{ props: tooltipProps }">
+                                                <v-chip v-bind="tooltipProps" size="x-small"
+                                                    :color="getMessageStatusColor(getMessageHistorySummary(peerId).lastMessage?.status || 'success')"
+                                                    variant="flat" class="mr-1">
+                                                    <v-icon size="12" class="mr-1">
+                                                        {{
+                                                            getMessageTypeIcon(getMessageHistorySummary(peerId).lastMessage?.type
+                                                                || 'candidate') }}
+                                                    </v-icon>
+                                                    {{ getMessageHistorySummary(peerId).lastMessage?.type }}
+                                                </v-chip>
+                                            </template>
+                                        </v-tooltip>
                                     </div>
-                                </div>
-                            </v-col>
-                        </v-row>
 
-                        <v-row dense class="mt-2">
-                            <v-col cols="6">
-                                <v-list-item-title class="text-caption">
-                                    <strong>Message Handlers:</strong> {{ reflectApiHandlersCount }}
-                                </v-list-item-title>
-                            </v-col>
-                            <v-col cols="6">
-                                <v-list-item-title class="text-caption">
-                                    <strong>Sync Group:</strong> {{ reflectApiSyncGroup }}
-                                </v-list-item-title>
-                            </v-col>
-                        </v-row>
-
-                        <v-row dense class="mt-2">
-                            <v-col cols="6">
-                                <v-list-item-title class="text-caption">
-                                    <strong>Reconnection:</strong>
-                                    <v-chip :color="reflectApi.isReconnecting.value ? 'warning' : 'success'"
-                                        size="x-small" variant="flat" class="ml-1">
-                                        {{ reflectApi.isReconnecting.value ? `Attempt
-                                        ${reflectApi.reconnectAttempts.value}` : 'Ready' }}
+                                    <!-- Connection Status -->
+                                    <v-chip size="small" :color="getConnectionStateColor(peer)" variant="flat"
+                                        class="mr-1">
+                                        {{ getConnectionStateLabel(peer) }}
                                     </v-chip>
-                                </v-list-item-title>
-                            </v-col>
-                            <v-col cols="6">
-                                <v-list-item-title class="text-caption">
-                                    <strong>Queued Messages:</strong>
-                                    <v-chip :color="reflectApi.messageQueueSize.value > 0 ? 'warning' : 'success'"
-                                        size="x-small" variant="flat" class="ml-1">
-                                        {{ reflectApi.messageQueueSize.value }}
+
+                                    <!-- Audio Status Indicators -->
+                                    <v-tooltip text="Audio being sent">
+                                        <template v-slot:activator="{ props: tooltipProps }">
+                                            <v-icon v-bind="tooltipProps" size="small"
+                                                :color="isPeerSendingAudio(peer) ? 'success' : 'grey'" class="ml-1">
+                                                {{ isPeerSendingAudio(peer) ? 'mdi-microphone' : 'mdi-microphone-off' }}
+                                            </v-icon>
+                                        </template>
+                                    </v-tooltip>
+
+                                    <v-tooltip
+                                        :text="`Audio being received (Level: ${getPeerAudioLevel(peerId).toFixed(1)}%)`">
+                                        <template v-slot:activator="{ props: tooltipProps }">
+                                            <v-icon v-bind="tooltipProps" size="small"
+                                                :color="isPeerReceivingAudio(peer) ? 'success' : 'grey'" class="ml-1">
+                                                {{ isPeerReceivingAudio(peer) ? 'mdi-volume-high' : 'mdi-volume-off' }}
+                                            </v-icon>
+                                        </template>
+                                    </v-tooltip>
+
+                                    <!-- Audio Level Indicator -->
+                                    <v-tooltip text="Audio level indicator">
+                                        <template v-slot:activator="{ props: tooltipProps }">
+                                            <v-progress-circular v-bind="tooltipProps" size="20" width="3"
+                                                :model-value="getPeerAudioLevel(peerId)"
+                                                :color="getAudioLevelColor(peerId)" class="ml-1">
+                                                <v-icon size="10" :color="getAudioLevelColor(peerId)">
+                                                    {{ getPeerAudioLevel(peerId) > 50 ? 'mdi-volume-high' :
+                                                        getPeerAudioLevel(peerId) > 25 ? 'mdi-volume-medium' :
+                                                            'mdi-volume-low' }}
+                                                </v-icon>
+                                            </v-progress-circular>
+                                        </template>
+                                    </v-tooltip>
+
+                                    <!-- Connection Quality Indicator -->
+                                    <v-tooltip :text="getConnectionQualityText(peerId, peer)">
+                                        <template v-slot:activator="{ props: tooltipProps }">
+                                            <v-icon v-bind="tooltipProps" size="small"
+                                                :color="getConnectionQualityColor(peerId, peer)" class="ml-1">
+                                                {{ getConnectionQualityIcon(peerId, peer) }}
+                                            </v-icon>
+                                        </template>
+                                    </v-tooltip>
+                                    <v-chip size="x-small" class="ml-1" :color="peer.polite ? 'primary' : 'warning'"
+                                        variant="flat">
+                                        {{ peer.polite ? 'polite' : 'impolite' }}
                                     </v-chip>
-                                </v-list-item-title>
-                            </v-col>
-                        </v-row>
+                                </v-col>
+                            </v-row>
+                        </v-expansion-panel-title>
 
-                        <v-row dense class="mt-2">
-                            <v-col cols="6">
-                                <v-list-item-title class="text-caption">
-                                    <strong>Last Debug Test:</strong>
-                                </v-list-item-title>
-                                <div class="text-caption text-grey">
-                                    {{ debugTestResults ? `${Math.floor((Date.now() - debugTestTimestamp) / 1000)}s ago`
-                                        : 'Never' }}
-                                </div>
-                            </v-col>
-                            <v-col cols="6">
-                                <v-list-item-title class="text-caption">
-                                    <strong>Network Status:</strong>
-                                </v-list-item-title>
-                                <v-chip :color="networkStatus" size="x-small" variant="flat">
-                                    {{ networkStatus }}
-                                </v-chip>
-                            </v-col>
-                            <v-col cols="6">
-                                <v-list-item-title class="text-caption">
-                                    <strong>Audio Quality:</strong>
-                                </v-list-item-title>
-                                <v-chip :color="bidirectionalAudioPeers > 0 ? 'success' : 'warning'" size="x-small"
-                                    variant="flat">
-                                    {{ bidirectionalAudioPeers }}/{{ peers.size }} bidirectional
-                                </v-chip>
-                            </v-col>
-                        </v-row>
+                        <v-expansion-panel-text>
+                            <v-list density="compact">
+                                <!-- Connection Info -->
+                                <v-list-item>
+                                    <v-list-item-title class="text-caption">
+                                        Session ID: {{ peerId }}
+                                    </v-list-item-title>
+                                </v-list-item>
 
-                        <v-row dense class="mt-2" v-if="debugTestResults">
-                            <v-col cols="12">
-                                <v-list-item-title class="text-caption">
-                                    <strong>Test Results:</strong>
-                                </v-list-item-title>
-                                <pre class="text-caption text-grey mt-1 pa-1"
-                                    style="background: #f5f5f5; border-radius: 4px; overflow-x: auto; font-size: 10px;">
-{{ debugTestResults }}
-                </pre>
-                            </v-col>
-                        </v-row>
-                    </v-card-text>
-                </v-card>
+                                <v-list-item>
+                                    <v-list-item-title class="text-caption">
+                                        ICE State:
+                                        <v-chip size="x-small" :color="getIceStateColor(peer)">
+                                            {{ peer.pc.iceConnectionState }}
+                                        </v-chip>
+                                    </v-list-item-title>
+                                </v-list-item>
 
-                <!-- Peer Connections -->
-                <v-list dense>
-                    <v-list-subheader>
-                        Peer Connections ({{ peers.size }})
-                        <v-chip size="x-small" class="ml-2" v-if="reflectApi.discoveredPeers.value.length > peers.size">
-                            {{ reflectApi.discoveredPeers.value.length - peers.size }} discovered
-                        </v-chip>
-                        <v-chip size="x-small" class="ml-2" :color="bidirectionalAudioPeers > 0 ? 'success' : 'warning'"
-                            variant="flat">
-                            {{ bidirectionalAudioPeers }} bidirectional
-                        </v-chip>
-                    </v-list-subheader>
+                                <v-list-item>
+                                    <v-list-item-title class="text-caption">
+                                        ICE Gathering:
+                                        <v-chip size="x-small" :color="getIceGatheringStateColor(peer)">
+                                            {{ peer.pc.iceGatheringState }}
+                                        </v-chip>
+                                    </v-list-item-title>
+                                </v-list-item>
 
-                    <v-list-item v-if="peers.size === 0">
-                        <v-list-item-title class="text-caption text-grey">
-                            No active connections
-                        </v-list-item-title>
-                    </v-list-item>
+                                <v-list-item>
+                                    <v-list-item-title class="text-caption">
+                                        Signaling State:
+                                        <v-chip size="x-small" :color="getSignalingStateColor(peer)">
+                                            {{ peer.pc.signalingState }}
+                                        </v-chip>
+                                    </v-list-item-title>
+                                </v-list-item>
 
-                    <!-- Use v-for with BabylonWebRTCPeer components -->
-                    <v-expansion-panels v-if="peers.size > 0" variant="accordion">
-                        <BabylonWebRTCPeer v-for="[peerId, peer] in peers" :key="peerId" :peer-id="peerId" :peer="peer"
-                            :avatar-data="avatarDataMap?.[peerId]" :position-data="positionDataMap?.[peerId]"
-                            :my-position="myPositionData" :volume="peerVolumes.get(peerId)"
-                            :spatial-audio-node="spatialAudioNodes.get(peerId)" @disconnect="disconnectFromPeer(peerId)"
-                            @debug="debugPeer(peerId)" @volume-change="(volume) => updatePeerVolume(peerId, volume)"
-                            @spatial-node-created="(node) => handleSpatialNodeCreated(peerId, node)"
-                            @spatial-node-removed="() => handleSpatialNodeRemoved(peerId)" />
-                    </v-expansion-panels>
-                </v-list>
+                                <!-- Negotiation / Glare status -->
+                                <v-list-item>
+                                    <v-list-item-title class="text-caption">
+                                        <strong>Negotiation:</strong>
+                                        <v-chip size="x-small" :color="peer.polite ? 'primary' : 'warning'"
+                                            variant="flat" class="ml-1">
+                                            {{ peer.polite ? 'Polite' : 'Impolite' }}
+                                        </v-chip>
+                                        <v-chip v-if="peer.makingOffer" size="x-small" color="info" variant="flat"
+                                            class="ml-1">
+                                            Making offer
+                                        </v-chip>
+                                        <v-chip v-if="peer.ignoreOffer" size="x-small" color="warning" variant="flat"
+                                            class="ml-1">
+                                            Ignored glare
+                                        </v-chip>
+                                        <v-chip v-if="peer.pendingOfferId" size="x-small" color="info" variant="flat"
+                                            class="ml-1">
+                                            Pending offer
+                                        </v-chip>
+                                        <v-chip v-if="peer.iceCandidateBuffer.length > 0" size="x-small"
+                                            color="secondary" variant="flat" class="ml-1">
+                                            Buffered ICE: {{ peer.iceCandidateBuffer.length }}
+                                        </v-chip>
+                                    </v-list-item-title>
+                                </v-list-item>
 
-                <!-- Discovered Peers (not connected) -->
-                <v-list dense v-if="unconnectedPeers.length > 0">
-                    <v-list-subheader>Discovered Peers</v-list-subheader>
-                    <v-list-item v-for="peerId in unconnectedPeers" :key="`discovered-${peerId}`">
-                        <v-list-item-title class="d-flex align-center">
-                            <span class="text-caption">{{ peerId.substring(0, 16) }}...</span>
-                            <v-spacer />
-                            <v-btn size="small" variant="outlined" @click="connectToPeer(peerId)"
-                                :loading="connectingPeers.has(peerId)">
-                                Connect
-                            </v-btn>
-                        </v-list-item-title>
-                    </v-list-item>
-                </v-list>
+                                <!-- Condensed connecting status when not connected -->
+                                <v-list-item v-if="peer.pc.connectionState !== 'connected'">
+                                    <v-list-item-title class="text-caption">
+                                        <strong>Connecting:</strong>
+                                        <v-chip size="x-small" :color="getSignalingStateColor(peer)" variant="flat"
+                                            class="ml-1">
+                                            {{ peer.pc.signalingState }}
+                                        </v-chip>
+                                        <v-chip size="x-small" :color="getIceGatheringStateColor(peer)" variant="flat"
+                                            class="ml-1">
+                                            {{ peer.pc.iceGatheringState }}
+                                        </v-chip>
+                                        <v-chip size="x-small" :color="getIceStateColor(peer)" variant="flat"
+                                            class="ml-1">
+                                            {{ peer.pc.iceConnectionState }}
+                                        </v-chip>
+                                        <v-chip size="x-small" :color="getConnectionStateColor(peer)" variant="flat"
+                                            class="ml-1">
+                                            {{ getConnectionStateLabel(peer) }}
+                                        </v-chip>
+                                    </v-list-item-title>
+                                </v-list-item>
+                                <v-list-item>
+                                    <v-list-item-title class="text-caption">
+                                        Connection State:
+                                        <v-chip size="x-small" :color="getConnectionStateColor(peer)">
+                                            {{ getConnectionStateLabel(peer) }}
+                                        </v-chip>
+                                    </v-list-item-title>
+                                </v-list-item>
 
-                <!-- Debug Controls (only show in debug mode) -->
-                <v-card v-if="debugMode" variant="elevated" class="ma-2" color="surface">
-                    <v-card-title class="text-caption pa-2">
-                        <v-icon size="small" class="mr-1">mdi-cog</v-icon>
-                        Debug Controls
-                    </v-card-title>
-                    <v-card-text class="pa-2">
-                        <v-row dense>
-                            <v-col cols="6">
-                                <v-btn size="small" variant="outlined" @click="manualAnnouncePresence"
-                                    :disabled="!isReady" block>
-                                    Announce Presence
-                                </v-btn>
-                            </v-col>
-                            <v-col cols="6">
-                                <v-btn size="small" variant="outlined" @click="forceRefreshPeers"
-                                    :loading="isForceRefreshing" block>
-                                    Refresh Peers
-                                </v-btn>
-                            </v-col>
-                        </v-row>
+                                <!-- Audio Controls -->
+                                <v-list-item v-if="peer.remoteStream">
+                                    <v-list-item-title class="d-flex align-center">
+                                        <span class="text-caption mr-2">Volume:</span>
+                                        <v-slider :model-value="peerVolumes.get(peerId) ?? 100"
+                                            @update:model-value="onPeerVolumeUpdate(peerId, $event)" class="flex-grow-1"
+                                            density="compact" hide-details min="0" max="100" step="1" thumb-label>
+                                            <template v-slot:prepend>
+                                                <v-icon size="small">mdi-volume-low</v-icon>
+                                            </template>
+                                            <template v-slot:append>
+                                                <v-icon size="small">mdi-volume-high</v-icon>
+                                            </template>
+                                        </v-slider>
+                                        <span class="ml-2 text-caption">{{ peerVolumes.get(peerId) ?? 100 }}%</span>
+                                    </v-list-item-title>
+                                </v-list-item>
 
-                        <v-row dense class="mt-2">
-                            <v-col cols="6">
-                                <v-btn size="small" variant="outlined" @click="testReflectConnectivity"
-                                    :loading="isTestingConnectivity" block>
-                                    Test Connectivity
-                                </v-btn>
-                            </v-col>
-                            <v-col cols="6">
-                                <v-btn size="small" variant="outlined" @click="resumeAudioContext"
-                                    :loading="isResumingAudio" block>
-                                    Resume Audio
-                                </v-btn>
-                            </v-col>
-                        </v-row>
+                                <!-- 3D Position Info -->
+                                <v-list-item v-if="avatarPositions.get(peerId)">
+                                    <v-list-item-title class="text-caption">
+                                        Position: ({{ avatarPositions.get(peerId)?.x.toFixed(1) }}, {{
+                                            avatarPositions.get(peerId)?.y.toFixed(1) }}, {{
+                                            avatarPositions.get(peerId)?.z.toFixed(1) }})
+                                        <span v-if="getPeerDistance(peerId) !== null" class="ml-2">
+                                            Distance: {{ getPeerDistance(peerId)?.toFixed(1) }}m
+                                        </span>
+                                    </v-list-item-title>
+                                </v-list-item>
 
-                        <v-row dense class="mt-2">
-                            <v-col cols="6">
-                                <v-btn size="small" variant="outlined" @click="debugAudioProcessing"
-                                    :loading="isDebuggingAudio" block>
-                                    Debug Audio
-                                </v-btn>
-                            </v-col>
-                            <v-col cols="6">
-                                <v-btn size="small" variant="outlined" @click="checkAndRecoverAudioConnections"
-                                    :disabled="peers.size === 0" block>
-                                    Fix Audio
-                                </v-btn>
-                            </v-col>
-                        </v-row>
+                                <!-- Debug Information -->
+                                <v-list-item>
+                                    <v-list-item-title class="text-caption">
+                                        <strong>Connection Details:</strong>
+                                    </v-list-item-title>
+                                </v-list-item>
 
-                        <v-row dense class="mt-2">
-                            <v-col cols="6">
-                                <v-btn size="small" variant="outlined" @click="clearAllPeers"
-                                    :disabled="peers.size === 0" block>
-                                    Clear All Peers
-                                </v-btn>
-                            </v-col>
-                            <v-col cols="6">
-                                <v-btn size="small" variant="outlined" @click="runDebugTests"
-                                    :loading="isRunningDebugTests" block>
-                                    Run Diagnostics
-                                </v-btn>
-                            </v-col>
-                        </v-row>
+                                <v-list-item>
+                                    <v-list-item-title class="text-caption">
+                                        Created: {{ getPeerConnectionAge(peerId) }}s ago
+                                    </v-list-item-title>
+                                </v-list-item>
 
-                        <v-row dense class="mt-2">
-                            <v-col cols="6">
-                                <v-btn size="small" variant="outlined" @click="forceReconnectToSelectedPeer"
-                                    :disabled="!debugTestPeerId || connectingPeers.has(debugTestPeerId)" block>
-                                    Force Reconnect
-                                </v-btn>
-                            </v-col>
-                            <v-col cols="6">
-                                <v-btn size="small" variant="outlined" @click="refreshConnections"
-                                    :loading="isRefreshing" block>
-                                    Refresh All
-                                </v-btn>
-                            </v-col>
-                        </v-row>
+                                <!-- Audio State Summary -->
+                                <v-list-item>
+                                    <v-list-item-title class="text-caption">
+                                        <strong>Audio Status:</strong>
+                                        <v-chip size="x-small" :color="isPeerSendingAudio(peer) ? 'success' : 'error'"
+                                            variant="flat" class="ml-1">
+                                            Send: {{ isPeerSendingAudio(peer) ? '✓' : '✗' }}
+                                        </v-chip>
+                                        <v-chip size="x-small" :color="isPeerReceivingAudio(peer) ? 'success' : 'error'"
+                                            variant="flat" class="ml-1">
+                                            Receive: {{ isPeerReceivingAudio(peer) ? '✓' : '✗' }}
+                                        </v-chip>
+                                        <v-chip size="x-small"
+                                            :color="(isPeerSendingAudio(peer) && isPeerReceivingAudio(peer)) ? 'success' : 'warning'"
+                                            variant="flat" class="ml-1">
+                                            {{ (isPeerSendingAudio(peer) && isPeerReceivingAudio(peer)) ?
+                                                'Bidirectional'
+                                                : 'One-way' }}
+                                        </v-chip>
+                                    </v-list-item-title>
+                                </v-list-item>
 
-                        <v-row dense class="mt-2">
-                            <v-col cols="6">
-                                <v-btn size="small" variant="outlined" @click="fixStuckConnections"
-                                    :disabled="peers.size === 0" block>
-                                    Fix Stuck Connections
-                                </v-btn>
-                            </v-col>
-                            <v-col cols="6">
-                                <v-btn size="small" variant="outlined" @click="checkNegotiationState"
-                                    :disabled="peers.size === 0" block>
-                                    Check Negotiation
-                                </v-btn>
-                            </v-col>
-                        </v-row>
+                                <!-- Audio Level Information -->
+                                <v-list-item>
+                                    <v-list-item-title class="text-caption">
+                                        <strong>Audio Levels:</strong>
+                                        <div class="d-flex align-center ml-2 mt-1">
+                                            <span class="text-caption mr-2">Receiving:</span>
+                                            <v-progress-linear :model-value="getPeerAudioLevel(peerId)"
+                                                :color="getAudioLevelColor(peerId)" height="8" rounded
+                                                style="min-width: 100px" class="mr-2" />
+                                            <span class="text-caption">{{ getPeerAudioLevel(peerId).toFixed(1)
+                                                }}%</span>
+                                        </div>
+                                    </v-list-item-title>
+                                </v-list-item>
 
-                        <v-row dense class="mt-2">
-                            <v-col cols="6">
-                                <v-btn size="small" variant="outlined" @click="checkIceCandidateIssues"
-                                    :disabled="peers.size === 0" block>
-                                    Check ICE Issues
-                                </v-btn>
-                            </v-col>
-                            <v-col cols="6">
-                                <v-btn size="small" variant="outlined" @click="checkAndRecoverAudioConnections"
-                                    :disabled="peers.size === 0" block>
-                                    Fix Audio
-                                </v-btn>
-                            </v-col>
-                        </v-row>
+                                <!-- Detailed Track Information -->
+                                <v-list-item>
+                                    <v-list-item-title class="text-caption">
+                                        <strong>Local Senders:</strong>
+                                        <div v-for="sender in peer.pc.getSenders()"
+                                            :key="sender.track?.id || 'no-track'" class="ml-2">
+                                            <v-chip size="x-small" :color="sender.track?.enabled ? 'success' : 'error'"
+                                                variant="flat">
+                                                {{ sender.track?.kind || 'unknown' }}: {{ sender.track?.readyState ||
+                                                    'no-track' }}
+                                                {{ sender.track?.enabled ? '' : '(disabled)' }}
+                                            </v-chip>
+                                        </div>
+                                    </v-list-item-title>
+                                </v-list-item>
 
-                        <v-row dense class="mt-2">
-                            <v-col cols="12">
-                                <v-text-field v-model="debugTestPeerId" label="Test Peer ID"
-                                    placeholder="Enter session ID to test..." dense hide-details />
-                            </v-col>
-                        </v-row>
+                                <v-list-item>
+                                    <v-list-item-title class="text-caption">
+                                        <strong>Remote Receivers:</strong>
+                                        <div v-for="receiver in peer.pc.getReceivers()"
+                                            :key="receiver.track?.id || 'no-track'" class="ml-2">
+                                            <v-chip size="x-small"
+                                                :color="receiver.track?.readyState === 'live' ? 'success' : 'error'"
+                                                variant="flat">
+                                                {{ receiver.track?.kind || 'unknown' }}: {{ receiver.track?.readyState
+                                                    ||
+                                                    'no-track' }}
+                                            </v-chip>
+                                        </div>
+                                    </v-list-item-title>
+                                </v-list-item>
 
-                        <v-row dense class="mt-2">
-                            <v-col cols="6">
-                                <v-btn size="small" variant="outlined" @click="sendTestMessage"
-                                    :disabled="!debugTestPeerId" block>
-                                    Send Test Message
-                                </v-btn>
-                            </v-col>
-                            <v-col cols="6">
-                                <v-btn size="small" variant="outlined" @click="pingTestPeer"
-                                    :disabled="!debugTestPeerId" block>
-                                    Ping Test Peer
-                                </v-btn>
-                            </v-col>
-                        </v-row>
-                    </v-card-text>
-                </v-card>
+                                <v-list-item v-if="peer.pc.getTransceivers().length > 0">
+                                    <v-list-item-title class="text-caption">
+                                        <strong>Transceivers:</strong>
+                                        <div v-for="(transceiver, index) in peer.pc.getTransceivers()" :key="index"
+                                            class="ml-2">
+                                            <v-chip size="x-small"
+                                                :color="transceiver.direction === 'sendrecv' ? 'success' : 'warning'"
+                                                variant="flat">
+                                                {{ index + 1 }}: {{ transceiver.mid || 'no-mid' }}
+                                                ({{ transceiver.direction }})
+                                                {{ transceiver.currentDirection ? `→ ${transceiver.currentDirection}` :
+                                                    ''
+                                                }}
+                                            </v-chip>
+                                            <span class="text-caption ml-1">
+                                                {{ transceiver.sender?.track?.kind || 'no-sender' }} ↔ {{
+                                                    transceiver.receiver?.track?.kind || 'no-receiver' }}
+                                            </span>
+                                        </div>
+                                    </v-list-item-title>
+                                </v-list-item>
+
+                                <!-- Message History (virtualized) -->
+                                <v-list-item v-if="peer.messageHistory.length > 0">
+                                    <v-list-item-title class="text-caption">
+                                        <strong>Messages ({{ peer.messageHistory.length }}):</strong>
+                                    </v-list-item-title>
+                                </v-list-item>
+
+                                <v-list-item v-if="peer.messageHistory.length > 0">
+                                    <div style="max-height: 220px;">
+                                        <v-virtual-scroll :items="peer.messageHistory" :item-height="28" :height="220">
+                                            <template #default="{ item }">
+                                                <div class="d-flex align-center mb-1">
+                                                    <v-chip size="x-small" :color="getMessageStatusColor(item.status)"
+                                                        variant="flat">
+                                                        <v-icon size="10" class="mr-1">
+                                                            {{ item.direction === 'sent' ? 'mdi-arrow-up' :
+                                                                'mdi-arrow-down' }}
+                                                        </v-icon>
+                                                        <v-icon size="10" class="mr-1">
+                                                            {{ getMessageTypeIcon(item.type) }}
+                                                        </v-icon>
+                                                        {{ item.type }}
+                                                    </v-chip>
+                                                    <span class="text-caption ml-2">{{ new
+                                                        Date(item.timestamp).toLocaleTimeString() }}</span>
+                                                    <span v-if="item.details" class="text-caption ml-2 text-grey">{{
+                                                        item.details }}</span>
+                                                    <span v-if="item.error" class="text-caption ml-2"
+                                                        style="color: var(--v-theme-error)">{{ item.error }}</span>
+                                                </div>
+                                            </template>
+                                        </v-virtual-scroll>
+                                    </div>
+                                </v-list-item>
+
+                                <!-- Debug Actions -->
+                                <v-list-item>
+                                    <v-btn size="small" variant="outlined" @click="disconnectPeer(peerId)">
+                                        Disconnect
+                                    </v-btn>
+                                </v-list-item>
+                            </v-list>
+                        </v-expansion-panel-text>
+                    </v-expansion-panel>
+                </v-expansion-panels>
+
+                <div v-else class="text-center text-grey py-4">
+                    No peers connected
+                </div>
             </v-card-text>
         </v-card>
     </v-dialog>
@@ -374,443 +436,1402 @@
 import type {
     AvatarBaseData,
     AvatarPositionData,
-    AvatarRotationData,
-    PeerInfo,
+    PeerAudioNode,
+    SpatialAudioOptions,
 } from "@schemas";
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
+import type { Communication } from "@vircadia/world-sdk/browser/vue";
 import {
-    useWebRTCReflect,
-    type WebRTCReflectMessage,
-} from "@/composables/useWebRTCReflect";
-import { useWebRTCSpatialAudio } from "@/composables/useWebRTCSpatialAudio";
-import BabylonWebRTCPeer from "./BabylonWebRTCPeer.vue";
+    computed,
+    onMounted,
+    onUnmounted,
+    type Ref,
+    ref,
+    toRef,
+    watch,
+} from "vue";
+import { z } from "zod";
+import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 
+// TODO: Make it so that we don't start negotiation unless we have all the tracks, or use fake ones to start (ideal), I think it gets stuck if no audio access initially.
+
+// Props
 interface Props {
-    vircadiaWorld: VircadiaWorldInstance;
-    // Avatar data streams
-    avatarDataMap?: Record<string, AvatarBaseData>;
-    positionDataMap?: Record<string, AvatarPositionData>;
-    rotationDataMap?: Record<string, AvatarRotationData>;
-    // My position for spatial audio
-    myPositionData?: AvatarPositionData | null;
+    client: VircadiaWorldInstance;
+    fullSessionId: string | null;
+    avatarData: Map<string, AvatarBaseData>;
+    avatarPositions: Map<string, AvatarPositionData>;
+    myPosition: AvatarPositionData | null;
     myCameraOrientation?: {
         alpha: number;
         beta: number;
         radius: number;
     } | null;
-    // Audio state callbacks
-    onSetPeerAudioState?: (
-        sessionId: string,
-        state: Partial<{
-            volume: number;
-            isMuted: boolean;
-            isReceiving: boolean;
-            isSending: boolean;
-        }>,
-    ) => void;
-    onRemovePeerAudioState?: (sessionId: string) => void;
-    // Dialog visibility
-    modelValue?: boolean;
-    // WebRTC sync group - should match other avatar communication
     webrtcSyncGroup?: string;
+    modelValue?: boolean;
+    // Reactive exposes to parent via v-model bindings
+    localAudioStream?: MediaStream | null;
+    peersMap?: Map<string, RTCPeerConnection>;
+    remoteStreamsMap?: Map<string, MediaStream>;
+    // Optional mirrored v-model bindings
+    isInitialized?: boolean;
+    audioEnabled?: boolean;
+    microphonePermission?: 'granted' | 'denied' | 'prompt' | 'unknown';
+    audioContextState?: 'resumed' | 'suspended' | 'unknown';
+    localStreamActive?: boolean;
+    discoveredPeers?: string[];
+    peerVolumes?: Map<string, number>;
+    peerAudioLevels?: Map<string, number>;
+    uplinkUsingDestination?: boolean;
+    // When true, skip getUserMedia and use internal uplink destination
+    headlessUplink?: boolean;
 }
-
-const props = defineProps<Props>();
 
 const emit = defineEmits<{
     "update:modelValue": [value: boolean];
-    permissions: [
-        {
-            microphone: "granted" | "denied" | "prompt" | "unknown";
-            audioContext: "resumed" | "suspended" | "unknown";
-            localStreamActive: boolean;
-        },
-    ];
+    bus: [value: unknown];
+    // Reactive exposes
+    "update:localAudioStream": [value: MediaStream | null];
+    "update:peersMap": [value: Map<string, RTCPeerConnection>];
+    "update:remoteStreamsMap": [value: Map<string, MediaStream>];
+    // New direct state bindings
+    "update:isInitialized": [value: boolean];
+    "update:audioEnabled": [value: boolean];
+    "update:microphonePermission": [value: 'granted' | 'denied' | 'prompt' | 'unknown'];
+    "update:audioContextState": [value: 'resumed' | 'suspended' | 'unknown'];
+    "update:localStreamActive": [value: boolean];
+    "update:discoveredPeers": [value: string[]];
+    "update:peerVolumes": [value: Map<string, number>];
+    "update:peerAudioLevels": [value: Map<string, number>];
+    "update:uplinkUsingDestination": [value: boolean];
 }>();
 
-// Dialog visibility
+const props = defineProps<Props>();
 const dialogVisible = computed({
     get: () => props.modelValue ?? false,
     set: (value: boolean) => emit("update:modelValue", value),
 });
 
-// Core refs
-const vircadiaWorld = props.vircadiaWorld;
-const fullSessionId = computed(
-    () => vircadiaWorld.connectionInfo.value.fullSessionId ?? null,
-);
-
-// WebRTC state
-const peers = ref<Map<string, PeerInfo>>(new Map());
-const localStream = ref<MediaStream | null>(null);
-const isMuted = ref(false);
-const micVolume = ref(100);
-const peerVolumes = ref<Map<string, number>>(new Map());
-const spatialAudioNodes = ref<Map<string, HTMLAudioElement>>(new Map());
-const connectingPeers = ref<Set<string>>(new Set());
-const isRefreshing = ref(false);
-const registeredMessageHandlers = ref<Set<string>>(new Set());
-
-// Connection recovery state
-const peerRecoveryAttempts = ref<Map<string, number>>(new Map());
-const peerRecoveryTimeouts = ref<Map<string, ReturnType<typeof setTimeout>>>(
-    new Map(),
-);
-const maxRecoveryAttempts = 3;
-const recoveryBackoffMs = [1000, 2000, 5000]; // Progressive backoff
-
-// Negotiation state tracking
-// REMOVED: negotiationTimeouts - not needed with perfect negotiation
-
-// Debug state
-const debugMode = ref(false);
-const isRunningDebugTests = ref(false);
-const isForceRefreshing = ref(false);
-const isTestingConnectivity = ref(false);
-const isResumingAudio = ref(false);
-const isDebuggingAudio = ref(false);
-const debugTestPeerId = ref("");
-const debugTestResults = ref<string>("");
-const debugTestTimestamp = ref<number>(0);
-const networkStatus = ref<"unknown" | "online" | "offline">("unknown");
-const audioContextResumed = ref(false);
-
-// Microphone permission state
-const microphonePermission = ref<"granted" | "denied" | "prompt" | "unknown">(
-    "unknown",
-);
-
-function emitPermissionState() {
-    const audioState: "resumed" | "suspended" | "unknown" =
-        audioContextResumed.value
-            ? "resumed"
-            : spatialAudio.isInitialized.value
-                ? "suspended"
-                : "unknown";
-    emit("permissions", {
-        microphone: microphonePermission.value,
-        audioContext: audioState,
-        localStreamActive: !!localStream.value,
-    });
+// Interfaces
+interface PeerInfo {
+    pc: RTCPeerConnection;
+    polite: boolean;
+    makingOffer: boolean;
+    ignoreOffer: boolean;
+    isSettingRemoteAnswerPending: boolean;
+    // Tracks current offer made locally awaiting a matching answer
+    pendingOfferId?: string | null;
+    // Watchdog timer to re-send offer if stuck in have-local-offer
+    offerWatchdog?: ReturnType<typeof setTimeout> | null;
+    offerWatchdogId?: string | null;
+    remoteStream?: MediaStream;
+    iceCandidateBuffer: RTCIceCandidateInit[];
+    createdAt: number; // Track connection creation time
+    messageHistory: MessageHistoryEntry[]; // Track all messages for debugging
 }
 
-async function queryMicrophonePermission() {
-    try {
-        if (
-            "permissions" in navigator &&
-            (navigator as any).permissions?.query
-        ) {
-            const status = await (navigator as any).permissions.query({
-                name: "microphone" as PermissionName,
-            });
-            microphonePermission.value = status.state as
-                | "granted"
-                | "denied"
-                | "prompt";
-            emitPermissionState();
-            status.onchange = () => {
-                microphonePermission.value = status.state as
-                    | "granted"
-                    | "denied"
-                    | "prompt";
-                emitPermissionState();
-            };
-        } else {
-            // Fallback when Permissions API is unavailable
-            microphonePermission.value = localStream.value
-                ? "granted"
-                : "unknown";
-            emitPermissionState();
-        }
-    } catch {
-        microphonePermission.value = "unknown";
-        emitPermissionState();
-    }
+interface MessageHistoryEntry {
+    id: string;
+    timestamp: number;
+    direction: 'sent' | 'received';
+    type: 'offer' | 'answer' | 'candidate' | 'session-end' | 'announcement';
+    status: 'success' | 'error' | 'warning' | 'pending';
+    details?: string;
+    error?: string;
 }
 
-// WebRTC configuration with TURN servers for NAT traversal
+interface SignalingMessage {
+    description?: RTCSessionDescriptionInit;
+    candidate?: RTCIceCandidateInit;
+    // Correlates an answer with a specific offer; also used to de-duplicate
+    correlationId?: string;
+}
+
+interface PeerAnnouncement {
+    sessionId: string;
+    timestamp: number;
+    status: "online" | "offline";
+}
+
+interface WebRTCReflectMessage {
+    type: "signaling" | "session-end";
+    fromSession: string;
+    toSession?: string;
+    payload: SignalingMessage;
+    timestamp: number;
+}
+
+interface AudioAnalysisData {
+    analyser: AnalyserNode;
+    source: MediaStreamAudioSourceNode;
+    level: number;
+}
+
+// Zod Schema for SignalingMessage (description or candidate)
+const SignalingMessageSchema = z.object({
+    description: z
+        .object({
+            type: z.enum(["offer", "answer"]),
+            sdp: z.string(),
+        })
+        .optional(),
+    candidate: z
+        .object({
+            candidate: z.string(),
+            sdpMLineIndex: z.number().nullable(),
+            sdpMid: z.string().nullable(),
+        })
+        .optional(),
+    correlationId: z.string().optional(),
+});
+
+// Zod Schema for WebRTCReflectMessage
+const WebRTCReflectMessageSchema = z.object({
+    type: z.enum(["signaling", "session-end"]),
+    fromSession: z.string(),
+    toSession: z.string().optional(),
+    payload: SignalingMessageSchema,
+    timestamp: z.number(),
+});
+
+// Configuration
+const SYNC_GROUP = props.webrtcSyncGroup || "public.NORMAL";
+const ANNOUNCE_CHANNEL = "webrtc.announce";
+const SIGNALING_CHANNEL = "webrtc.signal";
+const ANNOUNCE_INTERVAL = 2000;
+const PRESENCE_TIMEOUT = 10000;
+
+// RTC Configuration
 const rtcConfig: RTCConfiguration = {
     iceServers: [
-        // STUN servers for basic connectivity
         { urls: "stun:stun.l.google.com:19302" },
         { urls: "stun:stun1.l.google.com:19302" },
-        { urls: "stun:stun2.l.google.com:19302" },
-        { urls: "stun:stun3.l.google.com:19302" },
-        { urls: "stun:stun4.l.google.com:19302" },
-        { urls: "stun:stun.services.mozilla.com" },
-        // Add TURN servers if available (replace with your actual TURN server URLs)
-        // { urls: 'turn:your-turn-server.com:3478', username: 'user', credential: 'pass' },
-        // { urls: 'turn:your-turn-server.com:3478?transport=tcp', username: 'user', credential: 'pass' },
     ],
     iceCandidatePoolSize: 10,
-    iceTransportPolicy: "all", // Try all candidates, not just relay
+    iceTransportPolicy: "all",
     bundlePolicy: "max-bundle",
     rtcpMuxPolicy: "require",
 };
 
-// Add ICE candidate debugging
-function setupIceCandidateDebugging(peerId: string, pc: RTCPeerConnection) {
-    let candidateCount = 0;
-    let localCandidates: RTCIceCandidate[] = [];
-    let remoteCandidates: RTCIceCandidate[] = [];
+// State
+const audioEnabled = ref(true);
+const localStream = ref<MediaStream | null>(null);
+const peers = ref(new Map<string, PeerInfo>());
+const peerVolumes = ref(new Map<string, number>());
+const activePeers = ref(new Map<string, PeerAnnouncement>());
+const isInitialized = ref(false);
+const currentTime = ref(Date.now());
 
-    // Override the onicecandidate handler to add debugging
-    const originalHandler = pc.onicecandidate;
-    pc.onicecandidate = (event) => {
-        if (event.candidate) {
-            candidateCount++;
-            localCandidates.push(event.candidate);
+// Per-peer audio analysis
+const peerAudioAnalysis = ref(new Map<string, AudioAnalysisData>());
+const peerAudioLevels = ref(new Map<string, number>());
 
-            console.log(
-                `[WebRTC ICE] ${peerId}: ICE candidate ${candidateCount}:`,
-                {
-                    type: event.candidate.type,
-                    protocol: event.candidate.protocol,
-                    address: event.candidate.address,
-                    port: event.candidate.port,
-                    candidate: event.candidate.candidate,
-                    foundation: event.candidate.foundation,
-                    priority: event.candidate.priority,
-                    component: event.candidate.component,
-                },
-            );
+// SECTION: WebRTC Audio Bus
+// Shared WebRTC Audio Bus (uplink injection + downlink taps)
+type WebRTCAudioBus = {
+    getLocalStream: () => MediaStream | null;
+    getPeers: () => Map<string, RTCPeerConnection>;
+    getRemoteStreams: () => Map<string, MediaStream>;
+    onRemoteAudio: (cb: (peerId: string, stream: MediaStream) => void) => () => void;
+    getUplinkAudioContext: () => AudioContext | null;
+    getUplinkDestination: () => MediaStreamAudioDestinationNode | null;
+    ensureUplinkDestination: () => Promise<MediaStreamTrack | null>;
+    replaceUplinkWithDestination: () => Promise<boolean>;
+    restoreUplinkMic: () => Promise<boolean>;
+    connectMicToUplink: (enabled: boolean) => void;
+    connectNodeToUplink: (node: AudioNode) => void;
+};
 
-            // Log detailed candidate info
-            if (event.candidate.type === "srflx") {
-                console.log(
-                    `[WebRTC ICE] ${peerId}: Server-reflexive candidate found - this is good for NAT traversal`,
-                );
-            } else if (event.candidate.type === "relay") {
-                console.log(
-                    `[WebRTC ICE] ${peerId}: Relay candidate found - using TURN server`,
-                );
-            } else if (event.candidate.type === "host") {
-                console.log(
-                    `[WebRTC ICE] ${peerId}: Host candidate found - direct connection`,
-                );
-            }
-        } else {
-            console.log(
-                `[WebRTC ICE] ${peerId}: ICE candidate gathering completed. Total candidates: ${candidateCount}`,
-            );
-            console.log(`[WebRTC ICE] ${peerId}: Candidate summary:`, {
-                total: candidateCount,
-                host: localCandidates.filter((c) => c.type === "host").length,
-                srflx: localCandidates.filter((c) => c.type === "srflx").length,
-                relay: localCandidates.filter((c) => c.type === "relay").length,
-                prflx: localCandidates.filter((c) => c.type === "prflx").length,
-            });
+const remoteAudioCallbacks = new Set<(peerId: string, stream: MediaStream) => void>();
 
-            // Warn if no candidates found
-            if (candidateCount === 0) {
-                console.warn(
-                    `[WebRTC ICE] ${peerId}: NO ICE CANDIDATES GENERATED! This indicates a serious connectivity issue.`,
-                );
-                console.warn(`[WebRTC ICE] ${peerId}: Possible causes: `);
-                console.warn(`  - Network interface issues`);
-                console.warn(`  - Firewall blocking STUN/TURN`);
-                console.warn(`  - WebRTC not properly initialized`);
-                console.warn(`  - Browser security restrictions`);
-            }
+let uplinkContext: AudioContext | null = null;
+let uplinkDestination: MediaStreamAudioDestinationNode | null = null;
+let uplinkGain: GainNode | null = null;
+let uplinkMicSource: MediaStreamAudioSourceNode | null = null;
+let uplinkUsingDestination = false;
+
+function notifyRemoteAudio(peerId: string, stream: MediaStream) {
+    for (const cb of remoteAudioCallbacks) {
+        try {
+            cb(peerId, stream);
+        } catch (e) {
+            console.error("[WebRTC Bus] Remote audio callback error:", e);
         }
-
-        // Call original handler if it exists
-        if (originalHandler) {
-            originalHandler.call(pc, event);
-        }
-    };
-
-    // Monitor ICE gathering state changes
-    pc.onicegatheringstatechange = () => {
-        console.log(
-            `[WebRTC ICE] ${peerId}: ICE gathering state changed to: ${pc.iceGatheringState} (${candidateCount} candidates so far)`,
-        );
-
-        if (pc.iceGatheringState === "complete" && candidateCount === 0) {
-            console.error(
-                `[WebRTC ICE] ${peerId}: ICE gathering completed with 0 candidates!`,
-            );
-        }
-    };
-
-    // Monitor ICE connection state changes
-    pc.oniceconnectionstatechange = () => {
-        console.log(
-            `[WebRTC ICE] ${peerId}: ICE connection state changed to: ${pc.iceConnectionState} (${candidateCount} local candidates)`,
-        );
-
-        if (pc.iceConnectionState === "failed" && candidateCount === 0) {
-            console.error(
-                `[WebRTC ICE] ${peerId}: ICE connection failed with no candidates - this is a critical issue`,
-            );
-        }
-    };
-
-    return { candidateCount, localCandidates, remoteCandidates };
+    }
 }
 
-// Initialize Reflect API for WebRTC signaling
-const reflectApi = useWebRTCReflect(vircadiaWorld, fullSessionId, {
-    syncGroup: props.webrtcSyncGroup ?? "public.NORMAL", // Use passed sync group or default to 'webrtc'
-    announceIntervalMs: 5000,
-    presenceTimeoutMs: 15000,
+function getAudioSenderList(): RTCRtpSender[] {
+    const senders: RTCRtpSender[] = [];
+    for (const [, info] of peers.value) {
+        for (const sender of info.pc.getSenders()) {
+            if (sender.track && sender.track.kind === "audio") senders.push(sender);
+        }
+    }
+    return senders;
+}
+
+async function ensureUplinkContext(): Promise<void> {
+    if (uplinkContext && uplinkDestination && uplinkGain) return;
+    uplinkContext = new AudioContext();
+    uplinkDestination = uplinkContext.createMediaStreamDestination();
+    uplinkGain = uplinkContext.createGain();
+    uplinkGain.gain.value = 1.0;
+    uplinkGain.connect(uplinkDestination);
+
+    // Attach mic by default if available
+    if (localStream.value) {
+        try {
+            uplinkMicSource = uplinkContext.createMediaStreamSource(localStream.value);
+            uplinkMicSource.connect(uplinkGain);
+        } catch (e) {
+            console.warn("[WebRTC Bus] Failed to connect mic to uplink:", e);
+        }
+    }
+}
+
+async function replaceUplinkWithDestination(): Promise<boolean> {
+    try {
+        await ensureUplinkContext();
+        if (!uplinkDestination) return false;
+        const track = uplinkDestination.stream.getAudioTracks()[0] || null;
+        if (!track) return false;
+        const senders = getAudioSenderList();
+        for (const sender of senders) {
+            await sender.replaceTrack(track);
+        }
+        uplinkUsingDestination = true;
+        emit('update:uplinkUsingDestination', true);
+        console.log("[WebRTC Bus] Uplink replaced with injected destination track");
+        return true;
+    } catch (e) {
+        console.error("[WebRTC Bus] Failed replacing uplink:", e);
+        return false;
+    }
+}
+
+async function restoreUplinkMic(): Promise<boolean> {
+    try {
+        if (!localStream.value) return false;
+        const micTrack = localStream.value.getAudioTracks()[0] || null;
+        if (!micTrack) return false;
+        const senders = getAudioSenderList();
+        for (const sender of senders) {
+            await sender.replaceTrack(micTrack);
+        }
+        uplinkUsingDestination = false;
+        emit('update:uplinkUsingDestination', false);
+        console.log("[WebRTC Bus] Restored original mic track to uplink");
+        return true;
+    } catch (e) {
+        console.error("[WebRTC Bus] Failed restoring mic uplink:", e);
+        return false;
+    }
+}
+
+function connectMicToUplink(enabled: boolean) {
+    if (!uplinkContext || !uplinkGain) return;
+    try {
+        if (enabled) {
+            if (!uplinkMicSource && localStream.value) {
+                uplinkMicSource = uplinkContext.createMediaStreamSource(localStream.value);
+                uplinkMicSource.connect(uplinkGain);
+            }
+        } else {
+            if (uplinkMicSource) {
+                uplinkMicSource.disconnect();
+                uplinkMicSource = null;
+            }
+        }
+    } catch (e) {
+        console.error("[WebRTC Bus] connectMicToUplink error:", e);
+    }
+}
+
+function connectNodeToUplink(node: AudioNode) {
+    if (!uplinkGain) return;
+    try {
+        node.connect(uplinkGain);
+    } catch (e) {
+        console.error("[WebRTC Bus] Failed to connect node to uplink:", e);
+    }
+}
+
+const webRTCAudioBus: WebRTCAudioBus = {
+    getLocalStream: () => localStream.value,
+    getPeers: () => {
+        const map = new Map<string, RTCPeerConnection>();
+        for (const [id, info] of peers.value) map.set(id, info.pc);
+        return map;
+    },
+    getRemoteStreams: () => {
+        const map = new Map<string, MediaStream>();
+        for (const [id, info] of peers.value) {
+            if (info.remoteStream) map.set(id, info.remoteStream);
+        }
+        return map;
+    },
+    onRemoteAudio: (cb: (peerId: string, stream: MediaStream) => void) => {
+        remoteAudioCallbacks.add(cb);
+        return () => remoteAudioCallbacks.delete(cb);
+    },
+    getUplinkAudioContext: () => uplinkContext,
+    getUplinkDestination: () => uplinkDestination,
+    ensureUplinkDestination: async () => {
+        await ensureUplinkContext();
+        return uplinkDestination?.stream.getAudioTracks()[0] || null;
+    },
+    replaceUplinkWithDestination: async () => replaceUplinkWithDestination(),
+    restoreUplinkMic: async () => restoreUplinkMic(),
+    connectMicToUplink: (enabled: boolean) => connectMicToUplink(enabled),
+    connectNodeToUplink: (node: AudioNode) => connectNodeToUplink(node),
+};
+// END SECTION: WebRTC Audio Bus
+
+// Intervals and subscriptions
+let announceInterval: ReturnType<typeof setInterval> | null = null;
+let cleanupInterval: ReturnType<typeof setInterval> | null = null;
+let audioAnalysisInterval: ReturnType<typeof setInterval> | null = null;
+let timeUpdateInterval: ReturnType<typeof setInterval> | null = null;
+let unsubscribeAnnounce: (() => void) | null = null;
+let unsubscribeSignaling: (() => void) | null = null;
+
+// Convert avatarPositions Map to Record for spatial audio
+const otherPositionsRecord = computed(() => {
+    const record: Record<string, AvatarPositionData> = {};
+    for (const [peerId, position] of props.avatarPositions.entries()) {
+        if (peerId !== props.fullSessionId) {
+            record[peerId] = position;
+        }
+    }
+    return record;
 });
 
-// Initialize spatial audio
+// Normalize optional camera orientation prop to a non-undefined Ref
+const myCameraOrientationRef = computed(
+    () => props.myCameraOrientation ?? null,
+);
+
+// Spatial Audio (inlined)
+function useWebRTCSpatialAudio(
+    options: SpatialAudioOptions = {},
+    sources?: {
+        myPosition?: Ref<AvatarPositionData | null>;
+        myCameraOrientation?: Ref<{
+            alpha: number;
+            beta: number;
+            radius: number;
+        } | null>;
+        otherPositions?: Ref<Record<string, AvatarPositionData>>;
+    },
+) {
+    // Audio context and nodes
+    const audioContext = ref<AudioContext | null>(null);
+    const peerAudioNodes = ref(new Map<string, PeerAudioNode>());
+    const isInitialized = ref(false);
+
+    // Default spatial audio settings
+    const settings = {
+        refDistance: options.refDistance ?? 1,
+        maxDistance: options.maxDistance ?? 50,
+        rolloffFactor: options.rolloffFactor ?? 1,
+        coneInnerAngle: options.coneInnerAngle ?? 360,
+        coneOuterAngle: options.coneOuterAngle ?? 360,
+        panningModel: (options.panningModel ?? "HRTF") as PanningModelType,
+        distanceModel: (options.distanceModel ??
+            "inverse") as DistanceModelType,
+    };
+
+    // Initialize audio context
+    function initialize() {
+        if (isInitialized.value) return;
+
+        try {
+            audioContext.value = new AudioContext();
+            isInitialized.value = true;
+
+            // Set initial listener position
+            updateListenerPosition();
+
+            // Resume audio context if suspended (due to browser autoplay policies)
+            if (audioContext.value.state === "suspended") {
+                audioContext.value.resume().catch((error) => {
+                    console.error(
+                        "[SpatialAudio] Failed to resume audio context:",
+                        error,
+                    );
+                });
+            }
+
+            // Monitor audio context state changes
+            audioContext.value.onstatechange = () => {
+                console.log(
+                    "[SpatialAudio] Audio context state changed to:",
+                    audioContext.value?.state,
+                );
+            };
+        } catch (error) {
+            console.error(
+                "[SpatialAudio] Failed to initialize audio context:",
+                error,
+            );
+        }
+    }
+
+    // Calculate forward vector from camera orientation (spherical to cartesian)
+    function calculateForwardVector(cameraOrientation: {
+        alpha: number;
+        beta: number;
+        radius: number;
+    }) {
+        const { alpha, beta } = cameraOrientation;
+        const x = Math.sin(alpha) * Math.sin(beta);
+        const y = -Math.cos(beta);
+        const z = Math.cos(alpha) * Math.sin(beta);
+        return { x, y, z };
+    }
+
+    // Update listener (my avatar) position and orientation
+    function updateListenerPosition() {
+        if (!audioContext.value) return;
+
+        const pos = sources?.myPosition?.value ?? null;
+        const cam = sources?.myCameraOrientation?.value ?? null;
+        if (!pos || !cam) return;
+
+        type ListenerLike = AudioListener & {
+            positionX?: AudioParam;
+            positionY?: AudioParam;
+            positionZ?: AudioParam;
+            forwardX?: AudioParam;
+            forwardY?: AudioParam;
+            forwardZ?: AudioParam;
+            upX?: AudioParam;
+            upY?: AudioParam;
+            upZ?: AudioParam;
+            setPosition?: (x: number, y: number, z: number) => void;
+            setOrientation?: (
+                fx: number,
+                fy: number,
+                fz: number,
+                ux: number,
+                uy: number,
+                uz: number,
+            ) => void;
+        };
+        const listener = audioContext.value.listener as ListenerLike;
+
+        try {
+            // Set position
+            if (listener.positionX) {
+                listener.positionX.setValueAtTime(
+                    pos.x,
+                    audioContext.value.currentTime,
+                );
+                listener.positionY.setValueAtTime(
+                    pos.y,
+                    audioContext.value.currentTime,
+                );
+                listener.positionZ.setValueAtTime(
+                    pos.z,
+                    audioContext.value.currentTime,
+                );
+            } else {
+                listener.setPosition?.(pos.x, pos.y, pos.z);
+            }
+
+            // Calculate forward and up vectors from camera orientation
+            const forward = calculateForwardVector(cam);
+            const up = { x: 0, y: 1, z: 0 }; // Y-up coordinate system
+
+            if (listener.forwardX) {
+                listener.forwardX.setValueAtTime(
+                    forward.x,
+                    audioContext.value.currentTime,
+                );
+                listener.forwardY.setValueAtTime(
+                    forward.y,
+                    audioContext.value.currentTime,
+                );
+                listener.forwardZ.setValueAtTime(
+                    forward.z,
+                    audioContext.value.currentTime,
+                );
+                listener.upX.setValueAtTime(
+                    up.x,
+                    audioContext.value.currentTime,
+                );
+                listener.upY.setValueAtTime(
+                    up.y,
+                    audioContext.value.currentTime,
+                );
+                listener.upZ.setValueAtTime(
+                    up.z,
+                    audioContext.value.currentTime,
+                );
+            } else {
+                listener.setOrientation?.(
+                    forward.x,
+                    forward.y,
+                    forward.z,
+                    up.x,
+                    up.y,
+                    up.z,
+                );
+            }
+        } catch (error) {
+            console.error(
+                "[SpatialAudio] Failed to update listener position:",
+                error,
+            );
+        }
+    }
+
+    // Create spatial audio node for a peer
+    function createPeerAudioNode(
+        peerId: string,
+        remoteStream: MediaStream,
+        initialVolume = 100,
+    ): HTMLAudioElement {
+        if (!audioContext.value) {
+            throw new Error("[SpatialAudio] Audio context not initialized");
+        }
+
+        // Validate stream
+        const audioTracks = remoteStream.getAudioTracks();
+        if (audioTracks.length === 0) {
+            console.warn(
+                `[SpatialAudio] No audio tracks in remote stream for peer ${peerId.substring(0, 8)}...`,
+            );
+        }
+
+        try {
+            // Create audio element
+            const audio = new Audio();
+            audio.srcObject = remoteStream;
+            audio.autoplay = true;
+            audio.style.display = "none"; // Hidden
+            // CRITICAL: Mute the audio element to prevent double playback
+            // Audio should only play through Web Audio API for spatial processing
+            audio.muted = true;
+            audio.volume = 0;
+            document.body.appendChild(audio);
+
+            // Create Web Audio nodes
+            const source =
+                audioContext.value.createMediaStreamSource(remoteStream);
+            const panner = audioContext.value.createPanner();
+            const gain = audioContext.value.createGain();
+
+            // Configure panner
+            panner.panningModel = settings.panningModel;
+            panner.distanceModel = settings.distanceModel;
+            panner.refDistance = settings.refDistance;
+            panner.maxDistance = settings.maxDistance;
+            panner.rolloffFactor = settings.rolloffFactor;
+            panner.coneInnerAngle = settings.coneInnerAngle;
+            panner.coneOuterAngle = settings.coneOuterAngle;
+            panner.coneOuterGain = 0.3;
+
+            // Set initial volume
+            gain.gain.value = initialVolume / 100;
+
+            // Connect nodes: source -> panner -> gain -> destination
+            source.connect(panner);
+            panner.connect(gain);
+            gain.connect(audioContext.value.destination);
+
+            // Store node references
+            const nodeInfo: PeerAudioNode = {
+                audioElement: audio,
+                source,
+                panner,
+                gain,
+            };
+            peerAudioNodes.value.set(peerId, nodeInfo);
+
+            // Set initial position
+            updatePeerPosition(peerId);
+
+            // Try to play (may be blocked by autoplay policy)
+            audio.play().catch((error) => {
+                console.warn(
+                    `[SpatialAudio] Audio autoplay blocked for peer ${peerId.substring(0, 8)}...:`,
+                    error,
+                );
+                // This is expected in most browsers, the Web Audio API should still work
+            });
+
+            return audio;
+        } catch (error) {
+            console.error(
+                `[{SpatialAudio}] Failed to create audio node for peer ${peerId}:`,
+                error,
+            );
+            throw error;
+        }
+    }
+
+    // Update peer audio position based on their avatar metadata
+    function updatePeerPosition(peerId: string) {
+        const nodeInfo = peerAudioNodes.value.get(peerId);
+        if (!nodeInfo || !audioContext.value) return;
+
+        const otherPositions = sources?.otherPositions?.value;
+        const pos = otherPositions ? otherPositions[peerId] : undefined;
+        if (!pos) return;
+        type PannerLike = PannerNode & {
+            positionX?: AudioParam;
+            positionY?: AudioParam;
+            positionZ?: AudioParam;
+            setPosition?: (x: number, y: number, z: number) => void;
+        };
+        const panner = nodeInfo.panner as PannerLike;
+
+        try {
+            if (panner.positionX) {
+                panner.positionX.setValueAtTime(
+                    pos.x,
+                    audioContext.value.currentTime,
+                );
+                panner.positionY.setValueAtTime(
+                    pos.y,
+                    audioContext.value.currentTime,
+                );
+                panner.positionZ.setValueAtTime(
+                    pos.z,
+                    audioContext.value.currentTime,
+                );
+            } else {
+                panner.setPosition?.(pos.x, pos.y, pos.z);
+            }
+        } catch (error) {
+            console.error(
+                `[SpatialAudio] Failed to update position for peer ${peerId}:`,
+                error,
+            );
+        }
+    }
+
+    // Update all peer positions (useful when many peers change at once)
+    function updateAllPeerPositions() {
+        for (const peerId of peerAudioNodes.value.keys()) {
+            updatePeerPosition(peerId);
+        }
+    }
+
+    // Set peer volume
+    function setPeerVolume(peerId: string, volume: number) {
+        const nodeInfo = peerAudioNodes.value.get(peerId);
+        if (!nodeInfo || !audioContext.value) return;
+        try {
+            nodeInfo.gain.gain.setValueAtTime(
+                volume / 100,
+                audioContext.value.currentTime,
+            );
+        } catch (error) {
+            console.error(
+                `[SpatialAudio] Failed to set volume for peer ${peerId}:`,
+                error,
+            );
+        }
+    }
+
+    // Get peer volume
+    function getPeerVolume(peerId: string): number {
+        const nodeInfo = peerAudioNodes.value.get(peerId);
+        if (!nodeInfo) return 100;
+        return Math.round(nodeInfo.gain.gain.value * 100);
+    }
+
+    // Remove peer audio node and clean up
+    function removePeerAudio(peerId: string) {
+        const nodeInfo = peerAudioNodes.value.get(peerId);
+        if (!nodeInfo) return;
+        try {
+            // Disconnect nodes
+            nodeInfo.source.disconnect();
+            nodeInfo.panner.disconnect();
+            nodeInfo.gain.disconnect();
+
+            // Remove and clean up audio element
+            if (nodeInfo.audioElement.parentNode) {
+                nodeInfo.audioElement.parentNode.removeChild(
+                    nodeInfo.audioElement,
+                );
+            }
+            nodeInfo.audioElement.pause();
+            nodeInfo.audioElement.srcObject = null;
+
+            // Remove from map
+            peerAudioNodes.value.delete(peerId);
+        } catch (error) {
+            console.error(
+                `[SpatialAudio] Error cleaning up audio node for peer ${peerId}:`,
+                error,
+            );
+        }
+    }
+
+    // Cleanup all resources
+    function cleanup() {
+        for (const peerId of peerAudioNodes.value.keys()) {
+            removePeerAudio(peerId);
+        }
+        if (audioContext.value) {
+            audioContext.value.close().catch((error) => {
+                console.error(
+                    "[SpatialAudio] Error closing audio context:",
+                    error,
+                );
+            });
+            audioContext.value = null;
+        }
+        isInitialized.value = false;
+    }
+
+    // Resume audio context on user interaction (needed for browser autoplay policies)
+    async function resumeContext() {
+        if (!audioContext.value) {
+            console.warn("[SpatialAudio] No audio context to resume");
+            return false;
+        }
+        try {
+            if (audioContext.value.state === "suspended") {
+                await audioContext.value.resume();
+                return true;
+            }
+            return audioContext.value.state === "running";
+        } catch (error) {
+            console.error(
+                "[SpatialAudio] Failed to resume audio context:",
+                error,
+            );
+            return false;
+        }
+    }
+
+    // Watchers
+    if (sources?.myPosition) {
+        watch(sources.myPosition, () => updateListenerPosition(), {
+            deep: true,
+        });
+    }
+    if (sources?.myCameraOrientation) {
+        watch(sources.myCameraOrientation, () => updateListenerPosition(), {
+            deep: true,
+        });
+    }
+    if (sources?.otherPositions) {
+        watch(sources.otherPositions, () => updateAllPeerPositions(), {
+            deep: true,
+        });
+    }
+
+    // Computed helpers
+    const activePeerCount = computed(() => peerAudioNodes.value.size);
+    const isReady = computed(() => isInitialized.value && !!audioContext.value);
+
+    // Expose context and nodes for analysis
+    function getAudioContext() {
+        return audioContext.value;
+    }
+    function getPeerNode(peerId: string) {
+        return peerAudioNodes.value.get(peerId);
+    }
+
+    return {
+        // State
+        isInitialized: isReady,
+        activePeerCount,
+
+        // Core functions
+        initialize,
+        cleanup,
+
+        // Peer management
+        createPeerAudioNode,
+        removePeerAudio,
+        updatePeerPosition,
+        updateAllPeerPositions,
+
+        // Volume control
+        setPeerVolume,
+        getPeerVolume,
+
+        // Manual position updates
+        updateListenerPosition,
+
+        // Settings
+        settings,
+
+        // Resume context
+        resumeContext,
+
+        // Analysis helpers
+        getAudioContext,
+        getPeerNode,
+    };
+}
+
+// Spatial Audio Instance
 const spatialAudio = useWebRTCSpatialAudio(
     {
         refDistance: 1,
-        maxDistance: 30,
-        rolloffFactor: 2,
+        maxDistance: 50,
+        rolloffFactor: 1,
         panningModel: "HRTF",
         distanceModel: "inverse",
     },
     {
-        myPosition: computed(() => props.myPositionData ?? null),
-        myCameraOrientation: computed(() => props.myCameraOrientation ?? null),
-        otherPositions: computed(() => props.positionDataMap ?? {}),
+        myPosition: toRef(props, "myPosition"),
+        myCameraOrientation: myCameraOrientationRef,
+        otherPositions: otherPositionsRecord,
     },
 );
 
-// Add audio context resume functionality
-async function ensureAudioContextResumed() {
-    if (spatialAudio.isInitialized.value) {
-        const resumed = await spatialAudio.resumeContext();
-        if (resumed) {
-            console.log("[WebRTC] Audio context resumed successfully");
-            audioContextResumed.value = true;
-            emitPermissionState();
-        } else {
-            console.warn(
-                "[WebRTC] Audio context could not be resumed - user interaction may be required",
-            );
-            audioContextResumed.value = false;
-            emitPermissionState();
-        }
-        return resumed;
-    }
-    return false;
-}
+// Computed
+const discoveredPeers = computed(() => Array.from(activePeers.value.keys()));
 
-// Set up user interaction handlers for audio context resume
-function setupUserInteractionHandlers() {
-    const handleUserInteraction = async () => {
-        await ensureAudioContextResumed();
+// ============================================================================
+// Message History Management
+// ============================================================================
+
+function addMessageToHistory(
+    peerId: string,
+    direction: 'sent' | 'received',
+    type: 'offer' | 'answer' | 'candidate' | 'session-end' | 'announcement',
+    status: 'success' | 'error' | 'warning' | 'pending' = 'success',
+    details?: string,
+    error?: string
+) {
+    const peer = peers.value.get(peerId);
+    if (!peer) return;
+
+    const entry: MessageHistoryEntry = {
+        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        timestamp: Date.now(),
+        direction,
+        type,
+        status,
+        details,
+        error
     };
 
-    // Add event listeners for various user interactions
-    const events = [
-        "click",
-        "keydown",
-        "touchstart",
-        "mousedown",
-        "pointerdown",
-    ];
-    events.forEach((event) => {
-        document.addEventListener(event, handleUserInteraction, {
-            once: false,
-        });
-    });
+    peer.messageHistory.push(entry);
 
-    console.log(
-        "[WebRTC] User interaction handlers set up for audio context resume",
-    );
-}
-
-// Check audio context state periodically
-function setupAudioContextStateMonitoring() {
-    if (spatialAudio.isInitialized.value) {
-        // Check immediately
-        updateAudioContextState();
-
-        // Check every 2 seconds
-        const interval = setInterval(updateAudioContextState, 2000);
-
-        // Clean up interval on unmount
-        onUnmounted(() => {
-            clearInterval(interval);
-        });
+    // Keep only last 50 messages to prevent memory issues
+    if (peer.messageHistory.length > 50) {
+        peer.messageHistory = peer.messageHistory.slice(-50);
     }
 }
 
-function updateAudioContextState() {
-    // This function will be called to check if the audio context is running
-    // For now, we'll assume it's running if spatial audio is initialized
-    // In a real implementation, you'd need to expose the audio context state from the composable
-    if (spatialAudio.isInitialized.value) {
-        audioContextResumed.value = true; // Assume resumed if initialized
-    }
+function getMessageHistorySummary(peerId: string) {
+    const peer = peers.value.get(peerId);
+    if (!peer) return { sent: 0, received: 0, lastMessage: null, errors: 0 };
+
+    const sent = peer.messageHistory.filter(m => m.direction === 'sent').length;
+    const received = peer.messageHistory.filter(m => m.direction === 'received').length;
+    const errors = peer.messageHistory.filter(m => m.status === 'error').length;
+    const lastMessage = peer.messageHistory[peer.messageHistory.length - 1] || null;
+
+    return { sent, received, lastMessage, errors };
 }
 
-// Computed
-const isReady = computed(
-    () =>
-        !!fullSessionId.value &&
-        reflectApi.isInitialized.value &&
-        !!localStream.value,
-);
+function getMessageTypeIcon(type: string): string {
+    const icons: Record<string, string> = {
+        'offer': 'mdi-handshake',
+        'answer': 'mdi-handshake',
+        'candidate': 'mdi-connection',
+        'session-end': 'mdi-close-circle',
+        'announcement': 'mdi-broadcast'
+    };
+    return icons[type] || 'mdi-message';
+}
 
-const unconnectedPeers = computed(() => {
-    const discovered = reflectApi.discoveredPeers.value;
-    return discovered.filter((peerId) => !peers.value.has(peerId));
-});
+function getMessageStatusColor(status: string): string {
+    const colors: Record<string, string> = {
+        'success': 'success',
+        'error': 'error',
+        'warning': 'warning',
+        'pending': 'info'
+    };
+    return colors[status] || 'grey';
+}
 
-const bidirectionalAudioPeers = computed(() => {
-    let count = 0;
-    for (const peer of peers.value.values()) {
-        const senders = peer.pc.getSenders();
-        const receivers = peer.pc.getReceivers();
+// ============================================================================
+// Peer Display Helper Functions
+// ============================================================================
 
-        const isSending = senders.some(
+function getPeerDisplayName(peerId: string): string {
+    return peerId.split("@")[0] || "Unknown User";
+}
+
+function getPeerInitials(peerId: string): string {
+    const name = getPeerDisplayName(peerId);
+    return name
+        .split(" ")
+        .map((n: string) => n[0])
+        .join("")
+        .substring(0, 2)
+        .toUpperCase();
+}
+
+function getPeerShortId(peerId: string): string {
+    return `${peerId.substring(0, 8)}...`;
+}
+
+function getPeerAvatarColor(_peerId: string, peer: PeerInfo): string {
+    if (peer.pc.connectionState !== "connected") {
+        return "grey";
+    }
+
+    const iceState = peer.pc.iceConnectionState;
+    if (iceState === "connected" || iceState === "completed") {
+        const receiving = isPeerReceivingAudio(peer);
+        const sending = isPeerSendingAudio(peer);
+
+        if (receiving && sending) return "success";
+        if (receiving || sending) return "warning";
+        return "error";
+    }
+
+    return iceState === "checking" ? "info" : "error";
+}
+
+function getConnectionStateLabel(peer: PeerInfo): string {
+    const state = peer.pc.connectionState;
+    const labels: Record<string, string> = {
+        connected: "Connected",
+        connecting: "Connecting",
+        disconnected: "Disconnected",
+        failed: "Failed",
+        closed: "Closed",
+    };
+    return labels[state] || state;
+}
+
+function getConnectionStateColor(peer: PeerInfo): string {
+    const state = peer.pc.connectionState;
+    const colors: Record<string, string> = {
+        connected: "success",
+        connecting: "warning",
+        disconnected: "error",
+        failed: "error",
+    };
+    return colors[state] || "grey";
+}
+
+function getIceStateColor(peer: PeerInfo): string {
+    const state = peer.pc.iceConnectionState;
+    const colors: Record<string, string> = {
+        connected: "success",
+        completed: "success",
+        checking: "warning",
+        disconnected: "error",
+        failed: "error",
+    };
+    return colors[state] || "grey";
+}
+
+function getIceGatheringStateColor(peer: PeerInfo): string {
+    const state = peer.pc.iceGatheringState;
+    const colors: Record<string, string> = {
+        new: "info",
+        gathering: "warning",
+        complete: "success",
+    } as Record<RTCIceGatheringState, string>;
+    return colors[state] || "grey";
+}
+
+function getSignalingStateColor(peer: PeerInfo): string {
+    const state = peer.pc.signalingState;
+    if (state === "stable") return "success";
+    if (state === "closed") return "error";
+    return "warning";
+}
+
+function isPeerSendingAudio(peer: PeerInfo): boolean {
+    return peer.pc
+        .getSenders()
+        .some(
             (sender) =>
                 sender.track?.kind === "audio" &&
                 sender.track.readyState === "live" &&
                 sender.track.enabled,
         );
+}
 
-        const isReceiving = receivers.some(
+function isPeerReceivingAudio(peer: PeerInfo): boolean {
+    return peer.pc
+        .getReceivers()
+        .some(
             (receiver) =>
                 receiver.track?.kind === "audio" &&
                 receiver.track.readyState === "live",
         );
+}
 
-        if (isSending && isReceiving) {
-            count++;
-        }
+function getPeerDistance(peerId: string): number | null {
+    const peerPosition = props.avatarPositions.get(peerId);
+    if (!peerPosition || !props.myPosition) return null;
+
+    const dx = peerPosition.x - props.myPosition.x;
+    const dy = peerPosition.y - props.myPosition.y;
+    const dz = peerPosition.z - props.myPosition.z;
+
+    return Math.sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+function getPeerConnectionAge(peerId: string): number {
+    const peer = peers.value.get(peerId);
+    if (!peer) return 0;
+    return Math.floor((currentTime.value - peer.createdAt) / 1000);
+}
+
+function getPeerAudioLevel(peerId: string): number {
+    return peerAudioLevels.value.get(peerId) ?? 0;
+}
+
+function getAudioLevelColor(peerId: string): string {
+    const level = getPeerAudioLevel(peerId);
+    if (level < 10) return "grey";
+    if (level < 25) return "success";
+    if (level < 50) return "warning";
+    return "error";
+}
+
+function getConnectionQualityColor(_peerId: string, peer: PeerInfo): string {
+    if (peer.pc.connectionState !== "connected") return "grey";
+
+    const iceState = peer.pc.iceConnectionState;
+    if (iceState === "connected" || iceState === "completed") {
+        const receiving = isPeerReceivingAudio(peer);
+        const sending = isPeerSendingAudio(peer);
+        return receiving && sending
+            ? "success"
+            : receiving || sending
+                ? "warning"
+                : "error";
     }
-    return count;
-});
 
-// Debug computed properties
-const reflectApiHandlersCount = computed(() => {
-    // Access the internal messageHandlers from reflectApi
-    // This is a workaround since it's not exposed in the API
-    return Object.keys(reflectApi).filter(
-        (key) => key.includes("handler") || key.includes("Handler"),
-    ).length;
-});
+    return iceState === "checking" ? "warning" : "error";
+}
 
-const reflectApiSyncGroup = computed(() => {
-    // Try to access sync group from reflect API
-    return (reflectApi as any).syncGroup || "default";
-});
+function getConnectionQualityIcon(_peerId: string, peer: PeerInfo): string {
+    if (peer.pc.connectionState !== "connected") return "mdi-wifi-off";
 
-// Initialize WebRTC
-async function initialize() {
-    if (!fullSessionId.value) {
-        console.warn("[WebRTC] Cannot initialize: no session ID");
+    const iceState = peer.pc.iceConnectionState;
+    if (iceState === "connected" || iceState === "completed") {
+        const receiving = isPeerReceivingAudio(peer);
+        const sending = isPeerSendingAudio(peer);
+
+        if (receiving && sending) return "mdi-wifi-strength-4";
+        if (receiving || sending) return "mdi-wifi-strength-2";
+        return "mdi-wifi-strength-1";
+    }
+
+    return iceState === "checking"
+        ? "mdi-wifi-strength-outline"
+        : "mdi-wifi-off";
+}
+
+function getConnectionQualityText(_peerId: string, peer: PeerInfo): string {
+    if (peer.pc.connectionState !== "connected") {
+        return `Disconnected: ${peer.pc.connectionState}`;
+    }
+
+    const iceState = peer.pc.iceConnectionState;
+    const audioStatus = [];
+
+    if (isPeerSendingAudio(peer)) audioStatus.push("sending audio");
+    if (isPeerReceivingAudio(peer)) audioStatus.push("receiving audio");
+
+    const audioText =
+        audioStatus.length > 0 ? ` (${audioStatus.join(", ")})` : " (no audio)";
+    return `ICE: ${iceState}${audioText}`;
+}
+
+// ============================================================================
+// Audio Analysis
+// ============================================================================
+
+function setupAudioAnalysisForPeer(peerId: string) {
+    try {
+        const ctx = spatialAudio.getAudioContext();
+        const nodeInfo = spatialAudio.getPeerNode(peerId);
+        if (!ctx || !nodeInfo) return;
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+        analyser.smoothingTimeConstant = 0.8;
+
+        // Tap the existing source so analysis shares the same AudioContext
+        nodeInfo.source.connect(analyser);
+
+        peerAudioAnalysis.value.set(peerId, {
+            analyser,
+            source: nodeInfo.source,
+            level: 0,
+        });
+
+        console.log(`[WebRTC] Audio analysis setup for peer ${peerId}`);
+    } catch (err) {
+        console.error(
+            `[WebRTC] Failed to setup audio analysis for peer ${peerId}:`,
+            err,
+        );
+    }
+}
+
+function updateAudioLevels() {
+    for (const [peerId, analysisData] of peerAudioAnalysis.value.entries()) {
+        const { analyser } = analysisData;
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+
+        analyser.getByteFrequencyData(dataArray);
+
+        let sum = 0;
+        for (let i = 0; i < bufferLength; i++) {
+            sum += (dataArray[i] / 255) ** 2;
+        }
+        const rms = Math.sqrt(sum / bufferLength);
+        const rmsLevel = Math.min(rms * 100 * 2, 100);
+
+        peerAudioLevels.value.set(peerId, rmsLevel);
+        analysisData.level = rmsLevel;
+    }
+    emit('update:peerAudioLevels', new Map(peerAudioLevels.value));
+}
+
+function stopAudioAnalysisForPeer(peerId: string) {
+    const analysisData = peerAudioAnalysis.value.get(peerId);
+    if (analysisData) {
+        analysisData.source.disconnect();
+        analysisData.analyser.disconnect();
+        peerAudioAnalysis.value.delete(peerId);
+        peerAudioLevels.value.delete(peerId);
+        console.log(`[WebRTC] Stopped audio analysis for peer ${peerId}`);
+    }
+}
+
+// ============================================================================
+// Reflect API Integration
+// ============================================================================
+
+async function announcePresence() {
+    if (!props.client || !props.fullSessionId) return;
+
+    const announcement: PeerAnnouncement = {
+        sessionId: props.fullSessionId,
+        timestamp: Date.now(),
+        status: "online",
+    };
+
+    try {
+        await props.client.client.connection.publishReflect({
+            syncGroup: SYNC_GROUP,
+            channel: ANNOUNCE_CHANNEL,
+            payload: announcement,
+            requestAcknowledgement: true,
+        });
+    } catch (err) {
+        console.error("[WebRTC Reflect] Failed to announce presence:", err);
+    }
+}
+
+function handleAnnouncement(
+    msg: Communication.WebSocket.ReflectDeliveryMessage,
+) {
+    try {
+        const announcement = msg.payload as PeerAnnouncement;
+
+        if (
+            !announcement.sessionId ||
+            announcement.sessionId === props.fullSessionId
+        ) {
+            return;
+        }
+
+        if (announcement.status === "offline") {
+            activePeers.value.delete(announcement.sessionId);
+            addMessageToHistory(announcement.sessionId, 'received', 'announcement', 'success', 'Peer went offline');
+            console.log(
+                "[WebRTC Reflect] Peer went offline:",
+                announcement.sessionId,
+            );
+        } else {
+            activePeers.value.set(announcement.sessionId, announcement);
+            addMessageToHistory(announcement.sessionId, 'received', 'announcement', 'success', 'Peer announced');
+            console.log(
+                "[WebRTC Reflect] Peer announced:",
+                announcement.sessionId,
+            );
+        }
+    } catch (err) {
+        console.error("[WebRTC Reflect] Failed to handle announcement:", err);
+    }
+}
+
+function handleSignalingMessage(
+    msg: Communication.WebSocket.ReflectDeliveryMessage,
+) {
+    const parsed = WebRTCReflectMessageSchema.safeParse(msg.payload);
+    if (!parsed.success) {
+        console.error(
+            "[WebRTC Reflect] Invalid signaling message:",
+            parsed.error,
+        );
+        return;
+    }
+    const message = parsed.data;
+
+    if (message.fromSession === props.fullSessionId) return;
+    if (message.toSession && message.toSession !== props.fullSessionId) return;
+
+    if (message.type === "session-end") {
+        addMessageToHistory(message.fromSession, 'received', 'session-end', 'success', 'Session end notification');
+        disconnectPeer(message.fromSession);
         return;
     }
 
-    try {
-        // Query permission as early as possible
-        await queryMicrophonePermission();
-        // Initialize spatial audio
-        spatialAudio.initialize();
+    if (message.type === "signaling") {
+        // Determine message type for tracking
+        let messageType: 'offer' | 'answer' | 'candidate' = 'candidate';
+        if (message.payload.description) {
+            messageType = message.payload.description.type as 'offer' | 'answer';
+        }
 
-        // Get user media
-        localStream.value = await navigator.mediaDevices.getUserMedia({
+        addMessageToHistory(message.fromSession, 'received', messageType, 'success',
+            message.payload.description ? `${message.payload.description.type} SDP` : 'ICE candidate');
+
+        handlePeerMessage(message.fromSession, message.payload);
+    }
+}
+
+function cleanupStalePeers() {
+    const now = Date.now();
+    const staleThreshold = now - PRESENCE_TIMEOUT;
+
+    for (const [sessionId, announcement] of activePeers.value.entries()) {
+        if (announcement.timestamp < staleThreshold) {
+            activePeers.value.delete(sessionId);
+            console.log("[WebRTC Reflect] Removed stale peer:", sessionId);
+        }
+    }
+}
+
+async function sendSignalingMessage(
+    toSession: string,
+    payload: SignalingMessage,
+) {
+    if (!props.client || !props.fullSessionId) {
+        console.error("[WebRTC Reflect] Cannot send message: not initialized");
+        return;
+    }
+
+    const message: WebRTCReflectMessage = {
+        type: "signaling",
+        fromSession: props.fullSessionId,
+        toSession,
+        payload,
+        timestamp: Date.now(),
+    };
+
+    // Determine message type for tracking
+    let messageType: 'offer' | 'answer' | 'candidate' | 'session-end' = 'candidate';
+    if (payload.description) {
+        messageType = payload.description.type as 'offer' | 'answer';
+    }
+
+    // Add to message history before sending
+    addMessageToHistory(toSession, 'sent', messageType, 'pending',
+        payload.description ? `${payload.description.type} SDP` : 'ICE candidate');
+
+    try {
+        await props.client.client.connection.publishReflect({
+            syncGroup: SYNC_GROUP,
+            channel: SIGNALING_CHANNEL,
+            payload: message,
+            requestAcknowledgement: true,
+        });
+
+        // Update status to success
+        const peer = peers.value.get(toSession);
+        if (peer && peer.messageHistory.length > 0) {
+            const lastMessage = peer.messageHistory[peer.messageHistory.length - 1];
+            if (lastMessage.direction === 'sent' && lastMessage.status === 'pending') {
+                lastMessage.status = 'success';
+            }
+        }
+    } catch (err) {
+        console.error(
+            "[WebRTC Reflect] Failed to send signaling message:",
+            err,
+        );
+
+        // Update status to error
+        const peer = peers.value.get(toSession);
+        if (peer && peer.messageHistory.length > 0) {
+            const lastMessage = peer.messageHistory[peer.messageHistory.length - 1];
+            if (lastMessage.direction === 'sent' && lastMessage.status === 'pending') {
+                lastMessage.status = 'error';
+                lastMessage.error = err instanceof Error ? err.message : 'Unknown error';
+            }
+        }
+    }
+}
+
+async function sendSessionEnd(toSession: string) {
+    if (!props.client || !props.fullSessionId) return;
+
+    const message: WebRTCReflectMessage = {
+        type: "session-end",
+        fromSession: props.fullSessionId,
+        toSession,
+        payload: {},
+        timestamp: Date.now(),
+    };
+
+    // Add to message history
+    addMessageToHistory(toSession, 'sent', 'session-end', 'pending', 'Session end notification');
+
+    try {
+        await props.client.client.connection.publishReflect({
+            syncGroup: SYNC_GROUP,
+            channel: SIGNALING_CHANNEL,
+            payload: message,
+            requestAcknowledgement: true,
+        })
+
+        // Update status to success
+        const peer = peers.value.get(toSession);
+        if (peer && peer.messageHistory.length > 0) {
+            const lastMessage = peer.messageHistory[peer.messageHistory.length - 1];
+            if (lastMessage.direction === 'sent' && lastMessage.status === 'pending') {
+                lastMessage.status = 'success';
+            }
+        }
+    } catch (err) {
+        console.error("[WebRTC Reflect] Failed to send session end:", err);
+
+        // Update status to error
+        const peer = peers.value.get(toSession);
+        if (peer && peer.messageHistory.length > 0) {
+            const lastMessage = peer.messageHistory[peer.messageHistory.length - 1];
+            if (lastMessage.direction === 'sent' && lastMessage.status === 'pending') {
+                lastMessage.status = 'error';
+                lastMessage.error = err instanceof Error ? err.message : 'Unknown error';
+            }
+        }
+    }
+}
+
+// ============================================================================
+// WebRTC Connection Management
+// ============================================================================
+
+async function initLocalMedia() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
             audio: {
                 echoCancellation: true,
                 noiseSuppression: true,
@@ -819,1421 +1840,580 @@ async function initialize() {
             video: false,
         });
 
-        console.log("[WebRTC] Got local media stream");
-        // If we successfully got media, permission is effectively granted
-        if (localStream.value) {
-            microphonePermission.value = "granted";
-            emitPermissionState();
-        }
+        localStream.value = stream;
+        console.log("[WebRTC] Local media initialized");
+        // Update parent with new local stream
+        emit('update:localAudioStream', localStream.value);
+        emit('update:localStreamActive', !!localStream.value);
 
-        // Initialize Reflect API
-        await reflectApi.initialize();
-
-        // Start automatic peer discovery and connection
-        startPeerDiscovery();
-    } catch (err) {
-        console.error("[WebRTC] Failed to initialize:", err);
-        // If getUserMedia failed, update permission state (could be denied)
-        if (
-            typeof (err as any)?.name === "string" &&
-            (err as any).name === "NotAllowedError"
-        ) {
-            microphonePermission.value = "denied";
-        }
-        emitPermissionState();
-    }
-}
-
-// Start automatic peer discovery
-function startPeerDiscovery() {
-    // Watch for discovered peers with immediate execution
-    watch(
-        () => reflectApi.discoveredPeers.value,
-        (discovered) => {
-            console.log(
-                "[WebRTC] Peer discovery update:",
-                discovered.length,
-                "peers discovered",
-            );
-
-            // Auto-connect to new peers
-            for (const peerId of discovered) {
-                if (
-                    !peers.value.has(peerId) &&
-                    !connectingPeers.value.has(peerId)
-                ) {
-                    console.log(
-                        `[WebRTC] Attempting to connect to discovered peer: ${peerId}`,
-                    );
-                    connectToPeer(peerId);
-                }
-            }
-
-            // Clean up disconnected peers - only remove if they're not announcing AND connection is failed/closed
-            for (const [peerId] of [...peers.value.keys()]) {
-                if (!discovered.includes(peerId)) {
-                    console.log(
-                        `[WebRTC] Peer ${peerId} is no longer announcing, checking connection state...`,
-                    );
-                    const peer = peers.value.get(peerId);
-                    if (
-                        peer &&
-                        (peer.pc.connectionState === "failed" ||
-                            peer.pc.connectionState === "closed")
-                    ) {
-                        console.log(
-                            `[WebRTC] Removing failed/closed peer: ${peerId}`,
-                        );
-                        disconnectFromPeer(peerId);
-                    } else if (peer) {
-                        console.log(
-                            `[WebRTC] Peer ${peerId} still has active connection (${peer.pc.connectionState}), keeping`,
-                        );
-                    }
-                }
-            }
-
-            // Clean up stale message handlers for peers that are truly gone
-            cleanupStaleMessageHandlers(discovered);
-        },
-        { immediate: true },
-    );
-}
-
-// Clean up message handlers for peers that are no longer announcing and not connected
-function cleanupStaleMessageHandlers(discoveredPeers: string[]) {
-    // Get all currently registered message handlers from our local tracking
-    for (const handlerPeerId of registeredMessageHandlers.value) {
-        // Skip if peer is currently connected
-        if (peers.value.has(handlerPeerId)) {
-            continue;
-        }
-
-        // Skip if peer is still announcing
-        if (discoveredPeers.includes(handlerPeerId)) {
-            continue;
-        }
-
-        // Skip if peer is currently connecting
-        if (connectingPeers.value.has(handlerPeerId)) {
-            continue;
-        }
-
-        // If we reach here, the peer is not connected, not announcing, and not connecting
-        // This means they're truly gone, so we can safely remove the message handler
-        console.log(
-            `[WebRTC] Cleaning up stale message handler for ${handlerPeerId}`,
-        );
-        reflectApi.unregisterMessageHandler(handlerPeerId);
-        registeredMessageHandlers.value.delete(handlerPeerId);
-    }
-}
-
-// Connect to a peer
-async function connectToPeer(remoteSessionId: string) {
-    if (!fullSessionId.value) {
-        return;
-    }
-
-    // If we already have a connection, don't create another one
-    if (peers.value.has(remoteSessionId)) {
-        console.log(
-            `[WebRTC] Already have connection to peer ${remoteSessionId}, skipping`,
-        );
-        return;
-    }
-
-    connectingPeers.value.add(remoteSessionId);
-
-    try {
-        console.log(`[WebRTC] Connecting to peer: ${remoteSessionId}`);
-
-        const pc = new RTCPeerConnection(rtcConfig);
-
-        // Create peer info
-        const peerInfo: PeerInfo = {
-            pc,
-            polite: fullSessionId.value < remoteSessionId,
-            localStream: localStream.value,
-            remoteStream: null,
-            dataChannel: null,
-            makingOffer: false,
-            ignoreOffer: false,
-            isSettingRemoteAnswerPending: false,
-        };
-
-        peers.value.set(remoteSessionId, peerInfo);
-
-        // Set up ICE candidate debugging
-        const iceDebugData = setupIceCandidateDebugging(remoteSessionId, pc);
-
-        // Log initial setup
-        console.log(
-            `[WebRTC ICE] ${remoteSessionId}: ICE debugging initialized`,
-            {
-                candidateCount: iceDebugData.candidateCount,
-                iceServers: rtcConfig.iceServers?.length || 0,
-            },
-        );
-
-        // Set up perfect negotiation BEFORE adding tracks
-        setupPerfectNegotiation(remoteSessionId, pc, peerInfo);
-
-        // Register message handler BEFORE adding tracks
-        reflectApi.registerMessageHandler(remoteSessionId, (msg) => {
-            handlePeerMessage(remoteSessionId, msg);
-        });
-        registeredMessageHandlers.value.add(remoteSessionId);
-
-        // Add local stream AFTER setting up negotiation and message handlers
-        // This ensures offers can be sent when onnegotiationneeded fires
-        if (localStream.value) {
-            for (const track of localStream.value.getTracks()) {
-                pc.addTrack(track, localStream.value);
-            }
-        }
-
-        console.log(
-            `[WebRTC] Connection setup completed for ${remoteSessionId}`,
-        );
-    } catch (err) {
-        console.error(
-            `[WebRTC] Failed to connect to peer ${remoteSessionId}:`,
-            err,
-        );
-        peers.value.delete(remoteSessionId);
-    } finally {
-        connectingPeers.value.delete(remoteSessionId);
-    }
-}
-
-// Set up perfect negotiation for a peer
-function setupPerfectNegotiation(
-    remoteSessionId: string,
-    pc: RTCPeerConnection,
-    peerInfo: PeerInfo,
-) {
-    // Handle negotiation needed - following perfect negotiation pattern
-    pc.onnegotiationneeded = async () => {
-        try {
-            console.log(
-                `[WebRTC] Negotiation needed for ${remoteSessionId}, current state:`,
-                {
-                    signalingState: pc.signalingState,
-                    iceState: pc.iceConnectionState,
-                    polite: peerInfo.polite,
-                    isInitialized: reflectApi.isInitialized.value,
-                    hasMessageHandler:
-                        registeredMessageHandlers.value.has(remoteSessionId),
-                },
-            );
-
-            // Set makingOffer immediately before setLocalDescription to prevent races
-            peerInfo.makingOffer = true;
-            await pc.setLocalDescription(); // Let WebRTC create the appropriate offer
-            peerInfo.makingOffer = false; // Reset immediately after setLocalDescription
-
-            console.log(
-                `[WebRTC] Created ${pc.localDescription?.type} for ${remoteSessionId}, sending...`,
-            );
-
-            // Send the offer through signaling
-            await reflectApi
-                .sendOffer(remoteSessionId, pc.localDescription!.sdp)
-                .catch((err: unknown) => {
-                    console.error(
-                        `[WebRTC] Failed to send offer to ${remoteSessionId}:`,
-                        err,
-                    );
-                });
-
-            console.log(`[WebRTC] Sent offer to ${remoteSessionId}`);
-        } catch (err) {
-            console.error("[WebRTC] Negotiation failed:", err);
-            peerInfo.makingOffer = false; // Ensure flag is reset on error
-        }
-    };
-
-    // Handle ICE candidates
-    pc.onicecandidate = ({ candidate }) => {
-        reflectApi.sendIceCandidate(remoteSessionId, candidate);
-    };
-
-    // Handle tracks
-    pc.ontrack = ({ streams }) => {
-        const [remoteStream] = streams;
-        peerInfo.remoteStream = remoteStream;
-
-        console.log(
-            `[WebRTC] Received remote stream from ${remoteSessionId}:`,
-            {
-                tracks: remoteStream
-                    .getTracks()
-                    .map((t) => `${t.kind}(${t.readyState})`),
-                id: remoteStream.id,
-            },
-        );
-
-        // Ensure audio context is resumed when we receive audio
-        ensureAudioContextResumed();
-
-        // Create spatial audio node
-        try {
-            handleSpatialNodeCreated(remoteSessionId, new Audio());
-        } catch (err) {
-            console.error(`[WebRTC] Failed to create spatial audio node:`, err);
-        }
-
-        // Notify audio state
-        props.onSetPeerAudioState?.(remoteSessionId, {
-            isReceiving: true,
-            isSending: true,
-        });
-    };
-
-    // Connection state monitoring - simplified for perfect negotiation
-    pc.onconnectionstatechange = () => {
-        console.log(
-            `[WebRTC] Peer ${remoteSessionId} connection state: ${pc.connectionState} (ICE: ${pc.iceConnectionState})`,
-        );
-
-        switch (pc.connectionState) {
-            case "connected":
-                // Clear any recovery attempts on successful connection
-                peerRecoveryAttempts.value.delete(remoteSessionId);
+        for (const [peerId, peerInfo] of peers.value) {
+            for (const track of stream.getTracks()) {
+                peerInfo.pc.addTrack(track, stream);
                 console.log(
-                    `[WebRTC] Peer ${remoteSessionId} successfully connected`,
+                    `[WebRTC] Added ${track.kind} track to existing peer ${peerId}`,
                 );
-                break;
-
-            case "failed":
-                console.log(
-                    `[WebRTC] Connection failed for ${remoteSessionId}`,
-                );
-                // With perfect negotiation, peer discovery will handle reconnection
-                // Clean disconnect to avoid complex recovery that can interfere
-                disconnectFromPeer(remoteSessionId);
-                break;
-
-            case "closed":
-                console.log(
-                    `[WebRTC] Peer ${remoteSessionId} connection closed`,
-                );
-                disconnectFromPeer(remoteSessionId);
-                break;
-        }
-    };
-
-    // ICE connection state monitoring - simplified for perfect negotiation
-    pc.oniceconnectionstatechange = () => {
-        console.log(
-            `[WebRTC] Peer ${remoteSessionId} ICE connection state: ${pc.iceConnectionState}`,
-        );
-
-        // For perfect negotiation, we rely on the connection state handler
-        // and avoid complex ICE restart logic that can interfere
-    };
-}
-
-// Handle incoming peer messages
-async function handlePeerMessage(
-    remoteSessionId: string,
-    msg: WebRTCReflectMessage,
-) {
-    console.log(`[WebRTC] Received message from ${remoteSessionId}:`, {
-        type: msg.type,
-        hasPeerInfo: peers.value.has(remoteSessionId),
-    });
-
-    let peerInfo = peers.value.get(remoteSessionId);
-
-    // If we don't have a peer connection but received a message, try to create one
-    if (!peerInfo) {
-        console.log(
-            `[WebRTC] Received ${msg.type} from ${remoteSessionId} but no active connection. Attempting to reconnect...`,
-        );
-
-        // Check if this peer is in discovered peers (they're announcing presence)
-        if (
-            reflectApi.discoveredPeers.value.includes(remoteSessionId) &&
-            !connectingPeers.value.has(remoteSessionId)
-        ) {
-            console.log(
-                `[WebRTC] Peer ${remoteSessionId} is discovered and announcing, creating new connection...`,
-            );
-            await connectToPeer(remoteSessionId);
-            peerInfo = peers.value.get(remoteSessionId);
-
-            if (!peerInfo) {
-                console.log(
-                    `[WebRTC] Failed to create connection for ${remoteSessionId}`,
-                );
-                return;
-            }
-        } else {
-            console.log(
-                `[WebRTC] Ignoring ${msg.type} from ${remoteSessionId} - peer not discovered or already connecting`,
-            );
-            return;
-        }
-    }
-
-    const pc = peerInfo.pc;
-
-    try {
-        switch (msg.type) {
-            case "offer": {
-                console.log(
-                    `[WebRTC] Received offer from ${remoteSessionId}, current state:`,
-                    {
-                        signalingState: pc.signalingState,
-                        iceState: pc.iceConnectionState,
-                        polite: peerInfo.polite,
-                    },
-                );
-
-                // Perfect negotiation collision detection
-                const readyForOffer =
-                    !peerInfo.makingOffer &&
-                    (pc.signalingState === "stable" ||
-                        peerInfo.isSettingRemoteAnswerPending);
-                const offerCollision = !!msg.payload.sdp && !readyForOffer;
-
-                peerInfo.ignoreOffer = !peerInfo.polite && offerCollision;
-                if (peerInfo.ignoreOffer) {
-                    console.log(
-                        `[WebRTC] Ignoring offer due to collision (impolite peer)`,
-                    );
-                    return;
-                }
-
-                // Set the remote description
-                await pc.setRemoteDescription({
-                    type: "offer",
-                    sdp: msg.payload.sdp as string,
-                });
-
-                // Create and send answer using simplified pattern
-                await pc.setLocalDescription(); // Let WebRTC create the answer
-                await reflectApi
-                    .sendAnswer(remoteSessionId, pc.localDescription!.sdp)
-                    .catch((err: unknown) => {
-                        console.error(
-                            `[WebRTC] Failed to send answer to ${remoteSessionId}:`,
-                            err,
-                        );
-                    });
-
-                console.log(`[WebRTC] Sent answer to ${remoteSessionId}`);
-                break;
-            }
-
-            case "answer": {
-                console.log(
-                    `[WebRTC] Received answer from ${remoteSessionId}, current state:`,
-                    {
-                        signalingState: pc.signalingState,
-                        iceState: pc.iceConnectionState,
-                        connectionState: pc.connectionState,
-                    },
-                );
-
-                // Mark that we're setting a remote answer to handle glare scenarios
-                peerInfo.isSettingRemoteAnswerPending = true;
-                await pc.setRemoteDescription({
-                    type: "answer",
-                    sdp: msg.payload.sdp as string,
-                });
-                peerInfo.isSettingRemoteAnswerPending = false;
-
-                console.log(
-                    `[WebRTC] Successfully set remote answer from ${remoteSessionId}`,
-                );
-                break;
-            }
-
-            case "ice-candidate": {
-                const candidateData = msg.payload.candidate as string | null;
-                if (candidateData) {
-                    try {
-                        const candidate = JSON.parse(candidateData);
-                        await pc.addIceCandidate(candidate);
-                    } catch (err) {
-                        // If we ignored an offer, we may get ICE candidates for it - that's expected
-                        if (!peerInfo.ignoreOffer) {
-                            console.error(
-                                `[WebRTC] Failed to add ICE candidate from ${remoteSessionId}:`,
-                                err,
-                            );
-                        }
-                    }
-                }
-                break;
-            }
-
-            case "session-end": {
-                disconnectFromPeer(remoteSessionId);
-                break;
             }
         }
     } catch (err) {
-        console.error(
-            `[WebRTC] Error handling message from ${remoteSessionId}:`,
-            err,
-        );
+        console.error("[WebRTC] Failed to get local media:", err);
     }
 }
 
-// Attempt to recover a peer connection
-async function attemptPeerRecovery(remoteSessionId: string) {
-    const peerInfo = peers.value.get(remoteSessionId);
-    if (!peerInfo) return;
-
-    console.log(`[WebRTC] Attempting recovery for peer: ${remoteSessionId}`);
-
-    try {
-        // Don't attempt recovery if we're already connecting
-        if (connectingPeers.value.has(remoteSessionId)) {
-            console.log(
-                `[WebRTC] Already connecting to ${remoteSessionId}, skipping recovery`,
-            );
-            return;
-        }
-
-        // Close existing connection
-        peerInfo.pc.close();
-
-        // Create new peer connection
-        const pc = new RTCPeerConnection(rtcConfig);
-
-        // Update peer info
-        peerInfo.pc = pc;
-        peerInfo.remoteStream = null;
-        peerInfo.makingOffer = false;
-        peerInfo.ignoreOffer = false;
-        peerInfo.isSettingRemoteAnswerPending = false;
-
-        // Set up ICE candidate debugging
-        const iceDebugDataRecovery = setupIceCandidateDebugging(
-            remoteSessionId,
-            pc,
-        );
-
-        // Log recovery setup
-        console.log(
-            `[WebRTC ICE] ${remoteSessionId}: ICE debugging initialized for recovery`,
-            {
-                candidateCount: iceDebugDataRecovery.candidateCount,
-                iceServers: rtcConfig.iceServers?.length || 0,
-            },
-        );
-
-        // Set up perfect negotiation BEFORE adding tracks
-        setupPerfectNegotiation(remoteSessionId, pc, peerInfo);
-
-        // Re-register message handler BEFORE adding tracks
-        reflectApi.registerMessageHandler(remoteSessionId, (msg) => {
-            handlePeerMessage(remoteSessionId, msg);
-        });
-
-        // Add local stream AFTER setting up negotiation and message handlers
-        if (localStream.value) {
-            for (const track of localStream.value.getTracks()) {
-                pc.addTrack(track, localStream.value);
-            }
-        }
-
-        console.log(
-            `[WebRTC] Recovery attempt completed for ${remoteSessionId}`,
-        );
-    } catch (err) {
-        console.error(
-            `[WebRTC] Failed to recover peer ${remoteSessionId}:`,
-            err,
-        );
-        disconnectFromPeer(remoteSessionId);
-    }
-}
-
-// REMOVED: setupNegotiationTimeout and attemptNegotiationRecovery
-// These functions are not needed with proper perfect negotiation pattern.
-// Perfect negotiation handles all cases without complex timeout/recovery logic.
-
-// Disconnect from a peer (final cleanup)
-function disconnectFromPeer(remoteSessionId: string) {
-    const peerInfo = peers.value.get(remoteSessionId);
-    if (!peerInfo) return;
-
-    console.log(`[WebRTC] Disconnecting from peer: ${remoteSessionId}`);
-
-    // Clear any pending recovery attempts
-    const timeout = peerRecoveryTimeouts.value.get(remoteSessionId);
-    if (timeout) {
-        clearTimeout(timeout);
-        peerRecoveryTimeouts.value.delete(remoteSessionId);
-    }
-    peerRecoveryAttempts.value.delete(remoteSessionId);
-
-    // Clear negotiation timeout
-    // Perfect negotiation handles cleanup automatically
-
-    // Send session end
-    reflectApi.sendSessionEnd(remoteSessionId).catch(() => { });
-
-    // Only unregister message handler if peer is not in discovered peers (truly gone)
-    // If they're still announcing, keep the handler so we can reconnect
-    if (!reflectApi.discoveredPeers.value.includes(remoteSessionId)) {
-        reflectApi.unregisterMessageHandler(remoteSessionId);
-        registeredMessageHandlers.value.delete(remoteSessionId);
-        console.log(
-            `[WebRTC] Unregistered message handler for ${remoteSessionId} (peer not announcing)`,
-        );
-    } else {
-        console.log(
-            `[WebRTC] Keeping message handler for ${remoteSessionId} (peer still announcing)`,
-        );
-    }
-
-    // Clean up spatial audio
-    handleSpatialNodeRemoved(remoteSessionId);
-
-    // Close peer connection
-    peerInfo.pc.close();
-
-    // Remove from peers
-    peers.value.delete(remoteSessionId);
-
-    // Notify audio state removal
-    props.onRemovePeerAudioState?.(remoteSessionId);
-}
-
-// Handle spatial audio node creation
-function handleSpatialNodeCreated(peerId: string, node: HTMLAudioElement) {
-    const peerInfo = peers.value.get(peerId);
-    if (!peerInfo?.remoteStream) return;
-
-    try {
-        const audioNode = spatialAudio.createPeerAudioNode(
-            peerId,
-            peerInfo.remoteStream,
-            peerVolumes.value.get(peerId) ?? 100,
-        );
-        spatialAudioNodes.value.set(peerId, audioNode);
-    } catch (err) {
-        console.error(
-            `[WebRTC] Failed to create spatial audio for ${peerId}:`,
-            err,
-        );
-    }
-}
-
-// Handle spatial audio node removal
-function handleSpatialNodeRemoved(peerId: string) {
-    spatialAudio.removePeerAudio(peerId);
-    spatialAudioNodes.value.delete(peerId);
-}
-
-// Update peer volume
-function updatePeerVolume(peerId: string, volume: number) {
-    peerVolumes.value.set(peerId, volume);
-    spatialAudio.setPeerVolume(peerId, volume);
-    props.onSetPeerAudioState?.(peerId, { volume });
-}
-
-// Check and recover failed audio connections
-function checkAndRecoverAudioConnections() {
-    for (const [peerId, peer] of peers.value) {
-        const senders = peer.pc.getSenders();
-        const receivers = peer.pc.getReceivers();
-
-        const hasAudioSender = senders.some(
-            (sender) => sender.track?.kind === "audio",
-        );
-        const hasAudioReceiver = receivers.some(
-            (receiver) => receiver.track?.kind === "audio",
-        );
-
-        // If we have a connected peer but no audio tracks, try to add them
-        if (
-            peer.pc.connectionState === "connected" &&
-            !hasAudioSender &&
-            localStream.value
-        ) {
-            console.log(`[WebRTC] Recovering audio sender for peer ${peerId}`);
-            try {
-                for (const track of localStream.value.getAudioTracks()) {
-                    peer.pc.addTrack(track, localStream.value);
-                }
-            } catch (err) {
-                console.error(
-                    `[WebRTC] Failed to recover audio sender for ${peerId}:`,
-                    err,
-                );
-            }
-        }
-
-        // If we have a connected peer but no audio receivers, the remote peer should be sending
-        // This is expected if we're not receiving audio from them
-        if (peer.pc.connectionState === "connected" && !hasAudioReceiver) {
-            console.log(
-                `[WebRTC] Peer ${peerId} has no audio receiver - they might not be sending audio`,
-            );
-        }
-    }
-}
-
-// Toggle mute
-function toggleMute() {
-    isMuted.value = !isMuted.value;
-
-    if (localStream.value) {
-        for (const track of localStream.value.getAudioTracks()) {
-            track.enabled = !isMuted.value;
-        }
-    }
-}
-
-// Update mic volume
-function updateMicVolume(volume: number) {
-    micVolume.value = volume;
-    // You could implement actual volume control here with Web Audio API
-}
-
-// Refresh connections
-async function refreshConnections() {
-    isRefreshing.value = true;
-    try {
-        console.log("[WebRTC] Starting connection refresh...");
-
-        // Disconnect all peers
-        for (const [peerId] of [...peers.value]) {
-            disconnectFromPeer(peerId);
-        }
-
-        // Clean up reflect API state to ensure fresh start
-        reflectApi.cleanup();
-
-        // Wait a bit for cleanup to complete
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-
-        // Reinitialize reflect API
-        await reflectApi.initialize();
-
-        // Wait another moment before announcing presence
-        await new Promise((resolve) => setTimeout(resolve, 500));
-
-        // Force re-announce
-        await reflectApi.announcePresence();
-
-        console.log("[WebRTC] Connection refresh completed");
-    } catch (err) {
-        console.error("[WebRTC] Failed to refresh connections:", err);
-    } finally {
-        isRefreshing.value = false;
-    }
-}
-
-// Debug a peer
-function debugPeer(peerId: string) {
-    const peer = peers.value.get(peerId);
-    if (!peer) return;
-
-    console.log(`[WebRTC] Debug info for ${peerId}:`, {
-        connectionState: peer.pc.connectionState,
-        iceConnectionState: peer.pc.iceConnectionState,
-        signalingState: peer.pc.signalingState,
-        polite: peer.polite,
-        hasRemoteStream: !!peer.remoteStream,
-        hasLocalStream: !!peer.localStream,
-    });
-}
-
-// Lifecycle
-onMounted(() => {
-    // Set up user interaction handlers for audio context resume
-    setupUserInteractionHandlers();
-    setupAudioContextStateMonitoring();
-
-    if (fullSessionId.value) {
-        initialize();
-    }
-    // initial permission ping
-    queryMicrophonePermission();
-});
-
-onUnmounted(() => {
-    // Clear all recovery timeouts
-    for (const timeout of peerRecoveryTimeouts.value.values()) {
-        clearTimeout(timeout);
-    }
-    peerRecoveryTimeouts.value.clear();
-    peerRecoveryAttempts.value.clear();
-
-    // Clear all negotiation timeouts
-    // Perfect negotiation doesn't use timeouts
-
-    // Disconnect all peers
-    for (const [peerId] of peers.value) {
-        disconnectFromPeer(peerId);
-    }
-
-    // Clean up any remaining message handlers
-    for (const peerId of registeredMessageHandlers.value) {
-        reflectApi.unregisterMessageHandler(peerId);
-    }
-    registeredMessageHandlers.value.clear();
-
-    // Cleanup
-    reflectApi.cleanup();
-    spatialAudio.cleanup();
-
-    // Stop local stream
+function stopLocalMedia() {
     if (localStream.value) {
         for (const track of localStream.value.getTracks()) {
             track.stop();
         }
         localStream.value = null;
+        console.log("[WebRTC] Local media stopped");
+    }
+    // Inform parent
+    emit('update:localAudioStream', localStream.value);
+    emit('update:localStreamActive', !!localStream.value);
+}
+
+function setupPerfectNegotiation(peerId: string, peerInfo: PeerInfo) {
+    const { pc } = peerInfo;
+
+    pc.addEventListener("negotiationneeded", async () => {
+        try {
+            if (pc.signalingState !== "stable") {
+                console.log(
+                    `[WebRTC] negotiationneeded ignored; state=${pc.signalingState}`,
+                );
+                return;
+            }
+
+            peerInfo.makingOffer = true;
+            await pc.setLocalDescription();
+            if (pc.localDescription) {
+                // create correlationId for this offer
+                const correlationId = crypto.randomUUID();
+                peerInfo.pendingOfferId = correlationId;
+                // start watchdog to re-send same offer if stuck
+                if (peerInfo.offerWatchdog) clearTimeout(peerInfo.offerWatchdog);
+                peerInfo.offerWatchdogId = correlationId;
+                peerInfo.offerWatchdog = setTimeout(async () => {
+                    try {
+                        if (
+                            pc.signalingState === 'have-local-offer' &&
+                            peerInfo.pendingOfferId === correlationId
+                        ) {
+                            console.warn('[WebRTC] Offer watchdog triggered; re-sending offer');
+                            // Re-send the same offer description with same correlationId
+                            const offerDesc = pc.localDescription;
+                            if (offerDesc) {
+                                await sendSignalingMessage(peerId, {
+                                    description: offerDesc,
+                                    correlationId,
+                                });
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('[WebRTC] Offer watchdog resend failed:', e);
+                    }
+                }, 5000);
+                await sendSignalingMessage(peerId, {
+                    description: pc.localDescription,
+                    correlationId,
+                });
+            }
+            console.log(
+                `[WebRTC] Sent ${pc.localDescription?.type ?? "unknown"} to ${peerId}`,
+            );
+        } catch (err) {
+            console.error("[WebRTC] Negotiation failed:", err);
+        } finally {
+            peerInfo.makingOffer = false;
+        }
+    });
+
+    pc.addEventListener("icecandidate", ({ candidate }) => {
+        if (candidate) {
+            sendSignalingMessage(peerId, { candidate });
+        }
+    });
+
+    pc.addEventListener("track", (event) => {
+        const [remoteStream] = event.streams;
+        peerInfo.remoteStream = remoteStream;
+        console.log(
+            `[WebRTC] Received ${event.track.kind} track from ${peerId}`,
+        );
+
+        if (event.track.kind === "audio") {
+            if (!spatialAudio.isInitialized.value) {
+                spatialAudio.initialize();
+            }
+
+            spatialAudio.resumeContext().then((resumed) => {
+                if (resumed) {
+                    console.log(
+                        "[WebRTC] Audio context resumed for spatial audio",
+                    );
+                }
+            });
+
+            try {
+                const initialVolume = peerVolumes.value.get(peerId) ?? 100;
+                spatialAudio.createPeerAudioNode(
+                    peerId,
+                    remoteStream,
+                    initialVolume,
+                );
+                console.log(
+                    `[WebRTC] Created spatial audio for peer ${peerId}`,
+                );
+
+                // Setup audio analysis using shared AudioContext
+                setupAudioAnalysisForPeer(peerId);
+
+                // Notify bus subscribers for downlink tapping
+                notifyRemoteAudio(peerId, remoteStream);
+                // Emit updated remote streams map to parent
+                emit('update:remoteStreamsMap', new Map(Array.from(peers.value.entries())
+                    .filter(([, info]) => !!info.remoteStream)
+                    .map(([id, info]) => [id, info.remoteStream as MediaStream])));
+                // Reflect discovered peers and local/active state for v-models
+                emit('update:discoveredPeers', Array.from(activePeers.value.keys()));
+                emit('update:localStreamActive', !!localStream.value);
+            } catch (err) {
+                console.error(
+                    `[WebRTC] Failed to create spatial audio for peer ${peerId}:`,
+                    err,
+                );
+            }
+        }
+    });
+
+    pc.addEventListener("connectionstatechange", () => {
+        console.log(
+            `[WebRTC] ${peerId} connection state: ${pc.connectionState}`,
+        );
+
+        if (pc.connectionState === "failed") {
+            console.warn(
+                `[WebRTC] Connection failed for ${peerId}, restarting ICE`,
+            );
+            pc.restartIce();
+        } else if (pc.connectionState === "closed") {
+            disconnectPeer(peerId);
+        }
+    });
+
+    pc.addEventListener("iceconnectionstatechange", () => {
+        console.log(`[WebRTC] ${peerId} ICE state: ${pc.iceConnectionState}`);
+    });
+
+    pc.addEventListener('signalingstatechange', () => {
+        // When stable, clear pending state and any watchdog timer
+        if (pc.signalingState === 'stable') {
+            peerInfo.pendingOfferId = null;
+            if (peerInfo.offerWatchdog) {
+                clearTimeout(peerInfo.offerWatchdog);
+                peerInfo.offerWatchdog = null;
+                peerInfo.offerWatchdogId = null;
+            }
+        }
+    });
+}
+
+async function processBufferedCandidates(peerInfo: PeerInfo, peerId: string) {
+    if (peerInfo.iceCandidateBuffer.length === 0) return;
+
+    console.log(
+        `[WebRTC] Processing ${peerInfo.iceCandidateBuffer.length} buffered candidates for ${peerId}`,
+    );
+
+    for (const candidate of peerInfo.iceCandidateBuffer) {
+        try {
+            await peerInfo.pc.addIceCandidate(candidate);
+        } catch (err) {
+            console.error("[WebRTC] Failed to add buffered candidate:", err);
+        }
+    }
+
+    peerInfo.iceCandidateBuffer = [];
+}
+
+async function handlePeerMessage(
+    peerId: string,
+    signalingMessage: SignalingMessage,
+) {
+    const parsed = SignalingMessageSchema.safeParse(signalingMessage);
+    if (!parsed.success) {
+        console.error("[WebRTC] Invalid peer message:", parsed.error);
+        addMessageToHistory(peerId, 'received', 'candidate', 'error', 'Invalid message format', parsed.error.message);
+        return;
+    }
+    const validatedMessage = parsed.data;
+
+    let peerInfo = peers.value.get(peerId);
+
+    if (validatedMessage.candidate) {
+        if (!peerInfo) {
+            console.warn(`[WebRTC] ICE candidate for unknown peer: ${peerId}`);
+            addMessageToHistory(peerId, 'received', 'candidate', 'warning', 'ICE candidate for unknown peer');
+            return;
+        }
+
+        try {
+            if (peerInfo.pc.remoteDescription) {
+                await peerInfo.pc.addIceCandidate(validatedMessage.candidate);
+                addMessageToHistory(peerId, 'received', 'candidate', 'success', 'ICE candidate processed');
+            } else {
+                peerInfo.iceCandidateBuffer.push(validatedMessage.candidate);
+                addMessageToHistory(peerId, 'received', 'candidate', 'warning',
+                    `ICE candidate buffered (${peerInfo.iceCandidateBuffer.length} total)`);
+                console.log(
+                    `[WebRTC] Buffered ICE candidate from ${peerId} (${peerInfo.iceCandidateBuffer.length} total)`,
+                );
+            }
+        } catch (err) {
+            console.error("[WebRTC] Failed to handle ICE candidate:", err);
+            addMessageToHistory(peerId, 'received', 'candidate', 'error', 'Failed to process ICE candidate',
+                err instanceof Error ? err.message : 'Unknown error');
+        }
+        return;
+    }
+
+    if (validatedMessage.description) {
+        if (!peerInfo) {
+            const mySession = props.fullSessionId ?? "";
+            const polite = peerId > mySession;
+            peerInfo = await createPeerConnection(peerId, polite);
+        }
+
+        const { pc } = peerInfo;
+        const description = validatedMessage.description;
+        const incomingCorrelationId = signalingMessage.correlationId;
+
+        const readyForOffer =
+            !peerInfo.makingOffer &&
+            (pc.signalingState === "stable" ||
+                peerInfo.isSettingRemoteAnswerPending);
+
+        const offerCollision = description.type === "offer" && !readyForOffer;
+
+        peerInfo.ignoreOffer = !peerInfo.polite && offerCollision;
+
+        if (peerInfo.ignoreOffer) {
+            console.log(
+                `[WebRTC] Ignored offer collision from ${peerId} (impolite)`,
+            );
+            addMessageToHistory(peerId, 'received', description.type as 'offer' | 'answer', 'warning',
+                'Offer collision ignored (impolite)');
+            return;
+        }
+
+        // If polite and there is an offer collision, perform rollback then apply
+        if (peerInfo.polite && offerCollision) {
+            try {
+                console.log('[WebRTC] Polite peer rolling back due to glare');
+                await pc.setLocalDescription({ type: 'rollback' });
+            } catch (err) {
+                console.warn('[WebRTC] Rollback failed:', err);
+            }
+        }
+
+        peerInfo.isSettingRemoteAnswerPending = description.type === "answer";
+
+        // If this is an answer, ensure it matches our pending offer (if any) BEFORE applying
+        if (description.type === 'answer') {
+            if (
+                peerInfo.pendingOfferId &&
+                incomingCorrelationId &&
+                incomingCorrelationId !== peerInfo.pendingOfferId
+            ) {
+                console.warn('[WebRTC] Stale/mismatched answer ignored');
+                peerInfo.isSettingRemoteAnswerPending = false;
+                return;
+            }
+        }
+
+        try {
+            await pc.setRemoteDescription(description);
+            console.log(
+                `[WebRTC] Set remote ${description.type} from ${peerId}`,
+            );
+            addMessageToHistory(peerId, 'received', description.type as 'offer' | 'answer', 'success',
+                `Remote ${description.type} processed`);
+
+            await processBufferedCandidates(peerInfo, peerId);
+        } catch (err) {
+            console.error("[WebRTC] Failed to set remote description:", err);
+            addMessageToHistory(peerId, 'received', description.type as 'offer' | 'answer', 'error',
+                'Failed to set remote description', err instanceof Error ? err.message : 'Unknown error');
+            peerInfo.isSettingRemoteAnswerPending = false;
+            return;
+        }
+
+        peerInfo.isSettingRemoteAnswerPending = false;
+
+        if (description.type === "offer") {
+            try {
+                await pc.setLocalDescription();
+
+                if (pc.localDescription) {
+                    // Answer must reference the incoming offer's correlationId (if present)
+                    await sendSignalingMessage(peerId, {
+                        description: pc.localDescription,
+                        correlationId: incomingCorrelationId,
+                    });
+                }
+
+                console.log(`[WebRTC] Sent answer to ${peerId}`);
+            } catch (err) {
+                console.error("[WebRTC] Failed to create answer:", err);
+                addMessageToHistory(peerId, 'sent', 'answer', 'error', 'Failed to create answer',
+                    err instanceof Error ? err.message : 'Unknown error');
+            }
+        }
+
+        // Clear pending offer on successful matching answer application
+        if (description.type === 'answer') {
+            peerInfo.pendingOfferId = null;
+        }
+    }
+}
+
+async function createPeerConnection(
+    peerId: string,
+    polite: boolean,
+): Promise<PeerInfo> {
+    console.log(
+        `[WebRTC] Creating connection for ${peerId} (polite: ${polite})`,
+    );
+
+    const pc = new RTCPeerConnection(rtcConfig);
+
+    const peerInfo: PeerInfo = {
+        pc,
+        polite,
+        makingOffer: false,
+        ignoreOffer: false,
+        isSettingRemoteAnswerPending: false,
+        iceCandidateBuffer: [],
+        createdAt: Date.now(),
+        messageHistory: [],
+    };
+
+    peers.value.set(peerId, peerInfo);
+    // Emit updated peers map to parent
+    emit('update:peersMap', new Map(Array.from(peers.value.entries()).map(([id, info]) => [id, info.pc])));
+
+    if (localStream.value) {
+        for (const track of localStream.value.getTracks()) {
+            pc.addTrack(track, localStream.value);
+        }
+    } else if (props.headlessUplink) {
+        try {
+            await ensureUplinkContext();
+            if (uplinkDestination) {
+                const destTrack = uplinkDestination.stream.getAudioTracks()[0] || null;
+                if (destTrack) {
+                    pc.addTrack(destTrack, uplinkDestination.stream);
+                    uplinkUsingDestination = true;
+                    emit('update:uplinkUsingDestination', true);
+                    console.log('[WebRTC] Attached headless uplink destination track');
+                }
+            }
+        } catch (e) {
+            console.warn('[WebRTC] Failed to attach headless uplink destination track:', e);
+        }
+    }
+
+    setupPerfectNegotiation(peerId, peerInfo);
+
+    return peerInfo;
+}
+
+async function disconnectPeer(peerId: string) {
+    const peerInfo = peers.value.get(peerId);
+    if (!peerInfo) return;
+
+    console.log(`[WebRTC] Disconnecting peer ${peerId}`);
+
+    await sendSessionEnd(peerId);
+    peerInfo.pc.close();
+    spatialAudio.removePeerAudio(peerId);
+    stopAudioAnalysisForPeer(peerId);
+    peers.value.delete(peerId);
+    peerVolumes.value.delete(peerId);
+    // Emit updates for peers and remote streams
+    emit('update:peersMap', new Map(Array.from(peers.value.entries()).map(([id, info]) => [id, info.pc])));
+    emit('update:remoteStreamsMap', new Map(Array.from(peers.value.entries())
+        .filter(([, info]) => !!info.remoteStream)
+        .map(([id, info]) => [id, info.remoteStream as MediaStream])));
+    emit('update:discoveredPeers', Array.from(activePeers.value.keys()));
+}
+
+function setPeerVolume(peerId: string, volume: number) {
+    peerVolumes.value.set(peerId, volume);
+    spatialAudio.setPeerVolume(peerId, volume / 100);
+}
+
+// Typed handler for slider event to satisfy linter
+function onPeerVolumeUpdate(peerId: string, value: number) {
+    setPeerVolume(peerId, value);
+}
+
+// ============================================================================
+// Lifecycle and Watchers
+// ============================================================================
+
+watch(discoveredPeers, (newPeers) => {
+    emit('update:discoveredPeers', newPeers);
+    for (const peerId of newPeers) {
+        if (peerId === props.fullSessionId) continue;
+        if (peers.value.has(peerId)) continue;
+
+        const mySession = props.fullSessionId ?? "";
+        const polite = peerId > mySession;
+        createPeerConnection(peerId, polite);
+    }
+
+    for (const peerId of peers.value.keys()) {
+        if (!newPeers.includes(peerId)) {
+            disconnectPeer(peerId);
+        }
     }
 });
 
-// Debug functions
-function toggleDebugMode() {
-    debugMode.value = !debugMode.value;
-    if (debugMode.value) {
-        console.log("[WebRTC Debug] Debug mode enabled");
-        checkNetworkStatus();
+watch(audioEnabled, (enabled) => {
+    if (localStream.value) {
+        for (const track of localStream.value.getAudioTracks()) {
+            track.enabled = enabled;
+        }
+    }
+    emit('update:audioEnabled', enabled);
+});
+
+onMounted(async () => {
+    if (!props.client || !props.fullSessionId) {
+        console.error("[WebRTC] Cannot initialize: missing client or session");
+        return;
+    }
+
+    if (props.headlessUplink) {
+        try {
+            await ensureUplinkContext();
+            emit('update:localAudioStream', null);
+            emit('update:localStreamActive', false);
+        } catch (err) {
+            console.warn('[WebRTC] Failed to initialize headless uplink context:', err);
+        }
     } else {
-        console.log("[WebRTC Debug] Debug mode disabled");
-    }
-}
-
-async function runDebugTests() {
-    if (!debugMode.value) return;
-
-    isRunningDebugTests.value = true;
-    const results: string[] = [];
-    const timestamp = Date.now();
-
-    try {
-        // Test 1: Reflect API status
-        results.push(
-            `Reflect API Initialized: ${reflectApi.isInitialized.value}`,
-        );
-        results.push(
-            `Active Peers (internal): ${reflectApi.activePeers.value.size}`,
-        );
-        results.push(
-            `Discovered Peers: ${reflectApi.discoveredPeers.value.length}`,
-        );
-        results.push(`Connected Peers: ${peers.value.size}`);
-        results.push(
-            `Bidirectional Audio Peers: ${bidirectionalAudioPeers.value}`,
-        );
-        results.push(`Sync Group: ${reflectApiSyncGroup.value}`);
-        results.push(`Session ID: ${fullSessionId.value || "None"}`);
-        results.push(
-            `Local Stream: ${localStream.value ? "Active" : "Inactive"}`,
-        );
-
-        // Detailed peer audio status
-        results.push("--- Peer Audio Status ---");
-        for (const [peerId, peer] of peers.value) {
-            const senders = peer.pc.getSenders();
-            const receivers = peer.pc.getReceivers();
-
-            const isSending = senders.some(
-                (sender) =>
-                    sender.track?.kind === "audio" &&
-                    sender.track.readyState === "live" &&
-                    sender.track.enabled,
-            );
-
-            const isReceiving = receivers.some(
-                (receiver) =>
-                    receiver.track?.kind === "audio" &&
-                    receiver.track.readyState === "live",
-            );
-
-            const status =
-                isSending && isReceiving
-                    ? "✅ Bidirectional"
-                    : isSending
-                        ? "⬆️ Send only"
-                        : isReceiving
-                            ? "⬇️ Receive only"
-                            : "❌ No audio";
-
-            results.push(
-                `  ${peerId.substring(0, 8)}...: ${peer.pc.connectionState} (${status})`,
-            );
-        }
-
-        // Test 2: Network connectivity
-        results.push(`Network Status: ${networkStatus.value}`);
-
-        // Test 3: Message handlers
-        results.push(`Message Handlers: ${reflectApiHandlersCount.value}`);
-
-        // Test 4: Try to announce presence
-        if (isReady.value) {
-            await reflectApi.announcePresence();
-            results.push("Manual presence announcement: Sent");
-        } else {
-            results.push("Manual presence announcement: Skipped (not ready)");
-        }
-
-        // Test 5: Check for stale peers
-        const now = Date.now();
-        const staleCount = Array.from(
-            reflectApi.activePeers.value.values(),
-        ).filter((announcement) => now - announcement.timestamp > 15000).length;
-        results.push(`Stale Peers (>15s): ${staleCount}`);
-
-        debugTestResults.value = results.join("\n");
-        debugTestTimestamp.value = timestamp;
-
-        console.log("[WebRTC Debug] Test results:", results);
-    } catch (err) {
-        console.error("[WebRTC Debug] Test failed:", err);
-        debugTestResults.value = `Test failed: ${err}`;
-        debugTestTimestamp.value = timestamp;
-    } finally {
-        isRunningDebugTests.value = false;
-    }
-}
-
-async function manualAnnouncePresence() {
-    if (!isReady.value) return;
-
-    try {
-        await reflectApi.announcePresence();
-        console.log("[WebRTC Debug] Manual presence announcement sent");
-        // Run a quick test to see if it worked
-        setTimeout(runDebugTests, 1000);
-    } catch (err) {
-        console.error("[WebRTC Debug] Failed to announce presence:", err);
-    }
-}
-
-async function forceRefreshPeers() {
-    if (!debugMode.value) return;
-
-    isForceRefreshing.value = true;
-    try {
-        console.log("[WebRTC Debug] Starting force refresh...");
-
-        // Disconnect all peers
-        for (const [peerId] of [...peers.value]) {
-            disconnectFromPeer(peerId);
-        }
-
-        // Clean up reflect API
-        reflectApi.cleanup();
-
-        // Wait for cleanup
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-
-        // Reinitialize
-        await initialize();
-
-        console.log("[WebRTC Debug] Force refresh completed");
-    } catch (err) {
-        console.error("[WebRTC Debug] Force refresh failed:", err);
-    } finally {
-        isForceRefreshing.value = false;
-    }
-}
-
-async function forceReconnectToPeer(peerId: string) {
-    if (!debugMode.value) return;
-
-    console.log(`[WebRTC Debug] Forcing reconnection to peer: ${peerId}`);
-
-    // Disconnect if already connected
-    if (peers.value.has(peerId)) {
-        disconnectFromPeer(peerId);
+        await initLocalMedia();
     }
 
-    // Wait a moment
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    spatialAudio.initialize();
+    console.log("[WebRTC] Spatial audio initialized");
 
-    // Try to reconnect
-    if (!peers.value.has(peerId) && !connectingPeers.value.has(peerId)) {
-        connectToPeer(peerId);
-    }
-}
-
-async function forceReconnectToSelectedPeer() {
-    if (!debugMode.value || !debugTestPeerId.value) return;
-
-    await forceReconnectToPeer(debugTestPeerId.value);
-}
-
-async function fixStuckConnections() {
-    if (!debugMode.value) return;
-
-    console.log("[WebRTC Debug] Checking for stuck connections...");
-
-    for (const [peerId, peer] of peers.value) {
-        const pc = peer.pc;
-        const stuckStates = ["have-local-offer", "have-remote-offer"];
-
-        if (stuckStates.includes(pc.signalingState)) {
-            console.log(
-                `[WebRTC Debug] Found stuck connection: ${peerId} (${pc.signalingState})`,
-            );
-            console.log(`  ICE State: ${pc.iceConnectionState}`);
-            console.log(`  Connection State: ${pc.connectionState}`);
-
-            // Try to recover the stuck connection
-            if (pc.signalingState === "have-local-offer") {
-                console.log(
-                    `[WebRTC Debug] Attempting recovery for stuck offer...`,
-                );
-                try {
-                    pc.restartIce();
-                } catch (err) {
-                    console.error(`[WebRTC Debug] ICE restart failed:`, err);
-                }
-            }
-
-            // If we're polite and stable, create new offer
-            if (peer.polite && pc.signalingState === "stable") {
-                console.log(
-                    `[WebRTC Debug] Creating new offer as polite peer...`,
-                );
-                try {
-                    const offer = await pc.createOffer();
-                    await pc.setLocalDescription(offer);
-                    await reflectApi.sendOffer(peerId, offer.sdp!);
-                } catch (err) {
-                    console.error(
-                        `[WebRTC Debug] Failed to create new offer:`,
-                        err,
-                    );
-                }
-            }
-        }
-    }
-}
-
-async function checkNegotiationState() {
-    if (!debugMode.value) return;
-
-    console.log("[WebRTC Debug] Checking negotiation state for all peers...");
-
-    for (const [peerId, peer] of peers.value) {
-        const pc = peer.pc;
-        console.log(`[WebRTC Debug] Peer ${peerId}:`, {
-            signalingState: pc.signalingState,
-            iceState: pc.iceConnectionState,
-            connectionState: pc.connectionState,
-            polite: peer.polite,
-            makingOffer: peer.makingOffer,
-            ignoreOffer: peer.ignoreOffer,
-        });
-
-        // Count ICE candidates
-        const senders = pc.getSenders();
-        const receivers = pc.getReceivers();
-        console.log(
-            `  Senders: ${senders.length}, Receivers: ${receivers.length}`,
-        );
-        console.log(`  Local tracks: ${senders.filter((s) => s.track).length}`);
-        console.log(
-            `  Remote tracks: ${receivers.filter((r) => r.track).length}`,
-        );
-
-        // Check ICE gathering state and candidate count
-        if (pc.iceGatheringState !== "complete") {
-            console.log(
-                `  ICE gathering state: ${pc.iceGatheringState} (not complete yet)`,
-            );
-        } else {
-            console.log(`  ICE gathering complete`);
-        }
-    }
-}
-
-// Check for ICE candidate issues
-async function checkIceCandidateIssues() {
-    if (!debugMode.value) return;
-
-    console.log("[WebRTC Debug] Checking for ICE candidate issues...");
-
-    let peersWithNoCandidates = 0;
-    let peersWithFewCandidates = 0;
-    let peersWithManyCandidates = 0;
-
-    for (const [peerId, peer] of peers.value) {
-        const pc = peer.pc;
-        console.log(`[WebRTC Debug] Peer ${peerId} ICE candidate analysis:`);
-
-        // We don't have direct access to candidate count here, but we can check ICE gathering state
-        if (pc.iceGatheringState === "new") {
-            console.log(`  ICE gathering hasn't started yet`);
-            peersWithNoCandidates++;
-        } else if (pc.iceGatheringState === "gathering") {
-            console.log(`  ICE gathering in progress`);
-        } else if (pc.iceGatheringState === "complete") {
-            console.log(`  ICE gathering complete`);
-            if (pc.iceConnectionState === "checking") {
-                console.log(
-                    `  ICE connection state: checking (this is normal)`,
-                );
-            } else if (pc.iceConnectionState === "connected") {
-                console.log(`  ICE connection state: connected (good!)`);
-                peersWithManyCandidates++;
-            } else if (pc.iceConnectionState === "failed") {
-                console.log(`  ICE connection state: failed (bad!)`);
-                peersWithFewCandidates++;
-            } else {
-                console.log(`  ICE connection state: ${pc.iceConnectionState}`);
-            }
-        }
-
-        // Check if we have any candidates by looking at ICE connection state
-        if (
-            pc.iceConnectionState === "new" ||
-            pc.iceConnectionState === "checking"
-        ) {
-            console.log(`  This peer is still establishing ICE connectivity`);
-        }
-
-        console.log("");
-    }
-
-    console.log(`[WebRTC Debug] ICE candidate summary:`);
-    console.log(
-        `  Peers that haven't started gathering: ${peersWithNoCandidates}`,
+    unsubscribeAnnounce = props.client.client.connection.subscribeReflect(
+        SYNC_GROUP,
+        ANNOUNCE_CHANNEL,
+        handleAnnouncement,
     );
-    console.log(`  Peers with potential issues: ${peersWithFewCandidates}`);
-    console.log(`  Peers with good connectivity: ${peersWithManyCandidates}`);
 
-    if (peersWithNoCandidates > 0) {
-        console.warn(
-            `[WebRTC Debug] ${peersWithNoCandidates} peer(s) haven't started ICE candidate gathering yet. This might indicate a timing issue.`,
-        );
-    }
+    unsubscribeSignaling = props.client.client.connection.subscribeReflect(
+        SYNC_GROUP,
+        SIGNALING_CHANNEL,
+        handleSignalingMessage,
+    );
 
-    if (peersWithFewCandidates > 0) {
-        console.warn(
-            `[WebRTC Debug] ${peersWithFewCandidates} peer(s) have ICE connectivity issues. This might indicate network problems.`,
-        );
-    }
-}
+    announcePresence();
+    announceInterval = setInterval(announcePresence, ANNOUNCE_INTERVAL);
+    cleanupInterval = setInterval(cleanupStalePeers, PRESENCE_TIMEOUT / 2);
+    audioAnalysisInterval = setInterval(updateAudioLevels, 100);
+    timeUpdateInterval = setInterval(() => {
+        currentTime.value = Date.now();
+    }, 1000);
 
-async function testReflectConnectivity() {
-    if (!debugMode.value || !fullSessionId.value) return;
+    isInitialized.value = true;
+    emit('update:isInitialized', true);
 
-    isTestingConnectivity.value = true;
-    const results: string[] = [];
+    console.log("[WebRTC Reflect] Initialized", {
+        syncGroup: SYNC_GROUP,
+        session: props.fullSessionId,
+    });
 
-    try {
-        // Test 1: Send a test announcement
-        const testAnnouncement = {
-            sessionId: fullSessionId.value,
+    // Emit v-model mirrors for parent convenience
+    emit('update:isInitialized', true);
+    emit('update:audioEnabled', audioEnabled.value);
+    emit('update:discoveredPeers', Array.from(activePeers.value.keys()));
+    emit('update:peerVolumes', new Map(peerVolumes.value));
+    emit('update:peerAudioLevels', new Map(peerAudioLevels.value));
+});
+
+onUnmounted(async () => {
+    if (announceInterval) clearInterval(announceInterval);
+    if (cleanupInterval) clearInterval(cleanupInterval);
+    if (audioAnalysisInterval) clearInterval(audioAnalysisInterval);
+    if (timeUpdateInterval) clearInterval(timeUpdateInterval);
+
+    if (props.client && props.fullSessionId) {
+        const announcement: PeerAnnouncement = {
+            sessionId: props.fullSessionId,
             timestamp: Date.now(),
-            status: "online" as const,
-            test: true,
+            status: "offline",
         };
 
-        vircadiaWorld.client.connection.publishReflect({
-            syncGroup: reflectApiSyncGroup.value,
-            channel: "webrtc.announce",
-            payload: testAnnouncement,
-        });
-
-        results.push("Test announcement: Sent successfully");
-
-        // Test 2: Try to subscribe to our own messages
-        const testSubscription =
-            vircadiaWorld.client.connection.subscribeReflect(
-                reflectApiSyncGroup.value,
-                "webrtc.announce",
-                (msg) => {
-                    if (msg.payload.test) {
-                        results.push("Self-received test message: ✓");
-                    }
-                },
+        try {
+            await props.client.client.connection.publishReflect({
+                syncGroup: SYNC_GROUP,
+                channel: ANNOUNCE_CHANNEL,
+                payload: announcement,
+                requestAcknowledgement: true,
+            })
+        } catch (err) {
+            console.error(
+                "[WebRTC Reflect] Failed to send offline announcement:",
+                err,
             );
-
-        // Test 3: Send a test signaling message to ourselves
-        vircadiaWorld.client.connection.publishReflect({
-            syncGroup: reflectApiSyncGroup.value,
-            channel: "webrtc.signal",
-            payload: {
-                type: "peer-announce" as const,
-                fromSession: fullSessionId.value,
-                payload: { test: true },
-                timestamp: Date.now(),
-            },
-        });
-
-        results.push("Test signaling message: Sent successfully");
-
-        // Test 4: Test network connectivity (STUN servers)
-        results.push("--- Network Connectivity Test ---");
-        await testNetworkConnectivityInternal();
-
-        // Clean up test subscription
-        setTimeout(() => testSubscription(), 5000);
-
-        debugTestResults.value = results.join("\n");
-        console.log("[WebRTC Debug] Connectivity test results:", results);
-    } catch (err) {
-        console.error("[WebRTC Debug] Connectivity test failed:", err);
-        debugTestResults.value = `Connectivity test failed: ${err}`;
-    } finally {
-        isTestingConnectivity.value = false;
-    }
-
-    async function testNetworkConnectivityInternal() {
-        const stunServers = [
-            "stun:stun.l.google.com:19302",
-            "stun:stun.services.mozilla.com",
-        ];
-
-        for (const serverUrl of stunServers) {
-            try {
-                const pc = new RTCPeerConnection({
-                    iceServers: [{ urls: serverUrl }],
-                });
-
-                pc.createDataChannel("test");
-
-                await new Promise<void>((resolve, reject) => {
-                    pc.onicecandidate = (event) => {
-                        if (!event.candidate) resolve();
-                    };
-
-                    pc.onicegatheringstatechange = () => {
-                        if (pc.iceGatheringState === "complete") resolve();
-                    };
-
-                    setTimeout(() => reject(new Error("timeout")), 3000);
-                    pc.createOffer().then((offer) =>
-                        pc.setLocalDescription(offer),
-                    );
-                });
-
-                results.push(`  ${serverUrl}: ✓`);
-                pc.close();
-            } catch (err) {
-                results.push(`  ${serverUrl}: ✗ (${err})`);
-            }
         }
     }
-}
 
-async function clearAllPeers() {
-    if (!debugMode.value) return;
+    unsubscribeAnnounce?.();
+    unsubscribeSignaling?.();
 
-    for (const [peerId] of [...peers.value]) {
-        disconnectFromPeer(peerId);
+    for (const peerId of peers.value.keys()) {
+        await disconnectPeer(peerId);
     }
 
-    console.log("[WebRTC Debug] All peers cleared");
-}
+    stopLocalMedia();
+    spatialAudio.cleanup();
 
-async function sendTestMessage() {
-    if (!debugMode.value || !debugTestPeerId.value) return;
-
-    try {
-        await reflectApi.sendSignalingMessage(
-            debugTestPeerId.value,
-            "peer-announce",
-            { test: true, timestamp: Date.now() },
-        );
-
-        console.log(
-            `[WebRTC Debug] Test message sent to ${debugTestPeerId.value}`,
-        );
-        debugTestResults.value = `Test message sent to ${debugTestPeerId.value.substring(0, 8)}...`;
-    } catch (err) {
-        console.error("[WebRTC Debug] Failed to send test message:", err);
-        debugTestResults.value = `Failed to send test message: ${err}`;
-    }
-}
-
-async function pingTestPeer() {
-    if (!debugMode.value || !debugTestPeerId.value) return;
-
-    const startTime = Date.now();
-
-    try {
-        await reflectApi.sendSignalingMessage(
-            debugTestPeerId.value,
-            "peer-announce",
-            { ping: true, timestamp: startTime },
-        );
-
-        console.log(`[WebRTC Debug] Ping sent to ${debugTestPeerId.value}`);
-        debugTestResults.value = `Ping sent to ${debugTestPeerId.value.substring(0, 8)}... (waiting for response)`;
-
-        // Set up a temporary handler to listen for pong
-        const tempHandler = (msg: any) => {
-            if (msg.payload.pong && msg.fromSession === debugTestPeerId.value) {
-                const latency = Date.now() - startTime;
-                debugTestResults.value = `Ping response received! Latency: ${latency}ms`;
-                console.log(
-                    `[WebRTC Debug] Ping response from ${debugTestPeerId.value}: ${latency}ms`,
-                );
-            }
-        };
-
-        // Register temporary handler
-        reflectApi.registerMessageHandler(debugTestPeerId.value, tempHandler);
-
-        // Remove handler after timeout
-        setTimeout(() => {
-            reflectApi.unregisterMessageHandler(debugTestPeerId.value);
-            if (debugTestResults.value.includes("waiting")) {
-                debugTestResults.value = "Ping timeout - no response received";
-            }
-        }, 5000);
-    } catch (err) {
-        console.error("[WebRTC Debug] Failed to ping peer:", err);
-        debugTestResults.value = `Failed to ping peer: ${err}`;
-    }
-}
-
-async function resumeAudioContext() {
-    if (!debugMode.value) return;
-
-    isResumingAudio.value = true;
-    try {
-        const resumed = await ensureAudioContextResumed();
-        debugTestResults.value = resumed
-            ? "Audio context resumed successfully"
-            : "Audio context could not be resumed - may need user interaction";
-        debugTestTimestamp.value = Date.now();
-        console.log("[WebRTC Debug] Audio context resume result:", resumed);
-    } catch (err) {
-        console.error("[WebRTC Debug] Failed to resume audio context:", err);
-        debugTestResults.value = `Failed to resume audio context: ${err}`;
-        debugTestTimestamp.value = Date.now();
-    } finally {
-        isResumingAudio.value = false;
-    }
-}
-
-async function debugAudioProcessing() {
-    if (!debugMode.value) return;
-
-    isDebuggingAudio.value = true;
-    const results: string[] = [];
-    const timestamp = Date.now();
-
-    try {
-        // Test 1: Audio context state
-        if (spatialAudio.isInitialized.value) {
-            results.push(`Audio Context Initialized: Yes`);
-            // Note: We can't directly access audioContext.value from here as it's internal to the composable
-            results.push(
-                `Spatial Audio Ready: ${spatialAudio.isInitialized.value ? "Yes" : "No"}`,
-            );
-            results.push(
-                `Active Spatial Audio Peers: ${spatialAudio.activePeerCount.value || 0}`,
-            );
-        } else {
-            results.push(`Audio Context Initialized: No`);
-        }
-
-        // Test 2: Local stream tracks
-        if (localStream.value) {
-            const audioTracks = localStream.value.getAudioTracks();
-            results.push(`Local Audio Tracks: ${audioTracks.length}`);
-            audioTracks.forEach((track, i) => {
-                results.push(
-                    `  Track ${i}: ${track.kind} (${track.readyState})`,
-                );
-                results.push(
-                    `    Settings: ${JSON.stringify(track.getSettings(), null, 2)}`,
-                );
-            });
-        } else {
-            results.push(`Local Stream: None`);
-        }
-
-        // Test 3: Connected peers audio status
-        for (const [peerId, peer] of peers.value) {
-            if (peer.remoteStream) {
-                const audioTracks = peer.remoteStream.getAudioTracks();
-                results.push(
-                    `Peer ${peerId.substring(0, 8)}...: Remote Audio Tracks: ${audioTracks.length}`,
-                );
-                audioTracks.forEach((track, i) => {
-                    results.push(
-                        `  Track ${i}: ${track.kind} (${track.readyState})`,
-                    );
-                });
-            } else {
-                results.push(
-                    `Peer ${peerId.substring(0, 8)}...: No remote stream`,
-                );
-            }
-        }
-
-        // Test 4: Try to resume audio context
-        await ensureAudioContextResumed();
-        results.push("Attempted audio context resume");
-
-        // Test 5: Check for audio permissions
-        if (navigator.permissions) {
-            try {
-                const permissionStatus = await navigator.permissions.query({
-                    name: "microphone" as PermissionName,
-                });
-                results.push(
-                    `Microphone Permission: ${permissionStatus.state}`,
-                );
-            } catch (e) {
-                results.push("Microphone Permission: Unable to check");
-            }
-        }
-
-        debugTestResults.value = results.join("\n");
-        debugTestTimestamp.value = timestamp;
-
-        console.log("[WebRTC Debug] Audio processing test results:", results);
-    } catch (err) {
-        console.error("[WebRTC Debug] Audio processing test failed:", err);
-        debugTestResults.value = `Audio processing test failed: ${err}`;
-        debugTestTimestamp.value = timestamp;
-    } finally {
-        isDebuggingAudio.value = false;
-    }
-}
-
-function checkNetworkStatus() {
-    if (navigator.onLine) {
-        networkStatus.value = "online";
-    } else {
-        networkStatus.value = "offline";
+    for (const peerId of peerAudioAnalysis.value.keys()) {
+        stopAudioAnalysisForPeer(peerId);
     }
 
-    // Listen for network changes
-    window.addEventListener("online", () => {
-        networkStatus.value = "online";
-        console.log("[WebRTC Debug] Network status changed: online");
-    });
+    activePeers.value.clear();
+    isInitialized.value = false;
 
-    window.addEventListener("offline", () => {
-        networkStatus.value = "offline";
-        console.log("[WebRTC Debug] Network status changed: offline");
-    });
-}
+    console.log("[WebRTC] Cleaned up");
+});
 
-// Watch for session changes
-watch(fullSessionId, (newSession, oldSession) => {
-    if (oldSession && newSession !== oldSession) {
-        // Session changed, reinitialize
-        reflectApi.cleanup();
-        initialize();
-    } else if (newSession && !oldSession) {
-        // New session, initialize
-        initialize();
-    }
+// Expose a typed ref API so parents can directly control uplink injection and inspect state
+defineExpose({
+    // Streams and peers
+    getLocalStream: () => localStream.value,
+    getPeersMap: () => new Map(Array.from(peers.value.entries()).map(([id, info]) => [id, info.pc])),
+    getRemoteStreamsMap: () => new Map(Array.from(peers.value.entries())
+        .filter(([, info]) => !!info.remoteStream)
+        .map(([id, info]) => [id, info.remoteStream as MediaStream])),
+    // Uplink audio injection controls
+    getUplinkAudioContext: () => uplinkContext,
+    getUplinkDestination: () => uplinkDestination,
+    ensureUplinkDestination: async () => {
+        await ensureUplinkContext();
+        return uplinkDestination?.stream.getAudioTracks()[0] || null;
+    },
+    replaceUplinkWithDestination: async () => replaceUplinkWithDestination(),
+    restoreUplinkMic: async () => restoreUplinkMic(),
+    connectMicToUplink: (enabled: boolean) => connectMicToUplink(enabled),
+    connectNodeToUplink: (node: AudioNode) => connectNodeToUplink(node),
 });
 </script>
+
+<style scoped></style>

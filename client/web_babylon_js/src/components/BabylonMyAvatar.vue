@@ -17,6 +17,10 @@
 // TODO: Low:To performance mode, add different babylon.js optimizations.
 // TODO: Low: Improve UX for login screen.
 // TODO: High-ish: Create interaction based physics demo, either client, server, or both.
+// TODO: Split out spatial into BabylonWebRTCSpatial.vue
+// TODO: Wire autoagent to raise talk levels too instead of just mic input over WebRTC.
+// TODO: Have topics about cars ideally.Wire up some realtime info if we can too under separate vue components(data into context), can tool call ?
+
 import {
     type AbstractMesh,
     type AnimationGroup,

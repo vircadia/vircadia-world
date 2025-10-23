@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { clientBrowserConfiguration } from "@vircadia/world-sdk/browser/vue";
-import { type Browser, launch, type Page } from "puppeteer";
+import { type Browser, chromium, type Page } from "playwright";
 
 const DEV_PORT = clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT;
 const DEV_HOST = "localhost";
@@ -15,7 +15,7 @@ async function startApplication(): Promise<void> {
         `🚀 Launching browser and connecting to ${BASE_URL} as anonymous autonomous agent`,
     );
 
-    browser = await launch({
+    browser = await chromium.launch({
         headless: false,
         args: [
             "--no-sandbox",
@@ -26,13 +26,23 @@ async function startApplication(): Promise<void> {
             "--no-zygote",
             "--enable-webgpu",
             "--enable-unsafe-webgpu",
+            // Fake audio device support
+            // "--use-fake-device-for-media-stream",
+            "--use-fake-ui-for-media-stream",
+            "--autoplay-policy=no-user-gesture-required",
         ],
     });
 
-    page = await browser.newPage();
-    await page.setViewport({ width: 1280, height: 720 });
+    const context = await browser.newContext({
+        viewport: { width: 1280, height: 720 },
+    });
 
-    await page.goto(BASE_URL, { waitUntil: "networkidle0" });
+    // Grant microphone permission before creating page
+    await context.grantPermissions(["microphone"], { origin: BASE_URL });
+
+    page = await context.newPage();
+
+    await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
 
     // Wait for canvas element to exist
     await page.waitForSelector("canvas", { timeout: 10000 });
@@ -44,14 +54,114 @@ async function startApplication(): Promise<void> {
     console.log("⏳ Waiting for Babylon.js scene to be ready...");
     await page.waitForFunction(
         () => {
-            return window.__VircadiaClientBrowserState__?.sceneReady === true;
+            const win = window as unknown as {
+                __VircadiaClientBrowserState__?: { sceneReady?: boolean };
+            };
+            return win.__VircadiaClientBrowserState__?.sceneReady === true;
         },
-        { timeout: 30000, polling: 1000 },
+        { timeout: 30000 },
     );
 
     console.log("✅ Babylon.js scene is ready!");
 
     console.log("🎉 Application is ready! Press Ctrl+C to exit.");
+
+    // Start polling and logging autonomous agent state
+    if (page) {
+        startStatePolling(page);
+    }
+}
+
+function startStatePolling(page: Page): void {
+    console.log("\n📊 Starting autonomous agent state monitoring...");
+
+    const logState = async () => {
+        try {
+            const state = await page.evaluate(() => {
+                const win = window as unknown as {
+                    __VircadiaClientBrowserState__?: {
+                        autonomousAgent?: unknown;
+                    };
+                };
+                return win.__VircadiaClientBrowserState__?.autonomousAgent;
+            });
+
+            if (state && typeof state === "object") {
+                const agentState = state as {
+                    tts: {
+                        loading: boolean;
+                        step: string;
+                        progressPct: number;
+                        generating: boolean;
+                        ready: boolean;
+                    };
+                    llm: {
+                        loading: boolean;
+                        step: string;
+                        progressPct: number;
+                        generating: boolean;
+                        ready: boolean;
+                    };
+                    stt: {
+                        loading: boolean;
+                        step: string;
+                        processing: boolean;
+                        ready: boolean;
+                        active: boolean;
+                        attachedIds: string[];
+                    };
+                    vad: {
+                        recording: boolean;
+                        segmentsCount: number;
+                        lastSegmentAt: number | null;
+                    };
+                    webrtc: {
+                        connected: boolean;
+                        peersCount: number;
+                        localStream: boolean;
+                    };
+                    audio: { rmsLevel: number; rmsPct: number };
+                    speaking: boolean;
+                    transcriptsCount: number;
+                    llmOutputsCount: number;
+                    conversationItemsCount: number;
+                };
+
+                // Clear previous line and print updated state
+                process.stdout.write("\r\x1b[K"); // Clear line
+
+                const lines = [
+                    `🤖 Autonomous Agent State:`,
+                    `  TTS: ${agentState.tts.loading ? "Loading" : agentState.tts.ready ? "Ready" : "Idle"} ${agentState.tts.loading ? `(${agentState.tts.step}, ${Math.round(agentState.tts.progressPct)}%)` : ""} ${agentState.tts.generating ? "[Generating]" : ""}`,
+                    `  LLM: ${agentState.llm.loading ? "Loading" : agentState.llm.ready ? "Ready" : "Idle"} ${agentState.llm.loading ? `(${agentState.llm.step}, ${Math.round(agentState.llm.progressPct)}%)` : ""} ${agentState.llm.generating ? "[Generating]" : ""}`,
+                    `  STT: ${agentState.stt.loading ? "Loading" : agentState.stt.ready ? "Ready" : "Idle"} ${agentState.stt.loading ? `(${agentState.stt.step})` : ""} ${agentState.stt.processing ? "[Processing]" : ""} ${agentState.stt.active ? "[Active]" : "[Paused]"}`,
+                    `  VAD: ${agentState.vad.recording ? "Recording" : "Idle"} | Segments: ${agentState.vad.segmentsCount}`,
+                    `  WebRTC: ${agentState.webrtc.connected ? "Connected" : "Disconnected"} (${agentState.webrtc.peersCount} peers)`,
+                    `  Audio RMS: ${agentState.audio.rmsLevel.toFixed(3)} (${agentState.audio.rmsPct}%)`,
+                    `  Speaking: ${agentState.speaking ? "Yes" : "No"} | Transcripts: ${agentState.transcriptsCount} | LLM Outputs: ${agentState.llmOutputsCount} | Conversation: ${agentState.conversationItemsCount}`,
+                ];
+
+                // Print all lines
+                for (const line of lines) {
+                    console.log(line);
+                }
+            }
+        } catch (error) {
+            console.error("\n❌ Error polling state:", error);
+        }
+    };
+
+    // Log state every second
+    const interval = setInterval(logState, 1000);
+
+    // Clean up interval on shutdown
+    process.on("SIGINT", () => {
+        clearInterval(interval);
+    });
+
+    process.on("SIGTERM", () => {
+        clearInterval(interval);
+    });
 }
 
 async function cleanup(): Promise<void> {

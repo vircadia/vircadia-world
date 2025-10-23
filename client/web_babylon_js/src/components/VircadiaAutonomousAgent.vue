@@ -358,8 +358,13 @@
 <script setup lang="ts">
 import type { Scene, WebGPUEngine } from "@babylonjs/core";
 import {
+    type ClientBrowserState,
+    clientBrowserState,
+} from "@vircadia/world-sdk/browser/vue";
+import {
     computed,
     inject,
+    onMounted,
     onUnmounted,
     type PropType,
     type Ref,
@@ -467,7 +472,7 @@ const props = defineProps({
     agentUiMaxConversationItems: { type: Number, required: true },
 });
 
-const featureEnabled = sessionStorage.getItem("is_autonomous_agent") === "true";
+const featureEnabled = computed(() => clientBrowserState.isAutonomousAgent());
 // Peer metadata: displayName, position, rotation (filled later; default placeholders)
 type PeerMeta = {
     displayName: string;
@@ -1544,92 +1549,169 @@ const testTTS = async () => {
     }
 };
 
-if (featureEnabled) {
-    watch(
-        () => props.vircadiaWorld?.connectionInfo.value.status,
-        async (status) => {
-            if (status === "connected") {
-                if (props.agentEnableTts) {
-                    // Initialize TTS worker
-                    initTtsWorkerOnce();
-                }
-                if (props.agentEnableLlm) {
-                    // Initialize LLM worker
-                    initLlmWorkerOnce();
-                }
-                // After models are ready, attach STT to existing remote streams via worker
-                if (props.agentEnableStt) {
-                    initSttWorkerOnce();
-                    const mode = props.agentSttInputMode;
-                    if (mode === "webrtc" || mode === "both") {
-                        for (const [pid, stream] of remoteStreamsRef.value) {
-                            attachStreamToSTT(pid, stream);
-                        }
-                    }
-                    if (mode === "mic" || mode === "both") {
-                        await attachMicToSTT();
-                    }
-                }
-            } else {
-                stopKokoro();
-                for (const [pid] of peerProcessors) detachStreamFromSTT(pid);
-                detachMicFromSTT();
-            }
+// Function to update browser state for autonomous agent tracking
+function updateBrowserState(): void {
+    if (!featureEnabled.value) return;
+
+    const api = webrtcRef.value;
+    const hasBusPeers =
+        !!api &&
+        typeof api.getPeersMap === "function" &&
+        api.getPeersMap().size > 0;
+    const localStream = localStreamRef.value;
+
+    const agentState = {
+        tts: {
+            loading: kokoroLoading.value,
+            step: kokoroStep.value,
+            progressPct: ttsProgressPct.value,
+            generating: ttsGenerating.value,
+            ready: !!kokoroTTS.value,
         },
-        { immediate: true },
-    );
-    // Also react if the WebRTC bus becomes available after connection
-    // React whenever remoteStreams map changes: attach recorders to new streams
-    watch(
-        () => remoteStreamsRef.value,
-        (streams, oldStreams) => {
-            if (!props.agentEnableStt) return;
-            initSttWorkerOnce();
-            const mode = props.agentSttInputMode;
-            if (mode === "webrtc" || mode === "both") {
-                for (const [pid, stream] of streams) {
-                    attachStreamToSTT(pid, stream);
-                }
-            }
-            // Detach for peers removed from map
-            if (oldStreams instanceof Map) {
-                for (const [oldPid] of oldStreams) {
-                    if (!streams.has(oldPid)) detachStreamFromSTT(oldPid);
-                }
-            }
+        llm: {
+            loading: llmLoading.value,
+            step: llmStep.value,
+            progressPct: llmProgressPct.value,
+            generating: llmGenerating.value,
+            ready: !!llmPipeline,
         },
-        { deep: true },
-    );
-    // Watch for input mode changes
-    watch(
-        () => props.agentSttInputMode,
-        async (mode) => {
-            if (!props.agentEnableStt) return;
-            initSttWorkerOnce();
-            if (mode === "webrtc") {
-                // ensure mic detached, attach all remote
-                detachMicFromSTT();
-                for (const [pid, stream] of remoteStreamsRef.value)
-                    attachStreamToSTT(pid, stream);
-            } else if (mode === "mic") {
-                // detach all remote, attach mic
-                for (const [pid] of peerProcessors) detachStreamFromSTT(pid);
-                await attachMicToSTT();
-            } else if (mode === "both") {
-                for (const [pid, stream] of remoteStreamsRef.value)
-                    attachStreamToSTT(pid, stream);
-                await attachMicToSTT();
-            }
+        stt: {
+            loading: sttLoading.value,
+            step: sttStep.value,
+            processing: sttProcessing.value,
+            ready: !!sttPipeline,
+            active: sttActive.value,
+            attachedIds: Array.from(sttAttachedIds.value),
         },
-        { immediate: false },
-    );
-} else {
-    console.debug(
-        "[VircadiaAutonomousAgent] Disabled via ?is_autonomous_agent=false (default to false)",
-    );
+        vad: {
+            recording: vadRecording.value,
+            segmentsCount: vadSegmentsCount.value,
+            lastSegmentAt: vadLastSegmentAt.value,
+        },
+        webrtc: {
+            connected: hasBusPeers,
+            peersCount: hasBusPeers ? api.getPeersMap().size : 0,
+            localStream: !!localStream,
+        },
+        audio: {
+            rmsLevel: rmsLevel.value,
+            rmsPct: rmsPct.value,
+        },
+        speaking: isSpeaking.value,
+        transcriptsCount: transcripts.value.length,
+        llmOutputsCount: llmOutputs.value.length,
+        conversationItemsCount: conversationItems.value.length,
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    clientBrowserState.setAutonomousAgentState(agentState as any);
 }
 
+// Update browser state periodically and on important changes
+let stateUpdateInterval: number | null = null;
+
+// Update state every second
+onMounted(() => {
+    if (featureEnabled.value) {
+        updateBrowserState();
+        stateUpdateInterval = setInterval(() => {
+            updateBrowserState();
+        }, 1000) as unknown as number;
+    }
+});
+
 onUnmounted(() => {
+    if (stateUpdateInterval !== null) {
+        clearInterval(stateUpdateInterval);
+    }
+});
+
+watch(
+    () => props.vircadiaWorld?.connectionInfo.value.status,
+    async (status) => {
+        if (!featureEnabled.value) return;
+        if (status === "connected") {
+            if (props.agentEnableTts) {
+                // Initialize TTS worker
+                initTtsWorkerOnce();
+            }
+            if (props.agentEnableLlm) {
+                // Initialize LLM worker
+                initLlmWorkerOnce();
+            }
+            // After models are ready, attach STT to existing remote streams via worker
+            if (props.agentEnableStt) {
+                initSttWorkerOnce();
+                const mode = props.agentSttInputMode;
+                if (mode === "webrtc" || mode === "both") {
+                    for (const [pid, stream] of remoteStreamsRef.value) {
+                        attachStreamToSTT(pid, stream);
+                    }
+                }
+                if (mode === "mic" || mode === "both") {
+                    await attachMicToSTT();
+                }
+            }
+        } else {
+            stopKokoro();
+            for (const [pid] of peerProcessors) detachStreamFromSTT(pid);
+            detachMicFromSTT();
+        }
+        updateBrowserState();
+    },
+    { immediate: true },
+);
+// Also react if the WebRTC bus becomes available after connection
+// React whenever remoteStreams map changes: attach recorders to new streams
+watch(
+    () => remoteStreamsRef.value,
+    (streams, oldStreams) => {
+        if (!featureEnabled.value) return;
+        if (!props.agentEnableStt) return;
+        initSttWorkerOnce();
+        const mode = props.agentSttInputMode;
+        if (mode === "webrtc" || mode === "both") {
+            for (const [pid, stream] of streams) {
+                attachStreamToSTT(pid, stream);
+            }
+        }
+        // Detach for peers removed from map
+        if (oldStreams instanceof Map) {
+            for (const [oldPid] of oldStreams) {
+                if (!streams.has(oldPid)) detachStreamFromSTT(oldPid);
+            }
+        }
+    },
+    { deep: true },
+);
+// Watch for input mode changes
+watch(
+    () => props.agentSttInputMode,
+    async (mode) => {
+        if (!featureEnabled.value) return;
+        if (!props.agentEnableStt) return;
+        initSttWorkerOnce();
+        if (mode === "webrtc") {
+            // ensure mic detached, attach all remote
+            detachMicFromSTT();
+            for (const [pid, stream] of remoteStreamsRef.value)
+                attachStreamToSTT(pid, stream);
+        } else if (mode === "mic") {
+            // detach all remote, attach mic
+            for (const [pid] of peerProcessors) detachStreamFromSTT(pid);
+            await attachMicToSTT();
+        } else if (mode === "both") {
+            for (const [pid, stream] of remoteStreamsRef.value)
+                attachStreamToSTT(pid, stream);
+            await attachMicToSTT();
+        }
+    },
+    { immediate: false },
+);
+
+onUnmounted(() => {
+    if (stateUpdateInterval !== null) {
+        clearInterval(stateUpdateInterval);
+    }
     stopKokoro();
     for (const [pid] of peerProcessors) detachStreamFromSTT(pid);
     detachMicFromSTT();

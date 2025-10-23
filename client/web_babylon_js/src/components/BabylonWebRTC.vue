@@ -482,6 +482,8 @@ interface Props {
     peerVolumes?: Map<string, number>;
     peerAudioLevels?: Map<string, number>;
     uplinkUsingDestination?: boolean;
+    // When true, skip getUserMedia and use internal uplink destination
+    headlessUplink?: boolean;
 }
 
 const emit = defineEmits<{
@@ -2204,6 +2206,21 @@ async function createPeerConnection(
         for (const track of localStream.value.getTracks()) {
             pc.addTrack(track, localStream.value);
         }
+    } else if (props.headlessUplink) {
+        try {
+            await ensureUplinkContext();
+            if (uplinkDestination) {
+                const destTrack = uplinkDestination.stream.getAudioTracks()[0] || null;
+                if (destTrack) {
+                    pc.addTrack(destTrack, uplinkDestination.stream);
+                    uplinkUsingDestination = true;
+                    emit('update:uplinkUsingDestination', true);
+                    console.log('[WebRTC] Attached headless uplink destination track');
+                }
+            }
+        } catch (e) {
+            console.warn('[WebRTC] Failed to attach headless uplink destination track:', e);
+        }
     }
 
     setupPerfectNegotiation(peerId, peerInfo);
@@ -2278,7 +2295,17 @@ onMounted(async () => {
         return;
     }
 
-    await initLocalMedia();
+    if (props.headlessUplink) {
+        try {
+            await ensureUplinkContext();
+            emit('update:localAudioStream', null);
+            emit('update:localStreamActive', false);
+        } catch (err) {
+            console.warn('[WebRTC] Failed to initialize headless uplink context:', err);
+        }
+    } else {
+        await initLocalMedia();
+    }
 
     spatialAudio.initialize();
     console.log("[WebRTC] Spatial audio initialized");

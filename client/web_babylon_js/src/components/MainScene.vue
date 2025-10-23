@@ -93,7 +93,7 @@
                                 <v-btn v-bind="props" icon class="ml-2"
                                     :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                     <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' : 'mdi-speedometer-slow'
-                                        }}</v-icon>
+                                    }}</v-icon>
                                 </v-btn>
                             </template>
                             <div key="normalPerf">
@@ -162,7 +162,7 @@
                                     <v-btn v-bind="props" icon variant="text" class="ml-2" :disabled="!sceneInitialized"
                                         @click="inspectorRef?.toggleInspector()">
                                         <v-icon>{{ inspectorVisible ? 'mdi-file-tree' : 'mdi-file-tree-outline'
-                                            }}</v-icon>
+                                        }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <span>Babylon Inspector (T)</span>
@@ -331,7 +331,8 @@
                                                 @permissions="onWebRTCPermissions($event)"
                                                 v-model:local-audio-stream="webrtcLocalStream"
                                                 v-model:peers-map="webrtcPeersMap"
-                                                v-model:remote-streams-map="webrtcRemoteStreamsMap" />
+                                                v-model:remote-streams-map="webrtcRemoteStreamsMap"
+                                                :headless-uplink="isAutonomousAgent" />
 
                                         </BabylonOtherAvatars>
 
@@ -392,8 +393,11 @@
 // BabylonJS types
 import type { Scene, TransformNode } from "@babylonjs/core";
 
-import { clientBrowserConfiguration, clientBrowserState } from "@vircadia/world-sdk/browser/vue";
-import { useStorage } from "@vueuse/core";
+import {
+    clientBrowserConfiguration,
+    clientBrowserState,
+} from "@vircadia/world-sdk/browser/vue";
+import { useSessionStorage, useStorage } from "@vueuse/core";
 import type { ComponentPublicInstance } from "vue";
 import {
     computed,
@@ -413,8 +417,8 @@ import BabylonModel from "@/components/BabylonModel.vue";
 import BabylonModelPhysics, {
     type PhysicsSummary,
 } from "@/components/BabylonModelPhysics.vue";
-import BabylonModels from "@/components/BabylonModels.vue";
-import BabylonModelsDebugOverlay from "@/components/BabylonModelsDebugOverlay.vue";
+// import BabylonModels from "@/components/BabylonModels.vue";
+// import BabylonModelsDebugOverlay from "@/components/BabylonModelsDebugOverlay.vue";
 import BabylonMyAvatar, {
     type AvatarDefinition,
 } from "@/components/BabylonMyAvatar.vue";
@@ -443,6 +447,9 @@ import type {
     AvatarPositionData,
     AvatarRotationData,
 } from "@/schemas";
+
+// isAutonomousAgent now comes from browser state via URL parameter detection
+const isAutonomousAgent = computed(() => clientBrowserState.isAutonomousAgent());
 
 // Auth change handling moved to provider
 
@@ -646,6 +653,14 @@ onMounted(async () => {
         clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEBUG,
     );
 
+    // Initialize autonomous agent flag from URL parameter
+    const urlParams = new URLSearchParams(window.location.search);
+    const isAgentParam = urlParams.get("is_autonomous_agent") === "true";
+    clientBrowserState.setIsAutonomousAgent(isAgentParam);
+    if (isAgentParam) {
+        console.debug("[MainScene] Running as autonomous agent");
+    }
+
     // Add keyboard listener for performance mode toggle
     const handleKeyPress = (event: KeyboardEvent) => {
         if (event.key === "p" || event.key === "P") {
@@ -656,17 +671,12 @@ onMounted(async () => {
     document.addEventListener("keydown", handleKeyPress);
 });
 
-// Set global flag when scene is ready for autonomous agent
-if (sessionStorage.getItem("is_autonomous_agent") === "true") {
-    watch(sceneInitialized, (isReady) => {
-        if (isReady) {
-            clientBrowserState.setSceneReady(true);
-            console.debug(
-                "[MainScene] Scene ready flag set for autonomous agent",
-            );
-        }
-    });
-}
+watch(sceneInitialized, (isReady) => {
+    if (isReady) {
+        clientBrowserState.setSceneReady(true);
+        console.debug("[MainScene] Scene ready flag set for autonomous agent");
+    }
+});
 
 // No onUnmounted reset needed; canvas manages its own ready state
 

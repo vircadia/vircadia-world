@@ -16,6 +16,9 @@
 
   @rest_asset path /world/rest/asset*
   reverse_proxy @rest_asset http://{$CADDY_UPSTREAM_API_ASSET}
+
+  @rest_inference path /world/rest/inference*
+  reverse_proxy @rest_inference http://{$CADDY_UPSTREAM_API_INFERENCE}
 }
 
 {$CADDY_DOMAIN_APP} {

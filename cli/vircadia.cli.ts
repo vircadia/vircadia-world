@@ -387,6 +387,22 @@ export namespace Server_CLI {
             VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_SUPPRESS:
                 serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_SUPPRESS.toString(),
 
+            // API REST Inference Manager
+            VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_CONTAINER_NAME:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_CONTAINER_NAME,
+            VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_HOST_CONTAINER_BIND_EXTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_HOST_CONTAINER_BIND_EXTERNAL,
+            VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_HOST_PUBLIC_AVAILABLE_AT:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_HOST_PUBLIC_AVAILABLE_AT,
+            VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_PORT_PUBLIC_AVAILABLE_AT:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_PORT_PUBLIC_AVAILABLE_AT.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_DEBUG:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_DEBUG.toString(),
+            VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_SUPPRESS:
+                serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_SUPPRESS.toString(),
+
             // State Manager
             VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_CONTAINER_NAME:
                 serverConfiguration.VRCA_SERVER_SERVICE_WORLD_STATE_MANAGER_CONTAINER_NAME,
@@ -605,6 +621,24 @@ export namespace Server_CLI {
                 .VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_PORT_CONTAINER_BIND_EXTERNAL ||
             serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_ASSET_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString();
 
+        const apiInferenceHostExternal =
+            (await EnvManager.getVariable(
+                "VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_HOST_CONTAINER_BIND_EXTERNAL",
+                "cli",
+            )) ||
+            process.env
+                .VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_HOST_CONTAINER_BIND_EXTERNAL ||
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_HOST_CONTAINER_BIND_EXTERNAL;
+
+        const apiInferencePortExternal =
+            (await EnvManager.getVariable(
+                "VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL",
+                "cli",
+            )) ||
+            process.env
+                .VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL ||
+            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_PORT_CONTAINER_BIND_EXTERNAL.toString();
+
         const appHostExternal =
             (await EnvManager.getVariable(
                 "VRCA_SERVER_SERVICE_CLIENT_WEB_BABYLON_JS_HOST_CONTAINER_BIND_EXTERNAL",
@@ -626,6 +660,7 @@ export namespace Server_CLI {
         const apiWsUpstream = `${apiWsHostExternal}:${apiWsPortExternal}`;
         const apiAuthUpstream = `${apiAuthHostExternal}:${apiAuthPortExternal}`;
         const apiAssetUpstream = `${apiAssetHostExternal}:${apiAssetPortExternal}`;
+        const apiInferenceUpstream = `${apiInferenceHostExternal}:${apiInferencePortExternal}`;
         const appUpstream = `${appHostExternal}:${appPortExternal}`;
 
         BunLogModule({
@@ -646,6 +681,9 @@ export namespace Server_CLI {
             `  API REST Asset Manager:  http://${apiAssetHostExternal}:${apiAssetPortExternal}`,
         );
         console.log(
+            `  API REST Inference Manager:  http://${apiInferenceHostExternal}:${apiInferencePortExternal}`,
+        );
+        console.log(
             `  Web Babylon.js Client App:   http://${appHostExternal}:${appPortExternal}`,
         );
 
@@ -653,6 +691,7 @@ export namespace Server_CLI {
         console.log(`  API WS Manager:  ${apiWsUpstream}`);
         console.log(`  API REST Auth Manager:  ${apiAuthUpstream}`);
         console.log(`  API REST Asset Manager:  ${apiAssetUpstream}`);
+        console.log(`  API REST Inference Manager:  ${apiInferenceUpstream}`);
         console.log(`  Web Babylon.js Client App:   ${appUpstream}`);
     }
 
@@ -2352,6 +2391,34 @@ if (import.meta.main) {
                 });
                 BunLogModule({
                     message: `World API REST Asset Manager: healthy`,
+                    type: "success",
+                    suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                    debug: cliConfiguration.VRCA_CLI_DEBUG,
+                });
+                process.exit(0);
+                break;
+            }
+
+            case "server:api:rest:inference:manager:health": {
+                const waitParam = parseWaitFlags(additionalArgs);
+                await Server_CLI.withWait<void>(
+                    () =>
+                        Server_CLI.checkContainer(
+                            serverConfiguration.VRCA_SERVER_SERVICE_WORLD_API_REST_INFERENCE_MANAGER_CONTAINER_NAME,
+                        ),
+                    waitParam,
+                ).catch((error) => {
+                    BunLogModule({
+                        message: `World API REST Inference Manager: unhealthy`,
+                        type: "error",
+                        error,
+                        suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                        debug: cliConfiguration.VRCA_CLI_DEBUG,
+                    });
+                    process.exit(1);
+                });
+                BunLogModule({
+                    message: `World API REST Inference Manager: healthy`,
                     type: "success",
                     suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
                     debug: cliConfiguration.VRCA_CLI_DEBUG,

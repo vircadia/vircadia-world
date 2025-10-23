@@ -9,6 +9,7 @@
             "server/service/api_ws/volume/app",
             "server/service/api_rest_auth/volume/app",
             "server/service/api_rest_asset/volume/app",
+            "server/service/api_rest_inference/volume/app",
             "server/service/state/volume/app"
         ],
         "catalog": {

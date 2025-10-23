@@ -70,6 +70,15 @@ export default defineConfig(({ command }) => {
             chunkSizeWarningLimit: 3000, // Increased warning limit temporarily
             rollupOptions: {},
         },
+        worker: {
+            // Ensure workers are built as ES modules to support code-splitting
+            format: "es",
+            rollupOptions: {
+                output: {
+                    format: "es",
+                },
+            },
+        },
         optimizeDeps: {
             include: ["buffer"],
             exclude: [

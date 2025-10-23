@@ -358,7 +358,6 @@
 <script setup lang="ts">
 import type { Scene, WebGPUEngine } from "@babylonjs/core";
 import {
-    type ClientBrowserState,
     clientBrowserState,
 } from "@vircadia/world-sdk/browser/vue";
 import {

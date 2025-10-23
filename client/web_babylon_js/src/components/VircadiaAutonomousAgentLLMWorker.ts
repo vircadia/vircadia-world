@@ -4,7 +4,12 @@
 
 import { pipeline, TextStreamer } from "@huggingface/transformers";
 
-type LoadMessage = { type: "load"; modelId?: string; device?: string };
+type LoadMessage = {
+    type: "load";
+    modelId?: string;
+    device?: string;
+    dtype?: string;
+};
 type GenerateMessage = {
     type: "generate";
     prompt: string;
@@ -28,20 +33,12 @@ type WorkerEvent =
     | { type: "complete"; text: string }
     | { type: "error"; error: string };
 
-let llm:
-    | ((prompt: string, options?: Record<string, unknown>) => Promise<unknown>)
-    | {
-          __call__?: (
-              p: string,
-              o?: Record<string, unknown>,
-          ) => Promise<unknown>;
-          generate?: (
-              args: { inputs: string } & Record<string, unknown>,
-          ) => Promise<unknown>;
-      }
-    | null = null;
-let llmModelIdRef: string = "onnx-community/granite-4.0-micro-ONNX-web";
-let deviceRef: string = "webgpu";
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let llm: any = null;
+let llmModelIdRef: string;
+let deviceRef: string;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+let dtypeRef: string;
 
 function post(event: WorkerEvent) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -51,15 +48,21 @@ function post(event: WorkerEvent) {
 async function ensureLoaded() {
     if (llm) return;
     post({ type: "status", status: "downloading" });
-    llm = await pipeline(
-        "text-generation",
-        llmModelIdRef || "onnx-community/granite-4.0-micro-ONNX-web",
-        {
-            device: deviceRef || "webgpu",
-            progress_callback: (x: unknown) =>
-                post({ type: "status", status: "loading", data: x }),
-        },
-    );
+    // Properly type device as one of the allowed transformers.js device types
+    const device = (
+        deviceRef === "webgpu"
+            ? "webgpu"
+            : deviceRef === "webnn"
+              ? "webnn"
+              : deviceRef === "wasm"
+                ? "wasm"
+                : "cpu"
+    ) as "webgpu" | "webnn" | "wasm" | "cpu";
+    llm = await pipeline("text-generation", llmModelIdRef, {
+        device,
+        progress_callback: (x: unknown) =>
+            post({ type: "status", status: "loading", data: x }),
+    });
     // Mount kernels by warming up
     post({ type: "status", status: "mounting" });
     try {
@@ -150,6 +153,7 @@ async function handleMessage(e: MessageEvent<WorkerMessage>) {
             llmModelIdRef = msg.modelId;
         if (typeof msg.device === "string" && msg.device)
             deviceRef = msg.device;
+        if (typeof msg.dtype === "string" && msg.dtype) dtypeRef = msg.dtype;
         await ensureLoaded();
         return;
     }

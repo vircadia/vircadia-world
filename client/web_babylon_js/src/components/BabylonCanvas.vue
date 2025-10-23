@@ -3,7 +3,7 @@
 </template>
 
 <script setup lang="ts">
-import { ArcRotateCamera, Scene, Vector3, WebGPUEngine } from "@babylonjs/core";
+import { ArcRotateCamera, Engine, Scene, Vector3, WebGPUEngine } from "@babylonjs/core";
 import { nextTick, onMounted, onUnmounted, ref, toRef, watch } from "vue";
 
 const props = defineProps({
@@ -17,7 +17,7 @@ const emit = defineEmits(["update:performanceMode", "update:fps", "ready"]);
 
 // Internal refs
 const canvasRef = ref(null);
-let engine: WebGPUEngine | null = null;
+let engine: Engine | WebGPUEngine | null = null;
 let scene: Scene | null = null;
 const isReady = ref(false);
 let resizeRaf = 0;
@@ -158,19 +158,43 @@ onMounted(async () => {
     }
 
     try {
-        // Try WebGPU first
-        const adapter = await navigator.gpu?.requestAdapter();
-        if (adapter) {
-            engine = new WebGPUEngine(canvasRef.value, {
+        // Toggle: use WebGL for autonomous agent runs
+        const isAutonomousAgent =
+            (typeof sessionStorage !== "undefined" &&
+                sessionStorage.getItem("is_autonomous_agent") === "true") ||
+            (navigator as unknown as { webdriver?: boolean }).webdriver ===
+            true;
+
+        if (isAutonomousAgent) {
+            engine = new Engine(canvasRef.value, true, {
                 antialias: true,
                 adaptToDeviceRatio: true,
+                preserveDrawingBuffer: false,
+                stencil: true,
             });
-            await engine.initAsync();
         } else {
-            throw new Error("WebGPU adapter not available");
+            // Try WebGPU first
+            const adapter = await navigator.gpu?.requestAdapter();
+            if (adapter) {
+                const webgpu = new WebGPUEngine(canvasRef.value, {
+                    antialias: true,
+                    adaptToDeviceRatio: true,
+                });
+                await webgpu.initAsync();
+                engine = webgpu;
+            } else {
+                engine = new Engine(canvasRef.value, true, {
+                    antialias: true,
+                    adaptToDeviceRatio: true,
+                    preserveDrawingBuffer: false,
+                    stencil: true,
+                });
+            }
         }
 
-        scene = new Scene(engine);
+        if (!engine) throw new Error("Engine not created");
+
+        scene = new Scene(engine as Engine);
 
         // Basic camera
         const defaultCamera = new ArcRotateCamera(

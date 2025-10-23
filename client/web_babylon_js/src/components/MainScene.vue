@@ -59,6 +59,7 @@
                         :agent-llm-top-p="agentLlmTopP" :agent-llm-return-full-text="agentLlmReturnFullText"
                         :agent-stt-device="agentSttDevice" :agent-stt-d-type="agentSttDType"
                         :agent-tts-device="agentTtsDevice" :agent-tts-d-type="agentTtsDType"
+                        :agent-llm-device="agentLlmDevice" :agent-llm-d-type="agentLlmDType"
                         :agent-ui-max-transcripts="agentUiMaxTranscripts"
                         :agent-ui-max-assistant-replies="agentUiMaxAssistantReplies"
                         :agent-ui-max-conversation-items="agentUiMaxConversationItems" />
@@ -638,13 +639,18 @@ const agentUiMaxAssistantReplies = ref<number>(0);
 const agentUiMaxConversationItems = ref<number>(0);
 
 // Backend device/dtype knobs
-const agentSttDevice = ref<string>("webgpu");
+const agentSttDevice = ref<string>("wasm");
 const agentSttDType = ref<Record<string, string>>({
     encoder_model: "fp32",
     decoder_model_merged: "fp32",
 });
-const agentTtsDevice = ref<string>("webgpu");
+const agentTtsDevice = ref<string>("wasm");
 const agentTtsDType = ref<string>("fp32");
+const agentLlmDevice = ref<string>("wasm");
+const agentLlmDType = ref<string>("fp32");
+
+// Force LLM on WASM as well for autonomous agent headless stability
+// (LLM device is controlled inside the worker; set via options below)
 
 onMounted(async () => {
     console.debug("[MainScene] Initialized");

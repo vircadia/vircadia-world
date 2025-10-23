@@ -47,48 +47,48 @@ export default defineConfig(({ command }) => {
             host: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEV_HOST,
             port: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_DEV_PORT,
             strictPort: true,
-            // headers: {
-            //     // WebGPU requires cross-origin isolation
-            //     "Cross-Origin-Embedder-Policy": "require-corp",
-            //     "Cross-Origin-Opener-Policy": "same-origin",
-            // },
+            headers: {
+                // WebGPU requires cross-origin isolation
+                "Cross-Origin-Embedder-Policy": "require-corp",
+                "Cross-Origin-Opener-Policy": "same-origin",
+            },
         },
         preview: {
             host: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_PROD_HOST,
             port: clientBrowserConfiguration.VRCA_CLIENT_WEB_BABYLON_JS_PROD_PORT,
             strictPort: true,
-            // headers: {
-            //     // WebGPU requires cross-origin isolation
-            //     "Cross-Origin-Embedder-Policy": "require-corp",
-            //     "Cross-Origin-Opener-Policy": "same-origin",
-            // },
+            headers: {
+                // WebGPU requires cross-origin isolation
+                "Cross-Origin-Embedder-Policy": "require-corp",
+                "Cross-Origin-Opener-Policy": "same-origin",
+            },
         },
         envPrefix: "VRCA_CLIENT_",
         assetsInclude: ["**/*.vertex", "**/*.fragment"],
         build: {
-			target: "esnext",
-			chunkSizeWarningLimit: 3000, // Increased warning limit temporarily
-			sourcemap: true,
-			minify: true,
-			reportCompressedSize: true,
-			cssCodeSplit: true,
-			rollupOptions: {
-				output: {
-					manualChunks: {
-						vendor_vue: ["vue", "vue-router", "pinia", "vuetify"],
-						vendor_babylon: [
-							"@babylonjs/core",
-							"@babylonjs/inspector",
-							"@babylonjs/loaders",
-							"@babylonjs/havok",
-						],
-						// vendor_auth: ["@azure/msal-browser"],
-						// vendor_lodash: ["lodash-es"],
-						// vendor_ai: ["@huggingface/transformers", "kokoro-js"],
-						// vendor_sdk: ["@vircadia/world-sdk/browser/vue"],
-					},
-				},
-			},
+            target: "esnext",
+            chunkSizeWarningLimit: 3000, // Increased warning limit temporarily
+            sourcemap: true,
+            minify: true,
+            reportCompressedSize: true,
+            cssCodeSplit: true,
+            rollupOptions: {
+                output: {
+                    manualChunks: {
+                        vendor_vue: ["vue", "vue-router", "pinia", "vuetify"],
+                        vendor_babylon: [
+                            "@babylonjs/core",
+                            "@babylonjs/inspector",
+                            "@babylonjs/loaders",
+                            "@babylonjs/havok",
+                        ],
+                        // vendor_auth: ["@azure/msal-browser"],
+                        // vendor_lodash: ["lodash-es"],
+                        // vendor_ai: ["@huggingface/transformers", "kokoro-js"],
+                        // vendor_sdk: ["@vircadia/world-sdk/browser/vue"],
+                    },
+                },
+            },
         },
         worker: {
             // Ensure workers are built as ES modules to support code-splitting

@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 
+// TODO: Make this a CLI script in the CLI file if the global variables will work.
+
 import { clientBrowserConfiguration } from "@vircadia/world-sdk/browser/vue";
 import { type Browser, chromium, type Page } from "playwright";
 
@@ -32,6 +34,11 @@ async function startApplication(): Promise<void> {
             "--enable-webgpu",
             "--enable-unsafe-webgpu",
             "--ignore-gpu-blocklist",
+            // Cross-origin isolation and workers features for ONNX/Transformers
+            "--enable-features=SharedArrayBuffer,WebAssemblyThreads,WebAssemblySimd,WebAssemblySimd128,WebAssemblyTiering,WebAssemblyLazyCompilation",
+            // ANGLE SwiftShader fallback if hardware WebGPU is unstable
+            "--use-angle=swiftshader",
+            "--use-gl=swiftshader",
             // Fake audio device support
             // "--use-fake-device-for-media-stream",
             "--use-fake-ui-for-media-stream",
@@ -70,7 +77,7 @@ async function startApplication(): Promise<void> {
     await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
 
     // Wait for canvas element to exist
-    await page.waitForSelector("canvas", { timeout: 10000 });
+    await page.waitForSelector("canvas", { timeout: 30000 });
     console.log("✅ Canvas found");
 
     // Wait for Babylon.js scene to be ready by checking the window state

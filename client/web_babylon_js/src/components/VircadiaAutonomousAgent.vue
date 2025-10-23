@@ -356,10 +356,8 @@
 </template>
 
 <script setup lang="ts">
-import type { Scene, WebGPUEngine } from "@babylonjs/core";
-import {
-    clientBrowserState,
-} from "@vircadia/world-sdk/browser/vue";
+import type { Engine, Scene, WebGPUEngine } from "@babylonjs/core";
+import { clientBrowserState } from "@vircadia/world-sdk/browser/vue";
 import {
     computed,
     inject,
@@ -388,7 +386,7 @@ type WebRTCRefApi = {
 
 const props = defineProps({
     scene: { type: Object as () => Scene | null, required: true },
-    engine: { type: Object as () => WebGPUEngine | null, required: true },
+    engine: { type: Object as () => Engine | WebGPUEngine | null, required: true },
     canvas: { type: Object as () => HTMLCanvasElement | null, required: true },
     vircadiaWorld: {
         type: Object as () => VircadiaWorldInstance | null,
@@ -457,7 +455,7 @@ const props = defineProps({
     agentLlmTemperature: { type: Number, required: true },
     agentLlmTopP: { type: Number, required: true },
     agentLlmReturnFullText: { type: Boolean, required: true },
-    // Device/dtype for STT/TTS workers
+    // Device/dtype for STT/TTS/LLM workers
     agentSttDevice: { type: String, required: true },
     agentSttDType: {
         type: Object as () => Record<string, string>,
@@ -465,6 +463,8 @@ const props = defineProps({
     },
     agentTtsDevice: { type: String, required: true },
     agentTtsDType: { type: String, required: true },
+    agentLlmDevice: { type: String, required: true },
+    agentLlmDType: { type: String, required: true },
     // UI history limits (0 or less means unlimited)
     agentUiMaxTranscripts: { type: Number, required: true },
     agentUiMaxAssistantReplies: { type: Number, required: true },
@@ -1179,7 +1179,12 @@ function initLlmWorkerOnce(): void {
         });
         llmLoading.value = true;
         llmStep.value = "Initializing LLM (worker)";
-        worker.postMessage({ type: "load", modelId: props.agentLlmModelId });
+        worker.postMessage({
+            type: "load",
+            modelId: props.agentLlmModelId,
+            device: String(props.agentLlmDevice || "wasm"),
+            dtype: String(props.agentLlmDType || "fp32"),
+        });
         llmWorkerRef.value = worker;
     } catch (e) {
         console.error("[Agent LLM] Failed to init worker:", e);

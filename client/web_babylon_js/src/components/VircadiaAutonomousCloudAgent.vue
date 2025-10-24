@@ -65,23 +65,8 @@
                                     <v-progress-linear :model-value="rmsPct" color="secondary" height="6" rounded
                                         class="flex-grow-1 min-w-[160px]" />
                                     <span class="text-caption text-medium-emphasis ml-2">{{ rmsLevel.toFixed(2)
-                                        }}</span>
+                                    }}</span>
                                 </div>
-                            </div>
-                        </v-card>
-                    </v-col>
-                </v-row>
-
-                <!-- Thinking -->
-                <v-row v-if="thinkingText">
-                    <v-col cols="12">
-                        <v-card variant="outlined" class="pa-3" color="grey-darken-4">
-                            <div class="d-flex align-center mb-2">
-                                <v-icon class="mr-2">mdi-lightbulb-on</v-icon>
-                                <v-card-subtitle class="pr-2">Thinking</v-card-subtitle>
-                            </div>
-                            <div class="text-caption text-medium-emphasis ml-1 wrap-anywhere">
-                                {{ thinkingText }}
                             </div>
                         </v-card>
                     </v-col>
@@ -119,13 +104,27 @@
                                                 </span>
                                                 <span class="font-weight-medium">{{ msg.role === 'user' ? 'You' :
                                                     'Assistant'
-                                                    }}</span>
+                                                }}</span>
                                             </v-list-item-title>
                                             <v-list-item-subtitle class="mt-1 wrap-anywhere"
                                                 :class="msg.role === 'user' ? 'text-high-emphasis' : ''">
                                                 {{ msg.text }}
                                             </v-list-item-subtitle>
                                         </v-list-item>
+                                        <v-expansion-panels v-if="msg.role === 'assistant' && msg.thinking"
+                                            variant="accordion" density="compact" class="mt-1">
+                                            <v-expansion-panel>
+                                                <v-expansion-panel-title>
+                                                    <v-icon size="small" class="mr-2">mdi-lightbulb-on</v-icon>
+                                                    <span class="text-caption">Thinking</span>
+                                                </v-expansion-panel-title>
+                                                <v-expansion-panel-text>
+                                                    <div class="text-caption text-medium-emphasis wrap-anywhere">
+                                                        {{ msg.thinking }}
+                                                    </div>
+                                                </v-expansion-panel-text>
+                                            </v-expansion-panel>
+                                        </v-expansion-panels>
                                         <v-divider class="my-1" />
                                     </template>
                                 </v-list>
@@ -272,21 +271,21 @@ function addTranscript(peerId: string, text: string): void {
     if (limit > 0 && transcripts.value.length > limit) transcripts.value.splice(0, transcripts.value.length - limit);
 }
 
-type LlmEntry = { text: string; at: number };
+type LlmEntry = { text: string; thinking?: string; at: number };
 const llmOutputs = ref<LlmEntry[]>([]);
-function addLlmOutput(text: string): void {
+function addLlmOutput(text: string, thinking?: string): void {
     const t = (text || "").trim();
     if (!t) return;
-    llmOutputs.value.push({ text: t, at: Date.now() });
+    llmOutputs.value.push({ text: t, thinking: thinking?.trim() || undefined, at: Date.now() });
     const limit = Number((props as unknown as { agentUiMaxAssistantReplies?: number }).agentUiMaxAssistantReplies || 0);
     if (limit > 0 && llmOutputs.value.length > limit) llmOutputs.value.splice(0, llmOutputs.value.length - limit);
 }
 
-type ConversationItem = { role: "user" | "assistant"; text: string; at: number; key: string };
+type ConversationItem = { role: "user" | "assistant"; text: string; thinking?: string; at: number; key: string };
 const conversationItems = computed<ConversationItem[]>(() => {
     const items: ConversationItem[] = [];
     for (const t of transcriptsLimited.value) items.push({ role: "user", text: t.text, at: t.at, key: `u:${t.at}:${t.peerId}` });
-    for (const l of llmOutputs.value) items.push({ role: "assistant", text: l.text, at: l.at, key: `a:${l.at}` });
+    for (const l of llmOutputs.value) items.push({ role: "assistant", text: l.text, thinking: l.thinking, at: l.at, key: `a:${l.at}` });
     items.sort((a, b) => a.at - b.at);
     const limit = Number((props as unknown as { agentUiMaxConversationItems?: number }).agentUiMaxConversationItems || 0);
     return limit > 0 ? items.slice(-limit) : items;
@@ -296,7 +295,11 @@ const conversationItemsReversed = computed<ConversationItem[]>(() => [...convers
 // LLM/TTS state
 const llmGenerating = ref<boolean>(false);
 const ttsGenerating = ref<boolean>(false);
-const thinkingText = ref<string>("");
+
+// TTS output stream for avatar talking detection
+const ttsOutputStream = ref<MediaStream | null>(null);
+const ttsDestinationNode = ref<MediaStreamAudioDestinationNode | null>(null);
+const ttsAudioContext = ref<AudioContext | null>(null);
 
 // Worklet loader
 const sttWorkletLoaded = new WeakSet<AudioContext>();
@@ -485,7 +488,9 @@ async function submitToLlm(peerId: string, text: string, _opts?: { incomplete?: 
             return `Guidance: If input seems partial, output exactly <no-reply/>. If sufficient follow up has been provided after you replied <no-reply/> then reply with a response.`;
         })();
         const systemPrefix = "System: You are an in-world assistant. Be concise and conversational.";
-        const prompt = `${systemPrefix}\n${gating}\n${history ? `Chat history:\n${history}\n` : ""}\nUser: ${t}\n\nAssistant:`;
+        // Build a single conversation block that already includes the latest user message via transcripts/history.
+        // Do not append an extra User line here to avoid duplication.
+        const prompt = `${systemPrefix}\n${gating}\n${history ? `Conversation:\n${history}\n` : ""}\nAssistant:`;
         llmGenerating.value = true;
         const resp = await client.restInference.llm({
             prompt,
@@ -496,9 +501,8 @@ async function submitToLlm(peerId: string, text: string, _opts?: { incomplete?: 
         if (resp?.success && resp.text) {
             const cleaned = extractAssistantText(resp.text).trim();
             const { cleanText, thinking } = parseThinkingTags(cleaned);
-            if (thinking) { thinkingText.value = thinking; }
             if (cleanText.includes("<no-reply/>")) { scheduleNoReplyTimer(peerId, t); return; }
-            if (cleanText) { addLlmOutput(cleanText); ttsQueue.push(cleanText); void flushTtsQueue(); }
+            if (cleanText) { addLlmOutput(cleanText, thinking); ttsQueue.push(cleanText); void flushTtsQueue(); }
         }
     } catch (e) {
         llmGenerating.value = false;
@@ -511,6 +515,21 @@ const ttsQueue: string[] = [];
 const isSpeaking = ref<boolean>(false);
 async function flushTtsQueue(): Promise<void> { if (isSpeaking.value || ttsQueue.length === 0) return; const next = ttsQueue.shift(); if (!next) return; isSpeaking.value = true; try { await speakServerTts(next); } finally { isSpeaking.value = false; if (ttsQueue.length > 0) void flushTtsQueue(); } }
 
+// Initialize TTS output stream for avatar talking detection
+async function initTtsOutputStream(): Promise<void> {
+    if (ttsDestinationNode.value) return;
+    try {
+        const ctx = new AudioContext();
+        await ctx.resume();
+        const dest = ctx.createMediaStreamDestination();
+        ttsAudioContext.value = ctx;
+        ttsDestinationNode.value = dest;
+        ttsOutputStream.value = dest.stream;
+    } catch (e) {
+        console.warn("[CloudAgent] Failed to init TTS output stream:", e);
+    }
+}
+
 async function speakServerTts(text: string, forceLocalEcho = false): Promise<void> {
     try {
         const api = webrtc.value;
@@ -519,9 +538,12 @@ async function speakServerTts(text: string, forceLocalEcho = false): Promise<voi
         const useBus = !!api && hasPeers;
         if (!allowLocalEcho && !useBus) return;
 
+        // Ensure TTS output stream is initialized
+        await initTtsOutputStream();
+
         if (useBus && api) { try { await api.ensureUplinkDestination(); } catch { } }
         const busCtx = useBus && api ? api.getUplinkAudioContext() || null : null;
-        const ctx = busCtx || new AudioContext();
+        const ctx = busCtx || ttsAudioContext.value || new AudioContext();
         try { await ctx.resume(); } catch { }
 
         // Request TTS audio from server
@@ -530,22 +552,52 @@ async function speakServerTts(text: string, forceLocalEcho = false): Promise<voi
         const audioBlob = await client.restInference.tts({ text, responseFormat: "wav" });
         ttsGenerating.value = false;
         const arrayBuf = await audioBlob.arrayBuffer();
-        const audioBuffer = await ctx.decodeAudioData(arrayBuf.slice(0));
+
+        // Decode audio buffers for both contexts in parallel
+        const ttsCtx = ttsAudioContext.value;
+        const [ttsBuffer, audioBuffer] = await Promise.all([
+            ttsCtx && ttsDestinationNode.value ? ttsCtx.decodeAudioData(arrayBuf.slice(0)).catch(() => null) : Promise.resolve(null),
+            ctx.decodeAudioData(arrayBuf.slice(0)),
+        ]);
+
+        // Start both audio paths simultaneously
+        const promises: Promise<void>[] = [];
+
+        // Avatar detection audio path
+        if (ttsBuffer && ttsCtx && ttsDestinationNode.value) {
+            try {
+                const ttsSource = ttsCtx.createBufferSource();
+                ttsSource.buffer = ttsBuffer;
+                const ttsGain = ttsCtx.createGain();
+                ttsGain.gain.value = 1.25;
+                ttsSource.connect(ttsGain);
+                ttsGain.connect(ttsDestinationNode.value);
+                promises.push(new Promise<void>((resolve) => { ttsSource.addEventListener("ended", () => resolve()); ttsSource.start(); }));
+            } catch (e) {
+                console.warn("[CloudAgent] Failed to play TTS for avatar detection:", e);
+            }
+        }
+
+        // WebRTC/playback audio path
         const source = ctx.createBufferSource();
         source.buffer = audioBuffer;
         const gain = ctx.createGain();
         gain.gain.value = 1.25;
         source.connect(gain);
+
         if (useBus && api) { api.connectNodeToUplink(gain); await api.replaceUplinkWithDestination(); }
         if (allowLocalEcho) { try { gain.connect(ctx.destination); } catch { } }
-        await new Promise<void>((resolve) => { source.addEventListener("ended", () => resolve()); try { const t = ctx.currentTime; gain.gain.setValueAtTime(0.0001, t); gain.gain.exponentialRampToValueAtTime(1.25, t + 0.02); } catch { } source.start(); });
+        promises.push(new Promise<void>((resolve) => { source.addEventListener("ended", () => resolve()); try { const t = ctx.currentTime; gain.gain.setValueAtTime(0.0001, t); gain.gain.exponentialRampToValueAtTime(1.25, t + 0.02); } catch { } source.start(); }));
+
+        // Wait for both audio paths to complete
+        await Promise.all(promises);
     } catch (e) {
         ttsGenerating.value = false;
         console.warn("[CloudAgent] TTS error:", e);
     }
 }
 
-async function testServerTTS(): Promise<void> { await speakServerTts("Hello! This is a test of the cloud agent TTS.", true); }
+async function testServerTTS(): Promise<void> { await speakServerTts("Hello! This is a test of the cloud agent TTS system.", true); }
 
 async function testServerLLM(): Promise<void> {
     try {
@@ -586,6 +638,9 @@ async function attachMic(): Promise<void> {
 watch(() => props.vircadiaWorld?.connectionInfo.value.status, async (status) => {
     if (!featureEnabled.value) return;
     if (status === "connected") {
+        if (props.agentEnableTts) {
+            await initTtsOutputStream();
+        }
         if (props.agentEnableStt) {
             initVadWorkerOnce();
             const mode = props.agentSttInputMode;
@@ -621,7 +676,14 @@ watch(() => props.agentSttInputMode, async (mode) => {
     else if (mode === "both") { for (const [pid, stream] of remoteStreamsRef.value) attachStream(pid, stream); await attachMic(); }
 }, { immediate: false });
 
-onUnmounted(() => { for (const [pid] of peerProcessors) detachStream(pid); try { const w = vadWorkerRef.value; if (w) w.terminate(); } catch { } });
+onUnmounted(() => {
+    for (const [pid] of peerProcessors) detachStream(pid);
+    try { const w = vadWorkerRef.value; if (w) w.terminate(); } catch { }
+    try { const ctx = ttsAudioContext.value; if (ctx) ctx.close(); } catch { }
+});
+
+// Expose TTS output stream for parent refs
+defineExpose({ ttsOutputStream });
 </script>
 
 <style>

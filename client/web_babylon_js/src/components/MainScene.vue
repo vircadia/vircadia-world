@@ -199,7 +199,7 @@
                                         :agent-ui-max-assistant-replies="agentUiMaxAssistantReplies"
                                         :agent-ui-max-conversation-items="agentUiMaxConversationItems" />
 
-                                    <VircadiaAutonomousCloudAgent :vircadia-world="vircadiaWorld"
+                                    <VircadiaAutonomousCloudAgent ref="cloudAgentRef" :vircadia-world="vircadiaWorld"
                                         :webrtc-ref="webrtcApi" :webrtc-local-stream="webrtcLocalStream"
                                         :webrtc-peers="webrtcPeersMap" :webrtc-remote-streams="webrtcRemoteStreamsMap"
                                         :agent-tts-local-echo="agentTtsLocalEcho" :agent-wake-word="agentWakeWord"
@@ -256,7 +256,7 @@
                                                     :fly-mode-toggle-codes="['KeyF']" :crouch-toggle-codes="['KeyC']"
                                                     :prone-toggle-codes="['KeyZ']" :slow-run-toggle-codes="[]"
                                                     v-slot="controls">
-                                                    <BabylonMyAvatarTalking
+                                                    <BabylonMyAvatarTalking :audio-stream="ttsOutputStream"
                                                         v-slot="{ isTalking, level: talkLevel, devices: audioDevices, threshold: talkThreshold }">
                                                         <BabylonMyAvatar :scene="providedScene"
                                                             :vircadia-world="vircadiaWorld"
@@ -558,6 +558,7 @@ type WebRTCRefApi = {
 const webrtcRef = ref<(ComponentPublicInstance & Partial<WebRTCRefApi>) | null>(
     null,
 );
+const cloudAgentRef = ref<ComponentPublicInstance | null>(null);
 const webrtcApi = computed<WebRTCRefApi | null>(() =>
     webrtcRef.value
         ? {
@@ -585,6 +586,9 @@ const webrtcApi = computed<WebRTCRefApi | null>(() =>
                 webrtcRef.value?.connectNodeToUplink?.(node),
         }
         : null,
+);
+const ttsOutputStream = computed<MediaStream | null>(() =>
+    (cloudAgentRef.value as { ttsOutputStream?: MediaStream | null })?.ttsOutputStream ?? null
 );
 
 // Reactive mirrors of WebRTC internals

@@ -21,7 +21,6 @@ import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.v
 
 const props = defineProps({
     scene: { type: Object as () => Scene, default: null },
-    engine: { type: Object as () => WebGPUEngine, default: null },
     canvas: { type: Object as () => HTMLCanvasElement, default: null },
     vircadiaWorld: { type: Object as () => VircadiaWorldInstance, default: null },
 });

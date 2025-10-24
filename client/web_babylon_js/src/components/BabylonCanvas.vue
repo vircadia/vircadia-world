@@ -1,46 +1,54 @@
 <template>
     <canvas ref="canvasRef" id="renderCanvas"></canvas>
+    <slot :scene="readyScene" :canvas="canvasRef">
+    </slot>
 </template>
 
 <script setup lang="ts">
 import { ArcRotateCamera, Engine, Scene, Vector3, WebGPUEngine } from "@babylonjs/core";
-import { nextTick, onMounted, onUnmounted, ref, toRef, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, toRef, watch } from "vue";
 
+// Define models for two-way binding
+const performanceMode = defineModel<"normal" | "low">("performanceMode", { default: "low" });
+const renderLoopEnabled = defineModel<boolean>("renderLoopEnabled", { default: true });
+
+// Props for read-only values
 const props = defineProps({
-    performanceMode: { type: String, default: "low" },
     targetFps: { type: Number, default: 30 },
-    // for v-model:fps from parent
-    fps: { type: Number, default: 0 },
 });
 
-const emit = defineEmits(["update:performanceMode", "update:fps", "ready"]);
-
 // Internal refs
-const canvasRef = ref(null);
-let engine: Engine | WebGPUEngine | null = null;
+const canvasRef = ref<HTMLCanvasElement | null>(null);
+let webGlEngine: Engine | null = null;
+let webGpuEngine: WebGPUEngine | null = null;
 let scene: Scene | null = null;
-const isReady = ref(false);
 let resizeRaf = 0;
+const sceneReady = ref(false);
+const readyScene = computed(() => sceneReady.value ? scene : null);
 
 // Physics is initialized and managed by BabylonEnvironment.vue
 
 function handleResize() {
     if (resizeRaf) cancelAnimationFrame(resizeRaf);
     resizeRaf = requestAnimationFrame(() => {
-        if (!engine) throw new Error("Engine not found");
-        resizeRaf = 0;
-        // Avoid resizing while commands for the previous frame may still reference old swapchain
-        engine.resize();
+        if (webGlEngine) {
+            webGlEngine.resize();
+            resizeRaf = 0;
+        } else if (webGpuEngine) {
+            webGpuEngine.resize();
+            resizeRaf = 0;
+        } else {
+            throw new Error("Engine not found");
+        }
     });
 }
 
 // Render loop control
 let isRenderLoopRunning = false;
 let lastFrameTime = 0;
-let lastFpsEmitTime = 0;
 
 function getCurrentPerformanceMode() {
-    return props.performanceMode ?? "low";
+    return performanceMode.value ?? "low";
 }
 
 function getCurrentTargetFps() {
@@ -48,29 +56,17 @@ function getCurrentTargetFps() {
 }
 
 function startRenderLoop() {
-    if (!engine || !scene) throw new Error("Engine or scene not found");
+    if (!scene) throw new Error("Scene not found");
+    const engine = webGlEngine ?? webGpuEngine;
+    if (!engine) throw new Error("Engine not found");
     if (isRenderLoopRunning) {
         // restart to apply any changes
         engine.stopRenderLoop();
     }
-
-    // Resize is handled on mount and via rAF-throttled window resize
-
     const mode = getCurrentPerformanceMode();
     if (mode === "normal") {
         engine.runRenderLoop(() => {
-            if (!engine) throw new Error("Engine not found");
             scene?.render();
-            // throttle FPS emit to ~2Hz
-            const now = performance.now();
-            if (now - lastFpsEmitTime >= 500) {
-                const currentFps = Math.round(engine.getFps());
-                // Defer FPS update to avoid recursive updates
-                nextTick(() => {
-                    emit("update:fps", currentFps);
-                });
-                lastFpsEmitTime = now;
-            }
         });
     } else {
         const frameInterval = 1000 / Math.max(1, getCurrentTargetFps());
@@ -82,15 +78,6 @@ function startRenderLoop() {
             if (deltaTime >= frameInterval) {
                 scene?.render();
                 lastFrameTime = currentTime - (deltaTime % frameInterval);
-                // throttle FPS emit to ~2Hz
-                if (currentTime - lastFpsEmitTime >= 500) {
-                    const currentFps = Math.round(engine.getFps());
-                    // Defer FPS update to avoid recursive updates
-                    nextTick(() => {
-                        emit("update:fps", currentFps);
-                    });
-                    lastFpsEmitTime = currentTime;
-                }
             }
         });
     }
@@ -99,30 +86,26 @@ function startRenderLoop() {
 }
 
 function stopRenderLoop() {
-    if (!engine) return;
+    const engine = webGlEngine ?? webGpuEngine;
+    if (!engine) throw new Error("Engine not found");
     engine.stopRenderLoop();
     isRenderLoopRunning = false;
 }
 
-function setPerformanceMode(mode: "normal" | "low") {
-    emit("update:performanceMode", mode);
+// React to external performance mode changes
+watch(performanceMode, () => {
     if (isRenderLoopRunning) {
-        // restart loop with new settings
         stopRenderLoop();
         startRenderLoop();
     }
-}
+});
 
-function togglePerformanceMode() {
-    const next = getCurrentPerformanceMode() === "normal" ? "low" : "normal";
-    setPerformanceMode(next);
-}
-
-// React to external performance prop changes
-watch(toRef(props, "performanceMode"), () => {
-    if (isRenderLoopRunning) {
-        stopRenderLoop();
+// React to render loop enabled changes
+watch(renderLoopEnabled, (enabled) => {
+    if (enabled && !isRenderLoopRunning) {
         startRenderLoop();
+    } else if (!enabled && isRenderLoopRunning) {
+        stopRenderLoop();
     }
 });
 
@@ -133,32 +116,14 @@ watch(toRef(props, "targetFps"), () => {
     }
 });
 
-// Exposed API to parent/components via ref
-const api = {
-    getScene: () => scene,
-    getEngine: () => engine,
-    getCanvas: () => canvasRef.value,
-    getFps: () => (engine ? engine.getFps() : 0),
-    getPerformanceMode: () => getCurrentPerformanceMode(),
-    getIsReady: () => isReady.value,
-    startRenderLoop,
-    stopRenderLoop,
-    togglePerformanceMode,
-    setPerformanceMode,
-};
-
-defineExpose(api);
-
 onMounted(async () => {
-    await nextTick();
-
     if (!canvasRef.value) {
-        console.error("Canvas not found.");
-        return;
+        throw new Error("Canvas not found.");
     }
 
     try {
         // Toggle: use WebGL for autonomous agent runs
+        // TODO: This has to be gotten from browser state.
         const isAutonomousAgent =
             (typeof sessionStorage !== "undefined" &&
                 sessionStorage.getItem("is_autonomous_agent") === "true") ||
@@ -166,7 +131,7 @@ onMounted(async () => {
             true;
 
         if (isAutonomousAgent) {
-            engine = new Engine(canvasRef.value, true, {
+            webGlEngine = new Engine(canvasRef.value, true, {
                 antialias: true,
                 adaptToDeviceRatio: true,
                 preserveDrawingBuffer: false,
@@ -181,9 +146,9 @@ onMounted(async () => {
                     adaptToDeviceRatio: true,
                 });
                 await webgpu.initAsync();
-                engine = webgpu;
+                webGpuEngine = webgpu;
             } else {
-                engine = new Engine(canvasRef.value, true, {
+                webGlEngine = new Engine(canvasRef.value, true, {
                     antialias: true,
                     adaptToDeviceRatio: true,
                     preserveDrawingBuffer: false,
@@ -192,9 +157,15 @@ onMounted(async () => {
             }
         }
 
-        if (!engine) throw new Error("Engine not created");
+        if (!webGlEngine && !webGpuEngine) throw new Error("Engine not created");
+        const engine = webGlEngine ?? webGpuEngine;
+        if (!engine) throw new Error("Engine not found");
 
-        scene = new Scene(engine as Engine);
+        scene = new Scene(engine);
+        // Track scene readiness reactively
+        scene.executeWhenReady(() => {
+            sceneReady.value = true;
+        });
 
         // Basic camera
         const defaultCamera = new ArcRotateCamera(
@@ -215,26 +186,29 @@ onMounted(async () => {
 
         // Start rendering immediately so scene is visible without waiting for parent
         startRenderLoop();
-
-        // Mark ready and notify parent for backward compatibility
-        isReady.value = true;
-        emit("ready", { scene, engine, canvas: canvasRef.value, api });
     } catch (error) {
         console.error(
-            "WebGPU initialization failed; fallback is disabled.",
+            "BabylonCanvas initialization failed.",
             error,
         );
     }
 });
 
+defineExpose({
+    get scene() { return readyScene.value ?? null },
+    get canvas() { return canvasRef.value ?? null },
+})
+
 onUnmounted(() => {
     window.removeEventListener("resize", handleResize);
     stopRenderLoop();
     scene?.dispose();
-    engine?.dispose();
+    webGlEngine?.dispose();
+    webGpuEngine?.dispose();
     scene = null;
-    engine = null;
-    isReady.value = false;
+    webGlEngine = null;
+    webGpuEngine = null;
+    sceneReady.value = false;
 });
 </script>
 

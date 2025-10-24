@@ -356,7 +356,6 @@
 </template>
 
 <script setup lang="ts">
-import type { Engine, Scene, WebGPUEngine } from "@babylonjs/core";
 import { clientBrowserState } from "@vircadia/world-sdk/browser/vue";
 import {
     computed,
@@ -385,9 +384,6 @@ type WebRTCRefApi = {
 };
 
 const props = defineProps({
-    scene: { type: Object as () => Scene | null, required: true },
-    engine: { type: Object as () => Engine | WebGPUEngine | null, required: true },
-    canvas: { type: Object as () => HTMLCanvasElement | null, required: true },
     vircadiaWorld: {
         type: Object as () => VircadiaWorldInstance | null,
         required: true,

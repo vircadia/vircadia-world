@@ -12,7 +12,19 @@
             <v-window-item value="environment">
                 <v-list density="compact" class="px-2">
                     <v-list-item>
-                        <v-list-item-title>Loading</v-list-item-title>
+                        <v-list-item-title>Scene</v-list-item-title>
+                        <v-list-item-subtitle>{{ scene ? 'yes' : 'no' }}</v-list-item-subtitle>
+                    </v-list-item>
+                    <v-list-item>
+                        <v-list-item-title>Canvas</v-list-item-title>
+                        <v-list-item-subtitle>{{ canvas ? 'yes' : 'no' }}</v-list-item-subtitle>
+                    </v-list-item>
+                    <v-list-item>
+                        <v-list-item-title>Engine</v-list-item-title>
+                        <v-list-item-subtitle>{{ scene?.getEngine()?.constructor?.name || '-' }}</v-list-item-subtitle>
+                    </v-list-item>
+                    <v-list-item>
+                        <v-list-item-title>Babylon Environment</v-list-item-title>
                         <template #append>
                             <v-chip :color="environmentIsLoading ? 'warning' : 'success'" size="small" variant="flat">
                                 {{ environmentIsLoading ? 'Loading' : 'Ready' }}
@@ -577,7 +589,8 @@
     </v-navigation-drawer>
 </template>
 
-<script setup>
+<script setup lang="ts">
+import type { Scene } from "@babylonjs/core";
 import { useIntervalFn, useStorage } from "@vueuse/core";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 
@@ -596,7 +609,8 @@ const props = defineProps({
     physicsError: { type: String, default: null },
     gravity: { type: Array, default: undefined },
     // Avatar debug props (mirrored from MainScene)
-    scene: { type: Object, default: null },
+    scene: { type: Object as () => Scene, default: null },
+    canvas: { type: Object as () => HTMLCanvasElement, default: null },
     avatarNode: { type: Object, default: null },
     avatarSkeleton: { type: Object, default: null },
     modelFileName: { type: String, default: null },

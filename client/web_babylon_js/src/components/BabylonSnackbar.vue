@@ -1,13 +1,7 @@
 <template>
     <v-snackbar :model-value="visible" :timeout="-1" location="bottom" class="app-snackbar">
         <div class="d-flex align-center">
-            <v-progress-circular
-                v-if="showSpinner"
-                indeterminate
-                color="white"
-                size="24"
-                class="mr-2"
-            />
+            <v-progress-circular v-if="showSpinner" indeterminate color="white" size="24" class="mr-2" />
             {{ text }}
         </div>
     </v-snackbar>
@@ -17,7 +11,7 @@
 import { computed } from "vue";
 
 const props = defineProps<{
-    sceneInitialized: boolean;
+    sceneReady: boolean;
     connectionStatus: string;
     isConnecting: boolean;
     environmentLoading: boolean;
@@ -41,7 +35,7 @@ const isLoading = computed(
 
 const visible = computed(
     () =>
-        !props.sceneInitialized ||
+        !props.sceneReady ||
         props.connectionStatus !== "connected" ||
         isLoading.value ||
         props.isConnecting ||
@@ -55,7 +49,7 @@ const showSpinner = computed(
 const text = computed(() => {
     const states: string[] = [];
 
-    if (!props.sceneInitialized) states.push("• Scene: Initializing");
+    if (!props.sceneReady) states.push("• Scene: Not ready");
     else states.push("• Scene: Ready");
 
     if (props.isConnecting) states.push("• Connection: Connecting");
@@ -96,5 +90,3 @@ void text;
     white-space: pre-line;
 }
 </style>
-
-

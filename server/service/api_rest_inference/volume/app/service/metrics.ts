@@ -2,11 +2,16 @@
 // ============================== IMPORTS, TYPES, AND INTERFACES ==============================
 // =============================================================================
 
-import type { Service } from "../../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
-
 // =================================================================================
 // ================ METRICS COLLECTOR: Efficient Query Performance Tracking ==================
 // =================================================================================
+
+interface SystemMetrics {
+    current: number;
+    average: number;
+    p99: number;
+    p999: number;
+}
 
 export class MetricsCollector {
     // System metrics only for REST Inference service
@@ -21,6 +26,15 @@ export class MetricsCollector {
     private totalConnections = 0;
     private failedConnections = 0;
 
+    // Inference-specific metrics
+    private inferenceRequests: number[] = [];
+    private inferenceSuccessCount = 0;
+    private inferenceFailureCount = 0;
+    private llmProcessingTimes: number[] = [];
+    private llmTokensPerSecond: number[] = [];
+    private sttProcessingTimes: number[] = [];
+    private ttsProcessingTimes: number[] = [];
+
     private readonly MAX_SAMPLES = 1000;
 
     private calculatePercentile(values: number[], percentile: number): number {
@@ -30,9 +44,7 @@ export class MetricsCollector {
         return sorted[Math.max(0, index)];
     }
 
-    private createSystemMetrics(
-        values: number[],
-    ): Service.API.Common.I_SystemMetrics {
+    private createSystemMetrics(values: number[]): SystemMetrics {
         const current = values.length > 0 ? values[values.length - 1] : 0;
         const average =
             values.length > 0
@@ -116,14 +128,92 @@ export class MetricsCollector {
             },
         };
     }
-    // Keep a no-op to preserve call sites in inference manager
     recordEndpoint(
         _endpoint: string,
-        _durationMs: number,
+        durationMs: number,
         _requestSizeBytes: number,
         _responseSizeBytes: number,
-        _success: boolean,
-    ) {}
+        success: boolean,
+    ) {
+        this.inferenceRequests.push(durationMs);
+        if (success) {
+            this.inferenceSuccessCount++;
+        } else {
+            this.inferenceFailureCount++;
+        }
+
+        if (this.inferenceRequests.length >= this.MAX_SAMPLES) {
+            this.inferenceRequests.shift();
+        }
+    }
+
+    recordLLMMetrics(processingTimeMs: number, tokensPerSecond?: number) {
+        this.llmProcessingTimes.push(processingTimeMs);
+        if (tokensPerSecond !== undefined) {
+            this.llmTokensPerSecond.push(tokensPerSecond);
+        }
+
+        if (this.llmProcessingTimes.length >= this.MAX_SAMPLES) {
+            this.llmProcessingTimes.shift();
+        }
+        if (this.llmTokensPerSecond.length >= this.MAX_SAMPLES) {
+            this.llmTokensPerSecond.shift();
+        }
+    }
+
+    recordSTTMetrics(processingTimeMs: number) {
+        this.sttProcessingTimes.push(processingTimeMs);
+        if (this.sttProcessingTimes.length >= this.MAX_SAMPLES) {
+            this.sttProcessingTimes.shift();
+        }
+    }
+
+    recordTTSMetrics(processingTimeMs: number) {
+        this.ttsProcessingTimes.push(processingTimeMs);
+        if (this.ttsProcessingTimes.length >= this.MAX_SAMPLES) {
+            this.ttsProcessingTimes.shift();
+        }
+    }
+
+    getInferenceMetrics() {
+        const successRate =
+            this.inferenceSuccessCount + this.inferenceFailureCount > 0
+                ? (this.inferenceSuccessCount /
+                      (this.inferenceSuccessCount +
+                          this.inferenceFailureCount)) *
+                  100
+                : 100;
+
+        return {
+            requests: {
+                total: this.inferenceSuccessCount + this.inferenceFailureCount,
+                successful: this.inferenceSuccessCount,
+                failed: this.inferenceFailureCount,
+                successRate,
+                processingTime: this.createSystemMetrics(
+                    this.inferenceRequests,
+                ),
+            },
+            llm: {
+                processingTime: this.createSystemMetrics(
+                    this.llmProcessingTimes,
+                ),
+                tokensPerSecond: this.createSystemMetrics(
+                    this.llmTokensPerSecond,
+                ),
+            },
+            stt: {
+                processingTime: this.createSystemMetrics(
+                    this.sttProcessingTimes,
+                ),
+            },
+            tts: {
+                processingTime: this.createSystemMetrics(
+                    this.ttsProcessingTimes,
+                ),
+            },
+        };
+    }
 
     reset() {
         this.cpuUserTimes = [];
@@ -136,5 +226,12 @@ export class MetricsCollector {
         this.dbConnectionCounts = [];
         this.totalConnections = 0;
         this.failedConnections = 0;
+        this.inferenceRequests = [];
+        this.inferenceSuccessCount = 0;
+        this.inferenceFailureCount = 0;
+        this.llmProcessingTimes = [];
+        this.llmTokensPerSecond = [];
+        this.sttProcessingTimes = [];
+        this.ttsProcessingTimes = [];
     }
 }

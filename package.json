@@ -63,7 +63,8 @@
             },
             "ml": {
                 "@huggingface/transformers": "^3.7.5",
-                "kokoro-js": "^1.2.1"
+                "kokoro-js": "^1.2.1",
+                "@cerebras/cerebras_cloud_sdk": "^1.56.1"
             },
             "utils": {
                 "lodash-es": "^4.17.21",

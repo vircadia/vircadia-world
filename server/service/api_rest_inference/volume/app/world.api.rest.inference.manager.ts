@@ -7,16 +7,15 @@ import type { Sql } from "postgres";
 import { serverConfiguration } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
 import { BunLogModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
 import { BunPostgresClientModule } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.postgres.module";
-import {
-    AclService,
-    validateJWT,
-} from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.server.auth.module";
+import { AclService } from "../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.server.auth.module";
 import { Communication } from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 import {
     isDockerInternalIP,
     isLocalhostIP,
     isLocalhostOrigin,
 } from "../../../../module/general.server.util";
+import { CerebrasService } from "./service/cerebras";
+import { GroqService } from "./service/groq";
 import { MetricsCollector } from "./service/metrics";
 
 let legacySuperUserSql: Sql | null = null;
@@ -28,6 +27,8 @@ class WorldApiInferenceManager {
     private server: Server<unknown> | undefined;
     private metricsCollector = new MetricsCollector();
     private aclService: AclService | null = null;
+    private cerebrasService = new CerebrasService();
+    private groqService = new GroqService();
 
     private addCorsHeaders(response: Response, req: Request): Response {
         const origin = req.headers.get("origin");
@@ -261,8 +262,44 @@ class WorldApiInferenceManager {
                             type: "debug",
                             data: { pathname: url.pathname },
                         });
+
+                        // LLM endpoint
+                        if (
+                            url.pathname ===
+                                `${Communication.REST_BASE_INFERENCE_PATH}/llm` &&
+                            req.method === "POST"
+                        ) {
+                            return this.handleLLMRequest(req);
+                        }
+
+                        // LLM stream endpoint
+                        if (
+                            url.pathname ===
+                                `${Communication.REST_BASE_INFERENCE_PATH}/llm/stream` &&
+                            req.method === "POST"
+                        ) {
+                            return this.handleLLMStreamRequest(req);
+                        }
+
+                        // STT endpoint
+                        if (
+                            url.pathname ===
+                                `${Communication.REST_BASE_INFERENCE_PATH}/stt` &&
+                            req.method === "POST"
+                        ) {
+                            return this.handleSTTRequest(req);
+                        }
+
+                        // TTS endpoint
+                        if (
+                            url.pathname ===
+                                `${Communication.REST_BASE_INFERENCE_PATH}/tts` &&
+                            req.method === "POST"
+                        ) {
+                            return this.handleTTSRequest(req);
+                        }
+
                         switch (true) {
-                            // Inference endpoints will be added here
                             default:
                                 BunLogModule({
                                     prefix: LOG_PREFIX,
@@ -324,6 +361,303 @@ class WorldApiInferenceManager {
             suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
             type: "info",
         });
+    }
+
+    private async handleLLMRequest(req: Request): Promise<Response> {
+        const startTime = Date.now();
+        try {
+            const body = await req.json();
+            const { prompt, temperature, maxTokens, stopSequences } = body;
+
+            if (!prompt) {
+                return this.createJsonResponse(
+                    { error: "Prompt is required" },
+                    req,
+                    400,
+                );
+            }
+
+            const result = await this.cerebrasService.generateText(prompt, {
+                temperature,
+                maxTokens,
+                stopSequences,
+            });
+
+            // Record metrics
+            this.metricsCollector.recordLLMMetrics(
+                result.processingTimeMs,
+                result.tokensPerSecond,
+            );
+            this.metricsCollector.recordEndpoint(
+                "/llm",
+                Date.now() - startTime,
+                0,
+                0,
+                true,
+            );
+
+            return this.createJsonResponse(
+                {
+                    success: true,
+                    text: result.text,
+                    finishReason: result.finishReason,
+                    tokens: result.tokens,
+                    processingTimeMs: result.processingTimeMs,
+                    tokensPerSecond: result.tokensPerSecond,
+                },
+                req,
+            );
+        } catch (error) {
+            this.metricsCollector.recordEndpoint(
+                "/llm",
+                Date.now() - startTime,
+                0,
+                0,
+                false,
+            );
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Error handling LLM request",
+                error,
+                type: "error",
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+            });
+            return this.createJsonResponse(
+                { error: "Failed to generate text" },
+                req,
+                500,
+            );
+        }
+    }
+
+    private async handleLLMStreamRequest(req: Request): Promise<Response> {
+        const startTime = Date.now();
+        try {
+            const body = await req.json();
+            const { prompt, temperature, maxTokens, stopSequences } = body;
+
+            if (!prompt) {
+                return this.createJsonResponse(
+                    { error: "Prompt is required" },
+                    req,
+                    400,
+                );
+            }
+
+            const cerebrasService = this.cerebrasService;
+            const stream = new ReadableStream({
+                async start(controller) {
+                    try {
+                        for await (const chunk of cerebrasService.generateTextStream(
+                            prompt,
+                            {
+                                temperature,
+                                maxTokens,
+                                stopSequences,
+                            },
+                        )) {
+                            controller.enqueue(
+                                new TextEncoder().encode(
+                                    `data: ${JSON.stringify({ chunk })}\n\n`,
+                                ),
+                            );
+                        }
+                        controller.enqueue(
+                            new TextEncoder().encode("data: [DONE]\n\n"),
+                        );
+                        controller.close();
+                    } catch (error) {
+                        controller.error(error);
+                    }
+                },
+            });
+
+            this.metricsCollector.recordEndpoint(
+                "/llm/stream",
+                Date.now() - startTime,
+                0,
+                0,
+                true,
+            );
+
+            return this.createSseResponse(stream, req);
+        } catch (error) {
+            this.metricsCollector.recordEndpoint(
+                "/llm/stream",
+                Date.now() - startTime,
+                0,
+                0,
+                false,
+            );
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Error handling LLM stream request",
+                error,
+                type: "error",
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+            });
+            return this.createJsonResponse(
+                { error: "Failed to stream text" },
+                req,
+                500,
+            );
+        }
+    }
+
+    private async handleSTTRequest(req: Request): Promise<Response> {
+        const startTime = Date.now();
+        try {
+            const formData = await req.formData();
+            const audioFile = formData.get("audio");
+
+            if (!audioFile || !(audioFile instanceof File)) {
+                return this.createJsonResponse(
+                    { error: "Audio file is required" },
+                    req,
+                    400,
+                );
+            }
+
+            const audioBuffer = await audioFile.arrayBuffer();
+            const language = formData.get("language")?.toString();
+            const prompt = formData.get("prompt")?.toString();
+            const responseFormat = formData.get("responseFormat")?.toString() as
+                | "json"
+                | "text"
+                | "verbose_json"
+                | undefined;
+            const temperatureParam = formData.get("temperature");
+            const temperature = temperatureParam
+                ? Number.parseFloat(temperatureParam.toString())
+                : undefined;
+
+            const result = await this.groqService.speechToText(audioBuffer, {
+                language,
+                prompt,
+                responseFormat,
+                temperature,
+            });
+
+            // Record metrics
+            this.metricsCollector.recordSTTMetrics(result.processingTimeMs);
+            this.metricsCollector.recordEndpoint(
+                "/stt",
+                Date.now() - startTime,
+                audioBuffer.byteLength,
+                0,
+                true,
+            );
+
+            return this.createJsonResponse(
+                {
+                    success: true,
+                    text: result.text,
+                    language: result.language,
+                    processingTimeMs: result.processingTimeMs,
+                    audioDurationMs: result.audioDurationMs,
+                },
+                req,
+            );
+        } catch (error) {
+            this.metricsCollector.recordEndpoint(
+                "/stt",
+                Date.now() - startTime,
+                0,
+                0,
+                false,
+            );
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Error handling STT request",
+                error,
+                type: "error",
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+            });
+            return this.createJsonResponse(
+                { error: "Failed to transcribe audio" },
+                req,
+                500,
+            );
+        }
+    }
+
+    private async handleTTSRequest(req: Request): Promise<Response> {
+        const startTime = Date.now();
+        try {
+            const body = await req.json();
+            const { text, speed, voice, responseFormat } = body;
+
+            if (!text) {
+                return this.createJsonResponse(
+                    { error: "Text is required" },
+                    req,
+                    400,
+                );
+            }
+
+            const result = await this.groqService.textToSpeech(text, {
+                speed,
+                voice,
+                responseFormat,
+            });
+
+            // Record metrics
+            this.metricsCollector.recordTTSMetrics(result.processingTimeMs);
+            this.metricsCollector.recordEndpoint(
+                "/tts",
+                Date.now() - startTime,
+                text.length,
+                result.audio.byteLength,
+                true,
+            );
+
+            // Set Content-Type based on response format
+            const contentType = (() => {
+                switch (responseFormat || "wav") {
+                    case "wav":
+                        return "audio/wav";
+                    case "mp3":
+                        return "audio/mpeg";
+                    case "opus":
+                        return "audio/opus";
+                    case "flac":
+                        return "audio/flac";
+                    default:
+                        return "audio/wav";
+                }
+            })();
+
+            return new Response(result.audio, {
+                headers: {
+                    "Content-Type": contentType,
+                    "Content-Length": result.audio.byteLength.toString(),
+                },
+            });
+        } catch (error) {
+            this.metricsCollector.recordEndpoint(
+                "/tts",
+                Date.now() - startTime,
+                0,
+                0,
+                false,
+            );
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Error handling TTS request",
+                error,
+                type: "error",
+                debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+            });
+            return this.createJsonResponse(
+                { error: "Failed to synthesize speech" },
+                req,
+                500,
+            );
+        }
     }
 
     async shutdown(): Promise<void> {

@@ -42,21 +42,21 @@
                                         {{ props.agentEnableTts ? 'mdi-check-circle' : 'mdi-circle-outline' }}
                                     </v-icon>
                                     <span>TTS ({{ ttsModelName }}): {{ props.agentEnableTts ? 'Enabled' : 'Disabled'
-                                        }}</span>
+                                    }}</span>
                                 </div>
                                 <div class="d-flex align-center mb-2">
                                     <v-icon :color="props.agentEnableLlm ? 'success' : 'grey'" class="mr-2">
                                         {{ props.agentEnableLlm ? 'mdi-check-circle' : 'mdi-circle-outline' }}
                                     </v-icon>
                                     <span>LLM ({{ llmModelName }}): {{ props.agentEnableLlm ? 'Enabled' : 'Disabled'
-                                        }}</span>
+                                    }}</span>
                                 </div>
                                 <div class="d-flex align-center">
                                     <v-icon :color="props.agentEnableStt ? 'success' : 'grey'" class="mr-2">
                                         {{ props.agentEnableStt ? 'mdi-check-circle' : 'mdi-circle-outline' }}
                                     </v-icon>
                                     <span>STT ({{ sttModelName }}): {{ props.agentEnableStt ? 'Enabled' : 'Disabled'
-                                        }}</span>
+                                    }}</span>
                                 </div>
                             </div>
                         </v-card>
@@ -71,12 +71,12 @@
                                 <v-progress-circular indeterminate color="primary" size="20" class="mr-2" />
                                 <div class="d-flex flex-column">
                                     <span>• LLM ({{ llmModelName }}): {{ llmLoading ? (llmStep || 'Loading') : 'Ready'
-                                        }}</span>
+                                    }}</span>
                                     <span>• TTS ({{ ttsModelName }}): {{ kokoroLoading ? (kokoroStep || 'Loading') :
                                         'Ready'
-                                        }}</span>
+                                    }}</span>
                                     <span>• STT ({{ sttModelName }}): {{ sttLoading ? (sttStep || 'Loading') : 'Ready'
-                                        }}</span>
+                                    }}</span>
                                 </div>
                             </div>
                         </v-alert>
@@ -111,10 +111,10 @@
                                             <v-list-item-title>
                                                 <code>{{ new Date(item.at).toLocaleTimeString() }}</code>
                                                 <span class="ml-2 text-medium-emphasis">[{{ peerDisplayName(item.peerId)
-                                                    }}]</span>
+                                                }}]</span>
                                             </v-list-item-title>
                                             <v-list-item-subtitle class="wrap-anywhere">{{ item.text
-                                                }}</v-list-item-subtitle>
+                                            }}</v-list-item-subtitle>
                                         </v-list-item>
                                         <v-divider class="my-1" />
                                     </template>
@@ -206,7 +206,7 @@
                                 <div v-if="sttLoading" class="ml-6">
                                     <v-progress-linear indeterminate color="primary" height="4" class="mb-1" />
                                     <span class="text-caption text-medium-emphasis">{{ sttStep || 'Initializing...'
-                                        }}</span>
+                                    }}</span>
                                 </div>
                                 <div v-else-if="sttPipeline" class="ml-6">
                                     <span class="text-caption text-success">Model loaded successfully</span>
@@ -237,7 +237,7 @@
                                         <v-progress-linear :model-value="rmsPct" color="secondary" height="6" rounded
                                             class="flex-grow-1" />
                                         <span class="text-caption text-medium-emphasis ml-2">{{ rmsLevel.toFixed(2)
-                                        }}</span>
+                                            }}</span>
                                     </div>
                                 </div>
                                 <!-- STT Inputs status -->
@@ -318,7 +318,7 @@
                                                 </span>
                                                 <span class="font-weight-medium">{{ msg.role === 'user' ? 'You' :
                                                     'Assistant'
-                                                    }}</span>
+                                                }}</span>
                                             </v-list-item-title>
                                             <v-list-item-subtitle class="mt-1 wrap-anywhere"
                                                 :class="msg.role === 'user' ? 'text-high-emphasis' : ''">
@@ -449,7 +449,6 @@ const props = defineProps({
     // LLM generation options
     agentLlmMaxNewTokens: { type: Number, required: true },
     agentLlmTemperature: { type: Number, required: true },
-    agentLlmTopP: { type: Number, required: true },
     agentLlmReturnFullText: { type: Boolean, required: true },
     // Device/dtype for STT/TTS/LLM workers
     agentSttDevice: { type: String, required: true },
@@ -1287,7 +1286,6 @@ async function handleTranscript(
         const reply: string = await generateWithLLM(prompt, {
             max_new_tokens: Number(props.agentLlmMaxNewTokens || 80),
             temperature: Number(props.agentLlmTemperature || 0.7),
-            top_p: Number(props.agentLlmTopP || 1.0),
             return_full_text: !!props.agentLlmReturnFullText,
         });
         const cleaned = extractAssistantText(reply).trim();

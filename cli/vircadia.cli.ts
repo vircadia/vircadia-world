@@ -497,6 +497,22 @@ export namespace Server_CLI {
                 serverConfiguration.VRCA_SERVER_AUTH_AZURE_REDIRECT_URIS.join(
                     ",",
                 ),
+
+            // Inference Providers - Cerebras
+            VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_API_KEY:
+                serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_API_KEY,
+            VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_MODEL:
+                serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_MODEL,
+
+            // Inference Providers - Groq
+            VRCA_SERVER_SERVICE_INFERENCE_GROQ_API_KEY:
+                serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_GROQ_API_KEY,
+            VRCA_SERVER_SERVICE_INFERENCE_GROQ_BASE_URL:
+                serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_GROQ_BASE_URL,
+            VRCA_SERVER_SERVICE_INFERENCE_GROQ_STT_MODEL:
+                serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_GROQ_STT_MODEL,
+            VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_MODEL:
+                serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_MODEL,
         };
 
         // Construct the command

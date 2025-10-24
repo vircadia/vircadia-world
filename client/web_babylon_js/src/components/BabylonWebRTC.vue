@@ -457,7 +457,6 @@ import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.v
 // Props
 interface Props {
     client: VircadiaWorldInstance;
-    fullSessionId: string | null;
     avatarData: Map<string, AvatarBaseData>;
     avatarPositions: Map<string, AvatarPositionData>;
     myPosition: AvatarPositionData | null;
@@ -798,7 +797,7 @@ let unsubscribeSignaling: (() => void) | null = null;
 const otherPositionsRecord = computed(() => {
     const record: Record<string, AvatarPositionData> = {};
     for (const [peerId, position] of props.avatarPositions.entries()) {
-        if (peerId !== props.fullSessionId) {
+        if (peerId !== props.client.connectionInfo.value.fullSessionId) {
             record[peerId] = position;
         }
     }
@@ -1618,10 +1617,10 @@ function stopAudioAnalysisForPeer(peerId: string) {
 // ============================================================================
 
 async function announcePresence() {
-    if (!props.client || !props.fullSessionId) return;
+    if (!props.client || !props.client.connectionInfo.value.fullSessionId) return;
 
     const announcement: PeerAnnouncement = {
-        sessionId: props.fullSessionId,
+        sessionId: props.client.connectionInfo.value.fullSessionId,
         timestamp: Date.now(),
         status: "online",
     };
@@ -1646,7 +1645,7 @@ function handleAnnouncement(
 
         if (
             !announcement.sessionId ||
-            announcement.sessionId === props.fullSessionId
+            announcement.sessionId === props.client.connectionInfo.value.fullSessionId
         ) {
             return;
         }
@@ -1684,8 +1683,8 @@ function handleSignalingMessage(
     }
     const message = parsed.data;
 
-    if (message.fromSession === props.fullSessionId) return;
-    if (message.toSession && message.toSession !== props.fullSessionId) return;
+    if (message.fromSession === props.client.connectionInfo.value.fullSessionId) return;
+    if (message.toSession && message.toSession !== props.client.connectionInfo.value.fullSessionId) return;
 
     if (message.type === "session-end") {
         addMessageToHistory(message.fromSession, 'received', 'session-end', 'success', 'Session end notification');
@@ -1723,14 +1722,14 @@ async function sendSignalingMessage(
     toSession: string,
     payload: SignalingMessage,
 ) {
-    if (!props.client || !props.fullSessionId) {
+    if (!props.client || !props.client.connectionInfo.value.fullSessionId) {
         console.error("[WebRTC Reflect] Cannot send message: not initialized");
         return;
     }
 
     const message: WebRTCReflectMessage = {
         type: "signaling",
-        fromSession: props.fullSessionId,
+        fromSession: props.client.connectionInfo.value.fullSessionId,
         toSession,
         payload,
         timestamp: Date.now(),
@@ -1781,11 +1780,11 @@ async function sendSignalingMessage(
 }
 
 async function sendSessionEnd(toSession: string) {
-    if (!props.client || !props.fullSessionId) return;
+    if (!props.client || !props.client.connectionInfo.value.fullSessionId) return;
 
     const message: WebRTCReflectMessage = {
         type: "session-end",
-        fromSession: props.fullSessionId,
+        fromSession: props.client.connectionInfo.value.fullSessionId,
         toSession,
         payload: {},
         timestamp: Date.now(),
@@ -2079,7 +2078,7 @@ async function handlePeerMessage(
 
     if (validatedMessage.description) {
         if (!peerInfo) {
-            const mySession = props.fullSessionId ?? "";
+            const mySession = props.client.connectionInfo.value.fullSessionId ?? "";
             const polite = peerId > mySession;
             peerInfo = await createPeerConnection(peerId, polite);
         }
@@ -2265,10 +2264,10 @@ function onPeerVolumeUpdate(peerId: string, value: number) {
 watch(discoveredPeers, (newPeers) => {
     emit('update:discoveredPeers', newPeers);
     for (const peerId of newPeers) {
-        if (peerId === props.fullSessionId) continue;
+        if (peerId === props.client.connectionInfo.value.fullSessionId) continue;
         if (peers.value.has(peerId)) continue;
 
-        const mySession = props.fullSessionId ?? "";
+        const mySession = props.client.connectionInfo.value.fullSessionId ?? "";
         const polite = peerId > mySession;
         createPeerConnection(peerId, polite);
     }
@@ -2289,8 +2288,8 @@ watch(audioEnabled, (enabled) => {
     emit('update:audioEnabled', enabled);
 });
 
-onMounted(async () => {
-    if (!props.client || !props.fullSessionId) {
+async function initializeWebRTC() {
+    if (!props.client || !props.client.connectionInfo.value.fullSessionId) {
         console.error("[WebRTC] Cannot initialize: missing client or session");
         return;
     }
@@ -2335,7 +2334,7 @@ onMounted(async () => {
 
     console.log("[WebRTC Reflect] Initialized", {
         syncGroup: SYNC_GROUP,
-        session: props.fullSessionId,
+        session: props.client.connectionInfo.value.fullSessionId,
     });
 
     // Emit v-model mirrors for parent convenience
@@ -2344,6 +2343,12 @@ onMounted(async () => {
     emit('update:discoveredPeers', Array.from(activePeers.value.keys()));
     emit('update:peerVolumes', new Map(peerVolumes.value));
     emit('update:peerAudioLevels', new Map(peerAudioLevels.value));
+}
+
+onMounted(async () => {
+    if (!isInitialized.value) {
+        await initializeWebRTC();
+    }
 });
 
 onUnmounted(async () => {
@@ -2352,9 +2357,9 @@ onUnmounted(async () => {
     if (audioAnalysisInterval) clearInterval(audioAnalysisInterval);
     if (timeUpdateInterval) clearInterval(timeUpdateInterval);
 
-    if (props.client && props.fullSessionId) {
+    if (props.client?.connectionInfo.value.fullSessionId) {
         const announcement: PeerAnnouncement = {
-            sessionId: props.fullSessionId,
+            sessionId: props.client.connectionInfo.value.fullSessionId,
             timestamp: Date.now(),
             status: "offline",
         };

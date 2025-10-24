@@ -26,11 +26,6 @@ const props = defineProps({
         type: Object as () => VircadiaWorldInstance,
         required: true,
     },
-    currentFullSessionId: {
-        type: String,
-        required: false,
-        default: null,
-    },
     discoveryPollingInterval: {
         type: Number,
         required: true,
@@ -51,14 +46,6 @@ const vircadiaWorld = ensure<VircadiaWorldInstance>(
     props.vircadiaWorld,
     "Vircadia instance not found in BabylonOtherAvatars",
 );
-
-const currentFullSessionIdComputed = computed(() => {
-    return (
-        props.currentFullSessionId ||
-        vircadiaWorld.connectionInfo.value.fullSessionId ||
-        null
-    );
-});
 
 const otherAvatarSessionIds = ref<string[]>([]);
 
@@ -125,7 +112,6 @@ async function pollForOtherAvatars(): Promise<void> {
         });
 
         if (result.result && Array.isArray(result.result)) {
-            const currentFullSessionId = currentFullSessionIdComputed.value;
             const foundFullSessionIds: string[] = [];
             const entities = result.result as Array<{
                 general__entity_name: string;
@@ -135,7 +121,7 @@ async function pollForOtherAvatars(): Promise<void> {
                 const match =
                     entity.general__entity_name.match(/^avatar:(.+)$/);
                 if (match) {
-                    if (match && match[1] !== currentFullSessionId) {
+                    if (match && match[1] !== vircadiaWorld.connectionInfo.value.fullSessionId) {
                         foundFullSessionIds.push(match[1]);
                         if (loadingBySession.value[match[1]] == null) {
                             loadingBySession.value[match[1]] = true;
@@ -193,7 +179,7 @@ function subscribeReflect(): void {
                     console.warn("[Reflect] Bad frame received - no valid target:", frame);
                     return;
                 }
-                if (target === currentFullSessionIdComputed.value) {
+                if (target === vircadiaWorld.connectionInfo.value.fullSessionId) {
                     // Skip our own frames
                     return;
                 }

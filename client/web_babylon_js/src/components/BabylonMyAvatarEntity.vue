@@ -123,11 +123,8 @@ const isCreating = ref(false);
 const isRetrieving = ref(false);
 const entityData: Ref<EntityData | null> = ref(null);
 
-const fullSessionId = computed(
-    () => props.vircadiaWorld.connectionInfo.value.fullSessionId ?? null,
-);
 const entityName = computed(() =>
-    fullSessionId.value ? `avatar:${fullSessionId.value}` : null,
+    props.vircadiaWorld.connectionInfo.value.fullSessionId ? `avatar:${props.vircadiaWorld.connectionInfo.value.fullSessionId}` : null,
 );
 
 // Track previous states to minimize writes
@@ -224,10 +221,10 @@ async function upsertMetadata(
 // Persist core avatar metadata immediately when available/changed
 async function persistCoreAvatarMetadata(): Promise<void> {
     const name = entityName.value;
-    const sid = fullSessionId.value;
-    if (!name || !sid) return;
+    const fullSessionId = props.vircadiaWorld.connectionInfo.value.fullSessionId;
+    if (!name || !fullSessionId) return;
     await upsertMetadata(name, "type", "avatar");
-    await upsertMetadata(name, "sessionId", sid);
+    await upsertMetadata(name, "sessionId", fullSessionId);
     if (props.modelFileName && props.modelFileName.length > 0) {
         await upsertMetadata(name, "modelFileName", props.modelFileName);
     }
@@ -438,6 +435,8 @@ function emitStats(interval: number | null) {
 const pushBatchedUpdates = useThrottleFn(async () => {
     const name = entityName.value;
     if (!name || !name.includes(":") || batchedUpdates.size === 0) return;
+    const fullSessionId = props.vircadiaWorld.connectionInfo.value.fullSessionId;
+    if (!fullSessionId) return;
 
     const batchStartTime = Date.now();
     const updates = Array.from(batchedUpdates.entries());
@@ -470,9 +469,9 @@ const pushBatchedUpdates = useThrottleFn(async () => {
         };
 
         // Include sessionId from VW connection (do not infer from entityName)
-        if (fullSessionId.value) {
+        if (fullSessionId) {
             (avatarFrame as { sessionId?: string }).sessionId =
-                fullSessionId.value;
+                fullSessionId;
         }
         if (props.modelFileName && props.modelFileName.length > 0) {
             (avatarFrame as { modelFileName?: string }).modelFileName =
@@ -731,8 +730,14 @@ const updateJoints = useThrottleFn(() => {
 // Definition now provided by props; no DB load
 
 async function initializeEntity() {
-    if (!fullSessionId.value || !entityName.value) {
-        console.error("[AVATAR ENTITY] Missing required IDs, cannot proceed");
+    const fullSessionId = props.vircadiaWorld.connectionInfo.value.fullSessionId;
+    if (!fullSessionId) {
+        console.error("[AVATAR ENTITY] Missing required session ID, cannot proceed", fullSessionId);
+        return;
+    }
+
+    if (!entityName.value) {
+        console.error("[AVATAR ENTITY] Missing entity name, cannot proceed", entityName.value);
         return;
     }
 
@@ -747,7 +752,7 @@ async function initializeEntity() {
         general__entity_name: entityName.value,
         metadata: new Map([
             ["type", "avatar"],
-            ["sessionId", fullSessionId.value],
+            ["sessionId", fullSessionId],
         ]),
     };
     emit("entity-data-loaded", entityData.value);
@@ -758,17 +763,8 @@ let afterPhysicsObserver: import("@babylonjs/core").Observer<Scene> | null =
     null;
 
 onMounted(async () => {
-    const stop = watch(
-        () => props.vircadiaWorld.connectionInfo.value.status,
-        async (s) => {
-            if (s === "connected") {
-                await initializeEntity();
-                await persistCoreAvatarMetadata();
-                stop();
-            }
-        },
-        { immediate: true },
-    );
+    await initializeEntity();
+    await persistCoreAvatarMetadata();
 
     afterPhysicsObserver = props.scene.onAfterRenderObservable.add(() => {
         if (!props.avatarNode) return;
@@ -799,7 +795,7 @@ onUnmounted(() => {
 
 // React to core metadata changes
 watch(
-    () => [props.modelFileName, fullSessionId.value],
+    () => [props.modelFileName, props.vircadiaWorld.connectionInfo.value.fullSessionId],
     async () => {
         await persistCoreAvatarMetadata();
     },

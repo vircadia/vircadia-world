@@ -15,6 +15,7 @@ const renderLoopEnabled = defineModel<boolean>("renderLoopEnabled", { default: t
 // Props for read-only values
 const props = defineProps({
     targetFps: { type: Number, default: 30 },
+    engineType: { type: String as () => "webgl" | "webgpu", default: "webgpu" },
 });
 
 // Internal refs
@@ -122,15 +123,8 @@ onMounted(async () => {
     }
 
     try {
-        // Toggle: use WebGL for autonomous agent runs
-        // TODO: This has to be gotten from browser state.
-        const isAutonomousAgent =
-            (typeof sessionStorage !== "undefined" &&
-                sessionStorage.getItem("is_autonomous_agent") === "true") ||
-            (navigator as unknown as { webdriver?: boolean }).webdriver ===
-            true;
-
-        if (isAutonomousAgent) {
+        // Use engine type from prop (passed from MainScene based on autonomous agent state)
+        if (props.engineType === "webgl") {
             webGlEngine = new Engine(canvasRef.value, true, {
                 antialias: true,
                 adaptToDeviceRatio: true,
@@ -148,6 +142,7 @@ onMounted(async () => {
                 await webgpu.initAsync();
                 webGpuEngine = webgpu;
             } else {
+                // Fallback to WebGL if WebGPU is not available
                 webGlEngine = new Engine(canvasRef.value, true, {
                     antialias: true,
                     adaptToDeviceRatio: true,

@@ -62,7 +62,7 @@
                                         :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                         <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' :
                                             'mdi-speedometer-slow'
-                                            }}</v-icon>
+                                        }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="normalPerf">
@@ -97,7 +97,7 @@
                                     <v-btn v-bind="props" icon class="ml-2"
                                         :color="(avatarRef?.isFlying) ? 'success' : undefined">
                                         <v-icon>{{ (avatarRef?.isFlying) ? 'mdi-airplane' : 'mdi-walk'
-                                            }}</v-icon>
+                                        }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="fly">
@@ -135,7 +135,7 @@
                                             @click="inspectorRef?.toggleInspector()">
                                             <v-icon>{{ inspectorVisible ? 'mdi-file-tree' :
                                                 'mdi-file-tree-outline'
-                                                }}</v-icon>
+                                            }}</v-icon>
                                         </v-btn>
                                     </template>
                                     <span>Babylon Inspector (T)</span>
@@ -163,7 +163,8 @@
                             :provider="connectionInfo.authProvider || 'anon'" :onLogout="logout"
                             :vircadia-world="vircadiaWorld" :connection-info="connectionInfo" />
 
-                        <BabylonCanvas ref="canvasComponentRef" v-model:performanceMode="performanceMode">
+                        <BabylonCanvas ref="canvasComponentRef" v-model:performanceMode="performanceMode"
+                            :engine-type="isAutonomousAgent ? 'webgl' : 'webgpu'">
                             <template #default="{ scene: providedScene, canvas: providedCanvas }">
                                 <v-snackbar :model-value="!(providedScene?.isReady() && providedCanvas)"
                                     location="bottom">
@@ -171,7 +172,7 @@
                                     <span>Loading scene and canvas...</span>
                                     <span>Scene: {{ providedScene ? 'yes' : 'no' }} Canvas: {{ providedCanvas ? 'yes' :
                                         'no'
-                                        }}</span>
+                                    }}</span>
                                 </v-snackbar>
                                 <template v-if="providedScene && providedCanvas">
                                     <VircadiaAutonomousAgent v-if="false" :vircadia-world="vircadiaWorld"
@@ -347,9 +348,7 @@
 
                                                 <!-- Other avatars wrapper -->
                                                 <BabylonOtherAvatars :scene="providedScene"
-                                                    :vircadia-world="vircadiaWorld"
-                                                    :current-full-session-id="connectionInfo.fullSessionId ?? undefined"
-                                                    :discovery-polling-interval="500"
+                                                    :vircadia-world="vircadiaWorld" :discovery-polling-interval="500"
                                                     :reflect-sync-group="'public.REALTIME'"
                                                     :entity-sync-group="'public.NORMAL'"
                                                     :reflect-channel="'avatar_data'" ref="otherAvatarsRef"
@@ -368,7 +367,6 @@
                                                     <!-- WebRTC component (now under OtherAvatars slot) -->
                                                     <BabylonWebRTC ref="webrtcRef" v-model="showWebRTCControls"
                                                         :client="vircadiaWorld"
-                                                        :full-session-id="connectionInfo.fullSessionId ?? null"
                                                         :avatar-data="new Map(Object.entries((avatarDataMap as Record<string, AvatarBaseData>) || {}))"
                                                         :avatar-positions="new Map(Object.entries((positionDataMap as Record<string, AvatarPositionData>) || {}))"
                                                         :my-position="null" :my-camera-orientation="null"
@@ -398,17 +396,6 @@
                                                 {{ refreshPhysicsSummaries(models) }}
                                             </div>
                                         </BabylonModels> -->
-
-
-                                                <!-- BabylonDoor component for interactive door -->
-                                                <BabylonDoor :scene="providedScene" :vircadia-world="vircadiaWorld"
-                                                    entity-name="babylon.door.main"
-                                                    model-file-name="babylon.model.wooden_door.glb"
-                                                    :initial-position="{ x: 0, y: 0, z: 0 }"
-                                                    :initial-rotation="{ x: 0, y: 0, z: 0, w: 1 }" :initial-open="false"
-                                                    :rotation-open-radians="1.57" :rotation-axis="'y'"
-                                                    :sync-interval-ms="750" :update-throttle-ms="300"
-                                                    @state="onDoorState" @open="onDoorOpen" />
                                             </BabylonEnvironment>
                                         </template>
                                     </BabylonPhysics>
@@ -448,7 +435,6 @@ import {
 } from "vue";
 import BabylonCameraDebugOverlay from "@/components/BabylonCameraDebugOverlay.vue";
 import BabylonCanvas from "@/components/BabylonCanvas.vue";
-import BabylonDoor from "@/components/BabylonDoor.vue";
 import BabylonEnvironment from "@/components/BabylonEnvironment.vue";
 import BabylonInspector from "@/components/BabylonInspector.vue";
 import BabylonModel from "@/components/BabylonModel.vue";

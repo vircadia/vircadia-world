@@ -2,6 +2,7 @@
 // ============================== GROQ STT/TTS SERVICE ==============================
 // =============================================================================
 
+import Groq from "groq-sdk";
 import { serverConfiguration } from "../../../../../../sdk/vircadia-world-sdk-ts/bun/src/config/vircadia.server.config";
 import { BunLogModule } from "../../../../../../sdk/vircadia-world-sdk-ts/bun/src/module/vircadia.common.bun.log.module";
 
@@ -22,7 +23,7 @@ export interface GroqSTTResponse {
 export interface GroqTTSOptions {
     speed?: number;
     voice?: string;
-    responseFormat?: "wav" | "mp3" | "opus" | "flac";
+    responseFormat?: "wav" | "mp3" | "flac" | "mulaw" | "ogg";
 }
 
 export interface GroqTTSResponse {
@@ -32,22 +33,21 @@ export interface GroqTTSResponse {
 }
 
 export class GroqService {
-    private apiKey: string;
-    private baseUrl: string;
+    private client: Groq | undefined;
     private sttModel: string;
     private ttsModel: string;
-
+    private ttsVoice: string;
     constructor() {
-        this.apiKey =
+        const apiKey =
             serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_GROQ_API_KEY;
-        this.baseUrl =
-            serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_GROQ_BASE_URL;
         this.sttModel =
             serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_GROQ_STT_MODEL;
         this.ttsModel =
             serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_MODEL;
+        this.ttsVoice =
+            serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_VOICE;
 
-        if (!this.apiKey) {
+        if (!apiKey) {
             BunLogModule({
                 prefix: "Groq Service",
                 message: "Groq API key not configured",
@@ -56,14 +56,16 @@ export class GroqService {
                 suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
             });
         } else {
+            this.client = new Groq({
+                apiKey,
+            });
             BunLogModule({
                 prefix: "Groq Service",
                 message: "Groq Service configured",
                 data: {
-                    apiKey: this.apiKey,
-                    baseUrl: this.baseUrl,
                     sttModel: this.sttModel,
                     ttsModel: this.ttsModel,
+                    ttsVoice: this.ttsVoice,
                 },
                 type: "info",
                 debug: serverConfiguration.VRCA_SERVER_DEBUG,
@@ -78,56 +80,35 @@ export class GroqService {
     ): Promise<GroqSTTResponse> {
         const startTime = Date.now();
 
-        if (!this.apiKey) {
+        if (!this.client) {
             throw new Error("Groq API key not configured");
         }
 
         try {
-            // Create form data
-            const formData = new FormData();
-            const audioBlob = new Blob([audioData], { type: "audio/wav" });
-            formData.append("file", audioBlob, "audio.wav");
-            formData.append("model", this.sttModel);
+            // Create File object from ArrayBuffer
+            const audioFile = new File([audioData], "audio.wav", {
+                type: "audio/wav",
+            });
 
-            if (options.language) {
-                formData.append("language", options.language);
-            }
-            if (options.prompt) {
-                formData.append("prompt", options.prompt);
-            }
-            if (options.responseFormat) {
-                formData.append("response_format", options.responseFormat);
-            }
-            if (options.temperature !== undefined) {
-                formData.append("temperature", options.temperature.toString());
-            }
+            // Use SDK method directly
+            const result = await this.client.audio.transcriptions.create({
+                file: audioFile,
+                model: this.sttModel,
+                language: options.language,
+                prompt: options.prompt,
+                response_format: options.responseFormat,
+                temperature: options.temperature,
+            });
 
-            const response = await fetch(
-                `${this.baseUrl}/openai/v1/audio/transcriptions`,
-                {
-                    method: "POST",
-                    headers: {
-                        Authorization: `Bearer ${this.apiKey}`,
-                    },
-                    body: formData,
-                },
-            );
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(
-                    `Groq STT API error: ${response.status} - ${errorText}`,
-                );
-            }
-
-            const data = await response.json();
             const processingTimeMs = Date.now() - startTime;
 
+            const text = result.text;
+
             return {
-                text: data.text || "",
-                language: data.language,
+                text,
+                language: options.language,
                 processingTimeMs,
-                audioDurationMs: data.duration,
+                audioDurationMs: audioData.byteLength,
             };
         } catch (error) {
             BunLogModule({
@@ -148,39 +129,22 @@ export class GroqService {
     ): Promise<GroqTTSResponse> {
         const startTime = Date.now();
 
-        if (!this.apiKey) {
+        if (!this.client) {
             throw new Error("Groq API key not configured");
         }
 
         try {
-            const requestBody = {
+            // Use SDK method directly
+            const result = await this.client.audio.speech.create({
                 model: this.ttsModel,
                 input: text,
-                voice: options.voice || "Aaliyah-PlayAI",
+                voice: options.voice || this.ttsVoice,
                 speed: options.speed || 1.0,
                 response_format: options.responseFormat || "wav",
-            };
+            });
 
-            const response = await fetch(
-                `${this.baseUrl}/openai/v1/audio/speech`,
-                {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        Authorization: `Bearer ${this.apiKey}`,
-                    },
-                    body: JSON.stringify(requestBody),
-                },
-            );
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(
-                    `Groq TTS API error: ${response.status} - ${errorText}`,
-                );
-            }
-
-            const audioData = await response.arrayBuffer();
+            // Extract audio data (result is a Response-like object)
+            const audioData = await result.arrayBuffer();
             const processingTimeMs = Date.now() - startTime;
 
             return {

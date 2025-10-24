@@ -630,12 +630,13 @@ class WorldApiInferenceManager {
                 }
             })();
 
-            return new Response(result.audio, {
+            const response = new Response(result.audio, {
                 headers: {
                     "Content-Type": contentType,
                     "Content-Length": result.audio.byteLength.toString(),
                 },
             });
+            return this.addCorsHeaders(response, req);
         } catch (error) {
             this.metricsCollector.recordEndpoint(
                 "/tts",

@@ -52,7 +52,6 @@ export class CerebrasService {
             prefix: "Cerebras Service",
             message: "Cerebras Service configured",
             data: {
-                apiKey,
                 model: this.model,
             },
             type: "info",

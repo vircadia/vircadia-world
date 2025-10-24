@@ -65,8 +65,23 @@
                                     <v-progress-linear :model-value="rmsPct" color="secondary" height="6" rounded
                                         class="flex-grow-1 min-w-[160px]" />
                                     <span class="text-caption text-medium-emphasis ml-2">{{ rmsLevel.toFixed(2)
-                                    }}</span>
+                                        }}</span>
                                 </div>
+                            </div>
+                        </v-card>
+                    </v-col>
+                </v-row>
+
+                <!-- Thinking -->
+                <v-row v-if="thinkingText">
+                    <v-col cols="12">
+                        <v-card variant="outlined" class="pa-3" color="grey-darken-4">
+                            <div class="d-flex align-center mb-2">
+                                <v-icon class="mr-2">mdi-lightbulb-on</v-icon>
+                                <v-card-subtitle class="pr-2">Thinking</v-card-subtitle>
+                            </div>
+                            <div class="text-caption text-medium-emphasis ml-1 wrap-anywhere">
+                                {{ thinkingText }}
                             </div>
                         </v-card>
                     </v-col>
@@ -104,7 +119,7 @@
                                                 </span>
                                                 <span class="font-weight-medium">{{ msg.role === 'user' ? 'You' :
                                                     'Assistant'
-                                                }}</span>
+                                                    }}</span>
                                             </v-list-item-title>
                                             <v-list-item-subtitle class="mt-1 wrap-anywhere"
                                                 :class="msg.role === 'user' ? 'text-high-emphasis' : ''">
@@ -126,6 +141,10 @@
                             <v-btn color="primary" variant="outlined" @click="testServerTTS" :loading="ttsGenerating">
                                 <v-icon class="mr-1">mdi-volume-high</v-icon>
                                 Test Server TTS
+                            </v-btn>
+                            <v-btn color="primary" variant="outlined" @click="testServerLLM" :loading="llmGenerating">
+                                <v-icon class="mr-1">mdi-brain</v-icon>
+                                Test Server LLM
                             </v-btn>
                             <v-btn color="secondary" variant="outlined" @click="overlayOpen = false">
                                 Close
@@ -191,6 +210,8 @@ const props = defineProps({
     },
     agentLlmMaxNewTokens: { type: Number, required: true },
     agentLlmTemperature: { type: Number, required: true },
+    agentLlmOpenThinkTag: { type: String, required: true },
+    agentLlmCloseThinkTag: { type: String, required: true },
     agentUiMaxTranscripts: { type: Number, required: true },
     agentUiMaxAssistantReplies: { type: Number, required: true },
     agentUiMaxConversationItems: { type: Number, required: true },
@@ -275,6 +296,7 @@ const conversationItemsReversed = computed<ConversationItem[]>(() => [...convers
 // LLM/TTS state
 const llmGenerating = ref<boolean>(false);
 const ttsGenerating = ref<boolean>(false);
+const thinkingText = ref<string>("");
 
 // Worklet loader
 const sttWorkletLoaded = new WeakSet<AudioContext>();
@@ -431,6 +453,21 @@ function buildPromptHistory(maxItems: number, maxCharsPerItem: number, totalChar
     } catch { return ""; }
 }
 function extractAssistantText(raw: string): string { const t = String(raw || ""); const cleaned = t.replace(/^[\s\S]*?Assistant:\s*/i, "").trim(); return cleaned || t.trim(); }
+function parseThinkingTags(text: string): { cleanText: string; thinking: string } {
+    const openTag = String(props.agentLlmOpenThinkTag || "");
+    const closeTag = String(props.agentLlmCloseThinkTag || "");
+    if (!openTag || !closeTag) return { cleanText: text, thinking: "" };
+    const regex = new RegExp(`${escapeRegex(openTag)}([\\s\\S]*?)${escapeRegex(closeTag)}`, "g");
+    let cleanText = text;
+    let thinking = "";
+    const matches = [...text.matchAll(regex)];
+    for (const match of matches) {
+        cleanText = cleanText.replace(match[0], "");
+        thinking += (thinking ? "\n\n" : "") + match[1];
+    }
+    return { cleanText: cleanText.trim(), thinking: thinking.trim() };
+}
+function escapeRegex(str: string): string { return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 const llmNoReplyTimers = new Map<string, number | null>();
 function clearNoReplyTimer(peerId: string): void { const id = llmNoReplyTimers.get(peerId); if (id) { try { clearTimeout(id as unknown as number); } catch { } } llmNoReplyTimers.set(peerId, null); }
 function scheduleNoReplyTimer(peerId: string, buffered: string): void { clearNoReplyTimer(peerId); const ms = Math.max(500, Number(props.agentNoReplyTimeoutSec) * 1000); const id = setTimeout(async () => { llmNoReplyTimers.set(peerId, null); if (buffered.trim()) await submitToLlm(peerId, buffered, { incomplete: true }); }, ms) as unknown as number; llmNoReplyTimers.set(peerId, id); }
@@ -452,14 +489,16 @@ async function submitToLlm(peerId: string, text: string, _opts?: { incomplete?: 
         llmGenerating.value = true;
         const resp = await client.restInference.llm({
             prompt,
-            temperature: Number(props.agentLlmTemperature || 0.7),
-            maxTokens: Number(props.agentLlmMaxNewTokens || 80),
+            temperature: Number(props.agentLlmTemperature),
+            maxTokens: Number(props.agentLlmMaxNewTokens),
         });
         llmGenerating.value = false;
         if (resp?.success && resp.text) {
             const cleaned = extractAssistantText(resp.text).trim();
-            if (cleaned.includes("<no-reply/>")) { scheduleNoReplyTimer(peerId, t); return; }
-            if (cleaned) { addLlmOutput(cleaned); ttsQueue.push(cleaned); void flushTtsQueue(); }
+            const { cleanText, thinking } = parseThinkingTags(cleaned);
+            if (thinking) { thinkingText.value = thinking; }
+            if (cleanText.includes("<no-reply/>")) { scheduleNoReplyTimer(peerId, t); return; }
+            if (cleanText) { addLlmOutput(cleanText); ttsQueue.push(cleanText); void flushTtsQueue(); }
         }
     } catch (e) {
         llmGenerating.value = false;
@@ -472,10 +511,10 @@ const ttsQueue: string[] = [];
 const isSpeaking = ref<boolean>(false);
 async function flushTtsQueue(): Promise<void> { if (isSpeaking.value || ttsQueue.length === 0) return; const next = ttsQueue.shift(); if (!next) return; isSpeaking.value = true; try { await speakServerTts(next); } finally { isSpeaking.value = false; if (ttsQueue.length > 0) void flushTtsQueue(); } }
 
-async function speakServerTts(text: string): Promise<void> {
+async function speakServerTts(text: string, forceLocalEcho = false): Promise<void> {
     try {
         const api = webrtc.value;
-        const allowLocalEcho = props.agentTtsLocalEcho;
+        const allowLocalEcho = forceLocalEcho || props.agentTtsLocalEcho;
         const hasPeers = !!api && typeof api.getPeersMap === "function" && api.getPeersMap().size > 0;
         const useBus = !!api && hasPeers;
         if (!allowLocalEcho && !useBus) return;
@@ -506,7 +545,32 @@ async function speakServerTts(text: string): Promise<void> {
     }
 }
 
-async function testServerTTS(): Promise<void> { await speakServerTts("Hello! This is a test of the cloud agent TTS."); }
+async function testServerTTS(): Promise<void> { await speakServerTts("Hello! This is a test of the cloud agent TTS.", true); }
+
+async function testServerLLM(): Promise<void> {
+    try {
+        const client = props.vircadiaWorld?.client;
+        if (!client) return;
+        llmGenerating.value = true;
+        const resp = await client.restInference.llm({
+            prompt: "System: You are a helpful assistant.\n\nUser: Say hello and introduce yourself.\n\nAssistant:",
+            temperature: Number(props.agentLlmTemperature),
+            maxTokens: Number(props.agentLlmMaxNewTokens),
+        });
+        llmGenerating.value = false;
+        if (resp?.success && resp.text) {
+            console.log("[CloudAgent] Test LLM response:", resp.text);
+            const cleaned = extractAssistantText(resp.text).trim();
+            const { cleanText } = parseThinkingTags(cleaned);
+            if (cleanText) {
+                await speakServerTts(cleanText, true);
+            }
+        }
+    } catch (e) {
+        llmGenerating.value = false;
+        console.warn("[CloudAgent] Test LLM error:", e);
+    }
+}
 
 // Attachments
 async function attachMic(): Promise<void> {

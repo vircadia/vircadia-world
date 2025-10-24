@@ -62,7 +62,7 @@
                                         :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                         <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' :
                                             'mdi-speedometer-slow'
-                                            }}</v-icon>
+                                        }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="normalPerf">
@@ -97,7 +97,7 @@
                                     <v-btn v-bind="props" icon class="ml-2"
                                         :color="(avatarRef?.isFlying) ? 'success' : undefined">
                                         <v-icon>{{ (avatarRef?.isFlying) ? 'mdi-airplane' : 'mdi-walk'
-                                            }}</v-icon>
+                                        }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="fly">
@@ -135,7 +135,7 @@
                                             @click="inspectorRef?.toggleInspector()">
                                             <v-icon>{{ inspectorVisible ? 'mdi-file-tree' :
                                                 'mdi-file-tree-outline'
-                                                }}</v-icon>
+                                            }}</v-icon>
                                         </v-btn>
                                     </template>
                                     <span>Babylon Inspector (T)</span>
@@ -172,7 +172,7 @@
                                     <span>Loading scene and canvas...</span>
                                     <span>Scene: {{ providedScene ? 'yes' : 'no' }} Canvas: {{ providedCanvas ? 'yes' :
                                         'no'
-                                        }}</span>
+                                    }}</span>
                                 </v-snackbar>
                                 <template v-if="providedScene && providedCanvas">
                                     <VircadiaAutonomousAgent v-if="false" :vircadia-world="vircadiaWorld"
@@ -214,6 +214,8 @@
                                         :agent-vad-config="agentVadConfig"
                                         :agent-llm-max-new-tokens="agentLlmMaxNewTokens"
                                         :agent-llm-temperature="agentLlmTemperature"
+                                        :agent-llm-open-think-tag="agentLlmOpenThinkTag"
+                                        :agent-llm-close-think-tag="agentLlmCloseThinkTag"
                                         :agent-ui-max-transcripts="agentUiMaxTranscripts"
                                         :agent-ui-max-assistant-replies="agentUiMaxAssistantReplies"
                                         :agent-ui-max-conversation-items="agentUiMaxConversationItems" />
@@ -630,9 +632,11 @@ const agentVadConfig = ref({
 });
 
 // LLM generation defaults
-const agentLlmMaxNewTokens = ref<number>(80);
+const agentLlmMaxNewTokens = ref<number>(500);
 const agentLlmTemperature = ref<number>(0.7);
 const agentLlmReturnFullText = ref<boolean>(false);
+const agentLlmOpenThinkTag = ref<string>("<think>");
+const agentLlmCloseThinkTag = ref<string>("</think>");
 
 // UI history limits; 0 = unlimited (no truncation in UI)
 const agentUiMaxTranscripts = ref<number>(0);

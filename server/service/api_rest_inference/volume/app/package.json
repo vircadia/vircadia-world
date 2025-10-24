@@ -5,6 +5,7 @@
     "main": "dist/world.api.rest.inference.manager.js",
     "dependencies": {
         "@cerebras/cerebras_cloud_sdk": "catalog:ml",
+        "groq-sdk": "catalog:ml",
         "jsonwebtoken": "catalog:",
         "postgres": "catalog:",
         "zod": "catalog:"

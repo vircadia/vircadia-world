@@ -99,9 +99,9 @@
         "@babylonjs/core": "catalog:babylon",
         "@babylonjs/inspector": "catalog:babylon",
         "@babylonjs/loaders": "catalog:babylon",
-        "@inquirer/prompts": "^7.5.3",
-        "cross-env": "^10.1.0",
-        "dotenv": "^17.2.2",
+        "@inquirer/prompts": "catalog:cli",
+        "cross-env": "catalog:cli",
+        "dotenv": "catalog:cli",
         "jsonwebtoken": "catalog:",
         "postgres": "catalog:",
         "zod": "catalog:"

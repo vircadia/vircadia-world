@@ -39,7 +39,6 @@
         "@vitejs/plugin-vue-jsx": "catalog:dev",
         "@vue/tsconfig": "catalog:config",
         "npm-run-all2": "catalog:dev",
-        "playwright": "catalog:dev",
         "typescript": "catalog:",
         "vite": "catalog:dev",
         "vite-plugin-vue-devtools": "catalog:dev",

@@ -36,6 +36,7 @@ async function startApplication(): Promise<void> {
             // Cross-origin isolation and workers features for ONNX/Transformers
             "--enable-features=SharedArrayBuffer,WebAssemblyThreads,WebAssemblySimd,WebAssemblySimd128,WebAssemblyTiering,WebAssemblyLazyCompilation",
             // Use ANGLE SwiftShader for WebGL software rendering
+            "--enable-unsafe-swiftshader",
             "--use-angle=swiftshader",
             "--use-gl=swiftshader",
             // Fake audio device support
@@ -82,39 +83,40 @@ async function startApplication(): Promise<void> {
     // Wait for Babylon.js scene to be ready by checking the window state
     // Note: This flag is set by clientBrowserState singleton in MainScene.vue
     // State is stored on window.__VircadiaClientBrowserState__ for easy access
-    console.log("⏳ Waiting for Babylon.js scene to be ready...");
-    await page.waitForFunction(
-        () => {
-            const win = window as unknown as {
-                __VircadiaClientBrowserState__?: { sceneReady?: boolean };
-            };
-            return win.__VircadiaClientBrowserState__?.sceneReady === true;
-        },
-        { timeout: 30000 },
-    );
+    // console.log("⏳ Waiting for Babylon.js scene to be ready...");
+    // console.info("window.__VircadiaClientBrowserState__", window.__VircadiaClientBrowserState__);
+    // await page.waitForFunction(
+    //     () => {
+    //         const win = window as unknown as {
+    //             __VircadiaClientBrowserState__?: { sceneReady?: boolean };
+    //         };
+    //         return win.__VircadiaClientBrowserState__?.sceneReady === true;
+    //     },
+    //     { timeout: 30000 },
+    // );
 
-    console.log("✅ Babylon.js scene is ready!");
+    // console.log("✅ Babylon.js scene is ready!");
 
-    // Ensure autonomous agent state exists before polling
-    await page.waitForFunction(
-        () => {
-            const win = window as unknown as {
-                __VircadiaClientBrowserState__?: { autonomousAgent?: unknown };
-            };
-            return (
-                win.__VircadiaClientBrowserState__?.autonomousAgent !==
-                undefined
-            );
-        },
-        { timeout: 15000 },
-    );
+    // // Ensure autonomous agent state exists before polling
+    // await page.waitForFunction(
+    //     () => {
+    //         const win = window as unknown as {
+    //             __VircadiaClientBrowserState__?: { autonomousAgent?: unknown };
+    //         };
+    //         return (
+    //             win.__VircadiaClientBrowserState__?.autonomousAgent !==
+    //             undefined
+    //         );
+    //     },
+    //     { timeout: 15000 },
+    // );
 
     console.log("🎉 Application is ready! Press Ctrl+C to exit.");
 
-    // Start polling and logging autonomous agent state
-    if (page) {
-        startStatePolling(page);
-    }
+    // // Start polling and logging autonomous agent state
+    // if (page) {
+    //     startStatePolling(page);
+    // }
 }
 
 function startStatePolling(page: Page): void {

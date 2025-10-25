@@ -5,26 +5,7 @@ import "@mdi/font/css/materialdesignicons.css";
 import "vuetify/styles";
 import "./assets/main.css";
 
-// Buffer polyfill for browser compatibility
-import { Buffer } from "buffer";
 import { createPinia } from "pinia";
-
-if (typeof window !== "undefined") {
-    (window as any).Buffer = Buffer;
-
-    // Parse URL parameters for autonomous agent detection
-    const urlParams = new URLSearchParams(window.location.search);
-    const isAutonomousAgent = urlParams.get("is_autonomous_agent") === "true";
-
-    // Set session storage flag for autonomous agent (doesn't persist across page reloads)
-    if (isAutonomousAgent) {
-        sessionStorage.setItem("is_autonomous_agent", "true");
-    } else {
-        sessionStorage.setItem("is_autonomous_agent", "false");
-    }
-
-    console.info("is_autonomous_agent", isAutonomousAgent);
-}
 
 import { clientBrowserConfiguration } from "@vircadia/world-sdk/browser/vue";
 // Vuetify setup

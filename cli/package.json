@@ -13,7 +13,7 @@
         "install:server:state": "cd ../server/service/state/volume/app && bun install",
         "install:cli": "bun install",
         "install:client:web_babylon_js": "cd ../client/web_babylon_js && bun install",
-        "install:client:web_babylon_js:playwright": "cd ../client/web_babylon_js && bunx playwright install && bunx playwright install-deps",
+        "install:client:web_babylon_js:playwright": "cd ../client/web_babylon_js && bunx playwright install chrome && bunx playwright install-deps",
         "clean:all": "bun run clean:repo && bun run clean:sdk && bun run clean:server:api:ws && bun run clean:server:api:rest:auth && bun run clean:server:api:rest:asset && bun run clean:server:api:rest:inference && bun run clean:server:state && bun run clean:client:web_babylon_js && bun run clean:cli",
         "clean:repo": "cd ../ && rm -rf node_modules",
         "clean:sdk": "cd ../sdk/vircadia-world-sdk-ts && rm -rf node_modules && rm -rf dist && cd browser && rm -rf node_modules && rm -rf dist",

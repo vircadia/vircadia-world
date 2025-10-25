@@ -1,7 +1,9 @@
 <template>
     <slot :key-state="keyState" :pointer-state="pointerState" :is-pointer-locked="isPointerLocked"
         :enable-pointer-lock="enablePointerLock" :exit-pointer-lock="exitPointerLock"
-        :left-mouse-down="pointerState.leftMouseDown" :right-mouse-down="pointerState.rightMouseDown" />
+        :left-mouse-down="pointerState.leftMouseDown" :right-mouse-down="pointerState.rightMouseDown"
+        :mouse-lock-camera-rotate-toggle="keyState.mouseLockCameraRotate"
+        :mouse-lock-camera-avatar-rotate-toggle="keyState.mouseLockCameraAvatarRotate" />
 </template>
 
 <script setup lang="ts">
@@ -33,6 +35,8 @@ const props = defineProps({
     crouchToggleCodes: { type: Array as () => string[], required: true },
     proneToggleCodes: { type: Array as () => string[], required: true },
     slowRunToggleCodes: { type: Array as () => string[], required: true },
+    mouseLockCameraRotateToggleCodes: { type: Array as () => string[], required: true },
+    mouseLockCameraAvatarRotateToggleCodes: { type: Array as () => string[], required: true },
 });
 
 const focused = useWindowFocus();
@@ -52,6 +56,8 @@ const keyState = ref({
     crouch: false,
     prone: false,
     slowRun: false,
+    mouseLockCameraRotate: false,
+    mouseLockCameraAvatarRotate: false,
 });
 
 const pointerState = ref({
@@ -129,6 +135,22 @@ if (props.scene) {
         if (isDown && props.slowRunToggleCodes.includes(code)) {
             keyState.value.slowRun = !keyState.value.slowRun;
         }
+        if (isDown && props.mouseLockCameraRotateToggleCodes.includes(code)) {
+            const newValue = !keyState.value.mouseLockCameraRotate;
+            keyState.value.mouseLockCameraRotate = newValue;
+            // Disable the other camera mode when enabling this one
+            if (newValue) {
+                keyState.value.mouseLockCameraAvatarRotate = false;
+            }
+        }
+        if (isDown && props.mouseLockCameraAvatarRotateToggleCodes.includes(code)) {
+            const newValue = !keyState.value.mouseLockCameraAvatarRotate;
+            keyState.value.mouseLockCameraAvatarRotate = newValue;
+            // Disable the other camera mode when enabling this one
+            if (newValue) {
+                keyState.value.mouseLockCameraRotate = false;
+            }
+        }
     });
 
     pointerObserver = props.scene.onPointerObservable.add((info) => {
@@ -159,7 +181,10 @@ if (props.scene) {
                 } else if (mouseEvtUp.button === 2) {
                     pointerState.value.rightMouseDown = false;
                 }
-                exitPointerLock();
+                // Only exit pointer lock if both mouse lock toggles are off
+                if (!keyState.value.mouseLockCameraRotate && !keyState.value.mouseLockCameraAvatarRotate) {
+                    exitPointerLock();
+                }
                 break;
             }
             case PointerEventTypes.POINTERMOVE:
@@ -197,6 +222,8 @@ if (typeof window !== "undefined") {
         keyState.value.crouch = false;
         keyState.value.prone = false;
         keyState.value.slowRun = false;
+        keyState.value.mouseLockCameraRotate = false;
+        keyState.value.mouseLockCameraAvatarRotate = false;
         pointerState.value.leftMouseDown = false;
         pointerState.value.rightMouseDown = false;
     };
@@ -205,6 +232,19 @@ if (typeof window !== "undefined") {
         if (!isFocused) resetKeys();
     });
 }
+
+// Watch mouse lock toggles and enable/disable pointer lock accordingly
+watch(
+    () => [keyState.value.mouseLockCameraRotate, keyState.value.mouseLockCameraAvatarRotate],
+    ([cameraRotate, avatarRotate]) => {
+        const shouldLock = cameraRotate || avatarRotate;
+        if (shouldLock && !isPointerLocked.value) {
+            enablePointerLock();
+        } else if (!shouldLock && isPointerLocked.value) {
+            exitPointerLock();
+        }
+    }
+);
 
 onUnmounted(() => {
     if (props.scene && keyboardObserver) {

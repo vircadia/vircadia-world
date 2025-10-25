@@ -40,8 +40,9 @@ const props = defineProps({
     // FOV-only smoothing (parent provides small delta based on movement)
     fovDelta: { type: Number, required: true },
     fovLerpSpeed: { type: Number, required: true },
-    // Mouse button states (provided by controller)
-    rightMouseDown: { type: Boolean, required: true },
+    // Mouse follow camera/avatar rotation states (provided by controller)
+    mouseLockCameraRotateToggle: { type: Boolean, required: true },
+    mouseLockCameraAvatarRotateToggle: { type: Boolean, required: true },
 });
 
 const camera: Ref<ArcRotateCamera | null> = ref(null);
@@ -169,7 +170,7 @@ function setupCamera(): void {
             );
         }
 
-        if (!props.rightMouseDown || !camera.value || !props.avatarNode)
+        if (!props.mouseLockCameraAvatarRotateToggle || !camera.value || !props.avatarNode)
             return;
         const lookDir = props.avatarNode.position
             .subtract(camera.value.position)

@@ -62,7 +62,7 @@
                                         :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                         <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' :
                                             'mdi-speedometer-slow'
-                                            }}</v-icon>
+                                        }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="normalPerf">
@@ -97,7 +97,7 @@
                                     <v-btn v-bind="props" icon class="ml-2"
                                         :color="(avatarRef?.isFlying) ? 'success' : undefined">
                                         <v-icon>{{ (avatarRef?.isFlying) ? 'mdi-airplane' : 'mdi-walk'
-                                            }}</v-icon>
+                                        }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="fly">
@@ -135,7 +135,7 @@
                                             @click="inspectorRef?.toggleInspector()">
                                             <v-icon>{{ inspectorVisible ? 'mdi-file-tree' :
                                                 'mdi-file-tree-outline'
-                                                }}</v-icon>
+                                            }}</v-icon>
                                         </v-btn>
                                     </template>
                                     <span>Babylon Inspector (T)</span>
@@ -251,6 +251,8 @@
                                                     :turn-left-codes="['KeyQ']" :turn-right-codes="['KeyE']"
                                                     :fly-mode-toggle-codes="['KeyF']" :crouch-toggle-codes="['KeyC']"
                                                     :prone-toggle-codes="['KeyZ']" :slow-run-toggle-codes="[]"
+                                                    :mouse-lock-camera-rotate-toggle-codes="['Digit1']"
+                                                    :mouse-lock-camera-avatar-rotate-toggle-codes="['Digit2']"
                                                     v-slot="controls">
                                                     <BabylonMyAvatarTalking :audio-stream="ttsOutputStream"
                                                         v-slot="{ isTalking, level: talkLevel, devices: audioDevices, threshold: talkThreshold }">
@@ -322,7 +324,8 @@
                                                                             ? (controls.keyState.sprint ? 0.08 : 0.04)
                                                                             : 0)
                                                                             " :fov-lerp-speed="8"
-                                                                        :right-mouse-down="controls.rightMouseDown" />
+                                                                        :mouse-lock-camera-rotate-toggle="controls.mouseLockCameraRotateToggle || controls.rightMouseDown"
+                                                                        :mouse-lock-camera-avatar-rotate-toggle="controls.mouseLockCameraAvatarRotateToggle || controls.rightMouseDown" />
                                                                     <!-- Non-visual animation loaders now slotted under model component -->
                                                                     <BabylonMyAvatarAnimation v-for="anim in animations"
                                                                         v-if="targetSkeleton" :key="anim.fileName"

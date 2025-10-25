@@ -43,6 +43,7 @@ const props = defineProps({
     // Mouse follow camera/avatar rotation states (provided by controller)
     mouseLockCameraRotateToggle: { type: Boolean, required: true },
     mouseLockCameraAvatarRotateToggle: { type: Boolean, required: true },
+    overrideMouseLockCameraAvatarRotate: { type: Boolean, required: true },
 });
 
 const camera: Ref<ArcRotateCamera | null> = ref(null);
@@ -172,6 +173,8 @@ function setupCamera(): void {
 
         if (!props.mouseLockCameraAvatarRotateToggle || !camera.value || !props.avatarNode)
             return;
+        // If user is actively turning with Q/E, do not force-align avatar to camera
+        if (props.overrideMouseLockCameraAvatarRotate) return;
         const lookDir = props.avatarNode.position
             .subtract(camera.value.position)
             .normalize();

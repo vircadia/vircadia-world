@@ -41,7 +41,25 @@ const props = defineProps({
 
 const focused = useWindowFocus();
 
-const keyState = ref({
+export interface KeyState {
+    forward: boolean;
+    backward: boolean;
+    strafeLeft: boolean;
+    strafeRight: boolean;
+    jump: boolean;
+    sprint: boolean;
+    dash: boolean;
+    turnLeft: boolean;
+    turnRight: boolean;
+    flyMode: boolean;
+    crouch: boolean;
+    prone: boolean;
+    slowRun: boolean;
+    mouseLockCameraRotate: boolean;
+    mouseLockCameraAvatarRotate: boolean;
+}
+
+const keyState = ref<KeyState>({
     forward: false,
     backward: false,
     strafeLeft: false,
@@ -60,7 +78,16 @@ const keyState = ref({
     mouseLockCameraAvatarRotate: false,
 });
 
-const pointerState = ref({
+export interface PointerState {
+    deltaX: number;
+    deltaY: number;
+    wheelDelta: number;
+    buttonDown: boolean;
+    leftMouseDown: boolean;
+    rightMouseDown: boolean;
+}
+
+const pointerState = ref<PointerState>({
     deltaX: 0,
     deltaY: 0,
     wheelDelta: 0,

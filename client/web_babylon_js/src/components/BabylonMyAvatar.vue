@@ -18,7 +18,6 @@
 // TODO: Low: Improve UX for login screen.
 // TODO: High-ish: Create interaction based physics demo, either client, server, or both.
 // TODO: Split out spatial into BabylonWebRTCSpatial.vue
-// TODO: Wire autoagent to raise talk levels too instead of just mic input over WebRTC.
 // TODO: Have topics about cars ideally.Wire up some realtime info if we can too under separate vue components(data into context), can tool call ?
 
 import {
@@ -47,26 +46,10 @@ import "@babylonjs/loaders/glTF";
 // Debug viewers import
 import { AxesViewer, SkeletonViewer } from "@babylonjs/core/Debug";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
+import type { KeyState } from "./BabylonMyAvatarMKBController.vue";
 
 type PositionObj = { x: number; y: number; z: number };
 type RotationObj = { x: number; y: number; z: number; w: number };
-
-type KeyState = {
-    forward: boolean;
-    backward: boolean;
-    strafeLeft: boolean;
-    strafeRight: boolean;
-    jump: boolean;
-    sprint: boolean;
-    dash: boolean;
-    turnLeft: boolean;
-    turnRight: boolean;
-    // toggles
-    flyMode: boolean;
-    crouch: boolean;
-    prone: boolean;
-    slowRun: boolean;
-};
 
 const props = defineProps({
     scene: { type: Object as () => Scene, required: true },
@@ -74,7 +57,7 @@ const props = defineProps({
         type: Object as () => VircadiaWorldInstance,
         required: true,
     },
-    keyState: { type: Object as () => KeyState, required: false },
+    keyState: { type: Object as () => KeyState, required: true },
     isTalking: { type: Boolean, required: false, default: false },
     // Optional talk amplitude (0..1) from BabylonMyAvatarTalking
     talkLevel: { type: Number, required: false, default: 0 },
@@ -162,9 +145,6 @@ const animations = computed(
     () => effectiveAvatarDef.value.animations as AnimationDef[],
 );
 
-const sessionId = computed(
-    () => props.vircadiaWorld.connectionInfo.value.sessionId ?? null,
-);
 const fullSessionId = computed(
     () => props.vircadiaWorld.connectionInfo.value.fullSessionId ?? null,
 );
@@ -325,25 +305,6 @@ function integrate(deltaTime: number, support?: SupportType): void {
         } as unknown)) as SupportType;
     controller.integrate(deltaTime, effectiveSupport, gravityVector);
 }
-
-const defaultKeyState = ref<KeyState>({
-    forward: false,
-    backward: false,
-    strafeLeft: false,
-    strafeRight: false,
-    jump: false,
-    sprint: false,
-    dash: false,
-    turnLeft: false,
-    turnRight: false,
-    flyMode: false,
-    crouch: false,
-    prone: false,
-    slowRun: false,
-});
-const keyState = computed(() => props.keyState ?? defaultKeyState.value);
-
-const vircadiaWorld = props.vircadiaWorld;
 
 const avatarMeshes: Ref<AbstractMesh[]> = ref([]);
 const isModelLoaded = ref(false);
@@ -605,7 +566,7 @@ function getFallingDef(): AnimationDef | undefined {
 }
 
 function getDesiredMoveDefFromKeys(): AnimationDef | undefined {
-    const ks = keyState.value;
+    const ks = props.keyState;
     const dx = (ks.strafeRight ? 1 : 0) - (ks.strafeLeft ? 1 : 0);
     const dz = (ks.forward ? 1 : 0) - (ks.backward ? 1 : 0);
     if (dx === 0 && dz === 0) return undefined;
@@ -974,7 +935,7 @@ onMounted(async () => {
         }
         if (!characterController.value) return;
 
-        const ks = keyState.value;
+        const ks = props.keyState;
         // Only treat translational input as movement; turning alone should remain idle
         const isMoving =
             ks.forward || ks.backward || ks.strafeLeft || ks.strafeRight;

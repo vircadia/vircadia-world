@@ -325,7 +325,8 @@
                                                                             : 0)
                                                                             " :fov-lerp-speed="8"
                                                                         :mouse-lock-camera-rotate-toggle="controls.mouseLockCameraRotateToggle || controls.rightMouseDown"
-                                                                        :mouse-lock-camera-avatar-rotate-toggle="controls.mouseLockCameraAvatarRotateToggle || controls.rightMouseDown" />
+                                                                        :mouse-lock-camera-avatar-rotate-toggle="controls.mouseLockCameraAvatarRotateToggle || controls.rightMouseDown"
+                                                                        :override-mouse-lock-camera-avatar-rotate="controls.keyState.turnLeft || controls.keyState.turnRight" />
                                                                     <!-- Non-visual animation loaders now slotted under model component -->
                                                                     <BabylonMyAvatarAnimation v-for="anim in animations"
                                                                         v-if="targetSkeleton" :key="anim.fileName"

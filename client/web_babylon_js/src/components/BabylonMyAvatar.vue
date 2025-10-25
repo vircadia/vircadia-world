@@ -120,6 +120,19 @@ export type AvatarDefinition = {
     startFlying: boolean;
     runSpeedMultiplier: number;
     backWalkMultiplier: number;
+    // Physics character controller properties
+    maxCastIterations: number;
+    keepContactTolerance: number;
+    keepDistance: number;
+    acceleration: number;
+    characterMass: number;
+    characterStrength: number;
+    dynamicFriction: number;
+    maxAcceleration: number;
+    maxCharacterSpeedForSolver: number;
+    penetrationRecoverySpeed: number;
+    staticFriction: number;
+    up: { x: number; y: number; z: number };
 };
 
 const effectiveAvatarDef = computed<AvatarDefinition>(() => {
@@ -140,6 +153,18 @@ const turnSpeed = computed(() => effectiveAvatarDef.value.turnSpeed);
 const blendDuration = computed(() => effectiveAvatarDef.value.blendDuration);
 const meshPivotPoint = computed(() => effectiveAvatarDef.value.meshPivotPoint);
 const modelFileName = computed(() => effectiveAvatarDef.value.modelFileName);
+const maxCastIterations = computed(() => effectiveAvatarDef.value.maxCastIterations);
+const keepContactTolerance = computed(() => effectiveAvatarDef.value.keepContactTolerance);
+const keepDistance = computed(() => effectiveAvatarDef.value.keepDistance);
+const acceleration = computed(() => effectiveAvatarDef.value.acceleration);
+const characterMass = computed(() => effectiveAvatarDef.value.characterMass);
+const characterStrength = computed(() => effectiveAvatarDef.value.characterStrength);
+const dynamicFriction = computed(() => effectiveAvatarDef.value.dynamicFriction);
+const maxAcceleration = computed(() => effectiveAvatarDef.value.maxAcceleration);
+const maxCharacterSpeedForSolver = computed(() => effectiveAvatarDef.value.maxCharacterSpeedForSolver);
+const penetrationRecoverySpeed = computed(() => effectiveAvatarDef.value.penetrationRecoverySpeed);
+const staticFriction = computed(() => effectiveAvatarDef.value.staticFriction);
+const up = computed(() => effectiveAvatarDef.value.up);
 
 const animations = computed(
     () => effectiveAvatarDef.value.animations as AnimationDef[],
@@ -232,9 +257,18 @@ function createController(position: Vector3, rotation: Quaternion): void {
                 characterController.value.maxSlopeCosine = Math.cos(
                     (slopeLimit.value * Math.PI) / 180,
                 );
-                characterController.value.maxCastIterations = 20;
-                characterController.value.keepContactTolerance = 0.001;
-                characterController.value.keepDistance = 0.02;
+                characterController.value.maxCastIterations = maxCastIterations.value;
+                characterController.value.keepContactTolerance = keepContactTolerance.value;
+                characterController.value.keepDistance = keepDistance.value;
+                characterController.value.acceleration = acceleration.value;
+                characterController.value.characterMass = characterMass.value;
+                characterController.value.characterStrength = characterStrength.value;
+                characterController.value.dynamicFriction = dynamicFriction.value;
+                characterController.value.maxAcceleration = maxAcceleration.value;
+                characterController.value.maxCharacterSpeedForSolver = maxCharacterSpeedForSolver.value;
+                characterController.value.penetrationRecoverySpeed = penetrationRecoverySpeed.value;
+                characterController.value.staticFriction = staticFriction.value;
+                characterController.value.up = new Vector3(up.value.x, up.value.y, up.value.z);
                 console.log(
                     "[BabylonMyAvatar] Character controller created successfully",
                 );

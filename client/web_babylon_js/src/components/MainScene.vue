@@ -743,6 +743,19 @@ const avatarDefinition: AvatarDefinition = {
     startFlying: true,
     runSpeedMultiplier: 2.2,
     backWalkMultiplier: 0.6,
+    // Physics character controller properties (using Babylon.js documented defaults)
+    maxCastIterations: 10, // default: 10 - maximum number of raycast per integration step
+    keepContactTolerance: 0.1, // default: 0.1 - maximum distance to keep contact
+    keepDistance: 0.05, // default: 0.05 - minimum distance to make contact
+    acceleration: 1.0, // default: 1.0 - acceleration factor (1 = reaching max velocity immediately)
+    characterMass: 0, // default: 0 - character mass
+    characterStrength: 1e38, // default: 1e38 - strength when pushing other bodies
+    dynamicFriction: 1.0, // default: 1.0 - friction with dynamic surfaces
+    maxAcceleration: 10.0, // maximum acceleration in world space coordinate
+    maxCharacterSpeedForSolver: 10, // default: 10 - character maximum speed
+    penetrationRecoverySpeed: 1.0, // default: 1.0 - speed when recovery from penetration
+    staticFriction: 0, // default: 0 - friction with static surfaces
+    up: { x: 0, y: 1, z: 0 }, // up vector
     animations: [
         {
             fileName: "babylon.avatar.animation.f.idle.1.glb",

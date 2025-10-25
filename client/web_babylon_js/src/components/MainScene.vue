@@ -321,7 +321,8 @@
                                                                             controls.keyState.strafeRight)
                                                                             ? (controls.keyState.sprint ? 0.08 : 0.04)
                                                                             : 0)
-                                                                            " :fov-lerp-speed="8" />
+                                                                            " :fov-lerp-speed="8"
+                                                                        :right-mouse-down="controls.rightMouseDown" />
                                                                     <!-- Non-visual animation loaders now slotted under model component -->
                                                                     <BabylonMyAvatarAnimation v-for="anim in animations"
                                                                         v-if="targetSkeleton" :key="anim.fileName"

@@ -4,14 +4,12 @@
 import type {
     AbstractMesh,
     Observer,
-    PointerInfo,
     Scene,
     TransformNode,
 } from "@babylonjs/core";
 import {
     ArcRotateCamera,
     MeshBuilder,
-    PointerEventTypes,
     Quaternion,
     Vector3,
 } from "@babylonjs/core";
@@ -42,14 +40,14 @@ const props = defineProps({
     // FOV-only smoothing (parent provides small delta based on movement)
     fovDelta: { type: Number, required: true },
     fovLerpSpeed: { type: Number, required: true },
+    // Mouse button states (provided by controller)
+    rightMouseDown: { type: Boolean, required: true },
 });
 
 const camera: Ref<ArcRotateCamera | null> = ref(null);
 let beforeRenderObserver: Observer<Scene> | null = null;
-let pointerObserver: Observer<PointerInfo> | null = null;
 let contextMenuHandler: ((e: MouseEvent) => void) | null = null;
 
-const isRightMouseDown = ref(false);
 let followTargetMesh: AbstractMesh | null = null;
 
 // Interaction limits provided via props
@@ -142,24 +140,7 @@ function setupCamera(): void {
         }
     }
 
-    // Right mouse handling via Babylon pointer pipeline; suppress browser context menu
-    pointerObserver = props.scene.onPointerObservable.add((info) => {
-        const evt = info.event as MouseEvent;
-        switch (info.type) {
-            case PointerEventTypes.POINTERDOWN:
-                if (evt.button === 2) {
-                    isRightMouseDown.value = true;
-                    evt.preventDefault();
-                }
-                break;
-            case PointerEventTypes.POINTERUP:
-                if (evt.button === 2) {
-                    isRightMouseDown.value = false;
-                }
-                break;
-        }
-    });
-
+    // Suppress browser context menu
     contextMenuHandler = (e: MouseEvent) => {
         e.preventDefault();
     };
@@ -188,7 +169,7 @@ function setupCamera(): void {
             );
         }
 
-        if (!isRightMouseDown.value || !camera.value || !props.avatarNode)
+        if (!props.rightMouseDown || !camera.value || !props.avatarNode)
             return;
         const lookDir = props.avatarNode.position
             .subtract(camera.value.position)
@@ -225,8 +206,6 @@ watch(
 onUnmounted(() => {
     if (beforeRenderObserver)
         props.scene.onBeforeRenderObservable.remove(beforeRenderObserver);
-    if (pointerObserver)
-        props.scene.onPointerObservable.remove(pointerObserver);
     const canvas = props.scene.getEngine().getRenderingCanvas();
     if (canvas && contextMenuHandler) {
         try {

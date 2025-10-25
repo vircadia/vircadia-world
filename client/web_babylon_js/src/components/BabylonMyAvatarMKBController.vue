@@ -1,6 +1,7 @@
 <template>
     <slot :key-state="keyState" :pointer-state="pointerState" :is-pointer-locked="isPointerLocked"
-        :enable-pointer-lock="enablePointerLock" :exit-pointer-lock="exitPointerLock" />
+        :enable-pointer-lock="enablePointerLock" :exit-pointer-lock="exitPointerLock"
+        :left-mouse-down="pointerState.leftMouseDown" :right-mouse-down="pointerState.rightMouseDown" />
 </template>
 
 <script setup lang="ts">
@@ -58,6 +59,8 @@ const pointerState = ref({
     deltaY: 0,
     wheelDelta: 0,
     buttonDown: false,
+    leftMouseDown: false,
+    rightMouseDown: false,
 });
 
 const isPointerLocked = ref(false);
@@ -80,6 +83,7 @@ if (typeof document !== "undefined") {
 
 let keyboardObserver: Observer<KeyboardInfo> | null = null;
 let pointerObserver: Observer<PointerInfo> | null = null;
+let contextMenuHandler: ((e: MouseEvent) => void) | null = null;
 
 if (props.scene) {
     keyboardObserver = props.scene.onKeyboardObservable.add((kbInfo) => {
@@ -130,19 +134,34 @@ if (props.scene) {
     pointerObserver = props.scene.onPointerObservable.add((info) => {
         const e = info.event as MouseEvent | WheelEvent;
         switch (info.type) {
-            case PointerEventTypes.POINTERDOWN:
+            case PointerEventTypes.POINTERDOWN: {
                 pointerState.value.buttonDown = true;
+                const mouseEvt = e as MouseEvent;
+                if (mouseEvt.button === 0) {
+                    pointerState.value.leftMouseDown = true;
+                } else if (mouseEvt.button === 2) {
+                    pointerState.value.rightMouseDown = true;
+                    mouseEvt.preventDefault();
+                }
                 if (
-                    (e as MouseEvent).button === 0 ||
-                    (e as MouseEvent).button === 2
+                    mouseEvt.button === 0 ||
+                    mouseEvt.button === 2
                 ) {
                     enablePointerLock();
                 }
                 break;
-            case PointerEventTypes.POINTERUP:
+            }
+            case PointerEventTypes.POINTERUP: {
                 pointerState.value.buttonDown = false;
+                const mouseEvtUp = e as MouseEvent;
+                if (mouseEvtUp.button === 0) {
+                    pointerState.value.leftMouseDown = false;
+                } else if (mouseEvtUp.button === 2) {
+                    pointerState.value.rightMouseDown = false;
+                }
                 exitPointerLock();
                 break;
+            }
             case PointerEventTypes.POINTERMOVE:
                 pointerState.value.deltaX = (e as MouseEvent).movementX;
                 pointerState.value.deltaY = (e as MouseEvent).movementY;
@@ -152,6 +171,15 @@ if (props.scene) {
                 break;
         }
     });
+
+    // Suppress browser context menu on RMB
+    const canvas = props.scene.getEngine().getRenderingCanvas();
+    if (canvas) {
+        contextMenuHandler = (e: MouseEvent) => {
+            e.preventDefault();
+        };
+        canvas.addEventListener("contextmenu", contextMenuHandler);
+    }
 }
 
 if (typeof window !== "undefined") {
@@ -169,6 +197,8 @@ if (typeof window !== "undefined") {
         keyState.value.crouch = false;
         keyState.value.prone = false;
         keyState.value.slowRun = false;
+        pointerState.value.leftMouseDown = false;
+        pointerState.value.rightMouseDown = false;
     };
 
     watch(focused, (isFocused) => {
@@ -185,6 +215,12 @@ onUnmounted(() => {
     }
     if (typeof document !== "undefined") {
         document.removeEventListener("pointerlockchange", onPointerLockChange);
+    }
+    const canvas = props.scene?.getEngine().getRenderingCanvas();
+    if (canvas && contextMenuHandler) {
+        try {
+            canvas.removeEventListener("contextmenu", contextMenuHandler);
+        } catch { }
     }
 });
 </script>

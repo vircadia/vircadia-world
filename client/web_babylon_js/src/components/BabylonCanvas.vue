@@ -1,11 +1,11 @@
 <template>
-    <canvas ref="canvasRef" id="renderCanvas"></canvas>
+    <canvas v-if="props.engineType !== 'nullengine'" ref="canvasRef" id="renderCanvas"></canvas>
     <slot :scene="readyScene" :canvas="canvasRef">
     </slot>
 </template>
 
 <script setup lang="ts">
-import { ArcRotateCamera, Engine, Scene, Vector3, WebGPUEngine } from "@babylonjs/core";
+import { ArcRotateCamera, Engine, NullEngine, Scene, Vector3, WebGPUEngine } from "@babylonjs/core";
 import { computed, onMounted, onUnmounted, ref, toRef, watch } from "vue";
 
 // Define models for two-way binding
@@ -15,13 +15,14 @@ const renderLoopEnabled = defineModel<boolean>("renderLoopEnabled", { default: t
 // Props for read-only values
 const props = defineProps({
     targetFps: { type: Number, default: 30 },
-    engineType: { type: String as () => "webgl" | "webgpu", default: "webgpu" },
+    engineType: { type: String as () => "webgl" | "webgpu" | "nullengine", default: "webgpu" },
 });
 
 // Internal refs
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 let webGlEngine: Engine | null = null;
 let webGpuEngine: WebGPUEngine | null = null;
+let nullEngine: NullEngine | null = null;
 let scene: Scene | null = null;
 let resizeRaf = 0;
 const sceneReady = ref(false);
@@ -37,6 +38,9 @@ function handleResize() {
             resizeRaf = 0;
         } else if (webGpuEngine) {
             webGpuEngine.resize();
+            resizeRaf = 0;
+        } else if (nullEngine) {
+            nullEngine.resize();
             resizeRaf = 0;
         } else {
             throw new Error("Engine not found");
@@ -58,7 +62,7 @@ function getCurrentTargetFps() {
 
 function startRenderLoop() {
     if (!scene) throw new Error("Scene not found");
-    const engine = webGlEngine ?? webGpuEngine;
+    const engine = webGlEngine ?? webGpuEngine ?? nullEngine;
     if (!engine) throw new Error("Engine not found");
     if (isRenderLoopRunning) {
         // restart to apply any changes
@@ -87,7 +91,7 @@ function startRenderLoop() {
 }
 
 function stopRenderLoop() {
-    const engine = webGlEngine ?? webGpuEngine;
+    const engine = webGlEngine ?? webGpuEngine ?? nullEngine;
     if (!engine) throw new Error("Engine not found");
     engine.stopRenderLoop();
     isRenderLoopRunning = false;
@@ -118,42 +122,48 @@ watch(toRef(props, "targetFps"), () => {
 });
 
 onMounted(async () => {
-    if (!canvasRef.value) {
-        throw new Error("Canvas not found.");
-    }
-
     try {
         // Use engine type from prop (passed from MainScene based on autonomous agent state)
-        if (props.engineType === "webgl") {
-            webGlEngine = new Engine(canvasRef.value, true, {
-                antialias: true,
-                adaptToDeviceRatio: true,
-                preserveDrawingBuffer: false,
-                stencil: true,
-            });
+        if (props.engineType === "nullengine") {
+            // NullEngine doesn't need a canvas element - perfect for headless/automated agents
+            nullEngine = new NullEngine();
         } else {
-            // Try WebGPU first
-            const adapter = await navigator.gpu?.requestAdapter();
-            if (adapter) {
-                const webgpu = new WebGPUEngine(canvasRef.value, {
-                    antialias: true,
-                    adaptToDeviceRatio: true,
-                });
-                await webgpu.initAsync();
-                webGpuEngine = webgpu;
-            } else {
-                // Fallback to WebGL if WebGPU is not available
+            // For webgl and webgpu, we need a canvas element
+            if (!canvasRef.value) {
+                throw new Error("Canvas not found.");
+            }
+
+            if (props.engineType === "webgl") {
                 webGlEngine = new Engine(canvasRef.value, true, {
                     antialias: true,
                     adaptToDeviceRatio: true,
                     preserveDrawingBuffer: false,
                     stencil: true,
                 });
+            } else {
+                // Try WebGPU first
+                const adapter = await navigator.gpu?.requestAdapter();
+                if (adapter) {
+                    const webgpu = new WebGPUEngine(canvasRef.value, {
+                        antialias: true,
+                        adaptToDeviceRatio: true,
+                    });
+                    await webgpu.initAsync();
+                    webGpuEngine = webgpu;
+                } else {
+                    // Fallback to WebGL if WebGPU is not available
+                    webGlEngine = new Engine(canvasRef.value, true, {
+                        antialias: true,
+                        adaptToDeviceRatio: true,
+                        preserveDrawingBuffer: false,
+                        stencil: true,
+                    });
+                }
             }
         }
 
-        if (!webGlEngine && !webGpuEngine) throw new Error("Engine not created");
-        const engine = webGlEngine ?? webGpuEngine;
+        if (!webGlEngine && !webGpuEngine && !nullEngine) throw new Error("Engine not created");
+        const engine = webGlEngine ?? webGpuEngine ?? nullEngine;
         if (!engine) throw new Error("Engine not found");
 
         scene = new Scene(engine);
@@ -171,13 +181,18 @@ onMounted(async () => {
             new Vector3(0, 1, 0),
             scene,
         );
-        defaultCamera.attachControl(canvasRef.value, true);
+        // Only attach camera controls if we have a canvas
+        if (canvasRef.value) {
+            defaultCamera.attachControl(canvasRef.value, true);
+        }
         scene.activeCamera = defaultCamera;
 
-        // Sizing
-        window.addEventListener("resize", handleResize);
-        // Initial size
-        engine.resize();
+        // Sizing (only needed for visual engines)
+        if (props.engineType !== "nullengine") {
+            window.addEventListener("resize", handleResize);
+            // Initial size
+            engine.resize();
+        }
 
         // Start rendering immediately so scene is visible without waiting for parent
         startRenderLoop();
@@ -195,14 +210,18 @@ defineExpose({
 })
 
 onUnmounted(() => {
-    window.removeEventListener("resize", handleResize);
+    if (props.engineType !== "nullengine") {
+        window.removeEventListener("resize", handleResize);
+    }
     stopRenderLoop();
     scene?.dispose();
     webGlEngine?.dispose();
     webGpuEngine?.dispose();
+    nullEngine?.dispose();
     scene = null;
     webGlEngine = null;
     webGpuEngine = null;
+    nullEngine = null;
     sceneReady.value = false;
 });
 </script>

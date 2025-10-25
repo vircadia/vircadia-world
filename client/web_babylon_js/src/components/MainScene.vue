@@ -62,7 +62,7 @@
                                         :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                         <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' :
                                             'mdi-speedometer-slow'
-                                        }}</v-icon>
+                                            }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="normalPerf">
@@ -97,7 +97,7 @@
                                     <v-btn v-bind="props" icon class="ml-2"
                                         :color="(avatarRef?.isFlying) ? 'success' : undefined">
                                         <v-icon>{{ (avatarRef?.isFlying) ? 'mdi-airplane' : 'mdi-walk'
-                                        }}</v-icon>
+                                            }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="fly">
@@ -135,7 +135,7 @@
                                             @click="inspectorRef?.toggleInspector()">
                                             <v-icon>{{ inspectorVisible ? 'mdi-file-tree' :
                                                 'mdi-file-tree-outline'
-                                            }}</v-icon>
+                                                }}</v-icon>
                                         </v-btn>
                                     </template>
                                     <span>Babylon Inspector (T)</span>
@@ -164,17 +164,14 @@
                             :vircadia-world="vircadiaWorld" :connection-info="connectionInfo" />
 
                         <BabylonCanvas ref="canvasComponentRef" v-model:performanceMode="performanceMode"
-                            :engine-type="isAutonomousAgent ? 'webgl' : 'webgpu'">
-                            <template #default="{ scene: providedScene, canvas: providedCanvas }">
-                                <v-snackbar :model-value="!(providedScene?.isReady() && providedCanvas)"
-                                    location="bottom">
+                            :engine-type="isAutonomousAgent ? 'nullengine' : 'webgpu'">
+                            <template #default="{ scene: providedScene }">
+                                <v-snackbar :model-value="!(providedScene?.isReady())" location="bottom">
                                     <v-progress-circular indeterminate color="white" size="24" class="mr-2" />
-                                    <span>Loading scene and canvas...</span>
-                                    <span>Scene: {{ providedScene ? 'yes' : 'no' }} Canvas: {{ providedCanvas ? 'yes' :
-                                        'no'
-                                    }}</span>
+                                    <span>Loading scene...</span>
+                                    <span>Scene: {{ providedScene ? 'yes' : 'no' }}</span>
                                 </v-snackbar>
-                                <template v-if="providedScene && providedCanvas">
+                                <template v-if="providedScene">
                                     <VircadiaAutonomousAgent v-if="false" :vircadia-world="vircadiaWorld"
                                         :webrtc-ref="webrtcApi" :webrtc-local-stream="webrtcLocalStream"
                                         :webrtc-peers="webrtcPeersMap" :webrtc-remote-streams="webrtcRemoteStreamsMap"
@@ -222,8 +219,7 @@
 
                                     <!-- Component Loader -->
                                     <template v-for="comp in availableComponents" :key="comp">
-                                        <component :is="comp" :scene="providedScene" :canvas="providedCanvas"
-                                            :vircadia-world="vircadiaWorld" />
+                                        <component :is="comp" :scene="providedScene" :vircadia-world="vircadiaWorld" />
                                     </template>
 
                                     <BabylonSnackbar :scene-ready="!!providedScene"

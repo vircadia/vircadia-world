@@ -2820,6 +2820,68 @@ if (import.meta.main) {
 
                     // Model Definitions configuration has been removed
 
+                    // Get current Inference Provider values
+                    // Read from CLI .env first, then process.env, then config defaults
+                    const currentCerebrasApiKey =
+                        (await EnvManager.getVariable(
+                            "VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_API_KEY",
+                            "cli",
+                        )) ||
+                        process.env
+                            .VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_API_KEY ||
+                        serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_API_KEY ||
+                        "";
+
+                    const currentCerebrasModel =
+                        (await EnvManager.getVariable(
+                            "VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_MODEL",
+                            "cli",
+                        )) ||
+                        process.env
+                            .VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_MODEL ||
+                        serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_MODEL ||
+                        "";
+
+                    const currentGroqApiKey =
+                        (await EnvManager.getVariable(
+                            "VRCA_SERVER_SERVICE_INFERENCE_GROQ_API_KEY",
+                            "cli",
+                        )) ||
+                        process.env
+                            .VRCA_SERVER_SERVICE_INFERENCE_GROQ_API_KEY ||
+                        serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_GROQ_API_KEY ||
+                        "";
+
+                    const currentGroqSttModel =
+                        (await EnvManager.getVariable(
+                            "VRCA_SERVER_SERVICE_INFERENCE_GROQ_STT_MODEL",
+                            "cli",
+                        )) ||
+                        process.env
+                            .VRCA_SERVER_SERVICE_INFERENCE_GROQ_STT_MODEL ||
+                        serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_GROQ_STT_MODEL ||
+                        "";
+
+                    const currentGroqTtsModel =
+                        (await EnvManager.getVariable(
+                            "VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_MODEL",
+                            "cli",
+                        )) ||
+                        process.env
+                            .VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_MODEL ||
+                        serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_MODEL ||
+                        "";
+
+                    const currentGroqTtsVoice =
+                        (await EnvManager.getVariable(
+                            "VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_VOICE",
+                            "cli",
+                        )) ||
+                        process.env
+                            .VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_VOICE ||
+                        serverConfiguration.VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_VOICE ||
+                        "";
+
                     // Get current CLI environment values
                     // Read from CLI .env first, then process.env, then config defaults
                     const currentUserSqlDir =
@@ -2951,6 +3013,45 @@ if (import.meta.main) {
                                 value: "user-asset-dir",
                                 description:
                                     "The directory with the user asset seed files. (Optional)",
+                            },
+                            new Separator("================================"),
+                            new Separator("=== 🤖 Inference Providers ==="),
+                            new Separator("================================"),
+                            {
+                                name: `Cerebras API Key\n    Current: ${currentCerebrasApiKey ? "***hidden***" : "Not set"}`,
+                                value: "cerebras-api-key",
+                                description:
+                                    "The API key for Cerebras inference provider.",
+                            },
+                            {
+                                name: `Cerebras Model\n    Current: ${currentCerebrasModel}`,
+                                value: "cerebras-model",
+                                description:
+                                    "The model to use for Cerebras inference.",
+                            },
+                            {
+                                name: `Groq API Key\n    Current: ${currentGroqApiKey ? "***hidden***" : "Not set"}`,
+                                value: "groq-api-key",
+                                description:
+                                    "The API key for Groq inference provider.",
+                            },
+                            {
+                                name: `Groq STT Model\n    Current: ${currentGroqSttModel}`,
+                                value: "groq-stt-model",
+                                description:
+                                    "The Speech-to-Text model to use for Groq.",
+                            },
+                            {
+                                name: `Groq TTS Model\n    Current: ${currentGroqTtsModel}`,
+                                value: "groq-tts-model",
+                                description:
+                                    "The Text-to-Speech model to use for Groq.",
+                            },
+                            {
+                                name: `Groq TTS Voice\n    Current: ${currentGroqTtsVoice}`,
+                                value: "groq-tts-voice",
+                                description:
+                                    "The voice to use for Groq Text-to-Speech.",
                             },
                             new Separator("========================"),
                             new Separator(">>>>>> ⚙️ Actions <<<<<<"),
@@ -3869,6 +3970,306 @@ if (import.meta.main) {
                                 debug: cliConfiguration.VRCA_CLI_DEBUG,
                             });
                         }
+                    } else if (configOption === "cerebras-api-key") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with Cerebras API Key?\n",
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env\n    Current: ${currentCerebrasApiKey ? "***hidden***" : "Not set"}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newApiKey = await input({
+                                message: "Enter Cerebras API Key:",
+                                default: currentCerebrasApiKey || "",
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_API_KEY",
+                                newApiKey,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `Cerebras API Key set (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_API_KEY",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "Cerebras API Key variable unset (removed from CLI .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "cerebras-model") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with Cerebras Model?\n",
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env\n    Current: ${currentCerebrasModel}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newModel = await input({
+                                message: "Enter Cerebras Model:",
+                                default: currentCerebrasModel || "",
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_MODEL",
+                                newModel,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `Cerebras Model set to: ${newModel} (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_SERVER_SERVICE_INFERENCE_CEREBRAS_MODEL",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "Cerebras Model variable unset (removed from CLI .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "groq-api-key") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with Groq API Key?\n",
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env\n    Current: ${currentGroqApiKey ? "***hidden***" : "Not set"}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newApiKey = await input({
+                                message: "Enter Groq API Key:",
+                                default: currentGroqApiKey || "",
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_SERVER_SERVICE_INFERENCE_GROQ_API_KEY",
+                                newApiKey,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `Groq API Key set (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_SERVER_SERVICE_INFERENCE_GROQ_API_KEY",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "Groq API Key variable unset (removed from CLI .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "groq-stt-model") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with Groq STT Model?\n",
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env\n    Current: ${currentGroqSttModel}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newModel = await input({
+                                message: "Enter Groq STT Model:",
+                                default: currentGroqSttModel || "",
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_SERVER_SERVICE_INFERENCE_GROQ_STT_MODEL",
+                                newModel,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `Groq STT Model set to: ${newModel} (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_SERVER_SERVICE_INFERENCE_GROQ_STT_MODEL",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "Groq STT Model variable unset (removed from CLI .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "groq-tts-model") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with Groq TTS Model?\n",
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env\n    Current: ${currentGroqTtsModel}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newModel = await input({
+                                message: "Enter Groq TTS Model:",
+                                default: currentGroqTtsModel || "",
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_MODEL",
+                                newModel,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `Groq TTS Model set to: ${newModel} (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_MODEL",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "Groq TTS Model variable unset (removed from CLI .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
+                    } else if (configOption === "groq-tts-voice") {
+                        const action = await select({
+                            message:
+                                "What would you like to do with Groq TTS Voice?\n",
+                            pageSize: 15,
+                            choices: [
+                                {
+                                    name: `Set variable in CLI .env\n    Current: ${currentGroqTtsVoice}`,
+                                    value: "set",
+                                },
+                                {
+                                    name: "Unset variable (remove from CLI .env)",
+                                    value: "unset",
+                                },
+                            ],
+                        });
+
+                        if (action === "set") {
+                            const newVoice = await input({
+                                message: "Enter Groq TTS Voice:",
+                                default: currentGroqTtsVoice || "",
+                                transformer: (value: string) => value.trim(),
+                            });
+
+                            await EnvManager.setVariable(
+                                "VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_VOICE",
+                                newVoice,
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message: `Groq TTS Voice set to: ${newVoice} (persisted to CLI .env file)`,
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        } else if (action === "unset") {
+                            await EnvManager.unsetVariable(
+                                "VRCA_SERVER_SERVICE_INFERENCE_GROQ_TTS_VOICE",
+                                "cli",
+                            );
+
+                            BunLogModule({
+                                message:
+                                    "Groq TTS Voice variable unset (removed from CLI .env file)",
+                                type: "success",
+                                suppress: cliConfiguration.VRCA_CLI_SUPPRESS,
+                                debug: cliConfiguration.VRCA_CLI_DEBUG,
+                            });
+                        }
                     } else if (configOption === "show-egress") {
                         await Server_CLI.printEgressInfo();
                     } else if (configOption === "view-all") {
@@ -3924,6 +4325,20 @@ if (import.meta.main) {
                         console.log(
                             `  User Asset Seed Directory: ${currentUserAssetDir}`,
                         );
+
+                        console.log(`\n\nInference Providers:`);
+                        console.log(
+                            `  Cerebras API Key: ${currentCerebrasApiKey ? "***hidden***" : "Not set"}`,
+                        );
+                        console.log(
+                            `  Cerebras Model: ${currentCerebrasModel}`,
+                        );
+                        console.log(
+                            `  Groq API Key: ${currentGroqApiKey ? "***hidden***" : "Not set"}`,
+                        );
+                        console.log(`  Groq STT Model: ${currentGroqSttModel}`);
+                        console.log(`  Groq TTS Model: ${currentGroqTtsModel}`);
+                        console.log(`  Groq TTS Voice: ${currentGroqTtsVoice}`);
                     }
                 } // Close the while loop
                 break;

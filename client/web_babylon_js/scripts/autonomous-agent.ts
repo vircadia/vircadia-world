@@ -30,13 +30,12 @@ async function startApplication(): Promise<void> {
             "--disable-accelerated-2d-canvas",
             "--no-first-run",
             "--no-zygote",
-            // Enable WebGPU for Babylon.js
-            "--enable-webgpu",
-            "--enable-unsafe-webgpu",
+            // Disable WebGPU - use WebGL software rendering instead
+            "--disable-webgpu",
             "--ignore-gpu-blocklist",
             // Cross-origin isolation and workers features for ONNX/Transformers
             "--enable-features=SharedArrayBuffer,WebAssemblyThreads,WebAssemblySimd,WebAssemblySimd128,WebAssemblyTiering,WebAssemblyLazyCompilation",
-            // ANGLE SwiftShader fallback if hardware WebGPU is unstable
+            // Use ANGLE SwiftShader for WebGL software rendering
             "--use-angle=swiftshader",
             "--use-gl=swiftshader",
             // Fake audio device support

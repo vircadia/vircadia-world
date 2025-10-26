@@ -6,18 +6,18 @@
         :physics-error="physicsRef?.physicsError || undefined" :gravity="physicsRef?.gravity"
         :physics-engine-type="physicsRef?.physicsEngineType || ''" :physics-initialized="physicsRef?.physicsInitialized"
         :havok-instance-loaded="physicsRef?.havokInstanceLoaded"
-        :physics-plugin-created="physicsRef?.physicsPluginCreated" :scene="canvasComponentRef?.scene ?? null"
-        :avatar-node="avatarRef?.avatarNode || null" :avatar-skeleton="avatarRef?.avatarSkeleton || null"
-        :model-file-name="(avatarRef?.modelFileName) || (modelFileNameRef) || null" :model-step="avatarModelStep"
+        :physics-plugin-created="physicsRef?.physicsPluginCreated" :scene="canvasComponentRef?.scene ?? undefined"
+        :avatar-node="avatarRef?.avatarNode || undefined" :avatar-skeleton="avatarRef?.avatarSkeleton || undefined"
+        :model-file-name="(avatarRef?.modelFileName) || (modelFileNameRef) || undefined" :model-step="avatarModelStep"
         :model-error="avatarModelError || undefined" :is-talking="!!(avatarRef?.isTalking)"
         :talk-level="Number(avatarRef?.talkLevel || 0)" :talk-threshold="Number(avatarRef?.talkThreshold || 0)"
         :audio-input-devices="(avatarRef?.audioInputDevices) || []" :airborne="!!(avatarRef?.lastAirborne)"
         :vertical-velocity="Number(avatarRef?.lastVerticalVelocity || 0)"
-        :support-state="avatarRef?.lastSupportState ?? null" :has-touched-ground="!!(avatarRef?.hasTouchedGround)"
+        :support-state="avatarRef?.lastSupportState ?? undefined" :has-touched-ground="!!(avatarRef?.hasTouchedGround)"
         :spawn-settling="!!(avatarRef?.spawnSettleActive)" :ground-probe-hit="!!(avatarRef?.groundProbeHit)"
         :ground-probe-distance="avatarRef?.groundProbeDistance ?? undefined"
         :ground-probe-mesh-name="avatarRef?.groundProbeMeshName ?? undefined"
-        :animation-debug="avatarRef?.animationDebug || null" :sync-metrics="avatarSyncMetrics || undefined"
+        :animation-debug="avatarRef?.animationDebug || undefined" :sync-metrics="avatarSyncMetrics || undefined"
         :avatar-reflect-sync-group="'public.REALTIME'" :avatar-entity-sync-group="'public.NORMAL'"
         :avatar-reflect-channel="'avatar_data'" :other-avatar-session-ids="otherAvatarsRef?.otherAvatarSessionIds"
         :avatar-data-map="otherAvatarsRef?.avatarDataMap" :position-data-map="otherAvatarsRef?.positionDataMap || {}"
@@ -62,7 +62,7 @@
                                         :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                         <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' :
                                             'mdi-speedometer-slow'
-                                        }}</v-icon>
+                                            }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="normalPerf">
@@ -97,7 +97,7 @@
                                     <v-btn v-bind="props" icon class="ml-2"
                                         :color="(avatarRef?.isFlying) ? 'success' : undefined">
                                         <v-icon>{{ (avatarRef?.isFlying) ? 'mdi-airplane' : 'mdi-walk'
-                                        }}</v-icon>
+                                            }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="fly">
@@ -135,7 +135,7 @@
                                             @click="inspectorRef?.toggleInspector()">
                                             <v-icon>{{ inspectorVisible ? 'mdi-file-tree' :
                                                 'mdi-file-tree-outline'
-                                            }}</v-icon>
+                                                }}</v-icon>
                                         </v-btn>
                                     </template>
                                     <span>Babylon Inspector (T)</span>
@@ -172,7 +172,7 @@
                                     <span>Scene: {{ providedScene ? 'yes' : 'no' }}</span>
                                 </v-snackbar>
                                 <template v-if="providedScene">
-                                    <VircadiaAutonomousCloudAgent ref="cloudAgentRef" :vircadia-world="vircadiaWorld"
+                                    <VircadiaCloudInferenceProvider ref="cloudAgentRef" :vircadia-world="vircadiaWorld"
                                         :webrtc-ref="webrtcApi" :webrtc-local-stream="webrtcLocalStream"
                                         :webrtc-peers="webrtcPeersMap" :webrtc-remote-streams="webrtcRemoteStreamsMap"
                                         :agent-mic-input-stream="agentMicInputStream"
@@ -322,6 +322,16 @@
                                                                     :scene="providedScene"
                                                                     :avatar-node="(avatarNode as TransformNode | null)"
                                                                     hotkey="Shift+N" />
+
+                                                                <!-- EVE-like floating agent that follows the avatar -->
+                                                                <VircadiaAgent :scene="providedScene"
+                                                                    :vircadia-world="vircadiaWorld"
+                                                                    :avatar-node="(avatarNode as TransformNode | null)"
+                                                                    :physics-enabled="envPhysicsEnabled"
+                                                                    :physics-plugin-name="envPhysicsPluginName"
+                                                                    :gravity="sceneGravity"
+                                                                    :follow-offset="[0.0, 0.9, -2.2]"
+                                                                    :max-speed="2.2" />
                                                             </template>
                                                         </BabylonMyAvatar>
                                                     </BabylonMyAvatarTalking>
@@ -442,7 +452,8 @@ import BabylonSnackbar from "@/components/BabylonSnackbar.vue";
 import BabylonWebRTC from "@/components/BabylonWebRTC.vue";
 import LeftDrawer from "@/components/LeftDrawer.vue";
 import RightDrawer from "@/components/RightDrawer.vue";
-import VircadiaAutonomousCloudAgent from "@/components/VircadiaAutonomousCloudAgent.vue";
+import VircadiaAgent from "@/components/VircadiaAgent.vue";
+import VircadiaCloudInferenceProvider from "@/components/VircadiaCloudInferenceProvider.vue";
 import VircadiaWorldAuthLogin from "@/components/VircadiaWorldAuthLogin.vue";
 import VircadiaWorldAuthProvider from "@/components/VircadiaWorldAuthProvider.vue";
 import VircadiaWorldProvider from "@/components/VircadiaWorldProvider.vue";
@@ -565,7 +576,10 @@ try {
     agentEchoAudioContext.value = ctx;
     agentEchoOutputStream.value = dest;
 } catch (e) {
-    console.warn("[MainScene] Failed to init agent echo output synchronously:", e);
+    console.warn(
+        "[MainScene] Failed to init agent echo output synchronously:",
+        e,
+    );
 }
 
 const ttsOutputStream = computed<MediaStream | null>(

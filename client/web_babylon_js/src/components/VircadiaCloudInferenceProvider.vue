@@ -65,7 +65,7 @@
                                     <v-progress-linear :model-value="rmsPct" color="secondary" height="6" rounded
                                         class="flex-grow-1 min-w-[160px]" />
                                     <span class="text-caption text-medium-emphasis ml-2">{{ rmsLevel.toFixed(2)
-                                    }}</span>
+                                        }}</span>
                                 </div>
                             </div>
                         </v-card>
@@ -104,7 +104,7 @@
                                                 </span>
                                                 <span class="font-weight-medium">{{ msg.role === 'user' ? 'You' :
                                                     'Assistant'
-                                                }}</span>
+                                                    }}</span>
                                             </v-list-item-title>
                                             <v-list-item-subtitle class="mt-1 wrap-anywhere"
                                                 :class="msg.role === 'user' ? 'text-high-emphasis' : ''">
@@ -180,10 +180,12 @@ const props = defineProps({
     webrtcLocalStream: { type: Object as () => MediaStream | null, default: null },
     webrtcPeers: { type: Object as () => Map<string, RTCPeerConnection>, default: () => new Map() },
     webrtcRemoteStreams: { type: Object as () => Map<string, MediaStream>, default: () => new Map() },
+    agentMicInputStream: { type: Object as () => MediaStream | null, default: null },
+    agentEchoOutputStream: { type: Object as () => MediaStreamAudioDestinationNode | null, default: null },
     agentEnableTts: { type: Boolean, required: true },
     agentEnableLlm: { type: Boolean, required: true },
     agentEnableStt: { type: Boolean, required: true },
-    agentTtsLocalEcho: { type: Boolean, required: true },
+    agentTtsOutputMode: { type: String as PropType<"local" | "webrtc" | "both">, required: true },
     agentWakeWord: { type: String, required: true },
     agentEndWord: { type: String, required: true },
     agentNoReplyTimeoutSec: { type: Number, required: true },
@@ -296,16 +298,11 @@ const conversationItemsReversed = computed<ConversationItem[]>(() => [...convers
 const llmGenerating = ref<boolean>(false);
 const ttsGenerating = ref<boolean>(false);
 
-// TTS output stream for avatar talking detection
-const ttsOutputStream = ref<MediaStream | null>(null);
-const ttsDestinationNode = ref<MediaStreamAudioDestinationNode | null>(null);
-const ttsAudioContext = ref<AudioContext | null>(null);
-
 // Worklet loader
 const sttWorkletLoaded = new WeakSet<AudioContext>();
 async function ensureSttWorklet(ctx: AudioContext): Promise<void> {
     if (sttWorkletLoaded.has(ctx)) return;
-    await ctx.audioWorklet.addModule(new URL("./VircadiaAutonomousAgentSTTWorklet.ts", import.meta.url));
+    await ctx.audioWorklet.addModule(new URL("./VircadiaSTTWorklet.ts", import.meta.url));
     sttWorkletLoaded.add(ctx);
 }
 
@@ -515,36 +512,28 @@ const ttsQueue: string[] = [];
 const isSpeaking = ref<boolean>(false);
 async function flushTtsQueue(): Promise<void> { if (isSpeaking.value || ttsQueue.length === 0) return; const next = ttsQueue.shift(); if (!next) return; isSpeaking.value = true; try { await speakServerTts(next); } finally { isSpeaking.value = false; if (ttsQueue.length > 0) void flushTtsQueue(); } }
 
-// Initialize TTS output stream for avatar talking detection
-async function initTtsOutputStream(): Promise<void> {
-    if (ttsDestinationNode.value) return;
-    try {
-        const ctx = new AudioContext();
-        await ctx.resume();
-        const dest = ctx.createMediaStreamDestination();
-        ttsAudioContext.value = ctx;
-        ttsDestinationNode.value = dest;
-        ttsOutputStream.value = dest.stream;
-    } catch (e) {
-        console.warn("[CloudAgent] Failed to init TTS output stream:", e);
-    }
-}
-
 async function speakServerTts(text: string, forceLocalEcho = false): Promise<void> {
     try {
         const api = webrtc.value;
-        const allowLocalEcho = forceLocalEcho || props.agentTtsLocalEcho;
+        const allowLocalEcho = forceLocalEcho || props.agentTtsOutputMode === "both" || props.agentTtsOutputMode === "local";
         const hasPeers = !!api && typeof api.getPeersMap === "function" && api.getPeersMap().size > 0;
         const useBus = !!api && hasPeers;
         if (!allowLocalEcho && !useBus) return;
 
-        // Ensure TTS output stream is initialized
-        await initTtsOutputStream();
+        // Use provided echo output destination if available
+        const echoDestination = props.agentEchoOutputStream;
+        if (!echoDestination && allowLocalEcho) {
+            console.warn("[CloudAgent] Local echo requested but no agentEchoOutputStream provided");
+            return;
+        }
+
+        // Prepare contexts: use echo destination's context for local playback to ensure same-context connections
+        const localCtx: AudioContext | null = allowLocalEcho && echoDestination ? echoDestination.context as AudioContext : null;
+        const busCtx: AudioContext | null = useBus && api ? api.getUplinkAudioContext() || null : null;
 
         if (useBus && api) { try { await api.ensureUplinkDestination(); } catch { } }
-        const busCtx = useBus && api ? api.getUplinkAudioContext() || null : null;
-        const ctx = busCtx || ttsAudioContext.value || new AudioContext();
-        try { await ctx.resume(); } catch { }
+        try { await localCtx?.resume(); } catch { }
+        try { await busCtx?.resume(); } catch { }
 
         // Request TTS audio from server
         const client = props.vircadiaWorld?.client; if (!client) return;
@@ -553,43 +542,51 @@ async function speakServerTts(text: string, forceLocalEcho = false): Promise<voi
         ttsGenerating.value = false;
         const arrayBuf = await audioBlob.arrayBuffer();
 
-        // Decode audio buffers for both contexts in parallel
-        const ttsCtx = ttsAudioContext.value;
-        const [ttsBuffer, audioBuffer] = await Promise.all([
-            ttsCtx && ttsDestinationNode.value ? ttsCtx.decodeAudioData(arrayBuf.slice(0)).catch(() => null) : Promise.resolve(null),
-            ctx.decodeAudioData(arrayBuf.slice(0)),
-        ]);
-
-        // Start both audio paths simultaneously
+        // Build playback paths per-context
         const promises: Promise<void>[] = [];
 
-        // Avatar detection audio path
-        if (ttsBuffer && ttsCtx && ttsDestinationNode.value) {
-            try {
-                const ttsSource = ttsCtx.createBufferSource();
-                ttsSource.buffer = ttsBuffer;
-                const ttsGain = ttsCtx.createGain();
-                ttsGain.gain.value = 1.25;
-                ttsSource.connect(ttsGain);
-                ttsGain.connect(ttsDestinationNode.value);
-                promises.push(new Promise<void>((resolve) => { ttsSource.addEventListener("ended", () => resolve()); ttsSource.start(); }));
-            } catch (e) {
-                console.warn("[CloudAgent] Failed to play TTS for avatar detection:", e);
-            }
+        // Local speaker echo path (and feed analyzer stream) using echo destination's context
+        if (allowLocalEcho && localCtx && echoDestination) {
+            const localBuffer = await localCtx.decodeAudioData(arrayBuf.slice(0));
+            const localSource = localCtx.createBufferSource();
+            localSource.buffer = localBuffer;
+            const localGain = localCtx.createGain();
+            localGain.gain.value = 1.25;
+            localSource.connect(localGain);
+            try { localGain.connect(echoDestination); } catch { }
+            try { localGain.connect(localCtx.destination); } catch { }
+            promises.push(new Promise<void>((resolve) => {
+                localSource.addEventListener("ended", () => resolve());
+                try {
+                    const t = localCtx.currentTime;
+                    localGain.gain.setValueAtTime(0.0001, t);
+                    localGain.gain.exponentialRampToValueAtTime(1.25, t + 0.02);
+                } catch { }
+                localSource.start();
+            }));
         }
 
-        // WebRTC/playback audio path
-        const source = ctx.createBufferSource();
-        source.buffer = audioBuffer;
-        const gain = ctx.createGain();
-        gain.gain.value = 1.25;
-        source.connect(gain);
+        // WebRTC bus path (send audio to peers)
+        if (useBus && api && busCtx) {
+            const busBuffer = await busCtx.decodeAudioData(arrayBuf.slice(0));
+            const busSource = busCtx.createBufferSource();
+            busSource.buffer = busBuffer;
+            const busGain = busCtx.createGain();
+            busGain.gain.value = 1.25;
+            busSource.connect(busGain);
+            try { api.connectNodeToUplink(busGain); await api.replaceUplinkWithDestination(); } catch { }
+            promises.push(new Promise<void>((resolve) => {
+                busSource.addEventListener("ended", () => resolve());
+                try {
+                    const t = busCtx.currentTime;
+                    busGain.gain.setValueAtTime(0.0001, t);
+                    busGain.gain.exponentialRampToValueAtTime(1.25, t + 0.02);
+                } catch { }
+                busSource.start();
+            }));
+        }
 
-        if (useBus && api) { api.connectNodeToUplink(gain); await api.replaceUplinkWithDestination(); }
-        if (allowLocalEcho) { try { gain.connect(ctx.destination); } catch { } }
-        promises.push(new Promise<void>((resolve) => { source.addEventListener("ended", () => resolve()); try { const t = ctx.currentTime; gain.gain.setValueAtTime(0.0001, t); gain.gain.exponentialRampToValueAtTime(1.25, t + 0.02); } catch { } source.start(); }));
-
-        // Wait for both audio paths to complete
+        // Wait for all paths to complete
         await Promise.all(promises);
     } catch (e) {
         ttsGenerating.value = false;
@@ -627,9 +624,15 @@ async function testServerLLM(): Promise<void> {
 // Attachments
 async function attachMic(): Promise<void> {
     if (!props.agentEnableStt) return;
-    const local = localStreamRef.value; let stream: MediaStream | null = local || null;
+    // Priority: agentMicInputStream prop > webrtcLocalStream
+    let stream: MediaStream | null = props.agentMicInputStream || null;
     if (!stream) {
-        try { stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false }); } catch (e) { console.warn("[CloudAgent] getUserMedia failed:", e); return; }
+        const local = localStreamRef.value;
+        stream = local || null;
+    }
+    if (!stream) {
+        console.warn("[CloudAgent] No mic input stream available. Please provide agentMicInputStream prop.");
+        return;
     }
     await attachStream("mic", stream);
 }
@@ -638,9 +641,6 @@ async function attachMic(): Promise<void> {
 watch(() => props.vircadiaWorld?.connectionInfo.value.status, async (status) => {
     if (!featureEnabled.value) return;
     if (status === "connected") {
-        if (props.agentEnableTts) {
-            await initTtsOutputStream();
-        }
         if (props.agentEnableStt) {
             initVadWorkerOnce();
             const mode = props.agentSttInputMode;
@@ -679,11 +679,7 @@ watch(() => props.agentSttInputMode, async (mode) => {
 onUnmounted(() => {
     for (const [pid] of peerProcessors) detachStream(pid);
     try { const w = vadWorkerRef.value; if (w) w.terminate(); } catch { }
-    try { const ctx = ttsAudioContext.value; if (ctx) ctx.close(); } catch { }
 });
-
-// Expose TTS output stream for parent refs
-defineExpose({ ttsOutputStream });
 </script>
 
 <style>

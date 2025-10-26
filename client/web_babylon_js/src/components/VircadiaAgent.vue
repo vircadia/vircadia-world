@@ -48,16 +48,101 @@ const props = defineProps({
 // Node and controller
 const agentRoot: Ref<TransformNode | null> = ref(null);
 const characterController: Ref<PhysicsCharacterController | null> = ref(null);
-
+const capsuleMesh: Ref<Mesh | null> = ref(null);
 // Simple hover effect
 let hoverPhase = 0;
 
 function createAgentGeometry(scene: Scene, root: TransformNode): void {
-    // Body (spherical for Halo Monitor-like form)
-    const body = MeshBuilder.CreateSphere(
+    // Body (extruded rounded square for rounded square-like form)
+    function getRoundedSquareShape(
+        side: number,
+        cornerRadius: number,
+        cornerSegments: number,
+    ): Vector3[] {
+        const path: Vector3[] = [];
+        const h = side / 2;
+        const r = cornerRadius;
+        const l = h - r;
+        // Bottom line
+        path.push(new Vector3(-l, -h, 0));
+        path.push(new Vector3(l, -h, 0));
+        // Bottom right arc
+        for (let i = 0; i <= cornerSegments; i++) {
+            const angle = Math.PI * 1.5 + ((Math.PI / 2) * i) / cornerSegments;
+            path.push(
+                new Vector3(
+                    l + r * Math.cos(angle),
+                    -l + r * Math.sin(angle),
+                    0,
+                ),
+            );
+        }
+        // Right line
+        path.push(new Vector3(h, -l, 0));
+        path.push(new Vector3(h, l, 0));
+        // Top right arc
+        for (let i = 0; i <= cornerSegments; i++) {
+            const angle = 0 + ((Math.PI / 2) * i) / cornerSegments;
+            path.push(
+                new Vector3(
+                    l + r * Math.cos(angle),
+                    l + r * Math.sin(angle),
+                    0,
+                ),
+            );
+        }
+        // Top line
+        path.push(new Vector3(l, h, 0));
+        path.push(new Vector3(-l, h, 0));
+        // Top left arc
+        for (let i = 0; i <= cornerSegments; i++) {
+            const angle = Math.PI / 2 + ((Math.PI / 2) * i) / cornerSegments;
+            path.push(
+                new Vector3(
+                    -l + r * Math.cos(angle),
+                    l + r * Math.sin(angle),
+                    0,
+                ),
+            );
+        }
+        // Left line
+        path.push(new Vector3(-h, l, 0));
+        path.push(new Vector3(-h, -l, 0));
+        // Bottom left arc
+        for (let i = 0; i <= cornerSegments; i++) {
+            const angle = Math.PI + ((Math.PI / 2) * i) / cornerSegments;
+            path.push(
+                new Vector3(
+                    -l + r * Math.cos(angle),
+                    -l + r * Math.sin(angle),
+                    0,
+                ),
+            );
+        }
+        // Close
+        path.push(new Vector3(-l, -h, 0));
+        return path;
+    }
+
+    const side = 0.15; // half size
+    const cornerRadius = 0.02;
+    const cornerSegments = 8;
+    const depth = 0.15; // half size for cube-like, but extruded along z
+    const shape = getRoundedSquareShape(side, cornerRadius, cornerSegments);
+    const extrudePath = [
+        new Vector3(0, 0, -depth / 2),
+        new Vector3(0, 0, depth / 2),
+    ];
+
+    const body = MeshBuilder.ExtrudeShape(
         "agentBody",
-        { diameter: 0.3, segments: 32 },
-        scene
+        {
+            shape,
+            path: extrudePath,
+            cap: Mesh.CAP_ALL,
+            sideOrientation: Mesh.DOUBLESIDE,
+        },
+        scene,
     );
     body.position.y = 0; // centered
     const bodyMat = new StandardMaterial("agentBodyMat", scene);
@@ -66,27 +151,89 @@ function createAgentGeometry(scene: Scene, root: TransformNode): void {
     body.material = bodyMat;
     body.setParent(root);
 
-    // Single eye (glowing disc for photoreceptor)
+    // Attachments (scaled to half, adjusted for new body)
+    const finLeft = MeshBuilder.CreateBox(
+        "finLeft",
+        { width: 0.025, height: 0.1, depth: 0.1 },
+        scene,
+    );
+    finLeft.position = new Vector3(-0.085, 0, 0);
+    finLeft.material = bodyMat;
+    finLeft.setParent(root);
+
+    const finRight = MeshBuilder.CreateBox(
+        "finRight",
+        { width: 0.025, height: 0.1, depth: 0.1 },
+        scene,
+    );
+    finRight.position = new Vector3(0.085, 0, 0);
+    finRight.material = bodyMat;
+    finRight.setParent(root);
+
+    const topExtension = MeshBuilder.CreateCylinder(
+        "topExtension",
+        { height: 0.05, diameter: 0.025 },
+        scene,
+    );
+    topExtension.position = new Vector3(0, 0.1, 0);
+    topExtension.material = bodyMat;
+    topExtension.setParent(root);
+
+    const bottomExtension = MeshBuilder.CreateCylinder(
+        "bottomExtension",
+        { height: 0.05, diameter: 0.025 },
+        scene,
+    );
+    bottomExtension.position = new Vector3(0, -0.1, 0);
+    bottomExtension.material = bodyMat;
+    bottomExtension.setParent(root);
+
+    // Eye (glowing disc with added detail: outer ring and inner pupil for more complexity)
     const eye = MeshBuilder.CreateDisc(
         "agentEye",
-        { radius: 0.1, tessellation: 32 },
-        scene
+        { radius: 0.04, tessellation: 32 },
+        scene,
     );
-    eye.position = new Vector3(0, 0, 0.15); // centered front on surface
-    eye.rotation.x = Math.PI / 2; // orient to face forward
+    eye.position = new Vector3(0, 0, 0.0755); // slightly protruding from front surface
+    eye.rotation.y = 180 * Math.PI / 180; // adjusted orientation to face forward properly
     const eyeMat = new StandardMaterial("agentEyeMat", scene);
-    eyeMat.emissiveColor = new Color3(0.1, 0.4, 0.8); // glowing blue
+    eyeMat.emissiveColor = new Color3(0.1, 0.4, 0.8); // glowing blue, adjustable for "talking" (e.g., animate intensity or color)
     eyeMat.diffuseColor = new Color3(0, 0, 0); // no diffuse to emphasize glow
     eye.material = eyeMat;
     eye.setParent(root);
 
+    // Eye ring (metallic border for added detail)
+    const eyeRing = MeshBuilder.CreateTorus(
+        "eyeRing",
+        { diameter: 0.1, thickness: 0.01, tessellation: 32 },
+        scene,
+    );
+    eyeRing.position = new Vector3(0, 0, 0.075);
+    eyeRing.rotation.x = Math.PI / 2; // adjusted to align properly
+    eyeRing.material = bodyMat;
+    eyeRing.setParent(eye);
+
+    // Pupil (smaller inner glow for detailed "eye" effect, can animate scale/color for talking)
+    const pupil = MeshBuilder.CreateDisc(
+        "pupil",
+        { radius: 0.015, tessellation: 32 },
+        scene,
+    );
+    pupil.position = new Vector3(0, 0, 0.076); // slightly in front of eye
+    pupil.rotation.x = 180 * Math.PI / 180; // adjusted orientation
+    const pupilMat = new StandardMaterial("pupilMat", scene);
+    pupilMat.emissiveColor = new Color3(1, 1, 1); // bright white center, adjustable
+    pupilMat.diffuseColor = new Color3(0, 0, 0);
+    pupil.material = pupilMat;
+    pupil.setParent(eye);
+
     // Optional bottom glow (for floating effect, though not canon, kept for simplicity)
     const bottomGlow = MeshBuilder.CreateDisc(
         "bottomGlow",
-        { radius: 0.12, tessellation: 32 },
-        scene
+        { radius: 0.06, tessellation: 32 },
+        scene,
     );
-    bottomGlow.position = new Vector3(0, -0.15, 0);
+    bottomGlow.position = new Vector3(0, -0.075, 0);
     bottomGlow.rotation.x = Math.PI / 2; // flat on bottom
     const glowMat = new StandardMaterial("glowMat", scene);
     glowMat.emissiveColor = new Color3(0.1, 0.4, 0.8);
@@ -115,6 +262,7 @@ function ensureController(scene: Scene, startPos: Vector3): void {
             scene,
         );
         capsule.isVisible = false;
+        capsuleMesh.value = capsule;
         const physicsShape = PhysicsShapeCapsule.FromMesh(capsule);
 
         characterController.value = new PhysicsCharacterController(
@@ -162,9 +310,72 @@ function computeFollowTarget(): {
 let beforeObs: Observer<Scene> | null = null;
 let afterObs: Observer<Scene> | null = null;
 let avatarCheckInterval: ReturnType<typeof setInterval> | null = null;
+let sceneDisposeObs: Observer<Scene> | null = null;
 
-onMounted(() => {
+function disposeAgent(): void {
     const scene = props.scene;
+
+    // Remove observers
+    try {
+        if (beforeObs && scene?.onBeforeRenderObservable?.remove) {
+            scene.onBeforeRenderObservable.remove(beforeObs);
+        }
+    } catch {
+        /* no-op */
+    }
+    beforeObs = null;
+    try {
+        if (afterObs && scene?.onAfterRenderObservable?.remove) {
+            scene.onAfterRenderObservable.remove(afterObs);
+        }
+    } catch {
+        /* no-op */
+    }
+    afterObs = null;
+
+    // Remove scene dispose observer
+    try {
+        if (sceneDisposeObs && scene?.onDisposeObservable?.remove) {
+            scene.onDisposeObservable.remove(sceneDisposeObs);
+        }
+    } catch {
+        /* no-op */
+    }
+    sceneDisposeObs = null;
+
+    // Clear interval
+    if (avatarCheckInterval) {
+        clearInterval(avatarCheckInterval);
+        avatarCheckInterval = null;
+    }
+
+    // Dispose physics controller (if it supports dispose)
+    try {
+        // @ts-expect-error optional dispose
+        characterController.value?.dispose?.();
+    } catch {
+        /* no-op */
+    }
+    characterController.value = null;
+
+    // Dispose capsule mesh
+    try {
+        capsuleMesh.value?.dispose();
+    } catch {
+        /* no-op */
+    }
+    capsuleMesh.value = null;
+
+    // Dispose agent root and children
+    try {
+        agentRoot.value?.dispose(false, true);
+    } catch {
+        /* no-op */
+    }
+    agentRoot.value = null;
+}
+
+function initAgent(scene: Scene | null | undefined): void {
     if (!scene) return;
 
     const root = new TransformNode("VircadiaAgent", scene);
@@ -201,7 +412,11 @@ onMounted(() => {
 
         // Ensure controller lazily once physics is available
         // Wait for avatarNode to be available before creating controller
-        if (!characterController.value && props.physicsEnabled && props.avatarNode) {
+        if (
+            !characterController.value &&
+            props.physicsEnabled &&
+            props.avatarNode
+        ) {
             const initialTarget = computeFollowTarget();
             const startPos = initialTarget?.position ?? root.position;
             ensureController(scene, startPos);
@@ -280,20 +495,29 @@ onMounted(() => {
             agentRoot.value.computeWorldMatrix(true);
         }
     });
+
+    // Recreate agent if the scene itself gets disposed (e.g., HMR rebuild)
+    sceneDisposeObs = scene.onDisposeObservable.add(() => {
+        disposeAgent();
+    });
+}
+
+onMounted(() => {
+    initAgent(props.scene);
 });
 
 onUnmounted(() => {
-    const scene = props.scene;
-    if (beforeObs && scene?.onBeforeRenderObservable?.remove) {
-        scene.onBeforeRenderObservable.remove(beforeObs);
-    }
-    if (afterObs && scene?.onAfterRenderObservable?.remove) {
-        scene.onAfterRenderObservable.remove(afterObs);
-    }
-    if (avatarCheckInterval) {
-        clearInterval(avatarCheckInterval);
-        avatarCheckInterval = null;
-    }
-    agentRoot.value?.dispose(false, true);
+    disposeAgent();
 });
+
+// Rebuild when the scene instance changes (e.g., HMR or canvas rebuild)
+import { watch } from "vue";
+
+watch(
+    () => props.scene,
+    (next, _prev) => {
+        disposeAgent();
+        if (next) initAgent(next);
+    },
+);
 </script>

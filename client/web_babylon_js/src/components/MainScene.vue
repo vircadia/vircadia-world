@@ -172,9 +172,10 @@
                                     <span>Scene: {{ providedScene ? 'yes' : 'no' }}</span>
                                 </v-snackbar>
                                 <template v-if="providedScene">
-                                    <VircadiaCloudInferenceProvider ref="cloudAgentRef" :vircadia-world="vircadiaWorld"
-                                        :webrtc-ref="webrtcApi" :webrtc-local-stream="webrtcLocalStream"
-                                        :webrtc-peers="webrtcPeersMap" :webrtc-remote-streams="webrtcRemoteStreamsMap"
+                                    <VircadiaCloudInferenceProvider v-if="isAutonomousAgent" ref="cloudAgentRef"
+                                        :vircadia-world="vircadiaWorld" :webrtc-ref="webrtcApi"
+                                        :webrtc-local-stream="webrtcLocalStream" :webrtc-peers="webrtcPeersMap"
+                                        :webrtc-remote-streams="webrtcRemoteStreamsMap"
                                         :agent-mic-input-stream="agentMicInputStream"
                                         :agent-echo-output-stream="agentEchoOutputStream"
                                         :agent-tts-output-mode="agentTtsOutputMode" :agent-wake-word="agentWakeWord"
@@ -330,8 +331,8 @@
                                                                     :physics-enabled="envPhysicsEnabled"
                                                                     :physics-plugin-name="envPhysicsPluginName"
                                                                     :gravity="sceneGravity"
-                                                                    :follow-offset="[0.0, 0.9, -2.2]"
-                                                                    :max-speed="2.2" />
+                                                                    :follow-offset="[-0.5, 2.0, -0.5]"
+                                                                    :max-speed="4.4" />
                                                             </template>
                                                         </BabylonMyAvatar>
                                                     </BabylonMyAvatarTalking>

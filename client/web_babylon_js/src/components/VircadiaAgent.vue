@@ -6,6 +6,7 @@
 import {
     Color3,
     Matrix,
+    Mesh,
     MeshBuilder,
     type Observer,
     PhysicsCharacterController,
@@ -52,47 +53,47 @@ const characterController: Ref<PhysicsCharacterController | null> = ref(null);
 let hoverPhase = 0;
 
 function createAgentGeometry(scene: Scene, root: TransformNode): void {
-    // Body (capsule-ish / EVE-like)
-    const body = MeshBuilder.CreateCapsule(
+    // Body (spherical for Halo Monitor-like form)
+    const body = MeshBuilder.CreateSphere(
         "agentBody",
-        { height: 1.1, radius: 0.38, tessellation: 16 },
-        scene,
+        { diameter: 0.3, segments: 32 },
+        scene
     );
-    body.scaling = new Vector3(0.9, 1.15, 0.9);
+    body.position.y = 0; // centered
     const bodyMat = new StandardMaterial("agentBodyMat", scene);
-    bodyMat.diffuseColor = new Color3(1.0, 1.0, 1.0);
-    bodyMat.specularColor = new Color3(0.2, 0.2, 0.2);
+    bodyMat.diffuseColor = new Color3(0.6, 0.6, 0.6); // silvery metal
+    bodyMat.specularColor = new Color3(1.0, 1.0, 1.0); // shiny for futuristic look
     body.material = bodyMat;
     body.setParent(root);
 
-    // Visor (front face)
-    const visor = MeshBuilder.CreateCylinder(
-        "agentVisor",
-        { diameter: 0.72, height: 0.025, tessellation: 32 },
-        scene,
+    // Single eye (glowing disc for photoreceptor)
+    const eye = MeshBuilder.CreateDisc(
+        "agentEye",
+        { radius: 0.1, tessellation: 32 },
+        scene
     );
-    visor.position = new Vector3(0, 0.15, 0.45);
-    const visorMat = new StandardMaterial("agentVisorMat", scene);
-    visorMat.diffuseColor = new Color3(0.05, 0.1, 0.12);
-    visorMat.emissiveColor = new Color3(0.05, 0.15, 0.2);
-    visor.material = visorMat;
-    visor.setParent(root);
-
-    // Eyes (simple glowing dots)
-    const eyeLeft = MeshBuilder.CreateSphere(
-        "agentEyeL",
-        { diameter: 0.08 },
-        scene,
-    );
-    eyeLeft.position = new Vector3(-0.14, 0.18, 0.485);
-    const eyeRight = eyeLeft.clone("agentEyeR");
-    if (eyeRight) eyeRight.position = new Vector3(0.14, 0.18, 0.485);
+    eye.position = new Vector3(0, 0, 0.15); // centered front on surface
+    eye.rotation.x = Math.PI / 2; // orient to face forward
     const eyeMat = new StandardMaterial("agentEyeMat", scene);
-    eyeMat.emissiveColor = new Color3(0.2, 0.6, 1.0);
-    eyeLeft.material = eyeMat;
-    if (eyeRight) eyeRight.material = eyeMat;
-    eyeLeft.setParent(root);
-    if (eyeRight) eyeRight.setParent(root);
+    eyeMat.emissiveColor = new Color3(0.1, 0.4, 0.8); // glowing blue
+    eyeMat.diffuseColor = new Color3(0, 0, 0); // no diffuse to emphasize glow
+    eye.material = eyeMat;
+    eye.setParent(root);
+
+    // Optional bottom glow (for floating effect, though not canon, kept for simplicity)
+    const bottomGlow = MeshBuilder.CreateDisc(
+        "bottomGlow",
+        { radius: 0.12, tessellation: 32 },
+        scene
+    );
+    bottomGlow.position = new Vector3(0, -0.15, 0);
+    bottomGlow.rotation.x = Math.PI / 2; // flat on bottom
+    const glowMat = new StandardMaterial("glowMat", scene);
+    glowMat.emissiveColor = new Color3(0.1, 0.4, 0.8);
+    glowMat.alpha = 0.7; // semi-transparent
+    glowMat.diffuseColor = new Color3(0, 0, 0);
+    bottomGlow.material = glowMat;
+    bottomGlow.setParent(root);
 }
 
 function getAgentPosition(): Vector3 | undefined {
@@ -107,10 +108,10 @@ function ensureController(scene: Scene, startPos: Vector3): void {
     if (!props.physicsEnabled || characterController.value) return;
 
     try {
-        // Build a lightweight hidden capsule for the physics shape
+        // Build a lightweight hidden capsule for the physics shape - half size
         const capsule = MeshBuilder.CreateCapsule(
             "agentCapsule",
-            { height: 1.0, radius: 0.35, tessellation: 8 },
+            { height: 0.5, radius: 0.175, tessellation: 8 },
             scene,
         );
         capsule.isVisible = false;
@@ -118,7 +119,7 @@ function ensureController(scene: Scene, startPos: Vector3): void {
 
         characterController.value = new PhysicsCharacterController(
             startPos.clone(),
-            { shape: physicsShape, capsuleHeight: 1.0, capsuleRadius: 0.35 },
+            { shape: physicsShape, capsuleHeight: 0.5, capsuleRadius: 0.175 },
             scene,
         );
 

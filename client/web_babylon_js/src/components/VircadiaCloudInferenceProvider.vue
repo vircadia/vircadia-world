@@ -3,7 +3,7 @@
     <slot></slot>
 
     <!-- Teleport control button to MainScene app bar -->
-    <Teleport v-if="teleportTarget && featureEnabled" :to="teleportTarget">
+    <Teleport v-if="teleportTarget" :to="teleportTarget">
         <v-tooltip location="bottom">
             <template #activator="{ props }">
                 <v-btn v-bind="props" icon variant="text" class="ml-2" :color="overlayOpen ? 'primary' : undefined"
@@ -157,7 +157,6 @@
 </template>
 
 <script setup lang="ts">
-import { clientBrowserState } from "@vircadia/world-sdk/browser/vue";
 import { computed, inject, onUnmounted, type PropType, type Ref, ref, watch } from "vue";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 
@@ -217,8 +216,6 @@ const props = defineProps({
     agentUiMaxAssistantReplies: { type: Number, required: true },
     agentUiMaxConversationItems: { type: Number, required: true },
 });
-
-const featureEnabled = computed(() => clientBrowserState.isAutonomousAgent());
 
 // Teleport
 const teleportTarget = inject<Ref<HTMLElement | null>>("mainAppBarTeleportTarget", ref(null));
@@ -639,7 +636,6 @@ async function attachMic(): Promise<void> {
 
 // Watchers
 watch(() => props.vircadiaWorld?.connectionInfo.value.status, async (status) => {
-    if (!featureEnabled.value) return;
     if (status === "connected") {
         if (props.agentEnableStt) {
             initVadWorkerOnce();
@@ -655,7 +651,6 @@ watch(() => props.vircadiaWorld?.connectionInfo.value.status, async (status) => 
 }, { immediate: true });
 
 watch(() => remoteStreamsRef.value, (streams, oldStreams) => {
-    if (!featureEnabled.value) return;
     if (!props.agentEnableStt) return;
     initVadWorkerOnce();
     const mode = props.agentSttInputMode;
@@ -668,7 +663,6 @@ watch(() => remoteStreamsRef.value, (streams, oldStreams) => {
 }, { deep: true });
 
 watch(() => props.agentSttInputMode, async (mode) => {
-    if (!featureEnabled.value) return;
     if (!props.agentEnableStt) return;
     initVadWorkerOnce();
     if (mode === "webrtc") { for (const [pid] of peerProcessors) { if (pid !== "mic") detachStream(pid); } for (const [pid, stream] of remoteStreamsRef.value) attachStream(pid, stream); }

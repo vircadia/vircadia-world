@@ -172,34 +172,12 @@
                                     <span>Scene: {{ providedScene ? 'yes' : 'no' }}</span>
                                 </v-snackbar>
                                 <template v-if="providedScene">
-                                    <VircadiaAutonomousAgent v-if="false" :vircadia-world="vircadiaWorld"
-                                        :webrtc-ref="webrtcApi" :webrtc-local-stream="webrtcLocalStream"
-                                        :webrtc-peers="webrtcPeersMap" :webrtc-remote-streams="webrtcRemoteStreamsMap"
-                                        :agent-tts-local-echo="agentTtsLocalEcho" :agent-wake-word="agentWakeWord"
-                                        :agent-end-word="agentEndWord" :agent-stt-window-sec="agentSttWindowSec"
-                                        :agent-stt-max-buffer-sec="agentSttMaxBufferSec" :agent-language="agentLanguage"
-                                        :agent-tts-model-id="agentTtsModelId" :agent-llm-model-id="agentLlmModelId"
-                                        :agent-stt-model-id="agentSttModelId" :agent-enable-tts="agentEnableTTS"
-                                        :agent-enable-llm="agentEnableLLM" :agent-enable-stt="agentEnableSTT"
-                                        :agent-stt-pre-gain="agentSttPreGain" :agent-stt-input-mode="agentSttInputMode"
-                                        :agent-no-reply-timeout-sec="agentNoReplyTimeoutSec"
-                                        :agent-stt-target-sample-rate="agentSttTargetSampleRate"
-                                        :agent-stt-worklet-chunk-ms="agentSttWorkletChunkMs"
-                                        :agent-vad-config="agentVadConfig"
-                                        :agent-llm-max-new-tokens="agentLlmMaxNewTokens"
-                                        :agent-llm-temperature="agentLlmTemperature"
-                                        :agent-llm-return-full-text="agentLlmReturnFullText"
-                                        :agent-stt-device="agentSttDevice" :agent-stt-d-type="agentSttDType"
-                                        :agent-tts-device="agentTtsDevice" :agent-tts-d-type="agentTtsDType"
-                                        :agent-llm-device="agentLlmDevice" :agent-llm-d-type="agentLlmDType"
-                                        :agent-ui-max-transcripts="agentUiMaxTranscripts"
-                                        :agent-ui-max-assistant-replies="agentUiMaxAssistantReplies"
-                                        :agent-ui-max-conversation-items="agentUiMaxConversationItems" />
-
                                     <VircadiaAutonomousCloudAgent ref="cloudAgentRef" :vircadia-world="vircadiaWorld"
                                         :webrtc-ref="webrtcApi" :webrtc-local-stream="webrtcLocalStream"
                                         :webrtc-peers="webrtcPeersMap" :webrtc-remote-streams="webrtcRemoteStreamsMap"
-                                        :agent-tts-local-echo="agentTtsLocalEcho" :agent-wake-word="agentWakeWord"
+                                        :agent-mic-input-stream="agentMicInputStream"
+                                        :agent-echo-output-stream="agentEchoOutputStream"
+                                        :agent-tts-output-mode="agentTtsOutputMode" :agent-wake-word="agentWakeWord"
                                         :agent-end-word="agentEndWord" :agent-stt-window-sec="agentSttWindowSec"
                                         :agent-stt-max-buffer-sec="agentSttMaxBufferSec" :agent-language="agentLanguage"
                                         :agent-enable-tts="agentEnableTTS" :agent-enable-llm="agentEnableLLM"
@@ -464,7 +442,6 @@ import BabylonSnackbar from "@/components/BabylonSnackbar.vue";
 import BabylonWebRTC from "@/components/BabylonWebRTC.vue";
 import LeftDrawer from "@/components/LeftDrawer.vue";
 import RightDrawer from "@/components/RightDrawer.vue";
-import VircadiaAutonomousAgent from "@/components/VircadiaAutonomousAgent.vue";
 import VircadiaAutonomousCloudAgent from "@/components/VircadiaAutonomousCloudAgent.vue";
 import VircadiaWorldAuthLogin from "@/components/VircadiaWorldAuthLogin.vue";
 import VircadiaWorldAuthProvider from "@/components/VircadiaWorldAuthProvider.vue";
@@ -477,7 +454,9 @@ import type {
 } from "@/schemas";
 
 // isAutonomousAgent now comes from browser state via URL parameter detection
-const isAutonomousAgent = computed(() => clientBrowserState.isAutonomousAgent());
+const isAutonomousAgent = computed(() =>
+    clientBrowserState.isAutonomousAgent(),
+);
 
 // Auth change handling moved to provider
 
@@ -495,15 +474,7 @@ const avatarRef = ref<InstanceType<typeof BabylonMyAvatar> | null>(null);
 const otherAvatarsRef = ref<InstanceType<typeof BabylonOtherAvatars> | null>(
     null,
 );
-// targetSkeleton now provided via slot; no local ref needed
-// Other avatar types for v-slot destructuring
-type OtherAvatarSlotProps = {
-    otherAvatarSessionIds?: string[];
-    avatarDataMap?: Record<string, AvatarBaseData>;
-    positionDataMap?: Record<string, AvatarPositionData>;
-    rotationDataMap?: Record<string, AvatarRotationData>;
-    jointDataMap?: Record<string, Map<string, AvatarJointMetadata>>;
-};
+
 // Combined otherAvatarsMetadata removed; use separate maps from BabylonOtherAvatars
 const modelRefs = ref<(InstanceType<typeof BabylonModel> | null)[]>([]);
 const modelPhysicsRefs = ref<
@@ -518,12 +489,6 @@ const modelPhysicsRefs = ref<
 const cameraDebugOpen = useStorage<boolean>("vrca.debug.camera", false);
 // Models debug overlay
 const modelsDebugOpen = useStorage<boolean>("vrca.debug.models", false);
-
-// Other avatars overlay
-const otherAvatarsDebugOpen = useStorage<boolean>(
-    "vrca.debug.otherAvatars",
-    false,
-);
 
 const canvasComponentRef = ref<InstanceType<typeof BabylonCanvas> | null>(null);
 const inspectorRef = ref<InstanceType<typeof BabylonInspector> | null>(null);
@@ -588,8 +553,23 @@ const webrtcApi = computed<WebRTCRefApi | null>(() =>
         }
         : null,
 );
-const ttsOutputStream = computed<MediaStream | null>(() =>
-    (cloudAgentRef.value as { ttsOutputStream?: MediaStream | null })?.ttsOutputStream ?? null
+// Agent mic input and echo output streams
+const agentMicInputStream = ref<MediaStream | null>(null);
+const agentEchoAudioContext = ref<AudioContext | null>(null);
+const agentEchoOutputStream = ref<MediaStreamAudioDestinationNode | null>(null);
+
+// Initialize echo output stream synchronously
+try {
+    const ctx = new AudioContext();
+    const dest = ctx.createMediaStreamDestination();
+    agentEchoAudioContext.value = ctx;
+    agentEchoOutputStream.value = dest;
+} catch (e) {
+    console.warn("[MainScene] Failed to init agent echo output synchronously:", e);
+}
+
+const ttsOutputStream = computed<MediaStream | null>(
+    () => agentEchoOutputStream.value?.stream ?? null,
 );
 
 // Reactive mirrors of WebRTC internals
@@ -601,7 +581,7 @@ const webrtcRemoteStreamsMap = ref(new Map<string, MediaStream>());
 // Prefer passing from here rather than setting defaults inside the agent
 const agentWakeWord = ref<string>("");
 const agentEndWord = ref<string>("");
-const agentTtsLocalEcho = ref<boolean>(false);
+const agentTtsOutputMode = ref<"local" | "webrtc" | "both">("local");
 const agentEnableLLM = ref<boolean>(true);
 const agentEnableSTT = ref<boolean>(true);
 const agentEnableTTS = ref<boolean>(true);
@@ -611,16 +591,10 @@ const agentSttWindowSec = ref<number>(2.0);
 const agentSttMaxBufferSec = ref<number>(8.0);
 // Default conversational language for ASR/LLM
 const agentLanguage = ref<string>("en");
-// Model IDs to configure workers; prefer template-provided values from here
-const agentTtsModelId = ref<string>("onnx-community/Kokoro-82M-v1.0-ONNX");
-const agentLlmModelId = ref<string>(
-    "onnx-community/granite-4.0-micro-ONNX-web",
-);
-const agentSttModelId = ref<string>("onnx-community/whisper-base");
 // STT pre-gain (to compensate remote levels prior to worklet)
 const agentSttPreGain = ref<number>(1.0);
 // STT input selection: 'webrtc' (default), 'mic', or 'both'
-const agentSttInputMode = ref<"webrtc" | "mic" | "both">("webrtc");
+const agentSttInputMode = ref<"webrtc" | "mic" | "both">("mic");
 
 // Worker/device/dtype and model runtime tuning passed via template props
 const agentSttTargetSampleRate = ref<number>(16000);
@@ -639,7 +613,6 @@ const agentVadConfig = ref({
 // LLM generation defaults
 const agentLlmMaxNewTokens = ref<number>(500);
 const agentLlmTemperature = ref<number>(0.7);
-const agentLlmReturnFullText = ref<boolean>(false);
 const agentLlmOpenThinkTag = ref<string>("<think>");
 const agentLlmCloseThinkTag = ref<string>("</think>");
 
@@ -647,17 +620,6 @@ const agentLlmCloseThinkTag = ref<string>("</think>");
 const agentUiMaxTranscripts = ref<number>(0);
 const agentUiMaxAssistantReplies = ref<number>(0);
 const agentUiMaxConversationItems = ref<number>(0);
-
-// Backend device/dtype knobs
-const agentSttDevice = ref<string>("wasm");
-const agentSttDType = ref<Record<string, string>>({
-    encoder_model: "fp32",
-    decoder_model_merged: "fp32",
-});
-const agentTtsDevice = ref<string>("wasm");
-const agentTtsDType = ref<string>("fp32");
-const agentLlmDevice = ref<string>("wasm");
-const agentLlmDType = ref<string>("fp32");
 
 // Force LLM on WASM as well for autonomous agent headless stability
 // (LLM device is controlled inside the worker; set via options below)
@@ -677,6 +639,16 @@ onMounted(async () => {
         console.debug("[MainScene] Running as autonomous agent");
     }
 
+    // Resume agent echo output audio context if needed
+    try {
+        const ctx = agentEchoAudioContext.value;
+        if (ctx && ctx.state === "suspended") {
+            await ctx.resume();
+        }
+    } catch (e) {
+        console.warn("[MainScene] Failed to resume agent echo output:", e);
+    }
+
     // Add keyboard listener for performance mode toggle
     const handleKeyPress = (event: KeyboardEvent) => {
         if (event.key === "p" || event.key === "P") {
@@ -687,7 +659,9 @@ onMounted(async () => {
     document.addEventListener("keydown", handleKeyPress);
 });
 
-const sceneReady = computed(() => canvasComponentRef.value?.scene?.isReady() ?? false);
+const sceneReady = computed(
+    () => canvasComponentRef.value?.scene?.isReady() ?? false,
+);
 
 watch(sceneReady, (isReady) => {
     if (isReady) {
@@ -699,7 +673,8 @@ watch(sceneReady, (isReady) => {
 
 // Performance mode toggle function
 function togglePerformanceMode() {
-    performanceMode.value = performanceMode.value === "normal" ? "low" : "normal";
+    performanceMode.value =
+        performanceMode.value === "normal" ? "low" : "normal";
 }
 
 // Speed-dial UI state
@@ -1040,60 +1015,6 @@ function onAvatarModelState(payload: {
     if (typeof fileName === "string") modelFileNameRef.value = fileName;
 }
 
-// Avatar debug state surfaced to RightDrawer
-// (removed) mirror refs and sync helpers; RightDrawer now uses avatarRef's exposed state
-
-// Snackbar logic moved into BabylonSnackbar component
-
-// Audio dialog is owned by BabylonWebRTC now
-type PeerAudioState = {
-    sessionId: string;
-    volume: number;
-    isMuted: boolean;
-    isReceiving: boolean;
-    isSending: boolean;
-};
-const spatialAudioEnabled = ref(false);
-const peerAudioStates = ref<Record<string, PeerAudioState>>({});
-const activePeerAudioStates = computed(() =>
-    Object.values(peerAudioStates.value).filter(
-        (p) => p.isReceiving || p.isSending,
-    ),
-);
-const getPeerAudioState = (sessionId: string): PeerAudioState | null =>
-    peerAudioStates.value[sessionId] || null;
-function setPeerAudioState(sessionId: string, state: Partial<PeerAudioState>) {
-    if (!peerAudioStates.value[sessionId]) {
-        peerAudioStates.value[sessionId] = {
-            sessionId,
-            volume: 100,
-            isMuted: false,
-            isReceiving: false,
-            isSending: false,
-        };
-    }
-    Object.assign(peerAudioStates.value[sessionId], state);
-}
-function removePeerAudioState(sessionId: string) {
-    delete peerAudioStates.value[sessionId];
-}
-function setPeerVolume(sessionId: string, volume: number) {
-    if (peerAudioStates.value[sessionId]) {
-        peerAudioStates.value[sessionId].volume = volume;
-    }
-}
-function setPeerMuted(sessionId: string, muted: boolean) {
-    if (peerAudioStates.value[sessionId]) {
-        peerAudioStates.value[sessionId].isMuted = muted;
-    }
-}
-function clearPeerAudioStates() {
-    peerAudioStates.value = {};
-}
-function toggleSpatialAudio(enabled: boolean) {
-    spatialAudioEnabled.value = enabled;
-}
-
 // Mic/audio permission indicator state (from BabylonWebRTC)
 const microphonePermission = ref<"granted" | "denied" | "prompt" | "unknown">(
     "unknown",
@@ -1110,46 +1031,6 @@ function onWebRTCPermissions(payload: {
     audioContextState.value = payload.audioContext;
     localStreamActive.value = payload.localStreamActive;
 }
-
-const micChipColor = computed(() => {
-    switch (microphonePermission.value) {
-        case "granted":
-            return "success";
-        case "prompt":
-            return "warning";
-        case "denied":
-            return "error";
-        default:
-            return "grey";
-    }
-});
-const micChipIcon = computed(() => {
-    switch (microphonePermission.value) {
-        case "granted":
-            return "mdi-microphone";
-        case "prompt":
-            return "mdi-microphone-question";
-        case "denied":
-            return "mdi-microphone-off";
-        default:
-            return "mdi-microphone-settings";
-    }
-});
-
-const audioChipColor = computed(() =>
-    audioContextState.value === "resumed"
-        ? "success"
-        : audioContextState.value === "suspended"
-            ? "warning"
-            : "grey",
-);
-const audioChipIcon = computed(() =>
-    audioContextState.value === "resumed"
-        ? "mdi-volume-high"
-        : audioContextState.value === "suspended"
-            ? "mdi-volume-medium"
-            : "mdi-volume-off",
-);
 
 // No local forwarding needed; using slot's onAnimationState
 

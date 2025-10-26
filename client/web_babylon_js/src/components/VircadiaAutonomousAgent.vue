@@ -565,7 +565,7 @@ function initSttWorkerOnce(): void {
     if (!useWorkerStreaming) return;
     if (sttWorkerRef.value) return;
     try {
-        const workerPreURL = `./VircadiaAutonomousAgentSTTWorker.ts?v=${Date.now()}`;
+        const workerPreURL = `./VircadiaSTTWorker.ts?v=${Date.now()}`;
         const workerUrl = new URL(workerPreURL, import.meta.url);
         const worker = new Worker(workerUrl, { type: "module" });
         worker.addEventListener("message", (e: MessageEvent) => {
@@ -759,7 +759,7 @@ async function ensureSttWorklet(ctx: AudioContext): Promise<void> {
     if (sttWorkletLoaded.has(ctx)) return;
     try {
         await ctx.audioWorklet.addModule(
-            new URL("./VircadiaAutonomousAgentSTTWorklet.ts", import.meta.url),
+            new URL("./VircadiaSTTWorklet.ts", import.meta.url),
         );
         sttWorkletLoaded.add(ctx);
     } catch (e) {

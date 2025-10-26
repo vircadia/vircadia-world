@@ -161,6 +161,7 @@ function computeFollowTarget(): {
 
 let beforeObs: Observer<Scene> | null = null;
 let afterObs: Observer<Scene> | null = null;
+let avatarCheckInterval: ReturnType<typeof setInterval> | null = null;
 
 onMounted(() => {
     const scene = props.scene;
@@ -168,12 +169,28 @@ onMounted(() => {
 
     const root = new TransformNode("VircadiaAgent", scene);
     agentRoot.value = root;
-    // Start near the avatar if available
+    // Start near the avatar if available, otherwise wait for avatar to be available
     const start = computeFollowTarget()?.position ?? new Vector3(0, 1, 0);
     root.position = start.clone();
     root.rotationQuaternion = Quaternion.Identity();
 
     createAgentGeometry(scene, root);
+
+    // If avatarNode was not available initially, update position when it becomes available
+    if (!props.avatarNode) {
+        avatarCheckInterval = setInterval(() => {
+            if (props.avatarNode) {
+                const target = computeFollowTarget();
+                if (target) {
+                    root.position = target.position.clone();
+                }
+                if (avatarCheckInterval) {
+                    clearInterval(avatarCheckInterval);
+                    avatarCheckInterval = null;
+                }
+            }
+        }, 100);
+    }
 
     // Hook frame updates
     let lastT = performance.now();
@@ -183,8 +200,11 @@ onMounted(() => {
         lastT = now;
 
         // Ensure controller lazily once physics is available
-        if (!characterController.value && props.physicsEnabled) {
-            ensureController(scene, root.position);
+        // Wait for avatarNode to be available before creating controller
+        if (!characterController.value && props.physicsEnabled && props.avatarNode) {
+            const initialTarget = computeFollowTarget();
+            const startPos = initialTarget?.position ?? root.position;
+            ensureController(scene, startPos);
         }
 
         // Desired follow target
@@ -269,6 +289,10 @@ onUnmounted(() => {
     }
     if (afterObs && scene?.onAfterRenderObservable?.remove) {
         scene.onAfterRenderObservable.remove(afterObs);
+    }
+    if (avatarCheckInterval) {
+        clearInterval(avatarCheckInterval);
+        avatarCheckInterval = null;
     }
     agentRoot.value?.dispose(false, true);
 });

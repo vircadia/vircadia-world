@@ -43,12 +43,20 @@ const props = defineProps({
         required: true,
     },
     maxSpeed: { type: Number, required: true },
+    // Talk state (from MainScene via BabylonTalkLevel slot)
+    isTalking: { type: Boolean, required: true },
+    talkLevel: { type: Number, required: true },
+    talkThreshold: { type: Number, required: true },
 });
 
 // Node and controller
 const agentRoot: Ref<TransformNode | null> = ref(null);
 const characterController: Ref<PhysicsCharacterController | null> = ref(null);
 const capsuleMesh: Ref<Mesh | null> = ref(null);
+// Materials to drive visual talk glow
+const eyeMaterial: Ref<StandardMaterial | null> = ref(null);
+const pupilMaterial: Ref<StandardMaterial | null> = ref(null);
+const bottomGlowMaterial: Ref<StandardMaterial | null> = ref(null);
 // Simple hover effect
 let hoverPhase = 0;
 
@@ -146,8 +154,8 @@ function createAgentGeometry(scene: Scene, root: TransformNode): void {
     );
     body.position.y = 0; // centered
     const bodyMat = new StandardMaterial("agentBodyMat", scene);
-    bodyMat.diffuseColor = new Color3(0.6, 0.6, 0.6); // silvery metal
-    bodyMat.specularColor = new Color3(1.0, 1.0, 1.0); // shiny for futuristic look
+    bodyMat.diffuseColor = new Color3(0.85, 0.85, 0.9); // brighter silver with slight blue tint
+    bodyMat.specularColor = new Color3(0.95, 0.95, 1.0); // silver specular for metallic sheen
     body.material = bodyMat;
     body.setParent(root);
 
@@ -172,7 +180,7 @@ function createAgentGeometry(scene: Scene, root: TransformNode): void {
 
     const topExtension = MeshBuilder.CreateCylinder(
         "topExtension",
-        { height: 0.05, diameter: 0.025 },
+        { height: 0.02, diameter: 0.025 },
         scene,
     );
     topExtension.position = new Vector3(0, 0.1, 0);
@@ -181,7 +189,7 @@ function createAgentGeometry(scene: Scene, root: TransformNode): void {
 
     const bottomExtension = MeshBuilder.CreateCylinder(
         "bottomExtension",
-        { height: 0.05, diameter: 0.025 },
+        { height: 0.02, diameter: 0.025 },
         scene,
     );
     bottomExtension.position = new Vector3(0, -0.1, 0);
@@ -201,6 +209,7 @@ function createAgentGeometry(scene: Scene, root: TransformNode): void {
     eyeMat.diffuseColor = new Color3(0, 0, 0); // no diffuse to emphasize glow
     eye.material = eyeMat;
     eye.setParent(root);
+    eyeMaterial.value = eyeMat;
 
     // Eye ring (metallic border for added detail)
     const eyeRing = MeshBuilder.CreateTorus(
@@ -226,6 +235,7 @@ function createAgentGeometry(scene: Scene, root: TransformNode): void {
     pupilMat.diffuseColor = new Color3(0, 0, 0);
     pupil.material = pupilMat;
     pupil.setParent(eye);
+    pupilMaterial.value = pupilMat;
 
     // Optional bottom glow (for floating effect, though not canon, kept for simplicity)
     const bottomGlow = MeshBuilder.CreateDisc(
@@ -241,6 +251,7 @@ function createAgentGeometry(scene: Scene, root: TransformNode): void {
     glowMat.diffuseColor = new Color3(0, 0, 0);
     bottomGlow.material = glowMat;
     bottomGlow.setParent(root);
+    bottomGlowMaterial.value = glowMat;
 }
 
 function getAgentPosition(): Vector3 | undefined {
@@ -311,6 +322,8 @@ let beforeObs: Observer<Scene> | null = null;
 let afterObs: Observer<Scene> | null = null;
 let avatarCheckInterval: ReturnType<typeof setInterval> | null = null;
 let sceneDisposeObs: Observer<Scene> | null = null;
+// Smoothed talk-driven glow intensity
+let smoothedGlow = 0.25;
 
 function disposeAgent(): void {
     const scene = props.scene;
@@ -429,6 +442,24 @@ function initAgent(scene: Scene | null | undefined): void {
         // Hover animation (visual only)
         hoverPhase += dt * 2.0;
         const hover = Math.sin(hoverPhase) * 0.03;
+
+        // Talk-level driven emissive intensity
+        const talkingActive = props.isTalking || props.talkLevel >= props.talkThreshold;
+        const targetGlow = talkingActive ? Math.min(2.5, 0.25 + props.talkLevel * 6.0) : 0.25;
+        const lerpRate = Math.min(1, dt * 8.0);
+        smoothedGlow += (targetGlow - smoothedGlow) * lerpRate;
+        if (eyeMaterial.value) {
+            const base = new Color3(0.1, 0.4, 0.8);
+            eyeMaterial.value.emissiveColor = base.scale(smoothedGlow);
+        }
+        if (pupilMaterial.value) {
+            const basePupil = new Color3(1, 1, 1);
+            pupilMaterial.value.emissiveColor = basePupil.scale(Math.min(2.2, smoothedGlow * 1.4));
+        }
+        if (bottomGlowMaterial.value) {
+            const baseGlow = new Color3(0.1, 0.4, 0.8);
+            bottomGlowMaterial.value.emissiveColor = baseGlow.scale(Math.min(2.0, smoothedGlow));
+        }
 
         if (characterController.value) {
             const currentPos = getAgentPosition() ?? root.position;

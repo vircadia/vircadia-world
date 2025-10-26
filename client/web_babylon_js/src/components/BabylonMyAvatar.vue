@@ -59,9 +59,9 @@ const props = defineProps({
     },
     keyState: { type: Object as () => KeyState, required: true },
     isTalking: { type: Boolean, required: false, default: false },
-    // Optional talk amplitude (0..1) from BabylonMyAvatarTalking
+    // Optional talk amplitude (0..1) from BabylonTalkLevel
     talkLevel: { type: Number, required: false, default: 0 },
-    // Forwarded from MainScene via BabylonMyAvatarTalking slot
+    // Forwarded from MainScene via BabylonTalkLevel slot
     talkThreshold: { type: Number, required: false, default: 0 },
     audioDevices: {
         type: Array as unknown as () => { deviceId: string; label: string }[],

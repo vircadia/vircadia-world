@@ -1,5 +1,5 @@
 {
-    "$schema": "https://biomejs.dev/schemas/2.2.4/schema.json",
+    "$schema": "https://biomejs.dev/schemas/2.3.0/schema.json",
     "vcs": {
         "enabled": true,
         "clientKind": "git",
@@ -30,12 +30,9 @@
         "ignoreUnknown": true,
         "includes": [
             "**",
-            "!node_modules"
-        ],
-        "experimentalScannerIgnores": [
-            ".next",
-            "dist",
-            "node_modules"
+            "!node_modules",
+            "!.next",
+            "!dist"
         ]
     },
     "formatter": {

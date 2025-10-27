@@ -1,7 +1,8 @@
 <template>
     <!-- Renderless by default -->
     <slot :capabilities-enabled="capabilitiesEnabled" :agent-stt-working="sttProcessing || sttUploading"
-        :agent-tts-working="ttsGenerating" :agent-llm-working="llmGenerating"></slot>
+        :agent-tts-working="ttsGenerating" :agent-llm-working="llmGenerating" :tts-level="ttsLevel"
+        :tts-talking="ttsTalking" :tts-threshold="ttsThreshold"></slot>
 
     <!-- Teleport control button to MainScene app bar -->
     <Teleport v-if="teleportTarget" :to="teleportTarget">
@@ -269,6 +270,11 @@ const peerProcessors = new Map<string, PeerAudioProcessor>();
 // RMS meter
 const rmsLevel = ref<number>(0);
 const rmsPct = computed<number>(() => Math.round(Math.min(1, rmsLevel.value) * 100));
+
+// TTS talk level exposed to parent (single-source of truth)
+const ttsLevel = ref<number>(0);
+const ttsTalking = ref<boolean>(false);
+const ttsThreshold = 0.02;
 
 // Conversation state
 type TranscriptEntry = { peerId: string; text: string; at: number };
@@ -559,18 +565,29 @@ async function speakServerTts(text: string, forceLocalEcho = false): Promise<voi
         // Build playback paths per-context
         const promises: Promise<void>[] = [];
 
-        // Local speaker echo path (and feed analyzer stream) using echo destination's context
+        // Local speaker echo path (and feed analyser) using echo destination's context
+        let analyserLocal: AnalyserNode | null = null;
+        let analyserBus: AnalyserNode | null = null;
+        let levelRaf: number | null = null;
+        let localActive = false;
+        let busActive = false;
+
         if (allowLocalEcho && localCtx && echoDestination) {
             const localBuffer = await localCtx.decodeAudioData(arrayBuf.slice(0));
             const localSource = localCtx.createBufferSource();
             localSource.buffer = localBuffer;
             const localGain = localCtx.createGain();
             localGain.gain.value = 1.25;
+            analyserLocal = localCtx.createAnalyser();
+            analyserLocal.fftSize = 2048;
+            analyserLocal.smoothingTimeConstant = 0.8;
             localSource.connect(localGain);
+            try { localGain.connect(analyserLocal); } catch { }
             try { localGain.connect(echoDestination); } catch { }
             try { localGain.connect(localCtx.destination); } catch { }
             promises.push(new Promise<void>((resolve) => {
-                localSource.addEventListener("ended", () => resolve());
+                localActive = true;
+                localSource.addEventListener("ended", () => { localActive = false; resolve(); });
                 try {
                     const t = localCtx.currentTime;
                     localGain.gain.setValueAtTime(0.0001, t);
@@ -580,17 +597,22 @@ async function speakServerTts(text: string, forceLocalEcho = false): Promise<voi
             }));
         }
 
-        // WebRTC bus path (send audio to peers)
+        // WebRTC bus path (send audio to peers and analyser)
         if (useBus && api && busCtx) {
             const busBuffer = await busCtx.decodeAudioData(arrayBuf.slice(0));
             const busSource = busCtx.createBufferSource();
             busSource.buffer = busBuffer;
             const busGain = busCtx.createGain();
             busGain.gain.value = 1.25;
+            analyserBus = busCtx.createAnalyser();
+            analyserBus.fftSize = 2048;
+            analyserBus.smoothingTimeConstant = 0.8;
             busSource.connect(busGain);
+            try { busGain.connect(analyserBus); } catch { }
             try { api.connectNodeToUplink(busGain); await api.replaceUplinkWithDestination(); } catch { }
             promises.push(new Promise<void>((resolve) => {
-                busSource.addEventListener("ended", () => resolve());
+                busActive = true;
+                busSource.addEventListener("ended", () => { busActive = false; resolve(); });
                 try {
                     const t = busCtx.currentTime;
                     busGain.gain.setValueAtTime(0.0001, t);
@@ -600,8 +622,43 @@ async function speakServerTts(text: string, forceLocalEcho = false): Promise<voi
             }));
         }
 
+        // Shared measurement loop (RMS + hold)
+        let timeDomainBuffer = new Float32Array(2048);
+        let lastAbove = 0;
+        function computeLevelFromAnalyser(a: AnalyserNode | null): number {
+            if (!a) return 0;
+            try {
+                if (timeDomainBuffer.length !== a.fftSize) {
+                    // realloc if analyser fftSize changed
+                    timeDomainBuffer = new Float32Array(a.fftSize);
+                }
+                a.getFloatTimeDomainData(timeDomainBuffer);
+                let sum = 0;
+                for (let i = 0; i < timeDomainBuffer.length; i++) {
+                    const s = timeDomainBuffer[i];
+                    sum += s * s;
+                }
+                const rms = Math.sqrt(sum / timeDomainBuffer.length);
+                return Number.isFinite(rms) ? rms : 0;
+            } catch { return 0; }
+        }
+        function tick() {
+            const now = performance.now();
+            const lvlLocal = computeLevelFromAnalyser(analyserLocal);
+            const lvlBus = computeLevelFromAnalyser(analyserBus);
+            const lvl = Math.max(lvlLocal, lvlBus);
+            ttsLevel.value = lvl;
+            if (lvl >= ttsThreshold) lastAbove = now;
+            const talking = now - lastAbove <= 150;
+            if (talking !== ttsTalking.value) ttsTalking.value = talking;
+            if (localActive || busActive) levelRaf = requestAnimationFrame(tick);
+            else if (levelRaf) { cancelAnimationFrame(levelRaf); levelRaf = null; ttsTalking.value = false; }
+        }
+        if (analyserLocal || analyserBus) levelRaf = requestAnimationFrame(tick);
+
         // Wait for all paths to complete
         await Promise.all(promises);
+        if (levelRaf) { cancelAnimationFrame(levelRaf); levelRaf = null; }
     } catch (e) {
         ttsGenerating.value = false;
         console.warn("[CloudAgent] TTS error:", e);

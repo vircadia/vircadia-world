@@ -62,7 +62,7 @@
                                         :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                         <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' :
                                             'mdi-speedometer-slow'
-                                        }}</v-icon>
+                                            }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="normalPerf">
@@ -97,7 +97,7 @@
                                     <v-btn v-bind="props" icon class="ml-2"
                                         :color="(avatarRef?.isFlying) ? 'success' : undefined">
                                         <v-icon>{{ (avatarRef?.isFlying) ? 'mdi-airplane' : 'mdi-walk'
-                                        }}</v-icon>
+                                            }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="fly">
@@ -135,7 +135,7 @@
                                             @click="inspectorRef?.toggleInspector()">
                                             <v-icon>{{ inspectorVisible ? 'mdi-file-tree' :
                                                 'mdi-file-tree-outline'
-                                            }}</v-icon>
+                                                }}</v-icon>
                                         </v-btn>
                                     </template>
                                     <span>Babylon Inspector (T)</span>
@@ -668,7 +668,7 @@ const agentSttMaxBufferSec = ref<number>(8.0);
 // Default conversational language for ASR/LLM
 const agentLanguage = ref<string>("en");
 // STT pre-gain (to compensate remote levels prior to worklet)
-const agentSttPreGain = ref<number>(1.0);
+const agentSttPreGain = ref<number>(0.6);
 // STT input selection: 'webrtc' (default), 'mic', or 'both'
 const agentSttInputMode = ref<"webrtc" | "mic" | "both">("mic");
 

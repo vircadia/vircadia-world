@@ -77,6 +77,8 @@ let hoverPhase = 0;
 // Wave bounce animation phase
 let wavePhase = 0;
 
+const STATUS_INDICATOR_Y = -0.8;
+
 function createAgentGeometry(scene: Scene, root: TransformNode): void {
     // Body (extruded rounded square for rounded square-like form)
     function getRoundedSquareShape(
@@ -271,13 +273,12 @@ function createAgentGeometry(scene: Scene, root: TransformNode): void {
     bottomGlowMaterial.value = glowMat;
 
     // Capability status indicators (floating above agent head)
-    const statusY = 0.25; // Height above agent body
     const statusRadius = 0.02;
     const statusOffsetX = 0.06; // Spread horizontally
 
     // STT indicator (microphone icon area)
     const sttStatus = MeshBuilder.CreateSphere("sttStatus", { diameter: statusRadius * 2, segments: 16 }, scene);
-    sttStatus.position = new Vector3(-statusOffsetX, statusY, 0.06);
+    sttStatus.position = new Vector3(-statusOffsetX, STATUS_INDICATOR_Y, 0.06);
     const sttMat = new StandardMaterial("sttStatusMat", scene);
     sttMat.emissiveColor = new Color3(0.9, 0.5, 0.2); // Orange
     sttMat.diffuseColor = new Color3(0, 0, 0);
@@ -288,7 +289,7 @@ function createAgentGeometry(scene: Scene, root: TransformNode): void {
 
     // TTS indicator (speaker icon area)
     const ttsStatus = MeshBuilder.CreateSphere("ttsStatus", { diameter: statusRadius * 2, segments: 16 }, scene);
-    ttsStatus.position = new Vector3(0, statusY, 0.06);
+    ttsStatus.position = new Vector3(0, STATUS_INDICATOR_Y, 0.06);
     const ttsMat = new StandardMaterial("ttsStatusMat", scene);
     ttsMat.emissiveColor = new Color3(0.2, 0.9, 0.5); // Green
     ttsMat.diffuseColor = new Color3(0, 0, 0);
@@ -299,7 +300,7 @@ function createAgentGeometry(scene: Scene, root: TransformNode): void {
 
     // LLM indicator (brain icon area)
     const llmStatus = MeshBuilder.CreateSphere("llmStatus", { diameter: statusRadius * 2, segments: 16 }, scene);
-    llmStatus.position = new Vector3(statusOffsetX, statusY, 0.06);
+    llmStatus.position = new Vector3(statusOffsetX, STATUS_INDICATOR_Y, 0.06);
     const llmMat = new StandardMaterial("llmStatusMat", scene);
     llmMat.emissiveColor = new Color3(0.5, 0.2, 0.9); // Purple
     llmMat.diffuseColor = new Color3(0, 0, 0);
@@ -562,33 +563,31 @@ function initAgent(scene: Scene | null | undefined): void {
 
         // Wave bounce animation for status indicators when LLM or TTS is working
         if (isLlmOrTtsWorking && agentRoot.value) {
-            const statusY = 0.25;
             const bounceAmount = 0.05;
             const waveOffset = Math.PI * 2 / 3; // 120 degrees between each indicator
 
             // STT indicator bounce (left)
             if (sttStatusMesh.value) {
                 const bounce = Math.sin(wavePhase + waveOffset * 0) * bounceAmount;
-                sttStatusMesh.value.position.y = statusY + bounce;
+                sttStatusMesh.value.position.y = STATUS_INDICATOR_Y + bounce;
             }
 
             // TTS indicator bounce (center)
             if (ttsStatusMesh.value) {
                 const bounce = Math.sin(wavePhase + waveOffset * 1) * bounceAmount;
-                ttsStatusMesh.value.position.y = statusY + bounce;
+                ttsStatusMesh.value.position.y = STATUS_INDICATOR_Y + bounce;
             }
 
             // LLM indicator bounce (right)
             if (llmStatusMesh.value) {
                 const bounce = Math.sin(wavePhase + waveOffset * 2) * bounceAmount;
-                llmStatusMesh.value.position.y = statusY + bounce;
+                llmStatusMesh.value.position.y = STATUS_INDICATOR_Y + bounce;
             }
         } else {
             // Reset positions when not bouncing
-            const statusY = 0.25;
-            if (sttStatusMesh.value) sttStatusMesh.value.position.y = statusY;
-            if (ttsStatusMesh.value) ttsStatusMesh.value.position.y = statusY;
-            if (llmStatusMesh.value) llmStatusMesh.value.position.y = statusY;
+            if (sttStatusMesh.value) sttStatusMesh.value.position.y = STATUS_INDICATOR_Y;
+            if (ttsStatusMesh.value) ttsStatusMesh.value.position.y = STATUS_INDICATOR_Y;
+            if (llmStatusMesh.value) llmStatusMesh.value.position.y = STATUS_INDICATOR_Y;
         }
 
         if (characterController.value) {

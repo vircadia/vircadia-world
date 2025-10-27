@@ -65,7 +65,7 @@
                                     <v-progress-linear :model-value="rmsPct" color="secondary" height="6" rounded
                                         class="flex-grow-1 min-w-[160px]" />
                                     <span class="text-caption text-medium-emphasis ml-2">{{ rmsLevel.toFixed(2)
-                                        }}</span>
+                                    }}</span>
                                 </div>
                             </div>
                         </v-card>
@@ -104,7 +104,7 @@
                                                 </span>
                                                 <span class="font-weight-medium">{{ msg.role === 'user' ? 'You' :
                                                     'Assistant'
-                                                    }}</span>
+                                                }}</span>
                                             </v-list-item-title>
                                             <v-list-item-subtitle class="mt-1 wrap-anywhere"
                                                 :class="msg.role === 'user' ? 'text-high-emphasis' : ''">
@@ -661,6 +661,30 @@ watch(() => remoteStreamsRef.value, (streams, oldStreams) => {
         for (const [oldPid] of oldStreams) { if (!streams.has(oldPid)) detachStream(oldPid); }
     }
 }, { deep: true });
+
+// React to mic stream becoming available/changed
+watch(() => props.agentMicInputStream, async (stream) => {
+    if (!props.agentEnableStt) return;
+    initVadWorkerOnce();
+    const mode = props.agentSttInputMode;
+    if (mode === "mic" || mode === "both") {
+        // Reattach mic with the latest stream or detach if missing
+        detachStream("mic");
+        if (stream) await attachStream("mic", stream);
+    }
+}, { immediate: true });
+
+// Fallback to WebRTC local stream if explicit mic stream not provided
+watch(() => localStreamRef.value, async (stream) => {
+    if (!props.agentEnableStt) return;
+    if (props.agentMicInputStream) return; // explicit mic input takes precedence
+    initVadWorkerOnce();
+    const mode = props.agentSttInputMode;
+    if (mode === "mic" || mode === "both") {
+        detachStream("mic");
+        if (stream) await attachStream("mic", stream);
+    }
+});
 
 watch(() => props.agentSttInputMode, async (mode) => {
     if (!props.agentEnableStt) return;

@@ -469,6 +469,8 @@ interface Props {
     modelValue?: boolean;
     // Reactive exposes to parent via v-model bindings
     localAudioStream?: MediaStream | null;
+    // Optional: externally provided local mic stream (e.g., from BabylonMic)
+    injectedLocalStream?: MediaStream | null;
     peersMap?: Map<string, RTCPeerConnection>;
     remoteStreamsMap?: Map<string, MediaStream>;
     // Optional mirrored v-model bindings
@@ -1830,24 +1832,31 @@ async function sendSessionEnd(toSession: string) {
 
 async function initLocalMedia() {
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true,
-            },
-            video: false,
-        });
+        // Prefer externally injected local stream if provided
+        if (props.injectedLocalStream) {
+            localStream.value = props.injectedLocalStream;
+            console.log("[WebRTC] Using injected local stream");
+        } else {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                },
+                video: false,
+            });
 
-        localStream.value = stream;
-        console.log("[WebRTC] Local media initialized");
+            localStream.value = stream;
+            console.log("[WebRTC] Local media initialized");
+        }
         // Update parent with new local stream
         emit('update:localAudioStream', localStream.value);
         emit('update:localStreamActive', !!localStream.value);
 
         for (const [peerId, peerInfo] of peers.value) {
-            for (const track of stream.getTracks()) {
-                peerInfo.pc.addTrack(track, stream);
+            const tracks = (localStream.value?.getTracks?.() ?? []);
+            for (const track of tracks) {
+                peerInfo.pc.addTrack(track, localStream.value as MediaStream);
                 console.log(
                     `[WebRTC] Added ${track.kind} track to existing peer ${peerId}`,
                 );
@@ -2348,6 +2357,24 @@ async function initializeWebRTC() {
 onMounted(async () => {
     if (!isInitialized.value) {
         await initializeWebRTC();
+    }
+});
+
+// Watch for externally injected local stream changes and replace tracks
+watch(() => props.injectedLocalStream, async (stream) => {
+    if (!stream) return;
+    try {
+        localStream.value = stream;
+        emit('update:localAudioStream', stream);
+        emit('update:localStreamActive', true);
+        const micTrack = stream.getAudioTracks()[0] || null;
+        if (!micTrack) return;
+        for (const sender of getAudioSenderList()) {
+            await sender.replaceTrack(micTrack);
+        }
+        console.log('[WebRTC] Replaced uplink tracks with injected mic stream');
+    } catch (e) {
+        console.error('[WebRTC] Failed to apply injected local stream:', e);
     }
 });
 

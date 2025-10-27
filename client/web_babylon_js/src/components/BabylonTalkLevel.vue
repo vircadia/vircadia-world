@@ -1,26 +1,22 @@
 <template>
     <!-- Renderless provider of audio talk state and diagnostics -->
-    <slot :is-talking="isTalking" :level="level" :devices="audioInputDevices" :threshold="threshold" />
+    <slot :is-talking="isTalking" :level="level" :threshold="threshold" />
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watchEffect } from "vue";
+import { onUnmounted, ref, watch } from "vue";
 
 const props = defineProps({
     threshold: { type: Number, default: 0.02 }, // 0..1 amplitude
     holdMs: { type: Number, default: 150 }, // keep talking for this after drop
     smoothing: { type: Number, default: 0.8 }, // analyser smoothingTimeConstant
     fftSize: { type: Number, default: 2048 },
-    audioStream: { type: Object as () => MediaStream | null, default: null }, // Optional audio stream (e.g., TTS output)
+    // External audio stream (required). Component will NOT request microphone.
+    audioStream: { type: Object as () => MediaStream | null, required: true },
 });
 
 const isTalking = ref(false);
 const level = ref(0);
-type AudioInputDevice = { deviceId: string; label: string };
-const audioInputDevices = ref<AudioInputDevice[]>([]);
-
-// Manual media stream (audio-only)
-const stream = ref<MediaStream | null>(null);
 
 let audioCtx: AudioContext | null = null;
 let analyser: AnalyserNode | null = null;
@@ -28,7 +24,8 @@ let source: MediaStreamAudioSourceNode | null = null;
 let rafId: number | null = null;
 let lastAboveTs = 0;
 let resumeHandlersAttached = false;
-let timeDomainBuffer: Float32Array | null = null;
+let resumeHandler: (() => void) | null = null;
+let timeDomainBuffer: Float32Array<ArrayBuffer> | null = null;
 
 function start(): void {
     if (audioCtx || analyser) return;
@@ -65,48 +62,37 @@ async function ensureAudioContextRunning(): Promise<void> {
                 await audioCtx?.resume();
             } catch { }
             if (audioCtx?.state === "running") {
-                document.removeEventListener("pointerdown", tryResume);
-                document.removeEventListener("keydown", tryResume);
+                if (resumeHandler) {
+                    document.removeEventListener("pointerdown", resumeHandler);
+                    document.removeEventListener("keydown", resumeHandler);
+                    resumeHandler = null;
+                }
                 resumeHandlersAttached = false;
             }
         };
         resumeHandlersAttached = true;
+        resumeHandler = tryResume;
         document.addEventListener("pointerdown", tryResume);
         document.addEventListener("keydown", tryResume);
     }
 }
 
-// Enumerate audio input devices manually
-async function refreshAudioDevices(): Promise<void> {
-    try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const inputs = devices.filter((d) => d.kind === "audioinput");
-        audioInputDevices.value = inputs.map((d) => ({
-            deviceId: d.deviceId,
-            label: d.label || "(audio input)",
-        }));
-    } catch {
-        audioInputDevices.value = [];
+// React to audioStream changes, including initial null and later assignment
+watch(() => props.audioStream, async (current) => {
+    if (!current) {
+        // If stream becomes null or is initially null, fully stop until we get a real stream
+        stop();
+        return;
     }
-}
-
-// Connect analyser to the current stream (use provided audioStream if available, otherwise mic stream)
-watchEffect(async () => {
-    const current = props.audioStream || stream.value;
-    if (!current) return;
     start();
     if (!audioCtx || !analyser) return;
     await ensureAudioContextRunning();
-    try {
-        source?.disconnect();
-    } catch { }
-    try {
-        analyser?.disconnect();
-    } catch { }
+    try { source?.disconnect(); } catch { }
+    try { analyser?.disconnect(); } catch { }
     source = audioCtx.createMediaStreamSource(current);
     source.connect(analyser);
     if (!rafId) loop();
-});
+}, { immediate: true });
 
 function stop(): void {
     if (rafId) cancelAnimationFrame(rafId);
@@ -125,16 +111,12 @@ function stop(): void {
         } catch { }
     }
     audioCtx = null;
-    try {
-        for (const track of stream.value?.getTracks() ?? []) {
-            track.stop();
-        }
-    } catch { }
-    stream.value = null;
     if (resumeHandlersAttached) {
-        const noop = () => { };
-        document.removeEventListener("pointerdown", noop);
-        document.removeEventListener("keydown", noop);
+        if (resumeHandler) {
+            document.removeEventListener("pointerdown", resumeHandler);
+            document.removeEventListener("keydown", resumeHandler);
+            resumeHandler = null;
+        }
         resumeHandlersAttached = false;
     }
     isTalking.value = false;
@@ -143,11 +125,12 @@ function stop(): void {
 function computeLevel(): number {
     if (!analyser) return 0;
     if (!timeDomainBuffer || timeDomainBuffer.length !== analyser.fftSize) {
-        timeDomainBuffer = new Float32Array(analyser.fftSize);
+        // Allocate with ArrayBuffer to satisfy stricter lib.dom types
+        timeDomainBuffer = new Float32Array(new ArrayBuffer(analyser.fftSize * 4));
     }
     analyser.getFloatTimeDomainData(timeDomainBuffer);
     let sumSquares = 0;
-    for (const sample of timeDomainBuffer as unknown as number[]) {
+    for (const sample of timeDomainBuffer) {
         sumSquares += sample * sample;
     }
     const rms = Math.sqrt(sumSquares / timeDomainBuffer.length);
@@ -164,38 +147,10 @@ function loop(): void {
     rafId = requestAnimationFrame(loop);
 }
 
-onMounted(async () => {
-    // Only request mic stream if audioStream prop is not provided
-    if (!props.audioStream) {
-        try {
-            // Request audio-only stream
-            stream.value = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true,
-                },
-                video: false,
-            });
-        } catch { }
-    }
-    await refreshAudioDevices();
-    navigator.mediaDevices.addEventListener?.(
-        "devicechange",
-        refreshAudioDevices,
-    );
-});
-
 onUnmounted(() => {
     stop();
-    try {
-        navigator.mediaDevices.removeEventListener?.(
-            "devicechange",
-            refreshAudioDevices,
-        );
-    } catch { }
 });
 
 // Expose for parent refs if needed
-defineExpose({ isTalking, level, audioInputDevices });
+defineExpose({ isTalking, level });
 </script>

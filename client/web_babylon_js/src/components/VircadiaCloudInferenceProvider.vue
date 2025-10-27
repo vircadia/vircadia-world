@@ -209,6 +209,11 @@ const props = defineProps({
     agentSttInputMode: { type: String as () => "webrtc" | "mic" | "both", required: true },
     agentSttTargetSampleRate: { type: Number, required: true },
     agentSttWorkletChunkMs: { type: Number, required: true },
+    agentCompanyName: { type: String, required: true },
+    agentExtraKnowledge: {
+        type: Object as PropType<Map<string, string> | Record<string, string> | null>,
+        required: true,
+    },
     agentVadConfig: {
         type: Object as () => {
             sampleRate: number;
@@ -491,22 +496,48 @@ const llmNoReplyTimers = new Map<string, number | null>();
 function clearNoReplyTimer(peerId: string): void { const id = llmNoReplyTimers.get(peerId); if (id) { try { clearTimeout(id as unknown as number); } catch { } } llmNoReplyTimers.set(peerId, null); }
 function scheduleNoReplyTimer(peerId: string, buffered: string): void { clearNoReplyTimer(peerId); const ms = Math.max(500, Number(props.agentNoReplyTimeoutSec) * 1000); const id = setTimeout(async () => { llmNoReplyTimers.set(peerId, null); if (buffered.trim()) await submitToLlm(peerId, buffered, { incomplete: true }); }, ms) as unknown as number; llmNoReplyTimers.set(peerId, id); }
 
+function normalizeWhitespace(text: string): string { return String(text || "").replace(/\s+/g, " ").trim(); }
+function buildGatingGuidance(): string {
+    const wake = String(props.agentWakeWord || "").trim();
+    const end = String(props.agentEndWord || "").trim();
+    if (wake && end) return `Guidance: Wake word may be present ('${wake}'); if the request seems partial or lacks a clear end, output exactly <no-reply/>.`;
+    if (wake && !end) return `Guidance: A wake word may start the request ('${wake}'); rely on natural boundaries. If the request seems partial, output exactly <no-reply/>.`;
+    return `Guidance: If input seems partial, output exactly <no-reply/>. If sufficient follow up has been provided after you replied <no-reply/> then reply with a response.`;
+}
+function buildExtraKnowledgeBlock(): string {
+    try {
+        const src = (props.agentExtraKnowledge || null) as Map<string, string> | Record<string, string> | null;
+        const entries: Array<[string, string]> = [];
+        if (!src) return "";
+        if (src instanceof Map) {
+            for (const [k, v] of src) entries.push([String(k), normalizeWhitespace(v)]);
+        } else if (typeof src === "object") {
+            for (const k of Object.keys(src)) entries.push([k, normalizeWhitespace((src as Record<string, string>)[k])]);
+        }
+        if (entries.length === 0) return "";
+        let out = "Knowledge Base (prefilled):\n";
+        for (const [k, v] of entries) out += `- ${k}: ${v}\n`;
+        return out.trimEnd();
+    } catch { return ""; }
+}
+function buildLlmPromptFromHistory(history: string): string {
+    const company = normalizeWhitespace(String((props as unknown as { agentCompanyName?: string }).agentCompanyName || "Vircadia"));
+    const systemPrefix = `System: You are an in-world personal agent created by ${company}. Be concise and conversational.`;
+    const knowledge = buildExtraKnowledgeBlock();
+    const gating = buildGatingGuidance();
+    const convo = history ? `Conversation:\n${history}\n` : "";
+    return `${systemPrefix}\n${knowledge ? knowledge + "\n" : ""}${gating}\n${convo}\nAssistant:`;
+}
+
 async function submitToLlm(peerId: string, text: string, _opts?: { incomplete?: boolean }): Promise<void> {
     if (!props.agentEnableLlm || !capabilitiesEnabled.value.llm) return;
     const t = (text || "").trim(); if (!t) return;
     try {
         const client = props.vircadiaWorld?.client; if (!client) return;
         const history = buildPromptHistory(12, 200, 1800);
-        const gating = (() => {
-            const wake = String(props.agentWakeWord || "").trim(); const end = String(props.agentEndWord || "").trim();
-            if (wake && end) return `Guidance: Wake word may be present ('${wake}'); if the request seems partial or lacks a clear end, output exactly <no-reply/>.`;
-            if (wake && !end) return `Guidance: A wake word may start the request ('${wake}'); rely on natural boundaries. If the request seems partial, output exactly <no-reply/>.`;
-            return `Guidance: If input seems partial, output exactly <no-reply/>. If sufficient follow up has been provided after you replied <no-reply/> then reply with a response.`;
-        })();
-        const systemPrefix = "System: You are an in-world assistant. Be concise and conversational.";
         // Build a single conversation block that already includes the latest user message via transcripts/history.
         // Do not append an extra User line here to avoid duplication.
-        const prompt = `${systemPrefix}\n${gating}\n${history ? `Conversation:\n${history}\n` : ""}\nAssistant:`;
+        const prompt = buildLlmPromptFromHistory(history);
         llmGenerating.value = true;
         const resp = await client.restInference.llm({
             prompt,
@@ -672,8 +703,9 @@ async function testServerLLM(): Promise<void> {
         const client = props.vircadiaWorld?.client;
         if (!client) return;
         llmGenerating.value = true;
+        const prompt = buildLlmPromptFromHistory("User: Say hello and introduce yourself.");
         const resp = await client.restInference.llm({
-            prompt: "System: You are a helpful assistant.\n\nUser: Say hello and introduce yourself.\n\nAssistant:",
+            prompt,
             temperature: Number(props.agentLlmTemperature),
             maxTokens: Number(props.agentLlmMaxNewTokens),
         });

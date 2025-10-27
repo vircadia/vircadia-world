@@ -192,7 +192,9 @@
                                             :agent-llm-close-think-tag="agentLlmCloseThinkTag"
                                             :agent-ui-max-transcripts="agentUiMaxTranscripts"
                                             :agent-ui-max-assistant-replies="agentUiMaxAssistantReplies"
-                                            :agent-ui-max-conversation-items="agentUiMaxConversationItems">
+                                            :agent-ui-max-conversation-items="agentUiMaxConversationItems"
+                                            :agent-company-name="agentCompanyName"
+                                            :agent-extra-knowledge="agentExtraKnowledge">
 
                                             <template
                                                 #default="{ capabilitiesEnabled: agentCapabilities, agentSttWorking, agentTtsWorking, agentLlmWorking, ttsLevel, ttsTalking, ttsThreshold }">
@@ -662,7 +664,7 @@ const agentSttMaxBufferSec = ref<number>(8.0);
 // Default conversational language for ASR/LLM
 const agentLanguage = ref<string>("en");
 // STT pre-gain (to compensate remote levels prior to worklet)
-const agentSttPreGain = ref<number>(0.6);
+const agentSttPreGain = ref<number>(0.4);
 // STT input selection: 'webrtc' (default), 'mic', or 'both'
 const agentSttInputMode = ref<"webrtc" | "mic" | "both">("mic");
 
@@ -671,7 +673,7 @@ const agentSttTargetSampleRate = ref<number>(16000);
 const agentSttWorkletChunkMs = ref<number>(200);
 const agentVadConfig = ref({
     sampleRate: 16000,
-    minSpeechMs: 250,
+    minSpeechMs: 500,
     minSilenceMs: 300,
     prePadMs: 150,
     postPadMs: 150,
@@ -685,6 +687,19 @@ const agentLlmMaxNewTokens = ref<number>(500);
 const agentLlmTemperature = ref<number>(0.7);
 const agentLlmOpenThinkTag = ref<string>("<think>");
 const agentLlmCloseThinkTag = ref<string>("</think>");
+
+// Agent company name
+const agentCompanyName = ref<string>("Vircadia");
+
+// Agent extra knowledge
+const agentExtraKnowledge = ref<Map<string, string>>(new Map([
+    ["BMW M3 GTR (NFS: Most Wanted)", "A real-world homage by BMW M Motorsport of the 2001 BMW M3 GTR with the iconic game livery, unveiled for Need for Speed's 30th anniversary."],
+    ["Technical Specs (P60B40 V8)", "4.0 liter P60B40 V8 engine, displacement 3,997 cubic centimeters, approximately 450 horsepower, weight approximately 1,100 kilograms, top speed approximately 260 kilometers per hour."],
+    ["Racing Pedigree (ALMS 2001)", "Won 7 of 10 races; Jörg Müller won GT drivers' title; BMW won team and manufacturers' titles."],
+    ["Homologation Strassenversion", "Ultra-rare road-legal homologation version built to satisfy series regulations."],
+    ["Display (BMW Welt)", "Displayed at BMW Welt Munich starting 27 November 2024."],
+    ["In-World Placement", "In this scene, the BMW M3 GTR sits on the rotating turntable."],
+]));
 
 // UI history limits; 0 = unlimited (no truncation in UI)
 const agentUiMaxTranscripts = ref<number>(0);

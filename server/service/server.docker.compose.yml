@@ -16,7 +16,7 @@ volumes:
 services:
   # Postgres service
   vircadia_world_postgres:
-    image: postgres:17.5-alpine3.21
+    image: postgres:18.0-alpine3.22
     container_name: ${VRCA_SERVER_SERVICE_POSTGRES_CONTAINER_NAME}
     user: "70:70" # Alpine postgres user (UID:GID)
     restart: always
@@ -34,6 +34,32 @@ services:
         "checkpoint_timeout=5min", # Default is 5min, but good to explicitly set
         "-c",
         "checkpoint_completion_target=0.9", # Spread checkpoint I/O over more time
+        "-c",
+        "shared_buffers=256MB", # Increase shared memory for caching
+        "-c",
+        "effective_cache_size=1GB", # Tell planner about available cache
+        "-c",
+        "work_mem=16MB", # More memory for sorts/joins
+        "-c",
+        "maintenance_work_mem=128MB", # For VACUUM, index creation
+        "-c",
+        "synchronous_commit=off", # Trade durability for speed
+        "-c",
+        "commit_delay=100", # Batch commits (microseconds)
+        "-c",
+        "max_connections=200", # Increase connection limit
+        "-c",
+        "random_page_cost=1.1", # Optimize for SSD storage
+        "-c",
+        "effective_io_concurrency=200", # For SSD
+        "-c",
+        "wal_compression=on", # Reduce WAL size
+        "-c",
+        "wal_buffers=16MB", # More WAL buffer memory
+        "-c",
+        "autovacuum_max_workers=4", # More vacuum workers
+        "-c",
+        "autovacuum_naptime=10s", # More frequent autovacuum
       ]
     ports:
       - "${VRCA_SERVER_SERVICE_POSTGRES_HOST_CONTAINER_BIND_EXTERNAL}:${VRCA_SERVER_SERVICE_POSTGRES_PORT_CONTAINER_BIND_EXTERNAL}:5432"

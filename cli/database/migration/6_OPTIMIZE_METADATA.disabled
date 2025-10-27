@@ -1,0 +1,168 @@
+-- ============================================================================
+-- OPTIMIZATION FOR HIGH-FREQUENCY METADATA UPDATES
+-- ============================================================================
+
+-- 1. Create a more efficient composite index for metadata updates
+-- This index covers the most common query pattern: entity + key lookup
+DROP INDEX IF EXISTS entity.idx_entity_metadata_key;
+DROP INDEX IF EXISTS entity.idx_entity_metadata_entity_updated;
+
+CREATE INDEX CONCURRENTLY idx_entity_metadata_composite 
+ON entity.entity_metadata(general__entity_name, metadata__key) 
+INCLUDE (metadata__value, general__updated_at, group__sync);
+
+-- 2. Create partial indexes for active records (non-expired)
+CREATE INDEX CONCURRENTLY idx_entity_metadata_active 
+ON entity.entity_metadata(general__entity_name, metadata__key, general__updated_at)
+WHERE general__expiry__delete_since_updated_at_ms IS NULL 
+  AND general__expiry__delete_since_created_at_ms IS NULL;
+
+-- 3. Optimize the parent entity touch trigger to batch updates
+CREATE OR REPLACE FUNCTION entity.touch_entity_on_metadata_change_from_new()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_now TIMESTAMPTZ := now();
+    v_agent_id UUID := auth.current_agent_id();
+BEGIN
+    -- Use a single UPDATE with EXISTS subquery instead of JOIN
+    -- This is more efficient for high-frequency updates
+    UPDATE entity.entities
+    SET general__updated_at = v_now,
+        general__updated_by = v_agent_id
+    WHERE general__entity_name IN (
+        SELECT DISTINCT general__entity_name 
+        FROM new_table
+    )
+    -- Only update if timestamp is actually older (avoid unnecessary writes)
+    AND general__updated_at < v_now;
+
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = entity, public, pg_temp;
+
+-- 4. Optimize agent last-seen updates to reduce frequency
+-- Create a debounced version that only updates once per second per agent
+CREATE OR REPLACE FUNCTION entity.touch_current_agent_last_seen()
+RETURNS void AS $$
+DECLARE
+    v_agent_id UUID;
+    v_now TIMESTAMPTZ := now();
+BEGIN
+    v_agent_id := auth.current_agent_id();
+    
+    -- Only update if last seen is more than 1 second ago
+    UPDATE auth.agent_profiles
+    SET profile__last_seen_at = v_now
+    WHERE general__agent_profile_id = v_agent_id
+      AND (profile__last_seen_at IS NULL 
+           OR profile__last_seen_at < (v_now - INTERVAL '1 second'));
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = entity, auth, public, pg_temp;
+
+-- 5. Create unlogged table for high-frequency temporary metadata
+-- This table doesn't write to WAL, making it much faster for temporary data
+CREATE UNLOGGED TABLE IF NOT EXISTS entity.entity_metadata_temp (
+    general__entity_name TEXT NOT NULL,
+    metadata__key TEXT NOT NULL,
+    metadata__value JSONB NOT NULL,
+    group__sync TEXT NOT NULL,
+    general__created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    general__updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (general__entity_name, metadata__key)
+);
+
+-- Index for fast lookups on temp table
+CREATE INDEX idx_entity_metadata_temp_lookup 
+ON entity.entity_metadata_temp(general__entity_name, metadata__key);
+
+-- 6. Function to batch-merge temporary metadata into permanent table
+CREATE OR REPLACE FUNCTION entity.merge_temp_metadata()
+RETURNS void AS $$
+BEGIN
+    -- Merge temp metadata into permanent table
+    INSERT INTO entity.entity_metadata (
+        general__entity_name,
+        metadata__key,
+        metadata__value,
+        group__sync,
+        general__created_at,
+        general__updated_at,
+        general__created_by,
+        general__updated_by
+    )
+    SELECT 
+        t.general__entity_name,
+        t.metadata__key,
+        t.metadata__value,
+        t.group__sync,
+        t.general__created_at,
+        t.general__updated_at,
+        auth.current_agent_id(),
+        auth.current_agent_id()
+    FROM entity.entity_metadata_temp t
+    ON CONFLICT (general__entity_name, metadata__key) 
+    DO UPDATE SET
+        metadata__value = EXCLUDED.metadata__value,
+        general__updated_at = EXCLUDED.general__updated_at,
+        general__updated_by = EXCLUDED.general__updated_by
+    WHERE entity.entity_metadata.metadata__value IS DISTINCT FROM EXCLUDED.metadata__value;
+
+    -- Clear temp table after merge
+    TRUNCATE entity.entity_metadata_temp;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 7. Grant permissions for temp table
+GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON entity.entity_metadata_temp TO vircadia_agent_proxy;
+
+-- 8. Analyze tables to update statistics
+ANALYZE entity.entity_metadata;
+ANALYZE entity.entities;
+ANALYZE auth.agent_profiles;
+
+-- 9. Set table parameters for better performance
+ALTER TABLE entity.entity_metadata SET (fillfactor = 90); -- Leave 10% free space for HOT updates
+ALTER TABLE entity.entities SET (fillfactor = 90);
+
+-- 10. Create stored procedure for optimized metadata updates
+CREATE OR REPLACE FUNCTION entity.update_metadata_optimized(
+    p_entity_name TEXT,
+    p_key TEXT,
+    p_value JSONB,
+    p_sync_group TEXT DEFAULT 'public.NORMAL'
+)
+RETURNS void AS $$
+DECLARE
+    v_agent_id UUID := auth.current_agent_id();
+    v_now TIMESTAMPTZ := now();
+BEGIN
+    -- Use INSERT ... ON CONFLICT for upsert pattern
+    INSERT INTO entity.entity_metadata (
+        general__entity_name,
+        metadata__key,
+        metadata__value,
+        group__sync,
+        general__created_at,
+        general__created_by,
+        general__updated_at,
+        general__updated_by
+    ) VALUES (
+        p_entity_name,
+        p_key,
+        p_value,
+        p_sync_group,
+        v_now,
+        v_agent_id,
+        v_now,
+        v_agent_id
+    )
+    ON CONFLICT (general__entity_name, metadata__key)
+    DO UPDATE SET
+        metadata__value = EXCLUDED.metadata__value,
+        general__updated_at = EXCLUDED.general__updated_at,
+        general__updated_by = EXCLUDED.general__updated_by
+    WHERE entity.entity_metadata.metadata__value IS DISTINCT FROM EXCLUDED.metadata__value;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+GRANT EXECUTE ON FUNCTION entity.update_metadata_optimized TO vircadia_agent_proxy;

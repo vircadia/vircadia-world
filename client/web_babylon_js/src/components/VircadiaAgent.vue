@@ -47,6 +47,14 @@ const props = defineProps({
     isTalking: { type: Boolean, required: true },
     talkLevel: { type: Number, required: true },
     talkThreshold: { type: Number, required: true },
+    // Agent capabilities (from VircadiaCloudInferenceProvider)
+    agentSttEnabled: { type: Boolean, required: true },
+    agentTtsEnabled: { type: Boolean, required: true },
+    agentLlmEnabled: { type: Boolean, required: true },
+    // Agent working states (actively processing)
+    agentSttWorking: { type: Boolean, required: true },
+    agentTtsWorking: { type: Boolean, required: true },
+    agentLlmWorking: { type: Boolean, required: true },
 });
 
 // Node and controller
@@ -57,8 +65,17 @@ const capsuleMesh: Ref<Mesh | null> = ref(null);
 const eyeMaterial: Ref<StandardMaterial | null> = ref(null);
 const pupilMaterial: Ref<StandardMaterial | null> = ref(null);
 const bottomGlowMaterial: Ref<StandardMaterial | null> = ref(null);
+// Capability status indicators (billboarded discs above agent)
+const sttStatusMesh: Ref<Mesh | null> = ref(null);
+const ttsStatusMesh: Ref<Mesh | null> = ref(null);
+const llmStatusMesh: Ref<Mesh | null> = ref(null);
+const sttStatusMaterial: Ref<StandardMaterial | null> = ref(null);
+const ttsStatusMaterial: Ref<StandardMaterial | null> = ref(null);
+const llmStatusMaterial: Ref<StandardMaterial | null> = ref(null);
 // Simple hover effect
 let hoverPhase = 0;
+// Wave bounce animation phase
+let wavePhase = 0;
 
 function createAgentGeometry(scene: Scene, root: TransformNode): void {
     // Body (extruded rounded square for rounded square-like form)
@@ -252,6 +269,44 @@ function createAgentGeometry(scene: Scene, root: TransformNode): void {
     bottomGlow.material = glowMat;
     bottomGlow.setParent(root);
     bottomGlowMaterial.value = glowMat;
+
+    // Capability status indicators (floating above agent head)
+    const statusY = 0.25; // Height above agent body
+    const statusRadius = 0.02;
+    const statusOffsetX = 0.06; // Spread horizontally
+
+    // STT indicator (microphone icon area)
+    const sttStatus = MeshBuilder.CreateSphere("sttStatus", { diameter: statusRadius * 2, segments: 16 }, scene);
+    sttStatus.position = new Vector3(-statusOffsetX, statusY, 0.06);
+    const sttMat = new StandardMaterial("sttStatusMat", scene);
+    sttMat.emissiveColor = new Color3(0.9, 0.5, 0.2); // Orange
+    sttMat.diffuseColor = new Color3(0, 0, 0);
+    sttStatus.material = sttMat;
+    sttStatus.setParent(root);
+    sttStatusMesh.value = sttStatus;
+    sttStatusMaterial.value = sttMat;
+
+    // TTS indicator (speaker icon area)
+    const ttsStatus = MeshBuilder.CreateSphere("ttsStatus", { diameter: statusRadius * 2, segments: 16 }, scene);
+    ttsStatus.position = new Vector3(0, statusY, 0.06);
+    const ttsMat = new StandardMaterial("ttsStatusMat", scene);
+    ttsMat.emissiveColor = new Color3(0.2, 0.9, 0.5); // Green
+    ttsMat.diffuseColor = new Color3(0, 0, 0);
+    ttsStatus.material = ttsMat;
+    ttsStatus.setParent(root);
+    ttsStatusMesh.value = ttsStatus;
+    ttsStatusMaterial.value = ttsMat;
+
+    // LLM indicator (brain icon area)
+    const llmStatus = MeshBuilder.CreateSphere("llmStatus", { diameter: statusRadius * 2, segments: 16 }, scene);
+    llmStatus.position = new Vector3(statusOffsetX, statusY, 0.06);
+    const llmMat = new StandardMaterial("llmStatusMat", scene);
+    llmMat.emissiveColor = new Color3(0.5, 0.2, 0.9); // Purple
+    llmMat.diffuseColor = new Color3(0, 0, 0);
+    llmStatus.material = llmMat;
+    llmStatus.setParent(root);
+    llmStatusMesh.value = llmStatus;
+    llmStatusMaterial.value = llmMat;
 }
 
 function getAgentPosition(): Vector3 | undefined {
@@ -379,6 +434,26 @@ function disposeAgent(): void {
     }
     capsuleMesh.value = null;
 
+    // Dispose status indicators
+    try {
+        sttStatusMesh.value?.dispose();
+    } catch {
+        /* no-op */
+    }
+    sttStatusMesh.value = null;
+    try {
+        ttsStatusMesh.value?.dispose();
+    } catch {
+        /* no-op */
+    }
+    ttsStatusMesh.value = null;
+    try {
+        llmStatusMesh.value?.dispose();
+    } catch {
+        /* no-op */
+    }
+    llmStatusMesh.value = null;
+
     // Dispose agent root and children
     try {
         agentRoot.value?.dispose(false, true);
@@ -459,6 +534,61 @@ function initAgent(scene: Scene | null | undefined): void {
         if (bottomGlowMaterial.value) {
             const baseGlow = new Color3(0.1, 0.4, 0.8);
             bottomGlowMaterial.value.emissiveColor = baseGlow.scale(Math.min(2.0, smoothedGlow));
+        }
+
+        // Update capability status indicators
+        const isLlmOrTtsWorking = props.agentLlmWorking || props.agentTtsWorking;
+        if (isLlmOrTtsWorking) {
+            wavePhase += dt * 8.0; // Wave animation speed
+        } else {
+            wavePhase = 0; // Reset phase when not working
+        }
+
+        if (sttStatusMaterial.value) {
+            const enabled = props.agentSttEnabled;
+            sttStatusMaterial.value.emissiveColor = enabled ? new Color3(0.9, 0.5, 0.2) : new Color3(0.3, 0.3, 0.3);
+            sttStatusMaterial.value.alpha = enabled ? 1.0 : 0.3;
+        }
+        if (ttsStatusMaterial.value) {
+            const enabled = props.agentTtsEnabled;
+            ttsStatusMaterial.value.emissiveColor = enabled ? new Color3(0.2, 0.9, 0.5) : new Color3(0.3, 0.3, 0.3);
+            ttsStatusMaterial.value.alpha = enabled ? 1.0 : 0.3;
+        }
+        if (llmStatusMaterial.value) {
+            const enabled = props.agentLlmEnabled;
+            llmStatusMaterial.value.emissiveColor = enabled ? new Color3(0.5, 0.2, 0.9) : new Color3(0.3, 0.3, 0.3);
+            llmStatusMaterial.value.alpha = enabled ? 1.0 : 0.3;
+        }
+
+        // Wave bounce animation for status indicators when LLM or TTS is working
+        if (isLlmOrTtsWorking && agentRoot.value) {
+            const statusY = 0.25;
+            const bounceAmount = 0.05;
+            const waveOffset = Math.PI * 2 / 3; // 120 degrees between each indicator
+
+            // STT indicator bounce (left)
+            if (sttStatusMesh.value) {
+                const bounce = Math.sin(wavePhase + waveOffset * 0) * bounceAmount;
+                sttStatusMesh.value.position.y = statusY + bounce;
+            }
+
+            // TTS indicator bounce (center)
+            if (ttsStatusMesh.value) {
+                const bounce = Math.sin(wavePhase + waveOffset * 1) * bounceAmount;
+                ttsStatusMesh.value.position.y = statusY + bounce;
+            }
+
+            // LLM indicator bounce (right)
+            if (llmStatusMesh.value) {
+                const bounce = Math.sin(wavePhase + waveOffset * 2) * bounceAmount;
+                llmStatusMesh.value.position.y = statusY + bounce;
+            }
+        } else {
+            // Reset positions when not bouncing
+            const statusY = 0.25;
+            if (sttStatusMesh.value) sttStatusMesh.value.position.y = statusY;
+            if (ttsStatusMesh.value) ttsStatusMesh.value.position.y = statusY;
+            if (llmStatusMesh.value) llmStatusMesh.value.position.y = statusY;
         }
 
         if (characterController.value) {

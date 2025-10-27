@@ -241,6 +241,42 @@ class WorldApiInferenceManager {
                         return response;
                     }
 
+                    // Capabilities endpoint
+                    if (
+                        url.pathname.startsWith(
+                            Communication.REST.Endpoint.INFERENCE_CAPABILITIES
+                                .path,
+                        ) &&
+                        req.method ===
+                            Communication.REST.Endpoint.INFERENCE_CAPABILITIES
+                                .method
+                    ) {
+                        BunLogModule({
+                            prefix: LOG_PREFIX,
+                            message: "Capabilities endpoint accessed",
+                            debug: serverConfiguration.VRCA_SERVER_DEBUG,
+                            suppress: serverConfiguration.VRCA_SERVER_SUPPRESS,
+                            type: "debug",
+                            data: {
+                                method: req.method,
+                                pathname: url.pathname,
+                            },
+                        });
+                        const response = this.createJsonResponse(
+                            Communication.REST.Z.InferenceCapabilitiesSuccess.parse(
+                                {
+                                    success: true,
+                                    timestamp: Date.now(),
+                                    stt: true, // GroqService is available
+                                    tts: true, // GroqService is available
+                                    llm: true, // CerebrasService is available
+                                },
+                            ),
+                            req,
+                        );
+                        return response;
+                    }
+
                     if (!superUserSql) {
                         return this.createJsonResponse(
                             { error: "Internal server error" },

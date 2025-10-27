@@ -1,6 +1,7 @@
 <template>
     <!-- Renderless by default -->
-    <slot></slot>
+    <slot :capabilities-enabled="capabilitiesEnabled" :agent-stt-working="sttProcessing || sttUploading"
+        :agent-tts-working="ttsGenerating" :agent-llm-working="llmGenerating"></slot>
 
     <!-- Teleport control button to MainScene app bar -->
     <Teleport v-if="teleportTarget" :to="teleportTarget">
@@ -36,22 +37,30 @@
                                 <div class="d-flex align-center">
                                     <v-icon class="mr-1">mdi-microphone</v-icon>
                                     <v-chip
-                                        :color="sttUploading || sttProcessing ? 'warning' : (sttReady ? 'success' : 'error')"
+                                        :color="sttUploading || sttProcessing ? 'warning' : (sttReady && capabilitiesEnabled.stt ? 'success' : 'error')"
                                         size="small">
-                                        {{ sttUploading || sttProcessing ? 'Transcribing' : sttReady ? 'Ready' : 'Idle'
+                                        {{ sttUploading || sttProcessing ? 'Transcribing' : sttReady &&
+                                            capabilitiesEnabled.stt ? 'Ready' : capabilitiesEnabled.stt ? 'Idle' :
+                                            'Disabled'
                                         }}
                                     </v-chip>
                                 </div>
                                 <div class="d-flex align-center">
                                     <v-icon class="mr-1">mdi-brain</v-icon>
-                                    <v-chip :color="llmGenerating ? 'warning' : 'success'" size="small">
-                                        {{ llmGenerating ? 'Thinking' : 'Ready' }}
+                                    <v-chip
+                                        :color="llmGenerating ? 'warning' : (capabilitiesEnabled.llm ? 'success' : 'error')"
+                                        size="small">
+                                        {{ llmGenerating ? 'Thinking' : capabilitiesEnabled.llm ? 'Ready' : 'Disabled'
+                                        }}
                                     </v-chip>
                                 </div>
                                 <div class="d-flex align-center">
                                     <v-icon class="mr-1">mdi-volume-high</v-icon>
-                                    <v-chip :color="ttsGenerating ? 'warning' : 'success'" size="small">
-                                        {{ ttsGenerating ? 'Speaking' : 'Ready' }}
+                                    <v-chip
+                                        :color="ttsGenerating ? 'warning' : (capabilitiesEnabled.tts ? 'success' : 'error')"
+                                        size="small">
+                                        {{ ttsGenerating ? 'Speaking' : capabilitiesEnabled.tts ? 'Ready' : 'Disabled'
+                                        }}
                                     </v-chip>
                                 </div>
                                 <div class="d-flex align-center">
@@ -65,7 +74,7 @@
                                     <v-progress-linear :model-value="rmsPct" color="secondary" height="6" rounded
                                         class="flex-grow-1 min-w-[160px]" />
                                     <span class="text-caption text-medium-emphasis ml-2">{{ rmsLevel.toFixed(2)
-                                    }}</span>
+                                        }}</span>
                                 </div>
                             </div>
                         </v-card>
@@ -79,8 +88,10 @@
                             <div class="d-flex align-center mb-2">
                                 <v-card-subtitle class="pr-2">Conversation</v-card-subtitle>
                                 <v-spacer />
-                                <v-chip :color="llmGenerating ? 'warning' : 'success'" size="small">
-                                    {{ llmGenerating ? 'Generating' : 'Idle' }}
+                                <v-chip
+                                    :color="llmGenerating ? 'warning' : (capabilitiesEnabled.llm ? 'success' : 'error')"
+                                    size="small">
+                                    {{ llmGenerating ? 'Generating' : capabilitiesEnabled.llm ? 'Idle' : 'Disabled' }}
                                 </v-chip>
                             </div>
                             <div v-if="conversationItems.length === 0" class="text-caption text-medium-emphasis ml-1">
@@ -104,7 +115,7 @@
                                                 </span>
                                                 <span class="font-weight-medium">{{ msg.role === 'user' ? 'You' :
                                                     'Assistant'
-                                                }}</span>
+                                                    }}</span>
                                             </v-list-item-title>
                                             <v-list-item-subtitle class="mt-1 wrap-anywhere"
                                                 :class="msg.role === 'user' ? 'text-high-emphasis' : ''">
@@ -137,11 +148,13 @@
                 <v-row class="mt-2">
                     <v-col cols="12">
                         <div class="d-flex gap-2">
-                            <v-btn color="primary" variant="outlined" @click="testServerTTS" :loading="ttsGenerating">
+                            <v-btn color="primary" variant="outlined" @click="testServerTTS" :loading="ttsGenerating"
+                                :disabled="!capabilitiesEnabled.tts">
                                 <v-icon class="mr-1">mdi-volume-high</v-icon>
                                 Test Server TTS
                             </v-btn>
-                            <v-btn color="primary" variant="outlined" @click="testServerLLM" :loading="llmGenerating">
+                            <v-btn color="primary" variant="outlined" @click="testServerLLM" :loading="llmGenerating"
+                                :disabled="!capabilitiesEnabled.llm">
                                 <v-icon class="mr-1">mdi-brain</v-icon>
                                 Test Server LLM
                             </v-btn>
@@ -232,6 +245,9 @@ const webrtcConnected = computed(() => {
         return !!api && typeof api.getPeersMap === "function" && api.getPeersMap().size > 0;
     } catch { return false; }
 });
+
+// Capabilities
+const capabilitiesEnabled = ref<{ stt: boolean; tts: boolean; llm: boolean }>({ stt: true, tts: true, llm: true });
 
 // STT/VAD
 const vadWorkerRef = ref<Worker | null>(null);
@@ -470,7 +486,7 @@ function clearNoReplyTimer(peerId: string): void { const id = llmNoReplyTimers.g
 function scheduleNoReplyTimer(peerId: string, buffered: string): void { clearNoReplyTimer(peerId); const ms = Math.max(500, Number(props.agentNoReplyTimeoutSec) * 1000); const id = setTimeout(async () => { llmNoReplyTimers.set(peerId, null); if (buffered.trim()) await submitToLlm(peerId, buffered, { incomplete: true }); }, ms) as unknown as number; llmNoReplyTimers.set(peerId, id); }
 
 async function submitToLlm(peerId: string, text: string, _opts?: { incomplete?: boolean }): Promise<void> {
-    if (!props.agentEnableLlm) return;
+    if (!props.agentEnableLlm || !capabilitiesEnabled.value.llm) return;
     const t = (text || "").trim(); if (!t) return;
     try {
         const client = props.vircadiaWorld?.client; if (!client) return;
@@ -510,6 +526,7 @@ const isSpeaking = ref<boolean>(false);
 async function flushTtsQueue(): Promise<void> { if (isSpeaking.value || ttsQueue.length === 0) return; const next = ttsQueue.shift(); if (!next) return; isSpeaking.value = true; try { await speakServerTts(next); } finally { isSpeaking.value = false; if (ttsQueue.length > 0) void flushTtsQueue(); } }
 
 async function speakServerTts(text: string, forceLocalEcho = false): Promise<void> {
+    if (!capabilitiesEnabled.value.tts) return;
     try {
         const api = webrtc.value;
         const allowLocalEcho = forceLocalEcho || props.agentTtsOutputMode === "both" || props.agentTtsOutputMode === "local";
@@ -634,10 +651,29 @@ async function attachMic(): Promise<void> {
     await attachStream("mic", stream);
 }
 
+// Fetch capabilities
+async function fetchCapabilities(): Promise<void> {
+    try {
+        const client = props.vircadiaWorld?.client;
+        if (!client) return;
+        const resp = await client.restInference.capabilities();
+        if (resp?.success) {
+            capabilitiesEnabled.value = {
+                stt: resp.stt ?? true,
+                tts: resp.tts ?? true,
+                llm: resp.llm ?? true,
+            };
+        }
+    } catch (e) {
+        console.warn("[CloudAgent] Failed to fetch capabilities:", e);
+    }
+}
+
 // Watchers
 watch(() => props.vircadiaWorld?.connectionInfo.value.status, async (status) => {
     if (status === "connected") {
-        if (props.agentEnableStt) {
+        await fetchCapabilities();
+        if (props.agentEnableStt && capabilitiesEnabled.value.stt) {
             initVadWorkerOnce();
             const mode = props.agentSttInputMode;
             if (mode === "webrtc" || mode === "both") {

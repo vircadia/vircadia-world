@@ -14,9 +14,11 @@
     "dependencies": {
         "@azure/msal-browser": "catalog:auth-client",
         "@babylonjs/core": "catalog:babylon",
+        "@babylonjs/gui": "catalog:babylon",
         "@babylonjs/havok": "catalog:babylon",
         "@babylonjs/inspector": "catalog:babylon",
         "@babylonjs/loaders": "catalog:babylon",
+        "babylonjs-addons": "catalog:babylon",
         "@huggingface/transformers": "catalog:ml",
         "@vircadia/world-sdk": "workspace:*",
         "@vueuse/core": "catalog:vue",

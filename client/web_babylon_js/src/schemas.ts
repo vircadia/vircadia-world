@@ -1,6 +1,12 @@
 import type { AnimationGroup } from "@babylonjs/core";
 import { z } from "zod";
 
+// Shared LLM directive outputs
+export enum LlmDirective {
+    NoReply = "<no-reply/>",
+    StoppedTalking = "<stopped-talking/>",
+}
+
 // Babylon.js environment interfaces
 export interface HemisphericLightOptions {
     enabled?: boolean;

@@ -42,21 +42,21 @@
                                         {{ props.agentEnableTts ? 'mdi-check-circle' : 'mdi-circle-outline' }}
                                     </v-icon>
                                     <span>TTS ({{ ttsModelName }}): {{ props.agentEnableTts ? 'Enabled' : 'Disabled'
-                                    }}</span>
+                                        }}</span>
                                 </div>
                                 <div class="d-flex align-center mb-2">
                                     <v-icon :color="props.agentEnableLlm ? 'success' : 'grey'" class="mr-2">
                                         {{ props.agentEnableLlm ? 'mdi-check-circle' : 'mdi-circle-outline' }}
                                     </v-icon>
                                     <span>LLM ({{ llmModelName }}): {{ props.agentEnableLlm ? 'Enabled' : 'Disabled'
-                                    }}</span>
+                                        }}</span>
                                 </div>
                                 <div class="d-flex align-center">
                                     <v-icon :color="props.agentEnableStt ? 'success' : 'grey'" class="mr-2">
                                         {{ props.agentEnableStt ? 'mdi-check-circle' : 'mdi-circle-outline' }}
                                     </v-icon>
                                     <span>STT ({{ sttModelName }}): {{ props.agentEnableStt ? 'Enabled' : 'Disabled'
-                                    }}</span>
+                                        }}</span>
                                 </div>
                             </div>
                         </v-card>
@@ -71,12 +71,12 @@
                                 <v-progress-circular indeterminate color="primary" size="20" class="mr-2" />
                                 <div class="d-flex flex-column">
                                     <span>• LLM ({{ llmModelName }}): {{ llmLoading ? (llmStep || 'Loading') : 'Ready'
-                                    }}</span>
+                                        }}</span>
                                     <span>• TTS ({{ ttsModelName }}): {{ kokoroLoading ? (kokoroStep || 'Loading') :
                                         'Ready'
-                                    }}</span>
+                                        }}</span>
                                     <span>• STT ({{ sttModelName }}): {{ sttLoading ? (sttStep || 'Loading') : 'Ready'
-                                    }}</span>
+                                        }}</span>
                                 </div>
                             </div>
                         </v-alert>
@@ -111,10 +111,10 @@
                                             <v-list-item-title>
                                                 <code>{{ new Date(item.at).toLocaleTimeString() }}</code>
                                                 <span class="ml-2 text-medium-emphasis">[{{ peerDisplayName(item.peerId)
-                                                }}]</span>
+                                                    }}]</span>
                                             </v-list-item-title>
                                             <v-list-item-subtitle class="wrap-anywhere">{{ item.text
-                                            }}</v-list-item-subtitle>
+                                                }}</v-list-item-subtitle>
                                         </v-list-item>
                                         <v-divider class="my-1" />
                                     </template>
@@ -206,7 +206,7 @@
                                 <div v-if="sttLoading" class="ml-6">
                                     <v-progress-linear indeterminate color="primary" height="4" class="mb-1" />
                                     <span class="text-caption text-medium-emphasis">{{ sttStep || 'Initializing...'
-                                    }}</span>
+                                        }}</span>
                                 </div>
                                 <div v-else-if="sttPipeline" class="ml-6">
                                     <span class="text-caption text-success">Model loaded successfully</span>
@@ -237,7 +237,7 @@
                                         <v-progress-linear :model-value="rmsPct" color="secondary" height="6" rounded
                                             class="flex-grow-1" />
                                         <span class="text-caption text-medium-emphasis ml-2">{{ rmsLevel.toFixed(2)
-                                            }}</span>
+                                        }}</span>
                                     </div>
                                 </div>
                                 <!-- STT Inputs status -->
@@ -318,7 +318,7 @@
                                                 </span>
                                                 <span class="font-weight-medium">{{ msg.role === 'user' ? 'You' :
                                                     'Assistant'
-                                                }}</span>
+                                                    }}</span>
                                             </v-list-item-title>
                                             <v-list-item-subtitle class="mt-1 wrap-anywhere"
                                                 :class="msg.role === 'user' ? 'text-high-emphasis' : ''">
@@ -368,6 +368,7 @@ import {
     watch,
 } from "vue";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
+import { LlmDirective } from "@/schemas";
 
 // WebRTC ref runtime type for direct API calls from BabylonWebRTC component
 type WebRTCRefApi = {
@@ -917,6 +918,21 @@ const rmsPct = computed<number>(() =>
 );
 const ttsQueue: string[] = [];
 const isSpeaking = ref<boolean>(false);
+let activeSource: AudioBufferSourceNode | null = null;
+let activeGain: GainNode | null = null;
+function cancelTTS(): void {
+    try {
+        ttsQueue.splice(0, ttsQueue.length);
+        try { activeSource?.stop(0); } catch { }
+        try { activeSource?.disconnect(); } catch { }
+        try { activeGain?.disconnect(); } catch { }
+        activeSource = null;
+        activeGain = null;
+    } finally {
+        isSpeaking.value = false;
+        ttsGenerating.value = false;
+    }
+}
 
 // Transcript capture state
 type TranscriptEntry = { peerId: string; text: string; at: number };
@@ -1274,11 +1290,12 @@ async function handleTranscript(
         const gatingInstruction = (() => {
             const wake = String(props.agentWakeWord || "").trim();
             const end = String(props.agentEndWord || "").trim();
+            const stopGuidance = ` If the user asks you to stop speaking (e.g., 'stop talking', 'hold on'), output exactly ${LlmDirective.StoppedTalking}.`;
             if (wake && end)
-                return `Guidance: Wake word may be present ('${wake}'); if the request seems partial or lacks a clear end, output exactly <no-reply/>.`;
+                return `Guidance: Wake word may be present ('${wake}'); if the request seems partial or lacks a clear end, output exactly ${LlmDirective.NoReply}.` + stopGuidance;
             if (wake && !end)
-                return `Guidance: A wake word may start the request ('${wake}'); rely on natural boundaries. If the request seems partial, output exactly <no-reply/>.`;
-            return `Guidance: If input seems partial, output exactly <no-reply/>. If sufficient follow up has been provided after you replied <no-reply/> then reply with a response.`;
+                return `Guidance: A wake word may start the request ('${wake}'); rely on natural boundaries. If the request seems partial, output exactly ${LlmDirective.NoReply}.` + stopGuidance;
+            return `Guidance: If input seems partial, output exactly ${LlmDirective.NoReply}. If sufficient follow up has been provided after you replied ${LlmDirective.NoReply} then reply with a response.` + stopGuidance;
         })();
         const systemPrefix =
             "System: You are an in-world assistant. Be concise and conversational.";
@@ -1289,7 +1306,11 @@ async function handleTranscript(
             return_full_text: !!props.agentLlmReturnFullText,
         });
         const cleaned = extractAssistantText(reply).trim();
-        if (cleaned?.includes("<no-reply/>")) {
+        if (cleaned?.includes(LlmDirective.StoppedTalking)) {
+            cancelTTS();
+            return;
+        }
+        if (cleaned?.includes(LlmDirective.NoReply)) {
             // Start a timer to reprompt if nothing else arrives
             scheduleNoReplyTimer(peerId);
             return;
@@ -1514,7 +1535,7 @@ async function speakWithKokoro(text: string): Promise<void> {
         }
 
         await new Promise<void>((resolve) => {
-            source.addEventListener("ended", () => resolve());
+            source.addEventListener("ended", () => { activeSource = null; activeGain = null; resolve(); });
             // Small fade-in to avoid clicks
             try {
                 const t = ctx.currentTime;
@@ -1524,6 +1545,8 @@ async function speakWithKokoro(text: string): Promise<void> {
                 /* ignore */
             }
             source.start();
+            activeSource = source;
+            activeGain = gain;
         });
     } catch (e) {
         console.error("[Agent TTS] Failed to speak via Kokoro:", e);

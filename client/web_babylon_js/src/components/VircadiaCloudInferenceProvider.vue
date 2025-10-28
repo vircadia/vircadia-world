@@ -173,6 +173,7 @@
 <script setup lang="ts">
 import { computed, inject, onUnmounted, type PropType, type Ref, ref, watch } from "vue";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
+import { LlmDirective } from "@/schemas";
 
 type WebRTCRefApi = {
     getLocalStream: () => MediaStream | null;
@@ -497,9 +498,10 @@ function normalizeWhitespace(text: string): string { return String(text || "").r
 function buildGatingGuidance(): string {
     const wake = String(props.agentWakeWord || "").trim();
     const end = String(props.agentEndWord || "").trim();
-    if (wake && end) return `Guidance: Wake word may be present ('${wake}'); if the request seems partial or lacks a clear end, output exactly <no-reply/>.`;
-    if (wake && !end) return `Guidance: A wake word may start the request ('${wake}'); rely on natural boundaries. If the request seems partial, output exactly <no-reply/>.`;
-    return `Guidance: If input seems partial, output exactly <no-reply/>. If sufficient follow up has been provided after you replied <no-reply/> then reply with a response.`;
+    const stopGuidance = ` If the user asks you to stop speaking (e.g., 'stop talking', 'hold on'), output exactly ${LlmDirective.StoppedTalking}.`;
+    if (wake && end) return `Guidance: Wake word may be present ('${wake}'); if the request seems partial or lacks a clear end, output exactly ${LlmDirective.NoReply}.` + stopGuidance;
+    if (wake && !end) return `Guidance: A wake word may start the request ('${wake}'); rely on natural boundaries. If the request seems partial, output exactly ${LlmDirective.NoReply}.` + stopGuidance;
+    return `Guidance: If input seems partial, output exactly ${LlmDirective.NoReply}. If sufficient follow up has been provided after you replied ${LlmDirective.NoReply} then reply with a response.` + stopGuidance;
 }
 function buildExtraKnowledgeBlock(): string {
     try {
@@ -545,7 +547,8 @@ async function submitToLlm(peerId: string, text: string, _opts?: { incomplete?: 
         if (resp?.success && resp.text) {
             const cleaned = extractAssistantText(resp.text).trim();
             const { cleanText, thinking } = parseThinkingTags(cleaned);
-            if (cleanText.includes("<no-reply/>")) { return; }
+            if (cleanText.includes(LlmDirective.StoppedTalking)) { cancelTtsPlayback(); return; }
+            if (cleanText.includes(LlmDirective.NoReply)) { return; }
             if (cleanText) { addLlmOutput(cleanText, thinking); ttsQueue.push(cleanText); void flushTtsQueue(); }
         }
     } catch (e) {
@@ -557,6 +560,29 @@ async function submitToLlm(peerId: string, text: string, _opts?: { incomplete?: 
 // TTS
 const ttsQueue: string[] = [];
 const isSpeaking = ref<boolean>(false);
+type ActiveTtsPath = { kind: "local" | "bus"; ctx: AudioContext | null; source: AudioBufferSourceNode; gain: GainNode | null };
+const activeTts: ActiveTtsPath[] = [];
+let levelRaf: number | null = null;
+let analyserLocal: AnalyserNode | null = null;
+let analyserBus: AnalyserNode | null = null;
+function cancelTtsPlayback(): void {
+    try {
+        ttsQueue.splice(0, ttsQueue.length);
+        for (const p of activeTts) {
+            try { p.source.stop(0); } catch { }
+            try { p.source.disconnect(); } catch { }
+            try { p.gain?.disconnect(); } catch { }
+        }
+        activeTts.splice(0, activeTts.length);
+        if (levelRaf) { cancelAnimationFrame(levelRaf); levelRaf = null; }
+        analyserLocal = null;
+        analyserBus = null;
+        ttsTalking.value = false;
+    } finally {
+        isSpeaking.value = false;
+        ttsGenerating.value = false;
+    }
+}
 async function flushTtsQueue(): Promise<void> { if (isSpeaking.value || ttsQueue.length === 0) return; const next = ttsQueue.shift(); if (!next) return; isSpeaking.value = true; try { await speakServerTts(next); } finally { isSpeaking.value = false; if (ttsQueue.length > 0) void flushTtsQueue(); } }
 
 async function speakServerTts(text: string, forceLocalEcho = false): Promise<void> {
@@ -594,9 +620,9 @@ async function speakServerTts(text: string, forceLocalEcho = false): Promise<voi
         const promises: Promise<void>[] = [];
 
         // Local speaker echo path (and feed analyser) using echo destination's context
-        let analyserLocal: AnalyserNode | null = null;
-        let analyserBus: AnalyserNode | null = null;
-        let levelRaf: number | null = null;
+        analyserLocal = null;
+        analyserBus = null;
+        levelRaf = null;
         let localActive = false;
         let busActive = false;
 
@@ -622,6 +648,7 @@ async function speakServerTts(text: string, forceLocalEcho = false): Promise<voi
                     localGain.gain.exponentialRampToValueAtTime(1.25, t + 0.02);
                 } catch { }
                 localSource.start();
+                activeTts.push({ kind: "local", ctx: localCtx, source: localSource, gain: localGain });
             }));
         }
 
@@ -647,6 +674,7 @@ async function speakServerTts(text: string, forceLocalEcho = false): Promise<voi
                     busGain.gain.exponentialRampToValueAtTime(1.25, t + 0.02);
                 } catch { }
                 busSource.start();
+                activeTts.push({ kind: "bus", ctx: busCtx, source: busSource, gain: busGain });
             }));
         }
 
@@ -680,7 +708,7 @@ async function speakServerTts(text: string, forceLocalEcho = false): Promise<voi
             const talking = now - lastAbove <= 150;
             if (talking !== ttsTalking.value) ttsTalking.value = talking;
             if (localActive || busActive) levelRaf = requestAnimationFrame(tick);
-            else if (levelRaf) { cancelAnimationFrame(levelRaf); levelRaf = null; ttsTalking.value = false; }
+            else if (levelRaf) { cancelAnimationFrame(levelRaf); levelRaf = null; ttsTalking.value = false; activeTts.splice(0, activeTts.length); }
         }
         if (analyserLocal || analyserBus) levelRaf = requestAnimationFrame(tick);
 

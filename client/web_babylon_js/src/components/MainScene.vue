@@ -62,7 +62,7 @@
                                         :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                         <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' :
                                             'mdi-speedometer-slow'
-                                            }}</v-icon>
+                                        }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="normalPerf">
@@ -97,7 +97,7 @@
                                     <v-btn v-bind="props" icon class="ml-2"
                                         :color="(avatarRef?.isFlying) ? 'success' : undefined">
                                         <v-icon>{{ (avatarRef?.isFlying) ? 'mdi-airplane' : 'mdi-walk'
-                                            }}</v-icon>
+                                        }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="fly">
@@ -135,7 +135,7 @@
                                             @click="inspectorRef?.toggleInspector()">
                                             <v-icon>{{ inspectorVisible ? 'mdi-file-tree' :
                                                 'mdi-file-tree-outline'
-                                                }}</v-icon>
+                                            }}</v-icon>
                                         </v-btn>
                                     </template>
                                     <span>Babylon Inspector (T)</span>
@@ -799,7 +799,7 @@ const avatarDefinition: AvatarDefinition = {
     slopeLimit: 45,
     jumpSpeed: 5,
     debugBoundingBox: false,
-    debugSkeleton: true,
+    debugSkeleton: false,
     debugAxes: false,
     walkSpeed: 1.7,
     turnSpeed: Math.PI,

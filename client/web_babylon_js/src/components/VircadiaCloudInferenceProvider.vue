@@ -75,7 +75,7 @@
                                     <v-progress-linear :model-value="rmsPct" color="secondary" height="6" rounded
                                         class="flex-grow-1 min-w-[160px]" />
                                     <span class="text-caption text-medium-emphasis ml-2">{{ rmsLevel.toFixed(2)
-                                        }}</span>
+                                    }}</span>
                                 </div>
                             </div>
                         </v-card>
@@ -116,7 +116,7 @@
                                                 </span>
                                                 <span class="font-weight-medium">{{ msg.role === 'user' ? 'You' :
                                                     'Assistant'
-                                                    }}</span>
+                                                }}</span>
                                             </v-list-item-title>
                                             <v-list-item-subtitle class="mt-1 wrap-anywhere"
                                                 :class="msg.role === 'user' ? 'text-high-emphasis' : ''">
@@ -492,9 +492,6 @@ function parseThinkingTags(text: string): { cleanText: string; thinking: string 
     return { cleanText: cleanText.trim(), thinking: thinking.trim() };
 }
 function escapeRegex(str: string): string { return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
-const llmNoReplyTimers = new Map<string, number | null>();
-function clearNoReplyTimer(peerId: string): void { const id = llmNoReplyTimers.get(peerId); if (id) { try { clearTimeout(id as unknown as number); } catch { } } llmNoReplyTimers.set(peerId, null); }
-function scheduleNoReplyTimer(peerId: string, buffered: string): void { clearNoReplyTimer(peerId); const ms = Math.max(500, Number(props.agentNoReplyTimeoutSec) * 1000); const id = setTimeout(async () => { llmNoReplyTimers.set(peerId, null); if (buffered.trim()) await submitToLlm(peerId, buffered, { incomplete: true }); }, ms) as unknown as number; llmNoReplyTimers.set(peerId, id); }
 
 function normalizeWhitespace(text: string): string { return String(text || "").replace(/\s+/g, " ").trim(); }
 function buildGatingGuidance(): string {
@@ -522,7 +519,7 @@ function buildExtraKnowledgeBlock(): string {
 }
 function buildLlmPromptFromHistory(history: string): string {
     const company = normalizeWhitespace(String((props as unknown as { agentCompanyName?: string }).agentCompanyName || "Vircadia"));
-    const systemPrefix = `System: You are an in-world personal agent created by ${company}. Be concise and conversational.`;
+    const systemPrefix = `System: You are an in-world personal agent created by ${company}. Be concise and conversational. Try to summarize responses where possible.`;
     const knowledge = buildExtraKnowledgeBlock();
     const gating = buildGatingGuidance();
     const convo = history ? `Conversation:\n${history}\n` : "";
@@ -548,7 +545,7 @@ async function submitToLlm(peerId: string, text: string, _opts?: { incomplete?: 
         if (resp?.success && resp.text) {
             const cleaned = extractAssistantText(resp.text).trim();
             const { cleanText, thinking } = parseThinkingTags(cleaned);
-            if (cleanText.includes("<no-reply/>")) { scheduleNoReplyTimer(peerId, t); return; }
+            if (cleanText.includes("<no-reply/>")) { return; }
             if (cleanText) { addLlmOutput(cleanText, thinking); ttsQueue.push(cleanText); void flushTtsQueue(); }
         }
     } catch (e) {

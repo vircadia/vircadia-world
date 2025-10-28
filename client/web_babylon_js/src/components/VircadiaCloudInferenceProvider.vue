@@ -171,7 +171,22 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, onUnmounted, type PropType, type Ref, ref, watch } from "vue";
+import {
+    computed,
+    inject,
+    onUnmounted,
+    type PropType,
+    provide,
+    type Ref,
+    ref,
+    watch,
+} from "vue";
+import {
+    type CloudInferenceAPI,
+    cloudInferenceKey,
+    type Directive,
+    type KnowledgeEntries,
+} from "@/components/cloudInference.keys";
 import type { VircadiaWorldInstance } from "@/components/VircadiaWorldProvider.vue";
 import { LlmDirective } from "@/schemas";
 
@@ -189,17 +204,38 @@ type WebRTCRefApi = {
 };
 
 const props = defineProps({
-    vircadiaWorld: { type: Object as () => VircadiaWorldInstance | null, required: true },
+    vircadiaWorld: {
+        type: Object as () => VircadiaWorldInstance | null,
+        required: true,
+    },
     webrtcRef: { type: Object as PropType<WebRTCRefApi | null>, default: null },
-    webrtcLocalStream: { type: Object as () => MediaStream | null, default: null },
-    webrtcPeers: { type: Object as () => Map<string, RTCPeerConnection>, default: () => new Map() },
-    webrtcRemoteStreams: { type: Object as () => Map<string, MediaStream>, default: () => new Map() },
-    agentMicInputStream: { type: Object as () => MediaStream | null, default: null },
-    agentEchoOutputStream: { type: Object as () => MediaStreamAudioDestinationNode | null, default: null },
+    webrtcLocalStream: {
+        type: Object as () => MediaStream | null,
+        default: null,
+    },
+    webrtcPeers: {
+        type: Object as () => Map<string, RTCPeerConnection>,
+        default: () => new Map(),
+    },
+    webrtcRemoteStreams: {
+        type: Object as () => Map<string, MediaStream>,
+        default: () => new Map(),
+    },
+    agentMicInputStream: {
+        type: Object as () => MediaStream | null,
+        default: null,
+    },
+    agentEchoOutputStream: {
+        type: Object as () => MediaStreamAudioDestinationNode | null,
+        default: null,
+    },
     agentEnableTts: { type: Boolean, required: true },
     agentEnableLlm: { type: Boolean, required: true },
     agentEnableStt: { type: Boolean, required: true },
-    agentTtsOutputMode: { type: String as PropType<"local" | "webrtc" | "both">, required: true },
+    agentTtsOutputMode: {
+        type: String as PropType<"local" | "webrtc" | "both">,
+        required: true,
+    },
     agentWakeWord: { type: String, required: true },
     agentEndWord: { type: String, required: true },
     agentNoReplyTimeoutSec: { type: Number, required: true },
@@ -207,12 +243,17 @@ const props = defineProps({
     agentSttMaxBufferSec: { type: Number, required: true },
     agentLanguage: { type: String, required: true },
     agentSttPreGain: { type: Number, required: true },
-    agentSttInputMode: { type: String as () => "webrtc" | "mic" | "both", required: true },
+    agentSttInputMode: {
+        type: String as () => "webrtc" | "mic" | "both",
+        required: true,
+    },
     agentSttTargetSampleRate: { type: Number, required: true },
     agentSttWorkletChunkMs: { type: Number, required: true },
     agentCompanyName: { type: String, required: true },
     agentExtraKnowledge: {
-        type: Object as PropType<Map<string, string> | Record<string, string> | null>,
+        type: Object as PropType<
+            Map<string, string> | Record<string, string> | null
+        >,
         required: true,
     },
     agentVadConfig: {
@@ -238,23 +279,49 @@ const props = defineProps({
 });
 
 // Teleport
-const teleportTarget = inject<Ref<HTMLElement | null>>("mainAppBarTeleportTarget", ref(null));
+const teleportTarget = inject<Ref<HTMLElement | null>>(
+    "mainAppBarTeleportTarget",
+    ref(null),
+);
 const overlayOpen = ref<boolean>(false);
-const toggleOverlay = () => { overlayOpen.value = !overlayOpen.value; };
+const toggleOverlay = () => {
+    overlayOpen.value = !overlayOpen.value;
+};
 
 // WebRTC
 const webrtc = computed(() => props.webrtcRef as WebRTCRefApi | null);
-const localStreamRef = computed<MediaStream | null>(() => props.webrtcLocalStream as MediaStream | null);
-const remoteStreamsRef = computed<Map<string, MediaStream>>(() => props.webrtcRemoteStreams as Map<string, MediaStream>);
+const localStreamRef = computed<MediaStream | null>(
+    () => props.webrtcLocalStream as MediaStream | null,
+);
+const remoteStreamsRef = computed<Map<string, MediaStream>>(
+    () => props.webrtcRemoteStreams as Map<string, MediaStream>,
+);
 const webrtcConnected = computed(() => {
     const api = webrtc.value;
     try {
-        return !!api && typeof api.getPeersMap === "function" && api.getPeersMap().size > 0;
-    } catch { return false; }
+        return (
+            !!api &&
+            typeof api.getPeersMap === "function" &&
+            api.getPeersMap().size > 0
+        );
+    } catch {
+        return false;
+    }
 });
 
 // Capabilities
-const capabilitiesEnabled = ref<{ stt: boolean; tts: boolean; llm: boolean }>({ stt: true, tts: true, llm: true });
+const capabilitiesEnabled = ref<{ stt: boolean; tts: boolean; llm: boolean }>({
+    stt: true,
+    tts: true,
+    llm: true,
+});
+
+// Company name (can be overridden by scene components)
+const companyName = ref<string>(
+    normalizeWhitespace(
+        String((props as unknown as { agentCompanyName?: string }).agentCompanyName || "Vircadia"),
+    ),
+);
 
 // STT/VAD
 const vadWorkerRef = ref<Worker | null>(null);
@@ -275,7 +342,9 @@ const peerProcessors = new Map<string, PeerAudioProcessor>();
 
 // RMS meter
 const rmsLevel = ref<number>(0);
-const rmsPct = computed<number>(() => Math.round(Math.min(1, rmsLevel.value) * 100));
+const rmsPct = computed<number>(() =>
+    Math.round(Math.min(1, rmsLevel.value) * 100),
+);
 
 // TTS talk level exposed to parent (single-source of truth)
 const ttsLevel = ref<number>(0);
@@ -286,16 +355,30 @@ const ttsThreshold = 0.02;
 type TranscriptEntry = { peerId: string; text: string; at: number };
 const transcripts = ref<TranscriptEntry[]>([]);
 const transcriptsLimited = computed<TranscriptEntry[]>(() => {
-    const limit = Number((props as unknown as { agentUiMaxTranscripts?: number }).agentUiMaxTranscripts || 0);
+    const limit = Number(
+        (props as unknown as { agentUiMaxTranscripts?: number })
+            .agentUiMaxTranscripts || 0,
+    );
     const src = transcripts.value;
     return limit > 0 ? src.slice(-limit) : src;
 });
 function addTranscript(peerId: string, text: string): void {
     const t = (text || "").trim();
     if (!t) return;
-    transcripts.value.push({ peerId, text: t, at: Date.now() });
-    const limit = Number((props as unknown as { agentUiMaxTranscripts?: number }).agentUiMaxTranscripts || 0);
-    if (limit > 0 && transcripts.value.length > limit) transcripts.value.splice(0, transcripts.value.length - limit);
+    let next = t;
+    for (const tap of transcriptTaps) {
+        try {
+            const r = tap(next, peerId);
+            if (typeof r === "string") next = r;
+        } catch { }
+    }
+    transcripts.value.push({ peerId, text: next, at: Date.now() });
+    const limit = Number(
+        (props as unknown as { agentUiMaxTranscripts?: number })
+            .agentUiMaxTranscripts || 0,
+    );
+    if (limit > 0 && transcripts.value.length > limit)
+        transcripts.value.splice(0, transcripts.value.length - limit);
 }
 
 type LlmEntry = { text: string; thinking?: string; at: number };
@@ -303,60 +386,174 @@ const llmOutputs = ref<LlmEntry[]>([]);
 function addLlmOutput(text: string, thinking?: string): void {
     const t = (text || "").trim();
     if (!t) return;
-    llmOutputs.value.push({ text: t, thinking: thinking?.trim() || undefined, at: Date.now() });
-    const limit = Number((props as unknown as { agentUiMaxAssistantReplies?: number }).agentUiMaxAssistantReplies || 0);
-    if (limit > 0 && llmOutputs.value.length > limit) llmOutputs.value.splice(0, llmOutputs.value.length - limit);
+    llmOutputs.value.push({
+        text: t,
+        thinking: thinking?.trim() || undefined,
+        at: Date.now(),
+    });
+    const limit = Number(
+        (props as unknown as { agentUiMaxAssistantReplies?: number })
+            .agentUiMaxAssistantReplies || 0,
+    );
+    if (limit > 0 && llmOutputs.value.length > limit)
+        llmOutputs.value.splice(0, llmOutputs.value.length - limit);
 }
 
-type ConversationItem = { role: "user" | "assistant"; text: string; thinking?: string; at: number; key: string };
+type ConversationItem = {
+    role: "user" | "assistant";
+    text: string;
+    thinking?: string;
+    at: number;
+    key: string;
+};
 const conversationItems = computed<ConversationItem[]>(() => {
     const items: ConversationItem[] = [];
-    for (const t of transcriptsLimited.value) items.push({ role: "user", text: t.text, at: t.at, key: `u:${t.at}:${t.peerId}` });
-    for (const l of llmOutputs.value) items.push({ role: "assistant", text: l.text, thinking: l.thinking, at: l.at, key: `a:${l.at}` });
+    for (const t of transcriptsLimited.value)
+        items.push({
+            role: "user",
+            text: t.text,
+            at: t.at,
+            key: `u:${t.at}:${t.peerId}`,
+        });
+    for (const l of llmOutputs.value)
+        items.push({
+            role: "assistant",
+            text: l.text,
+            thinking: l.thinking,
+            at: l.at,
+            key: `a:${l.at}`,
+        });
     items.sort((a, b) => a.at - b.at);
-    const limit = Number((props as unknown as { agentUiMaxConversationItems?: number }).agentUiMaxConversationItems || 0);
+    const limit = Number(
+        (props as unknown as { agentUiMaxConversationItems?: number })
+            .agentUiMaxConversationItems || 0,
+    );
     return limit > 0 ? items.slice(-limit) : items;
 });
-const conversationItemsReversed = computed<ConversationItem[]>(() => [...conversationItems.value].reverse());
+const conversationItemsReversed = computed<ConversationItem[]>(() =>
+    [...conversationItems.value].reverse(),
+);
 
 // LLM/TTS state
 const llmGenerating = ref<boolean>(false);
 const ttsGenerating = ref<boolean>(false);
 
+// Inject-only registries and listeners (held in this component)
+const knowledgeBySource = new Map<string, KnowledgeEntries>();
+const directives = new Set<Directive>();
+const transcriptTaps: Array<
+    (
+        t: string,
+        peerId?: string,
+    ) => string | undefined | Promise<string | undefined>
+> = [];
+const assistantTaps: Array<
+    (t: string) => string | undefined | Promise<string | undefined>
+> = [];
+
+function registerKnowledge(
+    sourceId: string,
+    entries: KnowledgeEntries,
+): () => void {
+    knowledgeBySource.set(String(sourceId), entries);
+    return () => {
+        knowledgeBySource.delete(String(sourceId));
+    };
+}
+function setCompanyName(name: string): void {
+    companyName.value = normalizeWhitespace(String(name || "Vircadia"));
+}
+function registerDirective(d: Directive): () => void {
+    directives.add(d);
+    return () => {
+        directives.delete(d);
+    };
+}
+function onTranscriptTap(
+    fn: (
+        t: string,
+        peerId?: string,
+    ) => string | undefined | Promise<string | undefined>,
+): () => void {
+    transcriptTaps.push(fn);
+    return () => {
+        const idx = transcriptTaps.indexOf(fn);
+        if (idx >= 0) transcriptTaps.splice(idx, 1);
+    };
+}
+function onAssistantTextTap(
+    fn: (t: string) => string | undefined | Promise<string | undefined>,
+): () => void {
+    assistantTaps.push(fn);
+    return () => {
+        const idx = assistantTaps.indexOf(fn);
+        if (idx >= 0) assistantTaps.splice(idx, 1);
+    };
+}
+
 // Worklet loader
 const sttWorkletLoaded = new WeakSet<AudioContext>();
 async function ensureSttWorklet(ctx: AudioContext): Promise<void> {
     if (sttWorkletLoaded.has(ctx)) return;
-    await ctx.audioWorklet.addModule(new URL("./VircadiaSTTWorklet.ts", import.meta.url));
+    await ctx.audioWorklet.addModule(
+        new URL("./VircadiaSTTWorklet.ts", import.meta.url),
+    );
     sttWorkletLoaded.add(ctx);
 }
 
 // Attach stream → VAD → upload
-async function attachStream(peerId: string, stream: MediaStream): Promise<void> {
+async function attachStream(
+    peerId: string,
+    stream: MediaStream,
+): Promise<void> {
     if (peerProcessors.has(peerId)) return;
     try {
         const ctx = new AudioContext({ sampleRate: 48000 });
         await ensureSttWorklet(ctx);
         const source = ctx.createMediaStreamSource(stream);
         const preGain = ctx.createGain();
-        preGain.gain.value = Math.max(0.01, Number(props.agentSttPreGain || 1.0));
+        preGain.gain.value = Math.max(
+            0.01,
+            Number(props.agentSttPreGain || 1.0),
+        );
         const node = new AudioWorkletNode(ctx, "stt-processor", {
             processorOptions: {
-                targetSampleRate: Math.max(8000, Math.min(48000, Number(props.agentSttTargetSampleRate || 16000))),
-                chunkMs: Math.max(50, Math.min(2000, Number(props.agentSttWorkletChunkMs || 200))),
+                targetSampleRate: Math.max(
+                    8000,
+                    Math.min(
+                        48000,
+                        Number(props.agentSttTargetSampleRate || 16000),
+                    ),
+                ),
+                chunkMs: Math.max(
+                    50,
+                    Math.min(2000, Number(props.agentSttWorkletChunkMs || 200)),
+                ),
             },
         });
 
-        try { await ctx.resume(); } catch { }
+        try {
+            await ctx.resume();
+        } catch { }
 
         node.port.onmessage = (ev: MessageEvent) => {
-            const data = ev.data as { type: string; pcm?: ArrayBuffer; rms?: number };
+            const data = ev.data as {
+                type: string;
+                pcm?: ArrayBuffer;
+                rms?: number;
+            };
             if (!data) return;
             if (data.type === "pcm" && data.pcm) {
                 if (!sttActive.value) return;
                 // Forward to VAD worker
-                try { vadWorkerRef.value?.postMessage({ type: "audio", peerId, pcm: data.pcm, rms: data.rms }, [data.pcm]); } catch { }
-                if (typeof data.rms === "number" && Number.isFinite(data.rms)) rmsLevel.value = Math.max(0, Math.min(1, data.rms));
+                try {
+                    vadWorkerRef.value?.postMessage(
+                        { type: "audio", peerId, pcm: data.pcm, rms: data.rms },
+                        [data.pcm],
+                    );
+                } catch { }
+                if (typeof data.rms === "number" && Number.isFinite(data.rms))
+                    rmsLevel.value = Math.max(0, Math.min(1, data.rms));
             }
         };
 
@@ -369,7 +566,11 @@ async function attachStream(peerId: string, stream: MediaStream): Promise<void> 
 
         peerProcessors.set(peerId, { ctx, source, node, sink });
         // Start VAD for this peer
-        vadWorkerRef.value?.postMessage({ type: "start", peerId, language: String(props.agentLanguage || "en") });
+        vadWorkerRef.value?.postMessage({
+            type: "start",
+            peerId,
+            language: String(props.agentLanguage || "en"),
+        });
     } catch (e) {
         console.warn("[CloudAgent] Failed to attach stream:", e);
     }
@@ -385,16 +586,26 @@ function detachStream(peerId: string): void {
         void proc.ctx.close();
     } catch { }
     peerProcessors.delete(peerId);
-    try { vadWorkerRef.value?.postMessage({ type: "stop", peerId }); } catch { }
+    try {
+        vadWorkerRef.value?.postMessage({ type: "stop", peerId });
+    } catch { }
 }
 
 // VAD worker
 function initVadWorkerOnce(): void {
     if (vadWorkerRef.value) return;
     try {
-        const worker = new Worker(new URL("./VircadiaAutonomousAgentVADWorker.ts", import.meta.url), { type: "module" });
+        const worker = new Worker(
+            new URL("./VircadiaAutonomousAgentVADWorker.ts", import.meta.url),
+            { type: "module" },
+        );
         worker.addEventListener("message", (e: MessageEvent) => {
-            const msg = e.data as { type: string; status?: string; peerId?: string; pcm?: ArrayBuffer };
+            const msg = e.data as {
+                type: string;
+                status?: string;
+                peerId?: string;
+                pcm?: ArrayBuffer;
+            };
             if (msg.type === "segment" && msg.pcm && msg.peerId) {
                 // Upload to server STT
                 void uploadVadSegment(msg.peerId, msg.pcm).catch(() => { });
@@ -406,7 +617,17 @@ function initVadWorkerOnce(): void {
         const vadCfg = props.agentVadConfig || { sampleRate: 16000 };
         const mergedCfg = {
             ...vadCfg,
-            sampleRate: Math.max(8000, Math.min(48000, Number(props.agentSttTargetSampleRate || vadCfg.sampleRate || 16000))),
+            sampleRate: Math.max(
+                8000,
+                Math.min(
+                    48000,
+                    Number(
+                        props.agentSttTargetSampleRate ||
+                        vadCfg.sampleRate ||
+                        16000,
+                    ),
+                ),
+            ),
         };
         worker.postMessage({ type: "load", config: mergedCfg });
         vadSampleRate.value = mergedCfg.sampleRate;
@@ -420,69 +641,173 @@ function initVadWorkerOnce(): void {
 }
 
 // WAV encoding and upload
-function clampToInt16(sample: number): number { const s = Math.max(-1, Math.min(1, sample)); return s < 0 ? s * 0x8000 : s * 0x7fff; }
-function writeString(view: DataView, offset: number, str: string): void { for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i)); }
-function encodeWavFromFloat32(pcm: Float32Array, sampleRate: number): ArrayBuffer {
-    const numChannels = 1; const bitsPerSample = 16; const blockAlign = (numChannels * bitsPerSample) >> 3; const byteRate = sampleRate * blockAlign; const dataSize = pcm.length * 2; const buffer = new ArrayBuffer(44 + dataSize); const view = new DataView(buffer);
-    writeString(view, 0, "RIFF"); view.setUint32(4, 36 + dataSize, true); writeString(view, 8, "WAVE"); writeString(view, 12, "fmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, numChannels, true); view.setUint32(24, sampleRate, true); view.setUint32(28, byteRate, true); view.setUint16(32, blockAlign, true); view.setUint16(34, bitsPerSample, true); writeString(view, 36, "data"); view.setUint32(40, dataSize, true);
-    let offset = 44; for (const x of pcm) { view.setInt16(offset, clampToInt16(x), true); offset += 2; } return buffer;
+function clampToInt16(sample: number): number {
+    const s = Math.max(-1, Math.min(1, sample));
+    return s < 0 ? s * 0x8000 : s * 0x7fff;
+}
+function writeString(view: DataView, offset: number, str: string): void {
+    for (let i = 0; i < str.length; i++)
+        view.setUint8(offset + i, str.charCodeAt(i));
+}
+function encodeWavFromFloat32(
+    pcm: Float32Array,
+    sampleRate: number,
+): ArrayBuffer {
+    const numChannels = 1;
+    const bitsPerSample = 16;
+    const blockAlign = (numChannels * bitsPerSample) >> 3;
+    const byteRate = sampleRate * blockAlign;
+    const dataSize = pcm.length * 2;
+    const buffer = new ArrayBuffer(44 + dataSize);
+    const view = new DataView(buffer);
+    writeString(view, 0, "RIFF");
+    view.setUint32(4, 36 + dataSize, true);
+    writeString(view, 8, "WAVE");
+    writeString(view, 12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, byteRate, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, bitsPerSample, true);
+    writeString(view, 36, "data");
+    view.setUint32(40, dataSize, true);
+    let offset = 44;
+    for (const x of pcm) {
+        view.setInt16(offset, clampToInt16(x), true);
+        offset += 2;
+    }
+    return buffer;
 }
 function encodeWavFromInt16(pcm: Int16Array, sampleRate: number): ArrayBuffer {
-    const numChannels = 1; const bitsPerSample = 16; const blockAlign = (numChannels * bitsPerSample) >> 3; const byteRate = sampleRate * blockAlign; const dataSize = pcm.length * 2; const buffer = new ArrayBuffer(44 + dataSize); const view = new DataView(buffer);
-    writeString(view, 0, "RIFF"); view.setUint32(4, 36 + dataSize, true); writeString(view, 8, "WAVE"); writeString(view, 12, "fmt "); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true); view.setUint32(24, sampleRate, true); view.setUint32(28, byteRate, true); view.setUint16(32, blockAlign, true); view.setUint16(34, bitsPerSample, true); writeString(view, 36, "data"); view.setUint32(40, dataSize, true);
-    let offset = 44; for (const x of pcm) { view.setInt16(offset, x, true); offset += 2; } return buffer;
+    const numChannels = 1;
+    const bitsPerSample = 16;
+    const blockAlign = (numChannels * bitsPerSample) >> 3;
+    const byteRate = sampleRate * blockAlign;
+    const dataSize = pcm.length * 2;
+    const buffer = new ArrayBuffer(44 + dataSize);
+    const view = new DataView(buffer);
+    writeString(view, 0, "RIFF");
+    view.setUint32(4, 36 + dataSize, true);
+    writeString(view, 8, "WAVE");
+    writeString(view, 12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, byteRate, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, bitsPerSample, true);
+    writeString(view, 36, "data");
+    view.setUint32(40, dataSize, true);
+    let offset = 44;
+    for (const x of pcm) {
+        view.setInt16(offset, x, true);
+        offset += 2;
+    }
+    return buffer;
 }
-function detectAndEncodeWav(pcmBuffer: ArrayBuffer, sampleRate: number): ArrayBuffer {
+function detectAndEncodeWav(
+    pcmBuffer: ArrayBuffer,
+    sampleRate: number,
+): ArrayBuffer {
     if (pcmBuffer.byteLength % 4 === 0) {
-        const f32 = new Float32Array(pcmBuffer); let ok = true; const n = Math.min(8, f32.length);
-        for (let i = 0; i < n; i++) { const v = f32[i]; if (!Number.isFinite(v) || Math.abs(v) > 1.0001) { ok = false; break; } }
+        const f32 = new Float32Array(pcmBuffer);
+        let ok = true;
+        const n = Math.min(8, f32.length);
+        for (let i = 0; i < n; i++) {
+            const v = f32[i];
+            if (!Number.isFinite(v) || Math.abs(v) > 1.0001) {
+                ok = false;
+                break;
+            }
+        }
         if (ok) return encodeWavFromFloat32(f32, sampleRate);
     }
     return encodeWavFromInt16(new Int16Array(pcmBuffer), sampleRate);
 }
 
-async function uploadVadSegment(peerId: string, pcm: ArrayBuffer): Promise<void> {
+async function uploadVadSegment(
+    peerId: string,
+    pcm: ArrayBuffer,
+): Promise<void> {
     try {
-        sttUploading.value = true; sttProcessing.value = true;
-        const sr = Math.max(8000, Math.min(48000, Number(vadSampleRate.value || 16000)));
+        sttUploading.value = true;
+        sttProcessing.value = true;
+        const sr = Math.max(
+            8000,
+            Math.min(48000, Number(vadSampleRate.value || 16000)),
+        );
         const wavAb = detectAndEncodeWav(pcm, sr);
         const blob = new Blob([wavAb], { type: "audio/wav" });
-        const file = new File([blob], `segment_${Date.now()}.wav`, { type: "audio/wav" });
+        const file = new File([blob], `segment_${Date.now()}.wav`, {
+            type: "audio/wav",
+        });
         const client = props.vircadiaWorld?.client;
         if (!client) return;
-        const resp = await client.restInference.stt({ audio: file, language: String(props.agentLanguage || "en"), responseFormat: "json" });
+        const resp = await client.restInference.stt({
+            audio: file,
+            language: String(props.agentLanguage || "en"),
+            responseFormat: "json",
+        });
         if (resp?.success && resp.text) {
             addTranscript(peerId, resp.text);
             await submitToLlm(peerId, resp.text);
         }
     } catch (e) {
         console.warn("[CloudAgent] STT upload failed:", e);
-    } finally { sttUploading.value = false; sttProcessing.value = false; }
+    } finally {
+        sttUploading.value = false;
+        sttProcessing.value = false;
+    }
 }
 
 // LLM
-function buildPromptHistory(maxItems: number, maxCharsPerItem: number, totalCharLimit: number): string {
+function buildPromptHistory(
+    maxItems: number,
+    maxCharsPerItem: number,
+    totalCharLimit: number,
+): string {
     try {
         const src = conversationItems.value.slice(-maxItems);
-        let out = ""; let total = 0;
+        let out = "";
+        let total = 0;
         for (const item of src) {
             const role = item.role === "user" ? "User" : "Assistant";
-            let text = String(item.text || "").trim().replace(/\s+/g, " ");
-            if (maxCharsPerItem > 0 && text.length > maxCharsPerItem) text = text.slice(0, maxCharsPerItem);
+            let text = String(item.text || "")
+                .trim()
+                .replace(/\s+/g, " ");
+            if (maxCharsPerItem > 0 && text.length > maxCharsPerItem)
+                text = text.slice(0, maxCharsPerItem);
             const line = `${role}: ${text}`;
             const toAdd = out ? `\n${line}` : line;
-            if (totalCharLimit > 0 && total + toAdd.length > totalCharLimit) break;
-            out += toAdd; total += toAdd.length;
+            if (totalCharLimit > 0 && total + toAdd.length > totalCharLimit)
+                break;
+            out += toAdd;
+            total += toAdd.length;
         }
         return out;
-    } catch { return ""; }
+    } catch {
+        return "";
+    }
 }
-function extractAssistantText(raw: string): string { const t = String(raw || ""); const cleaned = t.replace(/^[\s\S]*?Assistant:\s*/i, "").trim(); return cleaned || t.trim(); }
-function parseThinkingTags(text: string): { cleanText: string; thinking: string } {
+function extractAssistantText(raw: string): string {
+    const t = String(raw || "");
+    const cleaned = t.replace(/^[\s\S]*?Assistant:\s*/i, "").trim();
+    return cleaned || t.trim();
+}
+function parseThinkingTags(text: string): {
+    cleanText: string;
+    thinking: string;
+} {
     const openTag = String(props.agentLlmOpenThinkTag || "");
     const closeTag = String(props.agentLlmCloseThinkTag || "");
     if (!openTag || !closeTag) return { cleanText: text, thinking: "" };
-    const regex = new RegExp(`${escapeRegex(openTag)}([\\s\\S]*?)${escapeRegex(closeTag)}`, "g");
+    const regex = new RegExp(
+        `${escapeRegex(openTag)}([\\s\\S]*?)${escapeRegex(closeTag)}`,
+        "g",
+    );
     let cleanText = text;
     let thinking = "";
     const matches = [...text.matchAll(regex)];
@@ -492,47 +817,93 @@ function parseThinkingTags(text: string): { cleanText: string; thinking: string 
     }
     return { cleanText: cleanText.trim(), thinking: thinking.trim() };
 }
-function escapeRegex(str: string): string { return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+function escapeRegex(str: string): string {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
-function normalizeWhitespace(text: string): string { return String(text || "").replace(/\s+/g, " ").trim(); }
+function normalizeWhitespace(text: string): string {
+    return String(text || "")
+        .replace(/\s+/g, " ")
+        .trim();
+}
 function buildGatingGuidance(): string {
     const wake = String(props.agentWakeWord || "").trim();
     const end = String(props.agentEndWord || "").trim();
     const stopGuidance = ` If the user asks you to stop speaking (e.g., 'stop talking', 'hold on'), output exactly ${LlmDirective.StoppedTalking}.`;
-    if (wake && end) return `Guidance: Wake word may be present ('${wake}'); if the request seems partial or lacks a clear end, output exactly ${LlmDirective.NoReply}.` + stopGuidance;
-    if (wake && !end) return `Guidance: A wake word may start the request ('${wake}'); rely on natural boundaries. If the request seems partial, output exactly ${LlmDirective.NoReply}.` + stopGuidance;
-    return `Guidance: If input seems partial, output exactly ${LlmDirective.NoReply}. If sufficient follow up has been provided after you replied ${LlmDirective.NoReply} then reply with a response.` + stopGuidance;
+    if (wake && end)
+        return (
+            `Guidance: Wake word may be present ('${wake}'); if the request seems partial or lacks a clear end, output exactly ${LlmDirective.NoReply}.` +
+            stopGuidance
+        );
+    if (wake && !end)
+        return (
+            `Guidance: A wake word may start the request ('${wake}'); rely on natural boundaries. If the request seems partial, output exactly ${LlmDirective.NoReply}.` +
+            stopGuidance
+        );
+    return (
+        `Guidance: If input seems partial, output exactly ${LlmDirective.NoReply}. If sufficient follow up has been provided after you replied ${LlmDirective.NoReply} then reply with a response.` +
+        stopGuidance
+    );
 }
 function buildExtraKnowledgeBlock(): string {
     try {
-        const src = (props.agentExtraKnowledge || null) as Map<string, string> | Record<string, string> | null;
-        const entries: Array<[string, string]> = [];
-        if (!src) return "";
-        if (src instanceof Map) {
-            for (const [k, v] of src) entries.push([String(k), normalizeWhitespace(v)]);
-        } else if (typeof src === "object") {
-            for (const k of Object.keys(src)) entries.push([k, normalizeWhitespace((src as Record<string, string>)[k])]);
+        if (knowledgeBySource.size === 0) return "";
+        const merged = new Map<string, string>();
+        for (const [, entries] of knowledgeBySource) {
+            let src: Record<string, string> | Map<string, string> | null = null;
+            try {
+                src =
+                    typeof entries === "function"
+                        ? (
+                            entries as () =>
+                                | Record<string, string>
+                                | Map<string, string>
+                        )()
+                        : (entries as
+                            | Record<string, string>
+                            | Map<string, string>);
+            } catch {
+                src = null;
+            }
+            if (!src) continue;
+            if (src instanceof Map) {
+                for (const [k, v] of src)
+                    merged.set(String(k), normalizeWhitespace(v));
+            } else if (typeof src === "object") {
+                for (const k of Object.keys(src))
+                    merged.set(
+                        k,
+                        normalizeWhitespace((src as Record<string, string>)[k]),
+                    );
+            }
         }
-        if (entries.length === 0) return "";
+        if (merged.size === 0) return "";
         let out = "Knowledge Base (prefilled):\n";
-        for (const [k, v] of entries) out += `- ${k}: ${v}\n`;
+        for (const [k, v] of merged) out += `- ${k}: ${v}\n`;
         return out.trimEnd();
-    } catch { return ""; }
+    } catch {
+        return "";
+    }
 }
 function buildLlmPromptFromHistory(history: string): string {
-    const company = normalizeWhitespace(String((props as unknown as { agentCompanyName?: string }).agentCompanyName || "Vircadia"));
-    const systemPrefix = `System: You are an in-world personal agent created by ${company}. Be concise and conversational. Try to summarize responses where possible.`;
+    const systemPrefix = `System: You are an in-world personal agent created by ${companyName.value}. Be concise and conversational. Try to summarize responses where possible.`;
     const knowledge = buildExtraKnowledgeBlock();
     const gating = buildGatingGuidance();
     const convo = history ? `Conversation:\n${history}\n` : "";
     return `${systemPrefix}\n${knowledge ? knowledge + "\n" : ""}${gating}\n${convo}\nAssistant:`;
 }
 
-async function submitToLlm(peerId: string, text: string, _opts?: { incomplete?: boolean }): Promise<void> {
+async function submitToLlm(
+    _peerId: string,
+    text: string,
+    _opts?: { incomplete?: boolean },
+): Promise<void> {
     if (!props.agentEnableLlm || !capabilitiesEnabled.value.llm) return;
-    const t = (text || "").trim(); if (!t) return;
+    const t = (text || "").trim();
+    if (!t) return;
     try {
-        const client = props.vircadiaWorld?.client; if (!client) return;
+        const client = props.vircadiaWorld?.client;
+        if (!client) return;
         const history = buildPromptHistory(12, 200, 1800);
         // Build a single conversation block that already includes the latest user message via transcripts/history.
         // Do not append an extra User line here to avoid duplication.
@@ -547,9 +918,30 @@ async function submitToLlm(peerId: string, text: string, _opts?: { incomplete?: 
         if (resp?.success && resp.text) {
             const cleaned = extractAssistantText(resp.text).trim();
             const { cleanText, thinking } = parseThinkingTags(cleaned);
-            if (cleanText.includes(LlmDirective.StoppedTalking)) { cancelTtsPlayback(); return; }
-            if (cleanText.includes(LlmDirective.NoReply)) { return; }
-            if (cleanText) { addLlmOutput(cleanText, thinking); ttsQueue.push(cleanText); void flushTtsQueue(); }
+            if (cleanText.includes(LlmDirective.StoppedTalking)) {
+                cancelTtsPlayback();
+                return;
+            }
+            if (cleanText.includes(LlmDirective.NoReply)) {
+                return;
+            }
+            if (cleanText) {
+                const processed = await processCustomDirectives(
+                    cleanText,
+                    thinking,
+                );
+                if (!processed || !processed.text.trim()) return;
+                let finalText = processed.text;
+                for (const tap of assistantTaps) {
+                    try {
+                        const r = tap(finalText);
+                        if (typeof r === "string") finalText = r;
+                    } catch { }
+                }
+                addLlmOutput(finalText, processed.thinking);
+                ttsQueue.push(finalText);
+                void flushTtsQueue();
+            }
         }
     } catch (e) {
         llmGenerating.value = false;
@@ -560,7 +952,12 @@ async function submitToLlm(peerId: string, text: string, _opts?: { incomplete?: 
 // TTS
 const ttsQueue: string[] = [];
 const isSpeaking = ref<boolean>(false);
-type ActiveTtsPath = { kind: "local" | "bus"; ctx: AudioContext | null; source: AudioBufferSourceNode; gain: GainNode | null };
+type ActiveTtsPath = {
+    kind: "local" | "bus";
+    ctx: AudioContext | null;
+    source: AudioBufferSourceNode;
+    gain: GainNode | null;
+};
 const activeTts: ActiveTtsPath[] = [];
 let levelRaf: number | null = null;
 let analyserLocal: AnalyserNode | null = null;
@@ -569,12 +966,21 @@ function cancelTtsPlayback(): void {
     try {
         ttsQueue.splice(0, ttsQueue.length);
         for (const p of activeTts) {
-            try { p.source.stop(0); } catch { }
-            try { p.source.disconnect(); } catch { }
-            try { p.gain?.disconnect(); } catch { }
+            try {
+                p.source.stop(0);
+            } catch { }
+            try {
+                p.source.disconnect();
+            } catch { }
+            try {
+                p.gain?.disconnect();
+            } catch { }
         }
         activeTts.splice(0, activeTts.length);
-        if (levelRaf) { cancelAnimationFrame(levelRaf); levelRaf = null; }
+        if (levelRaf) {
+            cancelAnimationFrame(levelRaf);
+            levelRaf = null;
+        }
         analyserLocal = null;
         analyserBus = null;
         ttsTalking.value = false;
@@ -583,36 +989,74 @@ function cancelTtsPlayback(): void {
         ttsGenerating.value = false;
     }
 }
-async function flushTtsQueue(): Promise<void> { if (isSpeaking.value || ttsQueue.length === 0) return; const next = ttsQueue.shift(); if (!next) return; isSpeaking.value = true; try { await speakServerTts(next); } finally { isSpeaking.value = false; if (ttsQueue.length > 0) void flushTtsQueue(); } }
+async function flushTtsQueue(): Promise<void> {
+    if (isSpeaking.value || ttsQueue.length === 0) return;
+    const next = ttsQueue.shift();
+    if (!next) return;
+    isSpeaking.value = true;
+    try {
+        await speakServerTts(next);
+    } finally {
+        isSpeaking.value = false;
+        if (ttsQueue.length > 0) void flushTtsQueue();
+    }
+}
 
-async function speakServerTts(text: string, forceLocalEcho = false): Promise<void> {
+async function speakServerTts(
+    text: string,
+    forceLocalEcho = false,
+): Promise<void> {
     if (!capabilitiesEnabled.value.tts) return;
     try {
         const api = webrtc.value;
-        const allowLocalEcho = forceLocalEcho || props.agentTtsOutputMode === "both" || props.agentTtsOutputMode === "local";
-        const hasPeers = !!api && typeof api.getPeersMap === "function" && api.getPeersMap().size > 0;
+        const allowLocalEcho =
+            forceLocalEcho ||
+            props.agentTtsOutputMode === "both" ||
+            props.agentTtsOutputMode === "local";
+        const hasPeers =
+            !!api &&
+            typeof api.getPeersMap === "function" &&
+            api.getPeersMap().size > 0;
         const useBus = !!api && hasPeers;
         if (!allowLocalEcho && !useBus) return;
 
         // Use provided echo output destination if available
         const echoDestination = props.agentEchoOutputStream;
         if (!echoDestination && allowLocalEcho) {
-            console.warn("[CloudAgent] Local echo requested but no agentEchoOutputStream provided");
+            console.warn(
+                "[CloudAgent] Local echo requested but no agentEchoOutputStream provided",
+            );
             return;
         }
 
         // Prepare contexts: use echo destination's context for local playback to ensure same-context connections
-        const localCtx: AudioContext | null = allowLocalEcho && echoDestination ? echoDestination.context as AudioContext : null;
-        const busCtx: AudioContext | null = useBus && api ? api.getUplinkAudioContext() || null : null;
+        const localCtx: AudioContext | null =
+            allowLocalEcho && echoDestination
+                ? (echoDestination.context as AudioContext)
+                : null;
+        const busCtx: AudioContext | null =
+            useBus && api ? api.getUplinkAudioContext() || null : null;
 
-        if (useBus && api) { try { await api.ensureUplinkDestination(); } catch { } }
-        try { await localCtx?.resume(); } catch { }
-        try { await busCtx?.resume(); } catch { }
+        if (useBus && api) {
+            try {
+                await api.ensureUplinkDestination();
+            } catch { }
+        }
+        try {
+            await localCtx?.resume();
+        } catch { }
+        try {
+            await busCtx?.resume();
+        } catch { }
 
         // Request TTS audio from server
-        const client = props.vircadiaWorld?.client; if (!client) return;
+        const client = props.vircadiaWorld?.client;
+        if (!client) return;
         ttsGenerating.value = true;
-        const audioBlob = await client.restInference.tts({ text, responseFormat: "wav" });
+        const audioBlob = await client.restInference.tts({
+            text,
+            responseFormat: "wav",
+        });
         ttsGenerating.value = false;
         const arrayBuf = await audioBlob.arrayBuffer();
 
@@ -627,7 +1071,9 @@ async function speakServerTts(text: string, forceLocalEcho = false): Promise<voi
         let busActive = false;
 
         if (allowLocalEcho && localCtx && echoDestination) {
-            const localBuffer = await localCtx.decodeAudioData(arrayBuf.slice(0));
+            const localBuffer = await localCtx.decodeAudioData(
+                arrayBuf.slice(0),
+            );
             const localSource = localCtx.createBufferSource();
             localSource.buffer = localBuffer;
             const localGain = localCtx.createGain();
@@ -636,20 +1082,39 @@ async function speakServerTts(text: string, forceLocalEcho = false): Promise<voi
             analyserLocal.fftSize = 2048;
             analyserLocal.smoothingTimeConstant = 0.8;
             localSource.connect(localGain);
-            try { localGain.connect(analyserLocal); } catch { }
-            try { localGain.connect(echoDestination); } catch { }
-            try { localGain.connect(localCtx.destination); } catch { }
-            promises.push(new Promise<void>((resolve) => {
-                localActive = true;
-                localSource.addEventListener("ended", () => { localActive = false; resolve(); });
-                try {
-                    const t = localCtx.currentTime;
-                    localGain.gain.setValueAtTime(0.0001, t);
-                    localGain.gain.exponentialRampToValueAtTime(1.25, t + 0.02);
-                } catch { }
-                localSource.start();
-                activeTts.push({ kind: "local", ctx: localCtx, source: localSource, gain: localGain });
-            }));
+            try {
+                localGain.connect(analyserLocal);
+            } catch { }
+            try {
+                localGain.connect(echoDestination);
+            } catch { }
+            try {
+                localGain.connect(localCtx.destination);
+            } catch { }
+            promises.push(
+                new Promise<void>((resolve) => {
+                    localActive = true;
+                    localSource.addEventListener("ended", () => {
+                        localActive = false;
+                        resolve();
+                    });
+                    try {
+                        const t = localCtx.currentTime;
+                        localGain.gain.setValueAtTime(0.0001, t);
+                        localGain.gain.exponentialRampToValueAtTime(
+                            1.25,
+                            t + 0.02,
+                        );
+                    } catch { }
+                    localSource.start();
+                    activeTts.push({
+                        kind: "local",
+                        ctx: localCtx,
+                        source: localSource,
+                        gain: localGain,
+                    });
+                }),
+            );
         }
 
         // WebRTC bus path (send audio to peers and analyser)
@@ -663,19 +1128,37 @@ async function speakServerTts(text: string, forceLocalEcho = false): Promise<voi
             analyserBus.fftSize = 2048;
             analyserBus.smoothingTimeConstant = 0.8;
             busSource.connect(busGain);
-            try { busGain.connect(analyserBus); } catch { }
-            try { api.connectNodeToUplink(busGain); await api.replaceUplinkWithDestination(); } catch { }
-            promises.push(new Promise<void>((resolve) => {
-                busActive = true;
-                busSource.addEventListener("ended", () => { busActive = false; resolve(); });
-                try {
-                    const t = busCtx.currentTime;
-                    busGain.gain.setValueAtTime(0.0001, t);
-                    busGain.gain.exponentialRampToValueAtTime(1.25, t + 0.02);
-                } catch { }
-                busSource.start();
-                activeTts.push({ kind: "bus", ctx: busCtx, source: busSource, gain: busGain });
-            }));
+            try {
+                busGain.connect(analyserBus);
+            } catch { }
+            try {
+                api.connectNodeToUplink(busGain);
+                await api.replaceUplinkWithDestination();
+            } catch { }
+            promises.push(
+                new Promise<void>((resolve) => {
+                    busActive = true;
+                    busSource.addEventListener("ended", () => {
+                        busActive = false;
+                        resolve();
+                    });
+                    try {
+                        const t = busCtx.currentTime;
+                        busGain.gain.setValueAtTime(0.0001, t);
+                        busGain.gain.exponentialRampToValueAtTime(
+                            1.25,
+                            t + 0.02,
+                        );
+                    } catch { }
+                    busSource.start();
+                    activeTts.push({
+                        kind: "bus",
+                        ctx: busCtx,
+                        source: busSource,
+                        gain: busGain,
+                    });
+                }),
+            );
         }
 
         // Shared measurement loop (RMS + hold)
@@ -696,7 +1179,9 @@ async function speakServerTts(text: string, forceLocalEcho = false): Promise<voi
                 }
                 const rms = Math.sqrt(sum / timeDomainBuffer.length);
                 return Number.isFinite(rms) ? rms : 0;
-            } catch { return 0; }
+            } catch {
+                return 0;
+            }
         }
         function tick() {
             const now = performance.now();
@@ -707,28 +1192,45 @@ async function speakServerTts(text: string, forceLocalEcho = false): Promise<voi
             if (lvl >= ttsThreshold) lastAbove = now;
             const talking = now - lastAbove <= 150;
             if (talking !== ttsTalking.value) ttsTalking.value = talking;
-            if (localActive || busActive) levelRaf = requestAnimationFrame(tick);
-            else if (levelRaf) { cancelAnimationFrame(levelRaf); levelRaf = null; ttsTalking.value = false; activeTts.splice(0, activeTts.length); }
+            if (localActive || busActive)
+                levelRaf = requestAnimationFrame(tick);
+            else if (levelRaf) {
+                cancelAnimationFrame(levelRaf);
+                levelRaf = null;
+                ttsTalking.value = false;
+                activeTts.splice(0, activeTts.length);
+            }
         }
-        if (analyserLocal || analyserBus) levelRaf = requestAnimationFrame(tick);
+        if (analyserLocal || analyserBus)
+            levelRaf = requestAnimationFrame(tick);
 
         // Wait for all paths to complete
         await Promise.all(promises);
-        if (levelRaf) { cancelAnimationFrame(levelRaf); levelRaf = null; }
+        if (levelRaf) {
+            cancelAnimationFrame(levelRaf);
+            levelRaf = null;
+        }
     } catch (e) {
         ttsGenerating.value = false;
         console.warn("[CloudAgent] TTS error:", e);
     }
 }
 
-async function testServerTTS(): Promise<void> { await speakServerTts("Hello! This is a test of the cloud agent TTS system.", true); }
+async function testServerTTS(): Promise<void> {
+    await speakServerTts(
+        "Hello! This is a test of the cloud agent TTS system.",
+        true,
+    );
+}
 
 async function testServerLLM(): Promise<void> {
     try {
         const client = props.vircadiaWorld?.client;
         if (!client) return;
         llmGenerating.value = true;
-        const prompt = buildLlmPromptFromHistory("User: Say hello and introduce yourself.");
+        const prompt = buildLlmPromptFromHistory(
+            "User: Say hello and introduce yourself.",
+        );
         const resp = await client.restInference.llm({
             prompt,
             temperature: Number(props.agentLlmTemperature),
@@ -740,7 +1242,9 @@ async function testServerLLM(): Promise<void> {
             const cleaned = extractAssistantText(resp.text).trim();
             const { cleanText } = parseThinkingTags(cleaned);
             if (cleanText) {
-                await speakServerTts(cleanText, true);
+                const processed = await processCustomDirectives(cleanText, "");
+                const toSpeak = processed?.text?.trim() || "";
+                if (toSpeak) await speakServerTts(toSpeak, true);
             }
         }
     } catch (e) {
@@ -759,7 +1263,9 @@ async function attachMic(): Promise<void> {
         stream = local || null;
     }
     if (!stream) {
-        console.warn("[CloudAgent] No mic input stream available. Please provide agentMicInputStream prop.");
+        console.warn(
+            "[CloudAgent] No mic input stream available. Please provide agentMicInputStream prop.",
+        );
         return;
     }
     await attachStream("mic", stream);
@@ -784,70 +1290,191 @@ async function fetchCapabilities(): Promise<void> {
 }
 
 // Watchers
-watch(() => props.vircadiaWorld?.connectionInfo.value.status, async (status) => {
-    if (status === "connected") {
-        await fetchCapabilities();
-        if (props.agentEnableStt && capabilitiesEnabled.value.stt) {
-            initVadWorkerOnce();
-            const mode = props.agentSttInputMode;
-            if (mode === "webrtc" || mode === "both") {
-                for (const [pid, stream] of remoteStreamsRef.value) attachStream(pid, stream);
+watch(
+    () => props.vircadiaWorld?.connectionInfo.value.status,
+    async (status) => {
+        if (status === "connected") {
+            await fetchCapabilities();
+            if (props.agentEnableStt && capabilitiesEnabled.value.stt) {
+                initVadWorkerOnce();
+                const mode = props.agentSttInputMode;
+                if (mode === "webrtc" || mode === "both") {
+                    for (const [pid, stream] of remoteStreamsRef.value)
+                        attachStream(pid, stream);
+                }
+                if (mode === "mic" || mode === "both") await attachMic();
             }
-            if (mode === "mic" || mode === "both") await attachMic();
+        } else {
+            for (const [pid] of peerProcessors) detachStream(pid);
         }
-    } else {
-        for (const [pid] of peerProcessors) detachStream(pid);
-    }
-}, { immediate: true });
+    },
+    { immediate: true },
+);
 
-watch(() => remoteStreamsRef.value, (streams, oldStreams) => {
-    if (!props.agentEnableStt) return;
-    initVadWorkerOnce();
-    const mode = props.agentSttInputMode;
-    if (mode === "webrtc" || mode === "both") {
-        for (const [pid, stream] of streams) attachStream(pid, stream);
-    }
-    if (oldStreams instanceof Map) {
-        for (const [oldPid] of oldStreams) { if (!streams.has(oldPid)) detachStream(oldPid); }
-    }
-}, { deep: true });
+watch(
+    () => remoteStreamsRef.value,
+    (streams, oldStreams) => {
+        if (!props.agentEnableStt) return;
+        initVadWorkerOnce();
+        const mode = props.agentSttInputMode;
+        if (mode === "webrtc" || mode === "both") {
+            for (const [pid, stream] of streams) attachStream(pid, stream);
+        }
+        if (oldStreams instanceof Map) {
+            for (const [oldPid] of oldStreams) {
+                if (!streams.has(oldPid)) detachStream(oldPid);
+            }
+        }
+    },
+    { deep: true },
+);
 
 // React to mic stream becoming available/changed
-watch(() => props.agentMicInputStream, async (stream) => {
-    if (!props.agentEnableStt) return;
-    initVadWorkerOnce();
-    const mode = props.agentSttInputMode;
-    if (mode === "mic" || mode === "both") {
-        // Reattach mic with the latest stream or detach if missing
-        detachStream("mic");
-        if (stream) await attachStream("mic", stream);
-    }
-}, { immediate: true });
+watch(
+    () => props.agentMicInputStream,
+    async (stream) => {
+        if (!props.agentEnableStt) return;
+        initVadWorkerOnce();
+        const mode = props.agentSttInputMode;
+        if (mode === "mic" || mode === "both") {
+            // Reattach mic with the latest stream or detach if missing
+            detachStream("mic");
+            if (stream) await attachStream("mic", stream);
+        }
+    },
+    { immediate: true },
+);
 
 // Fallback to WebRTC local stream if explicit mic stream not provided
-watch(() => localStreamRef.value, async (stream) => {
-    if (!props.agentEnableStt) return;
-    if (props.agentMicInputStream) return; // explicit mic input takes precedence
-    initVadWorkerOnce();
-    const mode = props.agentSttInputMode;
-    if (mode === "mic" || mode === "both") {
-        detachStream("mic");
-        if (stream) await attachStream("mic", stream);
-    }
-});
+watch(
+    () => localStreamRef.value,
+    async (stream) => {
+        if (!props.agentEnableStt) return;
+        if (props.agentMicInputStream) return; // explicit mic input takes precedence
+        initVadWorkerOnce();
+        const mode = props.agentSttInputMode;
+        if (mode === "mic" || mode === "both") {
+            detachStream("mic");
+            if (stream) await attachStream("mic", stream);
+        }
+    },
+);
 
-watch(() => props.agentSttInputMode, async (mode) => {
-    if (!props.agentEnableStt) return;
-    initVadWorkerOnce();
-    if (mode === "webrtc") { for (const [pid] of peerProcessors) { if (pid !== "mic") detachStream(pid); } for (const [pid, stream] of remoteStreamsRef.value) attachStream(pid, stream); }
-    else if (mode === "mic") { for (const [pid] of peerProcessors) detachStream(pid); await attachMic(); }
-    else if (mode === "both") { for (const [pid, stream] of remoteStreamsRef.value) attachStream(pid, stream); await attachMic(); }
-}, { immediate: false });
+watch(
+    () => props.agentSttInputMode,
+    async (mode) => {
+        if (!props.agentEnableStt) return;
+        initVadWorkerOnce();
+        if (mode === "webrtc") {
+            for (const [pid] of peerProcessors) {
+                if (pid !== "mic") detachStream(pid);
+            }
+            for (const [pid, stream] of remoteStreamsRef.value)
+                attachStream(pid, stream);
+        } else if (mode === "mic") {
+            for (const [pid] of peerProcessors) detachStream(pid);
+            await attachMic();
+        } else if (mode === "both") {
+            for (const [pid, stream] of remoteStreamsRef.value)
+                attachStream(pid, stream);
+            await attachMic();
+        }
+    },
+    { immediate: false },
+);
 
 onUnmounted(() => {
     for (const [pid] of peerProcessors) detachStream(pid);
-    try { const w = vadWorkerRef.value; if (w) w.terminate(); } catch { }
+    try {
+        const w = vadWorkerRef.value;
+        if (w) w.terminate();
+    } catch { }
+    knowledgeBySource.clear();
+    directives.clear();
+    transcriptTaps.splice(0, transcriptTaps.length);
+    assistantTaps.splice(0, assistantTaps.length);
 });
+// Directive processing
+async function processCustomDirectives(
+    text: string,
+    thinking?: string,
+): Promise<{ text: string; thinking?: string } | null> {
+    try {
+        let out = String(text || "");
+        if (!out) return { text: "", thinking };
+        const toDelete: Directive[] = [];
+        for (const d of directives) {
+            let matched = false;
+            if (d.token && out.includes(d.token)) matched = true;
+            if (!matched && d.regex) {
+                try {
+                    matched = !!out.match(d.regex);
+                } catch {
+                    matched = false;
+                }
+            }
+            if (!matched) continue;
+            try {
+                await Promise.resolve(
+                    d.onMatch({
+                        text: out,
+                        thinking,
+                        peerId: undefined,
+                        webrtc: webrtc.value as unknown,
+                        vircadiaWorld: props.vircadiaWorld as unknown,
+                    }),
+                );
+            } catch { }
+            if (d.stripFromOutput) {
+                if (d.regex) {
+                    try {
+                        const rx = new RegExp(
+                            d.regex.source,
+                            d.regex.flags.includes("g")
+                                ? d.regex.flags
+                                : d.regex.flags + "g",
+                        );
+                        out = out.replace(rx, "");
+                    } catch { }
+                }
+                if (d.token) {
+                    try {
+                        out = out.split(d.token).join("");
+                    } catch { }
+                }
+            }
+            if (d.once) toDelete.push(d);
+        }
+        for (const d of toDelete) directives.delete(d);
+        out = normalizeWhitespace(out);
+        return { text: out, thinking };
+    } catch {
+        return { text: text || "", thinking };
+    }
+}
+
+// Provide injection API from this component
+const api: CloudInferenceAPI = {
+    capabilitiesEnabled,
+    ttsTalking,
+    ttsLevel,
+    conversationItems,
+    registerKnowledge,
+    setCompanyName,
+    registerDirective,
+    onTranscript: onTranscriptTap,
+    onAssistantText: onAssistantTextTap,
+    speak: async (text: string, opts?: { localEcho?: boolean }) => {
+        await speakServerTts(String(text || ""), !!opts?.localEcho);
+    },
+    cancelTts: () => {
+        cancelTtsPlayback();
+    },
+    submitToLlm: async (peerId: string, text: string) => {
+        await submitToLlm(peerId, text);
+    },
+};
+provide(cloudInferenceKey, api);
 </script>
 
 <style>

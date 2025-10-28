@@ -62,7 +62,7 @@
                                         :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                         <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' :
                                             'mdi-speedometer-slow'
-                                        }}</v-icon>
+                                            }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="normalPerf">
@@ -97,7 +97,7 @@
                                     <v-btn v-bind="props" icon class="ml-2"
                                         :color="(avatarRef?.isFlying) ? 'success' : undefined">
                                         <v-icon>{{ (avatarRef?.isFlying) ? 'mdi-airplane' : 'mdi-walk'
-                                        }}</v-icon>
+                                            }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="fly">
@@ -135,7 +135,7 @@
                                             @click="inspectorRef?.toggleInspector()">
                                             <v-icon>{{ inspectorVisible ? 'mdi-file-tree' :
                                                 'mdi-file-tree-outline'
-                                            }}</v-icon>
+                                                }}</v-icon>
                                         </v-btn>
                                     </template>
                                     <span>Babylon Inspector (T)</span>
@@ -688,18 +688,11 @@ const agentLlmTemperature = ref<number>(0.7);
 const agentLlmOpenThinkTag = ref<string>("<think>");
 const agentLlmCloseThinkTag = ref<string>("</think>");
 
-// Agent company name
+// Agent company name - scene components can override via cloud inference API
 const agentCompanyName = ref<string>("Vircadia");
 
-// Agent extra knowledge
-const agentExtraKnowledge = ref<Map<string, string>>(new Map([
-    ["BMW M3 GTR (NFS: Most Wanted)", "A real-world homage by BMW M Motorsport of the 2001 BMW M3 GTR with the iconic game livery, unveiled for Need for Speed's 30th anniversary."],
-    ["Technical Specs (P60B40 V8)", "4.0 liter P60B40 V8 engine, displacement 3,997 cubic centimeters, approximately 450 horsepower, weight approximately 1,100 kilograms, top speed approximately 260 kilometers per hour."],
-    ["Racing Pedigree (ALMS 2001)", "Won 7 of 10 races; Jörg Müller won GT drivers' title; BMW won team and manufacturers' titles."],
-    ["Homologation Strassenversion", "Ultra-rare road-legal homologation version built to satisfy series regulations."],
-    ["Display (BMW Welt)", "Displayed at BMW Welt Munich starting 27 November 2024."],
-    ["In-World Placement", "In this scene, the BMW M3 GTR sits on the rotating turntable."],
-]));
+// Agent extra knowledge - scene components can register via cloud inference API
+const agentExtraKnowledge = ref<Map<string, string>>(new Map());
 
 // UI history limits; 0 = unlimited (no truncation in UI)
 const agentUiMaxTranscripts = ref<number>(0);

@@ -952,6 +952,22 @@ async function submitToLlm(
         if (resp?.success && resp.text) {
             const cleaned = extractAssistantText(resp.text).trim();
             const { cleanText, thinking } = parseThinkingTags(cleaned);
+
+            // Check for any directives (custom or built-in) first
+            const hasBuiltInToken = cleanText.includes(LlmDirective.StoppedTalking) || cleanText.includes(LlmDirective.NoReply);
+            const hasCustomDirective = directives.size > 0 && Array.from(directives).some(d => {
+                if (d.token && cleanText.includes(d.token)) return true;
+                if (d.regex) {
+                    try {
+                        return !!cleanText.match(d.regex);
+                    } catch {
+                        return false;
+                    }
+                }
+                return false;
+            });
+            const isTokenReply = hasBuiltInToken || hasCustomDirective;
+
             if (cleanText.includes(LlmDirective.StoppedTalking)) {
                 // Capture token reply for debugging
                 addLlmOutput(cleanText, thinking, true);
@@ -976,9 +992,13 @@ async function submitToLlm(
                         if (typeof r === "string") finalText = r;
                     } catch { }
                 }
-                addLlmOutput(finalText, processed.thinking);
-                ttsQueue.push(finalText);
-                void flushTtsQueue();
+                // Add to conversation with token reply flag if any directive was found
+                addLlmOutput(finalText, processed.thinking, isTokenReply);
+                // Only do TTS if there's actual text to speak (ignore pure tokens)
+                if (finalText.trim()) {
+                    ttsQueue.push(finalText);
+                    void flushTtsQueue();
+                }
             }
         }
     } catch (e) {

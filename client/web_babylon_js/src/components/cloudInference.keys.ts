@@ -41,6 +41,18 @@ export interface CloudInferenceAPI {
     ) => () => void;
     setCompanyName: (name: string) => void;
     registerDirective: (d: Directive) => () => void;
+    registerTokenDirectives: (
+        tokenMap: Map<
+            string,
+            (ctx: {
+                text: string;
+                thinking?: string;
+                peerId?: string;
+                webrtc?: unknown;
+                vircadiaWorld?: unknown;
+            }) => void | Promise<void>
+        >,
+    ) => () => void;
     onTranscript?: (
         f: (
             t: string,

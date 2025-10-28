@@ -75,7 +75,7 @@
                                     <v-progress-linear :model-value="rmsPct" color="secondary" height="6" rounded
                                         class="flex-grow-1 min-w-[160px]" />
                                     <span class="text-caption text-medium-emphasis ml-2">{{ rmsLevel.toFixed(2)
-                                    }}</span>
+                                        }}</span>
                                 </div>
                             </div>
                         </v-card>
@@ -116,10 +116,15 @@
                                                 </span>
                                                 <span class="font-weight-medium">{{ msg.role === 'user' ? 'You' :
                                                     'Assistant'
-                                                }}</span>
+                                                    }}</span>
+                                                <v-chip v-if="msg.isTokenReply" size="x-small" color="info"
+                                                    class="ml-2">
+                                                    Token Reply
+                                                </v-chip>
                                             </v-list-item-title>
                                             <v-list-item-subtitle class="mt-1 wrap-anywhere"
-                                                :class="msg.role === 'user' ? 'text-high-emphasis' : ''">
+                                                :class="msg.role === 'user' ? 'text-high-emphasis' : ''"
+                                                style="max-width: 100%; word-break: break-word;">
                                                 {{ msg.text }}
                                             </v-list-item-subtitle>
                                         </v-list-item>
@@ -131,7 +136,8 @@
                                                     <span class="text-caption">Thinking</span>
                                                 </v-expansion-panel-title>
                                                 <v-expansion-panel-text>
-                                                    <div class="text-caption text-medium-emphasis wrap-anywhere">
+                                                    <div class="text-caption text-medium-emphasis wrap-anywhere"
+                                                        style="max-width: 100%; word-break: break-word;">
                                                         {{ msg.thinking }}
                                                     </div>
                                                 </v-expansion-panel-text>
@@ -381,15 +387,16 @@ function addTranscript(peerId: string, text: string): void {
         transcripts.value.splice(0, transcripts.value.length - limit);
 }
 
-type LlmEntry = { text: string; thinking?: string; at: number };
+type LlmEntry = { text: string; thinking?: string; at: number; isTokenReply?: boolean };
 const llmOutputs = ref<LlmEntry[]>([]);
-function addLlmOutput(text: string, thinking?: string): void {
+function addLlmOutput(text: string, thinking?: string, isTokenReply = false): void {
     const t = (text || "").trim();
     if (!t) return;
     llmOutputs.value.push({
         text: t,
         thinking: thinking?.trim() || undefined,
         at: Date.now(),
+        isTokenReply,
     });
     const limit = Number(
         (props as unknown as { agentUiMaxAssistantReplies?: number })
@@ -405,6 +412,7 @@ type ConversationItem = {
     thinking?: string;
     at: number;
     key: string;
+    isTokenReply?: boolean;
 };
 const conversationItems = computed<ConversationItem[]>(() => {
     const items: ConversationItem[] = [];
@@ -422,6 +430,7 @@ const conversationItems = computed<ConversationItem[]>(() => {
             thinking: l.thinking,
             at: l.at,
             key: `a:${l.at}`,
+            isTokenReply: l.isTokenReply,
         });
     items.sort((a, b) => a.at - b.at);
     const limit = Number(
@@ -467,6 +476,31 @@ function registerDirective(d: Directive): () => void {
     directives.add(d);
     return () => {
         directives.delete(d);
+    };
+}
+function registerTokenDirectives(
+    tokenMap: Map<string, (ctx: {
+        text: string;
+        thinking?: string;
+        peerId?: string;
+        webrtc?: unknown;
+        vircadiaWorld?: unknown;
+    }) => void | Promise<void>>,
+): () => void {
+    const registered: Directive[] = [];
+    for (const [token, callback] of tokenMap) {
+        const d: Directive = {
+            token,
+            stripFromOutput: true,
+            onMatch: callback,
+        };
+        directives.add(d);
+        registered.push(d);
+    }
+    return () => {
+        for (const d of registered) {
+            directives.delete(d);
+        }
     };
 }
 function onTranscriptTap(
@@ -886,7 +920,7 @@ function buildExtraKnowledgeBlock(): string {
     }
 }
 function buildLlmPromptFromHistory(history: string): string {
-    const systemPrefix = `System: You are an in-world personal agent created by ${companyName.value}. Be concise and conversational. Try to summarize responses where possible.`;
+    const systemPrefix = `System: You are an in-world personal agent created by ${companyName.value}. Be concise and conversational. Answer only what was asked. Do not volunteer extra details unless directly relevant.`;
     const knowledge = buildExtraKnowledgeBlock();
     const gating = buildGatingGuidance();
     const convo = history ? `Conversation:\n${history}\n` : "";
@@ -919,10 +953,14 @@ async function submitToLlm(
             const cleaned = extractAssistantText(resp.text).trim();
             const { cleanText, thinking } = parseThinkingTags(cleaned);
             if (cleanText.includes(LlmDirective.StoppedTalking)) {
+                // Capture token reply for debugging
+                addLlmOutput(cleanText, thinking, true);
                 cancelTtsPlayback();
                 return;
             }
             if (cleanText.includes(LlmDirective.NoReply)) {
+                // Capture token reply for debugging
+                addLlmOutput(cleanText, thinking, true);
                 return;
             }
             if (cleanText) {
@@ -1462,6 +1500,7 @@ const api: CloudInferenceAPI = {
     registerKnowledge,
     setCompanyName,
     registerDirective,
+    registerTokenDirectives,
     onTranscript: onTranscriptTap,
     onAssistantText: onAssistantTextTap,
     speak: async (text: string, opts?: { localEcho?: boolean }) => {

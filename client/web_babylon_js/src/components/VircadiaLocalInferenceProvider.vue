@@ -319,9 +319,14 @@
                                                 <span class="font-weight-medium">{{ msg.role === 'user' ? 'You' :
                                                     'Assistant'
                                                     }}</span>
+                                                <v-chip v-if="msg.isTokenReply" size="x-small" color="info"
+                                                    class="ml-2">
+                                                    Token Reply
+                                                </v-chip>
                                             </v-list-item-title>
                                             <v-list-item-subtitle class="mt-1 wrap-anywhere"
-                                                :class="msg.role === 'user' ? 'text-high-emphasis' : ''">
+                                                :class="msg.role === 'user' ? 'text-high-emphasis' : ''"
+                                                style="max-width: 100%; word-break: break-word;">
                                                 {{ msg.text }}
                                             </v-list-item-subtitle>
                                         </v-list-item>
@@ -1032,15 +1037,15 @@ function detachMicFromSTT(): void {
 }
 
 // LLM output capture
-type LlmEntry = { text: string; at: number };
+type LlmEntry = { text: string; at: number; isTokenReply?: boolean };
 const llmOutputs = ref<LlmEntry[]>([]);
 const llmOutputsReversed = computed<LlmEntry[]>(() =>
     [...llmOutputs.value].reverse(),
 );
-function addLlmOutput(text: string) {
+function addLlmOutput(text: string, isTokenReply = false) {
     const trimmed = (text || "").trim();
     if (!trimmed) return;
-    llmOutputs.value.push({ text: trimmed, at: Date.now() });
+    llmOutputs.value.push({ text: trimmed, at: Date.now(), isTokenReply });
     const limit = Number(
         (props as unknown as { agentUiMaxAssistantReplies?: number })
             .agentUiMaxAssistantReplies || 0,
@@ -1055,6 +1060,7 @@ type ConversationItem = {
     text: string;
     at: number;
     key: string;
+    isTokenReply?: boolean;
 };
 const conversationItems = computed<ConversationItem[]>(() => {
     const items: ConversationItem[] = [];
@@ -1072,6 +1078,7 @@ const conversationItems = computed<ConversationItem[]>(() => {
             text: l.text,
             at: l.at,
             key: `a:${l.at}`,
+            isTokenReply: l.isTokenReply,
         });
     }
     items.sort((a, b) => a.at - b.at);
@@ -1167,7 +1174,11 @@ function initLlmWorkerOnce(): void {
                     llmGenerating.value = true;
                 }
             } else if (msg.type === "token") {
-                // Optionally stream tokens; keep UI minimal (final output recorded on complete)
+                // Capture token replies for debugging - check for directives
+                const tokenText = String(msg.text || "");
+                if (tokenText.includes(LlmDirective.NoReply) || tokenText.includes(LlmDirective.StoppedTalking)) {
+                    addLlmOutput(tokenText, true);
+                }
             } else if (msg.type === "complete") {
                 llmGenerating.value = false;
                 const t = String(msg.text || "");
@@ -1298,7 +1309,7 @@ async function handleTranscript(
             return `Guidance: If input seems partial, output exactly ${LlmDirective.NoReply}. If sufficient follow up has been provided after you replied ${LlmDirective.NoReply} then reply with a response.` + stopGuidance;
         })();
         const systemPrefix =
-            "System: You are an in-world assistant. Be concise and conversational.";
+            "System: You are an in-world assistant. Be concise and conversational. Answer only what was asked. Do not volunteer extra details unless directly relevant.";
         const prompt = `${systemPrefix}\n${gatingInstruction}\n${history ? `Chat history:\n${history}\n` : ""}\nUser: ${text}\n\nAssistant:`;
         const reply: string = await generateWithLLM(prompt, {
             max_new_tokens: Number(props.agentLlmMaxNewTokens || 80),

@@ -62,7 +62,7 @@
                                         :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                         <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' :
                                             'mdi-speedometer-slow'
-                                        }}</v-icon>
+                                            }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="normalPerf">
@@ -97,7 +97,7 @@
                                     <v-btn v-bind="props" icon class="ml-2"
                                         :color="(avatarRef?.isFlying) ? 'success' : undefined">
                                         <v-icon>{{ (avatarRef?.isFlying) ? 'mdi-airplane' : 'mdi-walk'
-                                        }}</v-icon>
+                                            }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="fly">
@@ -135,7 +135,7 @@
                                             @click="inspectorRef?.toggleInspector()">
                                             <v-icon>{{ inspectorVisible ? 'mdi-file-tree' :
                                                 'mdi-file-tree-outline'
-                                            }}</v-icon>
+                                                }}</v-icon>
                                         </v-btn>
                                     </template>
                                     <span>Babylon Inspector (T)</span>
@@ -171,18 +171,15 @@
                                     <template #default="{ stream: micStream }">
                                         <VircadiaCloudInferenceProvider ref="cloudAgentRef"
                                             :vircadia-world="vircadiaWorld" :webrtc-ref="webrtcApi"
-                                            :webrtc-local-stream="webrtcLocalStream" :webrtc-peers="webrtcPeersMap"
+                                            :webrtc-local-stream="webrtcLocalStream"
                                             :webrtc-remote-streams="webrtcRemoteStreamsMap"
                                             :agent-mic-input-stream="micStream"
                                             :agent-echo-output-stream="agentEchoOutputStream"
                                             :agent-tts-output-mode="agentTtsOutputMode" :agent-wake-word="agentWakeWord"
-                                            :agent-end-word="agentEndWord" :agent-stt-window-sec="agentSttWindowSec"
-                                            :agent-stt-max-buffer-sec="agentSttMaxBufferSec"
-                                            :agent-language="agentLanguage" :agent-enable-tts="agentEnableTTS"
-                                            :agent-enable-llm="agentEnableLLM" :agent-enable-stt="agentEnableSTT"
-                                            :agent-stt-pre-gain="agentSttPreGain"
+                                            :agent-end-word="agentEndWord" :agent-language="agentLanguage"
+                                            :agent-enable-tts="agentEnableTTS" :agent-enable-llm="agentEnableLLM"
+                                            :agent-enable-stt="agentEnableSTT" :agent-stt-pre-gain="agentSttPreGain"
                                             :agent-stt-input-mode="agentSttInputMode"
-                                            :agent-no-reply-timeout-sec="agentNoReplyTimeoutSec"
                                             :agent-stt-target-sample-rate="agentSttTargetSampleRate"
                                             :agent-stt-worklet-chunk-ms="agentSttWorkletChunkMs"
                                             :agent-vad-config="agentVadConfig"
@@ -657,10 +654,6 @@ const agentTtsOutputMode = ref<"local" | "webrtc" | "both">("local");
 const agentEnableLLM = ref<boolean>(true);
 const agentEnableSTT = ref<boolean>(true);
 const agentEnableTTS = ref<boolean>(true);
-// Reprompt timeout for partials/no-reply
-const agentNoReplyTimeoutSec = ref<number>(2.5);
-const agentSttWindowSec = ref<number>(2.0);
-const agentSttMaxBufferSec = ref<number>(8.0);
 // Default conversational language for ASR/LLM
 const agentLanguage = ref<string>("en");
 // STT pre-gain (to compensate remote levels prior to worklet)

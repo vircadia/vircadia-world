@@ -75,7 +75,7 @@
                                     <v-progress-linear :model-value="rmsPct" color="secondary" height="6" rounded
                                         class="flex-grow-1 min-w-[160px]" />
                                     <span class="text-caption text-medium-emphasis ml-2">{{ rmsLevel.toFixed(2)
-                                        }}</span>
+                                    }}</span>
                                 </div>
                             </div>
                         </v-card>
@@ -116,7 +116,7 @@
                                                 </span>
                                                 <span class="font-weight-medium">{{ msg.role === 'user' ? 'You' :
                                                     'Assistant'
-                                                    }}</span>
+                                                }}</span>
                                                 <v-chip v-if="msg.isTokenReply" size="x-small" color="info"
                                                     class="ml-2">
                                                     Token Reply
@@ -156,7 +156,7 @@
                     <v-col cols="12">
                         <div class="d-flex gap-2">
                             <v-btn color="primary" variant="outlined" @click="testServerTTS" :loading="ttsGenerating"
-                                :disabled="!capabilitiesEnabled.tts">
+                                :disabled="!props.agentEnableTts || !capabilitiesEnabled.tts">
                                 <v-icon class="mr-1">mdi-volume-high</v-icon>
                                 Test Server TTS
                             </v-btn>
@@ -219,10 +219,6 @@ const props = defineProps({
         type: Object as () => MediaStream | null,
         default: null,
     },
-    webrtcPeers: {
-        type: Object as () => Map<string, RTCPeerConnection>,
-        default: () => new Map(),
-    },
     webrtcRemoteStreams: {
         type: Object as () => Map<string, MediaStream>,
         default: () => new Map(),
@@ -244,9 +240,6 @@ const props = defineProps({
     },
     agentWakeWord: { type: String, required: true },
     agentEndWord: { type: String, required: true },
-    agentNoReplyTimeoutSec: { type: Number, required: true },
-    agentSttWindowSec: { type: Number, required: true },
-    agentSttMaxBufferSec: { type: Number, required: true },
     agentLanguage: { type: String, required: true },
     agentSttPreGain: { type: Number, required: true },
     agentSttInputMode: {
@@ -256,12 +249,6 @@ const props = defineProps({
     agentSttTargetSampleRate: { type: Number, required: true },
     agentSttWorkletChunkMs: { type: Number, required: true },
     agentCompanyName: { type: String, required: true },
-    agentExtraKnowledge: {
-        type: Object as PropType<
-            Map<string, string> | Record<string, string> | null
-        >,
-        required: true,
-    },
     agentVadConfig: {
         type: Object as () => {
             sampleRate: number;
@@ -995,7 +982,7 @@ async function submitToLlm(
                 // Add to conversation with token reply flag if any directive was found
                 addLlmOutput(finalText, processed.thinking, isTokenReply);
                 // Only do TTS if there's actual text to speak (ignore pure tokens)
-                if (finalText.trim()) {
+                if (finalText.trim() && props.agentEnableTts) {
                     ttsQueue.push(finalText);
                     void flushTtsQueue();
                 }
@@ -1064,7 +1051,7 @@ async function speakServerTts(
     text: string,
     forceLocalEcho = false,
 ): Promise<void> {
-    if (!capabilitiesEnabled.value.tts) return;
+    if (!props.agentEnableTts || !capabilitiesEnabled.value.tts) return;
     try {
         const api = webrtc.value;
         const allowLocalEcho =

@@ -5,9 +5,8 @@ import "@mdi/font/css/materialdesignicons.css";
 import "vuetify/styles";
 import "./assets/main.css";
 
-import { createPinia } from "pinia";
-
 import { clientBrowserConfiguration } from "@vircadia/world-sdk/browser/vue";
+import { createPinia } from "pinia";
 // Vuetify setup
 import { createVuetify } from "vuetify";
 

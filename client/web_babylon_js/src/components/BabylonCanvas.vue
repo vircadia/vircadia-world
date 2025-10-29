@@ -6,7 +6,12 @@
 
 <script setup lang="ts">
 import { ArcRotateCamera, Engine, NullEngine, Scene, Vector3, WebGPUEngine } from "@babylonjs/core";
+import { DracoDecoder } from "@babylonjs/core/Meshes/Compression/dracoDecoder.js"
 import { computed, onMounted, onUnmounted, ref, toRef, watch } from "vue";
+
+import DRACO_DECODER_GLTF_JS_URL from "@/assets/babylon_js/draco_decoder_gltf.js?url";
+import DRACO_DECODER_GLTF_WASM_URL from "@/assets/babylon_js/draco_decoder_gltf.wasm?url";
+import DRACO_WASM_WRAPPER_GLTF_JS_URL from "@/assets/babylon_js/draco_wasm_wrapper_gltf.js?url";
 
 // Define models for two-way binding
 const performanceMode = defineModel<"normal" | "low">("performanceMode", { default: "low" });
@@ -123,6 +128,10 @@ watch(toRef(props, "targetFps"), () => {
 
 onMounted(async () => {
     try {
+        DracoDecoder.DefaultConfiguration.wasmUrl = DRACO_WASM_WRAPPER_GLTF_JS_URL
+        DracoDecoder.DefaultConfiguration.wasmBinaryUrl = DRACO_DECODER_GLTF_WASM_URL
+        DracoDecoder.DefaultConfiguration.fallbackUrl = DRACO_DECODER_GLTF_JS_URL
+
         // Use engine type from prop (passed from MainScene based on autonomous agent state)
         if (props.engineType === "nullengine") {
             // NullEngine doesn't need a canvas element - perfect for headless/automated agents

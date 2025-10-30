@@ -14,7 +14,6 @@ const props = defineProps<{
     sceneReady: boolean;
     connectionStatus: string;
     isConnecting: boolean;
-    environmentLoading: boolean;
     avatarLoading: boolean;
     otherAvatarsLoading: boolean;
     modelsLoading: boolean;
@@ -27,7 +26,6 @@ const props = defineProps<{
 
 const isLoading = computed(
     () =>
-        props.environmentLoading ||
         props.avatarLoading ||
         props.otherAvatarsLoading ||
         props.modelsLoading,
@@ -55,9 +53,6 @@ const text = computed(() => {
     if (props.isConnecting) states.push("• Connection: Connecting");
     else states.push(`• Connection: ${props.connectionStatus}`);
 
-    states.push(
-        `• Environment: ${props.environmentLoading ? "Loading" : "Ready"}`,
-    );
     states.push(`• Avatar: ${props.avatarLoading ? "Loading" : "Ready"}`);
     if (props.avatarModelStep) {
         const step = props.avatarModelStep;

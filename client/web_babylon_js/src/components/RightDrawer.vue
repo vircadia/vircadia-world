@@ -25,11 +25,7 @@
                     </v-list-item>
                     <v-list-item>
                         <v-list-item-title>Babylon Environment</v-list-item-title>
-                        <template #append>
-                            <v-chip :color="environmentIsLoading ? 'warning' : 'success'" size="small" variant="flat">
-                                {{ environmentIsLoading ? 'Loading' : 'Ready' }}
-                            </v-chip>
-                        </template>
+                        <v-list-item-subtitle>Initialized</v-list-item-subtitle>
                     </v-list-item>
                 </v-list>
             </v-window-item>
@@ -599,7 +595,6 @@ const props = defineProps({
     tab: { type: String, default: "environment" },
     width: { type: Number, default: 360 },
     isAnonymousAgent: { type: Boolean, default: false },
-    environmentIsLoading: { type: Boolean, required: true },
     physicsEnabled: { type: Boolean, default: undefined },
     physicsPluginName: { type: String, default: null },
     physicsEngineType: { type: String, default: undefined },

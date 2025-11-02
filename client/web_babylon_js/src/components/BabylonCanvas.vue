@@ -1,5 +1,12 @@
 <template>
     <canvas v-if="props.engineType !== 'nullengine'" ref="canvasRef" id="renderCanvas"></canvas>
+
+    <!-- Engine Info Overlay -->
+    <div v-if="readyScene" class="engine-info-overlay" aria-label="Engine info">
+        <span class="engine-info-overlay__text">{{ engineTypeDisplay }} • Havok • {{ drawCalls }} calls • {{ vertexCount
+        }} verts • {{ currentFps }} FPS</span>
+    </div>
+
     <slot :scene="readyScene" :canvas="canvasRef">
     </slot>
 </template>
@@ -33,6 +40,19 @@ let resizeRaf = 0;
 const sceneReady = ref(false);
 const readyScene = computed(() => sceneReady.value ? scene : null);
 
+// Engine stats refs
+const drawCalls = ref(0);
+const vertexCount = ref(0);
+const currentFps = ref(0);
+
+// Computed properties for engine info
+const engineTypeDisplay = computed(() => {
+    if (webGpuEngine) return "WebGPU";
+    if (webGlEngine) return "WebGL";
+    if (nullEngine) return "Null";
+    return "Unknown";
+});
+
 // Physics is initialized and managed by BabylonEnvironment.vue
 
 function handleResize() {
@@ -65,6 +85,39 @@ function getCurrentTargetFps() {
     return props.targetFps ?? 30;
 }
 
+function updateEngineStats() {
+    if (!scene) return;
+
+    const engine = webGlEngine ?? webGpuEngine ?? nullEngine;
+    if (!engine) return;
+
+    // Update FPS
+    currentFps.value = Math.round(engine.getFps());
+
+    // Update draw calls and vertex count
+    let totalDrawCalls = 0;
+    let totalVertices = 0;
+
+    scene.meshes.forEach(mesh => {
+        if (mesh.isVisible && mesh.isEnabled()) {
+            // Count submeshes as draw calls
+            if (mesh.subMeshes) {
+                totalDrawCalls += mesh.subMeshes.length;
+            } else {
+                totalDrawCalls += 1;
+            }
+
+            // Count vertices
+            if (mesh.getTotalVertices) {
+                totalVertices += mesh.getTotalVertices();
+            }
+        }
+    });
+
+    drawCalls.value = totalDrawCalls;
+    vertexCount.value = totalVertices;
+}
+
 function startRenderLoop() {
     if (!scene) throw new Error("Scene not found");
     const engine = webGlEngine ?? webGpuEngine ?? nullEngine;
@@ -77,6 +130,7 @@ function startRenderLoop() {
     if (mode === "normal") {
         engine.runRenderLoop(() => {
             scene?.render();
+            updateEngineStats();
         });
     } else {
         const frameInterval = 1000 / Math.max(1, getCurrentTargetFps());
@@ -87,6 +141,7 @@ function startRenderLoop() {
             const deltaTime = currentTime - lastFrameTime;
             if (deltaTime >= frameInterval) {
                 scene?.render();
+                updateEngineStats();
                 lastFrameTime = currentTime - (deltaTime % frameInterval);
             }
         });

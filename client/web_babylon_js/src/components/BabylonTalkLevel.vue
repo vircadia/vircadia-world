@@ -12,7 +12,7 @@ const props = defineProps({
     smoothing: { type: Number, default: 0.8 }, // analyser smoothingTimeConstant
     fftSize: { type: Number, default: 2048 },
     // External audio stream (required). Component will NOT request microphone.
-    audioStream: { type: Object as () => MediaStream | null, required: true },
+    audioStream: { type: Object as () => MediaStream | null, required: false },
 });
 
 const isTalking = ref(false);

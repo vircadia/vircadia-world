@@ -127,7 +127,75 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = entity, public, pg_temp;
 
--- 5.3 AGENT LAST-SEEN TOUCH HELPERS
+-- 5.3 CHANGE NOTIFICATION FUNCTIONS
+-- ==========================================================================
+
+CREATE OR REPLACE FUNCTION entity.notify_entity_change()
+RETURNS trigger AS $$
+DECLARE
+    v_payload JSONB;
+BEGIN
+    v_payload := jsonb_build_object(
+        'resource', 'entity',
+        'operation', TG_OP,
+        'entityName', COALESCE(NEW.general__entity_name, OLD.general__entity_name),
+        'syncGroup', COALESCE(NEW.group__sync, OLD.group__sync),
+        'data', CASE
+            WHEN TG_OP = 'DELETE' THEN to_jsonb(OLD)
+            ELSE to_jsonb(NEW)
+        END
+    );
+
+    PERFORM pg_notify('entity_entities_changed', v_payload::text);
+
+    RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = entity, public, pg_temp;
+
+CREATE OR REPLACE FUNCTION entity.notify_entity_metadata_change()
+RETURNS trigger AS $$
+DECLARE
+    v_payload JSONB;
+    v_data JSONB;
+BEGIN
+    -- Build data payload (metadata__value excluded to avoid pg_notify payload size limits)
+    -- WS manager will fetch the full value for INSERT/UPDATE operations
+    IF TG_OP = 'DELETE' THEN
+        v_data := jsonb_build_object(
+            'general__entity_name', OLD.general__entity_name,
+            'metadata__key', OLD.metadata__key,
+            'group__sync', OLD.group__sync,
+            'general__created_at', OLD.general__created_at,
+            'general__updated_at', OLD.general__updated_at
+        );
+    ELSE
+        v_data := jsonb_build_object(
+            'general__entity_name', NEW.general__entity_name,
+            'metadata__key', NEW.metadata__key,
+            'group__sync', NEW.group__sync,
+            'general__created_at', NEW.general__created_at,
+            'general__updated_at', NEW.general__updated_at
+            -- metadata__value excluded - WS manager will fetch it
+        );
+    END IF;
+
+    -- Build main payload (without metadata__value to avoid payload size limits)
+    v_payload := jsonb_build_object(
+        'resource', 'entity_metadata',
+        'operation', TG_OP,
+        'entityName', COALESCE(NEW.general__entity_name, OLD.general__entity_name),
+        'metadataKey', COALESCE(NEW.metadata__key, OLD.metadata__key),
+        'syncGroup', COALESCE(NEW.group__sync, OLD.group__sync),
+        'data', v_data
+    );
+
+    PERFORM pg_notify('entity_entity_metadata_changed', v_payload::text);
+
+    RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = entity, public, pg_temp;
+
+-- 5.4 AGENT LAST-SEEN TOUCH HELPERS
 -- =========================================================================
 
 -- Helper to bump the current agent's last seen timestamp once per statement/transaction
@@ -240,6 +308,12 @@ CREATE TRIGGER touch_agent_last_seen_on_entities_del
     FOR EACH STATEMENT
     EXECUTE FUNCTION entity.touch_current_agent_last_seen_trg();
 
+DROP TRIGGER IF EXISTS notify_entity_change ON entity.entities;
+CREATE TRIGGER notify_entity_change
+    AFTER INSERT OR UPDATE OR DELETE ON entity.entities
+    FOR EACH ROW
+    EXECUTE FUNCTION entity.notify_entity_change();
+
 -- 6.4 ENTITY METADATA TRIGGERS
 -- ============================================================================
 
@@ -265,6 +339,12 @@ CREATE TRIGGER touch_agent_last_seen_on_meta_del
     AFTER DELETE ON entity.entity_metadata
     FOR EACH STATEMENT
     EXECUTE FUNCTION entity.touch_current_agent_last_seen_trg();
+
+DROP TRIGGER IF EXISTS notify_entity_metadata_change ON entity.entity_metadata;
+CREATE TRIGGER notify_entity_metadata_change
+    AFTER INSERT OR UPDATE OR DELETE ON entity.entity_metadata
+    FOR EACH ROW
+    EXECUTE FUNCTION entity.notify_entity_metadata_change();
 
 -- 6.5 TOUCH PARENT ENTITY ON METADATA CHANGE (STATEMENT-LEVEL)
 -- ==========================================================================

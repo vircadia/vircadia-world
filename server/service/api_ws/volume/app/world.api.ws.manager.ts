@@ -14,12 +14,13 @@ import {
 import {
     type Auth,
     Communication,
+    type Entity,
 } from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 import { MetricsCollector } from "./service/metrics";
 
 let legacySuperUserSql: Sql | null = null;
 // Note: legacyProxyUserSql kept for parity, currently unused
-let legacyProxyUserSql: Sql | null = null;
+let _legacyProxyUserSql: Sql | null = null;
 let superUserSql: SQL | null = null;
 let proxyUserSql: SQL | null = null;
 
@@ -49,6 +50,26 @@ type ReflectQueuedItem = {
     ack?: { requestId: string };
 };
 
+interface EntityNotificationPayload {
+    resource: "entity" | "entity_metadata";
+    operation: Communication.WebSocket.DatabaseOperation;
+    entityName?: string;
+    metadataKey?: string;
+    syncGroup: string;
+    data: unknown;
+    previous?: unknown;
+}
+
+interface MetadataSubscriptionEntry {
+    all: boolean;
+    keys: Set<string>;
+}
+
+interface SessionSubscriptions {
+    entity: Set<string>;
+    metadata: Map<string, MetadataSubscriptionEntry>;
+}
+
 export class WorldApiWsManager {
     private server: Server<WebSocketData> | undefined;
 
@@ -72,6 +93,24 @@ export class WorldApiWsManager {
     > = new Map();
     private reflectIntervals: Map<string, Timer> = new Map();
     private reflectTickRateMs: Map<string, number> = new Map();
+    private sessionSubscriptions: Map<string, SessionSubscriptions> = new Map();
+    private entityNotificationUnsubscribers: Array<() => Promise<void> | void> =
+        [];
+    private entityListenersInitialized = false;
+
+    private getOrCreateSessionSubscriptions(
+        sessionId: string,
+    ): SessionSubscriptions {
+        let subs = this.sessionSubscriptions.get(sessionId);
+        if (!subs) {
+            subs = {
+                entity: new Set(),
+                metadata: new Map(),
+            };
+            this.sessionSubscriptions.set(sessionId, subs);
+        }
+        return subs;
+    }
 
     private enqueueReflect(
         syncGroup: string,
@@ -290,6 +329,325 @@ export class WorldApiWsManager {
         }
     }
 
+    private async startEntityChangeListeners() {
+        if (this.entityListenersInitialized) {
+            return;
+        }
+
+        if (!legacySuperUserSql) {
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message:
+                    "Cannot start entity change listeners without legacy super user SQL client",
+                debug: this.DEBUG,
+                suppress: this.SUPPRESS,
+                type: "debug",
+            });
+            return;
+        }
+
+        const listenFn = (
+            legacySuperUserSql as unknown as {
+                listen?: (
+                    channel: string,
+                    handler: (payload: unknown) => void,
+                ) => Promise<() => Promise<void> | void>;
+            }
+        ).listen;
+
+        if (!listenFn) {
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message:
+                    "Legacy postgres client does not support LISTEN; entity change notifications disabled",
+                debug: this.DEBUG,
+                suppress: this.SUPPRESS,
+                type: "warn",
+            });
+            return;
+        }
+
+        try {
+            const unsubscribeEntities = await listenFn.call(
+                legacySuperUserSql,
+                "entity_entities_changed",
+                (payload: unknown) => {
+                    void this.handleEntityNotification(payload);
+                },
+            );
+            if (unsubscribeEntities) {
+                this.entityNotificationUnsubscribers.push(unsubscribeEntities);
+            }
+
+            const unsubscribeMetadata = await listenFn.call(
+                legacySuperUserSql,
+                "entity_entity_metadata_changed",
+                (payload: unknown) => {
+                    void this.handleEntityNotification(payload);
+                },
+            );
+            if (unsubscribeMetadata) {
+                this.entityNotificationUnsubscribers.push(unsubscribeMetadata);
+            }
+
+            this.entityListenersInitialized = true;
+
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Entity change listeners initialized",
+                debug: this.DEBUG,
+                suppress: this.SUPPRESS,
+                type: "info",
+            });
+        } catch (error) {
+            this.entityListenersInitialized = false;
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Failed to start entity change listeners",
+                debug: this.DEBUG,
+                suppress: this.SUPPRESS,
+                type: "error",
+                error,
+            });
+        }
+    }
+
+    private async handleEntityNotification(rawPayload: unknown) {
+        if (typeof rawPayload !== "string" || rawPayload.length === 0) {
+            return;
+        }
+
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(rawPayload);
+        } catch (error) {
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Failed to parse entity notification payload",
+                debug: this.DEBUG,
+                suppress: this.SUPPRESS,
+                type: "debug",
+                error,
+            });
+            return;
+        }
+
+        if (!parsed || typeof parsed !== "object") {
+            return;
+        }
+
+        const payloadObj = parsed as Record<string, unknown>;
+        const resource = payloadObj.resource;
+        if (resource !== "entity" && resource !== "entity_metadata") {
+            return;
+        }
+
+        const syncGroup = payloadObj.syncGroup;
+        if (typeof syncGroup !== "string" || syncGroup.length === 0) {
+            return;
+        }
+
+        const entityNameValue = payloadObj.entityName;
+        const entityName =
+            typeof entityNameValue === "string" ? entityNameValue : undefined;
+
+        const notification: EntityNotificationPayload = {
+            resource,
+            operation:
+                typeof payloadObj.operation === "string"
+                    ? payloadObj.operation
+                    : "",
+            entityName,
+            metadataKey:
+                typeof payloadObj.metadataKey === "string"
+                    ? payloadObj.metadataKey
+                    : undefined,
+            syncGroup,
+            data: payloadObj.data ?? null,
+            previous: payloadObj.previous ?? null,
+        };
+
+        if (resource === "entity") {
+            this.deliverEntityChange(notification);
+        } else {
+            void this.deliverEntityMetadataChange(notification);
+        }
+    }
+
+    private deliverEntityChange(payload: EntityNotificationPayload) {
+        if (!payload.entityName) {
+            return;
+        }
+
+        for (const [sessionId, subscriptions] of this.sessionSubscriptions) {
+            const session = this.activeSessions.get(sessionId);
+            if (!session) {
+                continue;
+            }
+
+            if (!this.canRead(session.agentId, payload.syncGroup)) {
+                continue;
+            }
+
+            if (!subscriptions.entity.has(payload.entityName)) {
+                continue;
+            }
+
+            const messageData = {
+                type: Communication.WebSocket.MessageType.ENTITY_DELIVERY,
+                timestamp: Date.now(),
+                requestId: payload.entityName,
+                errorMessage: null,
+                entityName: payload.entityName,
+                operation: payload.operation,
+                syncGroup: payload.syncGroup,
+                data: payload.data,
+            };
+
+            const parsed =
+                Communication.WebSocket.Z.EntityDelivery.safeParse(messageData);
+            if (!parsed.success) {
+                continue;
+            }
+
+            try {
+                (session.ws as ServerWebSocket<WebSocketData>).send(
+                    JSON.stringify(parsed.data),
+                );
+            } catch {
+                // ignore send errors per recipient
+            }
+        }
+    }
+
+    private async deliverEntityMetadataChange(
+        payload: EntityNotificationPayload,
+    ) {
+        if (!payload.entityName || !payload.metadataKey) {
+            return;
+        }
+
+        // For INSERT/UPDATE operations, fetch the full metadata value from the database
+        // to avoid payload size limits in pg_notify
+        let fullData = payload.data;
+        if (
+            (payload.operation === "INSERT" ||
+                payload.operation === "UPDATE") &&
+            superUserSql
+        ) {
+            try {
+                const result = await superUserSql<
+                    Array<
+                        Pick<
+                            Entity.Metadata.I_Metadata,
+                            | "general__entity_name"
+                            | "metadata__key"
+                            | "metadata__value"
+                            | "group__sync"
+                            | "general__created_at"
+                            | "general__updated_at"
+                        > & {
+                            general__created_at: Date;
+                            general__updated_at: Date;
+                        }
+                    >
+                >`
+                    SELECT 
+                        general__entity_name,
+                        metadata__key,
+                        metadata__value,
+                        group__sync,
+                        general__created_at,
+                        general__updated_at
+                    FROM entity.entity_metadata
+                    WHERE general__entity_name = ${payload.entityName}
+                      AND metadata__key = ${payload.metadataKey}
+                `;
+
+                if (result.length > 0) {
+                    const row = result[0];
+                    fullData = {
+                        general__entity_name: row.general__entity_name,
+                        metadata__key: row.metadata__key,
+                        metadata__value: row.metadata__value,
+                        group__sync: row.group__sync,
+                        general__created_at: row.general__created_at,
+                        general__updated_at: row.general__updated_at,
+                    };
+                }
+            } catch (error) {
+                BunLogModule({
+                    prefix: LOG_PREFIX,
+                    message: "Failed to fetch metadata value for notification",
+                    debug: this.DEBUG,
+                    suppress: this.SUPPRESS,
+                    type: "error",
+                    error,
+                    data: {
+                        entityName: payload.entityName,
+                        metadataKey: payload.metadataKey,
+                        operation: payload.operation,
+                    },
+                });
+                // Fall back to using payload.data (without metadata__value)
+            }
+        }
+
+        for (const [sessionId, subscriptions] of this.sessionSubscriptions) {
+            const session = this.activeSessions.get(sessionId);
+            if (!session) {
+                continue;
+            }
+
+            if (!this.canRead(session.agentId, payload.syncGroup)) {
+                continue;
+            }
+
+            const metadataEntry = subscriptions.metadata.get(
+                payload.entityName,
+            );
+            if (!metadataEntry) {
+                continue;
+            }
+
+            if (
+                !metadataEntry.all &&
+                !metadataEntry.keys.has(payload.metadataKey)
+            ) {
+                continue;
+            }
+
+            const messageData = {
+                type: Communication.WebSocket.MessageType
+                    .ENTITY_METADATA_DELIVERY,
+                timestamp: Date.now(),
+                requestId: `${payload.entityName}:${payload.metadataKey}`,
+                errorMessage: null,
+                entityName: payload.entityName,
+                metadataKey: payload.metadataKey,
+                operation: payload.operation,
+                syncGroup: payload.syncGroup,
+                data: fullData,
+            };
+
+            const parsed =
+                Communication.WebSocket.Z.EntityMetadataDelivery.safeParse(
+                    messageData,
+                );
+            if (!parsed.success) {
+                continue;
+            }
+
+            try {
+                (session.ws as ServerWebSocket<WebSocketData>).send(
+                    JSON.stringify(parsed.data),
+                );
+            } catch {
+                // ignore send errors per recipient
+            }
+        }
+    }
+
     // Helper method to record endpoint metrics
     private recordEndpointMetrics(
         endpoint: string,
@@ -402,7 +760,7 @@ export class WorldApiWsManager {
                         serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
                 },
             });
-            legacyProxyUserSql = await BunPostgresClientModule.getInstance({
+            _legacyProxyUserSql = await BunPostgresClientModule.getInstance({
                 debug: this.DEBUG,
                 suppress: this.SUPPRESS,
             }).getLegacyProxyClient({
@@ -458,6 +816,7 @@ export class WorldApiWsManager {
             }
             // Start reflect tick loops to flush queued reflect messages per sync group
             await this.startReflectTickLoops();
+            await this.startEntityChangeListeners();
         } catch (error) {
             BunLogModule({
                 prefix: LOG_PREFIX,
@@ -1147,7 +1506,7 @@ export class WorldApiWsManager {
                             type: "debug",
                             data: {
                                 type: data.type,
-                                requestId: (data as any)?.requestId,
+                                requestId: data?.requestId,
                                 parseMs: performance.now() - receivedAt,
                             },
                         });
@@ -1158,7 +1517,7 @@ export class WorldApiWsManager {
                                 data,
                             );
                         if (!parsed.success) {
-                            const requestId = (data as any)?.requestId ?? "";
+                            const requestId = data?.requestId ?? "";
                             const errorMessageData = {
                                 type: Communication.WebSocket.MessageType
                                     .GENERAL_ERROR_RESPONSE,
@@ -1361,6 +1720,496 @@ export class WorldApiWsManager {
                                         success,
                                     );
                                 }
+                                break;
+                            }
+
+                            case Communication.WebSocket.MessageType
+                                .ENTITY_SUBSCRIBE_REQUEST: {
+                                const typedRequest =
+                                    data as Communication.WebSocket.EntitySubscribeRequestMessage;
+
+                                const startTime = performance.now();
+                                const requestSize = new TextEncoder().encode(
+                                    message,
+                                ).length;
+                                let responseSize = 0;
+                                let success = false;
+                                const entityName =
+                                    typedRequest.entityName.trim();
+
+                                try {
+                                    if (!entityName) {
+                                        throw new Error(
+                                            "entityName is required",
+                                        );
+                                    }
+
+                                    if (
+                                        !this.aclService?.isWarmed(
+                                            session.agentId,
+                                        )
+                                    ) {
+                                        await this.warmAgentAcl(
+                                            session.agentId,
+                                        ).catch(() => {});
+                                    }
+
+                                    const subs =
+                                        this.getOrCreateSessionSubscriptions(
+                                            session.sessionId,
+                                        );
+                                    subs.entity.add(entityName);
+
+                                    const responseData = {
+                                        type: Communication.WebSocket
+                                            .MessageType
+                                            .ENTITY_SUBSCRIBE_RESPONSE,
+                                        timestamp: Date.now(),
+                                        requestId: typedRequest.requestId,
+                                        errorMessage: null,
+                                        entityName,
+                                        subscribed: true,
+                                    };
+
+                                    const responseParsed =
+                                        Communication.WebSocket.Z.EntitySubscribeResponse.safeParse(
+                                            responseData,
+                                        );
+                                    if (!responseParsed.success) {
+                                        throw new Error(
+                                            "Invalid entity subscribe response format",
+                                        );
+                                    }
+
+                                    const responseString = JSON.stringify(
+                                        responseParsed.data,
+                                    );
+                                    responseSize = new TextEncoder().encode(
+                                        responseString,
+                                    ).length;
+                                    success = true;
+
+                                    ws.send(responseString);
+
+                                    BunLogModule({
+                                        prefix: LOG_PREFIX,
+                                        message:
+                                            "WS ENTITY_SUBSCRIBE_REQUEST handled",
+                                        debug: this.DEBUG,
+                                        suppress: this.SUPPRESS,
+                                        type: "debug",
+                                        data: {
+                                            requestId: typedRequest.requestId,
+                                            entityName,
+                                            durationMs:
+                                                performance.now() - receivedAt,
+                                        },
+                                    });
+                                } catch (error) {
+                                    const errorMessage =
+                                        error instanceof Error
+                                            ? error.message
+                                            : String(error);
+
+                                    const errorResponse = {
+                                        type: Communication.WebSocket
+                                            .MessageType
+                                            .ENTITY_SUBSCRIBE_RESPONSE,
+                                        timestamp: Date.now(),
+                                        requestId: typedRequest.requestId,
+                                        errorMessage,
+                                        entityName,
+                                        subscribed: false,
+                                    };
+
+                                    const errorParsed =
+                                        Communication.WebSocket.Z.EntitySubscribeResponse.safeParse(
+                                            errorResponse,
+                                        );
+                                    if (errorParsed.success) {
+                                        const errorString = JSON.stringify(
+                                            errorParsed.data,
+                                        );
+                                        responseSize = new TextEncoder().encode(
+                                            errorString,
+                                        ).length;
+                                        ws.send(errorString);
+                                    }
+
+                                    BunLogModule({
+                                        prefix: LOG_PREFIX,
+                                        message:
+                                            "WS ENTITY_SUBSCRIBE_REQUEST error",
+                                        debug: this.DEBUG,
+                                        suppress: this.SUPPRESS,
+                                        type: "info",
+                                        data: {
+                                            requestId: typedRequest.requestId,
+                                            entityName,
+                                            errorMessage,
+                                        },
+                                    });
+                                } finally {
+                                    this.recordEndpointMetrics(
+                                        "WS_ENTITY_SUBSCRIBE_REQUEST",
+                                        startTime,
+                                        requestSize,
+                                        responseSize,
+                                        success,
+                                    );
+                                }
+
+                                break;
+                            }
+
+                            case Communication.WebSocket.MessageType
+                                .ENTITY_UNSUBSCRIBE_REQUEST: {
+                                const typedRequest =
+                                    data as Communication.WebSocket.EntityUnsubscribeRequestMessage;
+
+                                const startTime = performance.now();
+                                const requestSize = new TextEncoder().encode(
+                                    message,
+                                ).length;
+                                let responseSize = 0;
+                                let removed = false;
+                                const entityName =
+                                    typedRequest.entityName.trim();
+
+                                const subs = this.sessionSubscriptions.get(
+                                    session.sessionId,
+                                );
+                                if (subs && entityName) {
+                                    removed = subs.entity.delete(entityName);
+                                    if (
+                                        subs.entity.size === 0 &&
+                                        subs.metadata.size === 0
+                                    ) {
+                                        this.sessionSubscriptions.delete(
+                                            session.sessionId,
+                                        );
+                                    }
+                                }
+
+                                const responseData = {
+                                    type: Communication.WebSocket.MessageType
+                                        .ENTITY_UNSUBSCRIBE_RESPONSE,
+                                    timestamp: Date.now(),
+                                    requestId: typedRequest.requestId,
+                                    errorMessage: removed
+                                        ? null
+                                        : "Subscription not found",
+                                    entityName,
+                                    removed,
+                                };
+
+                                const responseParsed =
+                                    Communication.WebSocket.Z.EntityUnsubscribeResponse.safeParse(
+                                        responseData,
+                                    );
+                                if (responseParsed.success) {
+                                    const responseString = JSON.stringify(
+                                        responseParsed.data,
+                                    );
+                                    responseSize = new TextEncoder().encode(
+                                        responseString,
+                                    ).length;
+                                    ws.send(responseString);
+                                }
+
+                                BunLogModule({
+                                    prefix: LOG_PREFIX,
+                                    message:
+                                        "WS ENTITY_UNSUBSCRIBE_REQUEST handled",
+                                    debug: this.DEBUG,
+                                    suppress: this.SUPPRESS,
+                                    type: "debug",
+                                    data: {
+                                        requestId: typedRequest.requestId,
+                                        entityName,
+                                        removed,
+                                        durationMs:
+                                            performance.now() - receivedAt,
+                                    },
+                                });
+
+                                this.recordEndpointMetrics(
+                                    "WS_ENTITY_UNSUBSCRIBE_REQUEST",
+                                    startTime,
+                                    requestSize,
+                                    responseSize,
+                                    removed,
+                                );
+                                break;
+                            }
+
+                            case Communication.WebSocket.MessageType
+                                .ENTITY_METADATA_SUBSCRIBE_REQUEST: {
+                                const typedRequest =
+                                    data as Communication.WebSocket.EntityMetadataSubscribeRequestMessage;
+
+                                const startTime = performance.now();
+                                const requestSize = new TextEncoder().encode(
+                                    message,
+                                ).length;
+                                let responseSize = 0;
+                                let success = false;
+                                const entityName =
+                                    typedRequest.entityName.trim();
+                                const metadataKey =
+                                    typedRequest.metadataKey?.trim() || null;
+
+                                try {
+                                    if (!entityName) {
+                                        throw new Error(
+                                            "entityName is required",
+                                        );
+                                    }
+
+                                    if (
+                                        !this.aclService?.isWarmed(
+                                            session.agentId,
+                                        )
+                                    ) {
+                                        await this.warmAgentAcl(
+                                            session.agentId,
+                                        ).catch(() => {});
+                                    }
+
+                                    const subs =
+                                        this.getOrCreateSessionSubscriptions(
+                                            session.sessionId,
+                                        );
+                                    let entry = subs.metadata.get(entityName);
+                                    if (!entry) {
+                                        entry = {
+                                            all: false,
+                                            keys: new Set(),
+                                        };
+                                        subs.metadata.set(entityName, entry);
+                                    }
+
+                                    if (!metadataKey) {
+                                        entry.all = true;
+                                        entry.keys.clear();
+                                    } else if (!entry.all) {
+                                        entry.keys.add(metadataKey);
+                                    }
+
+                                    const responseData = {
+                                        type: Communication.WebSocket
+                                            .MessageType
+                                            .ENTITY_METADATA_SUBSCRIBE_RESPONSE,
+                                        timestamp: Date.now(),
+                                        requestId: typedRequest.requestId,
+                                        errorMessage: null,
+                                        entityName,
+                                        metadataKey,
+                                        subscribed: true,
+                                    };
+
+                                    const responseParsed =
+                                        Communication.WebSocket.Z.EntityMetadataSubscribeResponse.safeParse(
+                                            responseData,
+                                        );
+                                    if (!responseParsed.success) {
+                                        throw new Error(
+                                            "Invalid entity metadata subscribe response format",
+                                        );
+                                    }
+
+                                    const responseString = JSON.stringify(
+                                        responseParsed.data,
+                                    );
+                                    responseSize = new TextEncoder().encode(
+                                        responseString,
+                                    ).length;
+                                    success = true;
+
+                                    ws.send(responseString);
+
+                                    BunLogModule({
+                                        prefix: LOG_PREFIX,
+                                        message:
+                                            "WS ENTITY_METADATA_SUBSCRIBE_REQUEST handled",
+                                        debug: this.DEBUG,
+                                        suppress: this.SUPPRESS,
+                                        type: "debug",
+                                        data: {
+                                            requestId: typedRequest.requestId,
+                                            entityName,
+                                            metadataKey,
+                                            durationMs:
+                                                performance.now() - receivedAt,
+                                        },
+                                    });
+                                } catch (error) {
+                                    const errorMessage =
+                                        error instanceof Error
+                                            ? error.message
+                                            : String(error);
+
+                                    const errorResponse = {
+                                        type: Communication.WebSocket
+                                            .MessageType
+                                            .ENTITY_METADATA_SUBSCRIBE_RESPONSE,
+                                        timestamp: Date.now(),
+                                        requestId: typedRequest.requestId,
+                                        errorMessage,
+                                        entityName,
+                                        metadataKey,
+                                        subscribed: false,
+                                    };
+
+                                    const errorParsed =
+                                        Communication.WebSocket.Z.EntityMetadataSubscribeResponse.safeParse(
+                                            errorResponse,
+                                        );
+                                    if (errorParsed.success) {
+                                        const errorString = JSON.stringify(
+                                            errorParsed.data,
+                                        );
+                                        responseSize = new TextEncoder().encode(
+                                            errorString,
+                                        ).length;
+                                        ws.send(errorString);
+                                    }
+
+                                    BunLogModule({
+                                        prefix: LOG_PREFIX,
+                                        message:
+                                            "WS ENTITY_METADATA_SUBSCRIBE_REQUEST error",
+                                        debug: this.DEBUG,
+                                        suppress: this.SUPPRESS,
+                                        type: "info",
+                                        data: {
+                                            requestId: typedRequest.requestId,
+                                            entityName,
+                                            metadataKey,
+                                            errorMessage,
+                                        },
+                                    });
+                                } finally {
+                                    this.recordEndpointMetrics(
+                                        "WS_ENTITY_METADATA_SUBSCRIBE_REQUEST",
+                                        startTime,
+                                        requestSize,
+                                        responseSize,
+                                        success,
+                                    );
+                                }
+
+                                break;
+                            }
+
+                            case Communication.WebSocket.MessageType
+                                .ENTITY_METADATA_UNSUBSCRIBE_REQUEST: {
+                                const typedRequest =
+                                    data as Communication.WebSocket.EntityMetadataUnsubscribeRequestMessage;
+
+                                const startTime = performance.now();
+                                const requestSize = new TextEncoder().encode(
+                                    message,
+                                ).length;
+                                let responseSize = 0;
+                                let removed = false;
+                                const entityName =
+                                    typedRequest.entityName.trim();
+                                const metadataKey =
+                                    typedRequest.metadataKey?.trim() || null;
+
+                                const subs = this.sessionSubscriptions.get(
+                                    session.sessionId,
+                                );
+                                if (subs && entityName) {
+                                    const entry = subs.metadata.get(entityName);
+                                    if (entry) {
+                                        if (!metadataKey) {
+                                            subs.metadata.delete(entityName);
+                                            removed = true;
+                                        } else if (entry.all) {
+                                            entry.all = false;
+                                            removed = true;
+                                            if (entry.keys.size === 0) {
+                                                subs.metadata.delete(
+                                                    entityName,
+                                                );
+                                            }
+                                        } else {
+                                            removed =
+                                                entry.keys.delete(metadataKey);
+                                            if (
+                                                entry.keys.size === 0 &&
+                                                !entry.all
+                                            ) {
+                                                subs.metadata.delete(
+                                                    entityName,
+                                                );
+                                            }
+                                        }
+
+                                        if (
+                                            subs.entity.size === 0 &&
+                                            subs.metadata.size === 0
+                                        ) {
+                                            this.sessionSubscriptions.delete(
+                                                session.sessionId,
+                                            );
+                                        }
+                                    }
+                                }
+
+                                const responseData = {
+                                    type: Communication.WebSocket.MessageType
+                                        .ENTITY_METADATA_UNSUBSCRIBE_RESPONSE,
+                                    timestamp: Date.now(),
+                                    requestId: typedRequest.requestId,
+                                    errorMessage: removed
+                                        ? null
+                                        : "Subscription not found",
+                                    entityName,
+                                    metadataKey,
+                                    removed,
+                                };
+
+                                const responseParsed =
+                                    Communication.WebSocket.Z.EntityMetadataUnsubscribeResponse.safeParse(
+                                        responseData,
+                                    );
+                                if (responseParsed.success) {
+                                    const responseString = JSON.stringify(
+                                        responseParsed.data,
+                                    );
+                                    responseSize = new TextEncoder().encode(
+                                        responseString,
+                                    ).length;
+                                    ws.send(responseString);
+                                }
+
+                                BunLogModule({
+                                    prefix: LOG_PREFIX,
+                                    message:
+                                        "WS ENTITY_METADATA_UNSUBSCRIBE_REQUEST handled",
+                                    debug: this.DEBUG,
+                                    suppress: this.SUPPRESS,
+                                    type: "debug",
+                                    data: {
+                                        requestId: typedRequest.requestId,
+                                        entityName,
+                                        metadataKey,
+                                        removed,
+                                        durationMs:
+                                            performance.now() - receivedAt,
+                                    },
+                                });
+
+                                this.recordEndpointMetrics(
+                                    "WS_ENTITY_METADATA_UNSUBSCRIBE_REQUEST",
+                                    startTime,
+                                    requestSize,
+                                    responseSize,
+                                    removed,
+                                );
                                 break;
                             }
 
@@ -1683,6 +2532,7 @@ export class WorldApiWsManager {
                         // Clean up both maps
                         this.wsToSessionMap.delete(session.ws);
                         this.activeSessions.delete(session.sessionId);
+                        this.sessionSubscriptions.delete(session.sessionId);
                     }
 
                     BunLogModule({
@@ -1794,6 +2644,17 @@ export class WorldApiWsManager {
                 session.ws.close(1000, "Server shutting down");
             }
             this.activeSessions.clear();
+            this.sessionSubscriptions.clear();
+
+            for (const unsubscribe of this.entityNotificationUnsubscribers) {
+                try {
+                    void Promise.resolve(unsubscribe());
+                } catch {
+                    // ignore unsubscribe errors during shutdown
+                }
+            }
+            this.entityNotificationUnsubscribers = [];
+            this.entityListenersInitialized = false;
         });
         // Do not forcibly clear cache on shutdown; keep warmed files for faster next start
         BunPostgresClientModule.getInstance({

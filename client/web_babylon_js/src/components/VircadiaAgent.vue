@@ -601,8 +601,14 @@ function initAgent(scene: Scene | null | undefined): void {
             const desiredSpeed = Math.min(props.maxSpeed, dist * 2.0);
             const desiredHorizontalVelocity = horizontal.scale(desiredSpeed);
 
-            const desiredVerticalVelocity =
-                (target.position.y + hover - currentPos.y) * 2.0;
+            // More responsive vertical following - use adaptive multiplier based on distance
+            // and cap with maxSpeed for consistency with horizontal movement
+            const verticalDistance = target.position.y + hover - currentPos.y;
+            const verticalMultiplier = Math.min(8.0, 2.0 + Math.abs(verticalDistance) * 2.0);
+            const desiredVerticalVelocity = Math.max(
+                -props.maxSpeed,
+                Math.min(props.maxSpeed, verticalDistance * verticalMultiplier)
+            );
 
             const newVel = new Vector3(
                 desiredHorizontalVelocity.x,

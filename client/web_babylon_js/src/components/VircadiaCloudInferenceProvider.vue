@@ -71,11 +71,22 @@
                                     </v-chip>
                                 </div>
                                 <div class="d-flex align-center">
+                                    <v-icon class="mr-1">mdi-record-rec</v-icon>
+                                    <v-chip
+                                        :color="vadRecording ? 'warning' : (sttReady && capabilitiesEnabled.stt ? 'success' : 'error')"
+                                        size="small">
+                                        {{ vadRecording ? 'Recording' : sttReady &&
+                                            capabilitiesEnabled.stt ? 'Ready' : capabilitiesEnabled.stt ? 'Idle' :
+                                            'Disabled'
+                                        }}
+                                    </v-chip>
+                                </div>
+                                <div class="d-flex align-center">
                                     <span class="text-caption text-medium-emphasis mr-2">RMS</span>
                                     <v-progress-linear :model-value="rmsPct" color="secondary" height="6" rounded
                                         class="flex-grow-1 min-w-[160px]" />
                                     <span class="text-caption text-medium-emphasis ml-2">{{ rmsLevel.toFixed(2)
-                                    }}</span>
+                                        }}</span>
                                 </div>
                             </div>
                         </v-card>
@@ -116,7 +127,7 @@
                                                 </span>
                                                 <span class="font-weight-medium">{{ msg.role === 'user' ? 'You' :
                                                     'Assistant'
-                                                }}</span>
+                                                    }}</span>
                                                 <v-chip v-if="msg.isTokenReply" size="x-small" color="info"
                                                     class="ml-2">
                                                     Token Reply
@@ -323,6 +334,7 @@ const sttUploading = ref<boolean>(false);
 const sttReady = ref<boolean>(false);
 const vadSampleRate = ref<number>(16000);
 const sttActive = ref<boolean>(true);
+const vadRecording = ref<boolean>(false);
 
 // Audio graph per peer
 type PeerAudioProcessor = {
@@ -627,12 +639,19 @@ function initVadWorkerOnce(): void {
                 peerId?: string;
                 pcm?: ArrayBuffer;
             };
+            console.log(`[CloudAgent] VAD worker message:`, msg);
             if (msg.type === "segment" && msg.pcm && msg.peerId) {
+                console.log(`[CloudAgent] Received VAD segment for peer ${msg.peerId}, size: ${msg.pcm.byteLength} bytes`);
                 // Upload to server STT
                 void uploadVadSegment(msg.peerId, msg.pcm).catch(() => { });
             }
             if (msg.type === "status" && msg.status) {
-                if (msg.status === "recording_start") sttReady.value = true;
+                if (msg.status === "recording_start") {
+                    sttReady.value = true;
+                    vadRecording.value = true;
+                } else if (msg.status === "recording_end") {
+                    vadRecording.value = false;
+                }
             }
         });
         const vadCfg = props.agentVadConfig || { sampleRate: 16000 };
@@ -754,6 +773,7 @@ async function uploadVadSegment(
     pcm: ArrayBuffer,
 ): Promise<void> {
     try {
+        console.log(`[CloudAgent] Starting STT upload for peer ${peerId}, PCM size: ${pcm.byteLength} bytes`);
         sttUploading.value = true;
         sttProcessing.value = true;
         const sr = Math.max(
@@ -761,20 +781,29 @@ async function uploadVadSegment(
             Math.min(48000, Number(vadSampleRate.value || 16000)),
         );
         const wavAb = detectAndEncodeWav(pcm, sr);
+        console.log(`[CloudAgent] Encoded WAV size: ${wavAb.byteLength} bytes, sample rate: ${sr}Hz`);
         const blob = new Blob([wavAb], { type: "audio/wav" });
         const file = new File([blob], `segment_${Date.now()}.wav`, {
             type: "audio/wav",
         });
         const client = props.vircadiaWorld?.client;
-        if (!client) return;
+        if (!client) {
+            console.warn("[CloudAgent] No client available for STT");
+            return;
+        }
+        console.log(`[CloudAgent] Sending STT request...`);
         const resp = await client.restInference.stt({
             audio: file,
             language: String(props.agentLanguage || "en"),
             responseFormat: "json",
         });
+        console.log(`[CloudAgent] STT response:`, resp);
         if (resp?.success && resp.text) {
+            console.log(`[CloudAgent] STT success, text: "${resp.text}"`);
             addTranscript(peerId, resp.text);
             await submitToLlm(peerId, resp.text);
+        } else {
+            console.warn(`[CloudAgent] STT failed or no text in response:`, resp);
         }
     } catch (e) {
         console.warn("[CloudAgent] STT upload failed:", e);
@@ -866,6 +895,16 @@ function buildGatingGuidance(): string {
         stopGuidance
     );
 }
+function buildTimeOfDayGuidance(): string {
+    return `Time of Day Control: You can set the time of day in the scene by outputting these tokens:
+- ${LlmDirective.SetTimeDawn} - Set time to dawn (around 5 AM)
+- ${LlmDirective.SetTimeMorning} - Set time to morning (around 9 AM)
+- ${LlmDirective.SetTimeNoon} - Set time to noon (12 PM)
+- ${LlmDirective.SetTimeAfternoon} - Set time to afternoon (around 3 PM)
+- ${LlmDirective.SetTimeDusk} - Set time to dusk (around 7 PM)
+- ${LlmDirective.SetTimeNight} - Set time to night (around 11 PM)
+If the user asks to change the time of day or lighting (e.g., 'make it night', 'set to morning', 'change to dusk'), output the appropriate token.`;
+}
 function buildExtraKnowledgeBlock(): string {
     try {
         if (knowledgeBySource.size === 0) return "";
@@ -910,8 +949,9 @@ function buildLlmPromptFromHistory(history: string): string {
     const systemPrefix = `System: You are an in-world personal agent created by ${companyName.value}. Be concise and conversational. Answer only what was asked. Do not volunteer extra details unless directly relevant.`;
     const knowledge = buildExtraKnowledgeBlock();
     const gating = buildGatingGuidance();
+    const timeOfDay = buildTimeOfDayGuidance();
     const convo = history ? `Conversation:\n${history}\n` : "";
-    return `${systemPrefix}\n${knowledge ? knowledge + "\n" : ""}${gating}\n${convo}\nAssistant:`;
+    return `${systemPrefix}\n${knowledge ? knowledge + "\n" : ""}${gating}\n${timeOfDay}\n${convo}\nAssistant:`;
 }
 
 async function submitToLlm(

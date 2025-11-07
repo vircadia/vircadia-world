@@ -1308,9 +1308,17 @@ async function handleTranscript(
                 return `Guidance: A wake word may start the request ('${wake}'); rely on natural boundaries. If the request seems partial, output exactly ${LlmDirective.NoReply}.` + stopGuidance;
             return `Guidance: If input seems partial, output exactly ${LlmDirective.NoReply}. If sufficient follow up has been provided after you replied ${LlmDirective.NoReply} then reply with a response.` + stopGuidance;
         })();
+        const timeOfDayGuidance = `Time of Day Control: You can set the time of day in the scene by outputting these tokens:
+- ${LlmDirective.SetTimeDawn} - Set time to dawn (around 5 AM)
+- ${LlmDirective.SetTimeMorning} - Set time to morning (around 9 AM)
+- ${LlmDirective.SetTimeNoon} - Set time to noon (12 PM)
+- ${LlmDirective.SetTimeAfternoon} - Set time to afternoon (around 3 PM)
+- ${LlmDirective.SetTimeDusk} - Set time to dusk (around 7 PM)
+- ${LlmDirective.SetTimeNight} - Set time to night (around 11 PM)
+If the user asks to change the time of day or lighting (e.g., 'make it night', 'set to morning', 'change to dusk'), output the appropriate token.`;
         const systemPrefix =
             "System: You are an in-world assistant. Be concise and conversational. Answer only what was asked. Do not volunteer extra details unless directly relevant.";
-        const prompt = `${systemPrefix}\n${gatingInstruction}\n${history ? `Chat history:\n${history}\n` : ""}\nUser: ${text}\n\nAssistant:`;
+        const prompt = `${systemPrefix}\n${gatingInstruction}\n${timeOfDayGuidance}\n${history ? `Chat history:\n${history}\n` : ""}\nUser: ${text}\n\nAssistant:`;
         const reply: string = await generateWithLLM(prompt, {
             max_new_tokens: Number(props.agentLlmMaxNewTokens || 80),
             temperature: Number(props.agentLlmTemperature || 0.7),

@@ -5,6 +5,12 @@ import { z } from "zod";
 export enum LlmDirective {
     NoReply = "<no-reply/>",
     StoppedTalking = "<stopped-talking/>",
+    SetTimeMorning = "<set-time-morning/>",
+    SetTimeNoon = "<set-time-noon/>",
+    SetTimeAfternoon = "<set-time-afternoon/>",
+    SetTimeDusk = "<set-time-dusk/>",
+    SetTimeNight = "<set-time-night/>",
+    SetTimeDawn = "<set-time-dawn/>",
 }
 
 // Babylon.js environment interfaces

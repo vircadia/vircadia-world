@@ -4,7 +4,7 @@
     <!-- Engine Info Overlay -->
     <div v-if="readyScene" class="engine-info-overlay" aria-label="Engine info">
         <span class="engine-info-overlay__text">{{ engineTypeDisplay }} • Havok • {{ drawCalls }} calls • {{ vertexCount
-        }} verts • {{ currentFps }} FPS</span>
+            }} verts • {{ currentFps }} FPS</span>
     </div>
 
     <slot :scene="readyScene" :canvas="canvasRef">
@@ -250,6 +250,16 @@ onMounted(async () => {
             defaultCamera.attachControl(canvasRef.value, true);
         }
         scene.activeCamera = defaultCamera;
+
+        // Ensure all meshes receive lighting by default
+        // Watch for new meshes added to the scene and ensure they receive lighting
+        scene.onNewMeshAddedObservable.add((mesh) => {
+            // Ensure mesh layer mask allows it to receive lighting (default is 0xFFFFFFFF, but ensure it's set)
+            // Layer mask 0 means no layers, which would exclude from lighting
+            if (mesh.layerMask === 0) {
+                mesh.layerMask = 0xFFFFFFFF; // All layers - ensures mesh receives all lights
+            }
+        });
 
         // Sizing (only needed for visual engines)
         if (props.engineType !== "nullengine") {

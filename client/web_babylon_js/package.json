@@ -19,6 +19,7 @@
         "@babylonjs/inspector": "catalog:babylon",
         "@babylonjs/loaders": "catalog:babylon",
         "babylonjs-addons": "catalog:babylon",
+        "earcut": "catalog:babylon",
         "@huggingface/transformers": "catalog:ml",
         "@vircadia/world-sdk": "workspace:*",
         "@vueuse/core": "catalog:vue",
@@ -30,13 +31,15 @@
         "vue": "catalog:vue",
         "vue-router": "catalog:vue",
         "vuetify": "catalog:vue",
-        "zod": "catalog:"
+        "zod": "catalog:",
+        "simplex-noise": "catalog:babylon"
     },
     "devDependencies": {
         "@mdi/font": "catalog:ui",
         "@tsconfig/node22": "catalog:config",
         "@types/bun": "catalog:types",
         "@types/lodash-es": "catalog:types",
+        "@types/earcut": "catalog:types",
         "@vitejs/plugin-vue": "catalog:dev",
         "@vitejs/plugin-vue-jsx": "catalog:dev",
         "@vue/tsconfig": "catalog:config",

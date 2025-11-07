@@ -61,7 +61,7 @@
                                         :color="performanceMode === 'normal' ? 'success' : 'warning'">
                                         <v-icon>{{ performanceMode === 'normal' ? 'mdi-speedometer' :
                                             'mdi-speedometer-slow'
-                                            }}</v-icon>
+                                        }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="normalPerf">
@@ -96,7 +96,7 @@
                                     <v-btn v-bind="props" icon class="ml-2"
                                         :color="(avatarRef?.isFlying) ? 'success' : undefined">
                                         <v-icon>{{ (avatarRef?.isFlying) ? 'mdi-airplane' : 'mdi-walk'
-                                            }}</v-icon>
+                                        }}</v-icon>
                                     </v-btn>
                                 </template>
                                 <div key="fly">
@@ -134,7 +134,7 @@
                                             @click="inspectorRef?.toggleInspector()">
                                             <v-icon>{{ inspectorVisible ? 'mdi-file-tree' :
                                                 'mdi-file-tree-outline'
-                                                }}</v-icon>
+                                            }}</v-icon>
                                         </v-btn>
                                     </template>
                                     <span>Babylon Inspector (T)</span>
@@ -754,7 +754,7 @@ const physicsRef = ref<InstanceType<typeof BabylonPhysics> | null>(null);
 
 // Avatar definition is now provided locally instead of DB
 const avatarDefinition: AvatarDefinition = {
-    initialAvatarPosition: { x: 25, y: 3, z: -5 },
+    initialAvatarPosition: { x: 25, y: 4, z: -5 },
     initialAvatarRotation: { x: 0, y: 0, z: 0, w: 1 },
     modelFileName: "babylon.avatar.glb",
     meshPivotPoint: "bottom",

@@ -117,19 +117,6 @@ async function load(): Promise<void> {
             pluginExtension: ext,
         });
 
-        // Debug: report what we loaded
-        console.log("[AvatarAnimation] Loaded animation asset:", {
-            fileName: props.animation.fileName,
-            groups: result.animationGroups?.length || 0,
-            meshes: result.meshes?.length || 0,
-            skeletons: result.skeletons?.length || 0,
-            targetSkeletonName: (targetSkeletonRef.value as Skeleton | null)
-                ?.name,
-            targetBoneCount:
-                (targetSkeletonRef.value as Skeleton | null)?.bones?.length ||
-                0,
-        });
-
         // Retarget each animation group to the target skeleton's transform nodes/bones
         let selectedGroup: AnimationGroup | null = null;
         if (targetSkeletonRef.value) {
@@ -145,16 +132,6 @@ async function load(): Promise<void> {
                 const tn = b.getTransformNode();
                 if (tn) linkedNodeByName.set(tn.name, tn);
             }
-
-            // Log sample of names for debugging
-            console.log(
-                "[AvatarAnimation] Target skeleton names (first 10):",
-                Array.from(boneByName.keys()).slice(0, 10),
-            );
-            console.log(
-                "[AvatarAnimation] Target transform nodes (first 10):",
-                Array.from(linkedNodeByName.keys()).slice(0, 10),
-            );
 
             for (const sourceGroup of result.animationGroups) {
                 const cloned = sourceGroup.clone(
@@ -172,9 +149,6 @@ async function load(): Promise<void> {
                             lowerName === "rootnode" ||
                             lowerName === "armature"
                         ) {
-                            console.log(
-                                `[AvatarAnimation] Skipping root node: ${originalName}`,
-                            );
                             return null;
                         }
 
@@ -253,19 +227,6 @@ async function load(): Promise<void> {
                         } catch { }
                     }
                 }
-                // Debug each group mapping result
-                console.log("[AvatarAnimation] Group retargeted:", {
-                    sourceGroup: sourceGroup.name,
-                    targetedCount: cloned.targetedAnimations.length,
-                    sampleTargets: cloned.targetedAnimations
-                        .slice(0, 5)
-                        .map(
-                            (ta) =>
-                                (ta.target as { name?: string }).name ||
-                                ta.target?.constructor?.name ||
-                                "unknown",
-                        ),
-                });
 
                 if (cloned.targetedAnimations.length > 0 && !selectedGroup) {
                     selectedGroup = cloned;

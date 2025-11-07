@@ -1011,7 +1011,8 @@ async function submitToLlm(
                     cleanText,
                     thinking,
                 );
-                if (!processed || !processed.text.trim()) return;
+                if (!processed) return;
+
                 let finalText = processed.text;
                 for (const tap of assistantTaps) {
                     try {
@@ -1019,8 +1020,15 @@ async function submitToLlm(
                         if (typeof r === "string") finalText = r;
                     } catch { }
                 }
+
+                // For token replies, show the original text before stripping in the UI
+                const displayText = isTokenReply && !finalText.trim() ? cleanText : finalText;
+
                 // Add to conversation with token reply flag if any directive was found
-                addLlmOutput(finalText, processed.thinking, isTokenReply);
+                if (displayText.trim()) {
+                    addLlmOutput(displayText, processed.thinking, isTokenReply);
+                }
+
                 // Only do TTS if there's actual text to speak (ignore pure tokens)
                 if (finalText.trim() && props.agentEnableTts) {
                     ttsQueue.push(finalText);

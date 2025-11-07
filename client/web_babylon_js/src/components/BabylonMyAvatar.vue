@@ -1,4 +1,23 @@
 <template>
+    <!-- Entity sync slot - renderless component for entity synchronization -->
+    <slot name="entity" :avatar-node="avatarNode" :target-skeleton="avatarSkeleton" :model-file-name="modelFileName"
+        :avatar-definition="props.avatarDefinition" :onEntityDataLoaded="onEntityDataLoaded" />
+
+    <!-- Model slot - avatar model loading and animation components -->
+    <slot name="model" :avatar-node="avatarNode" :model-file-name="modelFileName" :mesh-pivot-point="meshPivotPoint"
+        :capsule-height="capsuleHeight" :on-set-avatar-model="onSetAvatarModel" :animations="animations"
+        :target-skeleton="avatarSkeleton" :on-animation-state="onAnimationState" />
+
+    <!-- Other avatars slot - other avatar discovery and rendering -->
+    <slot name="other-avatars" :scene="props.scene" :vircadia-world="vircadiaWorld" />
+
+    <!-- Agent slot - AI agent component -->
+    <slot name="agent" :scene="props.scene" :vircadia-world="vircadiaWorld" :avatar-node="avatarNode"
+        :physics-enabled="props.physicsEnabled" :physics-plugin-name="props.physicsPluginName" :gravity="props.gravity"
+        :follow-offset="([-0.5, 2.0, -0.5] as [number, number, number])" :max-speed="4.4" :is-talking="props.isTalking"
+        :talk-level="props.talkLevel" :talk-threshold="props.talkThreshold" />
+
+    <!-- Legacy default slot for backward compatibility -->
     <slot :avatar-skeleton="avatarSkeleton" :animations="animations" :vircadia-world="vircadiaWorld"
         :on-animation-state="onAnimationState" :avatar-node="avatarNode" :model-file-name="modelFileName"
         :mesh-pivot-point="meshPivotPoint" :capsule-height="capsuleHeight" :on-set-avatar-model="onSetAvatarModel"
@@ -926,6 +945,9 @@ let afterPhysicsObserver: Observer<Scene> | null = null;
 let rootMotionObserver: Observer<Scene> | null = null;
 
 onMounted(async () => {
+    // Initialize flying state from avatar definition
+    isFlying.value = effectiveAvatarDef.value.startFlying ?? false;
+
     // Ensure controller/node exist immediately, independent of DB metadata
     if (!avatarNode.value) {
         const p = effectiveAvatarDef.value.initialAvatarPosition;

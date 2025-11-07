@@ -26,6 +26,7 @@
                 "@babylonjs/loaders": "^8.36.0",
                 "@babylonjs/havok": "^1.3.10",
                 "@babylonjs/gui": "^8.36.0",
+                "@babylonjs/materials": "^8.36.0",
                 "babylonjs-addons": "^8.36.0",
                 "earcut": "^3.0.2",
                 "simplex-noise": "^4.0.3"

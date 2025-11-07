@@ -260,14 +260,15 @@
                                                                         :gravity="sceneGravity"
                                                                         :avatar-definition="avatarDefinition"
                                                                         ref="avatarRef">
+
+                                                                        <!-- Entity sync slot -->
                                                                         <template
-                                                                            #default="{ avatarSkeleton, animations, vircadiaWorld, onAnimationState, avatarNode, modelFileName, meshPivotPoint, capsuleHeight, onSetAvatarModel, airborne, verticalVelocity, supportState, physicsEnabled, hasTouchedGround, spawnSettling, groundProbeHit, groundProbeDistance, groundProbeMeshName, onEntityDataLoaded }">
-                                                                            <!-- Renderless entity sync component runs outside of model v-if so it can load DB definition -->
+                                                                            #entity="{ avatarNode, targetSkeleton, modelFileName, avatarDefinition, onEntityDataLoaded }">
                                                                             <BabylonMyAvatarEntity
                                                                                 :scene="providedScene"
                                                                                 :vircadia-world="vircadiaWorld"
                                                                                 :avatar-node="avatarNode as TransformNode | null"
-                                                                                :target-skeleton="(avatarSkeleton) || null"
+                                                                                :target-skeleton="targetSkeleton || null"
                                                                                 :camera="null"
                                                                                 :model-file-name="modelFileName || ''"
                                                                                 :avatar-definition="avatarDefinition"
@@ -293,6 +294,11 @@
                                                                                 :scale-update-decimals="3"
                                                                                 @entity-data-loaded="onEntityDataLoaded"
                                                                                 @sync-stats="onAvatarSyncStats" />
+                                                                        </template>
+
+                                                                        <!-- Model slot -->
+                                                                        <template
+                                                                            #model="{ avatarNode, modelFileName, meshPivotPoint, capsuleHeight, onSetAvatarModel, animations, targetSkeleton, onAnimationState }">
                                                                             <BabylonMyAvatarModel v-if="modelFileName"
                                                                                 :scene="providedScene"
                                                                                 :vircadia-world="vircadiaWorld"
@@ -339,27 +345,22 @@
                                                                                     @state="onAnimationState" />
 
                                                                             </BabylonMyAvatarModel>
+                                                                        </template>
 
-                                                                            <!-- (removed) syncing via hidden div; RightDrawer now reads via avatarRef -->
-                                                                            <!-- Camera debug overlay -->
-                                                                            <BabylonCameraDebugOverlay
-                                                                                v-model="cameraDebugOpen"
-                                                                                :scene="providedScene"
-                                                                                :avatar-node="(avatarNode as TransformNode | null)"
-                                                                                hotkey="Shift+N" />
-
-                                                                            <!-- EVE-like floating agent that follows the avatar -->
-                                                                            <VircadiaAgent :scene="providedScene"
+                                                                        <!-- Agent slot -->
+                                                                        <template
+                                                                            #agent="{ scene, vircadiaWorld, avatarNode, physicsEnabled, physicsPluginName, gravity, followOffset, maxSpeed, isTalking, talkLevel, talkThreshold }">
+                                                                            <VircadiaAgent :scene="scene"
                                                                                 :vircadia-world="vircadiaWorld"
                                                                                 :avatar-node="(avatarNode as TransformNode | null)"
-                                                                                :physics-enabled="envPhysicsEnabled"
-                                                                                :physics-plugin-name="envPhysicsPluginName"
-                                                                                :gravity="sceneGravity"
-                                                                                :follow-offset="[-0.5, 2.0, -0.5]"
-                                                                                :max-speed="4.4"
-                                                                                :is-talking="ttsTalking"
-                                                                                :talk-level="ttsLevel"
-                                                                                :talk-threshold="ttsThreshold"
+                                                                                :physics-enabled="physicsEnabled"
+                                                                                :physics-plugin-name="physicsPluginName"
+                                                                                :gravity="gravity"
+                                                                                :follow-offset="(followOffset as [number, number, number])"
+                                                                                :max-speed="maxSpeed"
+                                                                                :is-talking="isTalking"
+                                                                                :talk-level="talkLevel"
+                                                                                :talk-threshold="talkThreshold"
                                                                                 :agent-stt-enabled="agentCapabilities.stt"
                                                                                 :agent-tts-enabled="agentCapabilities.tts"
                                                                                 :agent-llm-enabled="agentCapabilities.llm"
@@ -367,47 +368,52 @@
                                                                                 :agent-tts-working="agentTtsWorking"
                                                                                 :agent-llm-working="agentLlmWorking" />
                                                                         </template>
+
+                                                                        <!-- Other avatars slot -->
+                                                                        <template
+                                                                            #other-avatars="{ scene, vircadiaWorld }">
+                                                                            <BabylonOtherAvatars :scene="scene"
+                                                                                :vircadia-world="vircadiaWorld"
+                                                                                :discovery-polling-interval="500"
+                                                                                :reflect-sync-group="'public.REALTIME'"
+                                                                                :entity-sync-group="'public.NORMAL'"
+                                                                                :reflect-channel="'avatar_data'"
+                                                                                ref="otherAvatarsRef"
+                                                                                v-slot="{ otherAvatarSessionIds, avatarDataMap, positionDataMap, rotationDataMap, jointDataMap }">
+                                                                                <BabylonOtherAvatar
+                                                                                    v-for="otherFullSessionId in otherAvatarSessionIds || []"
+                                                                                    :key="otherFullSessionId"
+                                                                                    :scene="scene"
+                                                                                    :vircadia-world="vircadiaWorld"
+                                                                                    :session-id="otherFullSessionId"
+                                                                                    :avatar-data="avatarDataMap?.[otherFullSessionId]"
+                                                                                    :position-data="positionDataMap?.[otherFullSessionId]"
+                                                                                    :rotation-data="rotationDataMap?.[otherFullSessionId]"
+                                                                                    :joint-data="jointDataMap?.[otherFullSessionId]"
+                                                                                    @ready="otherAvatarsRef?.markLoaded && otherAvatarsRef.markLoaded(otherFullSessionId)"
+                                                                                    @dispose="otherAvatarsRef?.markDisposed && otherAvatarsRef.markDisposed(otherFullSessionId)" />
+
+                                                                                <!-- WebRTC component (now under OtherAvatars slot) -->
+                                                                                <BabylonWebRTC ref="webrtcRef"
+                                                                                    v-model="showWebRTCControls"
+                                                                                    :client="vircadiaWorld"
+                                                                                    :avatar-data="new Map(Object.entries((avatarDataMap as Record<string, AvatarBaseData>) || {}))"
+                                                                                    :avatar-positions="new Map(Object.entries((positionDataMap as Record<string, AvatarPositionData>) || {}))"
+                                                                                    :my-position="null"
+                                                                                    :my-camera-orientation="null"
+                                                                                    :webrtc-sync-group="'public.NORMAL'"
+                                                                                    @permissions="onWebRTCPermissions($event)"
+                                                                                    v-model:local-audio-stream="webrtcLocalStream"
+                                                                                    v-model:peers-map="webrtcPeersMap"
+                                                                                    v-model:remote-streams-map="webrtcRemoteStreamsMap"
+                                                                                    :headless-uplink="isAutonomousAgent"
+                                                                                    :injected-local-stream="micStream" />
+
+                                                                            </BabylonOtherAvatars>
+                                                                        </template>
+
                                                                     </BabylonMyAvatar>
                                                                 </BabylonMyAvatarMKBController>
-
-                                                                <!-- Other avatars wrapper -->
-                                                                <BabylonOtherAvatars :scene="providedScene"
-                                                                    :vircadia-world="vircadiaWorld"
-                                                                    :discovery-polling-interval="500"
-                                                                    :reflect-sync-group="'public.REALTIME'"
-                                                                    :entity-sync-group="'public.NORMAL'"
-                                                                    :reflect-channel="'avatar_data'"
-                                                                    ref="otherAvatarsRef"
-                                                                    v-slot="{ otherAvatarSessionIds, avatarDataMap, positionDataMap, rotationDataMap, jointDataMap }">
-                                                                    <BabylonOtherAvatar
-                                                                        v-for="otherFullSessionId in otherAvatarSessionIds || []"
-                                                                        :key="otherFullSessionId" :scene="providedScene"
-                                                                        :vircadia-world="vircadiaWorld"
-                                                                        :session-id="otherFullSessionId"
-                                                                        :avatar-data="avatarDataMap?.[otherFullSessionId]"
-                                                                        :position-data="positionDataMap?.[otherFullSessionId]"
-                                                                        :rotation-data="rotationDataMap?.[otherFullSessionId]"
-                                                                        :joint-data="jointDataMap?.[otherFullSessionId]"
-                                                                        @ready="otherAvatarsRef?.markLoaded && otherAvatarsRef.markLoaded(otherFullSessionId)"
-                                                                        @dispose="otherAvatarsRef?.markDisposed && otherAvatarsRef.markDisposed(otherFullSessionId)" />
-
-                                                                    <!-- WebRTC component (now under OtherAvatars slot) -->
-                                                                    <BabylonWebRTC ref="webrtcRef"
-                                                                        v-model="showWebRTCControls"
-                                                                        :client="vircadiaWorld"
-                                                                        :avatar-data="new Map(Object.entries((avatarDataMap as Record<string, AvatarBaseData>) || {}))"
-                                                                        :avatar-positions="new Map(Object.entries((positionDataMap as Record<string, AvatarPositionData>) || {}))"
-                                                                        :my-position="null"
-                                                                        :my-camera-orientation="null"
-                                                                        :webrtc-sync-group="'public.NORMAL'"
-                                                                        @permissions="onWebRTCPermissions($event)"
-                                                                        v-model:local-audio-stream="webrtcLocalStream"
-                                                                        v-model:peers-map="webrtcPeersMap"
-                                                                        v-model:remote-streams-map="webrtcRemoteStreamsMap"
-                                                                        :headless-uplink="isAutonomousAgent"
-                                                                        :injected-local-stream="micStream" />
-
-                                                                </BabylonOtherAvatars>
 
                                                                 <!-- BabylonModel components provided by DB-scanned list -->
                                                                 <!-- <BabylonModels :vircadia-world="vircadiaWorld" v-slot="{ models }">
@@ -467,7 +473,6 @@ import {
     ref,
     watch,
 } from "vue";
-import BabylonCameraDebugOverlay from "@/components/BabylonCameraDebugOverlay.vue";
 import BabylonCanvas from "@/components/BabylonCanvas.vue";
 import BabylonInspector from "@/components/BabylonInspector.vue";
 import BabylonMic from "@/components/BabylonMic.vue";
@@ -754,7 +759,7 @@ const physicsRef = ref<InstanceType<typeof BabylonPhysics> | null>(null);
 
 // Avatar definition is now provided locally instead of DB
 const avatarDefinition: AvatarDefinition = {
-    initialAvatarPosition: { x: 25, y: 4, z: -5 },
+    initialAvatarPosition: { x: 25, y: 3.5, z: -5 },
     initialAvatarRotation: { x: 0, y: 0, z: 0, w: 1 },
     modelFileName: "babylon.avatar.glb",
     meshPivotPoint: "bottom",

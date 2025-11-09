@@ -35,18 +35,27 @@ type EndpointMetrics = {
 type EndpointStats = { [endpoint: string]: EndpointMetrics };
 
 // Tick metrics exposed per sync group
+type TickComponentMetrics = {
+    messagesPerTick: { average: number; p99: number; p999: number };
+    bytesPerTickKB: { averageKB: number; p99KB: number; p999KB: number };
+    deliveredPerTick: { average: number; p99: number; p999: number };
+    totalMessages: number;
+    totalBytes: number;
+    totalDelivered: number;
+};
+
 type TickMetrics = {
     [syncGroup: string]: {
         ticksPerSecond: { current: number; average: number; peak: number };
         durationMs: { averageMs: number; p99Ms: number; p999Ms: number };
-        messagesPerTick: { average: number; p99: number; p999: number };
-        bytesPerTickKB: { averageKB: number; p99KB: number; p999KB: number };
-        deliveredPerTick: { average: number; p99: number; p999: number };
         totalTicks: number;
         overruns: number;
         overrunRate: number;
         lastDurationMs: number;
         recentDurationsMs: number[];
+        reflect: TickComponentMetrics;
+        entities: TickComponentMetrics;
+        metadata: TickComponentMetrics;
     };
 };
 
@@ -108,11 +117,8 @@ export class MetricsCollector {
     private endpointTotalRequestSizes: Map<string, number> = new Map();
     private endpointTotalResponseSizes: Map<string, number> = new Map();
 
-    // Tick (reflect flush) metrics per sync group
+    // Tick (consolidated flush) metrics per sync group
     private tickDurations: Map<string, number[]> = new Map();
-    private tickMessageCounts: Map<string, number[]> = new Map();
-    private tickDeliveredCounts: Map<string, number[]> = new Map();
-    private tickBytes: Map<string, number[]> = new Map();
     private tickCounts: Map<string, number> = new Map();
     private tickOverruns: Map<string, number> = new Map();
     private tickLastDuration: Map<string, number> = new Map();
@@ -120,6 +126,17 @@ export class MetricsCollector {
     private tickCountsThisSecond: Map<string, number> = new Map();
     private tickLastSecond: Map<string, number> = new Map();
     private tickPeakPerSecond: Map<string, number> = new Map();
+
+    // Component-specific metrics per sync group
+    private tickReflectMessageCounts: Map<string, number[]> = new Map();
+    private tickReflectDeliveredCounts: Map<string, number[]> = new Map();
+    private tickReflectBytes: Map<string, number[]> = new Map();
+    private tickEntityMessageCounts: Map<string, number[]> = new Map();
+    private tickEntityDeliveredCounts: Map<string, number[]> = new Map();
+    private tickEntityBytes: Map<string, number[]> = new Map();
+    private tickMetadataMessageCounts: Map<string, number[]> = new Map();
+    private tickMetadataDeliveredCounts: Map<string, number[]> = new Map();
+    private tickMetadataBytes: Map<string, number[]> = new Map();
 
     // Activity tracking (pushers/subscribers) over a sliding time window
     private readonly MAX_ACTIVITY_WINDOW_SEC = 300; // cap at last 5 minutes
@@ -424,13 +441,19 @@ export class MetricsCollector {
         responseSizes.push(responseSizeBytes);
     }
 
-    // ========================= Tick (Reflect Flush) =========================
+    // ========================= Tick (Consolidated Flush) =========================
     recordTick(
         syncGroup: string,
         durationMs: number,
-        totalMessages: number,
-        totalBytes: number,
-        deliveredCount: number,
+        reflectMessages: number,
+        reflectBytes: number,
+        reflectDelivered: number,
+        entityMessages: number,
+        entityBytes: number,
+        entityDelivered: number,
+        metadataMessages: number,
+        metadataBytes: number,
+        metadataDelivered: number,
         configuredRateMs: number,
     ) {
         const nowSecond = Math.floor(Date.now() / 1000);
@@ -454,19 +477,37 @@ export class MetricsCollector {
         };
 
         const durations = initArray(this.tickDurations, syncGroup);
-        const msgs = initArray(this.tickMessageCounts, syncGroup);
-        const bytes = initArray(this.tickBytes, syncGroup);
-        const delivered = initArray(this.tickDeliveredCounts, syncGroup);
+        const reflectMsgsArr = initArray(this.tickReflectMessageCounts, syncGroup);
+        const reflectBytesArr = initArray(this.tickReflectBytes, syncGroup);
+        const reflectDeliveredArr = initArray(this.tickReflectDeliveredCounts, syncGroup);
+        const entityMsgsArr = initArray(this.tickEntityMessageCounts, syncGroup);
+        const entityBytesArr = initArray(this.tickEntityBytes, syncGroup);
+        const entityDeliveredArr = initArray(this.tickEntityDeliveredCounts, syncGroup);
+        const metadataMsgsArr = initArray(this.tickMetadataMessageCounts, syncGroup);
+        const metadataBytesArr = initArray(this.tickMetadataBytes, syncGroup);
+        const metadataDeliveredArr = initArray(this.tickMetadataDeliveredCounts, syncGroup);
 
         if (durations.length >= this.MAX_SAMPLES) durations.shift();
-        if (msgs.length >= this.MAX_SAMPLES) msgs.shift();
-        if (bytes.length >= this.MAX_SAMPLES) bytes.shift();
-        if (delivered.length >= this.MAX_SAMPLES) delivered.shift();
+        if (reflectMsgsArr.length >= this.MAX_SAMPLES) reflectMsgsArr.shift();
+        if (reflectBytesArr.length >= this.MAX_SAMPLES) reflectBytesArr.shift();
+        if (reflectDeliveredArr.length >= this.MAX_SAMPLES) reflectDeliveredArr.shift();
+        if (entityMsgsArr.length >= this.MAX_SAMPLES) entityMsgsArr.shift();
+        if (entityBytesArr.length >= this.MAX_SAMPLES) entityBytesArr.shift();
+        if (entityDeliveredArr.length >= this.MAX_SAMPLES) entityDeliveredArr.shift();
+        if (metadataMsgsArr.length >= this.MAX_SAMPLES) metadataMsgsArr.shift();
+        if (metadataBytesArr.length >= this.MAX_SAMPLES) metadataBytesArr.shift();
+        if (metadataDeliveredArr.length >= this.MAX_SAMPLES) metadataDeliveredArr.shift();
 
         durations.push(durationMs);
-        msgs.push(totalMessages);
-        bytes.push(totalBytes);
-        delivered.push(deliveredCount);
+        reflectMsgsArr.push(reflectMessages);
+        reflectBytesArr.push(reflectBytes);
+        reflectDeliveredArr.push(reflectDelivered);
+        entityMsgsArr.push(entityMessages);
+        entityBytesArr.push(entityBytes);
+        entityDeliveredArr.push(entityDelivered);
+        metadataMsgsArr.push(metadataMessages);
+        metadataBytesArr.push(metadataBytes);
+        metadataDeliveredArr.push(metadataDelivered);
 
         this.tickCounts.set(syncGroup, (this.tickCounts.get(syncGroup) || 0) + 1);
         if (configuredRateMs > 0 && durationMs > configuredRateMs) {
@@ -491,9 +532,6 @@ export class MetricsCollector {
 
         for (const group of groups) {
             const durations = this.tickDurations.get(group) || [];
-            const msgs = this.tickMessageCounts.get(group) || [];
-            const bytes = this.tickBytes.get(group) || [];
-            const delivered = this.tickDeliveredCounts.get(group) || [];
             const totalTicks = this.tickCounts.get(group) || 0;
             const overruns = this.tickOverruns.get(group) || 0;
             const last = this.tickLastDuration.get(group) || 0;
@@ -502,6 +540,49 @@ export class MetricsCollector {
             const averagePerSecond = totalTicks > 0 && uptimeSeconds > 0 ? totalTicks / uptimeSeconds : 0;
 
             const avg = (arr: number[]) => (arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
+
+            // Helper to create component metrics
+            const createComponentMetrics = (
+                msgs: number[],
+                bytes: number[],
+                delivered: number[]
+            ): TickComponentMetrics => {
+                const totalMsgs = msgs.reduce((a, b) => a + b, 0);
+                const totalBytes = bytes.reduce((a, b) => a + b, 0);
+                const totalDelivered = delivered.reduce((a, b) => a + b, 0);
+
+                return {
+                    messagesPerTick: {
+                        average: avg(msgs),
+                        p99: percentile(msgs, 99),
+                        p999: percentile(msgs, 99.9),
+                    },
+                    bytesPerTickKB: {
+                        averageKB: avg(bytes) / 1024,
+                        p99KB: percentile(bytes, 99) / 1024,
+                        p999KB: percentile(bytes, 99.9) / 1024,
+                    },
+                    deliveredPerTick: {
+                        average: avg(delivered),
+                        p99: percentile(delivered, 99),
+                        p999: percentile(delivered, 99.9),
+                    },
+                    totalMessages: totalMsgs,
+                    totalBytes: totalBytes,
+                    totalDelivered: totalDelivered,
+                };
+            };
+
+            // Get component metrics
+            const reflectMsgsArr = this.tickReflectMessageCounts.get(group) || [];
+            const reflectBytesArr = this.tickReflectBytes.get(group) || [];
+            const reflectDeliveredArr = this.tickReflectDeliveredCounts.get(group) || [];
+            const entityMsgsArr = this.tickEntityMessageCounts.get(group) || [];
+            const entityBytesArr = this.tickEntityBytes.get(group) || [];
+            const entityDeliveredArr = this.tickEntityDeliveredCounts.get(group) || [];
+            const metadataMsgsArr = this.tickMetadataMessageCounts.get(group) || [];
+            const metadataBytesArr = this.tickMetadataBytes.get(group) || [];
+            const metadataDeliveredArr = this.tickMetadataDeliveredCounts.get(group) || [];
 
             result[group] = {
                 ticksPerSecond: {
@@ -514,26 +595,14 @@ export class MetricsCollector {
                     p99Ms: percentile(durations, 99),
                     p999Ms: percentile(durations, 99.9),
                 },
-                messagesPerTick: {
-                    average: avg(msgs),
-                    p99: percentile(msgs, 99),
-                    p999: percentile(msgs, 99.9),
-                },
-                bytesPerTickKB: {
-                    averageKB: avg(bytes) / 1024,
-                    p99KB: percentile(bytes, 99) / 1024,
-                    p999KB: percentile(bytes, 99.9) / 1024,
-                },
-                deliveredPerTick: {
-                    average: avg(delivered),
-                    p99: percentile(delivered, 99),
-                    p999: percentile(delivered, 99.9),
-                },
                 totalTicks,
                 overruns,
                 overrunRate: totalTicks > 0 ? (overruns / totalTicks) * 100 : 0,
                 lastDurationMs: last,
                 recentDurationsMs: durations.slice(-20),
+                reflect: createComponentMetrics(reflectMsgsArr, reflectBytesArr, reflectDeliveredArr),
+                entities: createComponentMetrics(entityMsgsArr, entityBytesArr, entityDeliveredArr),
+                metadata: createComponentMetrics(metadataMsgsArr, metadataBytesArr, metadataDeliveredArr),
             };
         }
 
@@ -800,9 +869,6 @@ export class MetricsCollector {
 
         // Reset tick metrics
         this.tickDurations.clear();
-        this.tickMessageCounts.clear();
-        this.tickDeliveredCounts.clear();
-        this.tickBytes.clear();
         this.tickCounts.clear();
         this.tickOverruns.clear();
         this.tickLastDuration.clear();
@@ -810,5 +876,16 @@ export class MetricsCollector {
         this.tickCountsThisSecond.clear();
         this.tickLastSecond.clear();
         this.tickPeakPerSecond.clear();
+
+        // Reset component-specific metrics
+        this.tickReflectMessageCounts.clear();
+        this.tickReflectDeliveredCounts.clear();
+        this.tickReflectBytes.clear();
+        this.tickEntityMessageCounts.clear();
+        this.tickEntityDeliveredCounts.clear();
+        this.tickEntityBytes.clear();
+        this.tickMetadataMessageCounts.clear();
+        this.tickMetadataDeliveredCounts.clear();
+        this.tickMetadataBytes.clear();
     }
 }

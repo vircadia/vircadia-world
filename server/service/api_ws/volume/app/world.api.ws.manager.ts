@@ -91,6 +91,18 @@ export class WorldApiWsManager {
         string,
         Map<string, Map<string, ReflectQueuedItem>>
     > = new Map();
+
+    // Entity tick-gated delivery queue: syncGroup -> entityName -> queued entity notifications
+    private entityQueues: Map<
+        string,
+        Map<string, EntityNotificationPayload[]>
+    > = new Map();
+
+    // Entity metadata tick-gated delivery queue: syncGroup -> entityName -> metadataKey -> queued metadata notifications
+    private entityMetadataQueues: Map<
+        string,
+        Map<string, Map<string, EntityNotificationPayload[]>>
+    > = new Map();
     private reflectIntervals: Map<string, Timer> = new Map();
     private reflectTickRateMs: Map<string, number> = new Map();
     private sessionSubscriptions: Map<string, SessionSubscriptions> = new Map();
@@ -136,24 +148,29 @@ export class WorldApiWsManager {
         });
     }
 
-    private async flushReflectQueue(syncGroup: string) {
+    private async flushTickQueues(syncGroup: string) {
         const groupMap = this.reflectQueues.get(syncGroup);
         if (!groupMap) {
             return;
         }
 
         const startTime = performance.now();
-        let deliveredCount = 0;
-        let totalMessages = 0;
-        let totalRequestBytes = 0;
+        let reflectDeliveredCount = 0;
+        let reflectMessages = 0;
+        let reflectBytes = 0;
+        let entityDeliveredCount = 0;
+        let entityMessages = 0;
+        let entityBytes = 0;
+        let metadataDeliveredCount = 0;
+        let metadataMessages = 0;
+        let metadataBytes = 0;
 
         for (const [channel, channelMap] of groupMap) {
             for (const [fromSessionId, queuedItem] of channelMap) {
                 const payloadJson = queuedItem.payloadJson;
-                totalMessages++;
-                totalRequestBytes += new TextEncoder().encode(
-                    payloadJson,
-                ).length;
+                reflectMessages++;
+                const messageBytes = new TextEncoder().encode(payloadJson).length;
+                reflectBytes += messageBytes;
                 const perMessageStart = performance.now();
                 let deliveredForMessage = 0;
                 // Deliver to all sessions that can read the sync group
@@ -163,7 +180,7 @@ export class WorldApiWsManager {
                             (s.ws as ServerWebSocket<WebSocketData>).send(
                                 payloadJson,
                             );
-                            deliveredCount++;
+                            reflectDeliveredCount++;
                             deliveredForMessage++;
                             // Record subscriber activity for this delivery
                             this.metricsCollector.recordSubscriberDelivery(
@@ -179,7 +196,7 @@ export class WorldApiWsManager {
                 // Record reflect metrics per message
                 this.metricsCollector.recordReflect(
                     performance.now() - perMessageStart,
-                    new TextEncoder().encode(payloadJson).length,
+                    messageBytes,
                     deliveredForMessage,
                     !!queuedItem.ack,
                 );
@@ -217,16 +234,54 @@ export class WorldApiWsManager {
             }
         }
 
-        // Clear the group queue after flush
+        // Process entity and entity metadata queues for this tick
+        const entityGroupMap = this.entityQueues.get(syncGroup);
+        const metadataGroupMap = this.entityMetadataQueues.get(syncGroup);
+
+        // Process entity notifications
+        if (entityGroupMap) {
+            for (const [entityName, notifications] of entityGroupMap) {
+                for (const notification of notifications) {
+                    const perMessageStart = performance.now();
+                    const delivered = this.deliverEntityChange(notification);
+                    const messageSize = JSON.stringify(notification).length;
+                    entityMessages++;
+                    entityBytes += messageSize;
+                    entityDeliveredCount += delivered;
+                    // Note: Individual entity message metrics could be added here if needed
+                }
+            }
+        }
+
+        // Process entity metadata notifications
+        if (metadataGroupMap) {
+            for (const [entityName, metadataMap] of metadataGroupMap) {
+                for (const [metadataKey, notifications] of metadataMap) {
+                    for (const notification of notifications) {
+                        const perMessageStart = performance.now();
+                        const delivered = await this.deliverEntityMetadataChange(notification);
+                        const messageSize = JSON.stringify(notification).length;
+                        metadataMessages++;
+                        metadataBytes += messageSize;
+                        metadataDeliveredCount += delivered;
+                        // Note: Individual metadata message metrics could be added here if needed
+                    }
+                }
+            }
+        }
+
+        // Clear all queues after flush
         this.reflectQueues.delete(syncGroup);
+        this.entityQueues.delete(syncGroup);
+        this.entityMetadataQueues.delete(syncGroup);
 
         // Notify that a reflect tick has been flushed (WS sends tick notification)
         if (superUserSql) {
             try {
                 const payload = JSON.stringify({
                     syncGroup,
-                    totalMessages,
-                    deliveredCount,
+                    totalMessages: reflectMessages + entityMessages + metadataMessages,
+                    deliveredCount: reflectDeliveredCount + entityDeliveredCount + metadataDeliveredCount,
                     durationMs: performance.now() - startTime,
                     timestamp: Date.now(),
                 });
@@ -240,22 +295,30 @@ export class WorldApiWsManager {
         const flushDuration = performance.now() - startTime;
         const rate = this.reflectTickRateMs.get(syncGroup) || 0;
         const success = rate === 0 ? true : flushDuration <= rate;
+        const totalBytes = reflectBytes + entityBytes + metadataBytes;
         this.recordEndpointMetrics(
             "WS_REFLECT_FLUSH",
             startTime,
-            totalRequestBytes,
+            totalBytes,
             0,
             success,
         );
         this.metricsCollector.recordTick(
             syncGroup,
             flushDuration,
-            totalMessages,
-            totalRequestBytes,
-            deliveredCount,
+            reflectMessages,
+            reflectBytes,
+            reflectDeliveredCount,
+            entityMessages,
+            entityBytes,
+            entityDeliveredCount,
+            metadataMessages,
+            metadataBytes,
+            metadataDeliveredCount,
             rate,
         );
     }
+
 
     private async startReflectTickLoops() {
         if (!superUserSql) {
@@ -282,7 +345,7 @@ export class WorldApiWsManager {
                 if (this.reflectIntervals.has(syncGroup)) continue;
                 this.reflectTickRateMs.set(syncGroup, rate);
                 const ticker = setInterval(() => {
-                    this.flushReflectQueue(syncGroup).catch(() => {});
+                    this.flushTickQueues(syncGroup).catch(() => {});
                 }, rate);
                 this.reflectIntervals.set(syncGroup, ticker);
             }
@@ -455,8 +518,8 @@ export class WorldApiWsManager {
             resource,
             operation:
                 typeof payloadObj.operation === "string"
-                    ? payloadObj.operation
-                    : "",
+                    ? (payloadObj.operation as Communication.WebSocket.DatabaseOperation)
+                    : Communication.WebSocket.DatabaseOperation.INSERT,
             entityName,
             metadataKey:
                 typeof payloadObj.metadataKey === "string"
@@ -468,16 +531,71 @@ export class WorldApiWsManager {
         };
 
         if (resource === "entity") {
-            this.deliverEntityChange(notification);
+            this.queueEntityChange(notification);
         } else {
-            void this.deliverEntityMetadataChange(notification);
+            this.queueEntityMetadataChange(notification);
         }
     }
 
-    private deliverEntityChange(payload: EntityNotificationPayload) {
+    private queueEntityChange(payload: EntityNotificationPayload) {
         if (!payload.entityName) {
             return;
         }
+
+        // Get or create sync group map
+        let syncGroupMap = this.entityQueues.get(payload.syncGroup);
+        if (!syncGroupMap) {
+            syncGroupMap = new Map();
+            this.entityQueues.set(payload.syncGroup, syncGroupMap);
+        }
+
+        // Get or create entity notifications array
+        let notifications = syncGroupMap.get(payload.entityName);
+        if (!notifications) {
+            notifications = [];
+            syncGroupMap.set(payload.entityName, notifications);
+        }
+
+        // Add notification to queue
+        notifications.push(payload);
+    }
+
+    private queueEntityMetadataChange(payload: EntityNotificationPayload) {
+        if (!payload.entityName || !payload.metadataKey) {
+            return;
+        }
+
+        // Get or create sync group map
+        let syncGroupMap = this.entityMetadataQueues.get(payload.syncGroup);
+        if (!syncGroupMap) {
+            syncGroupMap = new Map();
+            this.entityMetadataQueues.set(payload.syncGroup, syncGroupMap);
+        }
+
+        // Get or create entity map
+        let entityMap = syncGroupMap.get(payload.entityName);
+        if (!entityMap) {
+            entityMap = new Map();
+            syncGroupMap.set(payload.entityName, entityMap);
+        }
+
+        // Get or create metadata key notifications array
+        let notifications = entityMap.get(payload.metadataKey);
+        if (!notifications) {
+            notifications = [];
+            entityMap.set(payload.metadataKey, notifications);
+        }
+
+        // Add notification to queue
+        notifications.push(payload);
+    }
+
+    private deliverEntityChange(payload: EntityNotificationPayload): number {
+        if (!payload.entityName) {
+            return 0;
+        }
+
+        let deliveredCount = 0;
 
         for (const [sessionId, subscriptions] of this.sessionSubscriptions) {
             const session = this.activeSessions.get(sessionId);
@@ -514,18 +632,23 @@ export class WorldApiWsManager {
                 (session.ws as ServerWebSocket<WebSocketData>).send(
                     JSON.stringify(parsed.data),
                 );
+                deliveredCount++;
             } catch {
                 // ignore send errors per recipient
             }
         }
+
+        return deliveredCount;
     }
 
     private async deliverEntityMetadataChange(
         payload: EntityNotificationPayload,
-    ) {
+    ): Promise<number> {
         if (!payload.entityName || !payload.metadataKey) {
-            return;
+            return 0;
         }
+
+        let deliveredCount = 0;
 
         // For INSERT/UPDATE operations, fetch the full metadata value from the database
         // to avoid payload size limits in pg_notify
@@ -642,10 +765,13 @@ export class WorldApiWsManager {
                 (session.ws as ServerWebSocket<WebSocketData>).send(
                     JSON.stringify(parsed.data),
                 );
+                deliveredCount++;
             } catch {
                 // ignore send errors per recipient
             }
         }
+
+        return deliveredCount;
     }
 
     // Helper method to record endpoint metrics

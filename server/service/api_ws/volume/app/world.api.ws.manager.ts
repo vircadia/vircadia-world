@@ -61,10 +61,6 @@ interface EntityNotificationPayload {
     previous?: unknown;
 }
 
-interface SessionSubscriptions {
-    // Map of entityName -> Set of subscribed channels (empty set means "all channels")
-    channels: Map<string, Set<string>>;
-}
 
 export class WorldApiWsManager {
     private server: Server<WebSocketData> | undefined;
@@ -101,72 +97,43 @@ export class WorldApiWsManager {
     > = new Map();
     private reflectIntervals: Map<string, Timer> = new Map();
     private reflectTickRateMs: Map<string, number> = new Map();
-    private sessionSubscriptions: Map<string, SessionSubscriptions> = new Map();
     private entityNotificationUnsubscribers: Array<() => Promise<void> | void> =
         [];
     private entityListenersInitialized = false;
-    private sessionReflectGroups: Map<string, Set<string>> = new Map();
-    private reflectSubscribersByGroup: Map<string, Set<string>> = new Map();
     private unregisterAclWarmCallback: (() => void) | null = null;
     private readonly REFLECT_TOPIC_PREFIX = "reflect:";
+    private readonly ENTITY_TOPIC_PREFIX = "entity:";
+    private readonly METADATA_TOPIC_PREFIX = "metadata:";
 
-    private getOrCreateSessionSubscriptions(
-        sessionId: string,
-    ): SessionSubscriptions {
-        let subs = this.sessionSubscriptions.get(sessionId);
-        if (!subs) {
-            subs = {
-                channels: new Map(),
-            };
-            this.sessionSubscriptions.set(sessionId, subs);
+
+    private getReflectTopic(syncGroup: string, channel?: string | null): string {
+        if (channel === null || channel === undefined) {
+            return `${this.REFLECT_TOPIC_PREFIX}${syncGroup}:*`;
         }
-        return subs;
+        return `${this.REFLECT_TOPIC_PREFIX}${syncGroup}:${channel}`;
     }
 
-    private getReflectTopic(syncGroup: string): string {
-        return `${this.REFLECT_TOPIC_PREFIX}${syncGroup}`;
-    }
-
-    private addSessionToReflectGroup(syncGroup: string, sessionId: string) {
-        let set = this.reflectSubscribersByGroup.get(syncGroup);
-        if (!set) {
-            set = new Set();
-            this.reflectSubscribersByGroup.set(syncGroup, set);
-        }
-        set.add(sessionId);
-    }
-
-    private removeSessionFromReflectGroup(
+    private getEntityTopic(
         syncGroup: string,
-        sessionId: string,
-    ) {
-        const set = this.reflectSubscribersByGroup.get(syncGroup);
-        if (!set) {
-            return;
+        entityName: string,
+        channel?: string | null,
+    ): string {
+        if (channel === null || channel === undefined) {
+            return `${this.ENTITY_TOPIC_PREFIX}${syncGroup}:${entityName}:*`;
         }
-        set.delete(sessionId);
-        if (set.size === 0) {
-            this.reflectSubscribersByGroup.delete(syncGroup);
-        }
+        return `${this.ENTITY_TOPIC_PREFIX}${syncGroup}:${entityName}:${channel}`;
     }
 
-    private removeSessionReflectSubscriptions(sessionId: string) {
-        const groups = this.sessionReflectGroups.get(sessionId);
-        if (!groups) {
-            return;
+    private getMetadataTopic(
+        syncGroup: string,
+        entityName: string,
+        metadataKey: string,
+        channel?: string | null,
+    ): string {
+        if (channel === null || channel === undefined) {
+            return `${this.METADATA_TOPIC_PREFIX}${syncGroup}:${entityName}:${metadataKey}:*`;
         }
-        for (const group of groups) {
-            this.removeSessionFromReflectGroup(group, sessionId);
-        }
-        this.sessionReflectGroups.delete(sessionId);
-    }
-
-    private syncReflectSubscriptionsForAgent(agentId: string) {
-        for (const session of this.activeSessions.values()) {
-            if (session.agentId === agentId) {
-                this.syncReflectSubscriptionsForSession(session);
-            }
-        }
+        return `${this.METADATA_TOPIC_PREFIX}${syncGroup}:${entityName}:${metadataKey}:${channel}`;
     }
 
     private syncReflectSubscriptionsForSession(
@@ -175,10 +142,7 @@ export class WorldApiWsManager {
         if (!this.aclService) {
             return;
         }
-        const ws = session.ws as unknown as ServerWebSocket<WebSocketData> & {
-            subscribe?: (topic: string) => void;
-            unsubscribe?: (topic: string) => void;
-        };
+        const ws = session.ws as ServerWebSocket<WebSocketData>;
         if (typeof ws.subscribe !== "function") {
             return;
         }
@@ -191,45 +155,36 @@ export class WorldApiWsManager {
             requestedGroups.add(group);
         }
 
-        const previousGroups = this.sessionReflectGroups.get(session.sessionId);
-        const previousGroupSet = previousGroups
-            ? new Set(previousGroups)
-            : new Set<string>();
+        // Get current subscriptions from Bun's native getter
+        const subscriptions = (ws as unknown as { subscriptions?: string[] }).subscriptions || [];
+        const currentSubscriptions = new Set(subscriptions);
 
-        for (const group of previousGroupSet) {
-            if (!requestedGroups.has(group)) {
-                if (typeof ws.unsubscribe === "function") {
+        // Unsubscribe from groups we no longer have access to
+        for (const subscription of currentSubscriptions) {
+            if (subscription.startsWith(this.REFLECT_TOPIC_PREFIX)) {
+                const syncGroup = subscription
+                    .replace(this.REFLECT_TOPIC_PREFIX, "")
+                    .split(":")[0];
+                if (!requestedGroups.has(syncGroup)) {
                     try {
-                        ws.unsubscribe(this.getReflectTopic(group));
+                        ws.unsubscribe(subscription);
                     } catch {
                         // ignore unsubscribe errors
                     }
                 }
-                this.removeSessionFromReflectGroup(group, session.sessionId);
             }
         }
 
-        const finalGroups = new Set<string>();
-
+        // Subscribe to new groups
         for (const group of requestedGroups) {
-            let shouldTrack = true;
-            if (!previousGroupSet.has(group)) {
+            const allChannelsTopic = this.getReflectTopic(group);
+            if (!currentSubscriptions.has(allChannelsTopic)) {
                 try {
-                    ws.subscribe(this.getReflectTopic(group));
+                    ws.subscribe(allChannelsTopic);
                 } catch {
-                    shouldTrack = false;
+                    // ignore subscribe errors
                 }
             }
-            if (shouldTrack) {
-                this.addSessionToReflectGroup(group, session.sessionId);
-                finalGroups.add(group);
-            }
-        }
-
-        if (finalGroups.size > 0) {
-            this.sessionReflectGroups.set(session.sessionId, finalGroups);
-        } else {
-            this.sessionReflectGroups.delete(session.sessionId);
         }
     }
 
@@ -238,82 +193,20 @@ export class WorldApiWsManager {
         channel: string,
         payloadJson: string,
     ): number {
-        const subscribers = this.reflectSubscribersByGroup.get(syncGroup);
-        if (this.server) {
-            const delivered = this.server.publish(
-                this.getReflectTopic(syncGroup),
-                payloadJson,
-            );
-            if (subscribers && subscribers.size > 0) {
-                let recorded = 0;
-                for (const sessionId of subscribers) {
-                    if (recorded >= delivered) {
-                        break;
-                    }
-                    const session = this.activeSessions.get(sessionId);
-                    if (!session) {
-                        continue;
-                    }
-                    if (!this.canRead(session.agentId, syncGroup)) {
-                        continue;
-                    }
-                    this.metricsCollector.recordSubscriberDelivery(
-                        sessionId,
-                        syncGroup,
-                        channel,
-                    );
-                    recorded++;
-                }
-            }
-            return delivered;
+        if (!this.server) {
+            return 0;
         }
 
-        if (subscribers && subscribers.size > 0) {
-            let delivered = 0;
-            for (const sessionId of subscribers) {
-                const session = this.activeSessions.get(sessionId);
-                if (!session) {
-                    continue;
-                }
-                if (!this.canRead(session.agentId, syncGroup)) {
-                    continue;
-                }
-                try {
-                    (session.ws as ServerWebSocket<WebSocketData>).send(
-                        payloadJson,
-                    );
-                    delivered++;
-                    this.metricsCollector.recordSubscriberDelivery(
-                        sessionId,
-                        syncGroup,
-                        channel,
-                    );
-                } catch {
-                    // ignore send errors per recipient
-                }
-            }
-            return delivered;
+        // Always publish to the "all channels" topic
+        const allChannelsTopic = this.getReflectTopic(syncGroup);
+        let delivered = this.server.publish(allChannelsTopic, payloadJson);
+
+        // If a specific channel is provided, also publish to the channel-specific topic
+        if (channel !== null && channel !== undefined && channel !== "") {
+            const channelTopic = this.getReflectTopic(syncGroup, channel);
+            delivered += this.server.publish(channelTopic, payloadJson);
         }
 
-        let delivered = 0;
-        for (const session of this.activeSessions.values()) {
-            if (!this.canRead(session.agentId, syncGroup)) {
-                continue;
-            }
-            try {
-                (session.ws as ServerWebSocket<WebSocketData>).send(
-                    payloadJson,
-                );
-                delivered++;
-                this.metricsCollector.recordSubscriberDelivery(
-                    session.sessionId,
-                    syncGroup,
-                    channel,
-                );
-            } catch {
-                // ignore send errors per recipient
-            }
-        }
         return delivered;
     }
 
@@ -422,7 +315,7 @@ export class WorldApiWsManager {
         if (entityGroupMap) {
             for (const notifications of entityGroupMap.values()) {
                 for (const notification of notifications) {
-                    const delivered = this.deliverEntityChange(notification);
+                    const delivered = this.publishEntityChange(notification);
                     const messageSize = JSON.stringify(notification).length;
                     entityMessages++;
                     entityBytes += messageSize;
@@ -438,7 +331,7 @@ export class WorldApiWsManager {
                 for (const notifications of metadataMap.values()) {
                     for (const notification of notifications) {
                         const delivered =
-                            await this.deliverEntityMetadataChange(
+                            await this.publishEntityMetadataChange(
                                 notification,
                             );
                         const messageSize = JSON.stringify(notification).length;
@@ -781,81 +674,58 @@ export class WorldApiWsManager {
         notifications.push(payload);
     }
 
-    private deliverEntityChange(payload: EntityNotificationPayload): number {
-        if (!payload.entityName) {
+    private publishEntityChange(payload: EntityNotificationPayload): number {
+        if (!payload.entityName || !this.server) {
             return 0;
         }
 
-        let deliveredCount = 0;
+        const messageData = {
+            type: Communication.WebSocket.MessageType.ENTITY_DELIVERY,
+            timestamp: Date.now(),
+            requestId: payload.entityName,
+            errorMessage: null,
+            entityName: payload.entityName,
+            operation: payload.operation,
+            syncGroup: payload.syncGroup,
+            channel: payload.channel ?? null,
+            data: payload.data,
+        };
+
+        const parsed =
+            Communication.WebSocket.Z.EntityDelivery.safeParse(messageData);
+        if (!parsed.success) {
+            return 0;
+        }
+
+        const payloadJson = JSON.stringify(parsed.data);
         const payloadChannel = payload.channel ?? null;
 
-        for (const [sessionId, subscriptions] of this.sessionSubscriptions) {
-            const session = this.activeSessions.get(sessionId);
-            if (!session) {
-                continue;
-            }
+        // Always publish to the "all channels" topic
+        const allChannelsTopic = this.getEntityTopic(
+            payload.syncGroup,
+            payload.entityName,
+        );
+        let delivered = this.server.publish(allChannelsTopic, payloadJson);
 
-            if (!this.canRead(session.agentId, payload.syncGroup)) {
-                continue;
-            }
-
-            const subscribedChannels = subscriptions.channels.get(
+        // If a specific channel is provided, also publish to the channel-specific topic
+        if (payloadChannel !== null && payloadChannel !== undefined) {
+            const channelTopic = this.getEntityTopic(
+                payload.syncGroup,
                 payload.entityName,
+                payloadChannel,
             );
-            if (!subscribedChannels) {
-                continue;
-            }
-
-            // If subscribed to "all channels" (empty set), or subscribed to this specific channel
-            const shouldDeliver =
-                subscribedChannels.size === 0 ||
-                (payloadChannel !== null &&
-                    subscribedChannels.has(payloadChannel)) ||
-                (payloadChannel === null && subscribedChannels.size === 0);
-
-            if (!shouldDeliver) {
-                continue;
-            }
-
-            const messageData = {
-                type: Communication.WebSocket.MessageType.ENTITY_DELIVERY,
-                timestamp: Date.now(),
-                requestId: payload.entityName,
-                errorMessage: null,
-                entityName: payload.entityName,
-                operation: payload.operation,
-                syncGroup: payload.syncGroup,
-                channel: payloadChannel,
-                data: payload.data,
-            };
-
-            const parsed =
-                Communication.WebSocket.Z.EntityDelivery.safeParse(messageData);
-            if (!parsed.success) {
-                continue;
-            }
-
-            try {
-                (session.ws as ServerWebSocket<WebSocketData>).send(
-                    JSON.stringify(parsed.data),
-                );
-                deliveredCount++;
-            } catch {
-                // ignore send errors per recipient
-            }
+            delivered += this.server.publish(channelTopic, payloadJson);
         }
 
-        return deliveredCount;
+        return delivered;
     }
 
-    private async deliverEntityMetadataChange(
+    private async publishEntityMetadataChange(
         payload: EntityNotificationPayload,
     ): Promise<number> {
-        if (!payload.entityName || !payload.metadataKey) {
+        if (!payload.entityName || !payload.metadataKey || !this.server) {
             return 0;
         }
-
-        let deliveredCount = 0;
 
         // For INSERT/UPDATE operations, fetch the full metadata value from the database
         // to avoid payload size limits in pg_notify
@@ -923,69 +793,51 @@ export class WorldApiWsManager {
             }
         }
 
-        const payloadChannel = payload.channel ?? null;
+        const messageData = {
+            type: Communication.WebSocket.MessageType
+                .ENTITY_METADATA_DELIVERY,
+            timestamp: Date.now(),
+            requestId: `${payload.entityName}:${payload.metadataKey}`,
+            errorMessage: null,
+            entityName: payload.entityName,
+            metadataKey: payload.metadataKey,
+            operation: payload.operation,
+            syncGroup: payload.syncGroup,
+            channel: payload.channel ?? null,
+            data: fullData,
+        };
 
-        for (const [sessionId, subscriptions] of this.sessionSubscriptions) {
-            const session = this.activeSessions.get(sessionId);
-            if (!session) {
-                continue;
-            }
-
-            if (!this.canRead(session.agentId, payload.syncGroup)) {
-                continue;
-            }
-
-            const subscribedChannels = subscriptions.channels.get(
-                payload.entityName,
+        const parsed =
+            Communication.WebSocket.Z.EntityMetadataDelivery.safeParse(
+                messageData,
             );
-            if (!subscribedChannels) {
-                continue;
-            }
-
-            // If subscribed to "all channels" (empty set), or subscribed to this specific channel
-            const shouldDeliver =
-                subscribedChannels.size === 0 ||
-                (payloadChannel !== null &&
-                    subscribedChannels.has(payloadChannel)) ||
-                (payloadChannel === null && subscribedChannels.size === 0);
-
-            if (!shouldDeliver) {
-                continue;
-            }
-
-            const messageData = {
-                type: Communication.WebSocket.MessageType
-                    .ENTITY_METADATA_DELIVERY,
-                timestamp: Date.now(),
-                requestId: `${payload.entityName}:${payload.metadataKey}`,
-                errorMessage: null,
-                entityName: payload.entityName,
-                metadataKey: payload.metadataKey,
-                operation: payload.operation,
-                syncGroup: payload.syncGroup,
-                channel: payloadChannel,
-                data: fullData,
-            };
-
-            const parsed =
-                Communication.WebSocket.Z.EntityMetadataDelivery.safeParse(
-                    messageData,
-                );
-            if (!parsed.success) {
-                continue;
-            }
-
-            try {
-                (session.ws as ServerWebSocket<WebSocketData>).send(
-                    JSON.stringify(parsed.data),
-                );
-                deliveredCount++;
-            } catch {
-                // ignore send errors per recipient
-            }
+        if (!parsed.success) {
+            return 0;
         }
 
-        return deliveredCount;
+        const payloadJson = JSON.stringify(parsed.data);
+        const payloadChannel = payload.channel ?? null;
+
+        // Always publish to the "all channels" topic
+        const allChannelsTopic = this.getMetadataTopic(
+            payload.syncGroup,
+            payload.entityName,
+            payload.metadataKey,
+        );
+        let delivered = this.server.publish(allChannelsTopic, payloadJson);
+
+        // If a specific channel is provided, also publish to the channel-specific topic
+        if (payloadChannel !== null && payloadChannel !== undefined) {
+            const channelTopic = this.getMetadataTopic(
+                payload.syncGroup,
+                payload.entityName,
+                payload.metadataKey,
+                payloadChannel,
+            );
+            delivered += this.server.publish(channelTopic, payloadJson);
+        }
+
+        return delivered;
     }
 
     // Helper method to record endpoint metrics
@@ -1062,7 +914,12 @@ export class WorldApiWsManager {
     // Wrapper helpers to the ACL service
     private async warmAgentAcl(agentId: string) {
         await this.aclService?.warmAgentAcl(agentId);
-        this.syncReflectSubscriptionsForAgent(agentId);
+        // Sync reflect subscriptions for all sessions of this agent
+        for (const session of this.activeSessions.values()) {
+            if (session.agentId === agentId) {
+                this.syncReflectSubscriptionsForSession(session);
+            }
+        }
     }
     private canRead(agentId: string, syncGroup: string): boolean {
         return !!this.aclService?.canRead(agentId, syncGroup);
@@ -1155,7 +1012,12 @@ export class WorldApiWsManager {
                 });
                 this.unregisterAclWarmCallback =
                     this.aclService.registerWarmCallback((agentId) => {
-                        this.syncReflectSubscriptionsForAgent(agentId);
+                        // Sync reflect subscriptions for all sessions of this agent
+                        for (const session of this.activeSessions.values()) {
+                            if (session.agentId === agentId) {
+                                this.syncReflectSubscriptionsForSession(session);
+                            }
+                        }
                     });
                 await this.aclService.startRoleChangeListener();
             }
@@ -2103,23 +1965,103 @@ export class WorldApiWsManager {
                                         ).catch(() => {});
                                     }
 
-                                    const subs =
-                                        this.getOrCreateSessionSubscriptions(
-                                            session.sessionId,
+                                    // Get the entity's syncGroup from the database
+                                    if (!superUserSql) {
+                                        throw new Error(
+                                            "Database connection not available",
                                         );
-                                    let channelSet = subs.channels.get(
-                                        entityName,
-                                    );
-                                    if (!channelSet) {
-                                        channelSet = new Set();
-                                        subs.channels.set(entityName, channelSet);
                                     }
-                                    // If channel is null, subscribe to "all channels" (empty set)
-                                    // Otherwise add the specific channel
+
+                                    const entityResult = await superUserSql<
+                                        Array<{ group__sync: string }>
+                                    >`
+                                        SELECT group__sync
+                                        FROM entity.entities
+                                        WHERE general__entity_name = ${entityName}
+                                        LIMIT 1
+                                    `;
+
+                                    if (entityResult.length === 0) {
+                                        throw new Error(
+                                            `Entity not found: ${entityName}`,
+                                        );
+                                    }
+
+                                    const syncGroup = entityResult[0].group__sync;
+
+                                    // Check if user can read this syncGroup
+                                    if (!this.canRead(session.agentId, syncGroup)) {
+                                        throw new Error(
+                                            `Not authorized to read sync group: ${syncGroup}`,
+                                        );
+                                    }
+
+                                    // Subscribe to entity topics
+                                    const ws = session.ws as ServerWebSocket<WebSocketData>;
+                                    if (typeof ws.subscribe !== "function") {
+                                        throw new Error(
+                                            "WebSocket does not support subscriptions",
+                                        );
+                                    }
+
                                     if (channel === null) {
-                                        channelSet.clear(); // Clear to indicate "all channels"
+                                        // Subscribe to "all channels" topic
+                                        const allChannelsTopic = this.getEntityTopic(
+                                            syncGroup,
+                                            entityName,
+                                        );
+                                        ws.subscribe(allChannelsTopic);
+
+                                        // Also subscribe to all metadata "all channels" topics for this entity
+                                        // Get all metadata keys for this entity
+                                        const metadataKeysResult = await superUserSql<
+                                            Array<{ metadata__key: string; group__sync: string }>
+                                        >`
+                                            SELECT DISTINCT metadata__key, group__sync
+                                            FROM entity.entity_metadata
+                                            WHERE general__entity_name = ${entityName}
+                                        `;
+
+                                        for (const row of metadataKeysResult) {
+                                            // Check if user can read this metadata's syncGroup
+                                            if (this.canRead(session.agentId, row.group__sync)) {
+                                                const metadataAllChannelsTopic = this.getMetadataTopic(
+                                                    row.group__sync,
+                                                    entityName,
+                                                    row.metadata__key,
+                                                );
+                                                ws.subscribe(metadataAllChannelsTopic);
+                                            }
+                                        }
                                     } else {
-                                        channelSet.add(channel);
+                                        // Subscribe to channel-specific topic
+                                        const channelTopic = this.getEntityTopic(
+                                            syncGroup,
+                                            entityName,
+                                            channel,
+                                        );
+                                        ws.subscribe(channelTopic);
+
+                                        // Also subscribe to channel-specific metadata topics
+                                        const metadataKeysResult = await superUserSql<
+                                            Array<{ metadata__key: string; group__sync: string }>
+                                        >`
+                                            SELECT DISTINCT metadata__key, group__sync
+                                            FROM entity.entity_metadata
+                                            WHERE general__entity_name = ${entityName}
+                                        `;
+
+                                        for (const row of metadataKeysResult) {
+                                            if (this.canRead(session.agentId, row.group__sync)) {
+                                                const metadataChannelTopic = this.getMetadataTopic(
+                                                    row.group__sync,
+                                                    entityName,
+                                                    row.metadata__key,
+                                                    channel,
+                                                );
+                                                ws.subscribe(metadataChannelTopic);
+                                            }
+                                        }
                                     }
 
                                     const responseData = {
@@ -2246,31 +2188,114 @@ export class WorldApiWsManager {
                                         ? null
                                         : typedRequest.channel?.trim() || null;
 
-                                const subs = this.sessionSubscriptions.get(
-                                    session.sessionId,
-                                );
-                                if (subs && entityName) {
-                                    const channelSet = subs.channels.get(
-                                        entityName,
-                                    );
-                                    if (channelSet) {
-                                        if (channel === null) {
-                                            // Unsubscribe from all channels = remove entity subscription
-                                            subs.channels.delete(entityName);
-                                            removed = true;
-                                        } else {
-                                            removed = channelSet.delete(channel);
-                                            // If set becomes empty after removing specific channel, remove entity entry
-                                            if (channelSet.size === 0) {
-                                                subs.channels.delete(entityName);
+                                const ws = session.ws as ServerWebSocket<WebSocketData>;
+                                if (typeof ws.unsubscribe !== "function") {
+                                    // WebSocket doesn't support unsubscription
+                                    removed = false;
+                                } else {
+                                    // Get current subscriptions from Bun's native getter
+                                    const subscriptions = (ws as unknown as { subscriptions?: string[] }).subscriptions || [];
+                                    const currentSubscriptions = new Set(subscriptions);
+
+                                    // Get the entity's syncGroup from the database
+                                    if (superUserSql && entityName) {
+                                        try {
+                                            const entityResult = await superUserSql<
+                                                Array<{ group__sync: string }>
+                                            >`
+                                                SELECT group__sync
+                                                FROM entity.entities
+                                                WHERE general__entity_name = ${entityName}
+                                                LIMIT 1
+                                            `;
+
+                                            if (entityResult.length > 0) {
+                                                const syncGroup = entityResult[0].group__sync;
+
+                                                if (channel === null) {
+                                                    // Unsubscribe from all entity and metadata topics for this entity
+                                                    const allChannelsTopic = this.getEntityTopic(
+                                                        syncGroup,
+                                                        entityName,
+                                                    );
+                                                    if (currentSubscriptions.has(allChannelsTopic)) {
+                                                        ws.unsubscribe(allChannelsTopic);
+                                                        removed = true;
+                                                    }
+
+                                                    // Unsubscribe from all metadata "all channels" topics
+                                                    const metadataKeysResult = await superUserSql<
+                                                        Array<{ metadata__key: string; group__sync: string }>
+                                                    >`
+                                                        SELECT DISTINCT metadata__key, group__sync
+                                                        FROM entity.entity_metadata
+                                                        WHERE general__entity_name = ${entityName}
+                                                    `;
+
+                                                    for (const row of metadataKeysResult) {
+                                                        const metadataAllChannelsTopic = this.getMetadataTopic(
+                                                            row.group__sync,
+                                                            entityName,
+                                                            row.metadata__key,
+                                                        );
+                                                        if (currentSubscriptions.has(metadataAllChannelsTopic)) {
+                                                            ws.unsubscribe(metadataAllChannelsTopic);
+                                                        }
+                                                    }
+                                                } else {
+                                                    // Unsubscribe from channel-specific topic
+                                                    const channelTopic = this.getEntityTopic(
+                                                        syncGroup,
+                                                        entityName,
+                                                        channel,
+                                                    );
+                                                    if (currentSubscriptions.has(channelTopic)) {
+                                                        ws.unsubscribe(channelTopic);
+                                                        removed = true;
+                                                    }
+
+                                                    // Unsubscribe from channel-specific metadata topics
+                                                    const metadataKeysResult = await superUserSql<
+                                                        Array<{ metadata__key: string; group__sync: string }>
+                                                    >`
+                                                        SELECT DISTINCT metadata__key, group__sync
+                                                        FROM entity.entity_metadata
+                                                        WHERE general__entity_name = ${entityName}
+                                                    `;
+
+                                                    for (const row of metadataKeysResult) {
+                                                        const metadataChannelTopic = this.getMetadataTopic(
+                                                            row.group__sync,
+                                                            entityName,
+                                                            row.metadata__key,
+                                                            channel,
+                                                        );
+                                                        if (currentSubscriptions.has(metadataChannelTopic)) {
+                                                            ws.unsubscribe(metadataChannelTopic);
+                                                        }
+                                                    }
+                                                }
                                             }
+                                        } catch {
+                                            // If entity not found or error, just try to unsubscribe from any matching topics
+                                            removed = false;
                                         }
                                     }
-                                    // Clean up if no subscriptions left
-                                    if (subs.channels.size === 0) {
-                                        this.sessionSubscriptions.delete(
-                                            session.sessionId,
-                                        );
+
+                                    // Fallback: unsubscribe from any topics matching the entity name pattern
+                                    if (!removed) {
+                                        for (const subscription of currentSubscriptions) {
+                                            if (
+                                                (subscription.startsWith(this.ENTITY_TOPIC_PREFIX) ||
+                                                    subscription.startsWith(this.METADATA_TOPIC_PREFIX)) &&
+                                                subscription.includes(`:${entityName}:`)
+                                            ) {
+                                                if (channel === null || subscription.endsWith(`:${channel}`)) {
+                                                    ws.unsubscribe(subscription);
+                                                    removed = true;
+                                                }
+                                            }
+                                        }
                                     }
                                 }
 
@@ -2646,10 +2671,10 @@ export class WorldApiWsManager {
                 ) => {
                     const session = this.activeSessions.get(ws.data.sessionId);
                     if (session) {
-                        // Clean up both maps
+                        // Clean up maps
                         this.wsToSessionMap.delete(session.ws);
                         this.activeSessions.delete(session.sessionId);
-                        this.sessionSubscriptions.delete(session.sessionId);
+                        // Bun automatically handles unsubscription on close
                     }
 
                     BunLogModule({
@@ -2665,7 +2690,6 @@ export class WorldApiWsManager {
                         },
                         type: "info",
                     });
-                    this.removeSessionReflectSubscriptions(ws.data.sessionId);
                 },
             },
 
@@ -2762,9 +2786,6 @@ export class WorldApiWsManager {
                 session.ws.close(1000, "Server shutting down");
             }
             this.activeSessions.clear();
-            this.sessionSubscriptions.clear();
-            this.sessionReflectGroups.clear();
-            this.reflectSubscribersByGroup.clear();
 
             for (const unsubscribe of this.entityNotificationUnsubscribers) {
                 try {

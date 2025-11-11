@@ -109,6 +109,10 @@ export class WorldApiWsManager {
     private entityNotificationUnsubscribers: Array<() => Promise<void> | void> =
         [];
     private entityListenersInitialized = false;
+    private sessionReflectGroups: Map<string, Set<string>> = new Map();
+    private reflectSubscribersByGroup: Map<string, Set<string>> = new Map();
+    private unregisterAclWarmCallback: (() => void) | null = null;
+    private readonly REFLECT_TOPIC_PREFIX = "reflect:";
 
     private getOrCreateSessionSubscriptions(
         sessionId: string,
@@ -122,6 +126,200 @@ export class WorldApiWsManager {
             this.sessionSubscriptions.set(sessionId, subs);
         }
         return subs;
+    }
+
+    private getReflectTopic(syncGroup: string): string {
+        return `${this.REFLECT_TOPIC_PREFIX}${syncGroup}`;
+    }
+
+    private addSessionToReflectGroup(syncGroup: string, sessionId: string) {
+        let set = this.reflectSubscribersByGroup.get(syncGroup);
+        if (!set) {
+            set = new Set();
+            this.reflectSubscribersByGroup.set(syncGroup, set);
+        }
+        set.add(sessionId);
+    }
+
+    private removeSessionFromReflectGroup(
+        syncGroup: string,
+        sessionId: string,
+    ) {
+        const set = this.reflectSubscribersByGroup.get(syncGroup);
+        if (!set) {
+            return;
+        }
+        set.delete(sessionId);
+        if (set.size === 0) {
+            this.reflectSubscribersByGroup.delete(syncGroup);
+        }
+    }
+
+    private removeSessionReflectSubscriptions(sessionId: string) {
+        const groups = this.sessionReflectGroups.get(sessionId);
+        if (!groups) {
+            return;
+        }
+        for (const group of groups) {
+            this.removeSessionFromReflectGroup(group, sessionId);
+        }
+        this.sessionReflectGroups.delete(sessionId);
+    }
+
+    private syncReflectSubscriptionsForAgent(agentId: string) {
+        for (const session of this.activeSessions.values()) {
+            if (session.agentId === agentId) {
+                this.syncReflectSubscriptionsForSession(session);
+            }
+        }
+    }
+
+    private syncReflectSubscriptionsForSession(
+        session: WorldSession<unknown>,
+    ): void {
+        if (!this.aclService) {
+            return;
+        }
+        const ws = session.ws as unknown as ServerWebSocket<WebSocketData> & {
+            subscribe?: (topic: string) => void;
+            unsubscribe?: (topic: string) => void;
+        };
+        if (typeof ws.subscribe !== "function") {
+            return;
+        }
+
+        const readableGroups = this.aclService.getReadableSyncGroups(
+            session.agentId,
+        );
+        const requestedGroups = new Set<string>();
+        for (const group of readableGroups) {
+            requestedGroups.add(group);
+        }
+
+        const previousGroups = this.sessionReflectGroups.get(session.sessionId);
+        const previousGroupSet = previousGroups
+            ? new Set(previousGroups)
+            : new Set<string>();
+
+        for (const group of previousGroupSet) {
+            if (!requestedGroups.has(group)) {
+                if (typeof ws.unsubscribe === "function") {
+                    try {
+                        ws.unsubscribe(this.getReflectTopic(group));
+                    } catch {
+                        // ignore unsubscribe errors
+                    }
+                }
+                this.removeSessionFromReflectGroup(group, session.sessionId);
+            }
+        }
+
+        const finalGroups = new Set<string>();
+
+        for (const group of requestedGroups) {
+            let shouldTrack = true;
+            if (!previousGroupSet.has(group)) {
+                try {
+                    ws.subscribe(this.getReflectTopic(group));
+                } catch {
+                    shouldTrack = false;
+                }
+            }
+            if (shouldTrack) {
+                this.addSessionToReflectGroup(group, session.sessionId);
+                finalGroups.add(group);
+            }
+        }
+
+        if (finalGroups.size > 0) {
+            this.sessionReflectGroups.set(session.sessionId, finalGroups);
+        } else {
+            this.sessionReflectGroups.delete(session.sessionId);
+        }
+    }
+
+    private publishReflect(
+        syncGroup: string,
+        channel: string,
+        payloadJson: string,
+    ): number {
+        const subscribers = this.reflectSubscribersByGroup.get(syncGroup);
+        if (this.server) {
+            const delivered = this.server.publish(
+                this.getReflectTopic(syncGroup),
+                payloadJson,
+            );
+            if (subscribers && subscribers.size > 0) {
+                let recorded = 0;
+                for (const sessionId of subscribers) {
+                    if (recorded >= delivered) {
+                        break;
+                    }
+                    const session = this.activeSessions.get(sessionId);
+                    if (!session) {
+                        continue;
+                    }
+                    if (!this.canRead(session.agentId, syncGroup)) {
+                        continue;
+                    }
+                    this.metricsCollector.recordSubscriberDelivery(
+                        sessionId,
+                        syncGroup,
+                        channel,
+                    );
+                    recorded++;
+                }
+            }
+            return delivered;
+        }
+
+        if (subscribers && subscribers.size > 0) {
+            let delivered = 0;
+            for (const sessionId of subscribers) {
+                const session = this.activeSessions.get(sessionId);
+                if (!session) {
+                    continue;
+                }
+                if (!this.canRead(session.agentId, syncGroup)) {
+                    continue;
+                }
+                try {
+                    (session.ws as ServerWebSocket<WebSocketData>).send(
+                        payloadJson,
+                    );
+                    delivered++;
+                    this.metricsCollector.recordSubscriberDelivery(
+                        sessionId,
+                        syncGroup,
+                        channel,
+                    );
+                } catch {
+                    // ignore send errors per recipient
+                }
+            }
+            return delivered;
+        }
+
+        let delivered = 0;
+        for (const session of this.activeSessions.values()) {
+            if (!this.canRead(session.agentId, syncGroup)) {
+                continue;
+            }
+            try {
+                (session.ws as ServerWebSocket<WebSocketData>).send(
+                    payloadJson,
+                );
+                delivered++;
+                this.metricsCollector.recordSubscriberDelivery(
+                    session.sessionId,
+                    syncGroup,
+                    channel,
+                );
+            } catch {
+                // ignore send errors per recipient
+            }
+        }
+        return delivered;
     }
 
     private enqueueReflect(
@@ -169,30 +367,17 @@ export class WorldApiWsManager {
             for (const [fromSessionId, queuedItem] of channelMap) {
                 const payloadJson = queuedItem.payloadJson;
                 reflectMessages++;
-                const messageBytes = new TextEncoder().encode(payloadJson).length;
+                const messageBytes = new TextEncoder().encode(
+                    payloadJson,
+                ).length;
                 reflectBytes += messageBytes;
                 const perMessageStart = performance.now();
-                let deliveredForMessage = 0;
-                // Deliver to all sessions that can read the sync group
-                for (const [, s] of this.activeSessions) {
-                    if (this.canRead(s.agentId, syncGroup)) {
-                        try {
-                            (s.ws as ServerWebSocket<WebSocketData>).send(
-                                payloadJson,
-                            );
-                            reflectDeliveredCount++;
-                            deliveredForMessage++;
-                            // Record subscriber activity for this delivery
-                            this.metricsCollector.recordSubscriberDelivery(
-                                s.sessionId,
-                                syncGroup,
-                                channel,
-                            );
-                        } catch {
-                            // ignore send errors per recipient
-                        }
-                    }
-                }
+                const deliveredForMessage = this.publishReflect(
+                    syncGroup,
+                    channel,
+                    payloadJson,
+                );
+                reflectDeliveredCount += deliveredForMessage;
                 // Record reflect metrics per message
                 this.metricsCollector.recordReflect(
                     performance.now() - perMessageStart,
@@ -240,9 +425,8 @@ export class WorldApiWsManager {
 
         // Process entity notifications
         if (entityGroupMap) {
-            for (const [entityName, notifications] of entityGroupMap) {
+            for (const notifications of entityGroupMap.values()) {
                 for (const notification of notifications) {
-                    const perMessageStart = performance.now();
                     const delivered = this.deliverEntityChange(notification);
                     const messageSize = JSON.stringify(notification).length;
                     entityMessages++;
@@ -255,11 +439,13 @@ export class WorldApiWsManager {
 
         // Process entity metadata notifications
         if (metadataGroupMap) {
-            for (const [entityName, metadataMap] of metadataGroupMap) {
-                for (const [metadataKey, notifications] of metadataMap) {
+            for (const metadataMap of metadataGroupMap.values()) {
+                for (const notifications of metadataMap.values()) {
                     for (const notification of notifications) {
-                        const perMessageStart = performance.now();
-                        const delivered = await this.deliverEntityMetadataChange(notification);
+                        const delivered =
+                            await this.deliverEntityMetadataChange(
+                                notification,
+                            );
                         const messageSize = JSON.stringify(notification).length;
                         metadataMessages++;
                         metadataBytes += messageSize;
@@ -280,8 +466,12 @@ export class WorldApiWsManager {
             try {
                 const payload = JSON.stringify({
                     syncGroup,
-                    totalMessages: reflectMessages + entityMessages + metadataMessages,
-                    deliveredCount: reflectDeliveredCount + entityDeliveredCount + metadataDeliveredCount,
+                    totalMessages:
+                        reflectMessages + entityMessages + metadataMessages,
+                    deliveredCount:
+                        reflectDeliveredCount +
+                        entityDeliveredCount +
+                        metadataDeliveredCount,
                     durationMs: performance.now() - startTime,
                     timestamp: Date.now(),
                 });
@@ -318,7 +508,6 @@ export class WorldApiWsManager {
             rate,
         );
     }
-
 
     private async startReflectTickLoops() {
         if (!superUserSql) {
@@ -848,6 +1037,7 @@ export class WorldApiWsManager {
     // Wrapper helpers to the ACL service
     private async warmAgentAcl(agentId: string) {
         await this.aclService?.warmAgentAcl(agentId);
+        this.syncReflectSubscriptionsForAgent(agentId);
     }
     private canRead(agentId: string, syncGroup: string): boolean {
         return !!this.aclService?.canRead(agentId, syncGroup);
@@ -938,6 +1128,10 @@ export class WorldApiWsManager {
                     db: superUserSql,
                     legacyDb: legacySuperUserSql,
                 });
+                this.unregisterAclWarmCallback =
+                    this.aclService.registerWarmCallback((agentId) => {
+                        this.syncReflectSubscriptionsForAgent(agentId);
+                    });
                 await this.aclService.startRoleChangeListener();
             }
             // Start reflect tick loops to flush queued reflect messages per sync group
@@ -2617,6 +2811,7 @@ export class WorldApiWsManager {
                         ws,
                         (ws as ServerWebSocket<WebSocketData>).data.token,
                     );
+                    this.syncReflectSubscriptionsForSession(session);
 
                     BunLogModule({
                         prefix: LOG_PREFIX,
@@ -2674,6 +2869,7 @@ export class WorldApiWsManager {
                         },
                         type: "info",
                     });
+                    this.removeSessionReflectSubscriptions(ws.data.sessionId);
                 },
             },
 
@@ -2771,6 +2967,8 @@ export class WorldApiWsManager {
             }
             this.activeSessions.clear();
             this.sessionSubscriptions.clear();
+            this.sessionReflectGroups.clear();
+            this.reflectSubscribersByGroup.clear();
 
             for (const unsubscribe of this.entityNotificationUnsubscribers) {
                 try {
@@ -2787,6 +2985,8 @@ export class WorldApiWsManager {
             debug: this.DEBUG,
             suppress: this.SUPPRESS,
         }).disconnect();
+        this.unregisterAclWarmCallback?.();
+        this.unregisterAclWarmCallback = null;
     }
 }
 

@@ -48,6 +48,7 @@ CREATE TABLE entity.entities (
     general__expiry__delete_since_updated_at_ms BIGINT DEFAULT NULL, -- Time in milliseconds after which the entity will be deleted if it is inactive
     general__expiry__delete_since_created_at_ms BIGINT DEFAULT NULL, -- Time in milliseconds after which the entity will be deleted even if it is active
     group__sync TEXT NOT NULL REFERENCES auth.sync_groups(general__sync_group) DEFAULT 'public.NORMAL',
+    group__channel TEXT DEFAULT NULL,
     group__load_priority INTEGER NOT NULL DEFAULT 1,
 
     CONSTRAINT fk_entities_sync_group FOREIGN KEY (group__sync) REFERENCES auth.sync_groups(general__sync_group)
@@ -57,17 +58,20 @@ CREATE INDEX idx_entities_load_priority ON entity.entities(group__load_priority)
 CREATE INDEX idx_entities_created_at ON entity.entities(general__created_at);
 CREATE INDEX idx_entities_updated_at ON entity.entities(general__updated_at);
 CREATE INDEX idx_entities_semantic_version ON entity.entities(general__semantic_version);
+CREATE INDEX idx_entities_channel ON entity.entities(group__channel) WHERE group__channel IS NOT NULL;
 
 ALTER TABLE entity.entities ENABLE ROW LEVEL SECURITY;
 
 
 -- 4.4 ENTITY METADATA TABLE
 -- ============================================================================
+-- TODO: Enable metadata to have metadata_jsonb, metadata_bytea, metadata_int, metadata_float, metadata_boolean, metadata_string, metadata_array, metadata_object, metadata_null, etc. (or whatever is allowed with postgres) so we can create optimization strategies.
 CREATE TABLE entity.entity_metadata (
     general__entity_name TEXT NOT NULL,
     metadata__key TEXT NOT NULL,
     metadata__value JSONB NOT NULL,
     group__sync TEXT NOT NULL,
+    group__channel TEXT DEFAULT NULL,
     general__expiry__delete_since_updated_at_ms BIGINT DEFAULT NULL, -- Time in milliseconds after which the metadata will be deleted if it is inactive
     general__expiry__delete_since_created_at_ms BIGINT DEFAULT NULL, -- Time in milliseconds after which the metadata will be deleted even if it is active
     
@@ -86,6 +90,7 @@ CREATE INDEX idx_entity_metadata_sync_group ON entity.entity_metadata(group__syn
 CREATE INDEX idx_entity_metadata_value_gin ON entity.entity_metadata USING gin(metadata__value);
 CREATE INDEX idx_entity_metadata_expiry_updated ON entity.entity_metadata(general__expiry__delete_since_updated_at_ms) WHERE general__expiry__delete_since_updated_at_ms IS NOT NULL;
 CREATE INDEX idx_entity_metadata_expiry_created ON entity.entity_metadata(general__expiry__delete_since_created_at_ms) WHERE general__expiry__delete_since_created_at_ms IS NOT NULL;
+CREATE INDEX idx_entity_metadata_channel ON entity.entity_metadata(group__channel) WHERE group__channel IS NOT NULL;
 
 ALTER TABLE entity.entity_metadata ENABLE ROW LEVEL SECURITY;
 
@@ -140,6 +145,7 @@ BEGIN
         'operation', TG_OP,
         'entityName', COALESCE(NEW.general__entity_name, OLD.general__entity_name),
         'syncGroup', COALESCE(NEW.group__sync, OLD.group__sync),
+        'channel', COALESCE(NEW.group__channel, OLD.group__channel),
         'data', CASE
             WHEN TG_OP = 'DELETE' THEN to_jsonb(OLD)
             ELSE to_jsonb(NEW)
@@ -165,6 +171,7 @@ BEGIN
             'general__entity_name', OLD.general__entity_name,
             'metadata__key', OLD.metadata__key,
             'group__sync', OLD.group__sync,
+            'group__channel', OLD.group__channel,
             'general__created_at', OLD.general__created_at,
             'general__updated_at', OLD.general__updated_at
         );
@@ -173,6 +180,7 @@ BEGIN
             'general__entity_name', NEW.general__entity_name,
             'metadata__key', NEW.metadata__key,
             'group__sync', NEW.group__sync,
+            'group__channel', NEW.group__channel,
             'general__created_at', NEW.general__created_at,
             'general__updated_at', NEW.general__updated_at
             -- metadata__value excluded - WS manager will fetch it
@@ -186,6 +194,7 @@ BEGIN
         'entityName', COALESCE(NEW.general__entity_name, OLD.general__entity_name),
         'metadataKey', COALESCE(NEW.metadata__key, OLD.metadata__key),
         'syncGroup', COALESCE(NEW.group__sync, OLD.group__sync),
+        'channel', COALESCE(NEW.group__channel, OLD.group__channel),
         'data', v_data
     );
 

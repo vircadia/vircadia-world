@@ -56,18 +56,14 @@ interface EntityNotificationPayload {
     entityName?: string;
     metadataKey?: string;
     syncGroup: string;
+    channel?: string | null;
     data: unknown;
     previous?: unknown;
 }
 
-interface MetadataSubscriptionEntry {
-    all: boolean;
-    keys: Set<string>;
-}
-
 interface SessionSubscriptions {
-    entity: Set<string>;
-    metadata: Map<string, MetadataSubscriptionEntry>;
+    // Map of entityName -> Set of subscribed channels (empty set means "all channels")
+    channels: Map<string, Set<string>>;
 }
 
 export class WorldApiWsManager {
@@ -120,8 +116,7 @@ export class WorldApiWsManager {
         let subs = this.sessionSubscriptions.get(sessionId);
         if (!subs) {
             subs = {
-                entity: new Set(),
-                metadata: new Map(),
+                channels: new Map(),
             };
             this.sessionSubscriptions.set(sessionId, subs);
         }
@@ -703,6 +698,12 @@ export class WorldApiWsManager {
         const entityName =
             typeof entityNameValue === "string" ? entityNameValue : undefined;
 
+        const channelValue = payloadObj.channel;
+        const channel =
+            typeof channelValue === "string" || channelValue === null
+                ? channelValue
+                : undefined;
+
         const notification: EntityNotificationPayload = {
             resource,
             operation:
@@ -715,6 +716,7 @@ export class WorldApiWsManager {
                     ? payloadObj.metadataKey
                     : undefined,
             syncGroup,
+            channel,
             data: payloadObj.data ?? null,
             previous: payloadObj.previous ?? null,
         };
@@ -785,6 +787,7 @@ export class WorldApiWsManager {
         }
 
         let deliveredCount = 0;
+        const payloadChannel = payload.channel ?? null;
 
         for (const [sessionId, subscriptions] of this.sessionSubscriptions) {
             const session = this.activeSessions.get(sessionId);
@@ -796,7 +799,21 @@ export class WorldApiWsManager {
                 continue;
             }
 
-            if (!subscriptions.entity.has(payload.entityName)) {
+            const subscribedChannels = subscriptions.channels.get(
+                payload.entityName,
+            );
+            if (!subscribedChannels) {
+                continue;
+            }
+
+            // If subscribed to "all channels" (empty set), or subscribed to this specific channel
+            const shouldDeliver =
+                subscribedChannels.size === 0 ||
+                (payloadChannel !== null &&
+                    subscribedChannels.has(payloadChannel)) ||
+                (payloadChannel === null && subscribedChannels.size === 0);
+
+            if (!shouldDeliver) {
                 continue;
             }
 
@@ -808,6 +825,7 @@ export class WorldApiWsManager {
                 entityName: payload.entityName,
                 operation: payload.operation,
                 syncGroup: payload.syncGroup,
+                channel: payloadChannel,
                 data: payload.data,
             };
 
@@ -905,6 +923,8 @@ export class WorldApiWsManager {
             }
         }
 
+        const payloadChannel = payload.channel ?? null;
+
         for (const [sessionId, subscriptions] of this.sessionSubscriptions) {
             const session = this.activeSessions.get(sessionId);
             if (!session) {
@@ -915,17 +935,21 @@ export class WorldApiWsManager {
                 continue;
             }
 
-            const metadataEntry = subscriptions.metadata.get(
+            const subscribedChannels = subscriptions.channels.get(
                 payload.entityName,
             );
-            if (!metadataEntry) {
+            if (!subscribedChannels) {
                 continue;
             }
 
-            if (
-                !metadataEntry.all &&
-                !metadataEntry.keys.has(payload.metadataKey)
-            ) {
+            // If subscribed to "all channels" (empty set), or subscribed to this specific channel
+            const shouldDeliver =
+                subscribedChannels.size === 0 ||
+                (payloadChannel !== null &&
+                    subscribedChannels.has(payloadChannel)) ||
+                (payloadChannel === null && subscribedChannels.size === 0);
+
+            if (!shouldDeliver) {
                 continue;
             }
 
@@ -939,6 +963,7 @@ export class WorldApiWsManager {
                 metadataKey: payload.metadataKey,
                 operation: payload.operation,
                 syncGroup: payload.syncGroup,
+                channel: payloadChannel,
                 data: fullData,
             };
 
@@ -2044,9 +2069,9 @@ export class WorldApiWsManager {
                             }
 
                             case Communication.WebSocket.MessageType
-                                .ENTITY_SUBSCRIBE_REQUEST: {
+                                .ENTITY_CHANNEL_SUBSCRIBE_REQUEST: {
                                 const typedRequest =
-                                    data as Communication.WebSocket.EntitySubscribeRequestMessage;
+                                    data as Communication.WebSocket.EntityChannelSubscribeRequestMessage;
 
                                 const startTime = performance.now();
                                 const requestSize = new TextEncoder().encode(
@@ -2056,6 +2081,10 @@ export class WorldApiWsManager {
                                 let success = false;
                                 const entityName =
                                     typedRequest.entityName.trim();
+                                const channel =
+                                    typedRequest.channel === undefined
+                                        ? null
+                                        : typedRequest.channel?.trim() || null;
 
                                 try {
                                     if (!entityName) {
@@ -2078,26 +2107,40 @@ export class WorldApiWsManager {
                                         this.getOrCreateSessionSubscriptions(
                                             session.sessionId,
                                         );
-                                    subs.entity.add(entityName);
+                                    let channelSet = subs.channels.get(
+                                        entityName,
+                                    );
+                                    if (!channelSet) {
+                                        channelSet = new Set();
+                                        subs.channels.set(entityName, channelSet);
+                                    }
+                                    // If channel is null, subscribe to "all channels" (empty set)
+                                    // Otherwise add the specific channel
+                                    if (channel === null) {
+                                        channelSet.clear(); // Clear to indicate "all channels"
+                                    } else {
+                                        channelSet.add(channel);
+                                    }
 
                                     const responseData = {
                                         type: Communication.WebSocket
                                             .MessageType
-                                            .ENTITY_SUBSCRIBE_RESPONSE,
+                                            .ENTITY_CHANNEL_SUBSCRIBE_RESPONSE,
                                         timestamp: Date.now(),
                                         requestId: typedRequest.requestId,
                                         errorMessage: null,
                                         entityName,
+                                        channel,
                                         subscribed: true,
                                     };
 
                                     const responseParsed =
-                                        Communication.WebSocket.Z.EntitySubscribeResponse.safeParse(
+                                        Communication.WebSocket.Z.EntityChannelSubscribeResponse.safeParse(
                                             responseData,
                                         );
                                     if (!responseParsed.success) {
                                         throw new Error(
-                                            "Invalid entity subscribe response format",
+                                            "Invalid entity channel subscribe response format",
                                         );
                                     }
 
@@ -2114,13 +2157,14 @@ export class WorldApiWsManager {
                                     BunLogModule({
                                         prefix: LOG_PREFIX,
                                         message:
-                                            "WS ENTITY_SUBSCRIBE_REQUEST handled",
+                                            "WS ENTITY_CHANNEL_SUBSCRIBE_REQUEST handled",
                                         debug: this.DEBUG,
                                         suppress: this.SUPPRESS,
                                         type: "debug",
                                         data: {
                                             requestId: typedRequest.requestId,
                                             entityName,
+                                            channel,
                                             durationMs:
                                                 performance.now() - receivedAt,
                                         },
@@ -2134,16 +2178,17 @@ export class WorldApiWsManager {
                                     const errorResponse = {
                                         type: Communication.WebSocket
                                             .MessageType
-                                            .ENTITY_SUBSCRIBE_RESPONSE,
+                                            .ENTITY_CHANNEL_SUBSCRIBE_RESPONSE,
                                         timestamp: Date.now(),
                                         requestId: typedRequest.requestId,
                                         errorMessage,
                                         entityName,
+                                        channel,
                                         subscribed: false,
                                     };
 
                                     const errorParsed =
-                                        Communication.WebSocket.Z.EntitySubscribeResponse.safeParse(
+                                        Communication.WebSocket.Z.EntityChannelSubscribeResponse.safeParse(
                                             errorResponse,
                                         );
                                     if (errorParsed.success) {
@@ -2159,19 +2204,20 @@ export class WorldApiWsManager {
                                     BunLogModule({
                                         prefix: LOG_PREFIX,
                                         message:
-                                            "WS ENTITY_SUBSCRIBE_REQUEST error",
+                                            "WS ENTITY_CHANNEL_SUBSCRIBE_REQUEST error",
                                         debug: this.DEBUG,
                                         suppress: this.SUPPRESS,
                                         type: "info",
                                         data: {
                                             requestId: typedRequest.requestId,
                                             entityName,
+                                            channel,
                                             errorMessage,
                                         },
                                     });
                                 } finally {
                                     this.recordEndpointMetrics(
-                                        "WS_ENTITY_SUBSCRIBE_REQUEST",
+                                        "WS_ENTITY_CHANNEL_SUBSCRIBE_REQUEST",
                                         startTime,
                                         requestSize,
                                         responseSize,
@@ -2183,9 +2229,9 @@ export class WorldApiWsManager {
                             }
 
                             case Communication.WebSocket.MessageType
-                                .ENTITY_UNSUBSCRIBE_REQUEST: {
+                                .ENTITY_CHANNEL_UNSUBSCRIBE_REQUEST: {
                                 const typedRequest =
-                                    data as Communication.WebSocket.EntityUnsubscribeRequestMessage;
+                                    data as Communication.WebSocket.EntityChannelUnsubscribeRequestMessage;
 
                                 const startTime = performance.now();
                                 const requestSize = new TextEncoder().encode(
@@ -2195,16 +2241,33 @@ export class WorldApiWsManager {
                                 let removed = false;
                                 const entityName =
                                     typedRequest.entityName.trim();
+                                const channel =
+                                    typedRequest.channel === undefined
+                                        ? null
+                                        : typedRequest.channel?.trim() || null;
 
                                 const subs = this.sessionSubscriptions.get(
                                     session.sessionId,
                                 );
                                 if (subs && entityName) {
-                                    removed = subs.entity.delete(entityName);
-                                    if (
-                                        subs.entity.size === 0 &&
-                                        subs.metadata.size === 0
-                                    ) {
+                                    const channelSet = subs.channels.get(
+                                        entityName,
+                                    );
+                                    if (channelSet) {
+                                        if (channel === null) {
+                                            // Unsubscribe from all channels = remove entity subscription
+                                            subs.channels.delete(entityName);
+                                            removed = true;
+                                        } else {
+                                            removed = channelSet.delete(channel);
+                                            // If set becomes empty after removing specific channel, remove entity entry
+                                            if (channelSet.size === 0) {
+                                                subs.channels.delete(entityName);
+                                            }
+                                        }
+                                    }
+                                    // Clean up if no subscriptions left
+                                    if (subs.channels.size === 0) {
                                         this.sessionSubscriptions.delete(
                                             session.sessionId,
                                         );
@@ -2213,18 +2276,19 @@ export class WorldApiWsManager {
 
                                 const responseData = {
                                     type: Communication.WebSocket.MessageType
-                                        .ENTITY_UNSUBSCRIBE_RESPONSE,
+                                        .ENTITY_CHANNEL_UNSUBSCRIBE_RESPONSE,
                                     timestamp: Date.now(),
                                     requestId: typedRequest.requestId,
                                     errorMessage: removed
                                         ? null
                                         : "Subscription not found",
                                     entityName,
+                                    channel,
                                     removed,
                                 };
 
                                 const responseParsed =
-                                    Communication.WebSocket.Z.EntityUnsubscribeResponse.safeParse(
+                                    Communication.WebSocket.Z.EntityChannelUnsubscribeResponse.safeParse(
                                         responseData,
                                     );
                                 if (responseParsed.success) {
@@ -2240,13 +2304,14 @@ export class WorldApiWsManager {
                                 BunLogModule({
                                     prefix: LOG_PREFIX,
                                     message:
-                                        "WS ENTITY_UNSUBSCRIBE_REQUEST handled",
+                                        "WS ENTITY_CHANNEL_UNSUBSCRIBE_REQUEST handled",
                                     debug: this.DEBUG,
                                     suppress: this.SUPPRESS,
                                     type: "debug",
                                     data: {
                                         requestId: typedRequest.requestId,
                                         entityName,
+                                        channel,
                                         removed,
                                         durationMs:
                                             performance.now() - receivedAt,
@@ -2254,7 +2319,7 @@ export class WorldApiWsManager {
                                 });
 
                                 this.recordEndpointMetrics(
-                                    "WS_ENTITY_UNSUBSCRIBE_REQUEST",
+                                    "WS_ENTITY_CHANNEL_UNSUBSCRIBE_REQUEST",
                                     startTime,
                                     requestSize,
                                     responseSize,
@@ -2263,275 +2328,6 @@ export class WorldApiWsManager {
                                 break;
                             }
 
-                            case Communication.WebSocket.MessageType
-                                .ENTITY_METADATA_SUBSCRIBE_REQUEST: {
-                                const typedRequest =
-                                    data as Communication.WebSocket.EntityMetadataSubscribeRequestMessage;
-
-                                const startTime = performance.now();
-                                const requestSize = new TextEncoder().encode(
-                                    message,
-                                ).length;
-                                let responseSize = 0;
-                                let success = false;
-                                const entityName =
-                                    typedRequest.entityName.trim();
-                                const metadataKey =
-                                    typedRequest.metadataKey?.trim() || null;
-
-                                try {
-                                    if (!entityName) {
-                                        throw new Error(
-                                            "entityName is required",
-                                        );
-                                    }
-
-                                    if (
-                                        !this.aclService?.isWarmed(
-                                            session.agentId,
-                                        )
-                                    ) {
-                                        await this.warmAgentAcl(
-                                            session.agentId,
-                                        ).catch(() => {});
-                                    }
-
-                                    const subs =
-                                        this.getOrCreateSessionSubscriptions(
-                                            session.sessionId,
-                                        );
-                                    let entry = subs.metadata.get(entityName);
-                                    if (!entry) {
-                                        entry = {
-                                            all: false,
-                                            keys: new Set(),
-                                        };
-                                        subs.metadata.set(entityName, entry);
-                                    }
-
-                                    if (!metadataKey) {
-                                        entry.all = true;
-                                        entry.keys.clear();
-                                    } else if (!entry.all) {
-                                        entry.keys.add(metadataKey);
-                                    }
-
-                                    const responseData = {
-                                        type: Communication.WebSocket
-                                            .MessageType
-                                            .ENTITY_METADATA_SUBSCRIBE_RESPONSE,
-                                        timestamp: Date.now(),
-                                        requestId: typedRequest.requestId,
-                                        errorMessage: null,
-                                        entityName,
-                                        metadataKey,
-                                        subscribed: true,
-                                    };
-
-                                    const responseParsed =
-                                        Communication.WebSocket.Z.EntityMetadataSubscribeResponse.safeParse(
-                                            responseData,
-                                        );
-                                    if (!responseParsed.success) {
-                                        throw new Error(
-                                            "Invalid entity metadata subscribe response format",
-                                        );
-                                    }
-
-                                    const responseString = JSON.stringify(
-                                        responseParsed.data,
-                                    );
-                                    responseSize = new TextEncoder().encode(
-                                        responseString,
-                                    ).length;
-                                    success = true;
-
-                                    ws.send(responseString);
-
-                                    BunLogModule({
-                                        prefix: LOG_PREFIX,
-                                        message:
-                                            "WS ENTITY_METADATA_SUBSCRIBE_REQUEST handled",
-                                        debug: this.DEBUG,
-                                        suppress: this.SUPPRESS,
-                                        type: "debug",
-                                        data: {
-                                            requestId: typedRequest.requestId,
-                                            entityName,
-                                            metadataKey,
-                                            durationMs:
-                                                performance.now() - receivedAt,
-                                        },
-                                    });
-                                } catch (error) {
-                                    const errorMessage =
-                                        error instanceof Error
-                                            ? error.message
-                                            : String(error);
-
-                                    const errorResponse = {
-                                        type: Communication.WebSocket
-                                            .MessageType
-                                            .ENTITY_METADATA_SUBSCRIBE_RESPONSE,
-                                        timestamp: Date.now(),
-                                        requestId: typedRequest.requestId,
-                                        errorMessage,
-                                        entityName,
-                                        metadataKey,
-                                        subscribed: false,
-                                    };
-
-                                    const errorParsed =
-                                        Communication.WebSocket.Z.EntityMetadataSubscribeResponse.safeParse(
-                                            errorResponse,
-                                        );
-                                    if (errorParsed.success) {
-                                        const errorString = JSON.stringify(
-                                            errorParsed.data,
-                                        );
-                                        responseSize = new TextEncoder().encode(
-                                            errorString,
-                                        ).length;
-                                        ws.send(errorString);
-                                    }
-
-                                    BunLogModule({
-                                        prefix: LOG_PREFIX,
-                                        message:
-                                            "WS ENTITY_METADATA_SUBSCRIBE_REQUEST error",
-                                        debug: this.DEBUG,
-                                        suppress: this.SUPPRESS,
-                                        type: "info",
-                                        data: {
-                                            requestId: typedRequest.requestId,
-                                            entityName,
-                                            metadataKey,
-                                            errorMessage,
-                                        },
-                                    });
-                                } finally {
-                                    this.recordEndpointMetrics(
-                                        "WS_ENTITY_METADATA_SUBSCRIBE_REQUEST",
-                                        startTime,
-                                        requestSize,
-                                        responseSize,
-                                        success,
-                                    );
-                                }
-
-                                break;
-                            }
-
-                            case Communication.WebSocket.MessageType
-                                .ENTITY_METADATA_UNSUBSCRIBE_REQUEST: {
-                                const typedRequest =
-                                    data as Communication.WebSocket.EntityMetadataUnsubscribeRequestMessage;
-
-                                const startTime = performance.now();
-                                const requestSize = new TextEncoder().encode(
-                                    message,
-                                ).length;
-                                let responseSize = 0;
-                                let removed = false;
-                                const entityName =
-                                    typedRequest.entityName.trim();
-                                const metadataKey =
-                                    typedRequest.metadataKey?.trim() || null;
-
-                                const subs = this.sessionSubscriptions.get(
-                                    session.sessionId,
-                                );
-                                if (subs && entityName) {
-                                    const entry = subs.metadata.get(entityName);
-                                    if (entry) {
-                                        if (!metadataKey) {
-                                            subs.metadata.delete(entityName);
-                                            removed = true;
-                                        } else if (entry.all) {
-                                            entry.all = false;
-                                            removed = true;
-                                            if (entry.keys.size === 0) {
-                                                subs.metadata.delete(
-                                                    entityName,
-                                                );
-                                            }
-                                        } else {
-                                            removed =
-                                                entry.keys.delete(metadataKey);
-                                            if (
-                                                entry.keys.size === 0 &&
-                                                !entry.all
-                                            ) {
-                                                subs.metadata.delete(
-                                                    entityName,
-                                                );
-                                            }
-                                        }
-
-                                        if (
-                                            subs.entity.size === 0 &&
-                                            subs.metadata.size === 0
-                                        ) {
-                                            this.sessionSubscriptions.delete(
-                                                session.sessionId,
-                                            );
-                                        }
-                                    }
-                                }
-
-                                const responseData = {
-                                    type: Communication.WebSocket.MessageType
-                                        .ENTITY_METADATA_UNSUBSCRIBE_RESPONSE,
-                                    timestamp: Date.now(),
-                                    requestId: typedRequest.requestId,
-                                    errorMessage: removed
-                                        ? null
-                                        : "Subscription not found",
-                                    entityName,
-                                    metadataKey,
-                                    removed,
-                                };
-
-                                const responseParsed =
-                                    Communication.WebSocket.Z.EntityMetadataUnsubscribeResponse.safeParse(
-                                        responseData,
-                                    );
-                                if (responseParsed.success) {
-                                    const responseString = JSON.stringify(
-                                        responseParsed.data,
-                                    );
-                                    responseSize = new TextEncoder().encode(
-                                        responseString,
-                                    ).length;
-                                    ws.send(responseString);
-                                }
-
-                                BunLogModule({
-                                    prefix: LOG_PREFIX,
-                                    message:
-                                        "WS ENTITY_METADATA_UNSUBSCRIBE_REQUEST handled",
-                                    debug: this.DEBUG,
-                                    suppress: this.SUPPRESS,
-                                    type: "debug",
-                                    data: {
-                                        requestId: typedRequest.requestId,
-                                        entityName,
-                                        metadataKey,
-                                        removed,
-                                        durationMs:
-                                            performance.now() - receivedAt,
-                                    },
-                                });
-
-                                this.recordEndpointMetrics(
-                                    "WS_ENTITY_METADATA_UNSUBSCRIBE_REQUEST",
-                                    startTime,
-                                    requestSize,
-                                    responseSize,
-                                    removed,
-                                );
-                                break;
-                            }
 
                             case Communication.WebSocket.MessageType
                                 .REFLECT_PUBLISH_REQUEST: {

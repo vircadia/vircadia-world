@@ -78,6 +78,9 @@ let hoverPhase = 0;
 let wavePhase = 0;
 
 const STATUS_INDICATOR_Y = -0.8;
+const FOLLOW_SNAP_DISTANCE = 4.0;
+const FOLLOW_SNAP_DISTANCE_SQ = FOLLOW_SNAP_DISTANCE * FOLLOW_SNAP_DISTANCE;
+const VERTICAL_SPEED_MULTIPLIER = 1.5; // Allow faster vertical movement to keep up with height changes
 
 function createAgentGeometry(scene: Scene, root: TransformNode): void {
     // Body (extruded rounded square for rounded square-like form)
@@ -590,8 +593,26 @@ function initAgent(scene: Scene | null | undefined): void {
             if (llmStatusMesh.value) llmStatusMesh.value.position.y = STATUS_INDICATOR_Y;
         }
 
+        const desiredPos = target.position.add(new Vector3(0, hover, 0));
+        const currentPos = characterController.value
+            ? getAgentPosition() ?? root.position
+            : root.position;
+        const followError = desiredPos.subtract(currentPos);
+
+        if (followError.lengthSquared() > FOLLOW_SNAP_DISTANCE_SQ) {
+            if (characterController.value) {
+                const controller = characterController.value as PhysicsCharacterController & {
+                    setPosition?: (pos: Vector3) => void;
+                };
+                controller.setPosition?.(desiredPos);
+                setAgentVelocity(Vector3.Zero());
+            }
+            root.position = desiredPos.clone();
+            root.rotationQuaternion = target.orientation.clone();
+            return;
+        }
+
         if (characterController.value) {
-            const currentPos = getAgentPosition() ?? root.position;
             const toTarget = target.position.subtract(currentPos);
 
             // Split vertical control – keep floating around target height smoothly
@@ -602,12 +623,13 @@ function initAgent(scene: Scene | null | undefined): void {
             const desiredHorizontalVelocity = horizontal.scale(desiredSpeed);
 
             // More responsive vertical following - use adaptive multiplier based on distance
-            // and cap with maxSpeed for consistency with horizontal movement
-            const verticalDistance = target.position.y + hover - currentPos.y;
+            // Allow higher vertical speeds to keep up with quick height changes
+            const verticalDistance = desiredPos.y - currentPos.y;
             const verticalMultiplier = Math.min(8.0, 2.0 + Math.abs(verticalDistance) * 2.0);
+            const maxVerticalSpeed = props.maxSpeed * VERTICAL_SPEED_MULTIPLIER;
             const desiredVerticalVelocity = Math.max(
-                -props.maxSpeed,
-                Math.min(props.maxSpeed, verticalDistance * verticalMultiplier)
+                -maxVerticalSpeed,
+                Math.min(maxVerticalSpeed, verticalDistance * verticalMultiplier)
             );
 
             const newVel = new Vector3(
@@ -638,11 +660,7 @@ function initAgent(scene: Scene | null | undefined): void {
             // No physics – directly interpolate position and orientation
             const currentPos = root.position;
             const lerpT = Math.min(1, dt * 4.0);
-            root.position = Vector3.Lerp(
-                currentPos,
-                target.position.add(new Vector3(0, hover, 0)),
-                lerpT,
-            );
+            root.position = Vector3.Lerp(currentPos, desiredPos, lerpT);
             const currentRot = root.rotationQuaternion ?? Quaternion.Identity();
             const targetRot = target.orientation;
             root.rotationQuaternion = Quaternion.Slerp(

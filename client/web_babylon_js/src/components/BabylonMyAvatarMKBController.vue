@@ -8,9 +8,12 @@
 
 <script setup lang="ts">
 import {
+    type AbstractMesh,
+    type Behavior,
     KeyboardEventTypes,
     type KeyboardInfo,
     type Observer,
+    PointerDragBehavior,
     PointerEventTypes,
     type PointerInfo,
     type Scene,
@@ -184,25 +187,38 @@ if (props.scene) {
         const e = info.event as MouseEvent | WheelEvent;
         switch (info.type) {
             case PointerEventTypes.POINTERDOWN: {
-                pointerState.value.buttonDown = true;
                 const mouseEvt = e as MouseEvent;
+                const pickedMesh = info.pickInfo?.hit ? (info.pickInfo.pickedMesh as AbstractMesh | null) : null;
+                pointerState.value.buttonDown = true;
                 if (mouseEvt.button === 0) {
                     pointerState.value.leftMouseDown = true;
                 } else if (mouseEvt.button === 2) {
                     pointerState.value.rightMouseDown = true;
                     mouseEvt.preventDefault();
                 }
+                // Check if picked mesh has a PointerDragBehavior (Babylon.js built-in mechanism)
+                // This automatically handles UI elements like sliders without explicit checks
+                const hasDragBehavior = pickedMesh?.behaviors?.some(
+                    (behavior: Behavior<AbstractMesh>) => behavior instanceof PointerDragBehavior
+                ) ?? false;
+                // Also check for active drag behaviors on the scene (if any drag is in progress)
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const hasActiveDragBehaviors = (props.scene as any)._activePointerDragBehaviors?.length > 0;
                 if (
-                    mouseEvt.button === 0 ||
-                    mouseEvt.button === 2
+                    (mouseEvt.button === 0 || mouseEvt.button === 2) &&
+                    !hasDragBehavior &&
+                    !hasActiveDragBehaviors
                 ) {
                     enablePointerLock();
+                } else if (hasDragBehavior || hasActiveDragBehaviors) {
                 }
                 break;
             }
             case PointerEventTypes.POINTERUP: {
-                pointerState.value.buttonDown = false;
                 const mouseEvtUp = e as MouseEvent;
+                const pickedMesh = info.pickInfo?.hit ? (info.pickInfo.pickedMesh as AbstractMesh | null) : null;
+
+                pointerState.value.buttonDown = false;
                 if (mouseEvtUp.button === 0) {
                     pointerState.value.leftMouseDown = false;
                 } else if (mouseEvtUp.button === 2) {
@@ -214,10 +230,17 @@ if (props.scene) {
                 }
                 break;
             }
-            case PointerEventTypes.POINTERMOVE:
+            case PointerEventTypes.POINTERMOVE: {
+                const pickedMesh = info.pickInfo?.hit ? (info.pickInfo.pickedMesh as AbstractMesh | null) : null;
+                const hasDragBehavior = pickedMesh?.behaviors?.some(
+                    (behavior: Behavior<AbstractMesh>) => behavior instanceof PointerDragBehavior
+                ) ?? false;
+                if (hasDragBehavior) {
+                }
                 pointerState.value.deltaX = (e as MouseEvent).movementX;
                 pointerState.value.deltaY = (e as MouseEvent).movementY;
                 break;
+            }
             case PointerEventTypes.POINTERWHEEL:
                 pointerState.value.wheelDelta = (e as WheelEvent).deltaY;
                 break;

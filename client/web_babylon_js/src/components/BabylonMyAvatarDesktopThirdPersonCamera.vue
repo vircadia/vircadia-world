@@ -10,6 +10,7 @@ import type {
 import {
     ArcRotateCamera,
     MeshBuilder,
+    PointerEventTypes,
     Quaternion,
     Vector3,
 } from "@babylonjs/core";

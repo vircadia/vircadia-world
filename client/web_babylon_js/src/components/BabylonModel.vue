@@ -554,9 +554,9 @@ watch(
                 // Create entity
                 isCreating.value = true;
                 try {
-                    // First create the entity
+                    // First create the entity (upsert to handle race conditions)
                     await vircadia.client.connection.query({
-                        query: "INSERT INTO entity.entities (general__entity_name, group__sync, general__expiry__delete_since_updated_at_ms) VALUES ($1, $2, $3) RETURNING general__entity_name",
+                        query: "INSERT INTO entity.entities (general__entity_name, group__sync, general__expiry__delete_since_updated_at_ms) VALUES ($1, $2, $3) ON CONFLICT (general__entity_name) DO UPDATE SET general__expiry__delete_since_updated_at_ms = EXCLUDED.general__expiry__delete_since_updated_at_ms RETURNING general__entity_name",
                         parameters: [
                             entityNameRef.value,
                             "public.NORMAL",

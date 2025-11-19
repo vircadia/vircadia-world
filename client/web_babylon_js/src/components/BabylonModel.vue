@@ -70,7 +70,7 @@ async function retrieveEntityMetadata(
     try {
         // Fetch all metadata for this entity
         const metadataResult = await vircadia.client.connection.query({
-            query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1",
+            query: "SELECT metadata__key, metadata__jsonb FROM entity.entity_metadata WHERE general__entity_name = $1",
             parameters: [entityName],
         });
 
@@ -78,7 +78,7 @@ async function retrieveEntityMetadata(
             // Reconstruct metadata map from rows
             const metadataMap = new Map<string, unknown>();
             for (const row of metadataResult.result) {
-                metadataMap.set(row.metadata__key, row.metadata__value);
+                metadataMap.set(row.metadata__key, row.metadata__jsonb);
             }
             return metadataMap;
         }
@@ -105,11 +105,11 @@ const debouncedUpdate = useDebounceFn(async () => {
         // Helper function to update metadata
         const updateMetadata = async (key: string, value: unknown) => {
             await vircadia.client.connection.query({
-                query: `INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync)
-                        VALUES ($1, $2, $3, $4)
+                query: `INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__jsonb)
+                        VALUES ($1, $2, $3)
                         ON CONFLICT (general__entity_name, metadata__key) 
-                        DO UPDATE SET metadata__value = EXCLUDED.metadata__value`,
-                parameters: [entityNameRef.value, key, value, "public.NORMAL"],
+                        DO UPDATE SET metadata__jsonb = EXCLUDED.metadata__jsonb`,
+                parameters: [entityNameRef.value, key, value],
             });
         };
 
@@ -582,15 +582,14 @@ watch(
 
                     for (const { key, value } of metadataInserts) {
                         await vircadia.client.connection.query({
-                            query: `INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync)
-                                    VALUES ($1, $2, $3, $4)
+                            query: `INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__jsonb)
+                                    VALUES ($1, $2, $3)
                                     ON CONFLICT (general__entity_name, metadata__key)
-                                    DO UPDATE SET metadata__value = EXCLUDED.metadata__value`,
+                                    DO UPDATE SET metadata__jsonb = EXCLUDED.metadata__jsonb`,
                             parameters: [
                                 entityNameRef.value,
                                 key,
                                 value,
-                                "public.NORMAL",
                             ],
                         });
                     }

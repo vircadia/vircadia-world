@@ -69,29 +69,35 @@ ALTER TABLE entity.entities ENABLE ROW LEVEL SECURITY;
 CREATE TABLE entity.entity_metadata (
     general__entity_name TEXT NOT NULL,
     metadata__key TEXT NOT NULL,
-    metadata__value JSONB NOT NULL,
-    -- TODO: Remove group__sync and group__channel as they should be inherited from the entity in all cases.
-    group__sync TEXT NOT NULL,
-    group__channel TEXT DEFAULT NULL,
+    metadata__jsonb JSONB DEFAULT NULL,
+    metadata__text TEXT DEFAULT NULL,
+    metadata__int BIGINT DEFAULT NULL,
+    metadata__float DOUBLE PRECISION DEFAULT NULL,
+    metadata__bool BOOLEAN DEFAULT NULL,
+    metadata__bytea BYTEA DEFAULT NULL,
     general__expiry__delete_since_updated_at_ms BIGINT DEFAULT NULL, -- Time in milliseconds after which the metadata will be deleted if it is inactive
     general__expiry__delete_since_created_at_ms BIGINT DEFAULT NULL, -- Time in milliseconds after which the metadata will be deleted even if it is active
+    CONSTRAINT entity_metadata_one_value CHECK (
+        ((metadata__jsonb IS NOT NULL)::int +
+         (metadata__text IS NOT NULL)::int +
+         (metadata__int IS NOT NULL)::int +
+         (metadata__float IS NOT NULL)::int +
+         (metadata__bool IS NOT NULL)::int +
+         (metadata__bytea IS NOT NULL)::int) = 1
+    ),
     
     PRIMARY KEY (general__entity_name, metadata__key),
     CONSTRAINT fk_entity_metadata_entity FOREIGN KEY (general__entity_name) 
-        REFERENCES entity.entities(general__entity_name) ON DELETE CASCADE,
-    CONSTRAINT fk_entity_metadata_sync_group FOREIGN KEY (group__sync) 
-        REFERENCES auth.sync_groups(general__sync_group)
+        REFERENCES entity.entities(general__entity_name) ON DELETE CASCADE
 ) INHERITS (entity._template);
 
 -- Indexes for efficient queries
 CREATE INDEX idx_entity_metadata_key ON entity.entity_metadata(metadata__key);
 CREATE INDEX idx_entity_metadata_updated ON entity.entity_metadata(general__updated_at);
 CREATE INDEX idx_entity_metadata_entity_updated ON entity.entity_metadata(general__entity_name, general__updated_at);
-CREATE INDEX idx_entity_metadata_sync_group ON entity.entity_metadata(group__sync);
-CREATE INDEX idx_entity_metadata_value_gin ON entity.entity_metadata USING gin(metadata__value);
+CREATE INDEX idx_entity_metadata_jsonb_gin ON entity.entity_metadata USING gin(metadata__jsonb);
 CREATE INDEX idx_entity_metadata_expiry_updated ON entity.entity_metadata(general__expiry__delete_since_updated_at_ms) WHERE general__expiry__delete_since_updated_at_ms IS NOT NULL;
 CREATE INDEX idx_entity_metadata_expiry_created ON entity.entity_metadata(general__expiry__delete_since_created_at_ms) WHERE general__expiry__delete_since_created_at_ms IS NOT NULL;
-CREATE INDEX idx_entity_metadata_channel ON entity.entity_metadata(group__channel) WHERE group__channel IS NOT NULL;
 
 ALTER TABLE entity.entity_metadata ENABLE ROW LEVEL SECURITY;
 
@@ -472,15 +478,18 @@ CREATE POLICY "entity_metadata_read_policy" ON entity.entity_metadata
     FOR SELECT
     TO PUBLIC
     USING (
-        entity.touch_current_agent_last_seen_guard() AND
-        auth.is_admin_agent()
-        OR auth.is_system_agent()
-        OR EXISTS (
-            SELECT 1
-            FROM auth.active_sync_group_sessions sess
-            WHERE sess.auth__agent_id = auth.current_agent_id()
-              AND sess.group__sync = entity.entity_metadata.group__sync
-              AND sess.permissions__can_read = true
+        entity.touch_current_agent_last_seen_guard() AND (
+            auth.is_admin_agent()
+            OR auth.is_system_agent()
+            OR EXISTS (
+                SELECT 1
+                FROM auth.active_sync_group_sessions AS sess
+                JOIN entity.entities AS e
+                  ON e.general__entity_name = entity.entity_metadata.general__entity_name
+                WHERE sess.auth__agent_id = auth.current_agent_id()
+                  AND sess.group__sync = e.group__sync
+                  AND sess.permissions__can_read = true
+            )
         )
     );
 
@@ -492,9 +501,11 @@ CREATE POLICY "entity_metadata_update_policy" ON entity.entity_metadata
         OR auth.is_system_agent()
         OR EXISTS (
             SELECT 1
-            FROM auth.active_sync_group_sessions sess
+            FROM auth.active_sync_group_sessions AS sess
+            JOIN entity.entities AS e
+              ON e.general__entity_name = entity.entity_metadata.general__entity_name
             WHERE sess.auth__agent_id = auth.current_agent_id()
-              AND sess.group__sync = entity.entity_metadata.group__sync
+              AND sess.group__sync = e.group__sync
               AND sess.permissions__can_update = true
         )
     );
@@ -507,9 +518,11 @@ CREATE POLICY "entity_metadata_insert_policy" ON entity.entity_metadata
         OR auth.is_system_agent()
         OR EXISTS (
             SELECT 1
-            FROM auth.active_sync_group_sessions sess
+            FROM auth.active_sync_group_sessions AS sess
+            JOIN entity.entities AS e
+              ON e.general__entity_name = entity.entity_metadata.general__entity_name
             WHERE sess.auth__agent_id = auth.current_agent_id()
-              AND sess.group__sync = entity.entity_metadata.group__sync
+              AND sess.group__sync = e.group__sync
               AND sess.permissions__can_insert = true
         )
     );
@@ -522,9 +535,11 @@ CREATE POLICY "entity_metadata_delete_policy" ON entity.entity_metadata
         OR auth.is_system_agent()
         OR EXISTS (
             SELECT 1
-            FROM auth.active_sync_group_sessions sess
+            FROM auth.active_sync_group_sessions AS sess
+            JOIN entity.entities AS e
+              ON e.general__entity_name = entity.entity_metadata.general__entity_name
             WHERE sess.auth__agent_id = auth.current_agent_id()
-              AND sess.group__sync = entity.entity_metadata.group__sync
+              AND sess.group__sync = e.group__sync
               AND sess.permissions__can_delete = true
         )
     );
@@ -560,9 +575,7 @@ CREATE INDEX idx_entity_timestamp_changes ON entity.entities
     INCLUDE (general__entity_name);
 
 -- 2. Index for metadata changes
-CREATE INDEX idx_entity_metadata_changes ON entity.entity_metadata
-    (group__sync, general__updated_at)
-    INCLUDE (general__entity_name, metadata__key);
+-- Removed: group__sync no longer exists on entity_metadata; rely on other indexes
 
 -- 3. Composite index for asset changes
 CREATE INDEX idx_asset_timestamp_changes ON entity.entity_assets
@@ -576,7 +589,7 @@ CREATE INDEX idx_asset_timestamp_changes ON entity.entity_assets
 -- Optimizes queries like: WHERE entity_name = ? AND key LIKE 'joint:%' AND updated_at > ?
 CREATE INDEX idx_entity_metadata_joint_timestamp ON entity.entity_metadata
     (general__entity_name, metadata__key, general__updated_at)
-    WHERE metadata__key LIKE 'joint:%' AND metadata__value->>'type' = 'avatarJoint';
+    WHERE metadata__key LIKE 'joint:%' AND metadata__jsonb->>'type' = 'avatarJoint';
 
 -- ============================================================================
 -- 8. LOGICAL REPLICATION SETUP

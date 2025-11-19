@@ -208,8 +208,8 @@ async function upsertMetadata(
 ): Promise<void> {
     try {
         await props.vircadiaWorld.client.connection.query({
-            query: "INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__value, group__sync) VALUES ($1, $2, $3, $4) ON CONFLICT (general__entity_name, metadata__key) DO UPDATE SET metadata__value = EXCLUDED.metadata__value",
-            parameters: [entityNameArg, key, value, props.entitySyncGroup],
+            query: "INSERT INTO entity.entity_metadata (general__entity_name, metadata__key, metadata__jsonb) VALUES ($1, $2, $3) ON CONFLICT (general__entity_name, metadata__key) DO UPDATE SET metadata__jsonb = EXCLUDED.metadata__jsonb",
+            parameters: [entityNameArg, key, value],
             timeoutMs: 5000,
         });
     } catch (e) {

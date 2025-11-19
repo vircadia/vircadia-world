@@ -114,7 +114,7 @@ async function fetchModelEntityNames(): Promise<string[]> {
     try {
         const res = await props.vircadiaWorld.client.connection.query(
             {
-                query: "SELECT DISTINCT general__entity_name FROM entity.entity_metadata WHERE metadata__key = $1 AND metadata__value = $2::jsonb",
+                query: "SELECT DISTINCT general__entity_name FROM entity.entity_metadata WHERE metadata__key = $1 AND metadata__jsonb = $2::jsonb",
                 parameters: ["type", "Model"],
             },
         );
@@ -147,7 +147,7 @@ async function fetchMetadataForEntities(
         parameters.push(entityNames[i]);
     }
 
-    const query = `SELECT general__entity_name, metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name IN (${placeholders.join(", ")})`;
+    const query = `SELECT general__entity_name, metadata__key, metadata__jsonb FROM entity.entity_metadata WHERE general__entity_name IN (${placeholders.join(", ")})`;
 
     try {
         const res = await props.vircadiaWorld.client.connection.query(
@@ -160,7 +160,7 @@ async function fetchMetadataForEntities(
             for (const row of res.result) {
                 const name = row.general__entity_name as string;
                 const key = row.metadata__key as string;
-                const value = row.metadata__value as unknown;
+                const value = row.metadata__jsonb as unknown;
                 if (!result.has(name))
                     result.set(name, new Map<string, unknown>());
                 result.get(name)!.set(key, value);

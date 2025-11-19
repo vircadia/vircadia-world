@@ -303,7 +303,7 @@ async function backfillSessionFromMetadata(sessionId: string): Promise<void> {
     try {
         const entityName = `avatar:${sessionId}`;
         const result = await vircadiaWorld.client.connection.query({
-            query: "SELECT metadata__key, metadata__value FROM entity.entity_metadata WHERE general__entity_name = $1 AND group__sync = $2 AND metadata__key IN ('type','sessionId','modelFileName','position','rotation','scale','cameraOrientation','joints','avatar_snapshot')",
+            query: "SELECT m.metadata__key, m.metadata__jsonb FROM entity.entity_metadata AS m JOIN entity.entities AS e ON e.general__entity_name = m.general__entity_name WHERE m.general__entity_name = $1 AND e.group__sync = $2 AND m.metadata__key IN ('type','sessionId','modelFileName','position','rotation','scale','cameraOrientation','joints','avatar_snapshot')",
             parameters: [entityName, props.entitySyncGroup],
             timeoutMs: 5000,
         });
@@ -314,10 +314,10 @@ async function backfillSessionFromMetadata(sessionId: string): Promise<void> {
         // Apply individual keys first
         const rows = result.result as Array<{
             metadata__key: string;
-            metadata__value: unknown;
+            metadata__jsonb: unknown;
         }>;
         const keyToValue = new Map(
-            rows.map((r) => [r.metadata__key, r.metadata__value]),
+            rows.map((r) => [r.metadata__key, r.metadata__jsonb]),
         );
 
         const base = avatarDataMap.value[sessionId];

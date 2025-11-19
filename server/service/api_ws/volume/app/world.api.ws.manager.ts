@@ -595,33 +595,146 @@ export class WorldApiWsManager {
         const data = commandLower === "delete" ? infoObj.old : rowData;
         const previous = infoObj.old;
 
+        // For entity_metadata, we need to look up the entity's sync group and channel
+        // since metadata doesn't have these fields (it inherits from the parent entity)
+        let entitySyncGroup: string | undefined;
+        let entityChannel: string | null | undefined;
+        let previousEntitySyncGroup: string | undefined;
+        let previousEntityChannel: string | null | undefined;
+
+        if (resource === "entity_metadata" && superUserSql) {
+            try {
+                // Look up current entity's sync group and channel
+                if (data?.general__entity_name) {
+                    const entityResult = await superUserSql<
+                        Array<{
+                            group__sync: string;
+                            group__channel: string | null;
+                        }>
+                    >`
+                        SELECT group__sync, group__channel
+                        FROM entity.entities
+                        WHERE general__entity_name = ${data.general__entity_name}
+                        LIMIT 1
+                    `;
+                    if (entityResult.length > 0) {
+                        entitySyncGroup = entityResult[0].group__sync;
+                        entityChannel = entityResult[0].group__channel;
+                    }
+                }
+
+                // Look up previous entity's sync group and channel (for DELETE/UPDATE)
+                if (previous?.general__entity_name) {
+                    const previousEntityResult = await superUserSql<
+                        Array<{
+                            group__sync: string;
+                            group__channel: string | null;
+                        }>
+                    >`
+                        SELECT group__sync, group__channel
+                        FROM entity.entities
+                        WHERE general__entity_name = ${previous.general__entity_name}
+                        LIMIT 1
+                    `;
+                    if (previousEntityResult.length > 0) {
+                        previousEntitySyncGroup =
+                            previousEntityResult[0].group__sync;
+                        previousEntityChannel =
+                            previousEntityResult[0].group__channel;
+                    }
+                }
+            } catch (error) {
+                BunLogModule({
+                    prefix: LOG_PREFIX,
+                    message:
+                        "Failed to look up entity sync group for metadata notification",
+                    debug: this.DEBUG,
+                    suppress: this.SUPPRESS,
+                    type: "error",
+                    error,
+                    data: {
+                        entityName: data?.general__entity_name,
+                        previousEntityName: previous?.general__entity_name,
+                    },
+                });
+            }
+        }
+
         // Handle Channel Migration: If channel changed, emit DELETE for old channel
         if (commandLower === "update" && previous && data) {
-            const oldChannel = previous.group__channel;
-            const newChannel = data.group__channel;
+            const oldChannel =
+                resource === "entity_metadata"
+                    ? previousEntityChannel
+                    : previous.group__channel;
+            const newChannel =
+                resource === "entity_metadata"
+                    ? entityChannel
+                    : data.group__channel;
 
             if (oldChannel !== newChannel) {
-                // Emit DELETE for old channel
-                const deleteNotification: EntityNotificationPayload = {
-                    resource,
-                    operation: Communication.WebSocket.DatabaseOperation.DELETE,
-                    entityName: previous.general__entity_name,
-                    metadataKey:
-                        resource === "entity_metadata"
-                            ? previous.metadata__key
-                            : undefined,
-                    syncGroup: previous.group__sync,
-                    channel: oldChannel, // Target the old channel
-                    data: previous,
-                    previous: null,
-                };
-
-                if (resource === "entity") {
-                    this.queueEntityChange(deleteNotification);
+                // For entity_metadata, ensure we have a valid sync group for the DELETE notification
+                if (
+                    resource === "entity_metadata" &&
+                    !previousEntitySyncGroup
+                ) {
+                    BunLogModule({
+                        prefix: LOG_PREFIX,
+                        message:
+                            "Skipping metadata DELETE notification: failed to determine previous entity sync group",
+                        debug: this.DEBUG,
+                        suppress: this.SUPPRESS,
+                        type: "warn",
+                        data: {
+                            entityName: previous?.general__entity_name,
+                            metadataKey: previous?.metadata__key,
+                        },
+                    });
                 } else {
-                    this.queueEntityMetadataChange(deleteNotification);
+                    // Emit DELETE for old channel
+                    const deleteNotification: EntityNotificationPayload = {
+                        resource,
+                        operation:
+                            Communication.WebSocket.DatabaseOperation.DELETE,
+                        entityName: previous.general__entity_name,
+                        metadataKey:
+                            resource === "entity_metadata"
+                                ? previous.metadata__key
+                                : undefined,
+                        syncGroup:
+                            resource === "entity_metadata" &&
+                            previousEntitySyncGroup
+                                ? previousEntitySyncGroup
+                                : previous.group__sync,
+                        channel: oldChannel, // Target the old channel
+                        data: previous,
+                        previous: null,
+                    };
+
+                    if (resource === "entity") {
+                        this.queueEntityChange(deleteNotification);
+                    } else {
+                        this.queueEntityMetadataChange(deleteNotification);
+                    }
                 }
             }
+        }
+
+        // For entity_metadata, ensure we have a valid sync group before proceeding
+        if (resource === "entity_metadata" && !entitySyncGroup) {
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message:
+                    "Skipping metadata notification: failed to determine entity sync group",
+                debug: this.DEBUG,
+                suppress: this.SUPPRESS,
+                type: "warn",
+                data: {
+                    entityName: data?.general__entity_name,
+                    metadataKey: data?.metadata__key,
+                    operation,
+                },
+            });
+            return;
         }
 
         // Standard Dispatch (Targeting the NEW channel for updates)
@@ -631,8 +744,14 @@ export class WorldApiWsManager {
             entityName: data.general__entity_name,
             metadataKey:
                 resource === "entity_metadata" ? data.metadata__key : undefined,
-            syncGroup: data.group__sync,
-            channel: data.group__channel,
+            syncGroup:
+                resource === "entity_metadata" && entitySyncGroup
+                    ? entitySyncGroup
+                    : data.group__sync,
+            channel:
+                resource === "entity_metadata"
+                    ? entityChannel
+                    : data.group__channel,
             data: data,
             previous: previous,
         };
@@ -765,26 +884,26 @@ export class WorldApiWsManager {
                             Entity.Metadata.I_Metadata,
                             | "general__entity_name"
                             | "metadata__key"
-                            | "metadata__value"
-                            | "group__sync"
-                            | "general__created_at"
-                            | "general__updated_at"
-                        > & {
-                            general__created_at: Date;
-                            general__updated_at: Date;
-                        }
+                            | "metadata__jsonb"
+                        > &
+                            Pick<Entity.I_Entity, "group__sync"> & {
+                                general__created_at: Date;
+                                general__updated_at: Date;
+                            }
                     >
                 >`
                     SELECT 
-                        general__entity_name,
-                        metadata__key,
-                        metadata__value,
-                        group__sync,
-                        general__created_at,
-                        general__updated_at
-                    FROM entity.entity_metadata
-                    WHERE general__entity_name = ${payload.entityName}
-                      AND metadata__key = ${payload.metadataKey}
+                        m.general__entity_name,
+                        m.metadata__key,
+                        m.metadata__jsonb,
+                        e.group__sync,
+                        m.general__created_at,
+                        m.general__updated_at
+                    FROM entity.entity_metadata AS m
+                    JOIN entity.entities AS e
+                      ON e.general__entity_name = m.general__entity_name
+                    WHERE m.general__entity_name = ${payload.entityName}
+                      AND m.metadata__key = ${payload.metadataKey}
                 `;
 
                 if (result.length > 0) {
@@ -792,7 +911,7 @@ export class WorldApiWsManager {
                     fullData = {
                         general__entity_name: row.general__entity_name,
                         metadata__key: row.metadata__key,
-                        metadata__value: row.metadata__value,
+                        metadata__jsonb: row.metadata__jsonb,
                         group__sync: row.group__sync,
                         general__created_at: row.general__created_at,
                         general__updated_at: row.general__updated_at,
@@ -812,7 +931,7 @@ export class WorldApiWsManager {
                         operation: payload.operation,
                     },
                 });
-                // Fall back to using payload.data (without metadata__value)
+                // Fall back to using payload.data (without metadata__jsonb)
             }
         }
 
@@ -2073,9 +2192,11 @@ export class WorldApiWsManager {
                                             await superUserSql<
                                                 Array<{ group__sync: string }>
                                             >`
-                                            SELECT DISTINCT group__sync
-                                            FROM entity.entity_metadata
-                                            WHERE general__entity_name = ${entityName}
+                                            SELECT DISTINCT e.group__sync
+                                            FROM entity.entity_metadata AS m
+                                            JOIN entity.entities AS e
+                                              ON e.general__entity_name = m.general__entity_name
+                                            WHERE m.general__entity_name = ${entityName}
                                         `;
 
                                         const uniqueSyncGroups =
@@ -2120,9 +2241,11 @@ export class WorldApiWsManager {
                                             await superUserSql<
                                                 Array<{ group__sync: string }>
                                             >`
-                                            SELECT DISTINCT group__sync
-                                            FROM entity.entity_metadata
-                                            WHERE general__entity_name = ${entityName}
+                                            SELECT DISTINCT e.group__sync
+                                            FROM entity.entity_metadata AS m
+                                            JOIN entity.entities AS e
+                                              ON e.general__entity_name = m.general__entity_name
+                                            WHERE m.general__entity_name = ${entityName}
                                         `;
 
                                         const uniqueSyncGroups =
@@ -2341,9 +2464,11 @@ export class WorldApiWsManager {
                                                                 group__sync: string;
                                                             }>
                                                         >`
-                                                        SELECT DISTINCT metadata__key, group__sync
-                                                        FROM entity.entity_metadata
-                                                        WHERE general__entity_name = ${entityName}
+                                                        SELECT DISTINCT m.metadata__key, e.group__sync
+                                                        FROM entity.entity_metadata AS m
+                                                        JOIN entity.entities AS e
+                                                          ON e.general__entity_name = m.general__entity_name
+                                                        WHERE m.general__entity_name = ${entityName}
                                                     `;
 
                                                     for (const row of metadataKeysResult) {
@@ -2390,9 +2515,11 @@ export class WorldApiWsManager {
                                                                 group__sync: string;
                                                             }>
                                                         >`
-                                                        SELECT DISTINCT metadata__key, group__sync
-                                                        FROM entity.entity_metadata
-                                                        WHERE general__entity_name = ${entityName}
+                                                        SELECT DISTINCT m.metadata__key, e.group__sync
+                                                        FROM entity.entity_metadata AS m
+                                                        JOIN entity.entities AS e
+                                                          ON e.general__entity_name = m.general__entity_name
+                                                        WHERE m.general__entity_name = ${entityName}
                                                     `;
 
                                                     for (const row of metadataKeysResult) {

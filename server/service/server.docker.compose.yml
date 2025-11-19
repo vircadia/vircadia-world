@@ -29,6 +29,10 @@ services:
         "-c",
         "wal_level=logical",
         "-c",
+        "max_replication_slots=10", # Enable replication slots
+        "-c",
+        "max_wal_senders=10", # Enable WAL senders for replication
+        "-c",
         "max_wal_size=4GB", # Increase from default 1GB to 4GB
         "-c",
         "checkpoint_timeout=5min", # Default is 5min, but good to explicitly set

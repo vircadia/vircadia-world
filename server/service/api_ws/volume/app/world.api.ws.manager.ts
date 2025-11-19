@@ -61,7 +61,6 @@ interface EntityNotificationPayload {
     previous?: unknown;
 }
 
-
 export class WorldApiWsManager {
     private server: Server<WebSocketData> | undefined;
 
@@ -105,8 +104,10 @@ export class WorldApiWsManager {
     private readonly ENTITY_TOPIC_PREFIX = "entity:";
     private readonly METADATA_TOPIC_PREFIX = "metadata:";
 
-
-    private getReflectTopic(syncGroup: string, channel?: string | null): string {
+    private getReflectTopic(
+        syncGroup: string,
+        channel?: string | null,
+    ): string {
         if (channel === null || channel === undefined) {
             return `${this.REFLECT_TOPIC_PREFIX}${syncGroup}:*`;
         }
@@ -156,7 +157,8 @@ export class WorldApiWsManager {
         }
 
         // Get current subscriptions from Bun's native getter
-        const subscriptions = (ws as unknown as { subscriptions?: string[] }).subscriptions || [];
+        const subscriptions =
+            (ws as unknown as { subscriptions?: string[] }).subscriptions || [];
         const currentSubscriptions = new Set(subscriptions);
 
         // Unsubscribe from groups we no longer have access to
@@ -486,55 +488,60 @@ export class WorldApiWsManager {
             return;
         }
 
-        const listenFn = (
-            legacySuperUserSql as unknown as {
-                listen?: (
-                    channel: string,
-                    handler: (payload: unknown) => void,
-                ) => Promise<() => Promise<void> | void>;
-            }
-        ).listen;
-
-        if (!listenFn) {
+        try {
             BunLogModule({
                 prefix: LOG_PREFIX,
-                message:
-                    "Legacy postgres client does not support LISTEN; entity change notifications disabled",
+                message: "Starting entity logical replication listener...",
                 debug: this.DEBUG,
                 suppress: this.SUPPRESS,
-                type: "warn",
+                type: "info",
             });
-            return;
-        }
 
-        try {
-            const unsubscribeEntities = await listenFn.call(
-                legacySuperUserSql,
-                "entity_entities_changed",
-                (payload: unknown) => {
-                    void this.handleEntityNotification(payload);
-                },
-            );
-            if (unsubscribeEntities) {
-                this.entityNotificationUnsubscribers.push(unsubscribeEntities);
+            // Verify publication tables
+            try {
+                if (legacySuperUserSql) {
+                    const pubTables = await legacySuperUserSql`
+                        SELECT schemaname, tablename 
+                        FROM pg_publication_tables 
+                        WHERE pubname = 'entity_pub'
+                    `;
+                    BunLogModule({
+                        prefix: LOG_PREFIX,
+                        message: "Verifying entity_pub tables",
+                        debug: this.DEBUG,
+                        suppress: this.SUPPRESS,
+                        type: "info",
+                        data: { tables: pubTables },
+                    });
+                }
+            } catch (err) {
+                console.warn("Failed to verify publication tables:", err);
             }
 
-            const unsubscribeMetadata = await listenFn.call(
-                legacySuperUserSql,
-                "entity_entity_metadata_changed",
-                (payload: unknown) => {
-                    void this.handleEntityNotification(payload);
+            const { unsubscribe } = await legacySuperUserSql.subscribe(
+                "*",
+                (row: unknown, info: unknown) => {
+                    BunLogModule({
+                        prefix: LOG_PREFIX,
+                        message: "Replication event received",
+                        debug: this.DEBUG,
+                        suppress: this.SUPPRESS,
+                        type: "debug",
+                        data: { row, info },
+                    });
+                    void this.handleReplicationEvent(row, info);
                 },
             );
-            if (unsubscribeMetadata) {
-                this.entityNotificationUnsubscribers.push(unsubscribeMetadata);
+
+            if (unsubscribe) {
+                this.entityNotificationUnsubscribers.push(unsubscribe);
             }
 
             this.entityListenersInitialized = true;
 
             BunLogModule({
                 prefix: LOG_PREFIX,
-                message: "Entity change listeners initialized",
+                message: "Entity logical replication listener initialized",
                 debug: this.DEBUG,
                 suppress: this.SUPPRESS,
                 type: "info",
@@ -543,7 +550,7 @@ export class WorldApiWsManager {
             this.entityListenersInitialized = false;
             BunLogModule({
                 prefix: LOG_PREFIX,
-                message: "Failed to start entity change listeners",
+                message: "Failed to start entity logical replication listener",
                 debug: this.DEBUG,
                 suppress: this.SUPPRESS,
                 type: "error",
@@ -552,66 +559,82 @@ export class WorldApiWsManager {
         }
     }
 
-    private async handleEntityNotification(rawPayload: unknown) {
-        if (typeof rawPayload !== "string" || rawPayload.length === 0) {
-            return;
+    private async handleReplicationEvent(row: unknown, info: unknown) {
+        const infoObj = info as {
+            command: string;
+            relation: { schema: string; table: string };
+            // biome-ignore lint/suspicious/noExplicitAny: Generic replication payload
+            old: any;
+        };
+        // biome-ignore lint/suspicious/noExplicitAny: Generic row data
+        const rowData = row as any;
+
+        if (infoObj.relation.schema !== "entity") return;
+
+        const table = infoObj.relation.table;
+        let resource: "entity" | "entity_metadata" | null = null;
+        if (table === "entities") resource = "entity";
+        else if (table === "entity_metadata") resource = "entity_metadata";
+
+        if (!resource) return;
+
+        const opMap: Record<string, Communication.WebSocket.DatabaseOperation> =
+            {
+                insert: Communication.WebSocket.DatabaseOperation.INSERT,
+                update: Communication.WebSocket.DatabaseOperation.UPDATE,
+                delete: Communication.WebSocket.DatabaseOperation.DELETE,
+            };
+
+        const commandLower = infoObj.command.toLowerCase();
+        const operation = opMap[commandLower];
+        if (!operation) return;
+
+        // For DELETE, row is null but old has the data (with REPLICA IDENTITY FULL)
+        // For INSERT, row is data, old is null
+        // For UPDATE, row is new data, old is old data
+        const data = commandLower === "delete" ? infoObj.old : rowData;
+        const previous = infoObj.old;
+
+        // Handle Channel Migration: If channel changed, emit DELETE for old channel
+        if (commandLower === "update" && previous && data) {
+            const oldChannel = previous.group__channel;
+            const newChannel = data.group__channel;
+
+            if (oldChannel !== newChannel) {
+                // Emit DELETE for old channel
+                const deleteNotification: EntityNotificationPayload = {
+                    resource,
+                    operation: Communication.WebSocket.DatabaseOperation.DELETE,
+                    entityName: previous.general__entity_name,
+                    metadataKey:
+                        resource === "entity_metadata"
+                            ? previous.metadata__key
+                            : undefined,
+                    syncGroup: previous.group__sync,
+                    channel: oldChannel, // Target the old channel
+                    data: previous,
+                    previous: null,
+                };
+
+                if (resource === "entity") {
+                    this.queueEntityChange(deleteNotification);
+                } else {
+                    this.queueEntityMetadataChange(deleteNotification);
+                }
+            }
         }
 
-        let parsed: unknown;
-        try {
-            parsed = JSON.parse(rawPayload);
-        } catch (error) {
-            BunLogModule({
-                prefix: LOG_PREFIX,
-                message: "Failed to parse entity notification payload",
-                debug: this.DEBUG,
-                suppress: this.SUPPRESS,
-                type: "debug",
-                error,
-            });
-            return;
-        }
-
-        if (!parsed || typeof parsed !== "object") {
-            return;
-        }
-
-        const payloadObj = parsed as Record<string, unknown>;
-        const resource = payloadObj.resource;
-        if (resource !== "entity" && resource !== "entity_metadata") {
-            return;
-        }
-
-        const syncGroup = payloadObj.syncGroup;
-        if (typeof syncGroup !== "string" || syncGroup.length === 0) {
-            return;
-        }
-
-        const entityNameValue = payloadObj.entityName;
-        const entityName =
-            typeof entityNameValue === "string" ? entityNameValue : undefined;
-
-        const channelValue = payloadObj.channel;
-        const channel =
-            typeof channelValue === "string" || channelValue === null
-                ? channelValue
-                : undefined;
-
+        // Standard Dispatch (Targeting the NEW channel for updates)
         const notification: EntityNotificationPayload = {
             resource,
-            operation:
-                typeof payloadObj.operation === "string"
-                    ? (payloadObj.operation as Communication.WebSocket.DatabaseOperation)
-                    : Communication.WebSocket.DatabaseOperation.INSERT,
-            entityName,
+            operation,
+            entityName: data.general__entity_name,
             metadataKey:
-                typeof payloadObj.metadataKey === "string"
-                    ? payloadObj.metadataKey
-                    : undefined,
-            syncGroup,
-            channel,
-            data: payloadObj.data ?? null,
-            previous: payloadObj.previous ?? null,
+                resource === "entity_metadata" ? data.metadata__key : undefined,
+            syncGroup: data.group__sync,
+            channel: data.group__channel,
+            data: data,
+            previous: previous,
         };
 
         if (resource === "entity") {
@@ -794,8 +817,7 @@ export class WorldApiWsManager {
         }
 
         const messageData = {
-            type: Communication.WebSocket.MessageType
-                .ENTITY_METADATA_DELIVERY,
+            type: Communication.WebSocket.MessageType.ENTITY_METADATA_DELIVERY,
             timestamp: Date.now(),
             requestId: `${payload.entityName}:${payload.metadataKey}`,
             errorMessage: null,
@@ -826,6 +848,14 @@ export class WorldApiWsManager {
         );
         let delivered = this.server.publish(allChannelsTopic, payloadJson);
 
+        // Also publish to the generic "all metadata" topic for this entity
+        const allMetadataTopic = this.getMetadataTopic(
+            payload.syncGroup,
+            payload.entityName,
+            "__ALL__",
+        );
+        delivered += this.server.publish(allMetadataTopic, payloadJson);
+
         // If a specific channel is provided, also publish to the channel-specific topic
         if (payloadChannel !== null && payloadChannel !== undefined) {
             const channelTopic = this.getMetadataTopic(
@@ -835,6 +865,18 @@ export class WorldApiWsManager {
                 payloadChannel,
             );
             delivered += this.server.publish(channelTopic, payloadJson);
+
+            // And the generic channel-specific topic
+            const allMetadataChannelTopic = this.getMetadataTopic(
+                payload.syncGroup,
+                payload.entityName,
+                "__ALL__",
+                payloadChannel,
+            );
+            delivered += this.server.publish(
+                allMetadataChannelTopic,
+                payloadJson,
+            );
         }
 
         return delivered;
@@ -956,6 +998,7 @@ export class WorldApiWsManager {
                         serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_USERNAME,
                     password:
                         serverConfiguration.VRCA_SERVER_SERVICE_POSTGRES_SUPER_USER_PASSWORD,
+                    publications: "entity_pub",
                 },
             });
             _legacyProxyUserSql = await BunPostgresClientModule.getInstance({
@@ -1015,7 +1058,9 @@ export class WorldApiWsManager {
                         // Sync reflect subscriptions for all sessions of this agent
                         for (const session of this.activeSessions.values()) {
                             if (session.agentId === agentId) {
-                                this.syncReflectSubscriptionsForSession(session);
+                                this.syncReflectSubscriptionsForSession(
+                                    session,
+                                );
                             }
                         }
                     });
@@ -1987,17 +2032,24 @@ export class WorldApiWsManager {
                                         );
                                     }
 
-                                    const syncGroup = entityResult[0].group__sync;
+                                    const syncGroup =
+                                        entityResult[0].group__sync;
 
                                     // Check if user can read this syncGroup
-                                    if (!this.canRead(session.agentId, syncGroup)) {
+                                    if (
+                                        !this.canRead(
+                                            session.agentId,
+                                            syncGroup,
+                                        )
+                                    ) {
                                         throw new Error(
                                             `Not authorized to read sync group: ${syncGroup}`,
                                         );
                                     }
 
                                     // Subscribe to entity topics
-                                    const ws = session.ws as ServerWebSocket<WebSocketData>;
+                                    const ws =
+                                        session.ws as ServerWebSocket<WebSocketData>;
                                     if (typeof ws.subscribe !== "function") {
                                         throw new Error(
                                             "WebSocket does not support subscriptions",
@@ -2006,60 +2058,99 @@ export class WorldApiWsManager {
 
                                     if (channel === null) {
                                         // Subscribe to "all channels" topic
-                                        const allChannelsTopic = this.getEntityTopic(
-                                            syncGroup,
-                                            entityName,
-                                        );
+                                        const allChannelsTopic =
+                                            this.getEntityTopic(
+                                                syncGroup,
+                                                entityName,
+                                            );
                                         ws.subscribe(allChannelsTopic);
 
                                         // Also subscribe to all metadata "all channels" topics for this entity
-                                        // Get all metadata keys for this entity
-                                        const metadataKeysResult = await superUserSql<
-                                            Array<{ metadata__key: string; group__sync: string }>
-                                        >`
-                                            SELECT DISTINCT metadata__key, group__sync
+                                        // We subscribe to the generic "__ALL__" metadata topic for each sync group used by this entity's metadata
+                                        // plus the entity's own sync group (to cover future metadata creation)
+
+                                        const metadataSyncGroupsResult =
+                                            await superUserSql<
+                                                Array<{ group__sync: string }>
+                                            >`
+                                            SELECT DISTINCT group__sync
                                             FROM entity.entity_metadata
                                             WHERE general__entity_name = ${entityName}
                                         `;
 
-                                        for (const row of metadataKeysResult) {
-                                            // Check if user can read this metadata's syncGroup
-                                            if (this.canRead(session.agentId, row.group__sync)) {
-                                                const metadataAllChannelsTopic = this.getMetadataTopic(
-                                                    row.group__sync,
-                                                    entityName,
-                                                    row.metadata__key,
+                                        const uniqueSyncGroups =
+                                            new Set<string>();
+                                        uniqueSyncGroups.add(syncGroup);
+                                        for (const row of metadataSyncGroupsResult) {
+                                            uniqueSyncGroups.add(
+                                                row.group__sync,
+                                            );
+                                        }
+
+                                        for (const sg of uniqueSyncGroups) {
+                                            if (
+                                                this.canRead(
+                                                    session.agentId,
+                                                    sg,
+                                                )
+                                            ) {
+                                                const metadataAllChannelsTopic =
+                                                    this.getMetadataTopic(
+                                                        sg,
+                                                        entityName,
+                                                        "__ALL__",
+                                                    );
+                                                ws.subscribe(
+                                                    metadataAllChannelsTopic,
                                                 );
-                                                ws.subscribe(metadataAllChannelsTopic);
                                             }
                                         }
                                     } else {
                                         // Subscribe to channel-specific topic
-                                        const channelTopic = this.getEntityTopic(
-                                            syncGroup,
-                                            entityName,
-                                            channel,
-                                        );
+                                        const channelTopic =
+                                            this.getEntityTopic(
+                                                syncGroup,
+                                                entityName,
+                                                channel,
+                                            );
                                         ws.subscribe(channelTopic);
 
                                         // Also subscribe to channel-specific metadata topics
-                                        const metadataKeysResult = await superUserSql<
-                                            Array<{ metadata__key: string; group__sync: string }>
-                                        >`
-                                            SELECT DISTINCT metadata__key, group__sync
+                                        const metadataSyncGroupsResult =
+                                            await superUserSql<
+                                                Array<{ group__sync: string }>
+                                            >`
+                                            SELECT DISTINCT group__sync
                                             FROM entity.entity_metadata
                                             WHERE general__entity_name = ${entityName}
                                         `;
 
-                                        for (const row of metadataKeysResult) {
-                                            if (this.canRead(session.agentId, row.group__sync)) {
-                                                const metadataChannelTopic = this.getMetadataTopic(
-                                                    row.group__sync,
-                                                    entityName,
-                                                    row.metadata__key,
-                                                    channel,
+                                        const uniqueSyncGroups =
+                                            new Set<string>();
+                                        uniqueSyncGroups.add(syncGroup);
+                                        for (const row of metadataSyncGroupsResult) {
+                                            uniqueSyncGroups.add(
+                                                row.group__sync,
+                                            );
+                                        }
+
+                                        for (const sg of uniqueSyncGroups) {
+                                            if (
+                                                this.canRead(
+                                                    session.agentId,
+                                                    sg,
+                                                )
+                                            ) {
+                                                const metadataChannelTopic =
+                                                    this.getMetadataTopic(
+                                                        sg,
+                                                        entityName,
+                                                        "__ALL__",
+                                                        channel,
+                                                    );
+                                                ws.subscribe(
+                                                    metadataChannelTopic,
                                                 );
-                                                ws.subscribe(metadataChannelTopic);
                                             }
                                         }
                                     }
@@ -2188,21 +2279,32 @@ export class WorldApiWsManager {
                                         ? null
                                         : typedRequest.channel?.trim() || null;
 
-                                const ws = session.ws as ServerWebSocket<WebSocketData>;
+                                const ws =
+                                    session.ws as ServerWebSocket<WebSocketData>;
                                 if (typeof ws.unsubscribe !== "function") {
                                     // WebSocket doesn't support unsubscription
                                     removed = false;
                                 } else {
                                     // Get current subscriptions from Bun's native getter
-                                    const subscriptions = (ws as unknown as { subscriptions?: string[] }).subscriptions || [];
-                                    const currentSubscriptions = new Set(subscriptions);
+                                    const subscriptions =
+                                        (
+                                            ws as unknown as {
+                                                subscriptions?: string[];
+                                            }
+                                        ).subscriptions || [];
+                                    const currentSubscriptions = new Set(
+                                        subscriptions,
+                                    );
 
                                     // Get the entity's syncGroup from the database
                                     if (superUserSql && entityName) {
                                         try {
-                                            const entityResult = await superUserSql<
-                                                Array<{ group__sync: string }>
-                                            >`
+                                            const entityResult =
+                                                await superUserSql<
+                                                    Array<{
+                                                        group__sync: string;
+                                                    }>
+                                                >`
                                                 SELECT group__sync
                                                 FROM entity.entities
                                                 WHERE general__entity_name = ${entityName}
@@ -2210,68 +2312,105 @@ export class WorldApiWsManager {
                                             `;
 
                                             if (entityResult.length > 0) {
-                                                const syncGroup = entityResult[0].group__sync;
+                                                const syncGroup =
+                                                    entityResult[0].group__sync;
 
                                                 if (channel === null) {
                                                     // Unsubscribe from all entity and metadata topics for this entity
-                                                    const allChannelsTopic = this.getEntityTopic(
-                                                        syncGroup,
-                                                        entityName,
-                                                    );
-                                                    if (currentSubscriptions.has(allChannelsTopic)) {
-                                                        ws.unsubscribe(allChannelsTopic);
+                                                    const allChannelsTopic =
+                                                        this.getEntityTopic(
+                                                            syncGroup,
+                                                            entityName,
+                                                        );
+                                                    if (
+                                                        currentSubscriptions.has(
+                                                            allChannelsTopic,
+                                                        )
+                                                    ) {
+                                                        ws.unsubscribe(
+                                                            allChannelsTopic,
+                                                        );
                                                         removed = true;
                                                     }
 
                                                     // Unsubscribe from all metadata "all channels" topics
-                                                    const metadataKeysResult = await superUserSql<
-                                                        Array<{ metadata__key: string; group__sync: string }>
-                                                    >`
+                                                    const metadataKeysResult =
+                                                        await superUserSql<
+                                                            Array<{
+                                                                metadata__key: string;
+                                                                group__sync: string;
+                                                            }>
+                                                        >`
                                                         SELECT DISTINCT metadata__key, group__sync
                                                         FROM entity.entity_metadata
                                                         WHERE general__entity_name = ${entityName}
                                                     `;
 
                                                     for (const row of metadataKeysResult) {
-                                                        const metadataAllChannelsTopic = this.getMetadataTopic(
-                                                            row.group__sync,
-                                                            entityName,
-                                                            row.metadata__key,
-                                                        );
-                                                        if (currentSubscriptions.has(metadataAllChannelsTopic)) {
-                                                            ws.unsubscribe(metadataAllChannelsTopic);
+                                                        const metadataAllChannelsTopic =
+                                                            this.getMetadataTopic(
+                                                                row.group__sync,
+                                                                entityName,
+                                                                row.metadata__key,
+                                                            );
+                                                        if (
+                                                            currentSubscriptions.has(
+                                                                metadataAllChannelsTopic,
+                                                            )
+                                                        ) {
+                                                            ws.unsubscribe(
+                                                                metadataAllChannelsTopic,
+                                                            );
                                                         }
                                                     }
                                                 } else {
                                                     // Unsubscribe from channel-specific topic
-                                                    const channelTopic = this.getEntityTopic(
-                                                        syncGroup,
-                                                        entityName,
-                                                        channel,
-                                                    );
-                                                    if (currentSubscriptions.has(channelTopic)) {
-                                                        ws.unsubscribe(channelTopic);
+                                                    const channelTopic =
+                                                        this.getEntityTopic(
+                                                            syncGroup,
+                                                            entityName,
+                                                            channel,
+                                                        );
+                                                    if (
+                                                        currentSubscriptions.has(
+                                                            channelTopic,
+                                                        )
+                                                    ) {
+                                                        ws.unsubscribe(
+                                                            channelTopic,
+                                                        );
                                                         removed = true;
                                                     }
 
                                                     // Unsubscribe from channel-specific metadata topics
-                                                    const metadataKeysResult = await superUserSql<
-                                                        Array<{ metadata__key: string; group__sync: string }>
-                                                    >`
+                                                    const metadataKeysResult =
+                                                        await superUserSql<
+                                                            Array<{
+                                                                metadata__key: string;
+                                                                group__sync: string;
+                                                            }>
+                                                        >`
                                                         SELECT DISTINCT metadata__key, group__sync
                                                         FROM entity.entity_metadata
                                                         WHERE general__entity_name = ${entityName}
                                                     `;
 
                                                     for (const row of metadataKeysResult) {
-                                                        const metadataChannelTopic = this.getMetadataTopic(
-                                                            row.group__sync,
-                                                            entityName,
-                                                            row.metadata__key,
-                                                            channel,
-                                                        );
-                                                        if (currentSubscriptions.has(metadataChannelTopic)) {
-                                                            ws.unsubscribe(metadataChannelTopic);
+                                                        const metadataChannelTopic =
+                                                            this.getMetadataTopic(
+                                                                row.group__sync,
+                                                                entityName,
+                                                                row.metadata__key,
+                                                                channel,
+                                                            );
+                                                        if (
+                                                            currentSubscriptions.has(
+                                                                metadataChannelTopic,
+                                                            )
+                                                        ) {
+                                                            ws.unsubscribe(
+                                                                metadataChannelTopic,
+                                                            );
                                                         }
                                                     }
                                                 }
@@ -2286,12 +2425,26 @@ export class WorldApiWsManager {
                                     if (!removed) {
                                         for (const subscription of currentSubscriptions) {
                                             if (
-                                                (subscription.startsWith(this.ENTITY_TOPIC_PREFIX) ||
-                                                    subscription.startsWith(this.METADATA_TOPIC_PREFIX)) &&
-                                                subscription.includes(`:${entityName}:`)
+                                                (subscription.startsWith(
+                                                    this.ENTITY_TOPIC_PREFIX,
+                                                ) ||
+                                                    subscription.startsWith(
+                                                        this
+                                                            .METADATA_TOPIC_PREFIX,
+                                                    )) &&
+                                                subscription.includes(
+                                                    `:${entityName}:`,
+                                                )
                                             ) {
-                                                if (channel === null || subscription.endsWith(`:${channel}`)) {
-                                                    ws.unsubscribe(subscription);
+                                                if (
+                                                    channel === null ||
+                                                    subscription.endsWith(
+                                                        `:${channel}`,
+                                                    )
+                                                ) {
+                                                    ws.unsubscribe(
+                                                        subscription,
+                                                    );
                                                     removed = true;
                                                 }
                                             }
@@ -2352,7 +2505,6 @@ export class WorldApiWsManager {
                                 );
                                 break;
                             }
-
 
                             case Communication.WebSocket.MessageType
                                 .REFLECT_PUBLISH_REQUEST: {

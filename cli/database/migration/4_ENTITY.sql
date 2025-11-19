@@ -70,6 +70,7 @@ CREATE TABLE entity.entity_metadata (
     general__entity_name TEXT NOT NULL,
     metadata__key TEXT NOT NULL,
     metadata__value JSONB NOT NULL,
+    -- TODO: Remove group__sync and group__channel as they should be inherited from the entity in all cases.
     group__sync TEXT NOT NULL,
     group__channel TEXT DEFAULT NULL,
     general__expiry__delete_since_updated_at_ms BIGINT DEFAULT NULL, -- Time in milliseconds after which the metadata will be deleted if it is inactive
@@ -132,77 +133,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = entity, public, pg_temp;
 
--- 5.3 CHANGE NOTIFICATION FUNCTIONS
+-- 5.3 CHANGE NOTIFICATION FUNCTIONS (REPLACED BY LOGICAL REPLICATION)
 -- ==========================================================================
+-- Functions removed in favor of logical replication
 
-CREATE OR REPLACE FUNCTION entity.notify_entity_change()
-RETURNS trigger AS $$
-DECLARE
-    v_payload JSONB;
-BEGIN
-    v_payload := jsonb_build_object(
-        'resource', 'entity',
-        'operation', TG_OP,
-        'entityName', COALESCE(NEW.general__entity_name, OLD.general__entity_name),
-        'syncGroup', COALESCE(NEW.group__sync, OLD.group__sync),
-        'channel', COALESCE(NEW.group__channel, OLD.group__channel),
-        'data', CASE
-            WHEN TG_OP = 'DELETE' THEN to_jsonb(OLD)
-            ELSE to_jsonb(NEW)
-        END
-    );
-
-    PERFORM pg_notify('entity_entities_changed', v_payload::text);
-
-    RETURN COALESCE(NEW, OLD);
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = entity, public, pg_temp;
-
-CREATE OR REPLACE FUNCTION entity.notify_entity_metadata_change()
-RETURNS trigger AS $$
-DECLARE
-    v_payload JSONB;
-    v_data JSONB;
-BEGIN
-    -- Build data payload (metadata__value excluded to avoid pg_notify payload size limits)
-    -- WS manager will fetch the full value for INSERT/UPDATE operations
-    IF TG_OP = 'DELETE' THEN
-        v_data := jsonb_build_object(
-            'general__entity_name', OLD.general__entity_name,
-            'metadata__key', OLD.metadata__key,
-            'group__sync', OLD.group__sync,
-            'group__channel', OLD.group__channel,
-            'general__created_at', OLD.general__created_at,
-            'general__updated_at', OLD.general__updated_at
-        );
-    ELSE
-        v_data := jsonb_build_object(
-            'general__entity_name', NEW.general__entity_name,
-            'metadata__key', NEW.metadata__key,
-            'group__sync', NEW.group__sync,
-            'group__channel', NEW.group__channel,
-            'general__created_at', NEW.general__created_at,
-            'general__updated_at', NEW.general__updated_at
-            -- metadata__value excluded - WS manager will fetch it
-        );
-    END IF;
-
-    -- Build main payload (without metadata__value to avoid payload size limits)
-    v_payload := jsonb_build_object(
-        'resource', 'entity_metadata',
-        'operation', TG_OP,
-        'entityName', COALESCE(NEW.general__entity_name, OLD.general__entity_name),
-        'metadataKey', COALESCE(NEW.metadata__key, OLD.metadata__key),
-        'syncGroup', COALESCE(NEW.group__sync, OLD.group__sync),
-        'channel', COALESCE(NEW.group__channel, OLD.group__channel),
-        'data', v_data
-    );
-
-    PERFORM pg_notify('entity_entity_metadata_changed', v_payload::text);
-
-    RETURN COALESCE(NEW, OLD);
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = entity, public, pg_temp;
 
 -- 5.4 AGENT LAST-SEEN TOUCH HELPERS
 -- =========================================================================
@@ -317,11 +251,7 @@ CREATE TRIGGER touch_agent_last_seen_on_entities_del
     FOR EACH STATEMENT
     EXECUTE FUNCTION entity.touch_current_agent_last_seen_trg();
 
-DROP TRIGGER IF EXISTS notify_entity_change ON entity.entities;
-CREATE TRIGGER notify_entity_change
-    AFTER INSERT OR UPDATE OR DELETE ON entity.entities
-    FOR EACH ROW
-    EXECUTE FUNCTION entity.notify_entity_change();
+-- Trigger removed: notify_entity_change
 
 -- 6.4 ENTITY METADATA TRIGGERS
 -- ============================================================================
@@ -349,11 +279,7 @@ CREATE TRIGGER touch_agent_last_seen_on_meta_del
     FOR EACH STATEMENT
     EXECUTE FUNCTION entity.touch_current_agent_last_seen_trg();
 
-DROP TRIGGER IF EXISTS notify_entity_metadata_change ON entity.entity_metadata;
-CREATE TRIGGER notify_entity_metadata_change
-    AFTER INSERT OR UPDATE OR DELETE ON entity.entity_metadata
-    FOR EACH ROW
-    EXECUTE FUNCTION entity.notify_entity_metadata_change();
+-- Trigger removed: notify_entity_metadata_change
 
 -- 6.5 TOUCH PARENT ENTITY ON METADATA CHANGE (STATEMENT-LEVEL)
 -- ==========================================================================
@@ -651,3 +577,14 @@ CREATE INDEX idx_asset_timestamp_changes ON entity.entity_assets
 CREATE INDEX idx_entity_metadata_joint_timestamp ON entity.entity_metadata
     (general__entity_name, metadata__key, general__updated_at)
     WHERE metadata__key LIKE 'joint:%' AND metadata__value->>'type' = 'avatarJoint';
+
+-- ============================================================================
+-- 8. LOGICAL REPLICATION SETUP
+-- ============================================================================
+
+-- Enable FULL replica identity to capture old values for channel migration logic
+ALTER TABLE entity.entities REPLICA IDENTITY FULL;
+ALTER TABLE entity.entity_metadata REPLICA IDENTITY FULL;
+
+-- Create publication for entity tables
+CREATE PUBLICATION entity_pub FOR TABLE entity.entities, entity.entity_metadata;

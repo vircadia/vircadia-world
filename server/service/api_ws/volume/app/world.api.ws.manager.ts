@@ -123,16 +123,12 @@ export class WorldApiWsManager {
     > = new Map();
     private reflectIntervals: Map<string, Timer> = new Map();
     private reflectTickRateMs: Map<string, number> = new Map();
-    private entityNotificationUnsubscribers: Array<() => Promise<void> | void> =
-        [];
-    private entityListenersInitialized = false;
     private unregisterAclWarmCallback: (() => void) | null = null;
     private readonly REFLECT_TOPIC_PREFIX = "reflect:";
     private readonly ENTITY_TOPIC_PREFIX = "entity:";
     private readonly METADATA_TOPIC_PREFIX = "metadata:";
     private readonly ENTITY_CHANGE_CHANNEL = "entity_change";
     private readonly ENTITY_METADATA_CHANGE_CHANNEL = "entity_metadata_change";
-    private readonly ENABLE_LEGACY_ENTITY_REPLICATION_LISTENER = false;
 
     private getReflectTopic(
         syncGroup: string,
@@ -929,250 +925,6 @@ export class WorldApiWsManager {
         }
     }
 
-    private async startEntityChangeListeners() {
-        if (
-            !this.ENABLE_LEGACY_ENTITY_REPLICATION_LISTENER ||
-            this.entityListenersInitialized
-        ) {
-            return;
-        }
-
-        if (!legacySuperUserSql) {
-            BunLogModule({
-                prefix: LOG_PREFIX,
-                message:
-                    "Cannot start entity change listeners without legacy super user SQL client",
-                debug: this.DEBUG,
-                suppress: this.SUPPRESS,
-                type: "debug",
-            });
-            return;
-        }
-
-        try {
-            BunLogModule({
-                prefix: LOG_PREFIX,
-                message: "Starting entity logical replication listener...",
-                debug: this.DEBUG,
-                suppress: this.SUPPRESS,
-                type: "info",
-            });
-
-            // Verify publication tables
-            try {
-                if (legacySuperUserSql) {
-                    const pubTables = await legacySuperUserSql`
-                        SELECT schemaname, tablename 
-                        FROM pg_publication_tables 
-                        WHERE pubname = 'entity_pub'
-                    `;
-                    BunLogModule({
-                        prefix: LOG_PREFIX,
-                        message: "Verifying entity_pub tables",
-                        debug: this.DEBUG,
-                        suppress: this.SUPPRESS,
-                        type: "info",
-                        data: { tables: pubTables },
-                    });
-                }
-            } catch (err) {
-                console.warn("Failed to verify publication tables:", err);
-            }
-
-            const { unsubscribe } = await legacySuperUserSql.subscribe(
-                "*",
-                (row: unknown, info: unknown) => {
-                    BunLogModule({
-                        prefix: LOG_PREFIX,
-                        message: "Replication event received",
-                        debug: this.DEBUG,
-                        suppress: this.SUPPRESS,
-                        type: "debug",
-                        data: { row, info },
-                    });
-                    void this.handleReplicationEvent(row, info);
-                },
-            );
-
-            if (unsubscribe) {
-                this.entityNotificationUnsubscribers.push(unsubscribe);
-            }
-
-            this.entityListenersInitialized = true;
-
-            BunLogModule({
-                prefix: LOG_PREFIX,
-                message: "Entity logical replication listener initialized",
-                debug: this.DEBUG,
-                suppress: this.SUPPRESS,
-                type: "info",
-            });
-        } catch (error) {
-            this.entityListenersInitialized = false;
-            BunLogModule({
-                prefix: LOG_PREFIX,
-                message: "Failed to start entity logical replication listener",
-                debug: this.DEBUG,
-                suppress: this.SUPPRESS,
-                type: "error",
-                error,
-            });
-        }
-    }
-
-    private async handleReplicationEvent(row: unknown, info: unknown) {
-        const replicationEventReceivedTime = performance.now();
-        const infoObj = info as {
-            command: string;
-            relation: { schema: string; table: string };
-            // biome-ignore lint/suspicious/noExplicitAny: Generic replication payload
-            old: any;
-        };
-        // biome-ignore lint/suspicious/noExplicitAny: Generic row data
-        const rowData = row as any;
-
-        if (infoObj.relation.schema !== "entity") return;
-
-        const table = infoObj.relation.table;
-        let resource: "entity" | "entity_metadata" | null = null;
-        if (table === "entities") resource = "entity";
-        else if (table === "entity_metadata") resource = "entity_metadata";
-
-        if (!resource) return;
-
-        const opMap: Record<string, Communication.WebSocket.DatabaseOperation> =
-            {
-                insert: Communication.WebSocket.DatabaseOperation.INSERT,
-                update: Communication.WebSocket.DatabaseOperation.UPDATE,
-                delete: Communication.WebSocket.DatabaseOperation.DELETE,
-            };
-
-        const commandLower = infoObj.command.toLowerCase();
-        const operation = opMap[commandLower];
-        if (!operation) return;
-
-        // For DELETE, row is null but old has the data (with REPLICA IDENTITY FULL)
-        // For INSERT, row is data, old is null
-        // For UPDATE, row is new data, old is old data
-        const data = commandLower === "delete" ? infoObj.old : rowData;
-        const previous = infoObj.old;
-
-        // For entity_metadata, mirror group details directly from the replicated row
-        let entitySyncGroup: string | undefined;
-        let entityChannel: string | null | undefined;
-        let previousEntitySyncGroup: string | undefined;
-        let previousEntityChannel: string | null | undefined;
-
-        if (resource === "entity_metadata") {
-            entitySyncGroup = data?.ro__group__sync;
-            entityChannel = data?.ro__group__channel ?? null;
-            previousEntitySyncGroup = previous?.ro__group__sync;
-            previousEntityChannel = previous?.ro__group__channel ?? null;
-        }
-
-        // Handle Channel Migration: If channel changed, emit DELETE for old channel
-        if (commandLower === "update" && previous && data) {
-            const oldChannel =
-                resource === "entity_metadata"
-                    ? previousEntityChannel
-                    : previous.group__channel;
-            const newChannel =
-                resource === "entity_metadata"
-                    ? entityChannel
-                    : data.group__channel;
-
-            if (oldChannel !== newChannel) {
-                // For entity_metadata, ensure we have a valid sync group for the DELETE notification
-                if (
-                    resource === "entity_metadata" &&
-                    !previousEntitySyncGroup
-                ) {
-                    BunLogModule({
-                        prefix: LOG_PREFIX,
-                        message:
-                            "Skipping metadata DELETE notification: failed to determine previous entity sync group",
-                        debug: this.DEBUG,
-                        suppress: this.SUPPRESS,
-                        type: "warn",
-                        data: {
-                            entityName: previous?.general__entity_name,
-                            metadataKey: previous?.metadata__key,
-                        },
-                    });
-                } else {
-                    // Emit DELETE for old channel
-                    const deleteNotification: EntityNotificationPayload = {
-                        resource,
-                        operation:
-                            Communication.WebSocket.DatabaseOperation.DELETE,
-                        entityName: previous.general__entity_name,
-                        metadataKey:
-                            resource === "entity_metadata"
-                                ? previous.metadata__key
-                                : undefined,
-                        syncGroup:
-                            resource === "entity_metadata" &&
-                            previousEntitySyncGroup
-                                ? previousEntitySyncGroup
-                                : previous.group__sync,
-                        channel: oldChannel, // Target the old channel
-                        data: previous,
-                        previous: null,
-                    };
-
-                    if (resource === "entity") {
-                        this.queueEntityChange(deleteNotification);
-                    } else {
-                        this.queueEntityMetadataChange(deleteNotification);
-                    }
-                }
-            }
-        }
-
-        // For entity_metadata, ensure we have a valid sync group before proceeding
-        if (resource === "entity_metadata" && !entitySyncGroup) {
-            BunLogModule({
-                prefix: LOG_PREFIX,
-                message:
-                    "Skipping metadata notification: failed to determine entity sync group",
-                debug: this.DEBUG,
-                suppress: this.SUPPRESS,
-                type: "warn",
-                data: {
-                    entityName: data?.general__entity_name,
-                    metadataKey: data?.metadata__key,
-                    operation,
-                },
-            });
-            return;
-        }
-
-        // Standard Dispatch (Targeting the NEW channel for updates)
-        const notification: EntityNotificationPayload = {
-            resource,
-            operation,
-            entityName: data.general__entity_name,
-            metadataKey:
-                resource === "entity_metadata" ? data.metadata__key : undefined,
-            syncGroup:
-                resource === "entity_metadata" && entitySyncGroup
-                    ? entitySyncGroup
-                    : data.group__sync,
-            channel:
-                resource === "entity_metadata"
-                    ? entityChannel
-                    : data.group__channel,
-            data: data,
-            previous: previous,
-            replicationEventReceivedTime,
-        };
-
-        if (resource === "entity") {
-            this.queueEntityChange(notification);
-        } else {
-            this.queueEntityMetadataChange(notification);
-        }
-    }
 
     private queueEntityChange(payload: EntityNotificationPayload) {
         if (!payload.entityName) {
@@ -1605,7 +1357,6 @@ export class WorldApiWsManager {
             // Start reflect tick loops to flush queued reflect messages per sync group
             await this.startReflectTickLoops();
             await this.startEntityNotificationListeners();
-            await this.startEntityChangeListeners();
         } catch (error) {
             BunLogModule({
                 prefix: LOG_PREFIX,
@@ -3486,15 +3237,6 @@ export class WorldApiWsManager {
             }
             this.activeSessions.clear();
 
-            for (const unsubscribe of this.entityNotificationUnsubscribers) {
-                try {
-                    void Promise.resolve(unsubscribe());
-                } catch {
-                    // ignore unsubscribe errors during shutdown
-                }
-            }
-            this.entityNotificationUnsubscribers = [];
-            this.entityListenersInitialized = false;
         });
         // Do not forcibly clear cache on shutdown; keep warmed files for faster next start
         BunPostgresClientModule.getInstance({

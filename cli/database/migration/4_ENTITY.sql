@@ -69,6 +69,8 @@ ALTER TABLE entity.entities ENABLE ROW LEVEL SECURITY;
 CREATE TABLE entity.entity_metadata (
     general__entity_name TEXT NOT NULL,
     metadata__key TEXT NOT NULL,
+    ro__group__sync TEXT NOT NULL,
+    ro__group__channel TEXT DEFAULT NULL,
     metadata__jsonb JSONB DEFAULT NULL,
     metadata__text TEXT DEFAULT NULL,
     metadata__int BIGINT DEFAULT NULL,
@@ -139,12 +141,52 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = entity, public, pg_temp;
 
--- 5.3 CHANGE NOTIFICATION FUNCTIONS (REPLACED BY LOGICAL REPLICATION)
+-- 5.3 ENTITY METADATA GROUP MIRROR FUNCTIONS
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION entity.set_metadata_group_fields_from_parent()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_sync TEXT;
+    v_channel TEXT;
+BEGIN
+    SELECT group__sync, group__channel
+    INTO v_sync, v_channel
+    FROM entity.entities
+    WHERE general__entity_name = NEW.general__entity_name;
+
+    IF v_sync IS NULL THEN
+        RAISE EXCEPTION 'Entity % not found when syncing metadata group fields', NEW.general__entity_name;
+    END IF;
+
+    NEW.ro__group__sync = v_sync;
+    NEW.ro__group__channel = v_channel;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = entity, auth, public, pg_temp;
+
+CREATE OR REPLACE FUNCTION entity.sync_metadata_group_fields_from_parent()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF (OLD.group__sync IS DISTINCT FROM NEW.group__sync)
+        OR (OLD.group__channel IS DISTINCT FROM NEW.group__channel) THEN
+        UPDATE entity.entity_metadata
+        SET ro__group__sync = NEW.group__sync,
+            ro__group__channel = NEW.group__channel
+        WHERE general__entity_name = NEW.general__entity_name;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = entity, public, pg_temp;
+
+-- 5.4 CHANGE NOTIFICATION FUNCTIONS (REPLACED BY LOGICAL REPLICATION)
 -- ==========================================================================
 -- Functions removed in favor of logical replication
 
 
--- 5.4 AGENT LAST-SEEN TOUCH HELPERS
+-- 5.5 AGENT LAST-SEEN TOUCH HELPERS
 -- =========================================================================
 
 -- Helper to bump the current agent's last seen timestamp once per statement/transaction
@@ -257,6 +299,12 @@ CREATE TRIGGER touch_agent_last_seen_on_entities_del
     FOR EACH STATEMENT
     EXECUTE FUNCTION entity.touch_current_agent_last_seen_trg();
 
+-- Keep metadata mirrors synchronized with their parent entity groups
+CREATE TRIGGER sync_metadata_group_fields_from_entity
+    AFTER UPDATE OF group__sync, group__channel ON entity.entities
+    FOR EACH ROW
+    EXECUTE FUNCTION entity.sync_metadata_group_fields_from_parent();
+
 -- Trigger removed: notify_entity_change
 
 -- 6.4 ENTITY METADATA TRIGGERS
@@ -267,6 +315,17 @@ CREATE TRIGGER update_audit_columns
     BEFORE UPDATE ON entity.entity_metadata
     FOR EACH ROW
     EXECUTE FUNCTION entity.update_audit_columns();
+
+-- Mirror parent entity group fields on metadata writes
+CREATE TRIGGER entity_metadata_set_ro_group_fields_ins
+    BEFORE INSERT ON entity.entity_metadata
+    FOR EACH ROW
+    EXECUTE FUNCTION entity.set_metadata_group_fields_from_parent();
+
+CREATE TRIGGER entity_metadata_set_ro_group_fields_upd
+    BEFORE UPDATE ON entity.entity_metadata
+    FOR EACH ROW
+    EXECUTE FUNCTION entity.set_metadata_group_fields_from_parent();
 
 -- Touch current agent last-seen for any metadata DML
 DROP TRIGGER IF EXISTS touch_agent_last_seen_on_meta_ins ON entity.entity_metadata;

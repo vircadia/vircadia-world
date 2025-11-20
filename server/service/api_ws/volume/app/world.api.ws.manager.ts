@@ -14,7 +14,6 @@ import {
 import {
     type Auth,
     Communication,
-    type Entity,
 } from "../../../../../sdk/vircadia-world-sdk-ts/schema/src/vircadia.schema.general";
 import { MetricsCollector } from "./service/metrics";
 
@@ -59,6 +58,11 @@ interface EntityNotificationPayload {
     channel?: string | null;
     data: unknown;
     previous?: unknown;
+    // Timing instrumentation for latency tracking
+    replicationEventReceivedTime?: number; // When logical replication event was received
+    queuedTime?: number; // When notification was queued
+    flushedTime?: number; // When notification was flushed from queue
+    publishedTime?: number; // When notification was published via WebSocket
 }
 
 export class WorldApiWsManager {
@@ -237,26 +241,47 @@ export class WorldApiWsManager {
     }
 
     private async flushTickQueues(syncGroup: string) {
+        const flushStartTime = performance.now();
         const groupMap = this.reflectQueues.get(syncGroup);
         if (!groupMap) {
-            return;
+            // Check if there are metadata/entity queues even if no reflect queue
+            const hasMetadataQueues = this.entityMetadataQueues.has(syncGroup);
+            const hasEntityQueues = this.entityQueues.has(syncGroup);
+            if (!hasMetadataQueues && !hasEntityQueues) {
+                return;
+            }
+            // Continue to process metadata/entity queues even if reflect queue is empty
         }
 
         const startTime = performance.now();
         let reflectDeliveredCount = 0;
         let reflectMessages = 0;
+        let reflectUniqueMessages = 0;
         let reflectBytes = 0;
+        const reflectStartTime = performance.now();
         let entityDeliveredCount = 0;
         let entityMessages = 0;
+        let entityUniqueMessages = 0;
         let entityBytes = 0;
+        let entityStartTime = 0;
         let metadataDeliveredCount = 0;
         let metadataMessages = 0;
+        let metadataUniqueMessages = 0;
         let metadataBytes = 0;
+        let metadataStartTime = 0;
 
-        for (const [channel, channelMap] of groupMap) {
+        // Track unique reflect messages by channel+payload hash
+        const reflectMessageHashes = new Set<string>();
+        if (groupMap) {
+            for (const [channel, channelMap] of groupMap) {
             for (const [fromSessionId, queuedItem] of channelMap) {
                 const payloadJson = queuedItem.payloadJson;
                 reflectMessages++;
+                const messageHash = `${channel}:${payloadJson}`;
+                if (!reflectMessageHashes.has(messageHash)) {
+                    reflectMessageHashes.add(messageHash);
+                    reflectUniqueMessages++;
+                }
                 const messageBytes = new TextEncoder().encode(
                     payloadJson,
                 ).length;
@@ -308,42 +333,101 @@ export class WorldApiWsManager {
                 }
             }
         }
+        }
+        const reflectProcessingTimeMs = performance.now() - reflectStartTime;
 
         // Process entity and entity metadata queues for this tick
         const entityGroupMap = this.entityQueues.get(syncGroup);
         const metadataGroupMap = this.entityMetadataQueues.get(syncGroup);
 
         // Process entity notifications
+        let entityProcessingTimeMs = 0;
         if (entityGroupMap) {
+            entityStartTime = performance.now();
+            // Track unique entity messages by entityName
+            const entityMessageKeys = new Set<string>();
+            const entityTasks: Array<
+                Promise<{
+                    notification: EntityNotificationPayload;
+                    delivered: number;
+                    messageSize: number;
+                }>
+            > = [];
             for (const notifications of entityGroupMap.values()) {
                 for (const notification of notifications) {
-                    const delivered = this.publishEntityChange(notification);
-                    const messageSize = JSON.stringify(notification).length;
-                    entityMessages++;
-                    entityBytes += messageSize;
-                    entityDeliveredCount += delivered;
-                    // Note: Individual entity message metrics could be added here if needed
+                    entityTasks.push(
+                        (async () => {
+                            const delivered =
+                                this.publishEntityChange(notification);
+                            const messageSize =
+                                JSON.stringify(notification).length;
+                            return { notification, delivered, messageSize };
+                        })(),
+                    );
                 }
             }
+            const entityResults = await Promise.all(entityTasks);
+            for (const { notification, delivered, messageSize } of entityResults) {
+                entityMessages++;
+                const entityKey = notification.entityName || "";
+                if (!entityMessageKeys.has(entityKey)) {
+                    entityMessageKeys.add(entityKey);
+                    entityUniqueMessages++;
+                }
+                entityBytes += messageSize;
+                entityDeliveredCount += delivered;
+            }
+            entityProcessingTimeMs = performance.now() - entityStartTime;
         }
 
         // Process entity metadata notifications
+        let metadataProcessingTimeMs = 0;
         if (metadataGroupMap) {
+            metadataStartTime = performance.now();
+            // Track unique metadata messages by entityName+metadataKey (already deduplicated in queue)
+            const metadataMessageKeys = new Set<string>();
+            const metadataTasks: Array<
+                Promise<{
+                    notification: EntityNotificationPayload;
+                    delivered: number;
+                    messageSize: number;
+                }>
+            > = [];
             for (const metadataMap of metadataGroupMap.values()) {
                 for (const notifications of metadataMap.values()) {
                     for (const notification of notifications) {
-                        const delivered =
-                            await this.publishEntityMetadataChange(
-                                notification,
-                            );
-                        const messageSize = JSON.stringify(notification).length;
-                        metadataMessages++;
-                        metadataBytes += messageSize;
-                        metadataDeliveredCount += delivered;
-                        // Note: Individual metadata message metrics could be added here if needed
+                        notification.flushedTime = performance.now();
+                        metadataTasks.push(
+                            (async () => {
+                                const delivered =
+                                    await this.publishEntityMetadataChange(
+                                        notification,
+                                    );
+                                const messageSize =
+                                    JSON.stringify(notification).length;
+                                this.recordMetadataLatencyMetrics(notification);
+                                return {
+                                    notification,
+                                    delivered,
+                                    messageSize,
+                                };
+                            })(),
+                        );
                     }
                 }
             }
+            const metadataResults = await Promise.all(metadataTasks);
+            for (const { notification, delivered, messageSize } of metadataResults) {
+                metadataMessages++;
+                const metadataKey = `${notification.entityName}:${notification.metadataKey}`;
+                if (!metadataMessageKeys.has(metadataKey)) {
+                    metadataMessageKeys.add(metadataKey);
+                    metadataUniqueMessages++;
+                }
+                metadataBytes += messageSize;
+                metadataDeliveredCount += delivered;
+            }
+            metadataProcessingTimeMs = performance.now() - metadataStartTime;
         }
 
         // Clear all queues after flush
@@ -387,14 +471,20 @@ export class WorldApiWsManager {
             syncGroup,
             flushDuration,
             reflectMessages,
+            reflectUniqueMessages,
             reflectBytes,
             reflectDeliveredCount,
+            reflectProcessingTimeMs,
             entityMessages,
+            entityUniqueMessages,
             entityBytes,
             entityDeliveredCount,
+            entityProcessingTimeMs,
             metadataMessages,
+            metadataUniqueMessages,
             metadataBytes,
             metadataDeliveredCount,
+            metadataProcessingTimeMs,
             rate,
         );
     }
@@ -423,8 +513,31 @@ export class WorldApiWsManager {
                 if (!enabled) continue;
                 if (this.reflectIntervals.has(syncGroup)) continue;
                 this.reflectTickRateMs.set(syncGroup, rate);
+                
+                BunLogModule({
+                    prefix: LOG_PREFIX,
+                    message: `Starting tick loop for sync group: ${syncGroup}`,
+                    debug: this.DEBUG,
+                    suppress: this.SUPPRESS,
+                    type: "info",
+                    data: {
+                        syncGroup,
+                        tickRateMs: rate,
+                        enabled,
+                    },
+                });
+                
                 const ticker = setInterval(() => {
-                    this.flushTickQueues(syncGroup).catch(() => {});
+                    this.flushTickQueues(syncGroup).catch((error) => {
+                        BunLogModule({
+                            prefix: LOG_PREFIX,
+                            message: `Error flushing tick queues for ${syncGroup}`,
+                            debug: this.DEBUG,
+                            suppress: this.SUPPRESS,
+                            type: "error",
+                            error,
+                        });
+                    });
                 }, rate);
                 this.reflectIntervals.set(syncGroup, ticker);
             }
@@ -560,6 +673,7 @@ export class WorldApiWsManager {
     }
 
     private async handleReplicationEvent(row: unknown, info: unknown) {
+        const replicationEventReceivedTime = performance.now();
         const infoObj = info as {
             command: string;
             relation: { schema: string; table: string };
@@ -595,69 +709,17 @@ export class WorldApiWsManager {
         const data = commandLower === "delete" ? infoObj.old : rowData;
         const previous = infoObj.old;
 
-        // For entity_metadata, we need to look up the entity's sync group and channel
-        // since metadata doesn't have these fields (it inherits from the parent entity)
+        // For entity_metadata, mirror group details directly from the replicated row
         let entitySyncGroup: string | undefined;
         let entityChannel: string | null | undefined;
         let previousEntitySyncGroup: string | undefined;
         let previousEntityChannel: string | null | undefined;
 
-        if (resource === "entity_metadata" && superUserSql) {
-            try {
-                // Look up current entity's sync group and channel
-                if (data?.general__entity_name) {
-                    const entityResult = await superUserSql<
-                        Array<{
-                            group__sync: string;
-                            group__channel: string | null;
-                        }>
-                    >`
-                        SELECT group__sync, group__channel
-                        FROM entity.entities
-                        WHERE general__entity_name = ${data.general__entity_name}
-                        LIMIT 1
-                    `;
-                    if (entityResult.length > 0) {
-                        entitySyncGroup = entityResult[0].group__sync;
-                        entityChannel = entityResult[0].group__channel;
-                    }
-                }
-
-                // Look up previous entity's sync group and channel (for DELETE/UPDATE)
-                if (previous?.general__entity_name) {
-                    const previousEntityResult = await superUserSql<
-                        Array<{
-                            group__sync: string;
-                            group__channel: string | null;
-                        }>
-                    >`
-                        SELECT group__sync, group__channel
-                        FROM entity.entities
-                        WHERE general__entity_name = ${previous.general__entity_name}
-                        LIMIT 1
-                    `;
-                    if (previousEntityResult.length > 0) {
-                        previousEntitySyncGroup =
-                            previousEntityResult[0].group__sync;
-                        previousEntityChannel =
-                            previousEntityResult[0].group__channel;
-                    }
-                }
-            } catch (error) {
-                BunLogModule({
-                    prefix: LOG_PREFIX,
-                    message:
-                        "Failed to look up entity sync group for metadata notification",
-                    debug: this.DEBUG,
-                    suppress: this.SUPPRESS,
-                    type: "error",
-                    error,
-                    data: {
-                        entityName: data?.general__entity_name,
-                        previousEntityName: previous?.general__entity_name,
-                    },
-                });
-            }
+        if (resource === "entity_metadata") {
+            entitySyncGroup = data?.ro__group__sync;
+            entityChannel = data?.ro__group__channel ?? null;
+            previousEntitySyncGroup = previous?.ro__group__sync;
+            previousEntityChannel = previous?.ro__group__channel ?? null;
         }
 
         // Handle Channel Migration: If channel changed, emit DELETE for old channel
@@ -754,6 +816,7 @@ export class WorldApiWsManager {
                     : data.group__channel,
             data: data,
             previous: previous,
+            replicationEventReceivedTime,
         };
 
         if (resource === "entity") {
@@ -775,21 +838,17 @@ export class WorldApiWsManager {
             this.entityQueues.set(payload.syncGroup, syncGroupMap);
         }
 
-        // Get or create entity notifications array
-        let notifications = syncGroupMap.get(payload.entityName);
-        if (!notifications) {
-            notifications = [];
-            syncGroupMap.set(payload.entityName, notifications);
-        }
-
-        // Add notification to queue
-        notifications.push(payload);
+        // Coalesce: keep only the latest notification per entity (regardless of channel)
+        syncGroupMap.set(payload.entityName, [payload]);
     }
 
     private queueEntityMetadataChange(payload: EntityNotificationPayload) {
         if (!payload.entityName || !payload.metadataKey) {
             return;
         }
+
+        // Record queued time
+        payload.queuedTime = performance.now();
 
         // Get or create sync group map
         let syncGroupMap = this.entityMetadataQueues.get(payload.syncGroup);
@@ -805,15 +864,8 @@ export class WorldApiWsManager {
             syncGroupMap.set(payload.entityName, entityMap);
         }
 
-        // Get or create metadata key notifications array
-        let notifications = entityMap.get(payload.metadataKey);
-        if (!notifications) {
-            notifications = [];
-            entityMap.set(payload.metadataKey, notifications);
-        }
-
-        // Add notification to queue
-        notifications.push(payload);
+        // Coalesce: keep only the latest notification per entity+metadataKey (regardless of channel)
+        entityMap.set(payload.metadataKey, [payload]);
     }
 
     private publishEntityChange(payload: EntityNotificationPayload): number {
@@ -869,70 +921,21 @@ export class WorldApiWsManager {
             return 0;
         }
 
-        // For INSERT/UPDATE operations, fetch the full metadata value from the database
-        // to avoid payload size limits in pg_notify
+        // Logical replication already includes the latest row data, so rely on the payload directly
         let fullData = payload.data;
-        if (
-            (payload.operation === "INSERT" ||
-                payload.operation === "UPDATE") &&
-            superUserSql
-        ) {
-            try {
-                const result = await superUserSql<
-                    Array<
-                        Pick<
-                            Entity.Metadata.I_Metadata,
-                            | "general__entity_name"
-                            | "metadata__key"
-                            | "metadata__jsonb"
-                        > &
-                            Pick<Entity.I_Entity, "group__sync"> & {
-                                general__created_at: Date;
-                                general__updated_at: Date;
-                            }
-                    >
-                >`
-                    SELECT 
-                        m.general__entity_name,
-                        m.metadata__key,
-                        m.metadata__jsonb,
-                        e.group__sync,
-                        m.general__created_at,
-                        m.general__updated_at
-                    FROM entity.entity_metadata AS m
-                    JOIN entity.entities AS e
-                      ON e.general__entity_name = m.general__entity_name
-                    WHERE m.general__entity_name = ${payload.entityName}
-                      AND m.metadata__key = ${payload.metadataKey}
-                `;
 
-                if (result.length > 0) {
-                    const row = result[0];
-                    fullData = {
-                        general__entity_name: row.general__entity_name,
-                        metadata__key: row.metadata__key,
-                        metadata__jsonb: row.metadata__jsonb,
-                        group__sync: row.group__sync,
-                        general__created_at: row.general__created_at,
-                        general__updated_at: row.general__updated_at,
-                    };
-                }
-            } catch (error) {
-                BunLogModule({
-                    prefix: LOG_PREFIX,
-                    message: "Failed to fetch metadata value for notification",
-                    debug: this.DEBUG,
-                    suppress: this.SUPPRESS,
-                    type: "error",
-                    error,
-                    data: {
-                        entityName: payload.entityName,
-                        metadataKey: payload.metadataKey,
-                        operation: payload.operation,
-                    },
-                });
-                // Fall back to using payload.data (without metadata__jsonb)
-            }
+        if (payload.resource === "entity_metadata") {
+            const ensuredData =
+                (fullData as {
+                    ro__group__sync?: string;
+                    ro__group__channel?: string | null;
+                }) || {};
+            fullData = {
+                ...(fullData ?? {}),
+                ro__group__sync: ensuredData.ro__group__sync ?? payload.syncGroup,
+                ro__group__channel:
+                    ensuredData.ro__group__channel ?? payload.channel ?? null,
+            };
         }
 
         const messageData = {
@@ -958,6 +961,9 @@ export class WorldApiWsManager {
 
         const payloadJson = JSON.stringify(parsed.data);
         const payloadChannel = payload.channel ?? null;
+
+        // Record published time
+        payload.publishedTime = performance.now();
 
         // Always publish to the "all channels" topic
         const allChannelsTopic = this.getMetadataTopic(
@@ -999,6 +1005,54 @@ export class WorldApiWsManager {
         }
 
         return delivered;
+    }
+
+    private recordMetadataLatencyMetrics(payload: EntityNotificationPayload): void {
+        // Only track metrics for metadata updates
+        if (payload.resource !== "entity_metadata" || !payload.metadataKey) {
+            return;
+        }
+
+        // Extract pingId if this is a ping test
+        let pingId: number | undefined;
+        try {
+            const data = payload.data as { metadata__jsonb?: string | { pingId?: number; timestamp?: number } };
+            if (data?.metadata__jsonb) {
+                const parsed = typeof data.metadata__jsonb === "string"
+                    ? JSON.parse(data.metadata__jsonb)
+                    : data.metadata__jsonb;
+                if (parsed && typeof parsed.pingId === "number") {
+                    pingId = parsed.pingId;
+                }
+            }
+        } catch {
+            // Ignore parsing errors
+        }
+
+        // Calculate latency stages
+        const replicationToQueued = payload.replicationEventReceivedTime && payload.queuedTime
+            ? payload.queuedTime - payload.replicationEventReceivedTime
+            : undefined;
+        const queuedToFlushed = payload.queuedTime && payload.flushedTime
+            ? payload.flushedTime - payload.queuedTime
+            : undefined;
+        const flushedToPublished = payload.flushedTime && payload.publishedTime
+            ? payload.publishedTime - payload.flushedTime
+            : undefined;
+        const totalLatency = payload.replicationEventReceivedTime && payload.publishedTime
+            ? payload.publishedTime - payload.replicationEventReceivedTime
+            : undefined;
+
+        // Record metrics
+        this.metricsCollector.recordMetadataLatency({
+            pingId,
+            entityName: payload.entityName,
+            metadataKey: payload.metadataKey,
+            replicationToQueued,
+            queuedToFlushed,
+            flushedToPublished,
+            totalLatency,
+        });
     }
 
     // Helper method to record endpoint metrics
@@ -1548,6 +1602,8 @@ export class WorldApiWsManager {
                                     this.metricsCollector.getEndpointMetrics(),
                                 ticks: this.metricsCollector.getTickMetrics(),
                                 activity: activityMetrics,
+                                metadataLatency:
+                                    this.metricsCollector.getMetadataLatencyMetrics(),
                             }),
                         );
 

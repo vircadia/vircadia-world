@@ -65,6 +65,29 @@ interface EntityNotificationPayload {
     publishedTime?: number; // When notification was published via WebSocket
 }
 
+type DbNotificationOperation = "INSERT" | "UPDATE" | "DELETE";
+
+interface EntityDbNotification {
+    resource: "entity";
+    operation: DbNotificationOperation;
+    entityName: string;
+    syncGroup?: string | null;
+    channel?: string | null;
+    data?: unknown;
+    previous?: unknown;
+}
+
+interface EntityMetadataDbNotification {
+    resource: "entity_metadata";
+    operation: DbNotificationOperation;
+    entityName: string;
+    metadataKey: string;
+    syncGroup?: string | null;
+    channel?: string | null;
+    data?: unknown;
+    previous?: unknown;
+}
+
 export class WorldApiWsManager {
     private server: Server<WebSocketData> | undefined;
 
@@ -107,6 +130,9 @@ export class WorldApiWsManager {
     private readonly REFLECT_TOPIC_PREFIX = "reflect:";
     private readonly ENTITY_TOPIC_PREFIX = "entity:";
     private readonly METADATA_TOPIC_PREFIX = "metadata:";
+    private readonly ENTITY_CHANGE_CHANNEL = "entity_change";
+    private readonly ENTITY_METADATA_CHANGE_CHANNEL = "entity_metadata_change";
+    private readonly ENABLE_LEGACY_ENTITY_REPLICATION_LISTENER = false;
 
     private getReflectTopic(
         syncGroup: string,
@@ -584,8 +610,330 @@ export class WorldApiWsManager {
         }
     }
 
+    private async startEntityNotificationListeners() {
+        if (!legacySuperUserSql || !superUserSql) {
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message:
+                    "Cannot start entity notification listeners without database connections",
+                debug: this.DEBUG,
+                suppress: this.SUPPRESS,
+                type: "warn",
+            });
+            return;
+        }
+
+        try {
+            await legacySuperUserSql`LISTEN entity_change`;
+            await legacySuperUserSql.listen(
+                this.ENTITY_CHANGE_CHANNEL,
+                (payload: string) => {
+                    void this.handleEntityNotification(payload);
+                },
+            );
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Entity change notification listener started",
+                debug: this.DEBUG,
+                suppress: this.SUPPRESS,
+                type: "info",
+                data: {
+                    channel: this.ENTITY_CHANGE_CHANNEL,
+                },
+            });
+        } catch (error) {
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Failed to start entity change notification listener",
+                error,
+                debug: this.DEBUG,
+                suppress: this.SUPPRESS,
+                type: "error",
+            });
+        }
+
+        try {
+            await legacySuperUserSql`LISTEN entity_metadata_change`;
+            await legacySuperUserSql.listen(
+                this.ENTITY_METADATA_CHANGE_CHANNEL,
+                (payload: string) => {
+                    void this.handleEntityMetadataNotification(payload);
+                },
+            );
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Entity metadata notification listener started",
+                debug: this.DEBUG,
+                suppress: this.SUPPRESS,
+                type: "info",
+                data: {
+                    channel: this.ENTITY_METADATA_CHANGE_CHANNEL,
+                },
+            });
+        } catch (error) {
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message:
+                    "Failed to start entity metadata change notification listener",
+                error,
+                debug: this.DEBUG,
+                suppress: this.SUPPRESS,
+                type: "error",
+            });
+        }
+    }
+
+    private async handleEntityNotification(payload: string) {
+        const receivedAt = performance.now();
+        if (!superUserSql) {
+            return;
+        }
+
+        try {
+            const notification = JSON.parse(payload) as EntityDbNotification;
+            if (
+                notification.resource !== "entity" ||
+                !notification.entityName ||
+                !notification.operation
+            ) {
+                return;
+            }
+
+            const operation = this.mapDbOperationToCommunication(
+                notification.operation,
+            );
+            if (!operation) {
+                return;
+            }
+
+            let entityData = notification.data as Record<string, unknown> | null;
+            if (
+                operation === Communication.WebSocket.DatabaseOperation.INSERT ||
+                operation === Communication.WebSocket.DatabaseOperation.UPDATE
+            ) {
+                const rows = (await superUserSql`
+                    SELECT *
+                    FROM entity.entities
+                    WHERE general__entity_name = ${notification.entityName}
+                    LIMIT 1
+                `) as Array<Record<string, unknown>>;
+                entityData = rows?.[0] ?? null;
+                if (!entityData) {
+                    BunLogModule({
+                        prefix: LOG_PREFIX,
+                        message:
+                            "Entity notification could not load latest entity data",
+                        debug: this.DEBUG,
+                        suppress: this.SUPPRESS,
+                        type: "warn",
+                        data: {
+                            entityName: notification.entityName,
+                            operation: notification.operation,
+                        },
+                    });
+                    return;
+                }
+            } else if (!entityData) {
+                entityData =
+                    (notification.previous as Record<string, unknown>) ?? null;
+            }
+
+            if (!entityData) {
+                return;
+            }
+
+            const syncGroup =
+                (entityData as { group__sync?: string })?.group__sync ??
+                notification.syncGroup ??
+                (notification.previous as { group__sync?: string })?.group__sync;
+
+            if (!syncGroup) {
+                BunLogModule({
+                    prefix: LOG_PREFIX,
+                    message:
+                        "Entity notification missing sync group, skipping publish",
+                    debug: this.DEBUG,
+                    suppress: this.SUPPRESS,
+                    type: "warn",
+                    data: {
+                        entityName: notification.entityName,
+                        operation: notification.operation,
+                    },
+                });
+                return;
+            }
+
+            const resolvedChannel =
+                (entityData as { group__channel?: string | null })?.group__channel ??
+                notification.channel ??
+                (notification.previous as { group__channel?: string | null })
+                    ?.group__channel ??
+                null;
+
+            const queuePayload: EntityNotificationPayload = {
+                resource: "entity",
+                operation,
+                entityName: notification.entityName,
+                syncGroup,
+                channel: resolvedChannel,
+                data: entityData,
+                previous:
+                    notification.previous ??
+                    (operation ===
+                    Communication.WebSocket.DatabaseOperation.DELETE
+                        ? entityData
+                        : null),
+                replicationEventReceivedTime: receivedAt,
+            };
+
+            this.queueEntityChange(queuePayload);
+        } catch (error) {
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message: "Failed to process entity notification payload",
+                error,
+                debug: this.DEBUG,
+                suppress: this.SUPPRESS,
+                type: "error",
+            });
+        }
+    }
+
+    private async handleEntityMetadataNotification(payload: string) {
+        const receivedAt = performance.now();
+        if (!superUserSql) {
+            return;
+        }
+
+        try {
+            const notification =
+                JSON.parse(payload) as EntityMetadataDbNotification;
+            if (
+                notification.resource !== "entity_metadata" ||
+                !notification.entityName ||
+                !notification.metadataKey ||
+                !notification.operation
+            ) {
+                return;
+            }
+
+            const operation = this.mapDbOperationToCommunication(
+                notification.operation,
+            );
+            if (!operation) {
+                return;
+            }
+
+            let metadataData =
+                notification.data as Record<string, unknown> | null;
+
+            if (
+                operation === Communication.WebSocket.DatabaseOperation.INSERT ||
+                operation === Communication.WebSocket.DatabaseOperation.UPDATE
+            ) {
+                const rows = (await superUserSql`
+                    SELECT *
+                    FROM entity.entity_metadata
+                    WHERE general__entity_name = ${notification.entityName}
+                      AND metadata__key = ${notification.metadataKey}
+                    LIMIT 1
+                `) as Array<Record<string, unknown>>;
+                metadataData = rows?.[0] ?? null;
+                if (!metadataData) {
+                    BunLogModule({
+                        prefix: LOG_PREFIX,
+                        message:
+                            "Metadata notification could not load latest metadata row",
+                        debug: this.DEBUG,
+                        suppress: this.SUPPRESS,
+                        type: "warn",
+                        data: {
+                            entityName: notification.entityName,
+                            metadataKey: notification.metadataKey,
+                            operation: notification.operation,
+                        },
+                    });
+                    return;
+                }
+            } else if (!metadataData) {
+                metadataData =
+                    (notification.previous as Record<string, unknown>) ?? null;
+            }
+
+            if (!metadataData) {
+                return;
+            }
+
+            const syncGroup =
+                (metadataData as { ro__group__sync?: string })?.ro__group__sync ??
+                notification.syncGroup ??
+                (notification.previous as { ro__group__sync?: string })
+                    ?.ro__group__sync;
+
+            if (!syncGroup) {
+                BunLogModule({
+                    prefix: LOG_PREFIX,
+                    message:
+                        "Metadata notification missing sync group, skipping publish",
+                    debug: this.DEBUG,
+                    suppress: this.SUPPRESS,
+                    type: "warn",
+                    data: {
+                        entityName: notification.entityName,
+                        metadataKey: notification.metadataKey,
+                        operation: notification.operation,
+                    },
+                });
+                return;
+            }
+
+            const resolvedChannel =
+                (
+                    metadataData as {
+                        ro__group__channel?: string | null;
+                    }
+                )?.ro__group__channel ??
+                notification.channel ??
+                (notification.previous as { ro__group__channel?: string | null })
+                    ?.ro__group__channel ??
+                null;
+
+            const queuePayload: EntityNotificationPayload = {
+                resource: "entity_metadata",
+                operation,
+                entityName: notification.entityName,
+                metadataKey: notification.metadataKey,
+                syncGroup,
+                channel: resolvedChannel,
+                data: metadataData,
+                previous:
+                    notification.previous ??
+                    (operation ===
+                    Communication.WebSocket.DatabaseOperation.DELETE
+                        ? metadataData
+                        : null),
+                replicationEventReceivedTime: receivedAt,
+            };
+
+            this.queueEntityMetadataChange(queuePayload);
+        } catch (error) {
+            BunLogModule({
+                prefix: LOG_PREFIX,
+                message:
+                    "Failed to process entity metadata notification payload",
+                error,
+                debug: this.DEBUG,
+                suppress: this.SUPPRESS,
+                type: "error",
+            });
+        }
+    }
+
     private async startEntityChangeListeners() {
-        if (this.entityListenersInitialized) {
+        if (
+            !this.ENABLE_LEGACY_ENTITY_REPLICATION_LISTENER ||
+            this.entityListenersInitialized
+        ) {
             return;
         }
 
@@ -1073,6 +1421,21 @@ export class WorldApiWsManager {
         );
     }
 
+    private mapDbOperationToCommunication(
+        operation?: DbNotificationOperation | string | null,
+    ): Communication.WebSocket.DatabaseOperation | null {
+        switch ((operation ?? "").toString().toLowerCase()) {
+            case "insert":
+                return Communication.WebSocket.DatabaseOperation.INSERT;
+            case "update":
+                return Communication.WebSocket.DatabaseOperation.UPDATE;
+            case "delete":
+                return Communication.WebSocket.DatabaseOperation.DELETE;
+            default:
+                return null;
+        }
+    }
+
     // ACL Service instance
     private aclService: AclService | null = null;
 
@@ -1241,6 +1604,7 @@ export class WorldApiWsManager {
             }
             // Start reflect tick loops to flush queued reflect messages per sync group
             await this.startReflectTickLoops();
+            await this.startEntityNotificationListeners();
             await this.startEntityChangeListeners();
         } catch (error) {
             BunLogModule({

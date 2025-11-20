@@ -181,9 +181,109 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = entity, public, pg_temp;
 
--- 5.4 CHANGE NOTIFICATION FUNCTIONS (REPLACED BY LOGICAL REPLICATION)
+-- 5.4 CHANGE NOTIFICATION FUNCTIONS (LISTEN/NOTIFY)
 -- ==========================================================================
--- Functions removed in favor of logical replication
+
+CREATE OR REPLACE FUNCTION entity.notify_entity_change()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_entity_name TEXT;
+    v_sync_group TEXT;
+    v_channel TEXT;
+    v_data JSONB;
+    v_previous JSONB;
+    v_payload JSONB;
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        v_entity_name := OLD.general__entity_name;
+        v_sync_group := OLD.group__sync;
+        v_channel := OLD.group__channel;
+        v_data := to_jsonb(OLD);
+        v_previous := to_jsonb(OLD);
+    ELSE
+        v_entity_name := NEW.general__entity_name;
+        v_sync_group := NEW.group__sync;
+        v_channel := NEW.group__channel;
+        v_data := to_jsonb(NEW);
+        IF TG_OP = 'UPDATE' THEN
+            v_previous := to_jsonb(OLD);
+        END IF;
+    END IF;
+
+    IF v_entity_name IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    v_payload := jsonb_build_object(
+        'resource', 'entity',
+        'operation', TG_OP,
+        'entityName', v_entity_name,
+        'syncGroup', v_sync_group,
+        'channel', v_channel,
+        'data', v_data
+    );
+
+    IF v_previous IS NOT NULL THEN
+        v_payload := v_payload || jsonb_build_object('previous', v_previous);
+    END IF;
+
+    PERFORM pg_notify('entity_change', v_payload::text);
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = entity, auth, public, pg_temp;
+
+
+CREATE OR REPLACE FUNCTION entity.notify_entity_metadata_change()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_entity_name TEXT;
+    v_metadata_key TEXT;
+    v_sync_group TEXT;
+    v_channel TEXT;
+    v_data JSONB;
+    v_previous JSONB;
+    v_payload JSONB;
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        v_entity_name := OLD.general__entity_name;
+        v_metadata_key := OLD.metadata__key;
+        v_sync_group := OLD.ro__group__sync;
+        v_channel := OLD.ro__group__channel;
+        v_data := to_jsonb(OLD);
+        v_previous := to_jsonb(OLD);
+    ELSE
+        v_entity_name := NEW.general__entity_name;
+        v_metadata_key := NEW.metadata__key;
+        v_sync_group := NEW.ro__group__sync;
+        v_channel := NEW.ro__group__channel;
+        v_data := to_jsonb(NEW);
+        IF TG_OP = 'UPDATE' THEN
+            v_previous := to_jsonb(OLD);
+        END IF;
+    END IF;
+
+    IF v_entity_name IS NULL OR v_metadata_key IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    v_payload := jsonb_build_object(
+        'resource', 'entity_metadata',
+        'operation', TG_OP,
+        'entityName', v_entity_name,
+        'metadataKey', v_metadata_key,
+        'syncGroup', v_sync_group,
+        'channel', v_channel,
+        'data', v_data
+    );
+
+    IF v_previous IS NOT NULL THEN
+        v_payload := v_payload || jsonb_build_object('previous', v_previous);
+    END IF;
+
+    PERFORM pg_notify('entity_metadata_change', v_payload::text);
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = entity, auth, public, pg_temp;
 
 
 -- 5.5 AGENT LAST-SEEN TOUCH HELPERS
@@ -305,7 +405,11 @@ CREATE TRIGGER sync_metadata_group_fields_from_entity
     FOR EACH ROW
     EXECUTE FUNCTION entity.sync_metadata_group_fields_from_parent();
 
--- Trigger removed: notify_entity_change
+DROP TRIGGER IF EXISTS notify_entity_change ON entity.entities;
+CREATE TRIGGER notify_entity_change
+    AFTER INSERT OR UPDATE OR DELETE ON entity.entities
+    FOR EACH ROW
+    EXECUTE FUNCTION entity.notify_entity_change();
 
 -- 6.4 ENTITY METADATA TRIGGERS
 -- ============================================================================
@@ -344,7 +448,11 @@ CREATE TRIGGER touch_agent_last_seen_on_meta_del
     FOR EACH STATEMENT
     EXECUTE FUNCTION entity.touch_current_agent_last_seen_trg();
 
--- Trigger removed: notify_entity_metadata_change
+DROP TRIGGER IF EXISTS notify_entity_metadata_change ON entity.entity_metadata;
+CREATE TRIGGER notify_entity_metadata_change
+    AFTER INSERT OR UPDATE OR DELETE ON entity.entity_metadata
+    FOR EACH ROW
+    EXECUTE FUNCTION entity.notify_entity_metadata_change();
 
 -- 6.5 TOUCH PARENT ENTITY ON METADATA CHANGE (STATEMENT-LEVEL)
 -- ==========================================================================

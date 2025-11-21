@@ -29,6 +29,7 @@ export type HolographicSliderBehaviorOptions = {
     max?: number;
     onDragStart?: () => void;
     onDragEnd?: () => void;
+    dragAxisLocal?: Vector3;
 };
 
 type SliderBehaviorValueOptions = Omit<
@@ -46,7 +47,11 @@ export class HolographicSliderBehavior implements Behavior<AbstractMesh> {
     public readonly name = "holographicSliderBehavior";
     public readonly onValueChangedObservable = new Observable<number>();
 
-    private readonly options: Required<SliderBehaviorValueOptions>;
+    private readonly options: Required<
+        Omit<SliderBehaviorValueOptions, "dragAxisLocal">
+    > & {
+        dragAxisLocal?: Vector3;
+    };
     private readonly thumb: AbstractMesh;
     private readonly events: {
         onDragStart?: (() => void) | undefined;
@@ -73,6 +78,7 @@ export class HolographicSliderBehavior implements Behavior<AbstractMesh> {
             initialValue: options.initialValue ?? 0.5,
             min: options.min ?? 0,
             max: options.max ?? 1,
+            dragAxisLocal: options.dragAxisLocal,
         };
         this.events = {
             onDragStart: options.onDragStart,
@@ -310,9 +316,13 @@ export class HolographicSliderBehavior implements Behavior<AbstractMesh> {
 
     private getWorldAxis(): Vector3 {
         if (!this.track) {
-            return AxisVectors[this.options.axis].clone();
+            return (
+                this.options.dragAxisLocal ?? AxisVectors[this.options.axis]
+            ).clone();
         }
-        const axis = AxisVectors[this.options.axis].clone();
+        const axis = (
+            this.options.dragAxisLocal ?? AxisVectors[this.options.axis]
+        ).clone();
         const worldMatrix = this.track.getWorldMatrix();
         const worldAxis = Vector3.TransformNormal(axis, worldMatrix);
         if (worldAxis.lengthSquared() === 0) {
@@ -382,7 +392,7 @@ export function createHolographicSlider(
     // -- Materials --
     const activeTrackColor = resolveColor(
         options.visuals?.trackColor,
-        resolveColor("#f0f0f0"),
+        resolveColor("#808080"),
     );
     const activeThumbColor = resolveColor(
         options.visuals?.thumbColor,
@@ -390,7 +400,7 @@ export function createHolographicSlider(
     );
     const activeFillColor = resolveColor(
         options.visuals?.fillColor,
-        resolveColor("#00baff"),
+        resolveColor("#ffffff"),
     );
 
     const disabledTrackColor = resolveColor(
@@ -405,6 +415,7 @@ export function createHolographicSlider(
     const trackMaterial = createBaseMaterial(scene, {
         color: activeTrackColor,
     });
+    trackMaterial.alpha = 1;
     trackMaterial.needDepthPrePass = true;
 
     const thumbMaterial = createBaseMaterial(scene, {
@@ -416,15 +427,25 @@ export function createHolographicSlider(
     const fillMaterial = createBaseMaterial(scene, {
         color: activeFillColor,
     });
+    fillMaterial.alpha = 1;
     fillMaterial.needDepthPrePass = true;
 
     // -- Meshes --
-    const track = MeshBuilder.CreateBox(
+    const length =
+        dims[
+            axis === "horizontal"
+                ? "width"
+                : axis === "vertical"
+                  ? "height"
+                  : "depth"
+        ];
+    const radius = (axis === "horizontal" ? dims.height : dims.width) / 2;
+
+    const track = MeshBuilder.CreateCapsule(
         `${name}_track`,
         {
-            width: dims.width,
-            height: dims.height,
-            depth: dims.depth,
+            height: length,
+            radius: radius,
         },
         scene,
     );
@@ -436,6 +457,13 @@ export function createHolographicSlider(
         surfaceType: "holographicSliderTrack",
         skipPhysics: true,
     };
+
+    // Orient track based on axis
+    if (axis === "depth") {
+        track.rotation.x = Math.PI / 2;
+    } else if (axis === "horizontal") {
+        track.rotation.z = -Math.PI / 2;
+    }
 
     const thumb = MeshBuilder.CreateSphere(
         `${name}_thumb`,
@@ -453,12 +481,11 @@ export function createHolographicSlider(
         skipPhysics: true,
     };
 
-    const fill = MeshBuilder.CreateBox(
+    const fill = MeshBuilder.CreateCapsule(
         `${name}_fill`,
         {
-            width: dims.width * 0.65,
-            height: dims.height * 0.6,
-            depth: dims.depth, // Base length, will scale
+            height: length,
+            radius: radius * 1.02, // Slightly larger to ensure visibility over track
         },
         scene,
     );
@@ -498,14 +525,12 @@ export function createHolographicSlider(
         );
 
         // Determine target state
-        let targetTrackScale = trackRestScale;
+        const targetTrackScale = trackRestScale; // Track scale remains constant
         let targetThumbScale = thumbRestScale;
 
         if (isDragging) {
-            targetTrackScale = trackActiveScale;
             targetThumbScale = thumbActiveScale;
         } else if (isHovering) {
-            targetTrackScale = trackHoverScale;
             targetThumbScale = thumbHoverScale;
         }
 
@@ -581,6 +606,7 @@ export function createHolographicSlider(
         initialValue: options.initialValue ?? 0,
         onDragStart: () => setDrag(true),
         onDragEnd: () => setDrag(false),
+        dragAxisLocal: Vector3.Up(),
     });
 
     track.addBehavior(behavior);
@@ -592,41 +618,16 @@ export function createHolographicSlider(
         const range = Math.max(1e-5, max - min);
         const normalized = Math.min(1, Math.max(0, (val - min) / range));
 
-        // Fill logic depends on axis. Assuming 'depth' based on default, but should support others.
-        // Original used depth.
-        // If axis is 'depth': Z scales.
-        // If axis is 'horizontal': X scales.
-        // If axis is 'vertical': Y scales.
-
-        let scaleAxis: "x" | "y" | "z" = "z";
-        if (axis === "horizontal") scaleAxis = "x";
-        if (axis === "vertical") scaleAxis = "y";
-
-        const fullLength =
-            dims[
-                axis === "horizontal"
-                    ? "width"
-                    : axis === "vertical"
-                      ? "height"
-                      : "depth"
-            ];
-        const halfLength = fullLength / 2;
+        // Since track is a capsule oriented along local Y (and rotated to world axis),
+        // we always scale and position along local Y.
+        const halfLength = length / 2;
 
         const scale = Math.max(0.001, normalized);
-        fill.scaling[scaleAxis] = scale;
+        fill.scaling.y = scale;
 
         // Position shift: (normalized - 1) * halfLength
-        // Example: val=0 -> norm=0 -> pos = -halfLength (start)
-        // Example: val=1 -> norm=1 -> pos = 0 (center? No wait)
-
-        // In original code:
-        // sliderFill.position.z = sliderTrackHalfDepth * (normalized - 1);
-        // sliderFill has base depth = track depth.
-        // if scaling.z = 0.5, it shrinks around center.
-        // We need to offset it so it starts from 'min' side.
-
-        // Original logic was correct for center pivot scaling if we shift it.
-        fill.position[scaleAxis] = halfLength * (normalized - 1);
+        // This keeps the "start" of the capsule fixed at the bottom/start of the track.
+        fill.position.y = halfLength * (normalized - 1);
 
         // Hide if 0
         fill.visibility = normalized <= 0 ? 0 : 1;

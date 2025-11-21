@@ -19,10 +19,10 @@ import {
 } from "@babylonjs/core";
 import {
     type Color3Like,
-    createHolographicMaterial,
-    type HolographicMaterialVariant,
     resolveColor,
-} from "./Antares.Texture.Holographic";
+} from "./Antares.Texture.Base";
+// Note: createHolographicMaterial and HolographicMaterialVariant are not available in Texture.Base
+// This may need to be updated separately
 
 export type ButtonStyle =
     | "borderedProminent"

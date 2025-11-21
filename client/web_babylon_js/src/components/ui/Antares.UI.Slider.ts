@@ -17,7 +17,7 @@ import {
     Vector3,
 } from "@babylonjs/core";
 import type { DragEvent as PointerDragEvent } from "@babylonjs/core/Behaviors/Meshes/pointerDragEvents";
-import { createBaseMaterial } from "./Antares.Texture.Base";
+import { createBaseMaterial, resolveColor } from "./Antares.Texture.Base";
 
 export type SliderAxis = "horizontal" | "vertical" | "depth";
 
@@ -326,6 +326,8 @@ export interface HolographicSliderVisualOptions {
     trackColor?: string | Color3;
     thumbColor?: string | Color3;
     fillColor?: string | Color3;
+    disabledTrackColor?: string | Color3;
+    disabledThumbColor?: string | Color3;
     trackScaleHover?: Vector3;
     thumbScaleHover?: Vector3;
 }
@@ -336,6 +338,7 @@ export interface CreateHolographicSliderOptions {
     min?: number;
     max?: number;
     initialValue?: number;
+    enabled?: boolean;
     dimensions?: {
         width?: number;
         height?: number;
@@ -355,6 +358,7 @@ export interface HolographicSlider {
     dispose: () => void;
     setValue: (value: number) => void;
     getValue: () => number;
+    setEnabled: (enabled: boolean) => void;
 }
 
 export function createHolographicSlider(
@@ -375,23 +379,42 @@ export function createHolographicSlider(
     const root = new TransformNode(name, scene);
 
     // -- Materials --
-    const trackColor = options.visuals?.trackColor ?? "#f0f0f0";
-    const thumbColor = options.visuals?.thumbColor ?? "#ffffff";
-    const fillColor = options.visuals?.fillColor ?? "#00baff";
+    // -- Materials --
+    const activeTrackColor = resolveColor(
+        options.visuals?.trackColor,
+        resolveColor("#f0f0f0"),
+    );
+    const activeThumbColor = resolveColor(
+        options.visuals?.thumbColor,
+        resolveColor("#ffffff"),
+    );
+    const activeFillColor = resolveColor(
+        options.visuals?.fillColor,
+        resolveColor("#00baff"),
+    );
+
+    const disabledTrackColor = resolveColor(
+        options.visuals?.disabledTrackColor,
+        resolveColor("#888888"),
+    );
+    const disabledThumbColor = resolveColor(
+        options.visuals?.disabledThumbColor,
+        resolveColor("#aaaaaa"),
+    );
 
     const trackMaterial = createBaseMaterial(scene, {
-        color: trackColor,
+        color: activeTrackColor,
     });
     trackMaterial.needDepthPrePass = true;
 
     const thumbMaterial = createBaseMaterial(scene, {
-        color: thumbColor,
+        color: activeThumbColor,
     });
     thumbMaterial.alpha = 1;
     thumbMaterial.needDepthPrePass = true;
 
     const fillMaterial = createBaseMaterial(scene, {
-        color: fillColor,
+        color: activeFillColor,
     });
     fillMaterial.needDepthPrePass = true;
 
@@ -451,6 +474,7 @@ export function createHolographicSlider(
     // -- State Management --
     let isHovering = false;
     let isDragging = false;
+    let isEnabled = options.enabled ?? true;
 
     const updateVisualState = () => {
         // Derived scales for hover/active
@@ -537,14 +561,14 @@ export function createHolographicSlider(
     [track, thumb].forEach((mesh) => {
         mesh.actionManager = new ActionManager(scene);
         mesh.actionManager.registerAction(
-            new ExecuteCodeAction(ActionManager.OnPointerOverTrigger, () =>
-                setHover(true),
-            ),
+            new ExecuteCodeAction(ActionManager.OnPointerOverTrigger, () => {
+                if (isEnabled) setHover(true);
+            }),
         );
         mesh.actionManager.registerAction(
-            new ExecuteCodeAction(ActionManager.OnPointerOutTrigger, () =>
-                setHover(false),
-            ),
+            new ExecuteCodeAction(ActionManager.OnPointerOutTrigger, () => {
+                if (isEnabled) setHover(false);
+            }),
         );
     });
 
@@ -617,6 +641,27 @@ export function createHolographicSlider(
         options.onValueChanged?.(val);
     });
 
+    const setEnabled = (enabled: boolean) => {
+        isEnabled = enabled;
+        track.isPickable = enabled;
+        thumb.isPickable = enabled;
+
+        if (enabled) {
+            trackMaterial.albedoColor = activeTrackColor;
+            thumbMaterial.albedoColor = activeThumbColor;
+            fillMaterial.albedoColor = activeFillColor;
+        } else {
+            trackMaterial.albedoColor = disabledTrackColor;
+            thumbMaterial.albedoColor = disabledThumbColor;
+            fillMaterial.albedoColor = disabledTrackColor; // Use track color for fill when disabled
+            setHover(false);
+            setDrag(false);
+        }
+    };
+
+    // Initialize state
+    setEnabled(isEnabled);
+
     return {
         root,
         behavior,
@@ -634,5 +679,6 @@ export function createHolographicSlider(
         },
         setValue: (val) => behavior.setValue(val),
         getValue: () => behavior.getValue(),
+        setEnabled,
     };
 }

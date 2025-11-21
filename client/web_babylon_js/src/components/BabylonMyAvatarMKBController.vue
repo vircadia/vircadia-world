@@ -9,7 +9,6 @@
 <script setup lang="ts">
 import {
     type AbstractMesh,
-    type Behavior,
     KeyboardEventTypes,
     type KeyboardInfo,
     type Observer,
@@ -89,6 +88,25 @@ export interface PointerState {
     leftMouseDown: boolean;
     rightMouseDown: boolean;
 }
+
+type SceneWithPointerDragInternals = Scene & {
+    _activePointerDragBehaviors?: PointerDragBehavior[];
+};
+
+/**
+ * Check if a mesh or any of its ancestors has any behaviors attached.
+ * This is used to determine if a mesh is interactive and should prevent pointer lock.
+ */
+const hasAnyBehaviors = (mesh: AbstractMesh | null): boolean => {
+    let current: AbstractMesh | null = mesh;
+    while (current) {
+        if (current.behaviors && current.behaviors.length > 0) {
+            return true;
+        }
+        current = current.parent as AbstractMesh | null;
+    }
+    return false;
+};
 
 const pointerState = ref<PointerState>({
     deltaX: 0,
@@ -196,21 +214,19 @@ if (props.scene) {
                     pointerState.value.rightMouseDown = true;
                     mouseEvt.preventDefault();
                 }
-                // Check if picked mesh has a PointerDragBehavior (Babylon.js built-in mechanism)
-                // This automatically handles UI elements like sliders without explicit checks
-                const hasDragBehavior = pickedMesh?.behaviors?.some(
-                    (behavior: Behavior<AbstractMesh>) => behavior instanceof PointerDragBehavior
-                ) ?? false;
+                // Check if picked mesh or any of its ancestors has any behaviors
+                // This automatically handles all interactive UI elements (sliders, buttons with behaviors, etc.)
+                const hasBehaviors = hasAnyBehaviors(pickedMesh);
                 // Also check for active drag behaviors on the scene (if any drag is in progress)
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const hasActiveDragBehaviors = (props.scene as any)._activePointerDragBehaviors?.length > 0;
+                const sceneWithDragInternals = props.scene as SceneWithPointerDragInternals;
+                const hasActiveDragBehaviors =
+                    (sceneWithDragInternals._activePointerDragBehaviors?.length ?? 0) > 0;
                 if (
                     (mouseEvt.button === 0 || mouseEvt.button === 2) &&
-                    !hasDragBehavior &&
+                    !hasBehaviors &&
                     !hasActiveDragBehaviors
                 ) {
                     enablePointerLock();
-                } else if (hasDragBehavior || hasActiveDragBehaviors) {
                 }
                 break;
             }
@@ -231,12 +247,6 @@ if (props.scene) {
                 break;
             }
             case PointerEventTypes.POINTERMOVE: {
-                const pickedMesh = info.pickInfo?.hit ? (info.pickInfo.pickedMesh as AbstractMesh | null) : null;
-                const hasDragBehavior = pickedMesh?.behaviors?.some(
-                    (behavior: Behavior<AbstractMesh>) => behavior instanceof PointerDragBehavior
-                ) ?? false;
-                if (hasDragBehavior) {
-                }
                 pointerState.value.deltaX = (e as MouseEvent).movementX;
                 pointerState.value.deltaY = (e as MouseEvent).movementY;
                 break;

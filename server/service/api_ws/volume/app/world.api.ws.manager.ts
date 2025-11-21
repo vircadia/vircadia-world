@@ -296,65 +296,65 @@ export class WorldApiWsManager {
         const reflectMessageHashes = new Set<string>();
         if (groupMap) {
             for (const [channel, channelMap] of groupMap) {
-            for (const [fromSessionId, queuedItem] of channelMap) {
-                const payloadJson = queuedItem.payloadJson;
-                reflectMessages++;
-                const messageHash = `${channel}:${payloadJson}`;
-                if (!reflectMessageHashes.has(messageHash)) {
-                    reflectMessageHashes.add(messageHash);
-                    reflectUniqueMessages++;
-                }
-                const messageBytes = new TextEncoder().encode(
-                    payloadJson,
-                ).length;
-                reflectBytes += messageBytes;
-                const perMessageStart = performance.now();
-                const deliveredForMessage = this.publishReflect(
-                    syncGroup,
-                    channel,
-                    payloadJson,
-                );
-                reflectDeliveredCount += deliveredForMessage;
-                // Record reflect metrics per message
-                this.metricsCollector.recordReflect(
-                    performance.now() - perMessageStart,
-                    messageBytes,
-                    deliveredForMessage,
-                    !!queuedItem.ack,
-                );
+                for (const [fromSessionId, queuedItem] of channelMap) {
+                    const payloadJson = queuedItem.payloadJson;
+                    reflectMessages++;
+                    const messageHash = `${channel}:${payloadJson}`;
+                    if (!reflectMessageHashes.has(messageHash)) {
+                        reflectMessageHashes.add(messageHash);
+                        reflectUniqueMessages++;
+                    }
+                    const messageBytes = new TextEncoder().encode(
+                        payloadJson,
+                    ).length;
+                    reflectBytes += messageBytes;
+                    const perMessageStart = performance.now();
+                    const deliveredForMessage = this.publishReflect(
+                        syncGroup,
+                        channel,
+                        payloadJson,
+                    );
+                    reflectDeliveredCount += deliveredForMessage;
+                    // Record reflect metrics per message
+                    this.metricsCollector.recordReflect(
+                        performance.now() - perMessageStart,
+                        messageBytes,
+                        deliveredForMessage,
+                        !!queuedItem.ack,
+                    );
 
-                // If an acknowledgement was requested for this message, send it now
-                if (queuedItem.ack) {
-                    const senderSession =
-                        this.activeSessions.get(fromSessionId);
-                    if (senderSession) {
-                        const ackData = {
-                            type: Communication.WebSocket.MessageType
-                                .REFLECT_ACK_RESPONSE,
-                            timestamp: Date.now(),
-                            requestId: queuedItem.ack.requestId,
-                            errorMessage: null,
-                            syncGroup,
-                            channel,
-                            delivered: deliveredForMessage,
-                        };
-                        const ackParsed =
-                            Communication.WebSocket.Z.ReflectAckResponse.safeParse(
-                                ackData,
-                            );
-                        if (ackParsed.success) {
-                            try {
-                                senderSession.ws.send(
-                                    JSON.stringify(ackParsed.data),
+                    // If an acknowledgement was requested for this message, send it now
+                    if (queuedItem.ack) {
+                        const senderSession =
+                            this.activeSessions.get(fromSessionId);
+                        if (senderSession) {
+                            const ackData = {
+                                type: Communication.WebSocket.MessageType
+                                    .REFLECT_ACK_RESPONSE,
+                                timestamp: Date.now(),
+                                requestId: queuedItem.ack.requestId,
+                                errorMessage: null,
+                                syncGroup,
+                                channel,
+                                delivered: deliveredForMessage,
+                            };
+                            const ackParsed =
+                                Communication.WebSocket.Z.ReflectAckResponse.safeParse(
+                                    ackData,
                                 );
-                            } catch {
-                                // ignore ack send errors
+                            if (ackParsed.success) {
+                                try {
+                                    senderSession.ws.send(
+                                        JSON.stringify(ackParsed.data),
+                                    );
+                                } catch {
+                                    // ignore ack send errors
+                                }
                             }
                         }
                     }
                 }
             }
-        }
         }
         const reflectProcessingTimeMs = performance.now() - reflectStartTime;
 
@@ -389,7 +389,11 @@ export class WorldApiWsManager {
                 }
             }
             const entityResults = await Promise.all(entityTasks);
-            for (const { notification, delivered, messageSize } of entityResults) {
+            for (const {
+                notification,
+                delivered,
+                messageSize,
+            } of entityResults) {
                 entityMessages++;
                 const entityKey = notification.entityName || "";
                 if (!entityMessageKeys.has(entityKey)) {
@@ -439,7 +443,11 @@ export class WorldApiWsManager {
                 }
             }
             const metadataResults = await Promise.all(metadataTasks);
-            for (const { notification, delivered, messageSize } of metadataResults) {
+            for (const {
+                notification,
+                delivered,
+                messageSize,
+            } of metadataResults) {
                 metadataMessages++;
                 const metadataKey = `${notification.entityName}:${notification.metadataKey}`;
                 if (!metadataMessageKeys.has(metadataKey)) {
@@ -535,7 +543,7 @@ export class WorldApiWsManager {
                 if (!enabled) continue;
                 if (this.reflectIntervals.has(syncGroup)) continue;
                 this.reflectTickRateMs.set(syncGroup, rate);
-                
+
                 BunLogModule({
                     prefix: LOG_PREFIX,
                     message: `Starting tick loop for sync group: ${syncGroup}`,
@@ -548,7 +556,7 @@ export class WorldApiWsManager {
                         enabled,
                     },
                 });
-                
+
                 const ticker = setInterval(() => {
                     this.flushTickQueues(syncGroup).catch((error) => {
                         BunLogModule({
@@ -702,32 +710,39 @@ export class WorldApiWsManager {
                 return;
             }
 
-            let entityData = notification.data as Record<string, unknown> | null;
+            let entityData = notification.data as Record<
+                string,
+                unknown
+            > | null;
             if (
-                operation === Communication.WebSocket.DatabaseOperation.INSERT ||
+                operation ===
+                    Communication.WebSocket.DatabaseOperation.INSERT ||
                 operation === Communication.WebSocket.DatabaseOperation.UPDATE
             ) {
-                const rows = (await superUserSql`
+                // Notifications have a max payload of 8kb, so if the entity data is not provided, we need to load it from the database
+                if (!entityData) {
+                    const rows = (await superUserSql`
                     SELECT *
                     FROM entity.entities
                     WHERE general__entity_name = ${notification.entityName}
                     LIMIT 1
                 `) as Array<Record<string, unknown>>;
-                entityData = rows?.[0] ?? null;
-                if (!entityData) {
-                    BunLogModule({
-                        prefix: LOG_PREFIX,
-                        message:
-                            "Entity notification could not load latest entity data",
-                        debug: this.DEBUG,
-                        suppress: this.SUPPRESS,
-                        type: "warn",
-                        data: {
-                            entityName: notification.entityName,
-                            operation: notification.operation,
-                        },
-                    });
-                    return;
+                    entityData = rows?.[0] ?? null;
+                    if (!entityData) {
+                        BunLogModule({
+                            prefix: LOG_PREFIX,
+                            message:
+                                "Entity notification could not load latest entity data",
+                            debug: this.DEBUG,
+                            suppress: this.SUPPRESS,
+                            type: "warn",
+                            data: {
+                                entityName: notification.entityName,
+                                operation: notification.operation,
+                            },
+                        });
+                        return;
+                    }
                 }
             } else if (!entityData) {
                 entityData =
@@ -741,7 +756,8 @@ export class WorldApiWsManager {
             const syncGroup =
                 (entityData as { group__sync?: string })?.group__sync ??
                 notification.syncGroup ??
-                (notification.previous as { group__sync?: string })?.group__sync;
+                (notification.previous as { group__sync?: string })
+                    ?.group__sync;
 
             if (!syncGroup) {
                 BunLogModule({
@@ -760,7 +776,8 @@ export class WorldApiWsManager {
             }
 
             const resolvedChannel =
-                (entityData as { group__channel?: string | null })?.group__channel ??
+                (entityData as { group__channel?: string | null })
+                    ?.group__channel ??
                 notification.channel ??
                 (notification.previous as { group__channel?: string | null })
                     ?.group__channel ??
@@ -802,8 +819,9 @@ export class WorldApiWsManager {
         }
 
         try {
-            const notification =
-                JSON.parse(payload) as EntityMetadataDbNotification;
+            const notification = JSON.parse(
+                payload,
+            ) as EntityMetadataDbNotification;
             if (
                 notification.resource !== "entity_metadata" ||
                 !notification.entityName ||
@@ -820,36 +838,42 @@ export class WorldApiWsManager {
                 return;
             }
 
-            let metadataData =
-                notification.data as Record<string, unknown> | null;
+            let metadataData = notification.data as Record<
+                string,
+                unknown
+            > | null;
 
             if (
-                operation === Communication.WebSocket.DatabaseOperation.INSERT ||
+                operation ===
+                    Communication.WebSocket.DatabaseOperation.INSERT ||
                 operation === Communication.WebSocket.DatabaseOperation.UPDATE
             ) {
-                const rows = (await superUserSql`
+                // Notifications have a max payload of 8kb, so if the metadata data is not provided, we need to load it from the database
+                if (!metadataData) {
+                    const rows = (await superUserSql`
                     SELECT *
                     FROM entity.entity_metadata
                     WHERE general__entity_name = ${notification.entityName}
                       AND metadata__key = ${notification.metadataKey}
                     LIMIT 1
                 `) as Array<Record<string, unknown>>;
-                metadataData = rows?.[0] ?? null;
-                if (!metadataData) {
-                    BunLogModule({
-                        prefix: LOG_PREFIX,
-                        message:
-                            "Metadata notification could not load latest metadata row",
-                        debug: this.DEBUG,
-                        suppress: this.SUPPRESS,
-                        type: "warn",
-                        data: {
-                            entityName: notification.entityName,
-                            metadataKey: notification.metadataKey,
-                            operation: notification.operation,
-                        },
-                    });
-                    return;
+                    metadataData = rows?.[0] ?? null;
+                    if (!metadataData) {
+                        BunLogModule({
+                            prefix: LOG_PREFIX,
+                            message:
+                                "Metadata notification could not load latest metadata row",
+                            debug: this.DEBUG,
+                            suppress: this.SUPPRESS,
+                            type: "warn",
+                            data: {
+                                entityName: notification.entityName,
+                                metadataKey: notification.metadataKey,
+                                operation: notification.operation,
+                            },
+                        });
+                        return;
+                    }
                 }
             } else if (!metadataData) {
                 metadataData =
@@ -861,7 +885,8 @@ export class WorldApiWsManager {
             }
 
             const syncGroup =
-                (metadataData as { ro__group__sync?: string })?.ro__group__sync ??
+                (metadataData as { ro__group__sync?: string })
+                    ?.ro__group__sync ??
                 notification.syncGroup ??
                 (notification.previous as { ro__group__sync?: string })
                     ?.ro__group__sync;
@@ -890,8 +915,11 @@ export class WorldApiWsManager {
                     }
                 )?.ro__group__channel ??
                 notification.channel ??
-                (notification.previous as { ro__group__channel?: string | null })
-                    ?.ro__group__channel ??
+                (
+                    notification.previous as {
+                        ro__group__channel?: string | null;
+                    }
+                )?.ro__group__channel ??
                 null;
 
             const queuePayload: EntityNotificationPayload = {
@@ -924,7 +952,6 @@ export class WorldApiWsManager {
             });
         }
     }
-
 
     private queueEntityChange(payload: EntityNotificationPayload) {
         if (!payload.entityName) {
@@ -1032,7 +1059,8 @@ export class WorldApiWsManager {
                 }) || {};
             fullData = {
                 ...(fullData ?? {}),
-                ro__group__sync: ensuredData.ro__group__sync ?? payload.syncGroup,
+                ro__group__sync:
+                    ensuredData.ro__group__sync ?? payload.syncGroup,
                 ro__group__channel:
                     ensuredData.ro__group__channel ?? payload.channel ?? null,
             };
@@ -1107,7 +1135,9 @@ export class WorldApiWsManager {
         return delivered;
     }
 
-    private recordMetadataLatencyMetrics(payload: EntityNotificationPayload): void {
+    private recordMetadataLatencyMetrics(
+        payload: EntityNotificationPayload,
+    ): void {
         // Only track metrics for metadata updates
         if (payload.resource !== "entity_metadata" || !payload.metadataKey) {
             return;
@@ -1116,11 +1146,16 @@ export class WorldApiWsManager {
         // Extract pingId if this is a ping test
         let pingId: number | undefined;
         try {
-            const data = payload.data as { metadata__jsonb?: string | { pingId?: number; timestamp?: number } };
+            const data = payload.data as {
+                metadata__jsonb?:
+                    | string
+                    | { pingId?: number; timestamp?: number };
+            };
             if (data?.metadata__jsonb) {
-                const parsed = typeof data.metadata__jsonb === "string"
-                    ? JSON.parse(data.metadata__jsonb)
-                    : data.metadata__jsonb;
+                const parsed =
+                    typeof data.metadata__jsonb === "string"
+                        ? JSON.parse(data.metadata__jsonb)
+                        : data.metadata__jsonb;
                 if (parsed && typeof parsed.pingId === "number") {
                     pingId = parsed.pingId;
                 }
@@ -1130,18 +1165,22 @@ export class WorldApiWsManager {
         }
 
         // Calculate latency stages
-        const replicationToQueued = payload.replicationEventReceivedTime && payload.queuedTime
-            ? payload.queuedTime - payload.replicationEventReceivedTime
-            : undefined;
-        const queuedToFlushed = payload.queuedTime && payload.flushedTime
-            ? payload.flushedTime - payload.queuedTime
-            : undefined;
-        const flushedToPublished = payload.flushedTime && payload.publishedTime
-            ? payload.publishedTime - payload.flushedTime
-            : undefined;
-        const totalLatency = payload.replicationEventReceivedTime && payload.publishedTime
-            ? payload.publishedTime - payload.replicationEventReceivedTime
-            : undefined;
+        const replicationToQueued =
+            payload.replicationEventReceivedTime && payload.queuedTime
+                ? payload.queuedTime - payload.replicationEventReceivedTime
+                : undefined;
+        const queuedToFlushed =
+            payload.queuedTime && payload.flushedTime
+                ? payload.flushedTime - payload.queuedTime
+                : undefined;
+        const flushedToPublished =
+            payload.flushedTime && payload.publishedTime
+                ? payload.publishedTime - payload.flushedTime
+                : undefined;
+        const totalLatency =
+            payload.replicationEventReceivedTime && payload.publishedTime
+                ? payload.publishedTime - payload.replicationEventReceivedTime
+                : undefined;
 
         // Record metrics
         this.metricsCollector.recordMetadataLatency({
@@ -3236,7 +3275,6 @@ export class WorldApiWsManager {
                 session.ws.close(1000, "Server shutting down");
             }
             this.activeSessions.clear();
-
         });
         // Do not forcibly clear cache on shutdown; keep warmed files for faster next start
         BunPostgresClientModule.getInstance({

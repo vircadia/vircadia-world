@@ -193,6 +193,7 @@ DECLARE
     v_data JSONB;
     v_previous JSONB;
     v_payload JSONB;
+    v_payload_text TEXT;
 BEGIN
     IF TG_OP = 'DELETE' THEN
         v_entity_name := OLD.general__entity_name;
@@ -227,7 +228,20 @@ BEGIN
         v_payload := v_payload || jsonb_build_object('previous', v_previous);
     END IF;
 
-    PERFORM pg_notify('entity_change', v_payload::text);
+    v_payload_text := v_payload::text;
+
+    IF length(v_payload_text) >= 7900 THEN
+        v_payload := jsonb_build_object(
+            'resource', 'entity',
+            'operation', TG_OP,
+            'entityName', v_entity_name,
+            'syncGroup', v_sync_group,
+            'channel', v_channel
+        );
+        v_payload_text := v_payload::text;
+    END IF;
+
+    PERFORM pg_notify('entity_change', v_payload_text);
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = entity, auth, public, pg_temp;
@@ -243,6 +257,7 @@ DECLARE
     v_data JSONB;
     v_previous JSONB;
     v_payload JSONB;
+    v_payload_text TEXT;
 BEGIN
     IF TG_OP = 'DELETE' THEN
         v_entity_name := OLD.general__entity_name;
@@ -280,7 +295,21 @@ BEGIN
         v_payload := v_payload || jsonb_build_object('previous', v_previous);
     END IF;
 
-    PERFORM pg_notify('entity_metadata_change', v_payload::text);
+    v_payload_text := v_payload::text;
+
+    IF length(v_payload_text) >= 7900 THEN
+        v_payload := jsonb_build_object(
+            'resource', 'entity_metadata',
+            'operation', TG_OP,
+            'entityName', v_entity_name,
+            'metadataKey', v_metadata_key,
+            'syncGroup', v_sync_group,
+            'channel', v_channel
+        );
+        v_payload_text := v_payload::text;
+    END IF;
+
+    PERFORM pg_notify('entity_metadata_change', v_payload_text);
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = entity, auth, public, pg_temp;

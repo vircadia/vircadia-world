@@ -9,6 +9,7 @@ import {
     MeshBuilder,
     Observable,
     PBRMaterial,
+    Plane,
     PointerDragBehavior,
     Quaternion,
     Scalar,
@@ -612,26 +613,38 @@ export function createHolographicSlider(
     track.addBehavior(behavior);
 
     // -- Fill Logic --
+    const updateClipPlane = () => {
+        if (!track || !thumb || !fillMaterial) return;
+
+        // Track direction (World Up)
+        // Since track is a capsule along Y, its "forward" for the slider is its local Y.
+        const worldDirection = track.getDirection(Vector3.Up());
+
+        // Thumb position
+        const thumbPos = thumb.getAbsolutePosition();
+
+        // Plane normal should point towards the "Start" (negative Y) to keep the "Start" side.
+        // Normal = -Direction.
+        const normal = worldDirection.scale(-1);
+        const plane = Plane.FromPositionAndNormal(thumbPos, normal);
+
+        fillMaterial.clipPlane = plane;
+    };
+
     const updateFill = (val: number) => {
         const min = options.min ?? 0;
         const max = options.max ?? 1;
         const range = Math.max(1e-5, max - min);
         const normalized = Math.min(1, Math.max(0, (val - min) / range));
 
-        // Since track is a capsule oriented along local Y (and rotated to world axis),
-        // we always scale and position along local Y.
-        const halfLength = length / 2;
+        // Hide if 0 (or very close)
+        fill.visibility = normalized <= 0.001 ? 0 : 1;
 
-        const scale = Math.max(0.001, normalized);
-        fill.scaling.y = scale;
-
-        // Position shift: (normalized - 1) * halfLength
-        // This keeps the "start" of the capsule fixed at the bottom/start of the track.
-        fill.position.y = halfLength * (normalized - 1);
-
-        // Hide if 0
-        fill.visibility = normalized <= 0 ? 0 : 1;
+        updateClipPlane();
     };
+
+    // Add observer to update clip plane on every frame (to handle moving slider)
+    const renderObserver = scene.onBeforeRenderObservable.add(updateClipPlane);
 
     // Initial fill
     updateFill(behavior.getValue());
@@ -667,6 +680,9 @@ export function createHolographicSlider(
         root,
         behavior,
         dispose: () => {
+            if (renderObserver) {
+                scene.onBeforeRenderObservable.remove(renderObserver);
+            }
             track.removeBehavior(behavior);
             track.dispose(); // this disposes children (fill)
             // thumb is child of root via transform node now? No, behavior reparents thumb.

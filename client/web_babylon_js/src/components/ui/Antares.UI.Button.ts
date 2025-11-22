@@ -21,7 +21,7 @@ import {
     createHolographicMaterial,
     type HolographicMaterialVariant,
     resolveColor,
-} from "./Antares.Texture.Base";
+} from "./Antares.UI.Texture";
 
 export type ButtonStyle =
     | "borderedProminent"

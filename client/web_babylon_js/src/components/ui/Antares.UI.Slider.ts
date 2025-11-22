@@ -18,7 +18,7 @@ import {
     Vector3,
 } from "@babylonjs/core";
 import type { DragEvent as PointerDragEvent } from "@babylonjs/core/Behaviors/Meshes/pointerDragEvents";
-import { createBaseMaterial, resolveColor } from "./Antares.Texture.Base";
+import { createBaseMaterial, resolveColor } from "./Antares.UI.Texture";
 
 export type SliderAxis = "horizontal" | "vertical" | "depth";
 

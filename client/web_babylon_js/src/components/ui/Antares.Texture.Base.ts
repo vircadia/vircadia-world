@@ -45,3 +45,44 @@ export function createBaseMaterial(
     return pbr;
 }
 
+
+export type HolographicMaterialVariant = "fill" | "glass";
+
+export interface HolographicMaterialOptions {
+    variant?: HolographicMaterialVariant;
+    color?: Color3Like;
+    accentColor?: Color3Like;
+    alpha?: number;
+    hoverEffect?: boolean;
+    reflectionLevel?: number;
+}
+
+export function createHolographicMaterial(
+    scene: Scene,
+    options: HolographicMaterialOptions = {},
+): { material: PBRMaterial } {
+    const pbr = new PBRMaterial(`holographic-material-${Date.now()}`, scene);
+
+    const baseColor = resolveColor(options.color, new Color3(0.5, 0.5, 0.5));
+    const accentColor = resolveColor(options.accentColor, new Color3(0.2, 0.8, 1.0));
+    const alpha = options.alpha ?? 0.5;
+
+    pbr.albedoColor = baseColor;
+    pbr.alpha = alpha;
+    pbr.metallic = 0.1;
+    pbr.roughness = 0.2;
+    
+    // Enable transparency
+    pbr.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
+
+    if (options.variant === "fill") {
+        pbr.emissiveColor = baseColor.scale(0.2);
+        pbr.emissiveIntensity = 0.5;
+    } else {
+        // Glass-like
+        pbr.indexOfRefraction = 1.5;
+        pbr.alpha = Math.min(alpha, 0.3); // Glass is usually more transparent
+    }
+
+    return { material: pbr };
+}

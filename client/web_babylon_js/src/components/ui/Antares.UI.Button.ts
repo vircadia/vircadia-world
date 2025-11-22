@@ -1,14 +1,13 @@
 import {
     type AbstractMesh,
+    ActionManager,
     Animation,
     Color3,
     DynamicTexture,
     EasingFunction,
+    ExecuteCodeAction,
     Mesh,
     MeshBuilder,
-    type Observer,
-    PointerEventTypes,
-    type PointerInfo,
     Quaternion,
     Scalar,
     type Scene,
@@ -19,10 +18,10 @@ import {
 } from "@babylonjs/core";
 import {
     type Color3Like,
+    createHolographicMaterial,
+    type HolographicMaterialVariant,
     resolveColor,
 } from "./Antares.Texture.Base";
-// Note: createHolographicMaterial and HolographicMaterialVariant are not available in Texture.Base
-// This may need to be updated separately
 
 export type ButtonStyle =
     | "borderedProminent"
@@ -50,8 +49,10 @@ export interface HolographicButtonOptions {
 export class HolographicButton {
     public readonly mesh: Mesh;
     public readonly contentMesh: Mesh;
+    private visualRoot: Mesh;
     private backplateMesh?: Mesh;
     private borderMesh?: Mesh;
+    private labelTexture?: DynamicTexture;
 
     private scene: Scene;
     private options: Required<
@@ -72,8 +73,6 @@ export class HolographicButton {
         emissive: Color3;
         scale: Vector3;
     };
-
-    private pointerObserver?: Observer<PointerInfo>;
 
     private state: {
         hovered: boolean;
@@ -114,9 +113,14 @@ export class HolographicButton {
             surfaceType: "holographicButton",
         };
 
+        // Create Visual Root for animations
+        this.visualRoot = new Mesh("visual_root", scene);
+        this.visualRoot.parent = this.mesh;
+        this.visualRoot.rotationQuaternion = Quaternion.Identity();
+
         // Create Content (Text)
         this.contentMesh = this.createContent();
-        this.contentMesh.parent = this.mesh;
+        this.contentMesh.parent = this.visualRoot;
 
         // Create Backplate (if needed)
         if (
@@ -124,7 +128,7 @@ export class HolographicButton {
             this.options.style !== "plain"
         ) {
             this.backplateMesh = this.createBackplate();
-            this.backplateMesh.parent = this.mesh;
+            this.backplateMesh.parent = this.visualRoot;
         }
 
         // Create Border (if needed)
@@ -149,10 +153,6 @@ export class HolographicButton {
     }
 
     public dispose(): void {
-        if (this.pointerObserver) {
-            this.scene.onPointerObservable.remove(this.pointerObserver);
-            this.pointerObserver = undefined;
-        }
         this.mesh.dispose(false, true);
     }
 
@@ -168,6 +168,7 @@ export class HolographicButton {
 
         // Offset slightly to prevent z-fighting with backplate
         plane.position.z = -this.options.depth / 2 - 0.005;
+        plane.isPickable = false; // Ensure clicks pass through to the backplate/hit target
 
         if (this.options.label) {
             const textureWidth = 512;
@@ -178,7 +179,8 @@ export class HolographicButton {
                 this.scene,
                 true,
             );
-            const ctx = dt.getContext();
+            this.labelTexture = dt;
+            const ctx = dt.getContext() as CanvasRenderingContext2D;
 
             const fontSize = 110; // Adjust based on texture size
             ctx.font = `bold ${fontSize}px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
@@ -317,75 +319,51 @@ export class HolographicButton {
         const hitTarget = this.backplateMesh ?? this.createHitTarget();
         hitTarget.isPickable = true;
 
-        const isPickingTarget = (
-            mesh: AbstractMesh | null | undefined,
-        ): boolean => {
-            if (!mesh) {
-                return false;
-            }
-            if (mesh === hitTarget) {
-                return true;
-            }
-            return mesh.isDescendantOf(hitTarget);
-        };
+        hitTarget.actionManager = new ActionManager(this.scene);
 
-        this.pointerObserver = this.scene.onPointerObservable.add(
-            (pointerInfo) => {
-                const pickedMesh = pointerInfo.pickInfo?.pickedMesh ?? null;
-                const isOver = isPickingTarget(pickedMesh);
+        // Hover Enter
+        hitTarget.actionManager.registerAction(
+            new ExecuteCodeAction(ActionManager.OnPointerOverTrigger, () => {
+                this.state.hovered = true;
+                this.updateVisualState();
+            }),
+        );
 
-                switch (pointerInfo.type) {
-                    case PointerEventTypes.POINTERMOVE: {
-                        if (isOver && !this.state.hovered) {
-                            this.state.hovered = true;
-                            this.updateVisualState();
-                        } else if (
-                            !isOver &&
-                            this.state.hovered &&
-                            !this.state.pressed
-                        ) {
-                            this.state.hovered = false;
-                            this.updateVisualState();
-                        }
-                        break;
-                    }
-                    case PointerEventTypes.POINTERDOWN: {
-                        if (isOver) {
-                            this.state.pressed = true;
-                            if (!this.state.hovered) {
-                                this.state.hovered = true;
-                            }
-                            this.updateVisualState();
-                        } else if (this.state.pressed) {
-                            this.state.pressed = false;
-                            this.updateVisualState();
-                        }
-                        break;
-                    }
-                    case PointerEventTypes.POINTERUP: {
-                        const wasPressed = this.state.pressed;
-                        if (wasPressed) {
-                            this.state.pressed = false;
-                            this.updateVisualState();
-                        }
-                        if (wasPressed && isOver) {
-                            this.options.onClick?.();
-                        } else if (!isOver && this.state.hovered) {
-                            this.state.hovered = false;
-                            this.updateVisualState();
-                        }
-                        break;
-                    }
-                    case PointerEventTypes.POINTEROUT: {
-                        if (this.state.hovered || this.state.pressed) {
-                            this.state.hovered = false;
-                            this.state.pressed = false;
-                            this.updateVisualState();
-                        }
-                        break;
-                    }
+        // Hover Exit
+        hitTarget.actionManager.registerAction(
+            new ExecuteCodeAction(ActionManager.OnPointerOutTrigger, () => {
+                this.state.hovered = false;
+                // If we were pressed and dragged out, cancel the press
+                if (this.state.pressed) {
+                    this.state.pressed = false;
                 }
-            },
+                this.updateVisualState();
+            }),
+        );
+
+        // Pointer Down (Press)
+        hitTarget.actionManager.registerAction(
+            new ExecuteCodeAction(ActionManager.OnPickDownTrigger, () => {
+                this.state.pressed = true;
+                this.updateVisualState();
+            }),
+        );
+
+        // Pointer Up (Release)
+        hitTarget.actionManager.registerAction(
+            new ExecuteCodeAction(ActionManager.OnPickUpTrigger, () => {
+                if (this.state.pressed) {
+                    this.state.pressed = false;
+                    this.updateVisualState();
+                }
+            }),
+        );
+
+        // Click
+        hitTarget.actionManager.registerAction(
+            new ExecuteCodeAction(ActionManager.OnPickTrigger, () => {
+                this.options.onClick?.();
+            }),
         );
 
         return hitTarget;
@@ -402,7 +380,8 @@ export class HolographicButton {
             this.scene,
         );
         plane.visibility = 0;
-        plane.parent = this.mesh;
+        plane.visibility = 0;
+        plane.parent = this.visualRoot;
         return plane;
     }
 
@@ -425,7 +404,7 @@ export class HolographicButton {
 
         // Animate Mesh Scale
         this.animateTo(
-            this.mesh,
+            this.visualRoot,
             "scaling",
             new Vector3(targetScale, targetScale, targetScale),
             immediate,
@@ -435,15 +414,15 @@ export class HolographicButton {
         // this.animateTo(this.mesh, "position.z", targetZ, immediate); // Needs vector or direct prop
         // Using simple position update for Z for now or separate anim
         if (immediate) {
-            this.mesh.position.z = targetZ;
+            this.visualRoot.position.z = targetZ;
         } else {
             Animation.CreateAndStartAnimation(
                 "anim_pos_z",
-                this.mesh,
+                this.visualRoot,
                 "position.z",
                 this.ANIMATION_SPEED,
                 10,
-                this.mesh.position.z,
+                this.visualRoot.position.z,
                 targetZ,
                 Animation.ANIMATIONLOOPMODE_CONSTANT,
                 new SineEase(),
@@ -509,5 +488,21 @@ export class HolographicButton {
             Animation.ANIMATIONLOOPMODE_CONSTANT,
             ease,
         );
+    }
+
+    public setText(text: string): void {
+        this.options.label = text;
+        if (this.labelTexture) {
+            const ctx = this.labelTexture.getContext() as CanvasRenderingContext2D;
+            const width = this.labelTexture.getSize().width;
+            const height = this.labelTexture.getSize().height;
+
+            ctx.clearRect(0, 0, width, height);
+            ctx.fillStyle = this.options.textColor;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(text, width / 2, height / 2);
+            this.labelTexture.update();
+        }
     }
 }

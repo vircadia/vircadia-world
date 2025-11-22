@@ -188,7 +188,7 @@ export class HolographicSliderBehavior implements Behavior<AbstractMesh> {
             this.dragBehavior.updateDragPlane = false;
             this.dragBehavior.onDragObservable.add(
                 (event: PointerDragEvent) => {
-                    this.handleDragDistance(event.dragDistance);
+                    this.handleDragToPoint(event.dragPlanePoint);
                 },
             );
             // Add listeners for other drag events
@@ -223,7 +223,7 @@ export class HolographicSliderBehavior implements Behavior<AbstractMesh> {
             this.trackDragBehavior.updateDragPlane = false;
             this.trackDragBehavior.onDragObservable.add(
                 (event: PointerDragEvent) => {
-                    this.handleDragDistance(event.dragDistance);
+                    this.handleDragToPoint(event.dragPlanePoint);
                 },
             );
             this.trackDragBehavior.onDragStartObservable?.add(() => {
@@ -242,11 +242,17 @@ export class HolographicSliderBehavior implements Behavior<AbstractMesh> {
         }
     }
 
-    private handleDragDistance(distance: number): void {
+    private handleDragToPoint(point: Vector3): void {
         if (!this.track) {
             return;
         }
-        const offset = this.valueToOffset(this.value) + distance;
+        const center = this.track
+            .getBoundingInfo()
+            .boundingBox.centerWorld;
+        const axis = this.getWorldAxis();
+        const vector = point.subtract(center);
+        const offset = Vector3.Dot(vector, axis);
+
         const clampedOffset = Scalar.Clamp(
             offset,
             -this.trackHalfLength,

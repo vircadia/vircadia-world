@@ -753,11 +753,20 @@ function setMoveAnimationFromDef(def: AnimationDef | undefined): void {
     walkAnimation.play();
 }
 
+function getFlyingIdleDef(): AnimationDef | undefined {
+    const list = animations.value as AnimationDef[];
+    const name = (s: string) => s.toLowerCase();
+    return (
+        list.find((a) => name(a.fileName).includes("babylon.avatar.animation.f.falling_idle.1.glb")) ||
+        list.find((a) => name(a.fileName).includes("babylon.avatar.animation.f.falling_idle.2.glb"))
+    );
+}
+
 function refreshDesiredAnimations(): void {
     ensureIdleGroupReady();
     let desired: AnimationDef | undefined;
     if (isFlying.value) {
-        desired = getDesiredMoveDefFromKeys();
+        desired = getDesiredMoveDefFromKeys() || getFlyingIdleDef();
     } else if (lastAirborne.value && !spawnSettleActive.value) {
         // Rising: jump; Falling or apex: falling
         desired =
@@ -872,7 +881,7 @@ function updateAnimationBlending(
     if (!idleAnimation) return;
 
     const isActiveMotion =
-        (isMoving || (lastAirborne.value && !isFlying.value)) &&
+        (isMoving || (lastAirborne.value && !isFlying.value) || isFlying.value) &&
         !!walkAnimation;
     const targetWeight = isActiveMotion ? 1 : 0;
     const change = dt / Math.max(0.0001, blendDuration.value);

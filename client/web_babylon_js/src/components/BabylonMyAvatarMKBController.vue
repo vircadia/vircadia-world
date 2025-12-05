@@ -170,13 +170,14 @@ if (props.scene) {
         if (props.turnRightCodes.includes(code)) {
             keyState.value.turnRight = isDown;
         }
+        if (props.crouchToggleCodes.includes(code)) {
+            keyState.value.crouch = isDown;
+        }
         // toggles (flip only on key down)
         if (isDown && props.flyModeToggleCodes.includes(code)) {
             keyState.value.flyMode = !keyState.value.flyMode;
         }
-        if (isDown && props.crouchToggleCodes.includes(code)) {
-            keyState.value.crouch = !keyState.value.crouch;
-        }
+        // crouch moved to hold above
         if (isDown && props.proneToggleCodes.includes(code)) {
             keyState.value.prone = !keyState.value.prone;
         }
